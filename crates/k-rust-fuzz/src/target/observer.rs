@@ -614,24 +614,9 @@ struct Frame {
     hit: Option<u64>,
 }
 
-/// Merge the leaves' paths into a tree and walk it with `observer` (module documentation).
-///
-/// A node where a `work-bound`, `timeout` or `cancelled` leaf ends takes no configuration from
-/// that leaf, and the walk does not step into it: its leaves reach only when a step above it
-/// answered `Hit` (the cut-leaf contract of [`crate::exec::classify`]).
-///
-/// The tree's shape comes from every leaf's committed transition identities, which the backend
-/// reports whatever the observation filter, so `branch` is called where the run branched. Its
-/// configurations come from the observation events of the paths that have them all, and from
-/// the leaves' states; a node without one cannot be shown, and its subtree stays unreached.
-///
-/// A step is shown from one normalized configuration to the next: a transition's `after` is
-/// the rewrite's successor before its functions are evaluated, which denotes the same
-/// configuration as the normalized one but is written differently (`3 +Int 1` for `4`), so the
-/// observer is shown the configuration the next transition leaves from, or the leaf's state.
-fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> ObservedPaths {
-    let mut hit_steps = vec![None; leaves.len()];
-    let mut unobservable = false;
+/// The leaves' paths merged into a tree keyed by committed transition identity, root first
+/// ([`walk_paths`]).
+fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
     let mut nodes = vec![Node::default()];
     for (index, leaf) in leaves.iter().enumerate() {
         let befores = befores(leaf);
@@ -656,6 +641,28 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
         }
         nodes[node].leaves.push(index);
     }
+    nodes
+}
+
+/// Merge the leaves' paths into a tree and walk it with `observer` (module documentation).
+///
+/// A node where a `work-bound`, `timeout` or `cancelled` leaf ends takes no configuration from
+/// that leaf, and the walk does not step into it: its leaves reach only when a step above it
+/// answered `Hit` (the cut-leaf contract of [`crate::exec::classify`]).
+///
+/// The tree's shape comes from every leaf's committed transition identities, which the backend
+/// reports whatever the observation filter, so `branch` is called where the run branched. Its
+/// configurations come from the observation events of the paths that have them all, and from
+/// the leaves' states; a node without one cannot be shown, and its subtree stays unreached.
+///
+/// A step is shown from one normalized configuration to the next: a transition's `after` is
+/// the rewrite's successor before its functions are evaluated, which denotes the same
+/// configuration as the normalized one but is written differently (`3 +Int 1` for `4`), so the
+/// observer is shown the configuration the next transition leaves from, or the leaf's state.
+fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> ObservedPaths {
+    let mut hit_steps = vec![None; leaves.len()];
+    let mut unobservable = false;
+    let nodes = path_tree(leaves);
     let mut work = vec![Frame {
         node: 0,
         depth: 0,

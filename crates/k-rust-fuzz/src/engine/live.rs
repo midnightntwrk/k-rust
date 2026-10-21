@@ -68,30 +68,29 @@ impl Side {
         seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
         let assembly = Arc::new(ProgramAssembly::new(definition)?);
-        let (backend, internalized) = match seed.internalized {
+        let (backend, internalized) = if let Some(internalized) = seed.internalized {
             // A fresh backend over a copy of the cached, immutable internalized definition.
-            Some(internalized) => (
+            (
                 Backend::from_internalized(
                     BackendDefinition::clone(internalized),
                     spec.options.backend.options(),
                 )
                 .map_err(CampaignError::from)?,
                 Some(Arc::clone(internalized)),
-            ),
-            None => {
-                let mut backend = build_backend(definition, spec.options.backend.options())?;
-                let internalized = match &definition.route {
-                    BackendRoute::SourceExecution { .. } => {
-                        Some(backend.select_definition(None).map_err(|error| {
-                            CampaignError::Definition {
-                                message: format!("the main module does not load: {error}"),
-                            }
-                        })?)
-                    }
-                    BackendRoute::FromDefinition => None,
-                };
-                (backend, internalized)
-            }
+            )
+        } else {
+            let mut backend = build_backend(definition, spec.options.backend.options())?;
+            let internalized = match &definition.route {
+                BackendRoute::SourceExecution { .. } => {
+                    Some(backend.select_definition(None).map_err(|error| {
+                        CampaignError::Definition {
+                            message: format!("the main module does not load: {error}"),
+                        }
+                    })?)
+                }
+                BackendRoute::FromDefinition => None,
+            };
+            (backend, internalized)
         };
         let (mut executor, normal_end) = if let Some(normal_end) = seed.normal_end {
             (

@@ -154,27 +154,8 @@ impl Campaign {
             None => false,
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
-        // The dictionary harvests from the campaign's rule graph, or from a graph of the
-        // campaign's one internalization when there is no graph check (a differential campaign,
-        // a template that does not build); only the `from-definition` route builds its own.
         let dictionary = if weight(&spec.proposers, ProposerKind::Dictionary) > 0 {
-            let target = cases.target_rule_id();
-            let pools = match (&graph, cases.baseline_internalized()) {
-                (Some(check), _) => {
-                    let harvest = Harvest::from_graph(check.graph(), target, dictionary::RADIUS);
-                    dictionary::pools(&harvest, &spec, holes)
-                }
-                (None, Some(definition)) => {
-                    let harvest = Harvest::from_graph(
-                        &RuleGraph::new(definition),
-                        target,
-                        dictionary::RADIUS,
-                    );
-                    dictionary::pools(&harvest, &spec, holes)
-                }
-                (None, None) => dictionary::hole_pools(&spec, holes)?,
-            };
-            Some(Arc::new(pools))
+            Some(Arc::new(dictionary_pools(&spec, &cases, graph.as_deref())?))
         } else {
             None
         };
@@ -306,6 +287,27 @@ impl Campaign {
             cancel.as_ref(),
         )
     }
+}
+
+/// The dictionary's pool of each hole (ARCHITECTURE 8.3), harvested from the campaign's rule
+/// graph `graph`, or from a graph of the campaign's one internalization when there is no graph
+/// check (a differential campaign, a template that does not build); only the
+/// `from-definition` route makes the dictionary build a backend and graph of its own.
+fn dictionary_pools(
+    spec: &CampaignSpec,
+    cases: &LiveCases,
+    graph: Option<&GraphCheck>,
+) -> Result<Vec<HolePool>, CampaignError> {
+    let holes = &cases.baseline.holes.holes;
+    let target = cases.target_rule_id();
+    let harvest = match (graph, cases.baseline_internalized()) {
+        (Some(check), _) => Harvest::from_graph(check.graph(), target, dictionary::RADIUS),
+        (None, Some(definition)) => {
+            Harvest::from_graph(&RuleGraph::new(definition), target, dictionary::RADIUS)
+        }
+        (None, None) => return dictionary::hole_pools(spec, holes),
+    };
+    Ok(dictionary::pools(&harvest, spec, holes))
 }
 
 /// A mutant is given exactly when the target is differential.

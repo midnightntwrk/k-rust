@@ -1403,21 +1403,13 @@ fn a_machine_integer_inside_a_data_value_prints_only_with_z3_inference() {
         }],
     };
     let kore = to_kore(&value, &word).expect("the KORE needs no frontend");
-    match print_k_text(&value, &word) {
-        Ok(text) => {
-            assert!(
-                k_rust::Z3_INFERENCE,
-                "`{text}` printed without Z3 inference"
-            );
-            assert_eq!(parse_k_text(&text, &word), Ok(value));
-        }
-        Err(error) => {
-            assert!(!k_rust::Z3_INFERENCE, "{error:?}");
-            assert!(
-                format!("{error:?}").contains("Z3InferenceRequired"),
-                "{error:?}"
-            );
-        }
+    match (print_k_text(&value, &word), k_rust::Z3_INFERENCE) {
+        (Ok(text), true) => assert_eq!(parse_k_text(&text, &word), Ok(value)),
+        (Err(error), false) => assert!(
+            format!("{error:?}").contains("Z3InferenceRequired"),
+            "{error:?}"
+        ),
+        (printed, inference) => panic!("with Z3 inference {inference}: {printed:?}"),
     }
     assert!(matches!(kore, Pattern::Application { .. }));
 }

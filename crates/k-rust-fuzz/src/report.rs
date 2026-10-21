@@ -227,6 +227,10 @@ pub struct DefinitionIdentity {
 /// equivalence carries the bounded statement, so that no report of a campaign that stopped
 /// early reads as a pass.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one outcome per campaign report; boxing the witness would change the public field"
+)]
 #[serde(
     tag = "status",
     rename_all = "kebab-case",

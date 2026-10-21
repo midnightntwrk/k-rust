@@ -892,7 +892,11 @@ impl ValueTree for MapTree {
 
     fn complicate(&mut self) -> bool {
         match self.undo.take() {
-            None => false,
+            Some(MapUndo::Value(index)) if self.entries[index].value.complicate() => {
+                self.undo = Some(MapUndo::Value(index));
+                true
+            }
+            None | Some(MapUndo::Value(_)) => false,
             Some(MapUndo::Remove(index)) => {
                 self.included[index] = true;
                 true
@@ -911,14 +915,6 @@ impl ValueTree for MapTree {
                     self.undo = Some(MapUndo::Key(index, accepted));
                 }
                 true
-            }
-            Some(MapUndo::Value(index)) => {
-                if self.entries[index].value.complicate() {
-                    self.undo = Some(MapUndo::Value(index));
-                    true
-                } else {
-                    false
-                }
             }
         }
     }
