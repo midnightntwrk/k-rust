@@ -1236,6 +1236,97 @@ mod tests {
         }
     }
 
+    /// Accepts at step `n` of the `n`-th path it is started on: its verdict depends on state
+    /// hidden in the observer, which ARCHITECTURE 9.2 forbids.
+    struct StepByWalk(std::sync::atomic::AtomicU32);
+
+    impl crate::target::Observer for StepByWalk {
+        /// The step to accept at, and the steps seen.
+        type State = (u32, u32);
+
+        fn start(&self) -> (u32, u32) {
+            let walk = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            (walk + 1, 0)
+        }
+
+        fn branch(&self, state: &(u32, u32)) -> (u32, u32) {
+            *state
+        }
+
+        fn step(
+            &self,
+            (accept, seen): &mut (u32, u32),
+            _pre: &crate::target::ConfigurationView,
+            _post: &crate::target::ConfigurationView,
+        ) -> crate::target::ObserverVerdict {
+            *seen += 1;
+            if seen == accept {
+                crate::target::ObserverVerdict::Hit
+            } else {
+                crate::target::ObserverVerdict::Nothing
+            }
+        }
+    }
+
+    /// HARD-B review S1: an observer that breaks the determinism contract accepts the case at
+    /// step 1 and its confirmation at step 2, in the same final configuration. The witness would
+    /// report the confirmation's step; confirmation compares where the target was reached, the
+    /// hit step included, so the disagreement is an engine defect and no witness is reported.
+    #[test]
+    fn a_confirmation_at_another_hit_step_is_an_engine_defect() {
+        let compiled = COIN.compiled();
+        let spec = CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: vec![HoleDecl {
+                name: "N".into(),
+                sort: "Int".into(),
+                location: HoleLocation::Span(SpanAddress {
+                    program: "coin/count.pgm".into(),
+                    line: None,
+                    find: "count(3)".into(),
+                    literal: "3".into(),
+                }),
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Observer(crate::target::ObserverTarget::new(
+                    "step-by-walk",
+                    StepByWalk(std::sync::atomic::AtomicU32::new(0)),
+                )),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::new(),
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        };
+        let report = crate::Campaign::new(spec)
+            .expect("the campaign builds")
+            .run(crate::spec::Budget::Cases(1), None);
+        assert!(
+            report.witness().is_none(),
+            "a witness from a disagreeing confirmation: {:?}",
+            report.witness()
+        );
+        assert_eq!(report.totals.unconfirmed, 1, "{report:?}");
+        assert!(
+            report
+                .engine_defects
+                .iter()
+                .any(|defect| defect.description.contains("confirmation")),
+            "{:?}",
+            report.engine_defects
+        );
+    }
+
     /// The dictionary's harvest from the campaign's rule graph and resolved target equals the
     /// harvest it makes on a backend and graph of its own (DICT's request after N9), for a rule
     /// target and for a pattern target.
