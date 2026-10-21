@@ -87,8 +87,8 @@ use crate::{
     instance_normal::InstanceNormal,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Items, ListDefinition, MapDefinition, Name, Sort, SortNode, SymbolType, Term,
-        TermKind, Variable,
+        HeadRole, Items, ListDefinition, MapDefinition, Name, Sort, SortNode, Sorts, SymbolType,
+        Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
             RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, classify_pattern,
@@ -1758,11 +1758,8 @@ impl<'a> Matcher<'a> {
             if candidate_impossible {
                 continue;
             }
-            let application = Term::application(
-                candidate.clone(),
-                sort_arguments.clone(),
-                candidate_arguments,
-            );
+            let application =
+                Term::application(candidate.clone(), *sort_arguments, candidate_arguments);
             let candidate_sort = application.sort();
             let application = if &candidate_sort == target {
                 application
@@ -1872,11 +1869,11 @@ impl<'a> Matcher<'a> {
         };
         let common = definition.symbols().get(&common_name)?.clone();
         let sort_arguments = if pattern_view.symbol.name == common_name {
-            pattern_view.sort_arguments.clone()
+            pattern_view.sort_arguments
         } else if subject_view.symbol.name == common_name {
-            subject_view.sort_arguments.clone()
+            subject_view.sort_arguments
         } else if common.sort_variables.is_empty() {
-            Vec::new()
+            Sorts::EMPTY
         } else {
             return None;
         };
@@ -1886,8 +1883,8 @@ impl<'a> Matcher<'a> {
         {
             return None;
         }
-        let pattern = pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?;
-        let subject = subject_view.lift(common, &sort_arguments, self.sorts)?;
+        let pattern = pattern_view.lift(common.clone(), sort_arguments, self.sorts)?;
+        let subject = subject_view.lift(common, sort_arguments, self.sorts)?;
         if let Some(lifted) = overload_application(&subject) {
             self.normal_forms.given.overload_lift(lifted.clone());
         }
@@ -2401,7 +2398,7 @@ impl<'a> Matcher<'a> {
                 {
                     term.clone()
                 } else {
-                    Term::application(symbol.clone(), sort_arguments.clone(), new_arguments)
+                    Term::application(symbol.clone(), *sort_arguments, new_arguments)
                 }
             }
             TermKind::Injection {
@@ -3049,7 +3046,7 @@ fn is_residual(head: Head<'_>) -> bool {
 struct OverloadView {
     original_sort: Sort,
     symbol: Arc<crate::term::Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     arguments: Vec<Term>,
 }
 
@@ -3115,7 +3112,7 @@ impl OverloadView {
         Some(Self {
             original_sort,
             symbol: symbol.clone(),
-            sort_arguments: sort_arguments.clone(),
+            sort_arguments: *sort_arguments,
             arguments: arguments.clone(),
         })
     }
@@ -3123,7 +3120,7 @@ impl OverloadView {
     fn lift(
         &self,
         common: Arc<crate::term::Symbol>,
-        sort_arguments: &[Sort],
+        sort_arguments: Sorts,
         sorts: &SortGraph,
     ) -> Option<Term> {
         if self.arguments.len() != common.argument_sorts.len()
@@ -3146,7 +3143,7 @@ impl OverloadView {
                 inject_to_sort(argument.clone(), expected, sorts)
             })
             .collect::<Option<Vec<_>>>()?;
-        let application = Term::application(common, sort_arguments.to_vec(), arguments);
+        let application = Term::application(common, sort_arguments, arguments);
         inject_to_sort(application, self.original_sort, sorts)
     }
 }
@@ -3164,7 +3161,7 @@ pub(crate) fn lift_to_overload(
     sort_arguments: &[Sort],
     sorts: &SortGraph,
 ) -> Option<Term> {
-    OverloadView::new(term)?.lift(common, sort_arguments, sorts)
+    OverloadView::new(term)?.lift(common, Sorts::new(sort_arguments), sorts)
 }
 
 fn inject_to_sort(term: Term, target: Sort, sorts: &SortGraph) -> Option<Term> {
@@ -3736,11 +3733,9 @@ mod tests {
                     sort_arguments,
                     arguments,
                 },
-            ) if share || pattern_symbol.name == subject_symbol.name => Term::application(
-                pattern_symbol.clone(),
-                sort_arguments.clone(),
-                arguments.clone(),
-            ),
+            ) if share || pattern_symbol.name == subject_symbol.name => {
+                Term::application(pattern_symbol.clone(), *sort_arguments, arguments.clone())
+            }
             _ => subject,
         }
     }

@@ -76,7 +76,7 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
             arguments,
         } => Term::application(
             symbol.clone(),
-            sort_arguments.clone(),
+            *sort_arguments,
             arguments
                 .iter()
                 .map(|argument| substitute(argument, substitution))

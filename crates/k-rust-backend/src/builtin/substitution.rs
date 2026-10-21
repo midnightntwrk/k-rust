@@ -507,7 +507,7 @@ fn substitute(
                 ));
                 updated.push(body);
             }
-            Term::application(symbol.clone(), sort_arguments.clone(), updated)
+            Term::application(symbol.clone(), *sort_arguments, updated)
         }
         TermKind::Application {
             symbol,
@@ -526,7 +526,7 @@ fn substitute(
                     fresh,
                 )));
             }
-            Term::application(symbol.clone(), sort_arguments.clone(), updated)
+            Term::application(symbol.clone(), *sort_arguments, updated)
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
         TermKind::Injection {
@@ -830,7 +830,7 @@ fn freshen_bound_kvar_identities_inner(
                     updated.push(argument);
                 }
             }
-            Term::application(symbol.clone(), sort_arguments.clone(), updated)
+            Term::application(symbol.clone(), *sort_arguments, updated)
         }
         TermKind::Application {
             symbol,
@@ -852,7 +852,7 @@ fn freshen_bound_kvar_identities_inner(
             else {
                 return Ok(None);
             };
-            Term::application(symbol.clone(), sort_arguments.clone(), arguments)
+            Term::application(symbol.clone(), *sort_arguments, arguments)
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
         TermKind::Injection {

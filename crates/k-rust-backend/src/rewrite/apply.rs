@@ -66,7 +66,7 @@ use crate::{
     stop::{Stop, Stoppable},
     substitution::{Substitution, compose, extract_substitution, substitute},
     term::{
-        Sort, Symbol, Term, TermKind, Variable,
+        Sorts, Symbol, Term, TermKind, Variable,
         names::{VariableProvenance, split_marker},
     },
     transition::ExecutionIoState,
@@ -384,7 +384,7 @@ pub(super) struct BooleanSplit {
 pub(super) struct MapNotInKeysSplit {
     pub(super) side: SplitSide,
     pub(super) symbol: Arc<Symbol>,
-    pub(super) sort_arguments: Vec<Sort>,
+    pub(super) sort_arguments: Sorts,
     pub(super) key: Term,
     pub(super) map: Term,
 }
@@ -2470,6 +2470,7 @@ fn freshen_existentials(
 mod tests {
 
     use super::*;
+    use crate::term::Sort;
 
     #[test]
     fn rule_diagnostics_omit_term_alias_binders() {

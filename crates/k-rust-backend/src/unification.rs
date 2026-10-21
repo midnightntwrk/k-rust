@@ -1430,11 +1430,9 @@ mod tests {
                                 sort_arguments,
                                 arguments,
                             },
-                        ) if share || symbol.name == other.name => Term::application(
-                            symbol.clone(),
-                            sort_arguments.clone(),
-                            arguments.clone(),
-                        ),
+                        ) if share || symbol.name == other.name => {
+                            Term::application(symbol.clone(), *sort_arguments, arguments.clone())
+                        }
                         _ => right,
                     };
                     // Pairs decided before the roots: equal or of different sorts, a

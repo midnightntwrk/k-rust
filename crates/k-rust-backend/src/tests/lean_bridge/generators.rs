@@ -371,7 +371,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
             sort_arguments,
             arguments,
         } => {
-            let mut sorts = sort_arguments.clone();
+            let mut sorts = sort_arguments.to_vec();
             match sorts.first_mut() {
                 Some(first) => *first = other_sort(first),
                 None => sorts.push(Sort::builtin(BuiltinSort::Int)),
@@ -384,7 +384,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
             renamed.name = format!("{}'", symbol.name).into();
             edits.push((
                 Edit::Symbol,
-                Term::application(Arc::new(renamed), sort_arguments.clone(), arguments.clone()),
+                Term::application(Arc::new(renamed), *sort_arguments, arguments.clone()),
             ));
         }
         TermKind::And(..) => {}
@@ -418,7 +418,7 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
             } => {
                 let mut arguments = arguments.clone();
                 arguments[index] = child;
-                Term::application(symbol.clone(), sort_arguments.clone(), arguments)
+                Term::application(symbol.clone(), *sort_arguments, arguments)
             }
             TermKind::Injection { source, target, .. } => Term::injection(*source, *target, child),
             TermKind::Map {

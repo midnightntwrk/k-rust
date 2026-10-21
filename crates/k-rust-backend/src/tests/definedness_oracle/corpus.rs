@@ -131,7 +131,7 @@ fn collapse(term: &Term) -> Option<Term> {
             arguments,
         } => Some(Term::application(
             symbol.clone(),
-            sort_arguments.clone(),
+            *sort_arguments,
             arguments.iter().map(collapse).collect::<Option<Vec<_>>>()?,
         )),
         TermKind::Injection {

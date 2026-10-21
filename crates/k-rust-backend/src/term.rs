@@ -678,7 +678,7 @@ pub enum TermKind {
     And(Term, Term),
     Application {
         symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
+        sort_arguments: Sorts,
         arguments: Vec<Term>,
     },
     DomainValue {
@@ -1098,15 +1098,15 @@ impl Term {
 
     pub fn application(
         symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
+        sort_arguments: impl Into<Sorts> + AsRef<[Sort]>,
         arguments: Vec<Self>,
     ) -> Self {
         if symbol.is(WellKnownSymbol::Inj)
-            && let ([source, target], [argument]) =
-                (sort_arguments.as_slice(), arguments.as_slice())
+            && let ([source, target], [argument]) = (sort_arguments.as_ref(), arguments.as_slice())
         {
             return Self::injection(*source, *target, argument.clone());
         }
+        let sort_arguments = sort_arguments.into();
 
         if let Some(collection) = &symbol.attributes.collection {
             return Self::collection_application(
@@ -1120,11 +1120,7 @@ impl Term {
         Self::application_raw(symbol, sort_arguments, arguments)
     }
 
-    fn application_raw(
-        symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
-        arguments: Vec<Self>,
-    ) -> Self {
+    fn application_raw(symbol: Arc<Symbol>, sort_arguments: Sorts, arguments: Vec<Self>) -> Self {
         Self::new(TermKind::Application {
             symbol,
             sort_arguments,
@@ -1134,7 +1130,7 @@ impl Term {
 
     fn collection_application(
         symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
+        sort_arguments: Sorts,
         arguments: Vec<Self>,
         collection: CollectionMetadata,
     ) -> Self {
@@ -1766,7 +1762,7 @@ impl Term {
                 {
                     return Ok(self.clone());
                 }
-                Self::application(symbol.clone(), sort_arguments.clone(), new_arguments)
+                Self::application(symbol.clone(), *sort_arguments, new_arguments)
             }
             TermKind::Injection {
                 source,
@@ -3265,7 +3261,7 @@ fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Items<(Term, Term
 fn combine_lists(
     definition: Arc<ListDefinition>,
     symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     left: Term,
     right: Term,
 ) -> Term {
@@ -3323,7 +3319,7 @@ fn combine_lists(
 fn combine_sets(
     definition: Arc<SetDefinition>,
     symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     left: Term,
     right: Term,
 ) -> Term {
@@ -4324,7 +4320,7 @@ impl Term {
                 arguments,
             } => TermKind::Application {
                 symbol: symbol.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
                 arguments: arguments.iter().map(copy).collect(),
             },
             TermKind::Variable(_) => self.kind().clone(),

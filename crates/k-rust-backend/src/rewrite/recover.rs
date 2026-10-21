@@ -49,7 +49,7 @@ use crate::{
     stop::{Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute},
     term::{
-        HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        HeadRole, Sort, Sorts, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker},
     },
     unification::{
@@ -1040,7 +1040,7 @@ fn split_map_not_in_keys_pair(left: &Term, right: &Term) -> Option<MapNotInKeysS
     })
 }
 
-fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, Term)> {
+fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Sorts, Term, Term)> {
     let TermKind::Application {
         symbol,
         sort_arguments,
@@ -1055,12 +1055,7 @@ fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, T
     let [key, map] = arguments.as_slice() else {
         return None;
     };
-    Some((
-        symbol.clone(),
-        sort_arguments.clone(),
-        key.clone(),
-        map.clone(),
-    ))
+    Some((symbol.clone(), *sort_arguments, key.clone(), map.clone()))
 }
 
 /// Normalize unification of a hooked equality application with a Boolean domain value.

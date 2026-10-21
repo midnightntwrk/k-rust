@@ -365,6 +365,12 @@ impl Sorts {
     }
 }
 
+impl AsRef<[Sort]> for Sorts {
+    fn as_ref(&self) -> &[Sort] {
+        self.0
+    }
+}
+
 impl Default for Sorts {
     fn default() -> Self {
         Self::EMPTY

@@ -152,7 +152,7 @@ impl Spec {
                 args,
             } => Term::application(
                 symbol(*f),
-                sorts.iter().map(|s| sort(*s)).collect(),
+                sorts.iter().map(|s| sort(*s)).collect::<Vec<_>>(),
                 args.iter().map(Self::build).collect(),
             ),
             Self::Inj {

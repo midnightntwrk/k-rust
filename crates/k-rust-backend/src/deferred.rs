@@ -44,7 +44,7 @@ use crate::{
     simplify::{EquationInstances, Instance, SimplificationError, equation_instances},
     stop::{self, Stoppable},
     substitution::{Substitution, substitute},
-    term::{FunctionType, NodeIdentity, Sort, Symbol, SymbolType, Term, TermKind, VariableKind},
+    term::{FunctionType, NodeIdentity, Sorts, Symbol, SymbolType, Term, TermKind, VariableKind},
 };
 
 /// The three hooked symbols whose deciding operand selects the operand that is evaluated.
@@ -643,7 +643,7 @@ fn fold(
             }
         }
         let node = if changed {
-            Term::application(symbol.clone(), sort_arguments.clone(), folded_arguments)
+            Term::application(symbol.clone(), *sort_arguments, folded_arguments)
         } else {
             term.clone()
         };
@@ -839,7 +839,7 @@ const HOOK_VALUES_CAPACITY: usize = 4;
 struct HookValue {
     mode: EvaluationMode,
     symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     arguments: Vec<NodeIdentity>,
     /// The evaluator's result, kept from the second read on, with the path facts its evaluation
     /// noted (`crate::path_facts`), which every read it serves notes again.
@@ -860,7 +860,7 @@ impl HookValue {
         Some(Self {
             mode,
             symbol: Arc::clone(symbol),
-            sort_arguments: sort_arguments.clone(),
+            sort_arguments: *sort_arguments,
             arguments: arguments.iter().map(Term::identity).collect(),
             result: None,
         })
@@ -1709,7 +1709,7 @@ impl EvaluatedOperands {
                 {
                     term.clone()
                 } else {
-                    Term::application(symbol.clone(), sort_arguments.clone(), replaced)
+                    Term::application(symbol.clone(), *sort_arguments, replaced)
                 }
             }
             TermKind::Injection {
@@ -2008,7 +2008,7 @@ mod tests {
     }
 
     /// `application`'s symbol, sort arguments and argument nodes.
-    fn parts(application: &Term) -> (Arc<Symbol>, Vec<Sort>, Vec<Term>) {
+    fn parts(application: &Term) -> (Arc<Symbol>, crate::term::Sorts, Vec<Term>) {
         let TermKind::Application {
             symbol,
             sort_arguments,
@@ -2017,7 +2017,7 @@ mod tests {
         else {
             panic!("{application:?} is no application");
         };
-        (symbol.clone(), sort_arguments.clone(), arguments.clone())
+        (symbol.clone(), *sort_arguments, arguments.clone())
     }
 
     #[test]

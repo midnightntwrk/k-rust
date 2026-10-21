@@ -5829,7 +5829,7 @@ fn simplify_plain_children(
             arguments,
         } => {
             let symbol = symbol.clone();
-            let sort_arguments = sort_arguments.clone();
+            let sort_arguments = *sort_arguments;
             let mut simplified = Vec::new();
             for argument in arguments.iter() {
                 simplified.push(child(argument)?);
@@ -5977,7 +5977,7 @@ fn simplify_other_children(
                     }
                 }
             }
-            Term::application(symbol.clone(), sort_arguments.clone(), operands)
+            Term::application(symbol.clone(), *sort_arguments, operands)
         }
         // `andBool`, `orBool` and `impliesBool` simplify both operands, left first, with their
         // effects. Where the left one decides the value (`false andBool B`, `true orBool B`,
@@ -6011,7 +6011,7 @@ fn simplify_other_children(
                 note_effect_order(hook);
             }
             let right = right?;
-            Term::application(symbol.clone(), sort_arguments.clone(), vec![left, right])
+            Term::application(symbol.clone(), *sort_arguments, vec![left, right])
         }
         TermKind::Application { .. } | TermKind::Injection { .. } => {
             unreachable!("simplify_plain_children takes the other applications and injections")

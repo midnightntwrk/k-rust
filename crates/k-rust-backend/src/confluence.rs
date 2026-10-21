@@ -1132,7 +1132,7 @@ fn with_children(term: &Term, mut new: Vec<Term>) -> Term {
             symbol,
             sort_arguments,
             ..
-        } => Term::application(symbol.clone(), sort_arguments.clone(), new),
+        } => Term::application(symbol.clone(), *sort_arguments, new),
         TermKind::Injection { source, target, .. } => {
             Term::injection(*source, *target, new.remove(0))
         }

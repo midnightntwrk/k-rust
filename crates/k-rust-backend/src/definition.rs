@@ -94,7 +94,7 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
-        ListDefinition, MapDefinition, Name, Sort, SortNode, Symbol, SymbolAttributes,
+        ListDefinition, MapDefinition, Name, Sort, SortNode, Sorts, Symbol, SymbolAttributes,
         SymbolDeclaration, SymbolType, Term, TermKind, Variable,
         domain::{TextRejection, validate_text},
         names::{HookName, variable_name_problems},
@@ -1170,14 +1170,8 @@ pub(crate) struct SelectionComplete(());
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ConstructorHead {
-    Symbol {
-        name: Name,
-        sort_arguments: Vec<Sort>,
-    },
-    Injection {
-        source: Sort,
-        target: Sort,
-    },
+    Symbol { name: Name, sort_arguments: Sorts },
+    Injection { source: Sort, target: Sort },
 }
 
 /// I5: every value of the sort is an alternative of its no-junk axiom.
@@ -1219,7 +1213,7 @@ impl FiniteConstructorDomain {
                 .collect::<Option<Vec<_>>>()?;
             if !listed.contains(&ConstructorHead::Symbol {
                 name: symbol.name.clone(),
-                sort_arguments,
+                sort_arguments: sort_arguments.into(),
             }) {
                 return None;
             }
@@ -4004,7 +3998,7 @@ pub(crate) fn constructor_head(term: &Term) -> Option<ConstructorHead> {
         } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
             Some(ConstructorHead::Symbol {
                 name: symbol.name.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             })
         }
         TermKind::Injection { source, target, .. } => Some(ConstructorHead::Injection {
