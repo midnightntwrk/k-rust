@@ -3,6 +3,9 @@
 //! kill search; `results --verify` runs every program live; the drift check still stops a run on
 //! a hand-edited record. Every document reports `baseline_runs: {live, reused}`.
 
+// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
+
 mod flow_support;
 
 use kink_flow::{
@@ -213,6 +216,8 @@ mod kink_tier {
         );
     }
 
+    // Portable only: its warm and hinted runs test tier 1, off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn each_program_baseline_runs_live_at_most_once_per_run_command() {

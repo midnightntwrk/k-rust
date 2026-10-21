@@ -633,6 +633,8 @@ pub fn pattern_list_refused(error: &ManifestError) -> Value {
 }
 
 #[cfg(test)]
+// Under Z3 the tests of the pattern cache (off by design) compile out, and their helpers with them.
+#[cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 mod tests {
     //! A cached answer is judged again with the current command's facts (F-18 fix 1): the load
     //! facts a test cannot provoke are set through [`query_with`].
@@ -680,6 +682,8 @@ mod tests {
     mod kink_tier {
         use super::*;
 
+        // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+        #[cfg(not(feature = "z3"))]
         #[test]
         #[ignore = "kink"]
         fn a_cached_answer_is_judged_with_the_current_facts() {

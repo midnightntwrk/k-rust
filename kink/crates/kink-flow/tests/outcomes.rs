@@ -6,6 +6,9 @@
 //! The tests read the run document, `outcomes/` and `hints.json`, and edit them by hand only
 //! to forge what a corrupted or hostile cache would hold.
 
+// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
+
 mod flow_support;
 
 use k_rust::definition::AttributeKey;
@@ -908,6 +911,42 @@ mod heavy {
     }
 }
 
+/// Merge packet M-1 (S-1): under the Z3 profile both of kink-flow's verdict caches are off by
+/// design, tier 1 (the outcome records, and with it the warm-path memos) and the pattern cache: a
+/// solver query can time out and k-rust reports no per-run signal that one did. The kink-tier
+/// tests whose subject is a cache compile only in the portable build; this light test keeps the
+/// Z3 side of them in k-rust's own (Z3) test run. The kink-tier pins of both profiles are
+/// tier_one_is_off_exactly_under_the_z3_profile (below) and query.rs's
+/// the_pattern_cache_is_off_exactly_under_the_z3_profile.
+#[cfg(feature = "z3")]
+#[test]
+fn both_caches_are_off_under_the_z3_profile() {
+    use kink_flow::{query::QueryOptions, search::tier1_refusal};
+    use kink_native::execution::SolverProfile;
+    assert_eq!(SolverProfile::BUILD, SolverProfile::Z3);
+    let reason = tier1_refusal(SolverProfile::BUILD).expect("tier 1 is off under the z3 profile");
+    let dir = fixture("calc", "z3-caches-off");
+    let manifest = dir.join("FLOW.toml");
+    let (run, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &["add-becomes-sub"]);
+    assert!(ok, "{run:#}");
+    assert_eq!(run["outcome_cache"]["enabled"], false, "{run:#}");
+    assert_eq!(run["outcome_cache"]["reason"], json!(reason), "{run:#}");
+    assert_eq!(run["outcome_cache"]["records_written"], 0, "{run:#}");
+    assert!(!cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
+    let patterns = dir.join("PATTERNS.toml");
+    let (query, status) = std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || kink_flow::cli::query(&manifest, &patterns, &QueryOptions::default()))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(status, EXIT_OK, "{query:#}");
+    assert_eq!(query["pattern_cache"]["enabled"], false, "{query:#}");
+    let why = query["pattern_cache"]["reason"].as_str().unwrap();
+    assert!(why.contains("z3 profile"), "{why}");
+    assert!(!cache_of(&dir.join("FLOW.toml")).join("patterns").exists());
+}
+
 mod kink_tier {
     use super::*;
 
@@ -1049,6 +1088,8 @@ id = "denominator"
         }
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn unknowns_are_never_cached() {
@@ -1131,6 +1172,8 @@ id = "denominator"
     /// that no longer compiles (here `plus-unbound`, rejected) next to a cached agreement, which
     /// says the mutant ran, is the corpus error `outcome-conflict`: no verdict, nothing written,
     /// the run stops.
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_rejected_mutant_next_to_cached_agreements_is_an_outcome_conflict() {
@@ -1158,6 +1201,8 @@ id = "denominator"
         );
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_new_program_runs_alone_and_only_for_survivors() {
@@ -1191,6 +1236,8 @@ id = "denominator"
         );
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_corpus_error_writes_no_record_and_keeps_the_hints_written() {
@@ -1326,6 +1373,8 @@ id = "denominator"
         }
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_statuses_are_cold_statuses_on_loop() {
@@ -1440,6 +1489,8 @@ id = "choice-differs"
     /// F-14 review 1 m3 (flow F-16): a hinted program that does not kill runs again in the cold
     /// call; it is listed once in `executed` (with the cold call's run, the one the status folds)
     /// and its record is counted once in `records_written`.
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_hinted_program_run_twice_is_listed_and_counted_once() {
@@ -1476,6 +1527,8 @@ id = "choice-differs"
         assert_eq!(records(&manifest, &document, "add-swaps-operands").len(), 4);
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn warm_and_forged_hints_on_loop() {
@@ -1517,6 +1570,8 @@ id = "choice-differs"
         }
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_mixed_cached_and_live_status_is_the_cold_status() {
@@ -1582,6 +1637,8 @@ id = "choice-differs"
         );
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_statuses_are_cold_statuses_on_calc_statuses() {
@@ -1620,6 +1677,8 @@ id = "choice-differs"
         assert_eq!(hints(&manifest)[&key].1, "inline");
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn warm_and_forged_hints_on_calc_statuses() {
@@ -1630,6 +1689,8 @@ id = "choice-differs"
     /// exist gives the status a cold run gives (error, reason infrastructure), not the corpus
     /// error `outcome-conflict`; the run goes on, the cached agreements do not enter the row, and
     /// nothing is written.
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn an_infrastructure_failure_next_to_cached_agreements_is_the_cold_status() {
@@ -1678,12 +1739,16 @@ id = "choice-differs"
         );
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn warm_and_forged_hints_on_calc() {
         warm_and_forged("calc", "FLOW.toml", "MUTATIONS.toml");
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn hand_edited_contexts_and_records_are_ignored() {
@@ -1758,6 +1823,8 @@ id = "choice-differs"
         );
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_change_of_an_input_misses_tier_1() {
@@ -1841,6 +1908,8 @@ id = "choice-differs"
         assert_eq!(statuses(&edited), statuses(&cold));
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn run_verify_reproves_every_record_and_reports_a_forged_one() {
@@ -1929,6 +1998,8 @@ id = "choice-differs"
         assert_ne!(hints_before, hints_forged);
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_statuses_are_cold_statuses_on_calc() {
@@ -2004,6 +2075,8 @@ id = "choice-differs"
         assert!(checked >= 21 + 5 + 4 + 4);
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_timeout_record_named_by_a_hint_is_rerun_once() {

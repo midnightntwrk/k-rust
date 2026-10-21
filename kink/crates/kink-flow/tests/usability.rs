@@ -9,6 +9,9 @@
 //! list gives the same statuses under corpus order, under the measured cost order and under a
 //! forged reversed cost order).
 
+// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
+
 mod flow_support;
 
 use kink_campaign::{FinalResult, OracleOutcome, OracleSide, OracleValue, SideRun};
@@ -404,6 +407,8 @@ mod heavy {
 mod kink_tier {
     use super::*;
 
+    // Portable only: compares tier-1 records (off under Z3); order independence is no-Z3 only.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn calc_statuses_do_not_depend_on_the_order() {
@@ -636,6 +641,11 @@ mod kink_tier {
         // From the outcome cache the kill has no evidence at hand: its slots carry no sides.
         let warm = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
         let cached = entry(&warm, "add-becomes-sub", "add");
+        if cfg!(feature = "z3") {
+            // Under Z3 the warm run kills live: tier 1 is off by design (search::tier1_refusal).
+            assert_eq!(cached["cached"], false);
+            return;
+        }
         assert_eq!(cached["cached"], true);
         assert_eq!(
             cached["slots"],

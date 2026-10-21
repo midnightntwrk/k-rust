@@ -877,7 +877,9 @@ note = "requires and right-hand side"
             mutation(&document, "sgn-plus-one")["inconsistent_pairs"],
             json!([])
         );
-        assert_eq!(document["outcome_cache"]["records_written"], 1);
+        // Under Z3 no record is written: tier 1 is off by design (search::tier1_refusal).
+        let written = if cfg!(feature = "z3") { 0 } else { 1 };
+        assert_eq!(document["outcome_cache"]["records_written"], written);
 
         let (again, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
         assert!(ok);

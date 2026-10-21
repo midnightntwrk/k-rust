@@ -4,6 +4,9 @@
 //! The report adds fields to the run document and decides nothing: every status here is the
 //! kill search's (pinned by tests/search.rs); these tests pin what a survivor's row says.
 
+// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
+
 use kink_flow::{
     FlowManifest, MutationList,
     cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE},
@@ -615,6 +618,8 @@ mod kink_tier {
         assert_eq!(refused["outcome"], "unreadable", "{refused:#}");
     }
 
+    // Portable only: the walkthrough (portable build) reads tier 1, off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn the_readme_walkthrough_works_as_written() {

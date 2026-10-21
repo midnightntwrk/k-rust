@@ -1,6 +1,9 @@
 //! Per-input pattern checks: `PATTERNS.toml`, the lowering, the answers, the cache and
 //! `kink-flow query` (flow F-18 deliverables 1-6).
 
+// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
+
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, CancelledResultOutput, ExecuteRequest, ExecutionStrategy,
     ResultModalityOutput, SearchPatternRequest, SearchTypeArg,
@@ -31,6 +34,17 @@ fn flow(name: &str) -> PathBuf {
         .join("../../testdata/flow")
         .join(name)
 }
+
+/// The answer to a pattern that a complete exploration never matches: `no` in the portable
+/// profile, `unknown` under Z3. `pattern::judge` gives no `no` under the Z3 profile because a
+/// solver query can time out and k-rust's search responses carry no `smtUnknowns` count to show
+/// that none did (k-in-k2 ADDENDUM-5 KINK-28; adoption A-5, repin-58720d2e ADOPTION.md section 5),
+/// so the Z3 answer is the more conservative `unknown`.
+const NO: &str = if cfg!(feature = "z3") {
+    "unknown"
+} else {
+    "no"
+};
 
 /// A fresh directory for one test, under the target's temporary directory.
 fn scratch(name: &str) -> PathBuf {
@@ -294,7 +308,8 @@ fn the_initial_and_the_final_states_count() {
             "LOOP.done"
         ])
     );
-    assert_eq!(row(&document, "zero", "twice")["answer"], "no");
+    // Under Z3 `unknown`, not `no`: see NO.
+    assert_eq!(row(&document, "zero", "twice")["answer"], NO);
 }
 
 const NONDETERMINISTIC: &str = r#"
@@ -339,7 +354,8 @@ fn a_state_on_some_paths_only_is_a_hit() {
         expect(&[
             ("left-first", "both", "hit"),
             ("right-first", "both", "hit"),
-            ("never", "both", "no"),
+            // Under Z3 `unknown`, not `no`: see NO.
+            ("never", "both", NO),
         ])
     );
     assert_eq!(
@@ -624,9 +640,10 @@ fn the_readme_example_answers() {
         expect(&[
             ("result-three", "add", "hit"),
             ("result-three", "sub", "hit"),
-            ("result-above-five", "add", "no"),
+            // Under Z3 `unknown`, not `no`: see NO.
+            ("result-above-five", "add", NO),
             ("result-above-five", "nested", "hit"),
-            ("result-above-five", "sub", "no"),
+            ("result-above-five", "sub", NO),
             ("result-above-five", "inline", "hit"),
         ])
     );
@@ -776,10 +793,13 @@ mod kink_tier {
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect::<BTreeSet<_>>();
-        assert_eq!(
-            names,
+        // Under Z3 no pattern record either: the pattern cache is off by design, as tier 1 is.
+        let expected = if cfg!(feature = "z3") {
+            BTreeSet::from(["results".to_owned()])
+        } else {
             BTreeSet::from(["patterns".to_owned(), "results".to_owned()])
-        );
+        };
+        assert_eq!(names, expected);
     }
 
     /// Flow F-18 deliverable 4: the pattern cache is off exactly under the Z3 profile (as tier 1 is),
@@ -927,14 +947,23 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, EXIT_OK);
         let refuted = row(&document, "four", "add");
-        assert_eq!(refuted["answer"], "no");
-        assert_eq!(refuted["claim"], "refuted");
-        assert_eq!(refuted["cause"], Value::Null);
         assert_eq!(refuted["witness"], Value::Null);
-        assert_eq!(
-            document["refuted_claims"],
-            json!([{"pattern": "four", "program": "add"}])
-        );
+        if cfg!(feature = "z3") {
+            // Under Z3 the complete exploration is `unknown`, not `no` (see NO), so the claim is
+            // unconfirmed rather than refuted.
+            assert_eq!(refuted["answer"], NO);
+            assert_eq!(refuted["claim"], "unconfirmed");
+            assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
+            assert_eq!(document["refuted_claims"], json!([]));
+        } else {
+            assert_eq!(refuted["answer"], "no");
+            assert_eq!(refuted["claim"], "refuted");
+            assert_eq!(refuted["cause"], Value::Null);
+            assert_eq!(
+                document["refuted_claims"],
+                json!([{"pattern": "four", "program": "add"}])
+            );
+        }
         assert_eq!(
             document["programs"]
                 .as_array()
@@ -944,10 +973,13 @@ programs = ["add"]
                 .unwrap()["class"],
             "comparable"
         );
-        assert_eq!(
-            document["counts"],
+        // Under Z3 the three `no` answers are `unknown` (see NO).
+        let counts = if cfg!(feature = "z3") {
+            json!({"hit": 3, "no": 0, "unknown": 3, "invalid-pattern": 0, "error": 0})
+        } else {
             json!({"hit": 3, "no": 3, "unknown": 0, "invalid-pattern": 0, "error": 0})
-        );
+        };
+        assert_eq!(document["counts"], counts);
     }
 
     /// Flow F-18 deliverables 2, 3 and 5: a claimed hit is confirmed, with the matching state, its
@@ -1005,9 +1037,10 @@ programs = ["add"]
                 .collect::<Vec<_>>(),
             expect(&[
                 ("three", "add", "hit"),
-                ("three", "nested", "no"),
+                // Under Z3 `unknown`, not `no`: see NO.
+                ("three", "nested", NO),
                 ("three", "sub", "hit"),
-                ("three", "inline", "no"),
+                ("three", "inline", NO),
             ])
         );
         assert_eq!(row(&document, "three", "add")["claim"], Value::Null);
@@ -1091,12 +1124,16 @@ programs = ["add"]
         assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(answers(&document), expect(&[("result-four", "add", "no")]));
-        assert_eq!(
-            document["refuted_claims"],
+        // Under Z3 `unknown`, not `no` (see NO): no claim is refuted, and the pattern cache is off
+        // by design, as tier 1 is, so the cache holds no pattern record.
+        assert_eq!(answers(&document), expect(&[("result-four", "add", NO)]));
+        let refuted = if cfg!(feature = "z3") {
+            json!([])
+        } else {
             json!([{"pattern": "result-four", "program": "add"}])
-        );
-        assert!(cache.join("patterns").is_dir());
+        };
+        assert_eq!(document["refuted_claims"], refuted);
+        assert_eq!(cache.join("patterns").is_dir(), !cfg!(feature = "z3"));
         assert!(!dir.join(CACHE_DIRECTORY).exists());
         for (args, code) in [
             (vec!["--only", "nope"], EXIT_USAGE),
@@ -1225,6 +1262,8 @@ programs = ["add"]
     /// Flow F-18 tail: `--verify` compares a stored hit's witness too. A record that keeps the hit
     /// but carries another witness (its digest recomputed) is used as it is by a plain query, and
     /// `--verify` reports it as a mismatch although both answers are hits.
+    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_reports_a_forged_witness() {
@@ -1316,7 +1355,8 @@ programs = ["add"]
         );
         assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
         assert_eq!(row(&document, "spin-five", "spin")["witness"]["depth"], 5);
-        assert_eq!(row(&document, "spin-five", "countdown")["answer"], "no");
+        // Under Z3 `unknown`, not `no`: see NO.
+        assert_eq!(row(&document, "spin-five", "countdown")["answer"], NO);
 
         // The clock: a depth the run cannot reach and a small time bound.
         let (document, status) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
@@ -1333,19 +1373,25 @@ programs = ["add"]
         // The baseline run of spin times out, yet the hit stands: it is an existential fact.
         assert_eq!(document["programs"][0]["class"], "timeout", "{document:#}");
         assert_eq!(row(&document, "spin-five", "spin")["answer"], "hit");
-        // A complete exploration of a comparable program is a no.
-        assert_eq!(row(&document, "spin-five", "countdown")["answer"], "no");
+        // A complete exploration of a comparable program is a no (under Z3 `unknown`: see NO).
+        assert_eq!(row(&document, "spin-five", "countdown")["answer"], NO);
 
         let (again, _) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
         assert_eq!(row(&again, "zero", "spin")["cached"], false);
         assert_eq!(row(&again, "zero", "spin")["answer"], "unknown");
-        assert_eq!(row(&again, "spin-five", "spin")["cached"], true);
+        // The hit is cached, except under Z3, where the pattern cache is off by design.
+        assert_eq!(
+            row(&again, "spin-five", "spin")["cached"],
+            !cfg!(feature = "z3")
+        );
     }
 
     /// Flow F-18 deliverable 4 (the CACHE-ID rule): a forged record under the current key is
     /// honoured (whoever can write the cache can forge an answer), and `--verify` re-derives every
     /// answer, reports the forged one and exits 1, writing nothing. A record whose digest does not
     /// recompute is not used.
+    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_reports_a_forged_record() {
@@ -1429,6 +1475,8 @@ programs = ["add"]
     /// Flow F-18 deliverable 4: a second command answers from the cache with no search; editing a
     /// program recomputes its rows only, and editing the specification or the budget recomputes
     /// every row.
+    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn the_cache_is_reused_and_invalidated_by_key() {
@@ -1491,6 +1539,8 @@ programs = ["add"]
     /// comparable with the baseline run digest the `no` was given against. A result record with
     /// another run digest, or of class timeout, under the same key makes the command search again
     /// (a timeout then gives unknown); a cached hit does not depend on the baseline.
+    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_cached_no_needs_the_same_comparable_baseline() {
@@ -1588,6 +1638,13 @@ programs = ["add"]
                 let expected = match row["answer"].as_str().unwrap() {
                     "hit" => Some(true),
                     "no" => Some(false),
+                    // Under Z3 a would-be `no` is `unknown` (see NO): stepping must find no hit.
+                    "unknown"
+                        if cfg!(feature = "z3")
+                            && row["cause"].as_str().unwrap().contains("z3 profile") =>
+                    {
+                        Some(false)
+                    }
                     other => panic!("{other} in {row:#}"),
                 };
                 assert_eq!(stepped, expected, "{} on {program}", entry.id);

@@ -16,6 +16,9 @@
 //!   cannot show (the copy keeps the member the key omits). A source file changed after the
 //!   admission read it and before resolution reads no record (`memo::sources_unchanged`).
 
+// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
+
 use kink_corpus::Store;
 use kink_flow::{
     EditAction, FlowManifest, Mutation, MutationList, admit_spec,
@@ -310,12 +313,16 @@ fn compare(name: &str, list: &str, rounds: &[&str]) {
 mod kink_tier {
     use super::*;
 
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn memos_change_no_row_record_or_hint_on_calc() {
         compare("calc", "MUTATIONS-statuses.toml", &ROUNDS[..2]);
     }
 
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn memos_change_no_row_record_or_hint_on_markdown() {
@@ -327,6 +334,8 @@ mod kink_tier {
     /// VI-T13 guard) is used by a warm run under exactly its key (the positive control), and `run
     /// --verify` refuses the specification with the live census and reports the record in the
     /// refused document's `mismatches`, writing nothing.
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_stored_census_admitting_what_the_live_census_refuses_is_reported_by_verify() {
@@ -424,6 +433,8 @@ mod kink_tier {
     /// `calc.k` changed. With memos the run gives the document a run without memos gives under the
     /// same change, the survivor's forged record (under exactly the admitted key) is not read, and
     /// the memo directory is unchanged.
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_source_changed_after_admission_reads_no_record() {
@@ -487,6 +498,8 @@ mod kink_tier {
     /// The census memo is read under exactly its key: a forged flagged census refuses the
     /// specification there (the positive control), `--verify` admits it with the live census and
     /// reports the record, and the same record under another build or identity is not used.
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_census_record_is_used_under_exactly_its_key() {
@@ -590,6 +603,8 @@ mod kink_tier {
 
     /// A byte of a source file or of the mutation's text changes the key: no record of the old
     /// inputs is read, and the rows are the rows a run without memos gives on the new inputs.
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_changed_source_byte_or_mutation_text_misses() {
@@ -654,6 +669,8 @@ mod kink_tier {
 
     /// The resolution memo is read under exactly its key, and only there; `--verify` reports a
     /// record that differs from the live resolution and writes nothing.
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_resolution_record_is_used_under_exactly_its_key() {
@@ -859,6 +876,8 @@ mod kink_tier {
     /// would give that field's mutation the base's facts, which tier 1 decides: `killed` for an
     /// `invalid-mutation` (review L1-4-1: dropping all fields but `replace` reported markdown's
     /// ghost-rule killed).
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn mutations_differing_in_one_field_never_share_a_record() {

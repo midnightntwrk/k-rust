@@ -24,6 +24,14 @@ kink-patch.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 
+[features]
+# The Z3 solver profile, default as for kink-native, kink-campaign and kink-corpus (k-rust's
+# default build is Z3); it forwards to theirs, and lets the tests choose their profile column with
+# `cfg(feature = "z3")`. `--no-default-features` on the kink packages is the portable profile, the
+# recommended build for the LLM loop (README).
+default = ["z3"]
+z3 = ["kink-corpus/z3", "kink-campaign/z3", "kink-native/z3"]
+
 [[bin]]
 name = "kink-flow"
 path = "src/main.rs"
