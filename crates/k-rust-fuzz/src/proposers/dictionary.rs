@@ -428,7 +428,7 @@ impl Harvest {
 
     /// Harvest the `Bool` subterms of `term` at `distance`.
     fn conditions(&mut self, term: &Term, distance: usize) {
-        if sort_text(&term.sort()).as_deref() == Some(BOOL_SORT) {
+        if sort_text(term.sort()).as_deref() == Some(BOOL_SORT) {
             self.term(term, distance);
             return;
         }
@@ -487,7 +487,7 @@ impl Harvest {
     fn term(&mut self, term: &Term, distance: usize) {
         match term.kind() {
             TermKind::DomainValue { sort, value } => {
-                if let Some(sort) = sort_text(sort) {
+                if let Some(sort) = sort_text(*sort) {
                     self.insert(
                         Literal::Domain {
                             sort,
@@ -598,11 +598,12 @@ impl<'g> Keyed<'g> {
 }
 
 /// A backend sort as KORE writes it; `None` for a sort variable.
-fn sort_text(sort: &Sort) -> Option<String> {
+fn sort_text(sort: Sort) -> Option<String> {
     match sort.node() {
         SortNode::Application { name, arguments } => {
             let arguments = arguments
                 .iter()
+                .copied()
                 .map(sort_text)
                 .collect::<Option<Vec<String>>>()?;
             Some(format!("{name}{{{}}}", arguments.join(",")))
