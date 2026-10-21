@@ -52,8 +52,7 @@ use k_rust::{
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         ConfigurationError, compile_loaded_definition_for_proof,
-        compile_loaded_definition_with_timings,
-        compile_search_pattern,
+        compile_loaded_definition_with_timings, compile_search_pattern,
         pipeline::{emission_phase, load_phase},
     },
     kore::{
