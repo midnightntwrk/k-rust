@@ -113,7 +113,12 @@ the hidden binder `Krs_Bits0` of an unnamed template is renamed to `Op`; the
 two `kindOf` transitions, whose templates differ in the top bit, pass the
 overlap check; and `decodeOf(4)` is `inc rb`, `decodeOf(118)` `halt`,
 `decodeOf(65)` `ld rb, rc`, `decodeOf(256)` and `decodeOf(-1)` `unknown`, and
-`decodeCbOf(255)` `set 7 ra`, natively and on Java K's LLVM backend.
+`decodeCbOf(255)` `set 7 ra`, natively and on Java K's LLVM backend. Readable
+clauses whose results read fields, with and without `op @`, make `regOf(5)`
+`rl` and `regOf(147)` `alu 147 rc`; templates beside an authored top-level
+`||` in a table row and an `#[k::equation]` fn, and `k::bits!(opcode, "..")`
+tests in a condition and a result, make `edgeOf(56)` `3`, `edgeOf(245)` `13`,
+and `edgeOf(112)` `6`.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -236,6 +241,14 @@ BITS_PROGRAMS = (
     Program("decode-cb-rot", "decodeCbOf(7)", "accepted", "rot 0 ra"),
     Program("kind-low", "kindOf(5)", "accepted", "0"),
     Program("kind-high", "kindOf(200)", "accepted", "1"),
+    Program("reg-low", "regOf(5)", "accepted", "rl"),
+    Program("reg-high", "regOf(147)", "accepted", "alu 147 rc"),
+    Program("edge-jr", "edgeOf(56)", "accepted", "3"),
+    Program("edge-jr-other", "edgeOf(40)", "accepted", "0"),
+    Program("edge-ld", "edgeOf(112)", "accepted", "6"),
+    Program("edge-ld-other", "edgeOf(70)", "accepted", "0"),
+    Program("edge-push", "edgeOf(245)", "accepted", "13"),
+    Program("edge-push-other", "edgeOf(213)", "accepted", "0"),
 )
 # The hidden binder of an unnamed template, and the long form's name for it.
 BITS_HIDDEN_BINDER = ("Krs_Bits0", "Op")
@@ -513,7 +526,7 @@ def verify_sugar(harness: FixtureGate) -> None:
 
 
 def verify_bits(harness: FixtureGate) -> None:
-    """Bit templates emit the K of their hand-written long form, up to the hidden binder's name, and run natively and on Java LLVM."""
+    """Bit templates and tests emit the K of their hand-written long form, up to the hidden binder's name, and run natively and on Java LLVM."""
 
     harness.check(BITS)
     expansion = harness.expand(BITS)
@@ -587,7 +600,7 @@ def main() -> int:
         print("PASS sugar: the function shorthand and equation tables emit their long form's K; byteOf, halfOf, regOf, and pickOf agree natively and on Java LLVM")
 
         verify_bits(harness)
-        print("PASS bits: bit templates emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, and kindOf agree natively and on Java LLVM")
+        print("PASS bits: bit templates and tests emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, kindOf, regOf, and edgeOf agree natively and on Java LLVM")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

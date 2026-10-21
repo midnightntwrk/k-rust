@@ -7,7 +7,7 @@
     "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6",
     "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b",
     "krs-patterns-functions-sugar": "464535f3657b94046a40e7b1eff94142115be2a672f430f351cfdf5167579bf6",
-    "krs-patterns-functions-bits": "d3df9f487ae48a0d7d63da7e07618e2e03d2eb160ce6fce7cc03ff524af31882"
+    "krs-patterns-functions-bits": "35612b5fb257a5de4bcfd801a2839e940c89bd11847b4e86b5a016249144e379"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -29,7 +29,7 @@
       "definition.k": "744acd07a1d15594384c289ef5725dadcb350b496626e1c54c8af897c4d78e62"
     },
     "krs-patterns-functions-bits": {
-      "definition.k": "a2c018fd5b955c509905b7ae240d4aa8de9be28ca683bb6eada4bdef1ab60527"
+      "definition.k": "4e613525e57319e80c862752d51ccd7306290e9088193f85f409c723f946fd96"
     }
   },
   "reference_sha256": {
@@ -48,7 +48,7 @@
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
     "krs-patterns-functions-contexts-haskell": "99bf2f669427d4b1136238cb1a208d26b1e90e77dad64a0f30ad648f6363acbc",
     "krs-patterns-functions-sugar": "677a14fd74c6717e28c88c2b9b55b16632d53b845e8ab4596dcd31dcb77325cd",
-    "krs-patterns-functions-bits": "5404845e2528c9718319497786849ea839bf1c9bceb3b8a0677e07a5473d063d"
+    "krs-patterns-functions-bits": "de9e318824f1fa79f068dd6c6b7d2c68d5e2cbe2cdf85fb43c404e9f7c4e22fb"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -263,6 +263,38 @@
       "kind-high": {
         "parse": "accepted",
         "run": "1"
+      },
+      "reg-low": {
+        "parse": "accepted",
+        "run": "rl"
+      },
+      "reg-high": {
+        "parse": "accepted",
+        "run": "alu 147 rc"
+      },
+      "edge-jr": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "edge-jr-other": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "edge-ld": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "edge-ld-other": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "edge-push": {
+        "parse": "accepted",
+        "run": "13"
+      },
+      "edge-push-other": {
+        "parse": "accepted",
+        "run": "0"
       }
     }
   },

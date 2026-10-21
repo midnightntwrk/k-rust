@@ -19,9 +19,17 @@
 //! - `decodeCbOf(..)`: four templates that differ in their top two bits cover
 //!   the second page;
 //! - `kindOf(5)` is `0` and `kindOf(200)` is `1`: two transitions whose
-//!   templates differ in the top bit, which the overlap check keeps apart.
+//!   templates differ in the top bit, which the overlap check keeps apart;
+//! - `regOf(5)` is `rl` and `regOf(147)` is `alu 147 rc`: readable clauses
+//!   whose results read fields, with and without `op @`;
+//! - `edgeOf(..)`: templates beside an authored top-level `||` condition, in
+//!   a table row (`edgeOf(56)` is `3`, `edgeOf(40)` is `0`) and in an
+//!   `#[k::equation]` fn (`edgeOf(245)` is `13`, `edgeOf(213)` is `0`), and
+//!   `k::bits!(opcode, "..")` tests in a condition and in `isLd`'s result
+//!   (`edgeOf(112)` is `6`, `edgeOf(70)` is `0`).
 
 use k::builtin::KSequence;
+use k::builtin::bool::Bool;
 use k::builtin::int::Int;
 use k::{KResult, Term};
 
@@ -34,7 +42,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((DecodeOf, DecodeCbOf, KindOf))]
+#[k::precedence((DecodeOf, DecodeCbOf, KindOf, RegOf, EdgeOf))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("decodeOf({opcode})")]
@@ -43,6 +51,10 @@ pub enum ExpSyntax {
     DecodeCbOf { opcode: Int },
     #[k::syntax("kindOf({opcode})")]
     KindOf { opcode: Int },
+    #[k::syntax("regOf({opcode})")]
+    RegOf { opcode: Int },
+    #[k::syntax("edgeOf({opcode})")]
+    EdgeOf { opcode: Int },
 }
 
 #[k::constructors(sort = Reg, result = KResult)]
@@ -174,8 +186,42 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    decode_of   : DecodeOf(n)                   => crate::Decode(n);
-    decode_cb_of: DecodeCbOf(n)                 => crate::DecodeCb(n);
-    kind_low    : KindOf(k::bits!("0___ ____")) => 0;
-    kind_high   : KindOf(k::bits!("1___ ____")) => 1;
+    decode_of   : DecodeOf(n)                       => crate::Decode(n);
+    decode_cb_of: DecodeCbOf(n)                     => crate::DecodeCb(n);
+    kind_low    : KindOf(k::bits!("0___ ____"))     => 0;
+    kind_high   : KindOf(k::bits!("1___ ____"))     => 1;
+    reg_low     : RegOf(k::bits!("0___ 0zzz"))      => crate::R8(z);
+    reg_high    : RegOf(op @ k::bits!("1yyy ____")) => crate::Instruction::Alu(op, crate::R8(y));
+    edge_of     : EdgeOf(n)                         => crate::Edge(n);
+}
+
+/// Whether an opcode is an 8-bit load or `halt`: the test form of the
+/// `ld r, r'` template, copied with its field letters, which bind nothing.
+#[k::function(total, internal)]
+pub fn IsLd(opcode: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for IsLd;
+    is_ld: opcode => k::bits!(opcode, "01 yyy zzz");
+}
+
+/// Edge cases of the opcode grid: templates beside authored `||`
+/// conditions, and tests in a condition.
+#[k::function(total, internal)]
+pub fn Edge(opcode: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Edge;
+    #[k::requires(c.eq::<Int>(0) || c.eq::<Int>(3))]
+    edge_jr    : k::bits!("00 1cc 000") => c;
+    #[k::requires(crate::IsLd(opcode) && k::bits!(opcode, "__ 110 ___"))]
+    edge_ld_mhl: opcode                 => 6;
+    #[k::equation(owise)]
+    edge_other : opcode                 => 0;
+}
+
+#[k::requires(p.eq::<Int>(0) || p.eq::<Int>(3))]
+#[k::equation]
+fn edge_push(k::term![Edge(k::bits!("11 pp0 101"))]: Term<Int>) -> Term<Int> {
+    p.add::<Int>(10)
 }

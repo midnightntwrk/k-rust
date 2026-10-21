@@ -4,6 +4,7 @@
 //! this package's `Op`.
 
 use k::builtin::KSequence;
+use k::builtin::bool::Bool;
 use k::builtin::int::Int;
 use k::{KResult, Term};
 
@@ -16,7 +17,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((DecodeOf, DecodeCbOf, KindOf))]
+#[k::precedence((DecodeOf, DecodeCbOf, KindOf, RegOf, EdgeOf))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("decodeOf({opcode})")]
@@ -25,6 +26,10 @@ pub enum ExpSyntax {
     DecodeCbOf { opcode: Int },
     #[k::syntax("kindOf({opcode})")]
     KindOf { opcode: Int },
+    #[k::syntax("regOf({opcode})")]
+    RegOf { opcode: Int },
+    #[k::syntax("edgeOf({opcode})")]
+    EdgeOf { opcode: Int },
 }
 
 #[k::constructors(sort = Reg, result = KResult)]
@@ -267,4 +272,58 @@ k::rules! {
     kind_low    : KindOf(op)    => 0;
     #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(1))]
     kind_high   : KindOf(op)    => 1;
+    #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(0) && op.bit_range::<Int>(3, 1).eq::<Int>(0))]
+    reg_low     : RegOf(op)     => crate::R8(op.bit_range::<Int>(0, 3));
+    #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(1))]
+    reg_high    : RegOf(op)     => crate::Instruction::Alu(op, crate::R8(op.bit_range::<Int>(4, 3)));
+    edge_of     : EdgeOf(n)     => crate::Edge(n);
+}
+
+/// Whether an opcode is an 8-bit load or `halt`: the test form of the
+/// `ld r, r'` template, copied with its field letters, which bind nothing.
+#[k::function(total, internal)]
+pub fn IsLd(opcode: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for IsLd;
+    is_ld: opcode => (opcode.ge::<Int>(0) && opcode.lt::<Int>(256) && opcode.bit_range::<Int>(6, 2).eq::<Int>(1));
+}
+
+/// Edge cases of the opcode grid: templates beside authored `||`
+/// conditions, and tests in a condition.
+#[k::function(total, internal)]
+pub fn Edge(opcode: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Edge;
+    #[k::requires(crate::IsLd(opcode) && (opcode.ge::<Int>(0) && opcode.lt::<Int>(256) && opcode.bit_range::<Int>(3, 3).eq::<Int>(6)))]
+    edge_ld_mhl: opcode => 6;
+    #[k::equation(owise)]
+    edge_other : opcode => 0;
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(256)
+        && op.bit_range::<Int>(6, 2).eq::<Int>(0)
+        && op.bit_range::<Int>(5, 1).eq::<Int>(1)
+        && op.bit_range::<Int>(0, 3).eq::<Int>(0)
+        && (op.bit_range::<Int>(3, 2).eq::<Int>(0) || op.bit_range::<Int>(3, 2).eq::<Int>(3))
+)]
+#[k::equation]
+fn edge_jr(k::term![Edge(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(3, 2)
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(256)
+        && op.bit_range::<Int>(6, 2).eq::<Int>(3)
+        && op.bit_range::<Int>(3, 1).eq::<Int>(0)
+        && op.bit_range::<Int>(0, 3).eq::<Int>(5)
+        && (op.bit_range::<Int>(4, 2).eq::<Int>(0) || op.bit_range::<Int>(4, 2).eq::<Int>(3))
+)]
+#[k::equation]
+fn edge_push(k::term![Edge(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(4, 2).add::<Int>(10)
 }
