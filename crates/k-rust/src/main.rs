@@ -250,18 +250,24 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
             kore_match_disjunction_command(options).map(|()| ExitCode::SUCCESS)
         }
         Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
-        Command::Fuzz(options) => fuzz(options),
+        Command::Fuzz(options) => Ok(fuzz(options)),
     }
 }
 
 /// `krust fuzz ARGS`: run the `krust-fuzz` executable with `ARGS`, as `cargo` runs `cargo-NAME`.
 ///
 /// The fuzz engine is the `k-rust-fuzz` package, which depends on this one, so `krust` cannot
-/// link it. The executable is looked up beside krust first and then on `PATH`. It receives this
-/// build's identity in [`k_rust::native::FUZZ_PARENT_BUILD_ENV`] and refuses to run when it was
-/// built against another k-rust, so a stale `krust-fuzz` on `PATH` cannot answer for this krust.
-/// On Unix krust replaces itself with it, so its exit status and signals are krust's.
-fn fuzz(options: FuzzArgs) -> Result<ExitCode, Box<dyn Error>> {
+/// link it. The executable is looked up beside krust first and then on `PATH`, skipping files
+/// that are not executable, as a shell does. It receives the arguments after `fuzz` exactly as
+/// given, a leading `--` included, and this build's identity in
+/// [`k_rust::native::FUZZ_PARENT_BUILD_ENV`]; it refuses to run when it was built from other
+/// k-rust sources, so a stale `krust-fuzz` on `PATH` cannot answer for this krust. On Unix krust
+/// replaces itself with it, so its exit status and signals are krust's.
+///
+/// When no executable is found or it cannot be started, krust exits with status 2, which
+/// `krust-fuzz` uses for errors; its status 1 means that no witness was found.
+fn fuzz(options: FuzzArgs) -> ExitCode {
+    const FUZZ_ERROR: u8 = 2;
     let name = format!("krust-fuzz{}", env::consts::EXE_SUFFIX);
     let beside = env::current_exe()
         .ok()
@@ -276,16 +282,22 @@ fn fuzz(options: FuzzArgs) -> Result<ExitCode, Box<dyn Error>> {
     let Some(executable) = beside
         .into_iter()
         .chain(on_path)
-        .find(|path| path.is_file())
+        .find(|path| is_executable(path))
     else {
-        return Err(format!(
-            "`krust fuzz` runs the `{name}` executable, which is neither beside krust nor on PATH; \
-             build it with `cargo build -p k-rust-fuzz --features cli --bin krust-fuzz`"
-        )
-        .into());
+        eprintln!(
+            "error: `krust fuzz` runs the `{name}` executable, which is neither beside krust nor \
+             on PATH; build it with `cargo build -p k-rust-fuzz --features cli --bin krust-fuzz`"
+        );
+        return ExitCode::from(FUZZ_ERROR);
+    };
+    // clap drops a leading `--` from the trailing arguments; the raw arguments keep it.
+    let mut raw = env::args_os();
+    let arguments: Vec<std::ffi::OsString> = match (raw.next(), raw.next()) {
+        (Some(_), Some(subcommand)) if subcommand == "fuzz" => raw.collect(),
+        _ => options.args,
     };
     let mut command = std::process::Command::new(&executable);
-    command.args(&options.args).env(
+    command.args(&arguments).env(
         k_rust::native::FUZZ_PARENT_BUILD_ENV,
         k_rust::native::build_identity(),
     );
@@ -293,19 +305,39 @@ fn fuzz(options: FuzzArgs) -> Result<ExitCode, Box<dyn Error>> {
     {
         use std::os::unix::process::CommandExt as _;
         let error = command.exec();
-        Err(format!("could not run `{}`: {error}", executable.display()).into())
+        eprintln!("error: could not run `{}`: {error}", executable.display());
+        ExitCode::from(FUZZ_ERROR)
     }
     #[cfg(not(unix))]
     {
-        let status = command
-            .status()
-            .map_err(|error| format!("could not run `{}`: {error}", executable.display()))?;
-        Ok(ExitCode::from(
-            status
-                .code()
-                .and_then(|code| u8::try_from(code).ok())
-                .unwrap_or(1),
-        ))
+        match command.status() {
+            Ok(status) => ExitCode::from(
+                status
+                    .code()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .unwrap_or(FUZZ_ERROR),
+            ),
+            Err(error) => {
+                eprintln!("error: could not run `{}`: {error}", executable.display());
+                ExitCode::from(FUZZ_ERROR)
+            }
+        }
+    }
+}
+
+/// Whether `path` is a file this process may execute (on Unix: some execute bit is set).
+fn is_executable(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
     }
 }
 

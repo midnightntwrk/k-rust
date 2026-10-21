@@ -307,22 +307,34 @@ pub fn load_kore_companions(
 /// `krust-fuzz` executable it runs.
 pub const FUZZ_PARENT_BUILD_ENV: &str = "KRUST_FUZZ_PARENT_BUILD";
 
-/// This build of k-rust: its package version, followed by `+` and the revision the build
-/// environment named in `K_RUST_REVISION` (for example a commit id) when it named one.
+/// The suffix of a [`build_identity`] that names no source digest.
+pub const UNVERIFIED_BUILD: &str = "+unverified";
+
+/// This build of k-rust: its package version, then `+src.` and the digest of the sources it was
+/// built from (the build script's `K_RUST_SOURCE_DIGEST`: this crate's and its workspace
+/// dependencies' sources, embedded builtins, manifests and the lockfile). Builds whose sources
+/// differ, committed or not, have different identities.
+///
+/// Outside the workspace layout the build script cannot read those sources, and the identity
+/// is the version followed by [`UNVERIFIED_BUILD`]: two such builds of one version cannot be
+/// told apart, which [`is_verified_build`] lets a comparison say.
 ///
 /// `krust fuzz` passes it to the `krust-fuzz` executable it runs, which refuses to run for a
 /// `krust` of another build, and `krust-fuzz` records it as the k-rust revision of its reports.
-///
-/// It does not identify the source exactly unless the revision is set: builds of one version
-/// from different commits share it.
 #[must_use]
 pub fn build_identity() -> String {
-    match option_env!("K_RUST_REVISION") {
-        Some(revision) if !revision.is_empty() => {
-            format!("{}+{revision}", env!("CARGO_PKG_VERSION"))
-        }
-        _ => env!("CARGO_PKG_VERSION").to_owned(),
+    let digest = env!("K_RUST_SOURCE_DIGEST");
+    if digest.is_empty() {
+        format!("{}{UNVERIFIED_BUILD}", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!("{}+src.{digest}", env!("CARGO_PKG_VERSION"))
     }
+}
+
+/// Whether `identity` (a [`build_identity`]) names a source digest.
+#[must_use]
+pub fn is_verified_build(identity: &str) -> bool {
+    !identity.ends_with(UNVERIFIED_BUILD)
 }
 
 fn payload_identity(file: &str, bytes: &[u8]) -> PayloadIdentity {
