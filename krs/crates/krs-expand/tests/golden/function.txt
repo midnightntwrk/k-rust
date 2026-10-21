@@ -22,6 +22,10 @@ impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for In
         })
     }
 }
+impl ::k::__KrsFunction for Increment {
+    type Result = k::builtin::int::Int;
+    type Arguments = (k::builtin::int::Int,);
+}
 #[doc(hidden)]
 fn __krs_constructor_descriptor_aa8f1cadbdde283d() -> ::core::result::Result<
     ::k::HostDescriptor,

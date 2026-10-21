@@ -29,6 +29,29 @@ pub enum SyntaxErrorKind {
         /// Repeated argument name.
         name: &'static str,
     },
+    /// A `#[k::function]` that is program syntax omitted its `syntax`.
+    MissingFunctionSyntax,
+    /// A `#[k::function]` on a `fn` was outside the shorthand's shape.
+    InvalidFunctionShorthand {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::equations!` table was malformed.
+    InvalidEquationTable {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// Two rows of one `k::equations!` table state the same equation.
+    DuplicateEquationRow {
+        /// Complete stable explanation, naming both rows.
+        reason: String,
+    },
+    /// A catch-all row of a `k::equations!` table shares a priority with
+    /// another row.
+    CatchAllEquationRow {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
     /// A required keyed attribute argument was absent.
     MissingArgument {
         /// Missing argument name.
@@ -368,6 +391,11 @@ impl SyntaxErrorKind {
             Self::UnknownArgument { .. } => codes::syntax::UNKNOWN_ARGUMENT,
             Self::DuplicateArgument { .. } => codes::syntax::DUPLICATE_ARGUMENT,
             Self::MissingArgument { .. } => codes::syntax::MISSING_ARGUMENT,
+            Self::MissingFunctionSyntax => codes::syntax::MISSING_FUNCTION_SYNTAX,
+            Self::InvalidFunctionShorthand { .. } => codes::syntax::INVALID_FUNCTION_SHORTHAND,
+            Self::InvalidEquationTable { .. } => codes::syntax::INVALID_EQUATION_TABLE,
+            Self::DuplicateEquationRow { .. } => codes::syntax::DUPLICATE_EQUATION_ROW,
+            Self::CatchAllEquationRow { .. } => codes::syntax::CATCH_ALL_EQUATION_ROW,
             Self::InvalidArgumentValue { .. } => codes::syntax::INVALID_ARGUMENT_VALUE,
             Self::UnsupportedPath => codes::syntax::UNSUPPORTED_PATH,
             Self::UnsupportedSortDeclaration { .. } | Self::UnaliasedSort { .. } => {
@@ -542,6 +570,9 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::DuplicateArgument { name } => {
                 write!(formatter, "duplicate argument `{name}`")
             }
+            SyntaxErrorKind::MissingFunctionSyntax => formatter.write_str(
+                "this function is program syntax (`pub` and not `internal`), so it needs an explicit `syntax = \"..\"`: a default terminal could shadow a token of the object language; mark it `internal` (or make it non-`pub`) to use the default `symbol({field}, ..)`",
+            ),
             SyntaxErrorKind::MissingArgument { name } => {
                 write!(formatter, "missing required argument `{name} = ...`")
             }
@@ -713,7 +744,11 @@ impl fmt::Display for SyntaxError {
                 attribute,
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
-            SyntaxErrorKind::RawKShape { reason }
+            SyntaxErrorKind::InvalidFunctionShorthand { reason }
+            | SyntaxErrorKind::InvalidEquationTable { reason }
+            | SyntaxErrorKind::DuplicateEquationRow { reason }
+            | SyntaxErrorKind::CatchAllEquationRow { reason }
+            | SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }

@@ -204,6 +204,10 @@ pub fn expand_reference_source(
     let mut needs_map_macro = false;
     let mut items = Vec::new();
     for (index, mut item) in std::mem::take(&mut file.items).into_iter().enumerate() {
+        if let Some(long_form) = materialize_function_shorthand(&item)? {
+            items.extend(long_form);
+            continue;
+        }
         if let syn::Item::Use(item_use) = &mut item {
             item_use
                 .attrs
@@ -212,6 +216,7 @@ pub fn expand_reference_source(
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
             materialize_constructor_flags(item_struct);
+            materialize_function_syntax(item_struct)?;
         }
         let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
             materialize_syntax_list(item_enum, package, module_path, bundle, &descriptor_index)?;
@@ -239,6 +244,40 @@ pub fn expand_reference_source(
             Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
         ) {
             items.extend(materialize_readable_sorts(invocation)?);
+            continue;
+        }
+        if entry == Some(&FunctionMacro::Equations) {
+            let table = krs_syntax::EquationTable::parse_tokens(invocation.mac.tokens.clone())
+                .map_err(ReferenceExpansionError::KrsSyntax)?;
+            for row in table.rows() {
+                let name = row.label().unraw().to_string();
+                if !rendered_names.insert(name.clone()) {
+                    return Err(ReferenceExpansionError::DuplicateRule(name));
+                }
+                let descriptors = descriptor_index
+                    .values()
+                    .filter_map(|descriptor| match descriptor.payload() {
+                        krs_ir::DescriptorPayload::StructuredRule(rule)
+                            if descriptor.id().package() == package
+                                && descriptor.id().module_path() == module_path
+                                && descriptor.id().item_name() == name
+                                && descriptor.id().item_kind() == krs_ir::ItemKind::Equation =>
+                        {
+                            Some(rule.as_ref())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let [rule] = descriptors.as_slice() else {
+                    return Err(ReferenceExpansionError::RuleCoverage {
+                        name,
+                        found: descriptors.len(),
+                    });
+                };
+                items.push(syn::Item::Fn(render_equation_row(
+                    row, rule, package, bundle,
+                )?));
+            }
             continue;
         }
         if entry != Some(&FunctionMacro::Rules) {
@@ -492,6 +531,107 @@ fn materialize_syntax_list(
 /// Writes the reference spelling `internal = true` / `program = true` for a
 /// bare placement flag in `#[k::constructor(..)]`; `#[k::function]` keeps its
 /// bare flags in both layers (decision X2).
+/// The `#[k::function(..)]` attribute of an item, by its last path segment.
+fn function_attribute_index(attributes: &[syn::Attribute]) -> Option<usize> {
+    attributes.iter().position(|attribute| {
+        attribute.path().segments.len() >= 2 && attribute_is(attribute, "function")
+    })
+}
+
+/// The attribute `#[prefix::name(tokens)]` beside `template`'s path.
+fn sibling_attribute(
+    template: &syn::Attribute,
+    name: &str,
+    tokens: &TokenStream,
+) -> syn::Attribute {
+    let mut path = template.path().clone();
+    if let Some(last) = path.segments.last_mut() {
+        last.ident = Ident::new(name, Span::call_site());
+    }
+    if tokens.is_empty() {
+        syn::parse_quote!(#[#path])
+    } else {
+        syn::parse_quote!(#[#path(#tokens)])
+    }
+}
+
+/// Writes the default syntax of a function struct that omits `syntax`, so
+/// the reference surface states every key.
+fn materialize_function_syntax(item: &mut syn::ItemStruct) -> Result<(), ReferenceExpansionError> {
+    let Some(index) = function_attribute_index(&item.attrs) else {
+        return Ok(());
+    };
+    let syn::Meta::List(list) = &item.attrs[index].meta else {
+        return Ok(());
+    };
+    let mut attribute = krs_syntax::FunctionAttribute::parse_tokens(list.tokens.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    if attribute.has_authored_syntax() {
+        return Ok(());
+    }
+    let declaration = krs_syntax::ConstructorDeclaration::from_item(item.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    attribute
+        .complete_default_syntax(&declaration)
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let syntax = attribute.production().syntax.clone();
+    let mut tokens = list.tokens.clone();
+    tokens.extend(quote!(, syntax = #syntax));
+    item.attrs[index] = sibling_attribute(&item.attrs[index], "function", &tokens);
+    Ok(())
+}
+
+/// The long form of `#[k::function(..)]` on a `fn`: the struct with its
+/// sort and syntax stated, and the `#[k::equation]` its body defines.
+fn materialize_function_shorthand(
+    item: &syn::Item,
+) -> Result<Option<Vec<syn::Item>>, ReferenceExpansionError> {
+    let Some(mut shorthand) = krs_syntax::ShorthandItem::from_item(item) else {
+        return Ok(None);
+    };
+    let Some(index) = function_attribute_index(&shorthand.attrs) else {
+        return Ok(None);
+    };
+    let function = shorthand.attrs.remove(index);
+    let tokens = match &function.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => TokenStream::new(),
+    };
+    let lowered = krs_syntax::FunctionShorthand::lower(tokens.clone(), shorthand)
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let production = lowered.attribute().production();
+    let sort = &production.sort;
+    let mut keys = tokens;
+    keys.extend(quote!(, sort = #sort));
+    if !lowered.attribute().has_authored_syntax() {
+        let syntax = &production.syntax;
+        keys.extend(quote!(, syntax = #syntax));
+    }
+    let mut structure = lowered.structure().clone();
+    structure
+        .attrs
+        .push(sibling_attribute(&function, "function", &keys));
+    let mut items = vec![syn::Item::Struct(structure)];
+    if let Some(equation) = lowered.equation() {
+        let mut equation = equation.clone();
+        equation.attrs.insert(
+            0,
+            sibling_attribute(&function, "equation", &TokenStream::new()),
+        );
+        // The subject reads as a hand-written equation's, `k::term![F(x)]`.
+        let mut term_path = function.path().clone();
+        if let Some(last) = term_path.segments.last_mut() {
+            last.ident = Ident::new("term", Span::call_site());
+        }
+        if let Some(syn::FnArg::Typed(subject)) = equation.sig.inputs.first_mut() {
+            let pattern = &subject.pat;
+            *subject.pat = syn::parse_quote!(#term_path![#pattern]);
+        }
+        items.push(syn::Item::Fn(equation));
+    }
+    Ok(Some(items))
+}
+
 fn materialize_constructor_flags(item: &mut syn::ItemStruct) {
     for attribute in &mut item.attrs {
         if !attribute_is(attribute, "constructor") {
@@ -1459,6 +1599,52 @@ fn render_rule(
                 #(#right_cells,)*
                 ..#state
             }
+        }
+    })
+    .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// The `#[k::equation]` fn one `k::equations!` row stands for, with its
+/// paths qualified, since the table's `use` items do not reach it.
+fn render_equation_row(
+    row: &krs_syntax::EquationRow,
+    rule: &krs_ir::StructuredRuleDescriptor,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<syn::ItemFn, ReferenceExpansionError> {
+    let sort = match &rule.subject_sort.sort {
+        krs_ir::DescriptorSortRef::Builtin(sort) => {
+            let sort = render_builtin_sort(*sort);
+            quote!(k::Term<#sort>)
+        }
+        other => {
+            let sort = render_descriptor_sort(other, package)?;
+            quote!(k::Term<#sort>)
+        }
+    };
+    let subject = render_term(&rule.subject, true, package, bundle)?;
+    let result = rule
+        .result
+        .as_ref()
+        .map(|result| render_term(result, false, package, bundle))
+        .transpose()?;
+    let requires = rule
+        .requires
+        .as_ref()
+        .map(|condition| {
+            render_term(&condition.term, false, package, bundle)
+                .map(|term| quote!(#[k::requires(#term)]))
+        })
+        .transpose()?;
+    let keys = row.equation_keys().map(|keys| quote!((#keys)));
+    let attrs = &row.rule().item().attrs;
+    let name = row.label();
+    syn::parse2(quote! {
+        #(#attrs)*
+        #[k::equation #keys]
+        #requires
+        fn #name(k::term![#subject]: #sort) -> #sort {
+            #result
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)

@@ -5,7 +5,7 @@
   },
   "definitions-compile-into-tools-emit-k": {
     "inputs": "03bb6022b329e8b711a0580a42f1d232a8c0d8654e8dd82173f4dc1c2508cc8c",
-    "output": "c6ec0e26e85fa306e208f7e36bf565e86e450f40bafadd72730330435c6f0d4b"
+    "output": "a9b7631198af15049152aecfa9f25fded83080b97b9edab0332b6e1740508169"
   },
   "definitions-compile-into-tools-parse-blue": {
     "inputs": "094e5cf2f4c71d90f2a6e21b49f609f3238df49765cf7d059000264f9f01b1a1",
@@ -13,7 +13,7 @@
   },
   "definitions-compile-into-tools-parse-red": {
     "inputs": "c89ec0c3016408d525f44001032e8bd5549b0ff08402976ee78c5a2e85afd4d3",
-    "output": "6796739311eed47b5809794aeaca1f337b055172be93f1a98e7ae1cab2ff6415"
+    "output": "3455f383520d22b08b2e849e102448a280f8e930dcb3f089e8ee4c9cfd0652c6"
   },
   "definitions-compile-into-tools-run": {
     "inputs": "05a873cb27da203fc9571095ff760a1db2563a6f1d1e3b8e892e22877fa3f7b6",
@@ -33,11 +33,11 @@
   },
   "functions-defined-by-rules-emit-k": {
     "inputs": "4f63fe8eea85e5951622a7f8d3cd623e8be0a76278a8cb6582c0b28ab43ac9ed",
-    "output": "39e269bdf13083d714a052d84d04eafc7105d30c4e0128982042d1e45951fcf7"
+    "output": "4326a916772b0b3c596939aebb6acd706cab5dc87ecb216c37323badb72c835f"
   },
   "functions-defined-by-rules-parse": {
     "inputs": "d8482699f03ce7f2467bd9369bc97ebde781456968263c8811edfe9635d9c71c",
-    "output": "28ca2335ac2f2ae4cad969afdb5ce08b549753226d16db1845120671ca5d8bdc"
+    "output": "bb4a0f260e312b49b20966865b13f0e20401b4ce7492f0a499c355f7b53612e2"
   },
   "functions-defined-by-rules-run": {
     "inputs": "c31b5a55ba6f50c31bff67e0595a226e02213e4da67af1f192ff1d32a1bfb4d0",
@@ -53,7 +53,7 @@
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "ad45de33660bd5786c8fb31018492489f1716f91beb807f74069975b6c15e1ce",
-    "output": "b34696c7c1291c9c108a1f68a0cf4c90212a7a831843d9169e5afbaa1404aa3c"
+    "output": "b71dd888e884e7cf525df82b8b688d0edf7808c826a8fa8175e7339be3a7a343"
   },
   "patterns-and-substitution-run-differ": {
     "inputs": "25e710e3bed235e335ebb71ad56b38009f89a797f09c4d98941a560550b3a306",
@@ -69,11 +69,11 @@
   },
   "sorts-and-constructors-emit-k": {
     "inputs": "e8f3f61916ea790098b597cb9b9bac37dfb57eeccd136fa1d90a1da2280f0c11",
-    "output": "a26cd9685dd32f131ddd2cd3e13dad221d2264ca7245fc07bd4c15b8834d0217"
+    "output": "74273ebeeedc19cbc918845ec458ebfabec258556ab4778c42c1c646f54cc513"
   },
   "sorts-and-constructors-parse": {
     "inputs": "9f38ffbb113407fa7633b26822df7c8a6d00eefe4f155e5bcde556be603185ee",
-    "output": "e442a00a1fdb05ccbbc961482265a1ea9bbfbf3745ad3384214db10d5eeb0b94"
+    "output": "c61f1b0161074e35ba62290a7c14d0fa3888fde8707109ea1c0afb2194e29bff"
   },
   "sorts-and-constructors-parse-error": {
     "inputs": "8d5a190d873e470870f14f36294c408589bbd8080657afa765fbfe999a6d36b0",
@@ -153,26 +153,26 @@
   },
   "story-emit-k": {
     "inputs": "6f0d421a06f048ac1f065866d28e7fb417570eaf47a3440724c453c3eaec082c",
-    "output": "71da37c3dd5d5e0446640f6d97f3945ed825c700dfd23f9529fac04c4072cc8c"
+    "output": "82d031c741c6123256e6c645a1df33d0c1ca9ffcc4e2b4e0a88ce95113d59f86"
   },
   "story-parse": {
     "inputs": "07b198a0cc36f6eacb741aaa99b2d0c2019daf9c3a852f04f31f907786ff4194",
-    "output": "6b7604b9e12b3d6ffc910dd2e29f184266cb79a20ceae678d4839bf9e98e9d0f"
+    "output": "66f534a24edf4676e278e1c260ac55331519cb558ff1c2f4fc3ab978f3de7cdd"
   },
   "story-search": {
     "inputs": "2b5bd947b73efde9f9d8fe36301354059c54d97cb1ba3bc5ccb0d34316578604",
     "output": "bf78c947c8de9d24bfc6e73fe7ed214b1542e64230f66b416ff85293ca46179f"
   },
   "tour-minimal-depth-0": {
-    "inputs": "ecb417f1e3901aeca55a2fe229df51f78155ff15aaeeac32ca22537cadf4ecca",
+    "inputs": "5b4b2a083c65dccf4ae2f1f24d2ccb631ec8b39e574688b1f25fb2d211e7a5fc",
     "output": "c8b4fdb588880c24c568efce9f52ae211c92bacb20ce704ac5ef87746e1b109f"
   },
   "tour-minimal-run": {
-    "inputs": "9ad216e09a373447944e03f0e2db20b1c8b314b8139746b9c82872606d47e4b6",
+    "inputs": "e063ed42fee7785f786f5e63f015b30070c60dcd9304e5440526eeeacee53f90",
     "output": "bb548b8301e527e87d5a9305f1e564e57e5d3b07d7517d55e8afb4312449b0c8"
   },
   "tour-minimal-trace": {
-    "inputs": "feeab2f67b8f1d19e805bf066533cab11f300f2f355653ad3f4a0a317cbf6039",
+    "inputs": "81f27266b517b7cc3c1d5b72d6880fa81f9bb180671335933ffc711f983a2f22",
     "output": "4fc219be2888d12451968d3ed43bb7f3c89b13f5d3d682a3b6dc4d9abb482d42"
   }
 }

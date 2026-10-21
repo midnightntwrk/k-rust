@@ -83,9 +83,9 @@ pub use krs_ir::{
 };
 pub use krs_macros::{
     alias, anonymous, associativity, bracket, bytes, cell, cells, claim, configuration,
-    constructor, constructors, context, context_alias, desugar, ensures, equation, exists,
-    fragment, fresh, function, id, init, is, k, layout, lexeme, lexical, map, matches, or_bool,
-    precedence, priority, project, raw_k, requires, rewrite, rule, rules, seqstrict,
+    constructor, constructors, context, context_alias, desugar, ensures, equation, equations,
+    exists, fragment, fresh, function, id, init, is, k, layout, lexeme, lexical, map, matches,
+    or_bool, precedence, priority, project, raw_k, requires, rewrite, rule, rules, seqstrict,
     simplification, sort, sorts, spec_module, strict, subsort, symbol, syntax_list, term, token,
 };
 
@@ -475,6 +475,33 @@ macro_rules! __request_framework_sorts {
 #[doc(hidden)]
 #[path = "private.rs"]
 pub mod __private;
+
+/// A non-parametric `#[k::function]` production, which a `k::equations!`
+/// header names.
+///
+/// This is a hidden proc-macro implementation seam: every equation of a
+/// table takes its sort from [`Self::Result`], and each row's argument count
+/// is checked against [`Self::Arguments`].
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a non-parametric `#[k::function]`",
+    label = "a `k::equations!` header names the function its rows define",
+    note = "the header names a function declared with `#[k::function]`; a parametric function names its instance in each equation, so it takes `#[k::equation]` fns instead"
+)]
+pub trait __KrsFunction {
+    /// The function's result sort.
+    type Result: ?Sized + 'static;
+    /// The function's argument types, as a tuple.
+    type Arguments;
+}
+
+/// A value of any type, for the arity check of a `k::equations!` row; it is
+/// never called.
+#[doc(hidden)]
+#[must_use]
+pub fn __krs_argument<T>() -> T {
+    unreachable!("KRS arity checks are never evaluated")
+}
 
 #[cfg(test)]
 mod tests {

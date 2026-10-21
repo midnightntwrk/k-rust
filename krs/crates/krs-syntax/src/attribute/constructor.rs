@@ -1,4 +1,5 @@
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
@@ -345,6 +346,8 @@ fn invalid_color(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
 #[derive(Clone, Debug)]
 pub struct FunctionAttribute {
     constructor: ConstructorAttribute,
+    /// Whether `syntax` is the completed default rather than authored.
+    default_syntax: bool,
     totality: FunctionTotality,
     memo: Option<Ident>,
     fresh_generator: Option<Ident>,
@@ -405,6 +408,68 @@ pub enum FunctionTotality {
 }
 
 impl FunctionAttribute {
+    /// Parses the keys of `#[k::function]` on a `fn`, whose return type gives
+    /// the sort `sort`; a `sort` key is rejected.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`KrsSyntax::parse_tokens`] except a missing `sort`, and
+    /// an authored `sort` key.
+    pub fn parse_shorthand_tokens(tokens: TokenStream, sort: &Path) -> Result<Self, SyntaxError> {
+        structured(tokens, |input| {
+            parse_function_keys(input, Some(sort.clone()))
+        })
+    }
+
+    /// Whether the function's `syntax` key was written.
+    #[must_use]
+    pub const fn has_authored_syntax(&self) -> bool {
+        self.constructor.syntax.is_some() && !self.default_syntax
+    }
+
+    /// Completes an omitted `syntax` with the default template
+    /// `symbol({field}, ..)`, where `symbol` is the production's K symbol
+    /// (the name with a lowercase first letter). A default is allowed only on
+    /// a production that is not program syntax, one marked `internal` or not
+    /// `pub`: in a program a default terminal would shadow an object-language
+    /// token. The default is anchored at the declaration's name.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an omitted `syntax` on a `pub` production that is not
+    /// `internal`.
+    pub fn complete_default_syntax(
+        &mut self,
+        declaration: &ConstructorDeclaration,
+    ) -> Result<(), SyntaxError> {
+        if self.constructor.syntax.is_some() {
+            return Ok(());
+        }
+        let name = declaration.name();
+        let program = matches!(declaration.item().vis, syn::Visibility::Public(_))
+            && self.constructor.placement() != Some(PlacementFlag::Internal);
+        if program {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::MissingFunctionSyntax,
+                name.span(),
+            ));
+        }
+        let literal = LitStr::new(
+            &default_function_syntax(
+                &name.unraw().to_string(),
+                declaration
+                    .fields()
+                    .iter()
+                    .map(crate::ConstructorField::name),
+            ),
+            name.span(),
+        );
+        self.constructor.syntax_template = Some(SyntaxTemplate::parse(literal.clone())?);
+        self.constructor.syntax = Some(literal);
+        self.default_syntax = true;
+        Ok(())
+    }
+
     /// Returns the shared checked production arguments.
     #[must_use]
     pub const fn production(&self) -> &ConstructorAttribute {
@@ -1225,11 +1290,21 @@ fn placement_flag(key: &Ident) -> Option<PlacementFlag> {
     }
 }
 
+fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
+    parse_function_keys(input, None)
+}
+
+/// Parses the keys of `#[k::function]`. A function declared by a `fn`
+/// (`shorthand_sort` is its return type's sort) takes its sort from the
+/// signature, so a `sort` key is rejected there.
 #[expect(
     clippy::too_many_lines,
     reason = "One keyed loop parses every function production argument."
 )]
-fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
+fn parse_function_keys(
+    input: ParseStream<'_>,
+    shorthand_sort: Option<Path>,
+) -> Result<FunctionAttribute, ParseError> {
     let missing_span = input.span();
     let mut totality = None;
     let mut memo = None;
@@ -1299,6 +1374,15 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             }
             "fresh_generator" => fresh_generator = Some(key),
             "partial" => totality = Some(FunctionTotality::Partial(key)),
+            "sort" if shorthand_sort.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidFunctionShorthand {
+                        reason: "a function declared by a `fn` takes its sort from the return type; remove `sort`".to_owned(),
+                    },
+                    key.span(),
+                )
+                .into());
+            }
             "sort" if sort.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "sort" },
@@ -1364,27 +1448,27 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             missing_span,
         )
     })?;
-    let sort = sort.ok_or_else(|| {
-        SyntaxError::new(
-            SyntaxErrorKind::MissingArgument { name: "sort" },
-            missing_span,
-        )
-    })?;
-    let syntax = syntax.ok_or_else(|| {
-        SyntaxError::new(
-            SyntaxErrorKind::MissingArgument { name: "syntax" },
-            missing_span,
-        )
-    })?;
-    let syntax_template = SyntaxTemplate::parse(syntax.clone())?;
+    let sort = match shorthand_sort {
+        Some(sort) => sort,
+        None => sort.ok_or_else(|| {
+            SyntaxError::new(
+                SyntaxErrorKind::MissingArgument { name: "sort" },
+                missing_span,
+            )
+        })?,
+    };
+    // An omitted `syntax` is completed from the declaration by
+    // [`FunctionAttribute::complete_default_syntax`], which knows whether the
+    // production is program syntax.
+    let syntax_template = syntax.clone().map(SyntaxTemplate::parse).transpose()?;
     Ok(FunctionAttribute {
         constructor: ConstructorAttribute {
             sort,
-            syntax: Some(syntax),
+            syntax,
             group: None,
             avoid: false,
             format: None,
-            syntax_template: Some(syntax_template),
+            syntax_template,
             structured_format: None,
             avoid_literal: None,
             prefer_literal: None,
@@ -1392,6 +1476,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             placement,
             colors: ProductionColors::default(),
         },
+        default_syntax: false,
         totality,
         memo,
         fresh_generator,
@@ -1771,4 +1856,25 @@ fn parse_variant_syntax_stream(
         placement,
         colors,
     })
+}
+
+/// The default syntax template of a function production that is not program
+/// syntax: its K symbol, the name with a lowercase first letter, applied to
+/// its fields, `byte({value})`.
+#[must_use]
+pub fn default_function_syntax<'a>(
+    name: &str,
+    fields: impl IntoIterator<Item = &'a Ident>,
+) -> String {
+    let mut characters = name.chars();
+    let symbol = characters
+        .next()
+        .map(|first| first.to_lowercase().chain(characters).collect::<String>())
+        .unwrap_or_default();
+    let fields = fields
+        .into_iter()
+        .map(|field| format!("{{{}}}", field.unraw()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{symbol}({fields})")
 }

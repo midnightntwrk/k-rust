@@ -2,6 +2,19 @@ const _: () = {
     #[allow(unused_imports)]
     use StmtSyntax::Assign;
 };
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use StmtSyntax::Assign;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let name = ();
+        let value = ();
+    }
+};
 pub fn var(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
     let _krs_binding_check = || {
         let name = ();
@@ -253,6 +266,20 @@ fn __krs_head_rule_descriptor_cf81ced6c10df23e() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_cf81ced6c10df23e);
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use StmtSyntax::Assign;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let name = ();
+        let value = ();
+        let e = ();
+    }
+};
 pub fn assign(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
     let _krs_binding_check = || {
         let name = ();
@@ -626,6 +653,21 @@ fn __krs_head_rule_descriptor_0bef7846124f8528() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_0bef7846124f8528);
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use StmtSyntax::Assign;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let a = ();
+        let b = ();
+        let x = ();
+        let y = ();
+    }
+};
 pub fn swap(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
     let _krs_binding_check = || {
         let a = ();

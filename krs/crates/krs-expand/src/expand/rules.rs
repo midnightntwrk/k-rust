@@ -144,6 +144,104 @@ pub(crate) fn equation(
     )
 }
 
+/// An equation the shared parser synthesized from authored tokens, such as
+/// the one a function shorthand's body defines; it carries no
+/// `#[k::equation]` keys.
+pub(crate) fn equation_item(
+    env: &dyn MacroEnvironment,
+    item: syn::ItemFn,
+) -> crate::Result<TokenStream> {
+    let equation = krs_syntax::EquationAttribute::parse_tokens(TokenStream::new())?;
+    let rule = krs_syntax::RuleItem::from_equation_item(item)?;
+    expand_ordinary_rule(
+        env,
+        &rule,
+        &krs_syntax::RuleAttribute::default(),
+        krs_ir::SentenceKind::Equation,
+        OrdinaryRuleKeys {
+            equation: Some(&equation),
+            simplification: None,
+            desugar: None,
+            lexical_imports: None,
+        },
+        None,
+        &[],
+    )
+}
+
+/// One `k::equations!` row: an equation whose one-segment paths rustc
+/// resolves through the table's `use` items, and the check of its argument
+/// count against the function's.
+pub(crate) fn equation_row(
+    env: &dyn MacroEnvironment,
+    row: &krs_syntax::EquationRow,
+    imports: &[syn::ItemUse],
+    function: &Path,
+) -> crate::Result<TokenStream> {
+    let equation = expand_ordinary_rule(
+        env,
+        row.rule(),
+        &krs_syntax::RuleAttribute::default(),
+        krs_ir::SentenceKind::Equation,
+        OrdinaryRuleKeys {
+            equation: Some(row.equation()),
+            simplification: None,
+            desugar: None,
+            lexical_imports: Some(imports),
+        },
+        None,
+        &[],
+    )?;
+    let facade = env.facade_path()?;
+    let cfg = call_site_cfg_attributes(&row.rule().item().attrs)?;
+    let arguments = (0..row.arity()).map(|_| quote!(#facade::__krs_argument()));
+    let arity = quote::quote_spanned! {row.arguments().span()=>
+        #(#cfg)*
+        const _: () = {
+            #[allow(clippy::unused_unit)]
+            fn __krs_row_arity() {
+                let _: <#function as #facade::__KrsFunction>::Arguments = (#(#arguments,)*);
+            }
+        };
+    };
+    let binder_check =
+        scoped_binder_check(&cfg, imports, row.rule().parameter().pattern.bindings());
+    Ok(quote! {
+        #equation
+        #arity
+        #binder_check
+    })
+}
+
+/// Checks the binders of a readable table's clause or row with the block's
+/// `use` items in scope. A bare identifier in a KRS pattern is a binder;
+/// where the block's imports make it a unit variant or a constant, which
+/// Rust would read instead, `let A = ();` is a refutable pattern of another
+/// type and rustc reports E0308 at the name, so the clause cannot silently
+/// bind everything. The variant is written `A()` or `Enum::A`. Imports of
+/// the module are already in scope of the sentence fn's own binding check.
+pub(super) fn scoped_binder_check(
+    cfg: &[Attribute],
+    imports: &[syn::ItemUse],
+    binders: &[syn::Ident],
+) -> Option<TokenStream> {
+    (!imports.is_empty() && !binders.is_empty()).then(|| {
+        quote! {
+            #(#cfg)*
+            const _: () = {
+                #(
+                    #[allow(unused_imports, clippy::enum_glob_use)]
+                    #imports
+                )*
+                #[allow(unused_variables, clippy::let_unit_value, clippy::no_effect_underscore_binding)]
+                fn __krs_scoped_binders() {
+                    #(let #binders = ();)*
+                }
+            };
+        }
+    })
+}
+
 pub(crate) fn simplification(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -267,6 +365,7 @@ fn ordinary_rule(
             equation,
             simplification,
             desugar: None,
+            lexical_imports: None,
         },
         None,
         &[],
@@ -280,6 +379,9 @@ struct OrdinaryRuleKeys<'a> {
     simplification: Option<&'a krs_syntax::SimplificationAttribute>,
     /// `#[k::desugar(..)]` of a desugar clause (KF-046).
     desugar: Option<&'a krs_syntax::DesugarAttribute>,
+    /// The `use` items of a `k::equations!` table, through which rustc
+    /// resolves the row's one-segment paths.
+    lexical_imports: Option<&'a [syn::ItemUse]>,
 }
 
 #[expect(
@@ -299,6 +401,7 @@ fn expand_ordinary_rule(
         equation,
         simplification,
         desugar,
+        lexical_imports,
     } = keys;
     // A single-body rule (KF-011) is a transition that is not an anywhere
     // rule: its subject's `k::rewrite!` islands say what changes.
@@ -391,7 +494,16 @@ fn expand_ordinary_rule(
     // descriptor carries Bool placeholders, and rustc checks that both
     // types are the facade's `ml::Predicate` (KF-039). A single-body rule
     // (KF-011) has no result type.
-    let (parameter_sort_type, result_sort_type, predicate_checks) = if predicate {
+    let (parameter_sort_type, result_sort_type, predicate_checks) = if rule
+        .parameter()
+        .term_sort
+        .is_function_result()
+    {
+        // A `k::equations!` row: the header names the function, whose
+        // result sort is the equation's.
+        let sort = quote!(<#parameter_sort_path as #facade::__KrsFunction>::Result);
+        (sort.clone(), Some(sort), TokenStream::new())
+    } else if predicate {
         (
             quote!(#facade::builtin::Bool),
             Some(quote!(#facade::builtin::Bool)),
@@ -463,8 +575,9 @@ fn expand_ordinary_rule(
     // The result and the ensures condition also see the existentials; the
     // subject and requires never do (the parser rejects such a use).
     let binding_idents = rule.result_bindings();
-    let mut term_builder =
-        TermBuilder::new(&facade, nonce, &cfg, &binding_idents).with_enum_glob(enum_glob);
+    let mut term_builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
+        .with_enum_glob(enum_glob)
+        .with_lexical_imports(lexical_imports);
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) =
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
@@ -951,6 +1064,23 @@ pub(crate) fn orphan_rule_helper(
         AttributeMacro::Exists | AttributeMacro::Ensures | AttributeMacro::Fresh
     ) {
         return orphan_result_helper(env, entry, attributes, item);
+    }
+    if entry == AttributeMacro::Requires
+        && let Ok(mut shorthand) = syn::parse2::<krs_syntax::ShorthandItem>(item.clone())
+        && let Some(index) = shorthand
+            .attrs
+            .iter()
+            .position(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Function))
+    {
+        // `#[k::requires]` above a function shorthand guards its equation.
+        let function = shorthand.attrs.remove(index);
+        let payload = match &function.meta {
+            syn::Meta::List(list) => list.tokens.clone(),
+            _ => TokenStream::new(),
+        };
+        let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
+        shorthand.attrs.insert(0, helper);
+        return super::constructors::function(env, payload, shorthand.to_token_stream());
     }
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;

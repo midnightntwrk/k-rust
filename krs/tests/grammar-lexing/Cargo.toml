@@ -7,6 +7,7 @@ members = [
     "packages/layout",
     "packages/lists",
     "packages/strict-lists",
+    "packages/symbols",
     "packages/memo",
     "packages/overload",
     "packages/overload-ambiguous",

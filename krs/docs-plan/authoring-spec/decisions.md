@@ -226,13 +226,37 @@ bug — report it, don't guess.
   both reject, and one that matches a whole configuration cell name or cell
   property name at a `prec` at least as high as K's strongest token for it,
   which Java K's configuration parser then cannot read.
-  *Note (2026-10 follow-up, symbol collisions):* a production's emitted
-  symbol is its variant or struct name with a lowercase first letter. When
-  two enum variants of one definition would derive the same symbol, each of
-  them takes its enum's name as a prefix instead (`ExpSyntax::Dot` is
-  `expSyntaxDot`, `LValSyntax::Dot` is `lValSyntaxDot`); a variant with a
-  unique name keeps the short symbol, and a symbol that still collides is
-  rejected (`krs::analysis::symbol-name-collision`).
+  *Note (2026-10 follow-up, symbol collisions; superseded 2026-10-21):* a
+  production's emitted symbol depends only on its own declaration. A struct's
+  is its name with a lowercase first letter; an enum variant's is always its
+  enum's name with a lowercase first letter followed by the variant name
+  (`ExpSyntax::Dot` is `expSyntaxDot`, `Op::Add` is `opAdd`), and
+  `#[k::symbol]` on a struct or a variant pins another. The earlier rule
+  prefixed a variant only when another production shared its name, so adding
+  a declaration anywhere, even in a dependency, could rename an unrelated
+  symbol. A symbol that two productions derive, or that K generates itself
+  (`isExp`, `initKCell`), is rejected
+  (`krs::analysis::symbol-name-collision`); nothing is renamed.
+- **C11 — A function may be declared by a `fn`, and a function that is
+  not program syntax may omit its template** (2026-10, SM83 feedback
+  item 3). `#[k::function(..)]` on a `fn` is pure sugar for the struct
+  plus, when the `fn` has a body, its one `#[k::equation]`: the
+  parameters are the fields, the return type is the sort, and the body is
+  the equation over those variables (parameters are plain names; cases
+  belong to a table). The `fn` is named as its applications are written,
+  `fn Byte`, so declaration and uses spell one token; its equation takes
+  the snake-case name (`byte`), the name hand-written equations already
+  use, so migrating keeps every equation identity. A `fn` ending with `;`
+  declares the symbol only. `syntax` may be omitted on any function that
+  is `internal` or not `pub`; the default is the K symbol applied to the
+  fields, `byte({value})`. A program-syntax function keeps an explicit
+  template, because a default terminal would shadow an object-language
+  token in programs (`krs::syntax::missing-function-syntax`); a Map/List
+  field's automatic `<NS>` placement does not count, since it rests on K's
+  module layout. Rejected: deriving the struct name from a snake-case `fn`
+  (the struct's name would be written nowhere), a `name = ..` key (a
+  second spelling), and pattern parameters (Rust parameters are
+  irrefutable).
 
 ## D. Configuration
 
@@ -345,6 +369,23 @@ bug — report it, don't guess.
 - **E8 — The fn/`cells!` form is purely the reference surface** and the
   graduation target for rules that outgrow `pattern => result (+ where)`.
   [r5]
+- **E9 — `k::equations!` tables are labelled equations** (2026-10, SM83
+  feedback item 2). `for F;` names a non-parametric function; each row
+  `label: args => result;` is the equation `F(args) = result` named
+  `label`, with `args` one pattern or a parenthesized list, and
+  `#[k::equation(..)]`/`#[k::requires(..)]` per row. Rows are unordered
+  and the label is the identity (F3.4), so reordering rows changes
+  nothing; the index is always written, never taken from an enum's
+  declaration order, which C7 keeps presentational. The table's `use`
+  items reach its rows only, and rustc resolves the rows' unqualified
+  names through them. Equations stay outside the overlap check (F2.1);
+  instead two table-local checks fail fast (F4): two unguarded rows at one
+  priority with the same literal arguments
+  (`krs::syntax::duplicate-equation-row`), and a catch-all row beside
+  others at its priority, which needs `owise`
+  (`krs::syntax::catch-all-equation-row`). `krs expand` prints each row as
+  its `#[k::equation]` fn, and `krs fmt` lays tables out as F5 lays out
+  `k::rules!`.
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 

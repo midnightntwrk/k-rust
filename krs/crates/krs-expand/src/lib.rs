@@ -93,6 +93,7 @@ pub fn expand_function(
         FunctionMacro::Sorts => expand::sorts(env, input),
         FunctionMacro::FrameworkSorts => expand::framework_sorts(env, input),
         FunctionMacro::Rules => expand::rules(env, input),
+        FunctionMacro::Equations => expand::equations(env, input),
         FunctionMacro::Term => expand::term(env, input),
         FunctionMacro::Id => islands::id(input),
         FunctionMacro::Bytes => islands::bytes(input),

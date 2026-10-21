@@ -1069,6 +1069,30 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
         productions.keys().copied().collect::<Vec<_>>(),
         ["block", "emptyBlock", "ifThen", "ifThenElse", "while"]
     );
+    let declarations = productions
+        .iter()
+        .map(|(name, production)| {
+            (
+                *name,
+                production
+                    .symbol()
+                    .declaration()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Each authored production records its KRS declaration path.
+    assert_eq!(
+        declarations,
+        [
+            ("block", "imp::imp_syntax::Block".to_owned()),
+            ("emptyBlock", "imp::imp_syntax::EmptyBlock".to_owned()),
+            ("ifThen", "imp::imp_syntax::IfThen".to_owned()),
+            ("ifThenElse", "imp::imp_syntax::IfThenElse".to_owned()),
+            ("while", "imp::imp_syntax::While".to_owned()),
+        ]
+    );
     let if_else = productions["ifThenElse"];
     assert!(if_else.attributes().iter().any(|attribute| matches!(
         attribute,

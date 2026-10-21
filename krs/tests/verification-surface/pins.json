@@ -8,46 +8,46 @@
   },
   "emitted": {
     "krs-verification-surface-l21": {
-      "definition.k": "75ed1612537c9ed6bdc806f5338539e21c8de46c8d6094cda132f2cad8717ca8",
+      "definition.k": "c9105336131c3f6684adc64b137e7314e584495c27b4f276ac994a7fa3248d3e",
       "spec.k": "872d3b722049fe76dd49179d3882f4eb18b78123e0cf711e233491fc974f95c0"
     },
     "krs-verification-surface-l21-readable": {
       "definition.k": "30e3619416868ceb9733c1aaa0c55406fa28e5d62ed35a61261d21c1d02aeb09"
     },
     "krs-verification-surface-trusted": {
-      "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
+      "definition.k": "8c5b70c217b7efea074d2e7429a7d5a05cb1b8a19a4d52f7f8d9d3699ca03fff",
       "spec.k": "b8485b7024c6e1b8757ebbd1ff87a5af158249d4037810e8c72dba9bbe6de2ae"
     },
     "krs-verification-surface-trusted-ablation": {
-      "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
+      "definition.k": "8c5b70c217b7efea074d2e7429a7d5a05cb1b8a19a4d52f7f8d9d3699ca03fff",
       "spec.k": "8d5a60df347f29a95cc31eb7490285f64d4b93b9e0129ab58a2d5f544162064a"
     },
     "krs-verification-surface-hook": {
-      "definition.k": "4534d1aed587b1884647427aec5a888779c5ccbb5d440a9fdb5a75516c0b1001",
+      "definition.k": "b3675c7ebe75b8270e6de260e70d8a82b59c3f7bb2467408f560e5ad6b43d864",
       "spec.k": "700aac369146b160f8733e451717c6ba18c1d404d36aa8c0a65cf2d9d6071d7e"
     },
     "krs-verification-surface-hook-ablation": {
-      "definition.k": "8e2fed16db6211f3ec598830d9f4bae54f2d7f85e6bfcd464362b5f9ca620d15",
+      "definition.k": "19e08202b212cfc5202cbb732a5a4eb52627316ef4436b46b42a5c75b09fd960",
       "spec.k": "c1cc39d30dcc93ebd9e9a1bd4e10edf027f43f251ccaa67658a677ee4e8b5fed"
     },
     "krs-verification-surface-conc": {
-      "definition.k": "142fece5ba8519640dbb2b6cb5095e0fb2ebd69d87fc6c66c61598e587074950",
+      "definition.k": "f9496f80d389e558de5d6ac0353a2e62aa64daf027b52f721a623dd833578ff3",
       "spec.k": "eafc715f2864e2ff5c305a24a6993fcf5375c44e7f8e4dff587a134f560bf5f3"
     },
     "krs-verification-surface-conc-smt-lemma": {
-      "definition.k": "53fa2f0d70a0b525b8ff7f14c187ebe325198fd57a0121dc76ee3b7dc4838e47",
+      "definition.k": "4ece425a78a9f3aff93d40e2d18812b76641c2892addd364018bb87e2a74ae35",
       "spec.k": "52ff6921f00ff7b21e7d2c7dba112cafdcb6ecabb5593a301b4e26dec704e681"
     },
     "krs-verification-surface-imp-sum": {
-      "definition.k": "662a994a80043027f66a0f29d196e8909aee9c398f13108d7d6d96bbff31d900",
+      "definition.k": "535077e9315d3027c32a509d905586ff14ed5b758817cbbd5322880976f41d73",
       "spec.k": "be388bad9696ce082bd89ca4af1b07fbbe40a4a6040f14faa9b81a3602f5e180"
     },
     "krs-verification-surface-l22-verification": {
-      "definition.k": "b88c40470d58f4761814ff224afa2540233934800ea44cd750d897647277f02d",
+      "definition.k": "6238a9bf46dae85d2b3b12b240cae3c40dbea32ee21d63998656b4f116351c63",
       "spec.k": "b6ca1e74f8ca2ededa902e2315d3b16db2320860394fafbbaa2789fbca9e674a"
     },
     "krs-verification-surface-l22-lesson": {
-      "definition.k": "063c3e522b4417932a9a89a37b8d539a7f925d2c86d365328c90a30e951bcc8e",
+      "definition.k": "f622a6723d8f5c6876233232b4c27aa8a001f9aeeacfcaedd720c23558139a64",
       "spec.k": "468c0248ecac21d91a67760cb8cfe046984ab633fcbf838a664f09840f72d149"
     }
   },
@@ -56,17 +56,17 @@
     "krs-verification-surface-l21-readable": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell"
   },
   "reference_sha256": {
-    "krs-verification-surface-l21": "17b34abc524a54f3ce78f34f064f13ee6ef682924511ea38177400cc66094737",
+    "krs-verification-surface-l21": "191374747854a428f95fcab88edcf1ac705429b99a21cb6444b8ab27ee6bb42d",
     "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048",
-    "krs-verification-surface-trusted": "33702242467e6c060b0b6cb3189f2c31e9e5c10b7c0d001e98cf75a2896977c8",
-    "krs-verification-surface-trusted-ablation": "579757a841ca55e559c03d4a70676eac47de1dec111a3a1f5663b0aa4d1b2e2a",
-    "krs-verification-surface-hook": "25faf69d3f861dab5985b9a2fbae3692751b41d9d8b63fa0e0823958eb411609",
-    "krs-verification-surface-hook-ablation": "22a8e80652be3c4a663fd7c4c1dfe46a42c6067c84b0e91cd2bf7e312d3741f0",
-    "krs-verification-surface-conc": "a68176c708ae7d55eb2b97e658d40ab37ca4fb32d70a89a800ff53ff4618e1a9",
-    "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511",
-    "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3",
-    "krs-verification-surface-l22-verification": "c0cef681131c74b6886aa6282a4fe5628344af85c161732d18918d60520df3b6",
-    "krs-verification-surface-l22-lesson": "af0756694576694253e6eb956ae27cff5f6fbb5a8b5eeef9fb63f18d3546c6ab"
+    "krs-verification-surface-trusted": "0e1b7806bfd3d52a09fc26d428b1069271e976ab24c66e05a2bbbaf302734c3b",
+    "krs-verification-surface-trusted-ablation": "9318189f18f240a5359a78f3ac642180d5e25e948e3749096185b0374e1adf31",
+    "krs-verification-surface-hook": "a4895d55617b217902fbe907172587c52d3963082dc51af79276c6e6bbf90267",
+    "krs-verification-surface-hook-ablation": "b14c9f07e5c0ad596090d4a0a88847158de8465ffb55fc97aae17df2b44508d7",
+    "krs-verification-surface-conc": "226fa4cd5281d70e6b495f04e1c65171a51abf44d96d9e6ce15368ee011160cc",
+    "krs-verification-surface-conc-smt-lemma": "a5b1ed5c2ad47d424e1556154728d2919a3f5343d3359aa4da3303524ea68601",
+    "krs-verification-surface-imp-sum": "79d0a9d46ca1a177bb29b3bce38c58fca476630a402d193fdfedd472616c5d17",
+    "krs-verification-surface-l22-verification": "1688167f61d3576b87aa98cf60d3053461d0fc23310cfe7d1b78cc0f14ddcaaf",
+    "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f"
   },
   "outcomes": {
     "krs-verification-surface-l21": {

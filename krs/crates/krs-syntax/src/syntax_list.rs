@@ -516,6 +516,17 @@ fn validate(
                     }
                 };
                 strictness = Some((kind, marker, tokens, helper.span()));
+            } else if is_k_helper(&helper)
+                && helper
+                    .path()
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "symbol")
+            {
+                return Err(invalid(
+                    "a syntactic list's symbols are derived from the enum, `lowerCamel(Enum)` + `Cons` and + `Nil`, so `#[k::symbol]` cannot rename them; rename the enum instead",
+                    helper.span(),
+                ));
             } else if is_k_helper(&helper) {
                 return Err(invalid(
                     "syntactic-list variants take no `#[k::syntax]` or other KRS helper except `strict`: K generates the list syntax and its symbols from the enum",

@@ -22,6 +22,10 @@ impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Ke
         })
     }
 }
+impl ::k::__KrsFunction for KeccakHex {
+    type Result = k::builtin::string::String;
+    type Arguments = (k::builtin::string::String,);
+}
 #[doc(hidden)]
 fn __krs_constructor_descriptor_08a09e281c6e52ab() -> ::core::result::Result<
     ::k::HostDescriptor,

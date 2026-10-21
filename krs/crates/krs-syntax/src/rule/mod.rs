@@ -1,5 +1,6 @@
 mod block;
 mod condition;
+mod equation_table;
 mod existentials;
 mod item;
 mod machine;
@@ -11,6 +12,7 @@ pub use block::{
 };
 pub(crate) use condition::take_requires_helper;
 pub use condition::{RuleCondition, RuleExtra, RuleMapEntry, RuleMapUpdate};
+pub use equation_table::{EquationRow, EquationTable, parse_equation_table_source_with_trivia};
 pub use existentials::RuleExistentials;
 pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;

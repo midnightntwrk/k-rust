@@ -29,11 +29,12 @@ use crate::{
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
 ///
-/// A variant descriptor uses the variant identifier as `item_name` (so the
-/// emitted K label remains `true`, `false`, and so on) and
+/// A variant descriptor uses the variant identifier as `item_name` and
 /// `enum:<owning-enum>` as its disambiguator. This distinguishes
 /// `Boolean::False` from both a same-module `struct False` and
 /// `OtherBoolean::False` without putting `::` into an identity component.
+/// The emitted K symbol of a variant combines both: `lowerCamel(Enum)` +
+/// `Variant` (`booleanFalse`).
 pub const ENUM_VARIANT_DISAMBIGUATOR_PREFIX: &str = "enum:";
 
 /// Derives the stable [`crate::HostItemId`] disambiguator for every descriptor

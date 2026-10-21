@@ -39,6 +39,9 @@ toml_edit = { workspace = true, features = ["display", "parse"] }
 
 [dev-dependencies]
 expect-test.workspace = true
+k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false }
+num-bigint.workspace = true
+proptest.workspace = true
 krs-compiler = { path = "../krs-compiler", features = ["test-support"] }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
 krs-ir-levels = { path = "../krs-ir-levels", features = ["test-support"] }

@@ -2,6 +2,18 @@ const _: () = {
     #[allow(unused_imports)]
     use ExpSyntax::*;
 };
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use ExpSyntax::*;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let e = ();
+    }
+};
 pub fn swap(__krs_symbolic_subject: Exp) -> Exp {
     let _krs_binding_check = || {
         let e = ();
@@ -384,6 +396,18 @@ fn __krs_head_rule_descriptor_3d3454cc60ba3825() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_3d3454cc60ba3825);
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use ExpSyntax::*;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let e = ();
+    }
+};
 pub fn positive(__krs_symbolic_subject: Exp) -> Exp {
     let _krs_binding_check = || {
         let e = ();

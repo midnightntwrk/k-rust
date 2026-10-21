@@ -107,7 +107,8 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     );
     // The status line names the head of `<k>` in the notation of the printed result: KAST for JSON.
     assert!(
-        stderr(&run).ends_with("krs run: stuck after 1 step; <k> starts with `bar(.KList)`\n"),
+        stderr(&run)
+            .ends_with("krs run: stuck after 1 step; <k> starts with `objectBar(.KList)`\n"),
         "{}",
         stderr(&run)
     );
@@ -143,7 +144,7 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     assert_eq!(report["run"]["halt"], "depth-bound");
     assert_eq!(report["run"]["steps"], 0);
     assert!(
-        stderr(&depth_zero).ends_with("<k> starts with `foo(.KList)`\n"),
+        stderr(&depth_zero).ends_with("<k> starts with `objectFoo(.KList)`\n"),
         "{}",
         stderr(&depth_zero)
     );
@@ -238,13 +239,14 @@ fn the_status_line_prints_the_head_of_k_in_the_notation_of_the_result() {
     let kast = krs(target.path(), &manifest, "run", &["--output", "kast"]);
     assert_eq!(kast.status.code(), Some(0), "{}", stderr(&kast));
     assert!(
-        String::from_utf8_lossy(&kast.stdout).contains("wrap(bar(.KList),#token(\"3\",\"Int\"))"),
+        String::from_utf8_lossy(&kast.stdout)
+            .contains("objectWrap(objectBar(.KList),#token(\"3\",\"Int\"))"),
         "{}",
         String::from_utf8_lossy(&kast.stdout)
     );
     assert_eq!(
         stderr(&kast),
-        "krs run: stuck after 1 step; <k> starts with `wrap(bar(.KList),#token(\"3\",\"Int\"))`\n"
+        "krs run: stuck after 1 step; <k> starts with `objectWrap(objectBar(.KList),#token(\"3\",\"Int\"))`\n"
     );
 }
 
@@ -354,7 +356,7 @@ fn programs_parse_bind_and_report_their_errors() {
         &[program, "--output", "json"],
     );
     assert_eq!(parsed.status.code(), Some(0), "{}", stderr(&parsed));
-    assert_eq!(json(&parsed)["term"]["label"]["name"], "foo");
+    assert_eq!(json(&parsed)["term"]["label"]["name"], "objectFoo");
     let program_text = krs(
         target.path(),
         &manifest,

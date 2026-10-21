@@ -22,7 +22,7 @@ sort = "List"
 message = "emitted KMIR definition omits move invalidation"
 [[check.applications]]
 operation = "list.update"
-arguments = [{  }, {  }, { symbol = "typedValue", arguments = [{ symbol = "moved" }, {  }, {  }] }]
+arguments = [{  }, {  }, { symbol = "localValueTypedValue", arguments = [{ symbol = "valueMoved" }, {  }, {  }] }]
 
 [[check]]
 message = "emitted KMIR definition omits aggregate field projection"
@@ -151,8 +151,8 @@ required.terminals = ["decodeFieldsWithOffsets", "neededBytesForOffsets", "field
 message = "emitted KMIR definition omits empty or layout-aware tuple decoding"
 required.terminals = ["typeInfoTupleType"]
 [[check.applications]]
-symbol = "tupleType"
-arguments = [{ symbol = "tysEmpty" }, {  }]
+symbol = "mirTypeInfoTupleType"
+arguments = [{ symbol = "mirTysTysEmpty" }, {  }]
 
 [[check]]
 message = "emitted KMIR definition omits fieldless enum discriminant decoding"
@@ -166,7 +166,7 @@ required.terminals = ["variantsShapeMultiple", "tagEncodingDirect", "integerLeng
 message = "emitted KMIR definition omits niche-pointer None decoding"
 required.terminals = ["primitivePointer", "addressSpace", "tagEncodingNiche"]
 [[check.applications]]
-symbol = "wrappingRange"
+symbol = "mirWrappingRangeWrappingRange"
 arguments = [{ token = "1", sort = "Int" }, { token = "0", sort = "Int" }]
 
 [[check]]

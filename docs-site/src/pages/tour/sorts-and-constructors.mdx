@@ -62,14 +62,14 @@ The program `programs/two.nat` contains `s(s(zero))`, and parsing it prints:
 ```
 
 This is **KAST**, K's notation for terms: a symbol followed by its arguments in parentheses.
-`succ` is the constructor's **symbol**, its identity inside K, which KRS derives from the variant name `Succ`; `s` is only how programs write it.
-`.KList` is the empty argument list of `zero`.
+`natSyntaxSucc` is the constructor's **symbol**, its identity inside K, which KRS derives from the Rust path `NatSyntax::Succ`: the enum's name with a lowercase first letter, then the variant's. `s` is only how programs write it.
+`.KList` is the empty argument list of `natSyntaxZero`.
 Drawn as a tree, the term is:
 
 ```text
-succ
-└── succ
-    └── zero
+natSyntaxSucc
+└── natSyntaxSucc
+    └── natSyntaxZero
 ```
 
 The grammar contains exactly the productions, so a program that no production describes does not parse.
@@ -115,7 +115,7 @@ The next lesson adds function symbols such as `plus`, whose applications are mor
 ```
 
 `syntax Nat` declares the sort, and each `syntax Nat ::= ...` line is one production: quoted terminals, and the sort `Nat` where an argument goes.
-`symbol(succ)` is the symbol you saw in the KAST.
+`symbol(natSyntaxSucc)` is the symbol you saw in the KAST.
 `group(...)` and `format(...)` are details for K's parser and printer, from the precedence list and from pretty-printing; later lessons on precedence and on unparsing cover them.
 `KRS-FRAMEWORK` is the module KRS adds to every definition whose `k::sorts!` names `KItem` or `KResult`; it declares those two sorts, and `syntax KItem ::= Nat` is the `: KItem` from `k::sorts!`.
 The configuration puts the program, `$PGM`, into the `k` cell.
@@ -147,7 +147,7 @@ Are `two` and `s(s(zero))` the same term?
 <summary>Answer</summary>
 
 No.
-The first prints `two(.KList)` and the second `succ(succ(zero(.KList)))`: two different trees.
+The first prints `natSyntaxTwo(.KList)` and the second `natSyntaxSucc(natSyntaxSucc(natSyntaxZero(.KList)))`: two different trees.
 Constructors are free, so nothing makes them equal; only an equation about a function symbol, which the next lesson introduces, can say that a term equals another.
 
 </details>
@@ -173,7 +173,7 @@ krs parse --package tour-nat --definition main programs/after-omega.nat
 <details>
 <summary>Answer</summary>
 
-It prints `succ(omega(.KList))`.
+It prints `natSyntaxSucc(infiniteOmega(.KList))`.
 `omega` is a `Nat` because `Infinite` contributes it to the sort `Nat`, so `s(omega)` is a well-formed `Nat`, even though `NatSyntax` never mentions `omega`.
 
 </details>
@@ -191,7 +191,7 @@ Why does the run take no steps?
 <details>
 <summary>Answer</summary>
 
-Three is `s(s(s(zero)))`, which parses to `succ(succ(succ(zero(.KList))))`.
+Three is `s(s(s(zero)))`, which parses to `natSyntaxSucc(natSyntaxSucc(natSyntaxSucc(natSyntaxZero(.KList))))`.
 The run prints the same term and stops after 0 steps: the definition has no rules, and a constructor term is already a value.
 
 </details>

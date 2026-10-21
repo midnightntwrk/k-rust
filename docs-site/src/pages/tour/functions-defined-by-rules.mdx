@@ -148,11 +148,46 @@ K writes equations and transitions with the same keyword: a rule whose left-hand
 K spells a variable with a capital letter, as in `N`, and may follow it with its sort, as in `N:Nat`; the sort is optional in K, and KRS always writes it.
 The `label(...)` values are generated identities, and the doc comments become K comments.
 
+## Shorter spellings
+
+Two shorthands write the same functions with less ceremony, and mean exactly the struct and the `#[k::equation]` fns above.
+
+A function defined by one equation over variables can be declared as a `fn`, named as its applications are written:
+
+```rust
+/// `double(n)` is `n` plus `n`.
+#[k::function(total, syntax = "double({n})")]
+pub fn Double(n: Term<Nat>) -> Term<Nat> {
+    Plus(n, n)
+}
+```
+
+This is the struct `Double` with the field `n`, `sort = Nat` taken from the return type, and the one equation `double(n) = plus(n, n)`, which is named `double`.
+A function whose equations are cases is declared by a `fn` that ends with `;`, and its equations are rows of a `k::equations!` table:
+
+```rust
+#[k::function(total, syntax = "plus({lhs}, {rhs})")]
+pub fn Plus(lhs: Term<Nat>, rhs: Term<Nat>) -> Term<Nat>;
+
+k::equations! {
+    for Plus;
+    use NatSyntax::*;
+    plus_zero: (Zero(), n) => n;
+    plus_succ: (Succ(m), n) => Succ(Plus(m, n));
+}
+```
+
+Each row is one equation, named by its label: `plus_zero` and `plus_succ` are the same two equations as before, and `krs emit-k` prints the same K.
+The rows are still unordered.
+A function used only by rules, never by programs, may leave out `syntax` when it is marked `internal`; it then gets the default `double({n})`, the [language reference](/reference/language#functions-declared-by-a-fn) explains why only then.
+
 ## Traps for Rust readers
 
 - `fn plus_succ(...) { ... }` looks like executable Rust. It is one equation, it is never called, and its body is a term, not a computation.
 - `pub struct Plus` declares a function symbol, not a data type, and no Rust value of type `Plus` is ever built.
 - Several `#[k::equation]` fns look like ordered `match` arms or overloads. They are unordered equations, and KRS does not check that overlapping ones agree.
+- A `k::equations!` table looks like a `match`, but its rows are unordered too: a last row `_ => ..` does not mean "otherwise", so KRS rejects it beside other rows unless it is marked `#[k::equation(owise)]`.
+- `fn Double(n: Term<Nat>) -> Term<Nat> { .. }` is named in UpperCamelCase because applications write `Double(n)`; like the struct form, it is never called.
 - `partial` suggests `Option` or a panic. An application without a value is not a value that signals an error; there is nothing to inspect or catch, and `krs` keeps its definedness as a condition.
 - The `k::rules!` row of the first lesson named `Red()` without an enum path and without `k::term!`, because its table carries a `use LightSyntax::*;` line. Equations keep the enum path, `NatSyntax::Succ(m)`.
 

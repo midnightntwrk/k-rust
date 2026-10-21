@@ -514,7 +514,32 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
         rule.clauses()[1].as_fixed().unwrap().after(),
         krs_ir::CellPost::Preserve
     ));
-    let (_lowered, emitted) = assert_lowering_contract(&semantic);
+    let (lowered, emitted) = assert_lowering_contract(&semantic);
+    // Each cell records the Rust field that declares it, for tools that address cells by
+    // their KRS names.
+    let fields = lowered
+        .definition()
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .find_map(|sentence| match sentence {
+            krs_ir_levels::DefinitionSentence::Configuration(configuration) => Some(
+                configuration
+                    .cells()
+                    .iter()
+                    .map(|cell| (cell.name().to_owned(), cell.field().map(str::to_owned)))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        fields,
+        [
+            ("k".to_owned(), Some("k".to_owned())),
+            ("env".to_owned(), Some("env".to_owned()))
+        ]
+    );
     let source = emitted.source();
     assert!(source.contains("configuration"));
     assert!(source.contains("<k>"));

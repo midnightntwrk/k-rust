@@ -412,7 +412,10 @@ fn configure(
     };
     Ok(semantics.configure(&ConfigInputs {
         program,
-        variables: variables.to_vec(),
+        variables: variables
+            .iter()
+            .map(|(name, text)| (name.clone(), text.as_str().into()))
+            .collect(),
         stdin,
     })?)
 }
@@ -727,7 +730,8 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::StrayProgram | ExecError::MissingProgram => codes::exec::PROGRAM,
         ExecError::UnknownVariable { .. }
         | ExecError::DuplicateVariable(_)
-        | ExecError::MissingVariables(_) => codes::exec::VARIABLE,
+        | ExecError::MissingVariables(_)
+        | ExecError::Value { .. } => codes::exec::VARIABLE,
         ExecError::Parse { .. } => codes::exec::PARSE,
         ExecError::UnknownSort { .. } | ExecError::NoProgramSort => codes::exec::SORT,
         ExecError::UnknownClaim { .. }

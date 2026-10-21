@@ -93,7 +93,47 @@ pub(crate) fn function(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let function = krs_syntax::FunctionAttribute::parse_tokens(attributes)?;
+    if syn::parse2::<ItemStruct>(item.clone()).is_err()
+        && let Ok(shorthand) = syn::parse2::<krs_syntax::ShorthandItem>(item.clone())
+    {
+        return function_shorthand(env, attributes, shorthand);
+    }
+    let mut function = krs_syntax::FunctionAttribute::parse_tokens(attributes)?;
+    if let Ok(declaration) = krs_syntax::ConstructorDeclaration::parse_tokens(item.clone()) {
+        function.complete_default_syntax(&declaration)?;
+    }
+    function_production(env, &function, item)
+}
+
+/// `#[k::function(..)]` on a `fn`: the function struct, and with a body its
+/// one equation, lowered by the shared parser so that the collector's
+/// reparse sees the same authored tokens.
+fn function_shorthand(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: krs_syntax::ShorthandItem,
+) -> crate::Result<TokenStream> {
+    let shorthand = krs_syntax::FunctionShorthand::lower(attributes, item)?;
+    let production = function_production(
+        env,
+        shorthand.attribute(),
+        shorthand.structure().to_token_stream(),
+    )?;
+    let equation = shorthand
+        .equation()
+        .map(|equation| super::rules::equation_item(env, equation.clone()))
+        .transpose()?;
+    Ok(quote! {
+        #production
+        #equation
+    })
+}
+
+fn function_production(
+    env: &dyn MacroEnvironment,
+    function: &krs_syntax::FunctionAttribute,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
     let totality_anchor = function
         .provenance()?
         .into_iter()
@@ -139,7 +179,7 @@ pub(crate) fn function(
             ))
         })
         .transpose()?;
-    let smt = expanded_smt(&function, &item)?;
+    let smt = expanded_smt(function, &item)?;
     constructor_like(
         env,
         function.production().clone(),
@@ -497,6 +537,7 @@ fn constructor_like(
         },
     };
     let mut field_key_functions = Vec::new();
+    let mut field_types = Vec::new();
     let mut fields = Vec::new();
     for (index, field) in declaration.fields().iter().enumerate() {
         let key = format_ident!(
@@ -512,6 +553,7 @@ fn constructor_like(
         };
         let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();
+        field_types.push(generated.clone());
         field_key_functions.push(quote! {
             #(#cfg)*
             #[doc(hidden)]
@@ -556,6 +598,17 @@ fn constructor_like(
             }
         }
     };
+    // The seam a `k::equations!` header resolves: the function's result
+    // sort, and its argument types for each row's arity check.
+    let function_seam = (functional && generic_parameters.is_empty()).then(|| {
+        quote! {
+            #(#cfg)*
+            impl #facade::__KrsFunction for #declared {
+                type Result = #generated_sort_type;
+                type Arguments = (#(#field_types,)*);
+            }
+        }
+    });
     let grammar = constructor_grammar(
         &facade,
         &attribute,
@@ -646,6 +699,8 @@ fn constructor_like(
         #(#field_key_functions)*
 
         #rule_application
+
+        #function_seam
 
         #factory_tokens
 

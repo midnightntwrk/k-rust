@@ -1,2 +1,2 @@
 $ krs parse --package tour-light --definition main programs/red.light
-red(.KList)
+lightSyntaxRed(.KList)

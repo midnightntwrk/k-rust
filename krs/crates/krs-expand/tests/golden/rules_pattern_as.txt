@@ -2,6 +2,20 @@ const _: () = {
     #[allow(unused_imports)]
     use ExpSyntax::*;
 };
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use ExpSyntax::*;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let p = ();
+        let a = ();
+        let b = ();
+    }
+};
 pub fn dup_pair(__krs_symbolic_subject: Exp) -> Exp {
     let _krs_binding_check = || {
         let p = ();
