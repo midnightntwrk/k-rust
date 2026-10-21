@@ -93,6 +93,23 @@ pub(super) fn locate_all(
         .map_err(unlocatable)?;
         positions.push(Some(path));
     }
+    // The per-case check compares everything outside the holes' check points and checks each
+    // point's value, so one point inside another's subterm would go unchecked. Holes replace
+    // disjoint text, and a located position holds only its hole's value, so this does not
+    // happen; it is refused rather than assumed.
+    let points = check_points(&anchor_configuration, &positions);
+    for pair in points.windows(2) {
+        if pair[1].path.starts_with(pair[0].path) {
+            let hole = &holes.holes[pair[1].hole];
+            return Err(CampaignError::AnchorDoesNotParse {
+                hole: hole.decl.name.clone(),
+                message: format!(
+                    "its position lies inside the position of hole `{}`",
+                    holes.holes[pair[0].hole].decl.name
+                ),
+            });
+        }
+    }
     Ok(RoundTripCheck {
         anchor_configuration,
         names: names(holes),
@@ -364,6 +381,24 @@ fn same_node(left: &KorePattern, right: &KorePattern) -> bool {
         && left_children.len() == right_children.len()
 }
 
+/// [`same_node`], without building the nodes for the variants a configuration is made of.
+fn same_root(left: &KorePattern, right: &KorePattern) -> bool {
+    match (left, right) {
+        (
+            KorePattern::Application {
+                symbol: left_symbol,
+                arguments: left_arguments,
+            },
+            KorePattern::Application {
+                symbol: right_symbol,
+                arguments: right_arguments,
+            },
+        ) => left_symbol == right_symbol && left_arguments.len() == right_arguments.len(),
+        (KorePattern::DomainValue { .. }, KorePattern::DomainValue { .. }) => left == right,
+        _ => same_node(left, right),
+    }
+}
+
 /// The target sort and the argument of an injection `inj{From, To}(argument)`.
 fn injection(pattern: &KorePattern) -> Option<(&KoreSort, &KorePattern)> {
     match pattern {
@@ -403,67 +438,231 @@ fn quote(pattern: &KorePattern) -> String {
     text
 }
 
+/// The KORE symbol of `#location` (module `K-LOCATIONS`): `#location{S}(term, file, line,
+/// column, line, column)` wraps each term of a sort that declares `[locations]`.
+const LOCATION_SYMBOL: &str = "Lbl'Hash'location";
+
+/// Whether `pattern` is a location wrapper `#location{S}(term, file, l1, c1, l2, c2)`.
+fn is_location(pattern: &KorePattern) -> bool {
+    matches!(
+        pattern,
+        KorePattern::Application { symbol, arguments }
+            if symbol.name == LOCATION_SYMBOL && arguments.len() == 6
+    )
+}
+
+/// Whether the case configuration may differ from the anchor configuration in the child at
+/// `index` of `node` although the program is the same: the lines and columns of a location
+/// wrapper, which move when a value printed with another length than its anchor comes before
+/// them on their line, or inside the term they locate.
+fn may_move(node: &KorePattern, index: usize) -> bool {
+    index >= 2 && is_location(node)
+}
+
+/// How a hole's value is checked at its check point.
+#[derive(Clone, Copy)]
+enum Point {
+    /// The check point is the position: it holds the value, or the value injected to another
+    /// sort.
+    Value,
+    /// The check point is the injection above the position in the anchor configuration: a data
+    /// value of another own sort than the anchor's comes with its own injection to the same
+    /// target, and one of the position's own sort with none (D19).
+    Injection,
+}
+
+/// One hole's check point: the path to it, the hole's index and how it is checked.
+struct CheckPoint<'p> {
+    path: &'p [usize],
+    hole: usize,
+    point: Point,
+}
+
+/// The check point of every hole that has a position, ordered by path: its position, or the
+/// injection above it in `anchor` (see [`Point`]).
+fn check_points<'p>(
+    anchor: &KorePattern,
+    positions: &'p [Option<Vec<usize>>],
+) -> Vec<CheckPoint<'p>> {
+    let mut points = positions
+        .iter()
+        .enumerate()
+        .filter_map(|(hole, position)| {
+            let path = position.as_deref()?;
+            let parent = path.split_last().and_then(|(_, upper)| at(anchor, upper));
+            Some(match parent {
+                Some(parent) if injection(parent).is_some() => CheckPoint {
+                    path: &path[..path.len() - 1],
+                    hole,
+                    point: Point::Injection,
+                },
+                _ => CheckPoint {
+                    path,
+                    hole,
+                    point: Point::Value,
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+    points.sort_by(|left, right| left.path.cmp(right.path));
+    points
+}
+
 /// [`RoundTripCheck::check`].
+///
+/// The case configuration must equal the anchor configuration everywhere outside the holes'
+/// positions (review R1), up to the lines and columns of location wrappers ([`may_move`]), and
+/// hold each hole's intended value at its position. A printed value that the grammar reads
+/// differently, at its position (`-5` read as the negation of `5`) or by re-parsing a
+/// neighbouring part of the program, therefore makes the case `rejected`. So does a macro whose
+/// expansion outside the hole's position depends on the value: a false rejection, never a false
+/// acceptance.
+///
+/// The walk descends from the root along the paths to the check points, comparing nodes, and
+/// compares every subterm off those paths whole ([`same_outside_locations`]), so a case costs
+/// one pass over the configuration.
 pub(super) fn check(
     check: &RoundTripCheck,
     assembled: &KorePattern,
     values: &[PrintedValue],
 ) -> Result<(), RoundTripFailure> {
-    for ((position, value), name) in check.positions.iter().zip(values).zip(&check.names) {
-        let Some(path) = position else {
-            continue;
-        };
-        let failure = |found: String| RoundTripFailure {
-            hole: name.clone(),
-            found,
-        };
-        let Some((last, upper)) = path.split_last() else {
-            // The position is the whole configuration.
-            if value_at(assembled, &value.kore) {
-                continue;
+    let anchor = &check.anchor_configuration;
+    let points = check_points(anchor, &check.positions);
+    if points.is_empty() {
+        // KORE-template holes: substitution places their values exactly.
+        return Ok(());
+    }
+    let failure = |hole: usize, found: String| RoundTripFailure {
+        hole: check.names[hole].clone(),
+        found,
+    };
+    // Each entry is a pair of nodes at one path and the check points below it: a contiguous
+    // range of `points`, all of whose paths extend that path, of length `depth`.
+    let mut work = vec![(anchor, assembled, 0, 0..points.len())];
+    // One work list serves every comparison off the paths.
+    let mut scratch = Vec::new();
+    while let Some((expected, actual, depth, range)) = work.pop() {
+        if let Some(here) = points[range.clone()]
+            .iter()
+            .find(|point| point.path.len() == depth)
+        {
+            // Holes do not nest (`locate_all`), so no other check point lies below this one.
+            let value = &values[here.hole].kore;
+            let holds = match here.point {
+                Point::Value => value_at(actual, value),
+                Point::Injection => match (injection(expected), injection(actual)) {
+                    (Some((target, _)), Some((actual_target, child))) => {
+                        actual_target == target && child == value
+                    }
+                    (_, None) => actual == value,
+                    (None, Some(_)) => false,
+                },
+            };
+            if !holds {
+                let found = match (here.point, injection(actual)) {
+                    (Point::Injection, Some((_, child))) => child,
+                    _ => actual,
+                };
+                return Err(failure(here.hole, quote(found)));
             }
-            return Err(failure(quote(assembled)));
-        };
-        let mut expected = &check.anchor_configuration;
-        let mut actual = assembled;
-        for (depth, step) in upper.iter().enumerate() {
-            if !same_node(expected, actual) {
-                return Err(failure(format!(
+            continue;
+        }
+        let nearest = points[range.start].hole;
+        if !same_root(expected, actual) {
+            return Err(failure(
+                nearest,
+                format!(
                     "{} at depth {depth} of the hole's position, where the configuration with \
                      the anchors has {}",
                     quote(actual),
                     quote(expected)
-                )));
-            }
-            let (Some(next_expected), Some(next_actual)) = (
-                walk::children(expected).get(*step).copied(),
-                walk::children(actual).get(*step).copied(),
-            ) else {
-                return Err(failure(format!("no subterm at {path:?}")));
-            };
-            expected = next_expected;
-            actual = next_actual;
+                ),
+            ));
         }
-        // `expected` and `actual` are the nodes above the position. A data value is injected to
-        // its position's sort from its own sort (D19), so a case value of another own sort than
-        // the anchor's comes with another injection, and one of the position's own sort with
-        // none; the value itself must be at the position either way.
-        let holds = if let Some((target, _)) = injection(expected) {
-            match injection(actual) {
-                Some((actual_target, child)) => actual_target == target && *child == value.kore,
-                None => *actual == value.kore,
+        let mut cursor = range.start;
+        for (index, (expected_child, actual_child)) in walk::children(expected)
+            .into_iter()
+            .zip(walk::children(actual))
+            .enumerate()
+        {
+            let start = cursor;
+            while cursor < range.end && points[cursor].path[depth] == index {
+                cursor += 1;
             }
-        } else {
-            same_node(expected, actual)
-                && walk::children(actual)
-                    .get(*last)
-                    .is_some_and(|child| value_at(child, &value.kore))
+            if start < cursor {
+                work.push((expected_child, actual_child, depth + 1, start..cursor));
+            } else if !may_move(expected, index)
+                && let Err((expected_differs, actual_differs)) =
+                    same_outside_locations(expected_child, actual_child, &mut scratch)
+            {
+                return Err(failure(
+                    nearest,
+                    format!(
+                        "{} outside every hole's position, where the configuration with the \
+                         anchors has {}",
+                        quote(actual_differs),
+                        quote(expected_differs)
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether `expected` and `actual` are equal up to the lines and columns of location wrappers
+/// ([`may_move`]); otherwise the outermost pair of differing subterms. Applications and domain
+/// values, which configurations are made of, are compared field by field; any other subterm
+/// whole. `work` is a work list to reuse; its contents are discarded.
+fn same_outside_locations<'p>(
+    expected: &'p KorePattern,
+    actual: &'p KorePattern,
+    work: &mut Vec<(&'p KorePattern, &'p KorePattern)>,
+) -> Result<(), (&'p KorePattern, &'p KorePattern)> {
+    work.clear();
+    work.push((expected, actual));
+    while let Some((expected, actual)) = work.pop() {
+        let same = match (expected, actual) {
+            (
+                KorePattern::Application {
+                    symbol: expected_symbol,
+                    arguments: expected_arguments,
+                },
+                KorePattern::Application {
+                    symbol: actual_symbol,
+                    arguments: actual_arguments,
+                },
+            ) => {
+                let same = expected_symbol == actual_symbol
+                    && expected_arguments.len() == actual_arguments.len();
+                if same {
+                    let compared = if is_location(expected) {
+                        2
+                    } else {
+                        expected_arguments.len()
+                    };
+                    work.extend(
+                        expected_arguments[..compared]
+                            .iter()
+                            .zip(&actual_arguments[..compared]),
+                    );
+                }
+                same
+            }
+            (
+                KorePattern::DomainValue {
+                    sort: expected_sort,
+                    value: expected_value,
+                },
+                KorePattern::DomainValue {
+                    sort: actual_sort,
+                    value: actual_value,
+                },
+            ) => expected_sort == actual_sort && expected_value == actual_value,
+            _ => expected == actual,
         };
-        if !holds {
-            let found = walk::children(actual)
-                .get(*last)
-                .map_or_else(|| quote(actual), |child| quote(child));
-            return Err(failure(found));
+        if !same {
+            return Err((expected, actual));
         }
     }
     Ok(())
@@ -471,9 +670,9 @@ pub(super) fn check(
 
 #[cfg(test)]
 mod tests {
-    use k_rust::kore::parser::parse_pattern;
+    use k_rust::kore::{ast::Sort as KoreSort, parser::parse_pattern};
 
-    use super::locate;
+    use super::{PrintedValue, RoundTripCheck, locate};
 
     fn pattern(text: &str) -> k_rust::kore::ast::Pattern {
         parse_pattern(text).expect("the pattern parses")
@@ -506,6 +705,101 @@ mod tests {
         assert_eq!(
             locate(&at("200p8"), &at("201p8"), &dv("200p8"), &dv("201p8")),
             Ok(vec![0])
+        );
+    }
+
+    /// An `Int` value as the round-trip check compares it.
+    fn int_value(value: &str) -> PrintedValue {
+        PrintedValue {
+            k_text: Some(value.to_owned()),
+            kore: pattern(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#)),
+            sort: KoreSort::Application {
+                name: "SortInt".to_owned(),
+                arguments: Vec::new(),
+            },
+        }
+    }
+
+    fn one_hole(anchor_configuration: &str, position: Vec<usize>) -> RoundTripCheck {
+        RoundTripCheck {
+            anchor_configuration: pattern(anchor_configuration),
+            names: vec!["H".to_owned()],
+            positions: vec![Some(position)],
+        }
+    }
+
+    #[test]
+    fn a_case_that_differs_outside_its_holes_is_rejected() {
+        // The hole is the `1` under `g`; its value is intended at that position and nowhere
+        // else changes the configuration (review R1). A value whose text re-parses into a
+        // neighbouring position keeps the path and the value but changes a neighbour.
+        let check = one_hole(
+            r#"Lblf{}(Lblg{}(\dv{SortInt{}}("1")), \dv{SortInt{}}("2"))"#,
+            vec![0, 0],
+        );
+        let case = |text: &str| check.check(&pattern(text), &[int_value("7")]);
+        assert_eq!(
+            case(r#"Lblf{}(Lblg{}(\dv{SortInt{}}("7")), \dv{SortInt{}}("2"))"#),
+            Ok(())
+        );
+        let failure = case(r#"Lblf{}(Lblg{}(\dv{SortInt{}}("7")), \dv{SortInt{}}("3"))"#)
+            .expect_err("a changed neighbour is rejected");
+        assert_eq!(failure.hole, "H");
+        assert!(failure.found.contains(r#"("3")"#), "{failure:?}");
+        // A difference deep inside a neighbour, and an extra argument, are rejected too.
+        let check = one_hole(
+            r#"Lblf{}(\dv{SortInt{}}("1"), Lblh{}(Lblg{}(\dv{SortInt{}}("2"))))"#,
+            vec![0],
+        );
+        let case = |text: &str| check.check(&pattern(text), &[int_value("7")]);
+        assert!(
+            case(r#"Lblf{}(\dv{SortInt{}}("7"), Lblh{}(Lblg{}(\dv{SortInt{}}("4"))))"#).is_err()
+        );
+        assert!(
+            case(r#"Lblf{}(\dv{SortInt{}}("7"), Lblh{}(Lblg{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("2"))))"#)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn only_the_lines_and_columns_of_locations_may_move() {
+        // `1 + 2` located, with the hole at `1`: a longer value moves the columns of the
+        // hole's location, of the sum's and of the `2` after it, and nothing else.
+        let located = |term: &str, columns: [u32; 2]| {
+            format!(
+                r#"Lbl'Hash'location{{SortExp{{}}}}({term}, \dv{{SortString{{}}}}("p"), \dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("{}"), \dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("{}"))"#,
+                columns[0], columns[1]
+            )
+        };
+        let int = |value: &str| {
+            format!(r#"inj{{SortInt{{}}, SortExp{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#)
+        };
+        let sum = |left: &str, right: &str, columns: [[u32; 2]; 3]| {
+            located(
+                &format!(
+                    "Lblplus{{}}({}, {})",
+                    located(&int(left), columns[0]),
+                    located(&int(right), columns[1])
+                ),
+                columns[2],
+            )
+        };
+        let check = one_hole(&sum("1", "2", [[1, 2], [5, 6], [1, 6]]), vec![0, 0, 0, 0]);
+        assert_eq!(
+            check.check(
+                &pattern(&sum("123", "2", [[1, 4], [7, 8], [1, 8]])),
+                &[int_value("123")]
+            ),
+            Ok(())
+        );
+        // The located terms themselves must still agree.
+        assert!(
+            check
+                .check(
+                    &pattern(&sum("123", "3", [[1, 4], [7, 8], [1, 8]])),
+                    &[int_value("123")]
+                )
+                .is_err()
         );
     }
 }

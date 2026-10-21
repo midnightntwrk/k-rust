@@ -27,8 +27,10 @@
 //! The hole's sort, and every sort its values may contain, must be data ([`check_hole_sort`]).
 //! Builtin sorts with a generator are admitted although programs contain their literals; `K`,
 //! `KItem`, `KResult`, cell sorts, the sorts programs are written in and token sorts such as
-//! `Id` are refused. An override (`allow-refused-sort`) admits all but an undeclared sort, and
-//! the report records it. A template hole's sort must be its variable's sort.
+//! `Id` are refused. An override (`allow-refused-sort`) admits all but an undeclared sort and a
+//! collection element sort the collection cannot hold, and the report records it. A template
+//! hole's sort must be its variable's sort, and a configuration-variable hole's sort the
+//! variable's declared sort or a subsort of it.
 
 mod position;
 mod sorts;
@@ -44,7 +46,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     assemble::ProgramAssembly,
-    error::{CampaignError, SortRefusal},
+    error::{CampaignError, SortRefusal, SpanProblem},
     report::SortOverride,
     spec::{CompiledDefinition, ProgramInput, ProgramText},
     values::{Constraints, TextSyntax, Value, ValueSort, print::parse_k_text, resolve_value_sort},
@@ -242,14 +244,16 @@ pub(crate) struct RoundTripFailure {
 /// Checks, in order: names are unique; each span's `find` occurs exactly once in its line or
 /// text and `literal` exactly once in `find`; configuration-variable and template holes name
 /// a declared and bound variable or a free template variable, and every free template variable
-/// is a hole; spans do not overlap; each sort passes [`check_hole_sort`] (or is overridden) and
+/// is a hole; spans do not overlap; a configuration-variable hole's sort is the variable's
+/// declared sort or a subsort of it; each sort passes [`check_hole_sort`] (or is overridden) and
 /// resolves to a [`ValueSort`] ([`crate::values::resolve_value_sort`]); each anchor text parses
 /// as a value of that sort. `backend` is the baseline's internalized definition. Whether an
 /// anchor parses back *in the program* is checked by [`RoundTripCheck::new`].
 ///
 /// # Errors
 ///
-/// [`CampaignError::DuplicateHole`], [`CampaignError::HoleSpan`],
+/// [`CampaignError::DuplicateHole`], [`CampaignError::HoleSpan`] (with
+/// [`SpanProblem::ConfigVarSort`] for a configuration-variable hole of another sort),
 /// [`CampaignError::OverlappingHoles`], [`CampaignError::RefusedHoleSort`],
 /// [`CampaignError::AnchorDoesNotParse`], [`CampaignError::Definition`] when the definition's
 /// grammar does not resolve.
@@ -302,6 +306,21 @@ pub(crate) fn resolve(
             sort: decl.sort.clone(),
             reason,
         };
+        // A configuration-variable hole's value replaces the whole binding, which is parsed at
+        // the variable's declared sort: a value of another sort would not parse there, or would
+        // parse as something else.
+        if let HoleSite::ConfigVar(name) = &site
+            && let Some(variable_sort) = definition.configuration_variables.get(name)
+        {
+            let sort = k_rust::kast::parser::parse_sort(&decl.sort)
+                .map_err(|_| refuse(SortRefusal::Unknown))?;
+            if !rule.holds(variable_sort, &sort) {
+                return Err(CampaignError::HoleSpan {
+                    hole: decl.name.clone(),
+                    problem: SpanProblem::ConfigVarSort(variable_sort.to_string()),
+                });
+            }
+        }
         let verdict = rule.verdict(decl)?;
         let mut refusals = verdict.all(&decl.sort);
         if let Some((_, reason)) = refusals.first()
@@ -360,18 +379,23 @@ pub(crate) fn resolve(
 /// declared element sorts, and transitively the argument sorts of the main module's productions
 /// of a data sort, so `List<Stmt>`, `List<K>` and a record holding an `AExp` are refused. A
 /// collection reached inside a data sort declares no element sorts, so it holds `KItem`s and is
-/// refused as a computation.
+/// refused as a computation. A collection hole's declared element sorts must be sorts its
+/// element production takes (the sort it takes or a subsort of it; any sort for the builtin
+/// collections' `KItem`): a list of `Stmt` declared with `Int` elements is refused with
+/// [`SortRefusal::ElementNotHeld`], which no override admits.
 ///
 /// Returns `Ok(None)` for an admitted sort and `Ok(Some(refusal))` for a refused sort that
 /// `decl.allow_refused_sort` admits (recorded in the report). A sort the definition does not
-/// declare is refused whatever the override. Whether a hooked sort has a generator is
-/// [`crate::values::resolve_value_sort`]'s part of the rule.
+/// declare, and an element sort the collection cannot hold, are refused whatever the override.
+/// Whether a hooked sort has a generator is [`crate::values::resolve_value_sort`]'s part of the
+/// rule.
 ///
 /// The sorts programs are written in are those reachable from the program's start sort (krun's
-/// `--sort`, or the declared sort of `$PGM` when the program has no text) through the
-/// productions of the syntax module. Every sort is a `KItem`, so when that start sort is `K` or
-/// `KItem` (or the closure reaches one of them) they are every non-hooked sort the syntax
-/// module declares.
+/// `--sort`, or the declared sort of `$PGM` when the program has no text), and from the declared
+/// sorts of the configuration variables whose cells name the syntax module as their parser,
+/// through the productions of the syntax module. Every sort is a `KItem`, so when one of these
+/// sorts is `K` or `KItem` (or the closure reaches one of them) they are every non-hooked sort
+/// the syntax module declares.
 ///
 /// # Errors
 ///
@@ -512,9 +536,11 @@ fn replace_spans(text: &str, mut edits: Vec<(usize, usize, &str)>) -> String {
 /// value of its sort. Every difference between the two configurations must lie inside one
 /// subterm, which holds the anchor's KORE in the first and the second value's KORE in the
 /// second; the path to that subterm is the hole's position. Per case, the configuration must
-/// have the anchor configuration's constructors along each hole's path, and the intended value
-/// at its end. A value that the grammar reads differently (`-5` read as the negation of `5`)
-/// changes the constructors on the path or the value at its end, and the case is `rejected`.
+/// equal the anchor configuration everywhere outside the holes' positions, up to the lines and
+/// columns of location wrappers, and hold the intended value at each position. A value that the
+/// grammar reads differently, at its position (`-5` read as the negation of `5`) or by
+/// re-parsing a neighbouring part of the program, changes the configuration outside the value,
+/// and the case is `rejected`.
 ///
 /// A KORE-template hole needs no check: substitution places its KORE exactly.
 pub(crate) struct RoundTripCheck {

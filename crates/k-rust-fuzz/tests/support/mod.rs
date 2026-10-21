@@ -591,6 +591,30 @@ fixture!(
 );
 // No program: the values tests assemble `run` with one binding per configuration variable.
 fixture!(VALUES, "values/values.k", "VALUES", &[]);
+// The hole-sort rule's reach beyond the program sort, and a round trip under locations (HARD-A).
+fixture!(
+    ELEMENTS,
+    "elements/elements.k",
+    "ELEMENTS",
+    &[program!("elements/sum.pgm")]
+);
+fixture!(
+    SYNTAXVARS,
+    "syntaxvars/syntaxvars.k",
+    "SYNTAXVARS",
+    &[program!(
+        "syntaxvars/go.pgm",
+        "LIB" = "syntaxvars/go.lib",
+        "C" = "syntaxvars/go.c",
+        "SHAPE" = "syntaxvars/go.shape"
+    )]
+);
+fixture!(
+    LOCATED,
+    "located/located.k",
+    "LOCATED",
+    &[program!("located/sum.pgm")]
+);
 
 // The stall benchmark's maze (FZ-13); `tests/data/maze/harness.rs` holds its cells.
 fixture!(MAZE, "maze/maze.k", "MAZE", &[program!("maze/walk.pgm")]);
@@ -602,7 +626,7 @@ fixture!(DICT, "dict/dict.k", "DICT", &[program!("dict/run.pgm")]);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 28] = [
+pub static ALL: [&Fixture; 31] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -629,6 +653,9 @@ pub static ALL: [&Fixture; 28] = [
     &WRAPS,
     &STREAMS,
     &VALUES,
+    &ELEMENTS,
+    &SYNTAXVARS,
+    &LOCATED,
     &MAZE,
     &DICT,
 ];

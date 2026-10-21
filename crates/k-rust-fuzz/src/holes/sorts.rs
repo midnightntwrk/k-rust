@@ -5,8 +5,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
-    definition::{AttributeKey, ProductionItem, ResolvedDefinition, Sentence},
+    definition::{AttributeKey, PartialOrder, ProductionItem, ResolvedDefinition, Sentence},
     kast::{Sort as KastSort, parser::parse_sort},
+    kompile::initial_configuration::parser_modules,
     names::BuiltinSort,
 };
 
@@ -25,6 +26,14 @@ const K_INTERNAL_SORTS: [&str; 3] = ["KResult", "KBott", "KConfigVar"];
 /// `KItem`s, which may be computations or program syntax.
 const COLLECTION_HOOKS: [&str; 4] = ["LIST.List", "SET.Set", "MAP.Map", "RANGEMAP.RangeMap"];
 
+/// The hooks of the builtin collections' element productions (`ListItem`, `SetItem`, `_|->_`).
+const ELEMENT_HOOKS: [&str; 4] = [
+    "LIST.element",
+    "SET.element",
+    "MAP.element",
+    "RANGEMAP.element",
+];
+
 /// The facts of one definition the rule reads, by sort head name.
 pub(super) struct SortRule {
     /// Sorts the main module declares, generated cell sorts included.
@@ -42,6 +51,11 @@ pub(super) struct SortRule {
     /// sorts a value of it may contain directly (a subsort declaration `syntax A ::= B` is such
     /// a production; functions, macros and aliases are not, since no value is built with them).
     contents: BTreeMap<String, BTreeSet<String>>,
+    /// For each collection sort, the argument sorts of its element production (`KItem` for the
+    /// builtin `ListItem`, `Stmt` for a user list `stmt(Stmt)`).
+    elements: BTreeMap<String, Vec<KastSort>>,
+    /// The main module's subsort order, by which a value of one sort is a value of another.
+    subsorts: PartialOrder<KastSort>,
 }
 
 /// The outcome of the rule for one hole, before its override is applied.
@@ -121,7 +135,14 @@ impl SortRule {
             .iter()
             .map(|sort| sort.name.clone())
             .collect();
-        let contents = productions(&frontend.sentences(main), Productions::Constructors);
+        let main_sentences = frontend.sentences(main);
+        let contents = productions(&main_sentences, Productions::Constructors);
+        let elements = element_productions(&main_sentences);
+        let subsorts = frontend
+            .subsorts(main)
+            .map_err(|cycle| CampaignError::Definition {
+                message: format!("the subsort order has a cycle: {cycle:?}"),
+            })?;
 
         // Cell sorts exist only once the configuration is compiled, so they are read from the
         // execution definition: the sorts of cell productions, of cell fragments and absent
@@ -159,25 +180,14 @@ impl SortRule {
         }
         declared.extend(cells.iter().cloned());
 
-        let start = match program {
-            ProgramInput::Source(source) => match &source.program {
-                Some(text) => Some(parse_sort(&text.start_sort).map_err(|error| {
-                    CampaignError::InvalidOptions {
-                        message: format!("start sort `{}`: {error}", text.start_sort),
-                    }
-                })?),
-                None => definition.configuration_variables.get("PGM").cloned(),
-            },
-            ProgramInput::KoreTemplate(_) => definition.configuration_variables.get("PGM").cloned(),
-        };
-        let program_syntax = match start {
-            Some(start) => {
-                let syntax = frontend
-                    .module_id(&definition.syntax_module)
-                    .ok_or_else(|| missing(&definition.syntax_module))?;
-                program_syntax(&frontend.sentences(syntax), &start, &hooked)
-            }
-            None => BTreeSet::new(),
+        let seeds = closure_seeds(program, definition, &frontend)?;
+        let program_syntax = if seeds.is_empty() {
+            BTreeSet::new()
+        } else {
+            let syntax = frontend
+                .module_id(&definition.syntax_module)
+                .ok_or_else(|| missing(&definition.syntax_module))?;
+            program_syntax(&frontend.sentences(syntax), &seeds, &hooked)
         };
         Ok(Self {
             declared,
@@ -186,7 +196,38 @@ impl SortRule {
             cells,
             program_syntax,
             contents,
+            elements,
+            subsorts,
         })
+    }
+
+    /// Whether every value of `sort` is a value of `position`: `position` is `sort`, a
+    /// supersort of it, or `K` or `KItem`, which every sort is part of.
+    pub(super) fn holds(&self, position: &KastSort, sort: &KastSort) -> bool {
+        position.name == BuiltinSort::K.k_name()
+            || position.name == BuiltinSort::KItem.k_name()
+            || self.subsorts.less_than_eq(sort, position)
+    }
+
+    /// The first declared element sort of collection `collection` that its element production
+    /// does not take, with the sort that production takes there. A value of a collection sort
+    /// is built from its unit, element and concatenation productions, so its elements are
+    /// values of the element production's argument sorts: a declared element sort must be that
+    /// sort or a subsort of it (any sort, for the builtin collections' `KItem`). A collection
+    /// without a unique element production, and declared elements of the wrong shape, are left
+    /// to the value resolution, which refuses them.
+    fn element_not_held(&self, collection: &str, declared: &[&String]) -> Option<(String, String)> {
+        let arguments = self.elements.get(collection)?;
+        if arguments.len() != declared.len() {
+            return None;
+        }
+        declared
+            .iter()
+            .zip(arguments)
+            .find_map(|(declared, argument)| {
+                let sort = parse_sort(declared).ok()?;
+                (!self.holds(argument, &sort)).then(|| ((*declared).clone(), argument.to_string()))
+            })
     }
 
     /// The K names of the sorts whose values are not data, which a data table must not enter
@@ -240,19 +281,27 @@ impl SortRule {
             reason: SortRefusal::Unknown,
         };
         let sort = parse_sort(&decl.sort).map_err(|_| unknown())?;
-        let (own, contained) = match self.kind(&sort.name) {
+        let kind = self.kind(&sort.name);
+        let declared = match &decl.constraints.elements {
+            None => Vec::new(),
+            Some(ElementSorts::Elements { element }) => vec![element],
+            Some(ElementSorts::Entries { key, value }) => vec![key, value],
+        };
+        if matches!(kind, Kind::Collection)
+            && let Some((declared, element)) = self.element_not_held(&sort.name, &declared)
+        {
+            return Err(CampaignError::RefusedHoleSort {
+                hole: decl.name.clone(),
+                sort: decl.sort.clone(),
+                reason: SortRefusal::ElementNotHeld { declared, element },
+            });
+        }
+        let (own, contained) = match kind {
             Kind::Unknown => return Err(unknown()),
             Kind::Refused(reason) => (Some(reason), Ok(Vec::new())),
             Kind::Builtin => (None, Ok(Vec::new())),
             // A collection without declared element sorts is refused by the value resolution.
-            Kind::Collection => (
-                None,
-                match &decl.constraints.elements {
-                    None => Ok(Vec::new()),
-                    Some(ElementSorts::Elements { element }) => self.contained(&[element]),
-                    Some(ElementSorts::Entries { key, value }) => self.contained(&[key, value]),
-                },
-            ),
+            Kind::Collection => (None, self.contained(&declared)),
             Kind::Data => (
                 None,
                 self.contained(
@@ -332,6 +381,78 @@ impl SortRule {
     }
 }
 
+/// The sorts the program-syntax closure starts from: the program's start sort (krun's
+/// `--sort`, or the declared sort of `$PGM` when the program has no text), and the declared
+/// sorts of the configuration variables read with the syntax module.
+fn closure_seeds(
+    program: &ProgramInput,
+    definition: &CompiledDefinition,
+    frontend: &ResolvedDefinition,
+) -> Result<Vec<KastSort>, CampaignError> {
+    let start = match program {
+        ProgramInput::Source(source) => match &source.program {
+            Some(text) => Some(parse_sort(&text.start_sort).map_err(|error| {
+                CampaignError::InvalidOptions {
+                    message: format!("start sort `{}`: {error}", text.start_sort),
+                }
+            })?),
+            None => definition.configuration_variables.get("PGM").cloned(),
+        },
+        ProgramInput::KoreTemplate(_) => definition.configuration_variables.get("PGM").cloned(),
+    };
+    // A configuration variable whose cell names the syntax module as its parser
+    // (`<lib parser="LIB, IMP-SYNTAX">`) is read as the program is, so its declared sort
+    // starts the closure too. One read with the default parser, the main module, is not:
+    // that module also parses data, even where it is the syntax module itself.
+    let syntax_variables = parser_modules(frontend, &definition.main_module)
+        .map_err(|message| CampaignError::Definition {
+            message: format!("the configuration's parser attributes: {message}"),
+        })?
+        .into_iter()
+        .filter(|(name, module)| name != "PGM" && *module == definition.syntax_module)
+        .filter_map(|(name, _)| definition.configuration_variables.get(&name).cloned());
+    Ok(start.into_iter().chain(syntax_variables).collect())
+}
+
+/// For each sort with an element production among `sentences` (one hooked `LIST.element`,
+/// `SET.element`, `MAP.element` or `RANGEMAP.element`), the sorts of its non-terminals; a sort
+/// with more than one is left out.
+fn element_productions(sentences: &[&Sentence]) -> BTreeMap<String, Vec<KastSort>> {
+    let mut found = BTreeMap::<String, Option<Vec<KastSort>>>::new();
+    for sentence in sentences {
+        let Sentence::Production {
+            sort,
+            items,
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if !attributes
+            .string(AttributeKey::Hook)
+            .is_some_and(|hook| ELEMENT_HOOKS.contains(&hook))
+        {
+            continue;
+        }
+        let arguments = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                _ => None,
+            })
+            .collect();
+        found
+            .entry(sort.name.clone())
+            .and_modify(|unique| *unique = None)
+            .or_insert(Some(arguments));
+    }
+    found
+        .into_iter()
+        .filter_map(|(sort, arguments)| Some((sort, arguments?)))
+        .collect()
+}
+
 /// For each sort, the sorts of the non-terminals of its productions among `sentences` (with
 /// [`Productions::Constructors`], of its constructors only). A non-terminal whose sort is or
 /// mentions a parameter of a parametric production (`syntax {S} Box ::= box(S)`) may hold a
@@ -386,26 +507,31 @@ fn mentions(sort: &KastSort, parameters: &[KastSort]) -> bool {
             .any(|argument| mentions(argument, parameters))
 }
 
-/// The sorts programs are written in: those reachable from `start` through the productions of
-/// the syntax module (`sentences`), where a production of a reached sort reaches the sorts of
-/// its non-terminals and a subsort declaration (`syntax AExp ::= Int`) is such a production.
+/// The sorts programs are written in: those reachable from the `seeds` (the program's start
+/// sort and the sorts of the configuration variables read with the syntax module) through the
+/// productions of the syntax module (`sentences`), where a production of a reached sort reaches
+/// the sorts of its non-terminals and a subsort declaration (`syntax AExp ::= Int`) is such a
+/// production.
 ///
 /// The productions of a hooked sort are not followed: a builtin's literals are exempt, and its
 /// operations over `K` (`size(Map)`, `K ==K K`) do not put a program in every sort.
 ///
-/// Every sort is a `KItem`, but the frontend writes no production for that subsorting. When the
-/// start sort is `K` or `KItem`, or the closure reaches one of them or a builtin collection
+/// Every sort is a `KItem`, but the frontend writes no production for that subsorting. When a
+/// seed is `K` or `KItem`, or the closure reaches one of them or a builtin collection
 /// (which holds `KItem`s), a program may therefore be written in any sort of the syntax module,
 /// and every non-hooked sort it declares is taken (D17).
 fn program_syntax(
     sentences: &[&Sentence],
-    start: &KastSort,
+    seeds: &[KastSort],
     hooked: &BTreeMap<String, String>,
 ) -> BTreeSet<String> {
     let contents = productions(sentences, Productions::All);
     let any_item = [BuiltinSort::K, BuiltinSort::KItem].map(BuiltinSort::k_name);
-    let mut reached = BTreeSet::from([start.name.clone()]);
-    let mut pending = vec![start.name.clone()];
+    let mut reached = seeds
+        .iter()
+        .map(|seed| seed.name.clone())
+        .collect::<BTreeSet<_>>();
+    let mut pending = reached.iter().cloned().collect::<Vec<_>>();
     let mut every_sort = false;
     while let Some(sort) = pending.pop() {
         if any_item.contains(&sort.as_str()) {
