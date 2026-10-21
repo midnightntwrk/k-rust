@@ -957,9 +957,11 @@ impl Walk<'_, '_> {
                 };
                 // A child is what the sides share alone where this term holds the rewrite in
                 // another of its arguments; a k-sequence's rewrite splices the whole sequence.
+                // An application's children share this term's position, so where no shared part
+                // is read here, none is read there, and the search for a rewrite is skipped.
                 let children_alone = match term {
                     Term::Sequence(_) => false,
-                    Term::Apply { .. } => holds_rewrite(term),
+                    Term::Apply { .. } => !self.shared_alone(context, false) && holds_rewrite(term),
                     Term::Rewrite { .. }
                     | Term::As { .. }
                     | Term::InjectedLabel(_)
