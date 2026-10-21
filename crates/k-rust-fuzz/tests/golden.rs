@@ -131,7 +131,7 @@ fn violation(pattern: &str) -> Target {
 /// - UNSIGNED with a range that excludes the anchor and admits negative values, which do not
 ///   round-trip: rejections for two reasons;
 /// - VALUES with a `Map` configuration-variable hole and a target that needs three entries: a
-///   map witness that shrinks by whole entries (ENGINE_VERSION 2);
+///   map witness that shrinks by whole entries (`ENGINE_VERSION` 2);
 /// - DICT's `goal` with blind and the dictionary: a witness of harvested values, shrunk by
 ///   moves;
 /// - DICT's `probe` under a pattern target, with the dictionary alone: the pattern's own
@@ -195,50 +195,7 @@ fn golden_reports() -> Vec<FuzzReport> {
         spec.target = violation("<k> .K </k> <out> ListItem(N:Int) </out> requires N ==Int 9");
         spec
     };
-    let map = {
-        let compiled = VALUES.compiled();
-        let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0000_3a95);
-        spec.definitions = Definitions {
-            baseline: Arc::new(compiled.definition()),
-            mutant: None,
-        };
-        let bindings = [
-            ("SHAPE", "circle(5)"),
-            ("REC", "rec(1, unit, leaf(0))"),
-            ("PAIR", "1 & 2"),
-            ("WRAPPER", "wrap(3)"),
-            ("ACCOUNT", "account(1, .Map)"),
-            ("LIST", ".List"),
-            ("SET", ".Set"),
-            ("MAP", ".Map"),
-        ];
-        spec.program = ProgramInput::Source(ProgramSource {
-            program: Some(ProgramText {
-                name: "values/run.pgm".into(),
-                text: "run".into(),
-                start_sort: "Pgm".into(),
-            }),
-            config_vars: bindings
-                .iter()
-                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-                .collect(),
-        });
-        spec.holes = vec![HoleDecl {
-            name: "M".into(),
-            sort: "Map".into(),
-            location: HoleLocation::ConfigVar { name: "MAP".into() },
-            constraints: Constraints {
-                elements: Some(ElementSorts::Entries {
-                    key: "Int".into(),
-                    value: "Int".into(),
-                }),
-                ..Constraints::default()
-            },
-            allow_refused_sort: false,
-        }];
-        spec.target = violation("<k> .K </k> <map> M:Map </map> requires size(M) >=Int 3");
-        spec
-    };
+    let map = map_campaign();
     let coin_spec = coin.clone();
     [
         (le, Budget::Cases(40)),
@@ -255,6 +212,53 @@ fn golden_reports() -> Vec<FuzzReport> {
             .run(budget, None)
     })
     .collect()
+}
+
+/// VALUES with a `Map` configuration-variable hole of `Int` keys and values, and a target that
+/// needs three entries (see [`golden_reports`]).
+fn map_campaign() -> CampaignSpec {
+    let compiled = VALUES.compiled();
+    let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0000_3a95);
+    spec.definitions = Definitions {
+        baseline: Arc::new(compiled.definition()),
+        mutant: None,
+    };
+    let bindings = [
+        ("SHAPE", "circle(5)"),
+        ("REC", "rec(1, unit, leaf(0))"),
+        ("PAIR", "1 & 2"),
+        ("WRAPPER", "wrap(3)"),
+        ("ACCOUNT", "account(1, .Map)"),
+        ("LIST", ".List"),
+        ("SET", ".Set"),
+        ("MAP", ".Map"),
+    ];
+    spec.program = ProgramInput::Source(ProgramSource {
+        program: Some(ProgramText {
+            name: "values/run.pgm".into(),
+            text: "run".into(),
+            start_sort: "Pgm".into(),
+        }),
+        config_vars: bindings
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect(),
+    });
+    spec.holes = vec![HoleDecl {
+        name: "M".into(),
+        sort: "Map".into(),
+        location: HoleLocation::ConfigVar { name: "MAP".into() },
+        constraints: Constraints {
+            elements: Some(ElementSorts::Entries {
+                key: "Int".into(),
+                value: "Int".into(),
+            }),
+            ..Constraints::default()
+        },
+        allow_refused_sort: false,
+    }];
+    spec.target = violation("<k> .K </k> <map> M:Map </map> requires size(M) >=Int 3");
+    spec
 }
 
 /// The golden campaigns that enable the dictionary (see [`golden_reports`]); `coin` is the
