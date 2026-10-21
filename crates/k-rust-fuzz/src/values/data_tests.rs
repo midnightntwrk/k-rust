@@ -1413,3 +1413,25 @@ fn a_machine_integer_inside_a_data_value_prints_only_with_z3_inference() {
     }
     assert!(matches!(kore, Pattern::Application { .. }));
 }
+
+/// HARD-B review S3: generated values stay within [`super::MAX_VALUE_DEPTH`], the deepest value
+/// a report reads back: lists and maps of trees at the deepest depth bound the size budget
+/// admits pass the check that bounds the depth (`draw_checked` checks every draw).
+#[test]
+fn generated_values_fit_in_a_report() {
+    let definition = values();
+    let syntax = values_syntax();
+    for (name, constraints) in [("List", elements("Tree")), ("Map", entries("Tree", "Tree"))] {
+        let sort = resolve(definition, &syntax, name, &constraints);
+        let bounds = (0..=super::MAX_DEPTH)
+            .rev()
+            .map(|depth| GenerationBounds {
+                depth,
+                ..GenerationBounds::default()
+            })
+            .find(|bounds| Generator::new(&sort, &none(), bounds).is_ok())
+            .expect("some depth generates");
+        assert!(bounds.depth >= 8, "{name}: depth {}", bounds.depth);
+        draw_checked(&sort, &none(), &bounds, 50);
+    }
+}

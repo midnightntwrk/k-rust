@@ -919,4 +919,54 @@ mod tests {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
+
+    /// HARD-B review S3: every value a campaign admits reads back from its report. A value
+    /// nested [`crate::values::MAX_VALUE_DEPTH`] levels deep, in the JSON shape that nests most
+    /// per level (an application's or a map entry's three arrays and objects, two for its leaf),
+    /// as a witness hole's value and as an explicit assignment, reads back through
+    /// [`FuzzReport::from_json`] and `serde_json`'s recursion limit; one level deeper, which the
+    /// values module refuses, does not, so the bound is the largest that holds.
+    #[test]
+    fn the_deepest_admitted_value_reads_back_from_a_report() {
+        let chain = |levels: usize, map: bool| {
+            let mut value = Value::MInt {
+                width: 8,
+                value: 1u32.into(),
+            };
+            for _ in 1..levels {
+                value = if map {
+                    Value::Map(vec![(Value::Int(BigInt::from(0)), value)])
+                } else {
+                    Value::Apply {
+                        symbol: "s".into(),
+                        arguments: vec![value],
+                    }
+                };
+            }
+            value
+        };
+        let with = |value: Value| {
+            let mut report = fixed_report();
+            if let CampaignOutcome::WitnessFound { witness } = &mut report.outcome {
+                witness.first.holes[0].value = value.clone();
+                if let Some(shrunk) = &mut witness.shrunk {
+                    shrunk.holes[0].value = value.clone();
+                }
+            }
+            report.identity.proposers.explicit[0].insert("AMOUNT".into(), value);
+            report
+        };
+        let most = crate::values::MAX_VALUE_DEPTH;
+        for map in [false, true] {
+            let report = with(chain(most, map));
+            let read = FuzzReport::from_json(&report.to_canonical_json());
+            assert_eq!(read.as_ref().ok(), Some(&report), "{most} levels: {read:?}");
+            let deeper = with(chain(most + 1, map)).to_canonical_json();
+            assert!(
+                FuzzReport::from_json(&deeper).is_err(),
+                "{} levels",
+                most + 1
+            );
+        }
+    }
 }

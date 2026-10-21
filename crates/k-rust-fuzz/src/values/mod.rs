@@ -396,10 +396,32 @@ pub const MAX_VALUE_SIZE: u128 = 1 << 17;
 /// value down (a builtin is 1 level, `leaf(0)` 2, a collection one more than its deepest
 /// element). Both recurse once per level, and an anchor written by hand can be nested to any
 /// depth, which the frontend reads, so a deeper value is refused rather than allowed to exhaust
-/// the stack (FZ-G6+09 review N8). Generated values are at most [`MAX_DEPTH`] constructors deep;
-/// this bound leaves room for hand-written anchors, such as a K user list (`List{Int, ","}`) of
-/// a thousand items, and its recursion fits in a 2 MiB thread stack.
-pub const MAX_VALUE_DEPTH: usize = 1024;
+/// the stack (FZ-G6+09 review N8).
+///
+/// The bound is the deepest value a report can carry and read back (HARD-B review S3): every
+/// admitted value can become a witness's hole value (the anchors are the first case), and
+/// [`crate::FuzzReport::from_json`] reads with `serde_json`'s recursion limit, which accepts at
+/// most [`JSON_NESTING_LIMIT`] nested arrays and objects. A hole value sits inside
+/// [`REPORT_VALUE_NESTING`] of them, and a value nests at most three per level (an
+/// application's tag, fields and argument array; a map's tag, entry array and entry pair) and two
+/// for its leaf, so `REPORT_VALUE_NESTING + 3 * (levels - 1) + 2` must not exceed the limit:
+/// 40 levels. Generated values stay far below it: at most a collection level, [`MAX_DEPTH`]
+/// constructor levels and a builtin leaf.
+pub const MAX_VALUE_DEPTH: usize = (JSON_NESTING_LIMIT - REPORT_VALUE_NESTING - 2) / 3 + 1;
+
+/// The most nested arrays and objects `serde_json`'s default recursion limit (128) reads.
+const JSON_NESTING_LIMIT: usize = 127;
+
+/// The arrays and objects that enclose a witness's hole value in a report: the report, its
+/// outcome, the witness, the witness case, its hole list and the hole (an explicit assignment
+/// sits inside one fewer). `report::tests::the_deepest_admitted_value_reads_back_from_a_report`
+/// pins it.
+const REPORT_VALUE_NESTING: usize = 6;
+
+const _: () = assert!(
+    MAX_DEPTH as usize + 2 <= MAX_VALUE_DEPTH,
+    "a generated value must fit in a report"
+);
 
 /// Check `bounds` against [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and [`MAX_DEPTH`].
 /// [`Generator::new`] calls it.
