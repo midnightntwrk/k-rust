@@ -1471,13 +1471,41 @@ export function formatKoreDefinition(source: string, width?: number): string {
  * refuses throw.
  */
 export function runFuzzCampaign(options: FuzzCampaignOptions): FuzzCampaignResult {
+  refuseUnknownFields(options, [...FUZZ_DEFINITION_FIELDS, 'mutant', 'campaign'], 'options')
   const { mutant, campaign, ...baseline } = options
+  if (mutant !== undefined) refuseUnknownFields(mutant, FUZZ_DEFINITION_FIELDS, 'options.mutant')
   const json = runFuzzCampaignNative({
     ...nativeFuzzDefinition(baseline),
     mutant: mutant === undefined ? undefined : nativeFuzzDefinition(mutant),
     campaign: JSON.stringify(campaign),
   })
   return { json, report: JSON.parse(json) as FuzzReport }
+}
+
+/** The fields of `FuzzDefinitionOptions`, which a call's options and its mutant may hold. */
+const FUZZ_DEFINITION_FIELDS: readonly string[] = [
+  'definition',
+  'moduleName',
+  'syntaxModule',
+  'sourceName',
+  'sources',
+  'markdownSelector',
+  'includePrelude',
+]
+
+/**
+ * Throws for a field of `value` outside `allowed`. The native conversion drops fields it does
+ * not know, so a misspelt option (`syntaxModul`) would otherwise take its default silently; the
+ * campaign itself is read by the fuzz library, which refuses unknown fields at any depth.
+ */
+function refuseUnknownFields(value: object, allowed: readonly string[], where: string): void {
+  for (const field of Object.keys(value)) {
+    if (!allowed.includes(field)) {
+      throw new Error(
+        `${where}: unknown field \`${field}\`, expected one of ${allowed.map((name) => `\`${name}\``).join(', ')}`,
+      )
+    }
+  }
 }
 
 function nativeFuzzDefinition(options: FuzzDefinitionOptions): NativeFuzzDefinition {
