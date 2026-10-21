@@ -1238,3 +1238,45 @@ fn shrinking_a_map_removes_its_entries_whole() {
         assert!(removals > 0, "{label}: no candidate removed an entry");
     }
 }
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6+09 review N7: a refused element sort keeps its reason.
+
+/// A collection whose element, key or value sort is refused is refused with that sort and its
+/// own reason, not a bare `Collection`; a collection without element sorts, or with element
+/// sorts of the wrong shape, is still `Collection`.
+#[test]
+fn a_refused_element_sort_keeps_its_reason() {
+    let definition = values();
+    let syntax = values_syntax();
+    let refused = |element: &str, reason| {
+        Err(SortRefusal::ElementRefused {
+            element: element.into(),
+            reason: Box::new(reason),
+        })
+    };
+    let resolve = |sort: &str, constraints: &Constraints| {
+        syntax.resolve(sort, constraints, &definition.backend)
+    };
+    assert_eq!(
+        resolve("List", &elements("Stmt")),
+        refused("Stmt", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(
+        resolve("Set", &elements("K")),
+        refused("K", SortRefusal::Computation)
+    );
+    assert_eq!(
+        resolve("Map", &entries("NoSuchSort", "Int")),
+        refused("NoSuchSort", SortRefusal::Unknown)
+    );
+    assert_eq!(
+        resolve("Map", &entries("Int", "Stmt")),
+        refused("Stmt", SortRefusal::ProgramSyntax)
+    );
+    assert_eq!(resolve("List", &none()), Err(SortRefusal::Collection));
+    assert_eq!(
+        resolve("List", &entries("Int", "Int")),
+        Err(SortRefusal::Collection)
+    );
+}

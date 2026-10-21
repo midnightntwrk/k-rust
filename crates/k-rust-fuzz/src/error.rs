@@ -38,8 +38,16 @@ pub enum SortRefusal {
     Token,
     /// A hooked sort without a generator (`Float`, `KVar`, IO handles).
     NoGenerator,
-    /// A collection sort without declared element sorts, or with refused element sorts.
+    /// A collection sort without declared element sorts, or with element sorts of the wrong
+    /// shape (entries for a list, one element sort for a map).
     Collection,
+    /// A collection hole's declared element, key or value sort is refused, for `reason`.
+    ElementRefused {
+        /// The refused element sort, as declared.
+        element: String,
+        /// Why it is refused.
+        reason: Box<SortRefusal>,
+    },
     /// The sort is missing on one side of a differential campaign (ARCHITECTURE 4.3, R-14).
     MissingOnSide {
         /// `"baseline"` or `"mutant"`.

@@ -462,8 +462,9 @@ impl Default for GenerationBounds {
 ///   `MINT.MInt` sort without a width), a parametric data sort, and a data sort of which no value
 ///   can be built from admissible constructors and inhabited argument sorts;
 /// - [`SortRefusal::Collection`]: a collection without element sorts, with element sorts of the
-///   wrong shape, with an element sort that does not resolve, or whose sort lacks one of its
-///   three symbols.
+///   wrong shape, or whose sort lacks one of its three symbols;
+/// - [`SortRefusal::ElementRefused`]: a collection whose element, key or value sort is refused,
+///   with that sort's own refusal.
 pub(crate) fn resolve_value_sort(
     sort: &str,
     constraints: &Constraints,
@@ -544,10 +545,14 @@ fn resolve_collection(
     definition: &BackendDefinition,
     text: Option<&TextSyntax>,
 ) -> Result<ValueSort, SortRefusal> {
+    // A refused element sort refuses the collection with its own reason (FZ-G6+09 review N7).
     let element = |sort: &str| {
         resolve_with(sort, &Constraints::default(), definition, text)
             .map(Box::new)
-            .map_err(|_| SortRefusal::Collection)
+            .map_err(|reason| SortRefusal::ElementRefused {
+                element: sort.to_owned(),
+                reason: Box::new(reason),
+            })
     };
     let namespace = hook
         .split_once('.')
