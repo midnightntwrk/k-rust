@@ -21,7 +21,7 @@ use serde::Deserialize;
 
 use crate::{
     Source, VirtualResolver,
-    campaign::{CampaignJson, CampaignParts, build_identity},
+    campaign::{CampaignJson, CampaignParts},
     display_error, format_compile_error, implicit_sources,
 };
 
@@ -50,9 +50,11 @@ struct FuzzDefinitionOptions {
     include_prelude: Option<bool>,
 }
 
-/// The k-rust revision a report records when the caller gives no identity.
+/// The k-rust revision a report records when the caller gives no identity: the build identity
+/// of the k-rust this binding links (`k_rust::build_identity`), which `krust fuzz` records too,
+/// so a binding report and a CLI report of one k-rust source name the same revision.
 fn build() -> String {
-    build_identity(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+    k_rust::build_identity()
 }
 
 /// Run one campaign to its end and return the report's canonical JSON.
@@ -327,12 +329,10 @@ mod tests {
             .remove("identity");
         let json = run_fuzz_campaign(&options.to_string()).unwrap();
         let report = FuzzReport::from_json(&json).unwrap();
+        assert_eq!(report.identity.k_rust_revision, k_rust::build_identity());
         assert!(
-            report
-                .identity
-                .k_rust_revision
-                .starts_with(concat!("k-rust-wasm ", env!("CARGO_PKG_VERSION"))),
-            "{}",
+            k_rust::is_verified_build(&report.identity.k_rust_revision),
+            "a workspace build names its source digest: {}",
             report.identity.k_rust_revision
         );
         assert_eq!(report.identity.thread_stack_size, None);

@@ -478,7 +478,7 @@ const impCampaign = (campaign = {}) => ({
 test('runs one fuzz campaign on IMP to a confirmed witness', () => {
   const { json, report } = runFuzzCampaign(impCampaign())
   assert.equal(report.schema, 'krust-fuzz-report')
-  assert.equal(report.version, 1)
+  assert.equal(report.version, 2)
   assert.equal(report.identity.solver, SOLVER)
   assert.equal(report.identity.seed, '24301')
   assert.deepEqual(report.identity.budget, { cases: '64' })
@@ -502,7 +502,8 @@ test('throws for a malformed campaign specification', () => {
 
 const readCoin = name =>
   fs.readFileSync(path.join(__dirname, '../../k-rust-fuzz/tests/data/coin', name), 'utf8')
-const BUILD_PREFIX = 'k-rust-napi '
+// k-rust's build identity: its version and the digest of the sources it was built from.
+const BUILD_IDENTITY = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\+src\.[0-9a-f]{32}$/
 // The campaign thread's stack, which the report records, as krust fuzz's.
 const STACK_SIZE = '268435456'
 
@@ -553,6 +554,6 @@ test('names this build when the campaign gives no identity', () => {
   const options = impCampaign({ budget: { cases: '1' } })
   delete options.campaign.identity
   const { report } = runFuzzCampaign(options)
-  assert.ok(report.identity['k-rust-revision'].startsWith(BUILD_PREFIX), report.identity['k-rust-revision'])
+  assert.match(report.identity['k-rust-revision'], BUILD_IDENTITY)
   assert.equal(report.identity['thread-stack-size'], STACK_SIZE)
 })

@@ -1022,10 +1022,10 @@ export interface FuzzCampaign {
   'rejection-cap'?: string
   seed: string
   /**
-   * Recorded in the report as given. Without it, the report's `k-rust-revision` names this
-   * package's build (`k-rust-napi <version>`, `+<revision>` when the build set
-   * `K_RUST_REVISION`). Leave `thread-stack-size` out: the campaign runs on a thread of the
-   * binding with a 256 MiB stack, as `krust fuzz` does, and the report records that size.
+   * Recorded in the report as given. Without it, the report's `k-rust-revision` is the build
+   * identity of the k-rust this package links (`<version>+src.<digest>`). Leave
+   * `thread-stack-size` out: the campaign runs on a thread of the binding with a 256 MiB stack,
+   * as `krust fuzz` does, and the report records that size.
    */
   identity?: { 'k-rust-revision': string }
   budget: FuzzBudget
@@ -1178,6 +1178,17 @@ export interface FuzzReportIdentity {
   budget: FuzzBudget
   'thread-stack-size': string | null
   solver: 'z3' | 'none'
+  /** The dictionary proposer's fixed parameters; present exactly when its weight is positive. */
+  dictionary?: FuzzDictionaryParameters
+}
+
+/** Probabilities are `[numerator, denominator]`. */
+export interface FuzzDictionaryParameters {
+  radius: number
+  'draw-probability': [number, number]
+  expansion: number
+  'distance-weight-base': number
+  'exact-probability': [number, number]
 }
 
 export interface FuzzHoleValue {
@@ -1196,7 +1207,8 @@ export interface FuzzWitnessCase {
     'initial-configuration': string
     'final-configurations': string[]
   }[]
-  reaching: { role: FuzzDefinitionRole; leaf?: number }
+  /** `step`: for an observer target, the step of the leaf's path at which the observer hit. */
+  reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }
   kill?: 'added-end' | 'removed-end'
   steps?: number
 }
@@ -1245,7 +1257,7 @@ export interface FuzzTotals {
   'case-sequence-digest': string
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 1 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 2 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number

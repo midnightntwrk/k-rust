@@ -143,19 +143,6 @@ impl CampaignParts {
     }
 }
 
-/// The build a binding names when the caller gives no identity: the binding package's name and
-/// version, followed by `+` and the revision the build environment named in `K_RUST_REVISION`
-/// when it named one (the rule of the `krust` executable's build identity). k-rust exposes no
-/// version or revision constant to a portable build, and the binding's version names one k-rust
-/// source as precisely as k-rust's own version does: builds of one version from different
-/// commits share it unless the revision is set.
-pub(crate) fn build_identity(package: &str, version: &str) -> String {
-    match option_env!("K_RUST_REVISION") {
-        Some(revision) if !revision.is_empty() => format!("{package} {version}+{revision}"),
-        _ => format!("{package} {version}"),
-    }
-}
-
 /// `defaults` with each field of `given` in place of its own. A field the defaults do not have
 /// is refused, so that a misspelt option is an error rather than a silent default.
 fn with_defaults<T: Serialize + DeserializeOwned>(

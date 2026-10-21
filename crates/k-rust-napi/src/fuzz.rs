@@ -17,11 +17,7 @@ use k_rust_fuzz::CompiledDefinition;
 use napi::{Error, Result};
 use napi_derive::napi;
 
-use crate::{
-    NativeSource, VirtualResolver,
-    campaign::{CampaignJson, build_identity},
-    compile_error,
-};
+use crate::{NativeSource, VirtualResolver, campaign::CampaignJson, compile_error};
 
 /// The stack of the thread every campaign runs on: 256 MiB, as the `krust-fuzz` executable's.
 ///
@@ -95,10 +91,7 @@ pub fn run_fuzz_campaign_native(options: NativeFuzzCampaignOptions) -> Result<St
 fn run(options: NativeFuzzCampaignOptions) -> std::result::Result<String, String> {
     let campaign: CampaignJson =
         serde_json::from_str(&options.campaign).map_err(|error| format!("campaign: {error}"))?;
-    let mut campaign = campaign.parts(&build_identity(
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-    ))?;
+    let mut campaign = campaign.parts(&k_rust::build_identity())?;
     if campaign.identity.thread_stack_size.is_some() {
         return Err(format!(
             "campaign.identity.thread-stack-size: the campaign runs on a thread of this binding \

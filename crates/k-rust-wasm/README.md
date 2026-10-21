@@ -130,7 +130,7 @@ return `Z3InferenceRequired`.
 library in one call: it compiles the definition, crafts values for the program's holes until the
 budget is spent or a concrete re-run confirms a witness, and returns the report. The campaign
 specification is the library's JSON, with kebab-case fields; `json` is the report's canonical text
-(schema `krust-fuzz-report`, version 1), and `report` the same document parsed.
+(schema `krust-fuzz-report`, version 2), and `report` the same document parsed.
 
 ```typescript
 import init, { runFuzzCampaign } from '@midnightntwrk/k-rust-wasm'
@@ -173,7 +173,9 @@ if (report.outcome.status === 'witness-found') {
 `options`, `proposers` and `bounds` are partial: each field given replaces the library default, and
 an unknown field throws, at any depth of the specification (a misspelt `constraints` of a hole
 throws rather than leaving the hole unconstrained). The seed, the rejection cap and the budget's limit are canonical decimal
-strings. A `mutant` definition, with the same fields as the baseline's, is given exactly for a
+strings. The default proposer is blind generation alone; `proposers: { weights: { blind: 1,
+dictionary: 1 } }` adds the dictionary, which draws values from the literals of the rules
+before the target, and the report then records its parameters in `identity.dictionary`. A `mutant` definition, with the same fields as the baseline's, is given exactly for a
 differential target. Observer targets are library-only. A campaign that runs returns its report
 whatever its outcome, and "no witness found" is never a proof that none exists; a malformed
 specification, a definition that does not compile, and a campaign the library refuses throw.
@@ -186,8 +188,8 @@ compiled; bound every case with `max-work` or `max-depth`. Without a solver, a r
 `identity.solver` is `"none"`, and conditions only a solver decides leave their cases
 `unsupported` rather than deciding them.
 
-Without an `identity`, the report's `k-rust-revision` names this package's build
-(`k-rust-wasm <version>`, followed by `+<revision>` when the build set `K_RUST_REVISION`).
+Without an `identity`, the report's `k-rust-revision` is the build identity of the k-rust this
+package links (`<version>+src.<digest of its sources>`, as `krust-fuzz --version` prints it).
 `includePrelude` defaults to `false` here, as for every call of this package; pass `true` to
 compile the definition as `krust kcompile` and the native package do. WebAssembly has no stack
 probe, so a recursion deep enough to exhaust the module's 8 MiB stack traps instead of stopping
