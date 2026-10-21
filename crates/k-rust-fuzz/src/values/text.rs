@@ -4,7 +4,7 @@
 //!
 //! A [`TextSyntax`] is built once per campaign from the baseline's compiled definition and shared
 //! by every [`super::ValueSort`] resolved with it ([`TextSyntax::resolve`]), so that
-//! [`super::print::print_k_text`] and [`super::print::parse_k_text`] keep their definition-free
+//! `super::print::print_k_text` and `super::print::parse_k_text` keep their definition-free
 //! signatures.
 //!
 //! Printing goes through krs-unparse's [`Mode::Program`], the printer of parsed programs: each
@@ -12,7 +12,7 @@
 //! injections are dropped, and brackets are added where the grammar's priorities and
 //! associativities need them and the sort has a bracket production. Alias reversal and the
 //! sorting of associative-commutative collections are off, so the text lists a collection's
-//! items in the value's own order, and the KORE of the value ([`super::print::to_kore`]) is the
+//! items in the value's own order, and the KORE of the value (`super::print::to_kore`) is the
 //! KORE the text parses back to. The layout newlines the productions' formats ask for are
 //! replaced by spaces: K text separates tokens by any whitespace, and every newline inside a
 //! literal is escaped, so the text is one line that a span hole can replace in place.
@@ -147,14 +147,14 @@ impl TextSyntax {
         self.0.excluded.contains(name)
     }
 
-    /// Resolve a hole's sort as [`super::resolve_value_sort`] does, with this syntax attached to
+    /// Resolve a hole's sort as `super::resolve_value_sort` does, with this syntax attached to
     /// collection and data sorts (so that their values print and read back as K text) and the
     /// excluded sorts left out of data tables. A data hole of an excluded sort is refused with
     /// [`SortRefusal::Computation`] (`K`, `KItem`) or [`SortRefusal::ProgramSyntax`].
     ///
     /// # Errors
     ///
-    /// The refusals of [`super::resolve_value_sort`].
+    /// The refusals of `super::resolve_value_sort`.
     pub fn resolve(
         &self,
         sort: &str,

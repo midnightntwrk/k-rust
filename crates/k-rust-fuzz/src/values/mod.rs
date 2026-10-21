@@ -5,11 +5,11 @@
 //! `BackendDefinition`, and a differential campaign internalizes each value once per side
 //! (ARCHITECTURE 2.3, R-14).
 //!
-//! A [`ValueSort`] is resolved once against the baseline definition by [`resolve_value_sort`]
+//! A [`ValueSort`] is resolved once against the baseline definition by `resolve_value_sort`
 //! (or [`TextSyntax::resolve`], which also attaches the definition's K-text syntax) and then
 //! carries everything generation and printing read from the definition (the collection symbols of
 //! a collection sort, the constructor table of a data sort, the shared [`TextSyntax`]), so that
-//! [`Generator::new`], [`print::print_k_text`], [`print::to_kore`] and [`print::parse_k_text`]
+//! `Generator::new`, `print::print_k_text`, `print::to_kore` and `print::parse_k_text`
 //! need no definition.
 //!
 //! The module reads no I/O, clock, environment or hashing state, as proptest's `no_std` build
@@ -91,7 +91,7 @@ pub enum Value {
 }
 
 /// The sort of values a hole takes, resolved from its declared sort and element sorts against
-/// the baseline definition (ARCHITECTURE 2.4, 2.5, 3) by [`resolve_value_sort`].
+/// the baseline definition (ARCHITECTURE 2.4, 2.5, 3) by `resolve_value_sort`.
 ///
 /// It is self-contained: what generating and printing a value need from the definition is
 /// copied in at resolution (FZ-01 review S6).
@@ -136,7 +136,7 @@ pub enum ValueSort {
         /// The element sort.
         element: Box<ValueSort>,
         /// The definition's K-text syntax, which prints and reads the collection's values;
-        /// `None` when the sort was resolved without one ([`resolve_value_sort`]).
+        /// `None` when the sort was resolved without one (`resolve_value_sort`).
         #[serde(skip)]
         text: Option<TextSyntax>,
     },
@@ -174,7 +174,7 @@ pub enum ValueSort {
         /// reach, with their heights.
         table: DataSorts,
         /// The definition's K-text syntax, which prints and reads the sort's values; `None`
-        /// when the sort was resolved without one ([`resolve_value_sort`]).
+        /// when the sort was resolved without one (`resolve_value_sort`).
         #[serde(skip)]
         text: Option<TextSyntax>,
     },
@@ -355,8 +355,8 @@ pub enum ElementSorts {
 /// - A data-sort term is at most `depth` constructor applications deep: every path from its root
 ///   meets at most `depth` applications (a builtin leaf or an empty collection adds none).
 ///
-/// [`validate_bounds`] refuses bounds above [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and
-/// [`MAX_DEPTH`], and [`Generator::new`] keeps every value within [`MAX_VALUE_SIZE`], so that no
+/// `validate_bounds` refuses bounds above [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and
+/// [`MAX_DEPTH`], and `Generator::new` keeps every value within [`MAX_VALUE_SIZE`], so that no
 /// bound makes generation allocate without limit.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
@@ -391,8 +391,8 @@ pub const MAX_DEPTH: u32 = 16;
 /// collections hold strings.
 pub const MAX_VALUE_SIZE: u128 = 1 << 17;
 
-/// The deepest value read back from KORE ([`print::parse_k_text`], the anchors) or checked
-/// against its sort ([`check_constraints`]): the number of values on its longest path from the
+/// The deepest value read back from KORE (`print::parse_k_text`, the anchors) or checked
+/// against its sort (`check_constraints`): the number of values on its longest path from the
 /// value down (a builtin is 1 level, `leaf(0)` 2, a collection one more than its deepest
 /// element). Both recurse once per level, and an anchor written by hand can be nested to any
 /// depth, which the frontend reads, so a deeper value is refused rather than allowed to exhaust

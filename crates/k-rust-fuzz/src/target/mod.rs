@@ -1,6 +1,6 @@
 //! Targets: what a case must do to be a hit, their resolution against a definition, and the
 //! judgement of a case result (ARCHITECTURE 4). Owner: FZ-05; the differential judge is FZ-08's
-//! ([`differential`]); the observer target is FZ-10's ([`observer`]).
+//! (`differential`); the observer target is FZ-10's (`observer`).
 //!
 //! Every target is an existential goal. A universal property is stated as the target "a clean
 //! natural end violates P", with [`Target::negated_property`] set, and its hit is reported as a
@@ -56,7 +56,7 @@ pub enum TargetKind {
     /// The mutant reaches a clean end the baseline cannot reach on the same input
     /// (ARCHITECTURE 4.3).
     Differential(DifferentialTarget),
-    /// A client observer accepts (ARCHITECTURE 4.1, 9.2), fed after the run ([`observer`]).
+    /// A client observer accepts (ARCHITECTURE 4.1, 9.2), fed after the run (`observer`).
     Observer(ObserverTarget),
 }
 

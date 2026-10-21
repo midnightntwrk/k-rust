@@ -7,9 +7,9 @@
 //! `Backend::with_solver_over` in execution mode, and a match counts only with empty
 //! constraints. `Backend::match_patterns` is the proof route and is never used to judge.
 //!
-//! The judgement of a leaf ([`Executor::run`]) and the class of a case ([`classify`]) are split
+//! The judgement of a leaf (`Executor::run`) and the class of a case (`classify`) are split
 //! so that every target kind shares one precedence: the target's judge decides which leaves
-//! reach it, and [`classify`] decides what that makes the case.
+//! reach it, and `classify` decides what that makes the case.
 
 pub(crate) mod run;
 #[cfg(test)]
@@ -50,7 +50,7 @@ pub const LOAD_ALLOWANCE_REFUSAL: &str = "allowance-refusal";
 ///
 /// # The class of one leaf
 ///
-/// A target's judge says which leaves reach the target ([`classify`]'s `reached`). A leaf is
+/// A target's judge says which leaves reach the target (`classify`'s `reached`). A leaf is
 /// *unclean by its halt* when [`UncleanReason::Halt`] is its only reason, and *unclean beyond its
 /// halt* when it has any other reason (an implementation-chosen value, a contradicted claim,
 /// iteration exhaustion or a simplification failure on the leaf, an undecided match, remaining
@@ -283,7 +283,7 @@ pub struct LeafReport {
     /// The leaf is a clean `stuck` leaf that matches the normal-termination pattern with empty
     /// constraints.
     pub natural_end: bool,
-    /// For each extra matcher passed to [`Executor::run`], in order: the leaf matches it with
+    /// For each extra matcher passed to `Executor::run`, in order: the leaf matches it with
     /// empty constraints. Judged on every end leaf (`stuck`, `trivial` or `terminal`; a leaf cut
     /// by a bound is not a final state, D16) whose state can be decided (it internalizes, with no
     /// constraints and no variables), clean or not, so that a reaching leaf that is not clean is
@@ -397,7 +397,7 @@ pub struct CaseResult {
     /// or `max_breadth` under all paths, when work that read a value or met a claim ended on no
     /// reported leaf (a candidate that vanished); in another model of the definition such work
     /// may give a leaf. So the leaves are not every end of every model: the case cannot be `miss`
-    /// or `stuck` ([`classify`]), and a differential baseline with the flag is incomplete
+    /// or `stuck` (`classify`), and a differential baseline with the flag is incomplete
     /// (D16, review B3).
     pub run_facts_off_leaves: bool,
 }

@@ -4,7 +4,7 @@
 //! the program text by `find` and `literal` (the same addressing as kink's mutation edits), a
 //! configuration variable by name, or a free variable of a KORE template. A case replaces each
 //! span in memory with a value printed as K text, assembles the configuration exactly as krun
-//! does ([`crate::assemble`]), and checks that every value parsed back to the value intended.
+//! does (`crate::assemble`), and checks that every value parsed back to the value intended.
 //!
 //! ARCHITECTURE 2.2 writes a span hole of the unchanged program `transfer.imp` as follows (the
 //! fields map to [`HoleDecl`] and [`SpanAddress`]):
@@ -24,7 +24,7 @@
 //! value tried. A configuration-variable hole replaces a whole binding (`name`, without `$`),
 //! and a template hole a free variable of a KORE initial pattern.
 //!
-//! The hole's sort, and every sort its values may contain, must be data ([`check_hole_sort`]).
+//! The hole's sort, and every sort its values may contain, must be data (`check_hole_sort`).
 //! Builtin sorts with a generator are admitted although programs contain their literals; `K`,
 //! `KItem`, `KResult`, cell sorts, the sorts programs are written in and token sorts such as
 //! `Id` are refused. An override (`allow-refused-sort`) admits all but an undeclared sort and a
