@@ -42,7 +42,17 @@ impl WitnessFile {
     pub fn read(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read the witness `{}`: {error}", path.display()))?;
-        let file: WitnessFile = serde_json::from_str(&text).map_err(|error| {
+        // The report's hole values nest up to `values::MAX_VALUE_DEPTH` levels, deeper than
+        // `serde_json`'s recursion limit: read as `FuzzReport::from_json` reads, on a stack
+        // that grows on the heap.
+        let read = || -> Result<WitnessFile, serde_json::Error> {
+            let mut reader = serde_json::Deserializer::from_str(&text);
+            reader.disable_recursion_limit();
+            let file = WitnessFile::deserialize(serde_stacker::Deserializer::new(&mut reader))?;
+            reader.end()?;
+            Ok(file)
+        };
+        let file = read().map_err(|error| {
             format!(
                 "`{}` is not a krust-fuzz witness file: {error}",
                 path.display()
@@ -78,8 +88,12 @@ impl WitnessFile {
             campaign: campaign.clone(),
             report: report.clone(),
         };
-        let text = serde_json::to_string(&file)
-            .map_err(|error| format!("cannot encode the witness file: {error}"))?;
+        let mut bytes = Vec::new();
+        file.serialize(serde_stacker::Serializer::new(
+            &mut serde_json::Serializer::new(&mut bytes),
+        ))
+        .map_err(|error| format!("cannot encode the witness file: {error}"))?;
+        let text = String::from_utf8(bytes).expect("serde_json writes UTF-8");
         std::fs::write(path, text + "\n")
             .map_err(|error| format!("cannot write the witness `{}`: {error}", path.display()))
     }

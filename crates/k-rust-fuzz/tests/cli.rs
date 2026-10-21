@@ -757,3 +757,32 @@ fn the_report_and_the_witness_need_different_paths() {
     assert!(stderr.contains("same file"), "{stderr}");
     assert!(text(&output.stdout).is_empty(), "nothing ran");
 }
+
+/// A witness file holds the report's hole values, which may nest up to
+/// `values::MAX_VALUE_DEPTH` levels, deeper than `serde_json`'s default recursion limit of 128;
+/// the file is read as the report is (`FuzzReport::from_json`), with that limit lifted.
+#[test]
+fn a_witness_holding_a_deeply_nested_value_reads_back() {
+    let directory = le_workspace("deep-witness");
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--witness", "witness.json"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let mut recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
+            .expect("the witness file is JSON");
+    // 200 list levels, two JSON levels each.
+    let mut deep = serde_json::json!({ "int": "0" });
+    for _ in 0..200 {
+        deep = serde_json::json!({ "list": [deep] });
+    }
+    recorded["report"]["outcome"]["witness"]["first"]["holes"][0]["value"] = deep;
+    fs::write(directory.join("deep.json"), recorded.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "deep.json"]);
+    let stderr = text(&replay.stderr);
+    assert!(
+        !stderr.contains("is not a krust-fuzz witness file"),
+        "the witness file reads: {stderr}"
+    );
+}
