@@ -142,6 +142,39 @@ pub struct ReportIdentity {
     /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
     /// solver decides.
     pub solver: String,
+    /// The dictionary proposer's parameters (ARCHITECTURE 8.3), present exactly when the
+    /// dictionary has a positive weight; absent from the JSON otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dictionary: Option<DictionaryParameters>,
+}
+
+/// The fixed parameters of the dictionary proposer (ARCHITECTURE 8.3), which with the
+/// definitions and the target decide its pool and its draws. They are constants of this build;
+/// a change of any of them changes the case sequence and bumps [`crate::ENGINE_VERSION`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DictionaryParameters {
+    /// The harvest radius, in rule-graph edges before the target.
+    pub radius: u32,
+    /// The probability, as `[numerator, denominator]`, with which a hole whose pool is not
+    /// empty takes a harvested value rather than a blind one.
+    pub draw_probability: [u32; 2],
+    /// The largest offset of an integer variant: a constant `v` also yields `v - expansion` ..
+    /// `v + expansion` and `-v`.
+    pub expansion: u32,
+    /// A harvested constant's weight is `distance-weight-base ^ (radius - distance)`.
+    pub distance_weight_base: u32,
+    /// The probability, as `[numerator, denominator]`, with which a pool draw takes the
+    /// harvested constant itself rather than one of its variants.
+    pub exact_probability: [u32; 2],
+}
+
+impl DictionaryParameters {
+    /// The parameters of this build.
+    #[must_use]
+    pub fn current() -> Self {
+        crate::proposers::dictionary::parameters()
+    }
 }
 
 /// The hard caps of the value generators (`crate::values`).
@@ -672,6 +705,7 @@ mod tests {
                 budget: Budget::Cases(5000),
                 thread_stack_size: Some(64 << 20),
                 solver: "none".into(),
+                dictionary: None,
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {

@@ -1242,7 +1242,7 @@ mod tests {
     #[test]
     fn the_dictionary_harvests_the_same_from_the_campaigns_graph() {
         use crate::{
-            proposers::dictionary::{Harvest, RADIUS},
+            proposers::dictionary::{self, Harvest},
             target::{RuleMode, RuleRef, RuleTarget},
         };
         let compiled = COIN.compiled();
@@ -1266,13 +1266,14 @@ mod tests {
         for spec in [rule, le_spec(None)] {
             let cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
             let check = GraphCheck::build(&spec, &cases).expect("a graph check");
-            let shared = Harvest::from_graph(check.graph(), cases.target_rule_id(), RADIUS);
+            let target = cases.target_rule_id();
+            let shared = dictionary::harvest(&spec, check.graph(), target).expect("harvests");
             let own = Harvest::for_campaign(&spec).expect("harvests");
             assert!(!own.literals().is_empty());
             assert_eq!(shared.literals(), own.literals());
             let internalized = cases.baseline_internalized().expect("source route");
             let graph = RuleGraph::new(internalized);
-            let fresh = Harvest::from_graph(&graph, cases.target_rule_id(), RADIUS);
+            let fresh = dictionary::harvest(&spec, &graph, target).expect("harvests");
             assert_eq!(fresh.literals(), own.literals());
         }
     }

@@ -18,10 +18,14 @@
 //!   target in the rule graph is at most [`RADIUS`] edges (ARCHITECTURE 6.3: an edge from A to
 //!   B when a step of A may enable B, so these are the rules a path to the target takes last;
 //!   the target itself is at distance 0);
-//! - the left-hand side and the `requires` of every equation of the functions those `requires`
-//!   apply, transitively through the functions the equations apply
-//!   ([`RuleGraph::requires_functions`]): a guard such as `limit(N) ==Int 1` holds or fails by
-//!   the conditions of `limit`'s equations, which are guards on `N` too;
+//! - the left-hand side, the `requires` and the conditions written in the right-hand side of
+//!   every equation of the functions those `requires` apply, transitively through the functions
+//!   the equations apply ([`RuleGraph::requires_functions`]): a guard such as
+//!   `limit(N) ==Int 1` holds or fails by the conditions of `limit`'s equations, which are
+//!   guards on `N` too. A condition in a right-hand side is a `Bool` subterm there: the whole
+//!   right-hand side of a Boolean helper (`good(N) => N ==Int 4711`), or the condition of an
+//!   `#if` (`pick(N) => #if N ==Int 31337 #then 1 #else 0 #fi`); the values an equation returns
+//!   (the branches, `limit`'s `0`) are no conditions;
 //! - for a rule in that set that some higher-priority rule may compete with (an `owise` rule,
 //!   or one with a larger explicit priority), the left-hand side and `requires` of those
 //!   competitors and of the equations their `requires` apply. A lower-priority rule applies
@@ -29,8 +33,12 @@
 //!   its own implicit guard, negated. Two rules may compete when their roots may be equal and
 //!   each cell key covers the other's (the keys the backend selects rules by).
 //!
-//! A target that is not a rule (a pattern, an observer, a differential target) has no place in
-//! the graph, so every rewrite rule counts at distance 0.
+//! A target that is not a rule has no place in the graph ([`harvest`]). A pattern target's own
+//! body and `requires` are its left-hand side and guard, harvested at distance 0 with the
+//! equations they call, and every rewrite rule at distance 1. A differential target is decided
+//! where the two definitions differ: the rules and equations of either definition whose ids the
+//! other lacks are harvested at distance 0, and every baseline rule at distance 1. An observer
+//! target states no guard, so every rewrite rule counts at distance 0.
 //!
 //! Each literal keeps the least distance it was harvested at. The graph only over-approximates
 //! enablement and the harvest reads guards it cannot evaluate, so a harvested value is a
@@ -74,10 +82,13 @@ use std::{
 
 use k_rust::{
     k_rust_backend::{
-        rule::{IndexedRewriteRule, RewriteRule, TermIndex, term_index},
+        rule::{IndexedRewriteRule, RewriteRule, RuleRhs, TermIndex, term_index},
         term::{HeadRole, Sort, Term, TermKind},
     },
-    kore::ast::Sort as KoreSort,
+    kore::{
+        ast::{Pattern as KorePattern, Sort as KoreSort},
+        walk,
+    },
 };
 use num_bigint::{BigInt, BigUint};
 use num_traits::Signed as _;
@@ -85,13 +96,15 @@ use rand::{Rng as _, SeedableRng as _};
 use rand_chacha::ChaCha20Rng;
 
 use crate::{
-    assemble::build_backend,
+    assemble::{ProgramAssembly, build_backend},
     engine::proposer::{Observation, Origin, Proposal, ProposalContext, Proposer, ValueShrinker},
-    error::CampaignError,
+    error::{CampaignError, TargetProblem},
+    exec::run::PatternCompiler,
     graph::RuleGraph,
     holes::ResolvedHole,
+    report::DictionaryParameters,
     spec::{CampaignSpec, ProposerKind},
-    target::{TargetKind, rule::resolve_rule},
+    target::{TargetKind, resolve_rule},
     values::{
         self, Constraints, GenerationBounds, Generator, MAX_GENERATED_LENGTH, Value, ValueRng,
         ValueSort,
@@ -119,6 +132,75 @@ pub(crate) const DRAW_PROBABILITY: (u32, u32) = (1, 2);
 
 /// The largest offset of an integer variant: a base `v` yields `v - 3` .. `v + 3`.
 pub(crate) const EXPANSION: u8 = 3;
+
+/// A harvested constant's weight is `DISTANCE_WEIGHT_BASE ^ (RADIUS - distance)` (module
+/// documentation, "Drawing").
+pub(crate) const DISTANCE_WEIGHT_BASE: u64 = 4;
+
+/// The probability, as (numerator, denominator), with which a pool draw takes the harvested
+/// constant itself rather than one of its variants.
+pub(crate) const EXACT_PROBABILITY: (u32, u32) = (1, 2);
+
+/// The KORE sort of `Bool`, as [`sort_text`] writes it.
+const BOOL_SORT: &str = "SortBool{}";
+
+/// The dictionary's parameters as the report records them ([`DictionaryParameters`]).
+pub(crate) fn parameters() -> DictionaryParameters {
+    DictionaryParameters {
+        radius: u32::try_from(RADIUS).unwrap_or(u32::MAX),
+        draw_probability: [DRAW_PROBABILITY.0, DRAW_PROBABILITY.1],
+        expansion: u32::from(EXPANSION),
+        distance_weight_base: u32::try_from(DISTANCE_WEIGHT_BASE).unwrap_or(u32::MAX),
+        exact_probability: [EXACT_PROBABILITY.0, EXACT_PROBABILITY.1],
+    }
+}
+
+/// The harvest of a campaign on `spec` whose baseline's rule graph is `graph` and whose rule
+/// target, if any, has the catalog id `target` (module documentation, "The static harvest"):
+///
+/// - a rule target: [`Harvest::from_graph`] within [`RADIUS`];
+/// - a pattern target: the pattern's own body and `requires`, and the equations they call, at
+///   distance 0, and every rule at distance 1;
+/// - a differential target: [`Harvest::differential`], on the mutant's graph built here (an
+///   internalization of the mutant of its own);
+/// - an observer target, which states no guard: every rule at distance 0.
+///
+/// # Errors
+///
+/// [`CampaignError`] when the program grammar, the pattern compiler or the mutant's backend
+/// does not build; `Campaign::new` has built each of them once already.
+pub(crate) fn harvest(
+    spec: &CampaignSpec,
+    graph: &RuleGraph,
+    target: Option<&str>,
+) -> Result<Harvest, CampaignError> {
+    Ok(match &spec.target.kind {
+        TargetKind::Rule(_) => Harvest::from_graph(graph, target, RADIUS),
+        TargetKind::Pattern(pattern) => {
+            let baseline = &spec.definitions.baseline;
+            let assembly = ProgramAssembly::new(baseline)?;
+            let compiled = PatternCompiler::new(baseline)?
+                .compile(assembly.grammar(), &pattern.pattern)
+                .map_err(|message| CampaignError::Target(TargetProblem::Pattern(message)))?;
+            let mut harvest = Harvest::everything(graph, 1);
+            harvest.pattern(compiled.kore(), graph);
+            harvest
+        }
+        TargetKind::Differential(_) => match &spec.definitions.mutant {
+            Some(mutant) => {
+                let mut backend = build_backend(mutant, spec.options.backend.options())?;
+                let mutant = RuleGraph::of_backend(&mut backend).map_err(|error| {
+                    CampaignError::Definition {
+                        message: format!("the mutant's rule graph is not available: {error}"),
+                    }
+                })?;
+                Harvest::differential(graph, &mutant)
+            }
+            None => Harvest::everything(graph, 0),
+        },
+        TargetKind::Observer(_) => Harvest::everything(graph, 0),
+    })
+}
 
 /// A literal of a guard or a left-hand side, independent of any backend term.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -174,23 +256,40 @@ impl Harvest {
             RuleGraph::of_backend(&mut backend).map_err(|error| CampaignError::Definition {
                 message: format!("the rule graph is not available: {error}"),
             })?;
-        Ok(Self::from_graph(&graph, target.as_deref(), RADIUS))
+        harvest(spec, &graph, target.as_deref())
     }
 
     /// Harvest from `graph`'s rules within `radius` edges before `target`, or from every rule
     /// when `target` is `None` (module documentation, "The static harvest"). A `target` that is
     /// no node of the graph harvests nothing.
     pub(crate) fn from_graph(graph: &RuleGraph, target: Option<&str>, radius: usize) -> Self {
-        let scope: BTreeMap<String, usize> = match target {
-            Some(target) => graph
-                .distances_to(target)
-                .into_iter()
-                .filter(|(_, distance)| *distance <= radius)
-                .collect(),
-            None => graph.rule_ids().map(|id| (id.to_owned(), 0)).collect(),
-        };
-        // Without a target every rule is in scope at distance 0, so its competitors are already.
-        let all: Vec<Keyed<'_>> = if target.is_some() {
+        match target {
+            Some(target) => {
+                let scope = graph
+                    .distances_to(target)
+                    .into_iter()
+                    .filter(|(_, distance)| *distance <= radius)
+                    .collect();
+                Self::from_scope(graph, &scope, true)
+            }
+            None => Self::everything(graph, 0),
+        }
+    }
+
+    /// Harvest every rule of `graph` (and the equations their `requires` call) at `distance`.
+    fn everything(graph: &RuleGraph, distance: usize) -> Self {
+        let scope = graph
+            .rule_ids()
+            .map(|id| (id.to_owned(), distance))
+            .collect();
+        // Every rule is in scope, so every competitor already is.
+        Self::from_scope(graph, &scope, false)
+    }
+
+    /// Harvest the rules of `scope` at their distances, with the equations their `requires`
+    /// call, and with their competitors when `competitors` is set.
+    fn from_scope(graph: &RuleGraph, scope: &BTreeMap<String, usize>, competitors: bool) -> Self {
+        let all: Vec<Keyed<'_>> = if competitors {
             graph
                 .rule_ids()
                 .flat_map(|id| graph.rules(id).iter().map(move |rule| Keyed::new(id, rule)))
@@ -199,7 +298,7 @@ impl Harvest {
             Vec::new()
         };
         let mut harvest = Self::default();
-        for (id, &distance) in &scope {
+        for (id, &distance) in scope {
             let mut guards: BTreeSet<&str> = BTreeSet::from([id.as_str()]);
             for rule in graph.rules(id) {
                 harvest.rule(rule, distance);
@@ -210,14 +309,87 @@ impl Harvest {
                 }
             }
             for guard in guards {
-                for function in graph.requires_functions(guard) {
-                    for equation in graph.calls().equations(&function) {
-                        harvest.rule(equation, distance);
-                    }
-                }
+                harvest.called(graph, graph.requires_functions(guard), distance);
             }
         }
         harvest
+    }
+
+    /// Harvest the equations of `functions` (a call closure) at `distance`.
+    fn called(&mut self, graph: &RuleGraph, functions: BTreeSet<String>, distance: usize) {
+        for function in functions {
+            for equation in graph.calls().equations(&function) {
+                self.equation(equation, distance);
+            }
+        }
+    }
+
+    /// The harvest of a differential campaign (ARCHITECTURE 4.3): the rules and equations of
+    /// either definition whose ids the other lacks at distance 0 (an edited, added or removed
+    /// axiom, which is where the two definitions differ and so where a killing input is decided),
+    /// with the equations their `requires` call; and every rule of the baseline at distance 1.
+    pub(crate) fn differential(baseline: &RuleGraph, mutant: &RuleGraph) -> Self {
+        let mut harvest = Self::everything(baseline, 1);
+        harvest.differing(baseline, mutant);
+        harvest.differing(mutant, baseline);
+        harvest
+    }
+
+    /// Harvest at distance 0 the rules and equations of `side` whose ids `other` lacks.
+    fn differing(&mut self, side: &RuleGraph, other: &RuleGraph) {
+        let known: BTreeSet<&str> = other
+            .rule_ids()
+            .chain(
+                other
+                    .calls()
+                    .all_equations()
+                    .map(|equation| equation.attributes.unique_id.as_str()),
+            )
+            .collect();
+        for id in side.rule_ids().filter(|id| !known.contains(id)) {
+            for rule in side.rules(id) {
+                self.rule(rule, 0);
+            }
+            self.called(side, side.requires_functions(id), 0);
+        }
+        for equation in side.calls().all_equations() {
+            if !known.contains(equation.attributes.unique_id.as_str()) {
+                self.equation(equation, 0);
+            }
+        }
+    }
+
+    /// Harvest a pattern target's compiled KORE pattern at distance 0: its body and its
+    /// `requires` are the target's left-hand side and guard (ARCHITECTURE 4.1), with the
+    /// equations of the functions it applies.
+    fn pattern(&mut self, pattern: &KorePattern, graph: &RuleGraph) {
+        let mut symbols = BTreeSet::new();
+        walk::for_each_post_order(pattern, |node| match node {
+            KorePattern::DomainValue { sort, value } => {
+                if let Some(sort) = kore_sort_text(sort) {
+                    self.insert(
+                        Literal::Domain {
+                            sort,
+                            text: value.as_bytes().to_vec(),
+                        },
+                        0,
+                    );
+                }
+            }
+            KorePattern::Application { symbol, arguments } => {
+                if arguments.is_empty() {
+                    self.insert(
+                        Literal::Constant {
+                            symbol: symbol.name.clone(),
+                        },
+                        0,
+                    );
+                }
+                symbols.insert(symbol.name.clone());
+            }
+            _ => {}
+        });
+        self.called(graph, graph.calls().closure(symbols), 0);
     }
 
     /// A harvest of the given literals and distances.
@@ -229,6 +401,78 @@ impl Harvest {
     /// The harvested literals and their least distances.
     pub(crate) fn literals(&self) -> &BTreeMap<Literal, usize> {
         &self.literals
+    }
+
+    /// Harvest an equation at `distance`: its left-hand side and `requires`, and the
+    /// conditions written in its right-hand side: every `Bool` subterm, which is the whole
+    /// right-hand side of a Boolean helper (`good(N) => N ==Int 4711`) and the condition of an
+    /// `#if` (`KEQUAL.ite`), but not the values an equation returns.
+    fn equation(&mut self, equation: &RewriteRule, distance: usize) {
+        self.rule(equation, distance);
+        let mut visit = |term: &Term| self.conditions(term, distance);
+        match &equation.rhs {
+            RuleRhs::Term(term) => visit(term),
+            RuleRhs::Disjunction(alternatives) => {
+                for alternative in alternatives {
+                    visit(&alternative.term);
+                }
+            }
+            RuleRhs::Predicates(predicates) => {
+                for predicate in predicates {
+                    predicate.visit_terms(&mut visit);
+                }
+            }
+            RuleRhs::Top | RuleRhs::Bottom => {}
+        }
+    }
+
+    /// Harvest the `Bool` subterms of `term` at `distance`.
+    fn conditions(&mut self, term: &Term, distance: usize) {
+        if sort_text(&term.sort()).as_deref() == Some(BOOL_SORT) {
+            self.term(term, distance);
+            return;
+        }
+        match term.kind() {
+            TermKind::Application { arguments, .. } => {
+                for argument in arguments {
+                    self.conditions(argument, distance);
+                }
+            }
+            TermKind::And(left, right) => {
+                self.conditions(left, distance);
+                self.conditions(right, distance);
+            }
+            TermKind::Injection { term, .. } => self.conditions(term, distance),
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    self.conditions(key, distance);
+                    self.conditions(value, distance);
+                }
+                if let Some(rest) = rest {
+                    self.conditions(rest, distance);
+                }
+            }
+            TermKind::List { heads, rest, .. } => {
+                for head in heads {
+                    self.conditions(head, distance);
+                }
+                if let Some((middle, tails)) = rest {
+                    self.conditions(middle, distance);
+                    for tail in tails {
+                        self.conditions(tail, distance);
+                    }
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                for element in elements {
+                    self.conditions(element, distance);
+                }
+                if let Some(rest) = rest {
+                    self.conditions(rest, distance);
+                }
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
     }
 
     /// Harvest `rule`'s left-hand side and `requires` at `distance`.
@@ -333,7 +577,8 @@ impl<'g> Keyed<'g> {
 
     /// Whether this rule has a higher priority than `rule` (a smaller priority number) and may
     /// match a configuration `rule` matches: their left-hand sides' roots may be equal (two
-    /// distinct symbols never are) and each cell key covers the other's.
+    /// distinct symbols never are) and, at each cell position, one of the two keys covers the
+    /// other.
     fn competes(&self, rule: &Keyed<'_>) -> bool {
         if self.rule.attributes.priority >= rule.rule.attributes.priority {
             return false;
@@ -421,7 +666,10 @@ impl HolePool {
             let Some(value) = literal_value(literal, sort, own_sort.as_deref()) else {
                 continue;
             };
-            let weight = 1u64 << (2 * RADIUS.saturating_sub(*distance)).min(62);
+            let exponent = u32::try_from(RADIUS.saturating_sub(*distance)).unwrap_or(u32::MAX);
+            let weight = DISTANCE_WEIGHT_BASE
+                .checked_pow(exponent)
+                .unwrap_or(u64::MAX >> 8);
             weights
                 .entry(value)
                 .and_modify(|known| *known = (*known).max(weight))
@@ -489,7 +737,10 @@ impl HolePool {
             }
         })?;
         match &base.exact {
-            Some(exact) if base.variants.is_empty() || rng.random_ratio(1, 2) => {
+            Some(exact)
+                if base.variants.is_empty()
+                    || rng.random_ratio(EXACT_PROBABILITY.0, EXACT_PROBABILITY.1) =>
+            {
                 Some(exact.clone())
             }
             _ => {

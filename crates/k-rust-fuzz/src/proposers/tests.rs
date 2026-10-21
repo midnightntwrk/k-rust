@@ -16,7 +16,7 @@ use crate::{
     engine::proposer::{ProposalContext, Proposer as _},
     graph::RuleGraph,
     support::{self, Fixture},
-    target::{RuleRef, rule::resolve_rule},
+    target::{RuleRef, resolve_rule},
     values::{
         Constraints, GenerationBounds, Generator, IntRange, LengthRange, Value, ValueSort,
         resolve_value_sort,
@@ -393,4 +393,31 @@ fn the_dictionary_draws_from_the_pool_with_its_fixed_probability_and_determinist
     assert_eq!(DRAW_PROBABILITY, (1, 2));
     assert!((900..1100).contains(&from_pool), "{from_pool}");
     assert!((400..600).contains(&exact), "{exact}");
+}
+
+#[test]
+fn conditions_written_in_equation_right_hand_sides_are_harvested() {
+    // `good(N) => N ==Int 4711`: a Boolean helper's condition is its right-hand side.
+    let (graph, pgoal) = graph_and_id(&support::DICT, "DICT.pgoal");
+    let literals = relevant(&Harvest::from_graph(&graph, Some(&pgoal), RADIUS));
+    assert_eq!(literals.get(&int(4711)), Some(&0), "{literals:?}");
+    // `pick(N) => #if N ==Int 31337 #then 1 #else 0 #fi`: the condition of the `#if`, not its
+    // branches, which are values.
+    let (graph, igoal) = graph_and_id(&support::DICT, "DICT.igoal");
+    let literals = relevant(&Harvest::from_graph(&graph, Some(&igoal), RADIUS));
+    assert_eq!(literals.get(&int(31_337)), Some(&0), "{literals:?}");
+    assert!(!literals.contains_key(&int(0)), "{literals:?}");
+}
+
+#[test]
+fn a_differential_harvest_puts_the_rules_that_differ_first() {
+    let graph = |fixture: &'static Fixture| {
+        RuleGraph::of_backend(&mut fixture.compiled().source_backend()).expect("a graph")
+    };
+    let harvest = Harvest::differential(&graph(&support::COIN), &graph(&support::COIN_KILL));
+    let literals = relevant(&harvest);
+    // COIN-KILL's `heads`, `tails` (`N <=Int 10`) and `skew` (`N >Int 10`) are not COIN's rules;
+    // `count-step` and `count-done` are the same rules on both sides.
+    assert_eq!(literals.get(&int(10)), Some(&0), "{literals:?}");
+    assert_eq!(literals.get(&int(0)), Some(&1), "{literals:?}");
 }

@@ -75,6 +75,12 @@ impl FunctionCalls {
         self.equations.get(function).map_or(&[], Vec::as_slice)
     }
 
+    /// Every equation of the function theory, by symbol name, each symbol's in the theory's
+    /// order.
+    pub(crate) fn all_equations(&self) -> impl Iterator<Item = &Arc<RewriteRule>> {
+        self.equations.values().flatten()
+    }
+
     /// `roots` and every symbol with equations reachable from them through call edges.
     pub(crate) fn closure(&self, roots: BTreeSet<String>) -> BTreeSet<String> {
         let mut reached = BTreeSet::new();

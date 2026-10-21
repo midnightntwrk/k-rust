@@ -10,7 +10,7 @@ pub(crate) mod differential;
 #[cfg(test)]
 mod fixture_tests;
 mod observer;
-pub(crate) mod rule;
+mod rule;
 #[cfg(test)]
 mod tests;
 
@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 pub use observer::{
     ConfigurationView, Observer, ObserverHandle, ObserverTarget, ObserverVerdict, contains_symbol,
 };
+pub(crate) use rule::resolve_rule;
 
 use crate::{
     assemble::ProgramAssembly,

@@ -25,10 +25,10 @@ use crate::{
     error::CampaignError,
     graph::RuleGraph,
     holes::ResolvedHole,
-    proposers::dictionary::{self, DictionaryProposer, Harvest, HolePool},
+    proposers::dictionary::{self, DictionaryProposer, HolePool},
     report::{
-        CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, GenerationCaps, HitLabel,
-        ReportIdentity, Totals, digest_hex,
+        CampaignOutcome, DefinitionIdentity, DefinitionRole, DictionaryParameters, FuzzReport,
+        GenerationCaps, HitLabel, ReportIdentity, Totals, digest_hex,
     },
     spec::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
@@ -301,10 +301,8 @@ fn dictionary_pools(
     let holes = &cases.baseline.holes.holes;
     let target = cases.target_rule_id();
     let harvest = match (graph, cases.baseline_internalized()) {
-        (Some(check), _) => Harvest::from_graph(check.graph(), target, dictionary::RADIUS),
-        (None, Some(definition)) => {
-            Harvest::from_graph(&RuleGraph::new(definition), target, dictionary::RADIUS)
-        }
+        (Some(check), _) => dictionary::harvest(spec, check.graph(), target)?,
+        (None, Some(definition)) => dictionary::harvest(spec, &RuleGraph::new(definition), target)?,
         (None, None) => return dictionary::hole_pools(spec, holes),
     };
     Ok(dictionary::pools(&harvest, spec, holes))
@@ -430,6 +428,8 @@ fn identity(
         thread_stack_size: spec.identity.thread_stack_size,
         // k-rust's solver feature, whatever enabled it (Cargo unifies features across a build).
         solver: if k_rust::Z3_INFERENCE { "z3" } else { "none" }.into(),
+        dictionary: (weight(&spec.proposers, ProposerKind::Dictionary) > 0)
+            .then(DictionaryParameters::current),
     })
 }
 

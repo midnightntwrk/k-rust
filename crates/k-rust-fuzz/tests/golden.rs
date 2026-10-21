@@ -19,13 +19,13 @@ use k_rust_fuzz::{
     Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, ENGINE_VERSION,
     HoleDecl, HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
     report::{FuzzReport, digest_hex},
-    spec::DEFAULT_REJECTION_CAP,
     spec::PathMode,
-    target::{DifferentialTarget, PatternAt, PatternTarget},
+    spec::{DEFAULT_REJECTION_CAP, ProposerKind},
+    target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
     values::{Constraints, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, IMP, UNSIGNED};
+use support::{COIN, COIN_KILL, DICT, IMP, UNSIGNED};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -39,6 +39,18 @@ const PINNED: Option<(u32, &str)> = Some((
     1,
     "f903fed03207d94ac94a4beff8a2c72061a003ed4663e947d2926cde1e5d16e2",
 ));
+
+/// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
+/// [`ENGINE_VERSION`] 1. A change of the dictionary's parameters (`report::DictionaryParameters`)
+/// or of its harvest moves it: bump `ENGINE_VERSION` and re-pin both fingerprints.
+const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
+    1,
+    "174abe2bf3fcf2720866374ed6cbffa3c3141ab8cc3c2adb3d9f3e58ad71bd18",
+));
+
+/// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the rest
+/// enable the dictionary and are fingerprinted by [`PINNED_DICTIONARY`].
+const BLIND_CAMPAIGNS: usize = 4;
 
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
     HoleDecl {
@@ -110,7 +122,12 @@ fn violation(pattern: &str) -> Target {
 /// - COIN against COIN-KILL in all-paths mode under a work budget: a differential witness with
 ///   both sides' leaves, and all-paths leaf order;
 /// - UNSIGNED with a range that excludes the anchor and admits negative values, which do not
-///   round-trip: rejections for two reasons.
+///   round-trip: rejections for two reasons;
+/// - DICT's `goal` with blind and the dictionary: a witness of harvested values, shrunk by
+///   moves;
+/// - DICT's `probe` under a pattern target, with the dictionary alone: the pattern's own
+///   constant;
+/// - COIN against COIN-KILL with the dictionary: the rules that differ come first.
 fn golden_reports() -> Vec<FuzzReport> {
     let le = spec(
         "imp/le.imp",
@@ -169,6 +186,7 @@ fn golden_reports() -> Vec<FuzzReport> {
         spec.target = violation("<k> .K </k> <out> ListItem(N:Int) </out> requires N ==Int 9");
         spec
     };
+    let coin_spec = coin.clone();
     [
         (le, Budget::Cases(40)),
         (commute, Budget::Cases(24)),
@@ -176,12 +194,77 @@ fn golden_reports() -> Vec<FuzzReport> {
         (unsigned, Budget::Cases(30)),
     ]
     .into_iter()
+    .chain(dictionary_campaigns(&coin_spec))
     .map(|(spec, budget)| {
         Campaign::new(spec)
             .expect("the golden campaign is valid")
             .run(budget, None)
     })
     .collect()
+}
+
+/// The golden campaigns that enable the dictionary (see [`golden_reports`]); `coin` is the
+/// blind differential campaign, run again with the dictionary.
+fn dictionary_campaigns(coin: &CampaignSpec) -> Vec<(CampaignSpec, Budget)> {
+    let with_dictionary = |mut spec: CampaignSpec, weights: &[(ProposerKind, u32)]| {
+        spec.proposers.weights = weights.iter().copied().collect();
+        spec
+    };
+    let dict_goal = {
+        let compiled = DICT.compiled();
+        let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0d1c_7001);
+        spec.definitions = Definitions {
+            baseline: Arc::new(compiled.definition()),
+            mutant: None,
+        };
+        spec.program = ProgramInput::Source(compiled.program_source("dict/run.pgm"));
+        let mut text = int_hole("S", "dict/run.pgm", "\"shut\"", "\"shut\"");
+        text.sort = "String".into();
+        spec.holes = vec![int_hole("N", "dict/run.pgm", "run(3,", "3"), text];
+        spec.target = Target {
+            kind: TargetKind::Rule(RuleTarget {
+                rule: RuleRef::Label("DICT.goal".into()),
+                mode: RuleMode::Fired,
+            }),
+            run_to_completion: false,
+            negated_property: false,
+        };
+        with_dictionary(
+            spec,
+            &[(ProposerKind::Blind, 1), (ProposerKind::Dictionary, 1)],
+        )
+    };
+    let dict_pattern = {
+        let compiled = DICT.compiled();
+        let mut spec = spec(
+            "imp/le.imp",
+            Vec::new(),
+            "<k> .K </k> <out> X:Int </out> requires X ==Int 9091",
+            &[],
+            0x0d1c_7002,
+        );
+        spec.definitions = Definitions {
+            baseline: Arc::new(compiled.definition()),
+            mutant: None,
+        };
+        spec.program = ProgramInput::Source(compiled.program_source("dict/probe.pgm"));
+        spec.holes = vec![int_hole("N", "dict/probe.pgm", "run(5,", "5")];
+        spec.target.negated_property = false;
+        with_dictionary(spec, &[(ProposerKind::Dictionary, 1)])
+    };
+    let coin_dictionary = with_dictionary(
+        {
+            let mut spec = coin.clone();
+            spec.seed = 0x0d1c_7003;
+            spec
+        },
+        &[(ProposerKind::Blind, 1), (ProposerKind::Dictionary, 1)],
+    );
+    vec![
+        (dict_goal, Budget::Cases(80)),
+        (dict_pattern, Budget::Cases(80)),
+        (coin_dictionary, Budget::Work(4000)),
+    ]
 }
 
 fn render(reports: &[FuzzReport]) -> String {
@@ -288,9 +371,28 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     let reports = golden_reports();
     assert_eq!(render(&reports), first, "the parent's report differs");
 
-    let computed = fingerprint(&reports);
+    let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
+    let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..]);
     if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
         eprintln!("golden fingerprint at engine version {ENGINE_VERSION}: {computed}");
+        eprintln!("dictionary fingerprint at engine version {ENGINE_VERSION}: {dictionary}");
+    }
+    match PINNED_DICTIONARY {
+        Some((version, pinned)) => {
+            assert_eq!(
+                version, ENGINE_VERSION,
+                "ENGINE_VERSION changed: re-pin the dictionary fingerprint for the new version"
+            );
+            assert_eq!(
+                dictionary, pinned,
+                "the dictionary's case sequence changed (its parameters or its harvest) \
+                 without an ENGINE_VERSION bump"
+            );
+        }
+        None => panic!(
+            "no dictionary fingerprint is pinned for engine version {ENGINE_VERSION}; pin \
+             Some(({ENGINE_VERSION}, \"{dictionary}\")) in tests/golden.rs"
+        ),
     }
     match PINNED {
         Some((version, pinned)) => {

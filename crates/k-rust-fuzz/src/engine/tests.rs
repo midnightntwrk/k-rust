@@ -236,6 +236,7 @@ fn identity() -> ReportIdentity {
         budget: Budget::Cases(0),
         thread_stack_size: None,
         solver: "none".into(),
+        dictionary: None,
     }
 }
 

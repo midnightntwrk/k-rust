@@ -21,9 +21,9 @@ use k_rust_fuzz::{
     Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, HoleDecl,
     HoleLocation, OutcomeClass, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
     Value,
-    report::CampaignOutcome,
+    report::{CampaignOutcome, DictionaryParameters},
     spec::{DEFAULT_REJECTION_CAP, ProposerKind},
-    target::{RuleMode, RuleRef, RuleTarget},
+    target::{PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
     values::{Constraints, GenerationBounds},
 };
 use maze::{CELLS, Configuration, MazeRun};
@@ -48,8 +48,11 @@ const MEASURE_SEEDS: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const BLIND_MAZE_C3: [Option<u64>; 5] = [None, Some(1280), Some(3468), Some(1747), None];
 
 /// The dictionary configuration's cases to the isolated `c3` and to `c3` on the whole maze, at
-/// [`SEEDS`]. They move only when the case sequence moves (the golden test's `ENGINE_VERSION`
-/// fingerprint moves with it): re-pin them from the failure message.
+/// [`SEEDS`]: regression pins, chosen in-sample (the distance weights were set after seeing
+/// seeds 1-5), so they are no evidence for the claim; the measurement mode is. They move
+/// whenever the dictionary's case sequence moves, including a change of its parameters
+/// (`report::DictionaryParameters`), which `tests/golden.rs`'s dictionary fingerprint also
+/// catches: such a change bumps `ENGINE_VERSION` and re-pins both.
 const PINNED_ISOLATED_C3: [Option<u64>; 5] = [Some(2), Some(104), Some(19), Some(14), Some(3)];
 const PINNED_MAZE_C3: [Option<u64>; 5] = [Some(288), Some(8), Some(392), Some(98), Some(56)];
 
@@ -208,9 +211,29 @@ fn a_dictionary_campaign_reports_the_same_bytes_twice() {
 /// The DICT campaign: holes `N` (Int) and `S` (String) of `run(3, "shut", fast)`, target
 /// `goal` fired.
 fn dict_spec(weights: BTreeMap<ProposerKind, u32>, seed: u64) -> CampaignSpec {
-    let fixture = &support::DICT;
+    let mut spec = probe_spec(rule_target("DICT.goal"), weights, seed);
     let program = "dict/run.pgm";
-    let hole = |name: &str, sort: &str, find: &str, literal: &str| HoleDecl {
+    spec.program = ProgramInput::Source(support::DICT.compiled().program_source(program));
+    spec.holes = vec![
+        dict_hole(program, "N", "Int", "run(3,", "3"),
+        dict_hole(program, "S", "String", "\"shut\"", "\"shut\""),
+    ];
+    spec
+}
+
+fn rule_target(label: &str) -> Target {
+    Target {
+        kind: TargetKind::Rule(RuleTarget {
+            rule: RuleRef::Label(label.into()),
+            mode: RuleMode::Fired,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+    }
+}
+
+fn dict_hole(program: &str, name: &str, sort: &str, find: &str, literal: &str) -> HoleDecl {
+    HoleDecl {
         name: name.into(),
         sort: sort.into(),
         location: HoleLocation::Span(SpanAddress {
@@ -221,25 +244,21 @@ fn dict_spec(weights: BTreeMap<ProposerKind, u32>, seed: u64) -> CampaignSpec {
         }),
         constraints: Constraints::default(),
         allow_refused_sort: false,
-    };
+    }
+}
+
+/// A campaign on DICT's `run(5, "open", slow)` with the hole `N` at `5`.
+fn probe_spec(target: Target, weights: BTreeMap<ProposerKind, u32>, seed: u64) -> CampaignSpec {
+    let fixture = &support::DICT;
+    let program = "dict/probe.pgm";
     CampaignSpec {
         definitions: Definitions {
             baseline: std::sync::Arc::new(fixture.compiled().definition()),
             mutant: None,
         },
         program: ProgramInput::Source(fixture.compiled().program_source(program)),
-        holes: vec![
-            hole("N", "Int", "run(3,", "3"),
-            hole("S", "String", "\"shut\"", "\"shut\""),
-        ],
-        target: Target {
-            kind: TargetKind::Rule(RuleTarget {
-                rule: RuleRef::Label("DICT.goal".into()),
-                mode: RuleMode::Fired,
-            }),
-            run_to_completion: false,
-            negated_property: false,
-        },
+        holes: vec![dict_hole(program, "N", "Int", "run(5,", "5")],
+        target,
         options: CaseOptions {
             shrink: false,
             ..CaseOptions::default()
@@ -257,6 +276,102 @@ fn dict_spec(weights: BTreeMap<ProposerKind, u32>, seed: u64) -> CampaignSpec {
             thread_stack_size: None,
         },
     }
+}
+
+/// The value of hole `N` in the confirmed witness of a dictionary-only campaign on `spec`.
+fn witness_n(spec: CampaignSpec, budget: u64) -> Option<Value> {
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(budget), None);
+    report.witness().map(|witness| {
+        witness
+            .first
+            .holes
+            .iter()
+            .find(|hole| hole.name == "N")
+            .expect("the hole N")
+            .value
+            .clone()
+    })
+}
+
+#[test]
+fn the_dictionary_finds_conditions_written_in_equation_right_hand_sides() {
+    // `good(N) => N ==Int 4711` and `pick(N) => #if N ==Int 31337 #then 1 #else 0 #fi`: the
+    // conditions that decide `pgoal`'s and `igoal`'s guards are in the right-hand sides.
+    for seed in [1, 2, 3] {
+        for (label, expected) in [("DICT.pgoal", 4711), ("DICT.igoal", 31_337)] {
+            let spec = probe_spec(
+                rule_target(label),
+                BTreeMap::from([(ProposerKind::Dictionary, 1)]),
+                seed,
+            );
+            assert_eq!(
+                witness_n(spec, 300),
+                Some(Value::Int(expected.into())),
+                "{label} seed {seed}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_pattern_target_harvests_its_own_requires() {
+    // `probe-else` writes `N` to `<out>`; only the pattern names 9091.
+    let pattern = Target {
+        kind: TargetKind::Pattern(PatternTarget {
+            pattern: "<k> .K </k> <out> X:Int </out> requires X ==Int 9091".into(),
+            at: PatternAt::Final,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+    };
+    for seed in [1, 2, 3] {
+        let spec = probe_spec(
+            pattern.clone(),
+            BTreeMap::from([(ProposerKind::Dictionary, 1)]),
+            seed,
+        );
+        assert_eq!(
+            witness_n(spec, 300),
+            Some(Value::Int(9091.into())),
+            "seed {seed}"
+        );
+    }
+}
+
+#[test]
+fn a_dictionary_report_records_the_dictionary_parameters() {
+    let with = Campaign::new(dict_spec(
+        BTreeMap::from([(ProposerKind::Dictionary, 1)]),
+        SEEDS[0],
+    ))
+    .expect("valid")
+    .run(Budget::Cases(4), None);
+    assert_eq!(
+        with.identity.dictionary,
+        Some(DictionaryParameters::current())
+    );
+    let parameters = DictionaryParameters::current();
+    assert_eq!(
+        (
+            parameters.radius,
+            parameters.draw_probability,
+            parameters.expansion,
+            parameters.distance_weight_base,
+            parameters.exact_probability
+        ),
+        (2, [1, 2], 3, 4, [1, 2])
+    );
+    assert!(with.to_canonical_json().contains(r#""dictionary":{"#));
+    let without = Campaign::new(dict_spec(
+        BTreeMap::from([(ProposerKind::Blind, 1)]),
+        SEEDS[0],
+    ))
+    .expect("valid")
+    .run(Budget::Cases(4), None);
+    assert_eq!(without.identity.dictionary, None);
+    assert!(!without.to_canonical_json().contains(r#""dictionary""#));
 }
 
 #[test]

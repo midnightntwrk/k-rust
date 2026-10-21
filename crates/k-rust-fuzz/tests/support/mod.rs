@@ -622,7 +622,12 @@ fixture!(
 fixture!(MAZE, "maze/maze.k", "MAZE", &[program!("maze/walk.pgm")]);
 
 // The dictionary proposer's fixture (FZ-11): constants behind the rule graph and function calls.
-fixture!(DICT, "dict/dict.k", "DICT", &[program!("dict/run.pgm")]);
+fixture!(
+    DICT,
+    "dict/dict.k",
+    "DICT",
+    &[program!("dict/run.pgm"), program!("dict/probe.pgm")]
+);
 
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
