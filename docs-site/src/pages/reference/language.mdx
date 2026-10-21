@@ -414,6 +414,15 @@ The value is a variable, a field of the sentence's own template, or a bit range 
 The long form reads it once per term, so a larger term, which would be repeated as many times, is bound to a name first: `op @` in the pattern, or a `let` (`krs::syntax::invalid-bit-template` otherwise).
 `k::bits!("..")` alone in a condition or a result is `krs::syntax::bit-template-position`; in a pattern, `k::bits!` takes only the template, and a second argument there is `krs::syntax::invalid-bit-template`, the place being reserved for modifiers such as signed fields.
 
+**Migrating from field functions.**
+A decoder written with field functions, such as `FieldX(op) = op >> 6` and `FieldY(op) = (op >> 3) & 7` in guards like `FieldX(op) == 0 && FieldZ(op) == 4`, becomes one template per row:
+
+- the fixed fields become fixed bits, and each field the row reads becomes a letter that the result uses directly: `FieldY(op)` becomes `y`;
+- a row that also needs the whole value keeps it with `op @ k::bits!(..)`, as `decode_ld_r_r` above does for `op.ne::<Int>(118)`;
+- a field computed from another (`FieldY(op) - 4` for the two low bits of `y`) becomes its own letters, `"00 1cc 000"`;
+- the template also requires `0 <= op < 2^width`: a guard that reads its top field without a mask (`op >> 6`) already did, but one that masks it (`(op >> 6) & 3`) also matched values such as `260`, which a template leaves to the `owise` row;
+- the field functions, which the templates no longer call, can go, and a claim that restated a guard writes `k::bits!(op, "00 yyy 100")`.
+
 ### Sort-parametric productions
 
 A K sort parameter is a Rust type parameter of a production struct with exactly the bound `?Sized` (sort markers such as `dyn ExpSort` are unsized); `sort = S` and `k::Term<S>` fields name it.
