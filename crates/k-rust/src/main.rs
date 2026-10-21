@@ -52,8 +52,7 @@ use k_rust::{
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         ConfigurationError, compile_loaded_definition_for_proof,
-        compile_loaded_definition_with_timings,
-        compile_search_pattern,
+        compile_loaded_definition_with_timings, compile_search_pattern,
         pipeline::{emission_phase, load_phase},
     },
     kore::{
@@ -251,6 +250,62 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
             kore_match_disjunction_command(options).map(|()| ExitCode::SUCCESS)
         }
         Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
+        Command::Fuzz(options) => fuzz(options),
+    }
+}
+
+/// `krust fuzz ARGS`: run the `krust-fuzz` executable with `ARGS`, as `cargo` runs `cargo-NAME`.
+///
+/// The fuzz engine is the `k-rust-fuzz` package, which depends on this one, so `krust` cannot
+/// link it. The executable is looked up beside krust first and then on `PATH`. It receives this
+/// build's identity in [`k_rust::native::FUZZ_PARENT_BUILD_ENV`] and refuses to run when it was
+/// built against another k-rust, so a stale `krust-fuzz` on `PATH` cannot answer for this krust.
+/// On Unix krust replaces itself with it, so its exit status and signals are krust's.
+fn fuzz(options: FuzzArgs) -> Result<ExitCode, Box<dyn Error>> {
+    let name = format!("krust-fuzz{}", env::consts::EXE_SUFFIX);
+    let beside = env::current_exe()
+        .ok()
+        .and_then(|krust| krust.parent().map(|directory| directory.join(&name)));
+    let on_path: Vec<PathBuf> = env::var_os("PATH")
+        .map(|path| {
+            env::split_paths(&path)
+                .map(|directory| directory.join(&name))
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(executable) = beside
+        .into_iter()
+        .chain(on_path)
+        .find(|path| path.is_file())
+    else {
+        return Err(format!(
+            "`krust fuzz` runs the `{name}` executable, which is neither beside krust nor on PATH; \
+             build it with `cargo build -p k-rust-fuzz --features cli --bin krust-fuzz`"
+        )
+        .into());
+    };
+    let mut command = std::process::Command::new(&executable);
+    command.args(&options.args).env(
+        k_rust::native::FUZZ_PARENT_BUILD_ENV,
+        k_rust::native::build_identity(),
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        let error = command.exec();
+        Err(format!("could not run `{}`: {error}", executable.display()).into())
+    }
+    #[cfg(not(unix))]
+    {
+        let status = command
+            .status()
+            .map_err(|error| format!("could not run `{}`: {error}", executable.display()))?;
+        Ok(ExitCode::from(
+            status
+                .code()
+                .and_then(|code| u8::try_from(code).ok())
+                .unwrap_or(1),
+        ))
     }
 }
 
@@ -308,6 +363,21 @@ enum Command {
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
     Kprove(KproveArgs),
+    /// Craft input values that make a program reach a target, with the `krust-fuzz` executable
+    /// installed beside krust (`krust fuzz --help` shows its options).
+    #[command(disable_help_flag = true)]
+    Fuzz(FuzzArgs),
+}
+
+#[derive(Debug, Args)]
+struct FuzzArgs {
+    /// The arguments `krust-fuzz` receives, unchanged.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        value_name = "ARGS"
+    )]
+    args: Vec<std::ffi::OsString>,
 }
 
 #[derive(Clone, Debug, Args)]

@@ -30,6 +30,9 @@ serde.workspace = true
 serde_json.workspace = true
 # Digests of the program, the hole overlay, the target and the rewrite order in the report.
 sha2.workspace = true
+# The `krust-fuzz` executable's argument parser and campaign file reader (`cli` feature).
+clap = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 
 [dev-dependencies]
 indoc.workspace = true
@@ -37,6 +40,21 @@ indoc.workspace = true
 [features]
 # The solve proposer (ARCHITECTURE.md 8.6) needs a solver; the library builds without it.
 z3 = ["k-rust/z3-inference"]
+# The `krust-fuzz` executable (ARCHITECTURE.md 9.4). It loads compiled directories as `krust krun`
+# does, which needs k-rust's `cli` feature (and with it Z3). Not a default feature: the library's
+# portable build is its primary build, and clients such as the bindings and kink take it with
+# default features.
+cli = ["k-rust/cli", "dep:clap", "dep:toml"]
+
+[[bin]]
+name = "krust-fuzz"
+path = "src/bin/krust-fuzz/main.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+required-features = ["cli"]
 
 [lints]
 workspace = true
