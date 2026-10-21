@@ -312,6 +312,35 @@ def phase_preflight(context: Context) -> str:
     )
 
 
+WRAPPER_EXEC = re.compile(r'^exec "(/[^"]+)"(?:\s+"\$@")?\s*$', re.MULTILINE)
+
+
+def wrapped_executable(path: Path) -> Path:
+    """The program a tool path finally runs, through symlinks and Nix wrapper scripts.
+
+    The LLVM backend reports no version, so its Nix store path is the version
+    evidence. K's `llvm-kompile` may be a `makeWrapper` script whose last
+    command is `exec "/nix/store/...-llvm-backend-<version>/bin/llvm-kompile" "$@"`.
+    A script with exactly one such absolute `exec` line is a wrapper and is
+    followed; a script with none is the program itself (the backend's own
+    `llvm-kompile` is a bash script); a script with several is ambiguous.
+    """
+
+    for _ in range(8):
+        path = path.resolve()
+        with path.open("rb") as handle:
+            if handle.read(2) != b"#!":
+                return path
+        text = path.read_text(encoding="utf-8", errors="replace")
+        targets = WRAPPER_EXEC.findall(text)
+        if not targets:
+            return path
+        if len(targets) > 1:
+            raise GateError(f"{path} is a script with more than one absolute exec target")
+        path = Path(targets[0])
+    raise GateError(f"{path}: wrapper scripts nest more than 8 levels")
+
+
 def verify_java_tools(tools: Mapping[str, str]) -> None:
     """Require the `Krs.lock` K, kore-exec, LLVM backend, and Z3 versions."""
 
@@ -321,9 +350,10 @@ def verify_java_tools(tools: Mapping[str, str]) -> None:
     kore = run([tools["kore-exec"], "--version"], timeout=30).stdout.strip()
     if kore != lock.value("k", "kore_exec_version"):
         raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
-    llvm = Path(tools["llvm-kompile"]).resolve()
-    if f"llvm-backend-{lock.value('k', 'llvm_backend_version')}" not in llvm.as_posix():
-        raise GateError("LLVM backend version differs from Krs.lock")
+    llvm = wrapped_executable(Path(tools["llvm-kompile"]))
+    expected = f"llvm-backend-{lock.value('k', 'llvm_backend_version')}"
+    if llvm.parent.parent.name.split("-", 1)[-1] != expected or llvm.name != "llvm-kompile":
+        raise GateError(f"LLVM backend version differs from Krs.lock: {llvm} is not {expected}'s llvm-kompile")
     z3 = run([tools["z3"], "--version"], timeout=30).stdout.strip()
     if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
         raise GateError(f"Z3 version differs from Krs.lock: {z3}")
