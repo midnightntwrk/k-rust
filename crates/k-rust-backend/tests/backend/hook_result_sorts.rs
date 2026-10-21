@@ -21,7 +21,7 @@
 use k_rust_backend::{
     definition::BackendDefinition,
     simplify::SimplificationOptions,
-    term::{CollectionMetadata, Sort, Term, TermKind},
+    term::{CollectionMetadata, Sort, SortNode, Term, TermKind},
 };
 use k_rust_kore::kore::parser::parse_definition;
 
@@ -130,8 +130,8 @@ fn definition() -> BackendDefinition {
 }
 
 fn sort_name(sort: &Sort) -> &str {
-    match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => name,
+    match sort.node() {
+        SortNode::Application { name, arguments } if arguments.is_empty() => name,
         _ => panic!("the fixture declares only simple sorts, found {sort:?}"),
     }
 }

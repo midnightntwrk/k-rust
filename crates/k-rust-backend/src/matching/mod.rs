@@ -87,8 +87,8 @@ use crate::{
     instance_normal::InstanceNormal,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind,
-        Variable,
+        HeadRole, Items, ListDefinition, MapDefinition, Name, Sort, SortNode, Sorts, SymbolType,
+        Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
             RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, classify_pattern,
@@ -297,7 +297,7 @@ impl ClosedSort {
     }
 
     pub(crate) fn head(&self) -> &Name {
-        let Sort::Application { name, .. } = &self.0 else {
+        let SortNode::Application { name, .. } = self.0.node() else {
             unreachable!("a closed sort has an application root")
         };
         name
@@ -311,9 +311,9 @@ impl std::borrow::Borrow<Sort> for ClosedSort {
 }
 
 fn first_sort_variable(sort: &Sort) -> Option<&Name> {
-    match sort {
-        Sort::Variable(name) => Some(name),
-        Sort::Application { arguments, .. } => arguments.iter().find_map(first_sort_variable),
+    match sort.node() {
+        SortNode::Variable(name) => Some(name),
+        SortNode::Application { arguments, .. } => arguments.iter().find_map(first_sort_variable),
     }
 }
 
@@ -342,14 +342,14 @@ pub(crate) fn sort_relation(left: &Sort, right: &Sort) -> SortRelation {
     if left == right {
         return SortRelation::Equal;
     }
-    match (left, right) {
-        (Sort::Variable(_), _) | (_, Sort::Variable(_)) => SortRelation::Open,
+    match (left.node(), right.node()) {
+        (SortNode::Variable(_), _) | (_, SortNode::Variable(_)) => SortRelation::Open,
         (
-            Sort::Application {
+            SortNode::Application {
                 name: left_head,
                 arguments: left_arguments,
             },
-            Sort::Application {
+            SortNode::Application {
                 name: right_head,
                 arguments: right_arguments,
             },
@@ -451,14 +451,14 @@ impl SortGraph {
         if sub == sup {
             return Ok(true);
         }
-        let Sort::Application { name: sub_head, .. } = sub else {
-            let Sort::Variable(name) = sub else {
+        let SortNode::Application { name: sub_head, .. } = sub.node() else {
+            let SortNode::Variable(name) = sub.node() else {
                 unreachable!()
             };
             return Err(SortError::FoundSortVariable(name.clone()));
         };
-        let Sort::Application { name: sup_head, .. } = sup else {
-            let Sort::Variable(name) = sup else {
+        let SortNode::Application { name: sup_head, .. } = sup.node() else {
+            let SortNode::Variable(name) = sup.node() else {
                 unreachable!()
             };
             return Err(SortError::FoundSortVariable(name.clone()));
@@ -476,7 +476,7 @@ impl SortGraph {
         // A closed instance absent from the axioms is below only itself; its head must be known.
         // The declared-sort check keeps an undeclared head an error.
         if !self.constructors.contains(sup_head) && !self.heads_below.contains_key(sup_head) {
-            return Err(SortError::FoundUnknownSort(sup.clone()));
+            return Err(SortError::FoundUnknownSort(*sup));
         }
         let variable = first_sort_variable(sub).or_else(|| first_sort_variable(sup));
         let Some(variable) = variable else {
@@ -517,13 +517,13 @@ impl SortGraph {
     /// A closed sort absent from the axioms has the singleton down-set containing itself.
     pub(crate) fn known_overlap(&self, left: &Sort, right: &Sort) -> Option<bool> {
         let (
-            Sort::Application {
+            SortNode::Application {
                 name: left_head, ..
             },
-            Sort::Application {
+            SortNode::Application {
                 name: right_head, ..
             },
-        ) = (left, right)
+        ) = (left.node(), right.node())
         else {
             return None;
         };
@@ -556,8 +556,8 @@ impl SortGraph {
         self.known_overlap(left, right)?;
         let down = |sort: &Sort| -> BTreeSet<Sort> {
             match self.below.get(sort) {
-                Some(below) => below.iter().map(|sort| sort.sort().clone()).collect(),
-                None => BTreeSet::from([sort.clone()]),
+                Some(below) => below.iter().map(|sort| *sort.sort()).collect(),
+                None => BTreeSet::from([*sort]),
             }
         };
         let (left_down, right_down) = (down(left), down(right));
@@ -629,12 +629,12 @@ pub(crate) fn match_injection_equality(
     match sorts.order(left_source, right_source) {
         // `inj{A,C}(a) = inj{B,C}(inj{A,B}(a))` for `A < B`, and `inj{B,C}` is injective.
         SortOrder::Below => Some(InjectionEquality::Split(
-            Term::injection(left_source.clone(), right_source.clone(), left.clone()),
+            Term::injection(*left_source, *right_source, left.clone()),
             right.clone(),
         )),
         SortOrder::Above => Some(InjectionEquality::Split(
             left.clone(),
-            Term::injection(right_source.clone(), left_source.clone(), right.clone()),
+            Term::injection(*right_source, *left_source, right.clone()),
         )),
         // Neither source is below the other: a common value is the injection of a value of a
         // common subsort, which a constructor-like operand, built by a constructor of its own
@@ -1602,11 +1602,8 @@ impl<'a> Matcher<'a> {
         if pattern_is_subsort
             && (is_function(subject_term) || matches!(subject_term.kind(), TermKind::Variable(_)))
         {
-            let pattern_term = Term::injection(
-                pattern_source.clone(),
-                subject_source.clone(),
-                pattern_term.clone(),
-            );
+            let pattern_term =
+                Term::injection(*pattern_source, *subject_source, pattern_term.clone());
             debug_assert_eq!(pattern_term.sort(), subject_term.sort());
             // A rewrite rule's pattern is compared as written with an operand whose root is
             // fixed, or residual as in `matcher_root_policy`.
@@ -1625,19 +1622,12 @@ impl<'a> Matcher<'a> {
             if let TermKind::Variable(variable) = pattern_term.kind() {
                 return self.bind(
                     variable.clone(),
-                    Term::injection(
-                        subject_source.clone(),
-                        pattern_source.clone(),
-                        subject_term.clone(),
-                    ),
+                    Term::injection(*subject_source, *pattern_source, subject_term.clone()),
                 );
             }
             if is_function(pattern_term) {
-                let subject_term = Term::injection(
-                    subject_source.clone(),
-                    pattern_source.clone(),
-                    subject_term.clone(),
-                );
+                let subject_term =
+                    Term::injection(*subject_source, *pattern_source, subject_term.clone());
                 debug_assert_eq!(pattern_term.sort(), subject_term.sort());
                 if self.mode == MatchMode::Rewrite
                     && matches!(
@@ -1655,11 +1645,7 @@ impl<'a> Matcher<'a> {
             if matches!(pattern_term.kind(), TermKind::And(..)) {
                 self.enqueue(
                     pattern_term.clone(),
-                    Term::injection(
-                        subject_source.clone(),
-                        pattern_source.clone(),
-                        subject_term.clone(),
-                    ),
+                    Term::injection(*subject_source, *pattern_source, subject_term.clone()),
                 );
                 return Ok(());
             }
@@ -1683,11 +1669,7 @@ impl<'a> Matcher<'a> {
         }
         match self.sorts.check_subsort(&source, target) {
             Ok(true) => {
-                return OverloadLowering::Lowered(Term::injection(
-                    source,
-                    target.clone(),
-                    term.clone(),
-                ));
+                return OverloadLowering::Lowered(Term::injection(source, *target, term.clone()));
             }
             Err(_) => return OverloadLowering::Indeterminate,
             Ok(false) => {}
@@ -1776,16 +1758,13 @@ impl<'a> Matcher<'a> {
             if candidate_impossible {
                 continue;
             }
-            let application = Term::application(
-                candidate.clone(),
-                sort_arguments.clone(),
-                candidate_arguments,
-            );
+            let application =
+                Term::application(candidate.clone(), *sort_arguments, candidate_arguments);
             let candidate_sort = application.sort();
             let application = if &candidate_sort == target {
                 application
             } else {
-                Term::injection(candidate_sort, target.clone(), application)
+                Term::injection(candidate_sort, *target, application)
             };
             lowered.push((candidate.name.clone(), application));
         }
@@ -1890,11 +1869,11 @@ impl<'a> Matcher<'a> {
         };
         let common = definition.symbols().get(&common_name)?.clone();
         let sort_arguments = if pattern_view.symbol.name == common_name {
-            pattern_view.sort_arguments.clone()
+            pattern_view.sort_arguments
         } else if subject_view.symbol.name == common_name {
-            subject_view.sort_arguments.clone()
+            subject_view.sort_arguments
         } else if common.sort_variables.is_empty() {
-            Vec::new()
+            Sorts::EMPTY
         } else {
             return None;
         };
@@ -1904,8 +1883,8 @@ impl<'a> Matcher<'a> {
         {
             return None;
         }
-        let pattern = pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?;
-        let subject = subject_view.lift(common, &sort_arguments, self.sorts)?;
+        let pattern = pattern_view.lift(common.clone(), sort_arguments, self.sorts)?;
+        let subject = subject_view.lift(common, sort_arguments, self.sorts)?;
         if let Some(lifted) = overload_application(&subject) {
             self.normal_forms.given.overload_lift(lifted.clone());
         }
@@ -2419,7 +2398,7 @@ impl<'a> Matcher<'a> {
                 {
                     term.clone()
                 } else {
-                    Term::application(symbol.clone(), sort_arguments.clone(), new_arguments)
+                    Term::application(symbol.clone(), *sort_arguments, new_arguments)
                 }
             }
             TermKind::Injection {
@@ -2431,7 +2410,7 @@ impl<'a> Matcher<'a> {
                 if new_inner.ptr_eq(inner) {
                     term.clone()
                 } else {
-                    Term::injection(source.clone(), target.clone(), new_inner)
+                    Term::injection(*source, *target, new_inner)
                 }
             }
             _ => term.clone(),
@@ -2521,7 +2500,7 @@ impl<'a> Matcher<'a> {
                 let subject = if subject_sort == variable.sort {
                     subject
                 } else {
-                    Term::injection(subject_sort, variable.sort.clone(), subject)
+                    Term::injection(subject_sort, variable.sort, subject)
                 };
                 self.bind(variable, subject)
             }
@@ -3067,7 +3046,7 @@ fn is_residual(head: Head<'_>) -> bool {
 struct OverloadView {
     original_sort: Sort,
     symbol: Arc<crate::term::Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     arguments: Vec<Term>,
 }
 
@@ -3133,7 +3112,7 @@ impl OverloadView {
         Some(Self {
             original_sort,
             symbol: symbol.clone(),
-            sort_arguments: sort_arguments.clone(),
+            sort_arguments: *sort_arguments,
             arguments: arguments.clone(),
         })
     }
@@ -3141,7 +3120,7 @@ impl OverloadView {
     fn lift(
         &self,
         common: Arc<crate::term::Symbol>,
-        sort_arguments: &[Sort],
+        sort_arguments: Sorts,
         sorts: &SortGraph,
     ) -> Option<Term> {
         if self.arguments.len() != common.argument_sorts.len()
@@ -3164,8 +3143,8 @@ impl OverloadView {
                 inject_to_sort(argument.clone(), expected, sorts)
             })
             .collect::<Option<Vec<_>>>()?;
-        let application = Term::application(common, sort_arguments.to_vec(), arguments);
-        inject_to_sort(application, self.original_sort.clone(), sorts)
+        let application = Term::application(common, sort_arguments, arguments);
+        inject_to_sort(application, self.original_sort, sorts)
     }
 }
 
@@ -3182,7 +3161,7 @@ pub(crate) fn lift_to_overload(
     sort_arguments: &[Sort],
     sorts: &SortGraph,
 ) -> Option<Term> {
-    OverloadView::new(term)?.lift(common, sort_arguments, sorts)
+    OverloadView::new(term)?.lift(common, Sorts::new(sort_arguments), sorts)
 }
 
 fn inject_to_sort(term: Term, target: Sort, sorts: &SortGraph) -> Option<Term> {
@@ -3197,18 +3176,15 @@ fn inject_to_sort(term: Term, target: Sort, sorts: &SortGraph) -> Option<Term> {
 }
 
 fn substitute_sort_parameters(sort: &Sort, parameters: &BTreeMap<Name, Sort>) -> Sort {
-    match sort {
-        Sort::Variable(name) => parameters
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| sort.clone()),
-        Sort::Application { name, arguments } => Sort::Application {
-            name: name.clone(),
-            arguments: arguments
+    match sort.node() {
+        SortNode::Variable(name) => parameters.get(name).copied().unwrap_or(*sort),
+        SortNode::Application { name, arguments } => Sort::application_of(
+            name.clone(),
+            arguments
                 .iter()
                 .map(|argument| substitute_sort_parameters(argument, parameters))
                 .collect(),
-        },
+        ),
     }
 }
 
@@ -3757,11 +3733,9 @@ mod tests {
                     sort_arguments,
                     arguments,
                 },
-            ) if share || pattern_symbol.name == subject_symbol.name => Term::application(
-                pattern_symbol.clone(),
-                sort_arguments.clone(),
-                arguments.clone(),
-            ),
+            ) if share || pattern_symbol.name == subject_symbol.name => {
+                Term::application(pattern_symbol.clone(), *sort_arguments, arguments.clone())
+            }
             _ => subject,
         }
     }

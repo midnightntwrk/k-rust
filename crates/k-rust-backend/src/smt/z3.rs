@@ -642,7 +642,7 @@ impl Z3Solver {
                             value: value.to_string(),
                         }
                     })?;
-                    Term::domain_value_of(DomainKind::Int, variable.sort.clone(), rendered)
+                    Term::domain_value_of(DomainKind::Int, variable.sort, rendered)
                 }
                 sort if sort.is_builtin(BuiltinSort::Bool)
                     && self.model_kinds.bool == Some(DomainKind::Bool) =>
@@ -654,11 +654,7 @@ impl Z3Solver {
                         .eval(&Bool::new_const(name.clone()), true)
                         .and_then(|value| value.as_bool())
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
-                    Term::domain_value_of(
-                        DomainKind::Bool,
-                        variable.sort.clone(),
-                        value.to_string(),
-                    )
+                    Term::domain_value_of(DomainKind::Bool, variable.sort, value.to_string())
                 }
                 _ => term,
             };

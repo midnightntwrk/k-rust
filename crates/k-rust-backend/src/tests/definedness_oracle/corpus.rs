@@ -20,7 +20,7 @@ use crate::{
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
-    term::{Sort, Term, TermKind, head::certified_ground_normal_form},
+    term::{Sort, SortNode, Term, TermKind, head::certified_ground_normal_form},
 };
 
 const FUN_LISTS: &str = include_str!("../../../tests/fixtures/overloaded-list-owise.kore");
@@ -86,7 +86,7 @@ fn the_fun_list_family_is_accepted_and_its_values_keep_their_claims() {
 
 /// The sampled domain values of a builtin sort, as KORE.
 fn samples(sort: &Sort) -> Option<Vec<String>> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     if !arguments.is_empty() {
@@ -131,18 +131,14 @@ fn collapse(term: &Term) -> Option<Term> {
             arguments,
         } => Some(Term::application(
             symbol.clone(),
-            sort_arguments.clone(),
+            *sort_arguments,
             arguments.iter().map(collapse).collect::<Option<Vec<_>>>()?,
         )),
         TermKind::Injection {
             source,
             target,
             term,
-        } => Some(Term::injection(
-            source.clone(),
-            target.clone(),
-            collapse(term)?,
-        )),
+        } => Some(Term::injection(*source, *target, collapse(term)?)),
         _ => Some(term.clone()),
     }
 }

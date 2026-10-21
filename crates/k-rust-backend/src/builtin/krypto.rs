@@ -31,7 +31,7 @@ use super::{
     BuiltinResult, HookResult, UnsupportedHookReason, bool_term, bytes, expect_arity, read_int,
 };
 use crate::definition::BackendDefinition;
-use crate::term::{HeadRole, Name, Sort, Symbol, Term, TermKind};
+use crate::term::{HeadRole, Name, SortNode, Sorts, Symbol, Term, TermKind};
 
 pub(super) fn evaluate(
     hook: &str,
@@ -95,7 +95,7 @@ impl PointSignature {
     fn matches(self, symbol: &Symbol) -> bool {
         symbol.attributes.head_role() == HeadRole::FreeConstructor
             && symbol.sort_variables.is_empty()
-            && matches!(&symbol.result_sort, Sort::Application { name, arguments }
+            && matches!(symbol.result_sort.node(), SortNode::Application { name, arguments }
                 if arguments.is_empty() && name.as_ref() == self.sort)
             && symbol.argument_sorts.len() == self.arity
             && symbol
@@ -165,7 +165,7 @@ enum Reading<T> {
 /// The head a point argument was written with; a G1 result point is built with the same head.
 struct PointHead<'a> {
     symbol: &'a Arc<Symbol>,
-    sort_arguments: &'a [Sort],
+    sort_arguments: Sorts,
 }
 
 fn without_injections(mut term: &Term) -> &Term {
@@ -229,7 +229,7 @@ fn point_coordinates<'a, const N: usize>(
     Reading::Value((
         PointHead {
             symbol,
-            sort_arguments,
+            sort_arguments: *sort_arguments,
         },
         coordinates,
     ))
@@ -403,7 +403,7 @@ fn g1_term(head: &PointHead<'_>, value: G1) -> Term {
     };
     Term::application(
         head.symbol.clone(),
-        head.sort_arguments.to_vec(),
+        head.sort_arguments,
         vec![super::int_term(x), super::int_term(y)],
     )
 }
@@ -608,6 +608,7 @@ mod tests {
     use num_bigint::BigInt;
 
     use super::*;
+    use crate::term::Sort;
     use crate::{
         builtin::HookResult,
         stop::{CancellationToken, StopCause, Unwind},
@@ -874,7 +875,7 @@ mod tests {
     fn wrong_sort_and_non_domain_values_are_not_applicable() {
         let sort_bytes = Sort::simple("SortBytes");
         let non_domain = Term::application(
-            Arc::new(Symbol::constructor("bytes", vec![], sort_bytes.clone())),
+            Arc::new(Symbol::constructor("bytes", vec![], sort_bytes)),
             vec![],
             vec![],
         );

@@ -61,7 +61,7 @@ impl SymbolShape {
         Self {
             sort_variables: symbol.sort_variables.clone(),
             argument_sorts: symbol.argument_sorts.clone(),
-            result_sort: symbol.result_sort.clone(),
+            result_sort: symbol.result_sort,
             free: free_constructor(symbol),
             hook: symbol.attributes.hook.clone(),
         }

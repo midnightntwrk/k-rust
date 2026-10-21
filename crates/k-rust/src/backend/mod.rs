@@ -3912,14 +3912,14 @@ mod tests {
         let condition = ImplicationCondition {
             predicates: vec![Predicate::False],
             substitution: Substitution::from([(
-                Variable::new("X", sort.clone()),
+                Variable::new("X", sort),
                 definition
                     .admit_unverified(&parse_pattern("a{}()").unwrap(), &[])
                     .internalize_term()
                     .unwrap(),
             )]),
             witnesses: Substitution::from([(
-                Variable::new("Y", sort.clone()),
+                Variable::new("Y", sort),
                 definition
                     .admit_unverified(&parse_pattern("b{}()").unwrap(), &[])
                     .internalize_term()

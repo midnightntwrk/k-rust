@@ -1221,8 +1221,8 @@ mod tests {
     #[test]
     fn a_match_solution_states_its_conditions_under_its_substitution() {
         let sort = Sort::simple("SortInt");
-        let x = Variable::new("X", sort.clone());
-        let a = Term::variable(Variable::new("A", sort.clone()));
+        let x = Variable::new("X", sort);
+        let a = Term::variable(Variable::new("A", sort));
         let b = Term::variable(Variable::new("B", sort));
         let substitution = Substitution::from([(x.clone(), b.clone())]);
         let (kept, conditions) = MatchSolution::from_parts(
@@ -1240,8 +1240,8 @@ mod tests {
     #[test]
     fn binding_a_match_solution_restates_an_earlier_condition() {
         let sort = Sort::simple("SortInt");
-        let x = Variable::new("X", sort.clone());
-        let y = Variable::new("Y", sort.clone());
+        let x = Variable::new("X", sort);
+        let y = Variable::new("Y", sort);
         let a = Term::variable(Variable::new("A", sort));
         let mut matched =
             MatchSolution::new(Substitution::from([(y.clone(), Term::variable(x.clone()))]));
