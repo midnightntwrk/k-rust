@@ -24,7 +24,7 @@ use crate::{
     rule::Predicate,
     simplify::{SimplificationOptions, simplify_predicate_with_solver},
     smt::NoSolver,
-    term::{Sort, Term, TermKind},
+    term::{Sort, SortNode, Term, TermKind},
 };
 
 /// Ground terms explored around a probe definition.
@@ -613,8 +613,8 @@ pub(super) fn oracle_term(universe: &mut Universe<'_>, term: &Term) -> Option<Id
 
 /// The oracle's name of a backend sort (`SortA{}` is `A`).
 pub(super) fn sort_name(sort: &Sort) -> Option<String> {
-    match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => {
+    match sort.node() {
+        SortNode::Application { name, arguments } if arguments.is_empty() => {
             name.strip_prefix("Sort").map(str::to_owned)
         }
         _ => None,

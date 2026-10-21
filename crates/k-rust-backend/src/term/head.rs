@@ -1286,7 +1286,7 @@ mod tests {
     #[test]
     fn a_rigid_cycle_runs_through_free_constructors_and_injections_only() {
         let int = Sort::simple("SortInt");
-        let x = Variable::new("X", int.clone());
+        let x = Variable::new("X", int);
         let minus = Arc::new(Symbol {
             attributes: {
                 let mut attributes = crate::term::SymbolAttributes::constructor();
@@ -1294,7 +1294,7 @@ mod tests {
                 attributes.hook = Some("INT.sub".into());
                 attributes
             },
-            ..Symbol::constructor("Lbl'Unds'-Int'Unds'", vec![int.clone(); 2], int.clone())
+            ..Symbol::constructor("Lbl'Unds'-Int'Unds'", vec![int; 2], int)
         });
         let inc_pos = Arc::new(Symbol {
             attributes: {
@@ -1302,14 +1302,14 @@ mod tests {
                 attributes.symbol_type = SymbolType::Function(FunctionType::Total);
                 attributes
             },
-            ..Symbol::constructor("LblincPos", vec![int.clone()], int.clone())
+            ..Symbol::constructor("LblincPos", vec![int], int)
         });
-        let successor = Arc::new(Symbol::constructor("Lbls", vec![int.clone()], int.clone()));
+        let successor = Arc::new(Symbol::constructor("Lbls", vec![int], int));
         let wrap = Arc::new(Symbol {
             attributes: crate::term::SymbolAttributes::constructor().with_anywhere(true),
-            ..Symbol::constructor("Lblwrap", vec![int.clone()], int.clone())
+            ..Symbol::constructor("Lblwrap", vec![int], int)
         });
-        let one = Term::raw_domain_value(int.clone(), "1");
+        let one = Term::raw_domain_value(int, "1");
         let through_function = apply(
             &inc_pos,
             vec![apply(&minus, vec![Term::variable(x.clone()), one])],
@@ -1321,7 +1321,7 @@ mod tests {
         assert_eq!(cycle.variable(), &x);
         assert_eq!(cycle.term(), &through_constructor);
 
-        let injected = Term::injection(int.clone(), sort(), through_constructor.clone());
+        let injected = Term::injection(int, sort(), through_constructor.clone());
         assert!(rigid_occurrence(&x, &injected).is_some());
         assert_eq!(rigid_occurrence(&x, &Term::variable(x.clone())), None);
         assert_eq!(
@@ -1745,10 +1745,10 @@ mod tests {
             apply(&wrap, vec![one.clone()]),
             apply(&wrap, vec![one.clone()]).with_evaluated_mark_for_test(),
             apply(&wrap, vec![two.clone()]).with_evaluated_mark_for_test(),
-            Term::injection(sub.clone(), sort(), one.clone()),
-            Term::injection(sub.clone(), sort(), two.clone()),
+            Term::injection(sub, sort(), one.clone()),
+            Term::injection(sub, sort(), two.clone()),
             Term::injection(Sort::simple("SortOther"), sort(), two.clone()),
-            Term::injection(sub.clone(), sort(), apply(&wrap, vec![one.clone()])),
+            Term::injection(sub, sort(), apply(&wrap, vec![one.clone()])),
             list,
             apply(&function("f", 1), vec![one.clone()]),
             apply(&residual, vec![one.clone()]),

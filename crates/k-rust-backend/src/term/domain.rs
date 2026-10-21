@@ -486,14 +486,8 @@ mod tests {
     #[test]
     fn texts_are_validated_by_kind() {
         let int = Sort::builtin(BuiltinSort::Int);
-        let word = Sort::Application {
-            name: "SortMInt".into(),
-            arguments: vec![Sort::simple("Sort8")],
-        };
-        let wide = Sort::Application {
-            name: "SortMInt".into(),
-            arguments: vec![Sort::simple("Sort33554432")],
-        };
+        let word = Sort::application("SortMInt", vec![Sort::simple("Sort8")]);
+        let wide = Sort::application("SortMInt", vec![Sort::simple("Sort33554432")]);
         let renamed_bytes = Sort::simple("SortMyBytes");
         let bytes = Sort::builtin(BuiltinSort::Bytes);
         let float = Sort::builtin(BuiltinSort::Float);

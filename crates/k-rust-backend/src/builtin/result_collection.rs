@@ -119,7 +119,7 @@ fn convert(sorts: Option<&SortGraph>, element: Term, from: &Sort, into: &Sort) -
     if from == into {
         return Some(element);
     }
-    below(sorts, from, into).then(|| Term::injection(from.clone(), into.clone(), element))
+    below(sorts, from, into).then(|| Term::injection(*from, *into, element))
 }
 
 /// `term` read at the element (key, value) sort `into` of a collection, as the collection stores
@@ -145,7 +145,7 @@ fn convert_all<'e>(
     below(sorts, from, into).then(|| {
         elements
             .into_iter()
-            .map(|element| Term::injection(from.clone(), into.clone(), element.clone()))
+            .map(|element| Term::injection(*from, *into, element.clone()))
             .collect()
     })
 }

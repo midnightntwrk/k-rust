@@ -550,11 +550,11 @@ mod tests {
             Term::application(
                 Arc::new(crate::term::Symbol::constructor(
                     name,
-                    vec![int.clone()],
-                    element_sort.clone(),
+                    vec![int],
+                    element_sort,
                 )),
                 Vec::new(),
-                vec![Term::variable(Variable::new(variable, int.clone()))],
+                vec![Term::variable(Variable::new(variable, int))],
             )
         };
         let a = application("a", "A");
@@ -790,27 +790,27 @@ mod tests {
             Term::application(
                 Arc::new(crate::term::Symbol::constructor(
                     name,
-                    vec![int.clone()],
-                    element_sort.clone(),
+                    vec![int],
+                    element_sort,
                 )),
                 Vec::new(),
                 vec![argument],
             )
         };
-        let symbolic = |name| Term::variable(Variable::new(name, int.clone()));
-        let one = Term::raw_domain_value(int.clone(), "1");
+        let symbolic = |name| Term::variable(Variable::new(name, int));
+        let one = Term::raw_domain_value(int, "1");
         let pool = [
             item("0"),
             item("1"),
             item("2"),
-            Term::variable(Variable::new("X", element_sort.clone())),
+            Term::variable(Variable::new("X", element_sort)),
             application("a", symbolic("A")),
             application("a", one.clone()),
             application("b", symbolic("B")),
         ];
         let probes = pool.iter().cloned().chain([
             item("3"),
-            Term::variable(Variable::new("Y", element_sort.clone())),
+            Term::variable(Variable::new("Y", element_sort)),
             application("a", symbolic("C")),
             application("b", one),
             application("c", symbolic("D")),
@@ -901,14 +901,10 @@ mod tests {
     fn absence_of_a_constructor_like_element_compares_it_only_with_the_symbolic_elements() {
         const ELEMENTS: u32 = 4096;
         let int = Sort::simple("SortInt");
-        let ground = (0..ELEMENTS)
-            .map(|index| applied("c", Term::raw_domain_value(int.clone(), index.to_string())));
-        let symbolic = (0..3).map(|index| {
-            applied(
-                "c",
-                Term::variable(Variable::new(format!("X{index}"), int.clone())),
-            )
-        });
+        let ground =
+            (0..ELEMENTS).map(|index| applied("c", Term::raw_domain_value(int, index.to_string())));
+        let symbolic = (0..3)
+            .map(|index| applied("c", Term::variable(Variable::new(format!("X{index}"), int))));
         let collection = Term::set(set_definition(), ground.chain(symbolic).collect(), None);
         let TermKind::Set { elements, .. } = collection.kind() else {
             unreachable!("a set term")

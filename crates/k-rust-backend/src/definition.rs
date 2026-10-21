@@ -94,8 +94,8 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
-        ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration,
-        SymbolType, Term, TermKind, Variable,
+        ListDefinition, MapDefinition, Name, Sort, SortNode, Sorts, Symbol, SymbolAttributes,
+        SymbolDeclaration, SymbolType, Term, TermKind, Variable,
         domain::{TextRejection, validate_text},
         names::{HookName, variable_name_problems},
         sort_name,
@@ -1128,8 +1128,7 @@ pub struct BackendDefinition {
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
     /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
-    /// sort that is a builtin's shared allocation (`Sort::shared_builtin_index`), as every hook
-    /// result of a builtin sort is, without looking its name up in the table.
+    /// builtin sort (`Sort::shared_builtin_index`), without looking its name up in the table.
     builtin_domain_kinds: [Option<DomainKind>; BuiltinSort::ALL.len()],
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
@@ -1171,14 +1170,8 @@ pub(crate) struct SelectionComplete(());
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ConstructorHead {
-    Symbol {
-        name: Name,
-        sort_arguments: Vec<Sort>,
-    },
-    Injection {
-        source: Sort,
-        target: Sort,
-    },
+    Symbol { name: Name, sort_arguments: Sorts },
+    Injection { source: Sort, target: Sort },
 }
 
 /// I5: every value of the sort is an alternative of its no-junk axiom.
@@ -1196,9 +1189,9 @@ impl FiniteConstructorDomain {
         sort: &Sort,
         listed: BTreeSet<ConstructorHead>,
     ) -> Option<Self> {
-        let bucket = match sort {
-            Sort::Application { name, .. } => index.by_result_head.get(name),
-            Sort::Variable(_) => None,
+        let bucket = match sort.node() {
+            SortNode::Application { name, .. } => index.by_result_head.get(name),
+            SortNode::Variable(_) => None,
         };
         for symbol in bucket.into_iter().flatten().chain(&index.schemas) {
             let mut bindings = BTreeMap::new();
@@ -1220,7 +1213,7 @@ impl FiniteConstructorDomain {
                 .collect::<Option<Vec<_>>>()?;
             if !listed.contains(&ConstructorHead::Symbol {
                 name: symbol.name.clone(),
-                sort_arguments,
+                sort_arguments: sort_arguments.into(),
             }) {
                 return None;
             }
@@ -1257,16 +1250,16 @@ impl<'a> FixedRootSymbols<'a> {
             {
                 continue;
             }
-            match &symbol.result_sort {
-                Sort::Application { name, .. } => index
+            match symbol.result_sort.node() {
+                SortNode::Application { name, .. } => index
                     .by_result_head
                     .entry(name.clone())
                     .or_default()
                     .push(symbol),
-                Sort::Variable(name) if symbol.sort_variables.contains(name) => {
+                SortNode::Variable(name) if symbol.sort_variables.contains(name) => {
                     index.schemas.push(symbol);
                 }
-                Sort::Variable(_) => {}
+                SortNode::Variable(_) => {}
             }
         }
         index
@@ -1280,18 +1273,18 @@ fn match_declaration_sort(
     variables: &[Name],
     bindings: &mut BTreeMap<Name, Sort>,
 ) -> bool {
-    match (declaration, instance) {
-        (Sort::Variable(name), _) if variables.contains(name) => {
+    match (declaration.node(), instance.node()) {
+        (SortNode::Variable(name), _) if variables.contains(name) => {
             if let Some(bound) = bindings.get(name) {
                 bound == instance
             } else {
-                bindings.insert(name.clone(), instance.clone());
+                bindings.insert(name.clone(), *instance);
                 true
             }
         }
         (
-            Sort::Application { name, arguments },
-            Sort::Application {
+            SortNode::Application { name, arguments },
+            SortNode::Application {
                 name: instance_name,
                 arguments: instance_arguments,
             },
@@ -1303,9 +1296,9 @@ fn match_declaration_sort(
                     .zip(instance_arguments)
                     .all(|(left, right)| match_declaration_sort(left, right, variables, bindings))
         }
-        (Sort::Variable(_), Sort::Variable(_)) => declaration == instance,
-        (Sort::Variable(_), Sort::Application { .. })
-        | (Sort::Application { .. }, Sort::Variable(_)) => false,
+        (SortNode::Variable(_), SortNode::Variable(_)) => declaration == instance,
+        (SortNode::Variable(_), SortNode::Application { .. })
+        | (SortNode::Application { .. }, SortNode::Variable(_)) => false,
     }
 }
 
@@ -3657,7 +3650,7 @@ impl BackendDefinition {
         sort: &Sort,
         value: &kore::KoreString,
     ) -> Result<DomainKind, DefinitionError> {
-        let Sort::Application { name, .. } = sort else {
+        let SortNode::Application { name, .. } = sort.node() else {
             return Err(DefinitionError::SortWithoutDomainValues {
                 sort: Box::new(externalize::sort(sort)),
             });
@@ -3801,10 +3794,10 @@ impl BackendDefinition {
             .zip(sort_arguments.iter().cloned())
             .collect::<BTreeMap<_, _>>();
         if symbol.attributes.declares_constructor()
-            && matches!(symbol.result_sort, Sort::Variable(_))
+            && matches!(symbol.result_sort.node(), SortNode::Variable(_))
         {
             let result = substitute_sort(&symbol.result_sort, &substitution);
-            if let Sort::Application { name, .. } = &result
+            if let SortNode::Application { name, .. } = result.node()
                 && self
                     .sorts
                     .get(name)
@@ -3851,7 +3844,7 @@ impl BackendDefinition {
 
 /// [`BackendDefinition::domain_kind`] in the table of sorts `sorts`.
 pub(crate) fn domain_kind_in(sorts: &BTreeMap<Name, SortInfo>, sort: &Sort) -> Option<DomainKind> {
-    let Sort::Application { name, .. } = sort else {
+    let SortNode::Application { name, .. } = sort.node() else {
         return None;
     };
     let info = sorts.get(name)?;
@@ -3881,11 +3874,11 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<ClosedSort> {
                 )
         })
         .filter_map(|symbol| {
-            let result = ClosedSort::new(symbol.result_sort.clone()).ok()?;
+            let result = ClosedSort::new(symbol.result_sort).ok()?;
             let arguments = symbol
                 .argument_sorts
                 .iter()
-                .map(|sort| ClosedSort::new(sort.clone()).ok())
+                .map(|sort| ClosedSort::new(*sort).ok())
                 .collect::<Option<Vec<_>>>()?;
             Some((result, arguments))
         })
@@ -3940,7 +3933,7 @@ fn collect_finite_sort_constructors(
                         break;
                     };
                     has_bottom = true;
-                    if domain_sort.get_or_insert_with(|| sort.clone()) != &sort {
+                    if domain_sort.get_or_insert(sort) != &sort {
                         valid = false;
                         break;
                     }
@@ -3978,7 +3971,7 @@ fn collect_finite_sort_constructors(
                         break;
                     }
                     let sort = term.sort();
-                    if domain_sort.get_or_insert_with(|| sort.clone()) != &sort {
+                    if domain_sort.get_or_insert(sort) != &sort {
                         valid = false;
                         break;
                     }
@@ -4005,12 +3998,12 @@ pub(crate) fn constructor_head(term: &Term) -> Option<ConstructorHead> {
         } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
             Some(ConstructorHead::Symbol {
                 name: symbol.name.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             })
         }
         TermKind::Injection { source, target, .. } => Some(ConstructorHead::Injection {
-            source: source.clone(),
-            target: target.clone(),
+            source: *source,
+            target: *target,
         }),
         _ => None,
     }
@@ -4122,7 +4115,7 @@ pub(crate) fn internalize_sort(
 ) -> Result<Sort, DefinitionError> {
     match sort {
         kore::Sort::Variable(name) => match variables.get(name.as_str()) {
-            Some(name) => Ok(Sort::Variable(name.clone())),
+            Some(name) => Ok(Sort::variable(name.clone())),
             None => Err(DefinitionError::UnknownSort(name.clone())),
         },
         kore::Sort::Application { name, arguments } => {
@@ -4150,12 +4143,9 @@ pub(crate) fn internalize_sort(
 }
 
 pub(crate) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
-    match sort {
-        Sort::Variable(name) => substitution
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| sort.clone()),
-        Sort::Application { name, arguments } => Sort::application(
+    match sort.node() {
+        SortNode::Variable(name) => substitution.get(name).cloned().unwrap_or(*sort),
+        SortNode::Application { name, arguments } => Sort::application(
             name.clone(),
             arguments
                 .iter()
@@ -4274,7 +4264,7 @@ fn validate_binder_attribute(
             "Binder productions must have at least two nonterminals.".into(),
         ));
     }
-    let Sort::Application { name, .. } = &argument_sorts[0] else {
+    let SortNode::Application { name, .. } = argument_sorts[0].node() else {
         return Err(DefinitionError::MalformedAttribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
         ));
@@ -4368,8 +4358,8 @@ fn attach_collection_metadata(
                 closed_element_sort(&names.element, value_sort)?;
                 let definition = Arc::new(MapDefinition {
                     symbols: names.clone(),
-                    key_sort: key_sort.clone(),
-                    value_sort: value_sort.clone(),
+                    key_sort: *key_sort,
+                    value_sort: *value_sort,
                     map_sort: sort_name.clone(),
                 });
                 (names, CollectionMetadata::Map(definition))
@@ -4390,7 +4380,7 @@ fn attach_collection_metadata(
                 closed_element_sort(&names.element, element_sort)?;
                 let definition = Arc::new(ListDefinition {
                     symbols: names.clone(),
-                    element_sort: element_sort.clone(),
+                    element_sort: *element_sort,
                     list_sort: sort_name.clone(),
                 });
                 let collection = match collection {
@@ -4417,7 +4407,7 @@ fn attach_collection_metadata(
         Arc::make_mut(symbol).attributes.collection = Some(collection);
     }
     for symbol in symbols.values_mut() {
-        let Sort::Application { name, .. } = &symbol.result_sort else {
+        let SortNode::Application { name, .. } = symbol.result_sort.node() else {
             continue;
         };
         if symbol.attributes.hook.is_some()
@@ -4462,10 +4452,7 @@ fn reject_collection_role_misfits(
             Some(CollectionSort::Map(names)) => (CollectionKind::Map, names),
             None => continue,
         };
-        let collection = Sort::Application {
-            name: sort_name.clone(),
-            arguments: Vec::new(),
-        };
+        let collection = Sort::simple(sort_name.clone());
         for role in CollectionRole::ALL {
             let name = match role {
                 CollectionRole::Unit => &names.unit,
@@ -4542,11 +4529,11 @@ fn reject_collection_hook_misfits(
             (sort.clone(), collection)
         })
         .collect::<BTreeMap<_, _>>();
-    let collection = |sort: &Sort| match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => {
+    let collection = |sort: &Sort| match sort.node() {
+        SortNode::Application { name, arguments } if arguments.is_empty() => {
             collections.get(name).copied()
         }
-        Sort::Application { .. } | Sort::Variable(_) => None,
+        SortNode::Application { .. } | SortNode::Variable(_) => None,
     };
     let facts = crate::builtin::LoadedSorts {
         collection,
@@ -5929,7 +5916,7 @@ mod tests {
         let (_, sort) = admitted
             .internalize_predicate()
             .expect("the verified context internalizes");
-        assert_eq!(sort, Sort::Variable(Name::from("S")));
+        assert_eq!(sort, Sort::variable(Name::from("S")));
     }
 
     /// An associative application denotes the fold of its binary head over its operands, so the
@@ -7143,11 +7130,11 @@ mod tests {
         );
     }
 
-    /// Every internalized sort of one name holds the sort table's name allocation, the builtin
-    /// sorts the one `Sort::builtin` holds, and a sort variable the symbol's own name: comparing
-    /// two of them is a pointer comparison, not a reading of their text.
+    /// Every internalized sort is the interned handle of its content, a builtin sort the one
+    /// `Sort::builtin` reads, and the sorts table names a builtin sort with the builtin's own name
+    /// allocation: comparing two sorts is a pointer comparison, not a reading of their text.
     #[test]
-    fn internalized_sorts_of_one_name_share_one_name_allocation() {
+    fn internalized_sorts_are_the_interned_handles() {
         let syntax = parse_definition(indoc! {r#"
             []
             module MAIN
@@ -7161,9 +7148,6 @@ mod tests {
         "#})
         .unwrap();
         let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
-        let shares = |sort: &Sort, expected: &Name| match sort {
-            Sort::Application { name, .. } | Sort::Variable(name) => Arc::ptr_eq(name, expected),
-        };
         let table = |name: &str| {
             definition
                 .sorts()
@@ -7171,24 +7155,28 @@ mod tests {
                 .map(|(name, _)| name.clone())
                 .unwrap()
         };
-        let Sort::Application { name: builtin, .. } = Sort::builtin(BuiltinSort::Int) else {
-            unreachable!()
-        };
-        assert!(Arc::ptr_eq(&table("SortInt"), &builtin));
+        let int = Sort::builtin(BuiltinSort::Int);
+        assert!(Arc::ptr_eq(&table("SortInt"), int.name()));
+        let foo = Sort::simple("SortFoo");
 
         let symbol = |name: &str| definition.symbols()[name].clone();
         let (f, g, boxed) = (symbol("f"), symbol("g"), symbol("box"));
-        assert!(shares(&f.argument_sorts[0], &table("SortFoo")));
-        assert!(shares(&f.argument_sorts[1], &builtin));
-        assert!(shares(&f.result_sort, &table("SortFoo")));
-        assert!(shares(&g.argument_sorts[0], &table("SortFoo")));
-        assert!(shares(&g.result_sort, &builtin));
-        assert!(shares(&boxed.argument_sorts[0], &boxed.sort_variables[0]));
-        let Sort::Application { name, arguments } = &boxed.result_sort else {
-            panic!("{:?}", boxed.result_sort)
-        };
-        assert!(Arc::ptr_eq(name, &table("SortBox")));
-        assert!(shares(&arguments[0], &boxed.sort_variables[0]));
+        assert_eq!(f.argument_sorts[0], foo);
+        assert_eq!(f.argument_sorts[1], int);
+        assert_eq!(
+            f.argument_sorts[1].shared_builtin_index(),
+            int.shared_builtin_index()
+        );
+        assert!(int.shared_builtin_index().is_some());
+        assert_eq!(f.result_sort, foo);
+        assert_eq!(g.argument_sorts[0], foo);
+        assert_eq!(g.result_sort, int);
+        let parameter = Sort::variable(boxed.sort_variables[0].clone());
+        assert_eq!(boxed.argument_sorts[0], parameter);
+        assert_eq!(
+            boxed.result_sort,
+            Sort::application("SortBox", vec![parameter])
+        );
 
         let pattern = parse_pattern(r#"f{}(X:SortFoo{}, \dv{SortInt{}}("1"))"#).unwrap();
         let term = definition.internalize_term(&pattern, &[]).unwrap();
@@ -7198,17 +7186,17 @@ mod tests {
         let TermKind::Variable(variable) = arguments[0].kind() else {
             panic!("{term:?}")
         };
-        assert!(shares(&variable.sort, &table("SortFoo")));
+        assert_eq!(variable.sort, foo);
         let TermKind::DomainValue { sort, .. } = arguments[1].kind() else {
             panic!("{term:?}")
         };
-        assert!(shares(sort, &builtin));
+        assert_eq!(*sort, int);
     }
 
     /// The kinds held for the builtin sorts are the sorts table's: `domain_kind` of a builtin
-    /// sort's shared allocation equals the table lookup of a sort of the same name in an
-    /// allocation of its own, which the shortcut does not take, for builtin sorts the definition
-    /// declares with and without a hook and for ones it does not declare.
+    /// sort, however it is built, equals the table lookup the shortcut skips
+    /// (`domain_kind_in`), for builtin sorts the definition declares with and without a hook and
+    /// for ones it does not declare.
     #[test]
     fn builtin_domain_kinds_are_the_sort_tables() {
         let syntax = parse_definition(indoc! {r#"
@@ -7225,12 +7213,12 @@ mod tests {
         let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         for builtin in BuiltinSort::ALL {
             let shared = Sort::builtin(builtin);
-            let own = Sort::simple(builtin.kore_name());
-            assert!(shared.shared_builtin_index().is_some());
-            assert_eq!(own.shared_builtin_index(), None);
+            let built = Sort::simple(builtin.kore_name());
+            assert_eq!(shared, built);
+            assert!(built.shared_builtin_index().is_some());
             assert_eq!(
-                definition.domain_kind(&shared),
-                definition.domain_kind(&own),
+                definition.domain_kind(&built),
+                domain_kind_in(&definition.sorts, &built),
                 "{builtin:?}"
             );
         }

@@ -2735,7 +2735,7 @@ mod tests {
         use k_rust_backend::{rule::Predicate, term::Variable};
 
         let sort = Sort::simple("SortS");
-        let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+        let variable = |name: &str| Term::variable(Variable::new(name, sort));
         let output = diagnostic_output::<Value>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
@@ -2746,8 +2746,8 @@ mod tests {
                     Predicate::Equals(variable("Eq#VarZ"), variable("Eq#VarW")),
                 ],
                 rule_variables: vec![
-                    Variable::new("Eq#VarY", sort.clone()),
-                    Variable::new("Eq#VarZ", sort.clone()),
+                    Variable::new("Eq#VarY", sort),
+                    Variable::new("Eq#VarZ", sort),
                 ],
             },
             &sort,
@@ -3110,7 +3110,7 @@ mod tests {
     #[test]
     fn instantiation_failure_preserves_rule_and_missing_variables_on_the_wire() {
         let sort = Sort::simple("SortS");
-        let variable = k_rust_backend::term::Variable::new("Rule#E", sort.clone());
+        let variable = k_rust_backend::term::Variable::new("Rule#E", sort);
         let failure = indeterminate_failure_output(
             IndeterminateReason::Instantiation {
                 rule_id: "heat".into(),

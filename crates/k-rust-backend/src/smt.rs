@@ -18,7 +18,7 @@ use crate::{
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     stop::{PreludeSignal, Stoppable},
     substitution::Substitution,
-    term::{FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable},
+    term::{FunctionType, Sort, SortNode, Symbol, SymbolType, Term, TermKind, Variable},
 };
 
 #[cfg(feature = "z3")]
@@ -1254,14 +1254,14 @@ impl SmtSort {
 /// and `SortBool`; every other sort is declared as an uninterpreted sort
 /// (`SmtPrelude::from_definition`).
 fn sort_denotation(sort: &Sort) -> Result<SmtSort, TranslationError> {
-    match sort {
-        Sort::Variable(_) => Err(TranslationError::ParametricSort(sort.clone())),
+    match sort.node() {
+        SortNode::Variable(_) => Err(TranslationError::ParametricSort(*sort)),
         _ if sort.is_builtin(BuiltinSort::Int) => Ok(SmtSort::Int),
         _ if sort.is_builtin(BuiltinSort::Bool) => Ok(SmtSort::Bool),
-        Sort::Application { name, arguments } if arguments.is_empty() => {
+        SortNode::Application { name, arguments } if arguments.is_empty() => {
             Ok(SmtSort::Uninterpreted(quote(name)))
         }
-        Sort::Application { name, arguments } => Ok(SmtSort::Uninterpreted(format!(
+        SortNode::Application { name, arguments } => Ok(SmtSort::Uninterpreted(format!(
             "({} {})",
             quote(name),
             arguments
@@ -1893,7 +1893,7 @@ mod tests {
                 Some(SmtType::Hook(
                     SExpr::parse("(ite (< #1 0) (- 0 #1) #1)").unwrap(),
                 )),
-                vec![int.clone()],
+                vec![int],
                 int,
             ),
             Vec::new(),
@@ -1919,16 +1919,16 @@ mod tests {
         let power = symbol(
             "power",
             Some(SmtType::Hook(SExpr::atom("^"))),
-            vec![int.clone(), int.clone()],
-            int.clone(),
+            vec![int, int],
+            int,
         );
         let power_modulo = symbol(
             "powerModulo",
             Some(SmtType::Hook(SExpr::parse("(mod (^ #1 #2) #3)").unwrap())),
-            vec![int.clone(), int.clone(), int.clone()],
-            int.clone(),
+            vec![int, int, int],
+            int,
         );
-        let exponent = Term::variable(Variable::new("B", int.clone()));
+        let exponent = Term::variable(Variable::new("B", int));
         let guarded = |base: &str, exponent: &str| {
             format!(
                 "(ite (or (>= {exponent} 0) (= {base} 1) (= {base} (- 1))) (^ {base} {exponent}) \
@@ -1990,8 +1990,8 @@ mod tests {
         let squared_modulo = symbol(
             "squaredModulo",
             Some(SmtType::Hook(SExpr::parse("(mod (^ #1 2) #2)").unwrap())),
-            vec![int.clone(), int.clone()],
-            int.clone(),
+            vec![int, int],
+            int,
         );
         assert_eq!(
             TranslationState::new()
@@ -2007,7 +2007,7 @@ mod tests {
         let zeroth_modulo = symbol(
             "zerothModulo",
             Some(SmtType::Hook(SExpr::parse("(mod (^ #1 0) #2)").unwrap())),
-            vec![int.clone(), int.clone()],
+            vec![int, int],
             int,
         );
         assert_eq!(
@@ -2037,12 +2037,7 @@ mod tests {
         const LEVEL: usize = 600;
         let int = Sort::simple("SortInt");
         let binary = |name: &str, template: SExpr| {
-            symbol(
-                name,
-                Some(SmtType::Hook(template)),
-                vec![int.clone(), int.clone()],
-                int.clone(),
-            )
+            symbol(name, Some(SmtType::Hook(template)), vec![int, int], int)
         };
         let power = binary("power", SExpr::atom("^"));
         let division = binary(
@@ -2054,8 +2049,8 @@ mod tests {
             .unwrap(),
         );
         let plus = binary("plus", SExpr::atom("+"));
-        let x = Term::variable(Variable::new("X", int.clone()));
-        let y = Term::variable(Variable::new("Y", int.clone()));
+        let x = Term::variable(Variable::new("X", int));
+        let y = Term::variable(Variable::new("Y", int));
 
         for symbol in [&power, &division] {
             let mut nested = x.clone();
@@ -2112,10 +2107,10 @@ mod tests {
     #[test]
     fn a_boolean_term_conjunction_is_not_translated_as_a_conjunction() {
         let boolean = Sort::simple("SortBool");
-        let operand = |name: &str| Term::variable(Variable::new(name, boolean.clone()));
+        let operand = |name: &str| Term::variable(Variable::new(name, boolean));
         let predicate = Predicate::Equals(
             Term::and(operand("B1"), operand("B2")),
-            Term::raw_domain_value(boolean.clone(), "false"),
+            Term::raw_domain_value(boolean, "false"),
         );
         let mut state = TranslationState::new();
         let translated = state.translate_predicate(&predicate).unwrap().to_string();
@@ -2146,12 +2141,8 @@ mod tests {
     #[test]
     fn translates_an_implication_spine_as_one_flat_disjunction() {
         let int = Sort::simple("SortInt");
-        let atom = |name: &str| {
-            Predicate::Equals(
-                Term::variable(Variable::new(name, int.clone())),
-                integer("0"),
-            )
-        };
+        let atom =
+            |name: &str| Predicate::Equals(Term::variable(Variable::new(name, int)), integer("0"));
         let implies =
             |left: Predicate, right: Predicate| Predicate::Implies(Arc::new(left), Arc::new(right));
         let translate = |predicate: &Predicate| {
@@ -2177,10 +2168,10 @@ mod tests {
     #[test]
     fn exactness_rejects_uninterpreted_smtlib_symbols_at_any_predicate_depth() {
         let int = Sort::simple("SortInt");
-        let variable = Variable::new("X", int.clone());
+        let variable = Variable::new("X", int);
         let application = |smt| {
             Term::application(
-                symbol("bitwise", smt, vec![int.clone(), int.clone()], int.clone()),
+                symbol("bitwise", smt, vec![int, int], int),
                 Vec::new(),
                 vec![Term::variable(variable.clone()), integer("1")],
             )
@@ -2253,18 +2244,18 @@ mod tests {
     #[test]
     fn exactness_rejects_abstracted_terms_predicates_and_partial_operations() {
         let int = Sort::simple("SortInt");
-        let variable = Term::variable(Variable::new("X", int.clone()));
+        let variable = Term::variable(Variable::new("X", int));
         let equality = |term| Predicate::Equals(term, integer("2"));
         let opaque = Term::application(
-            symbol("opaque", None, vec![int.clone()], int.clone()),
+            symbol("opaque", None, vec![int], int),
             Vec::new(),
             vec![variable.clone()],
         );
         let mut partial_symbol = symbol(
             "division",
             Some(SmtType::Hook(SExpr::atom("div"))),
-            vec![int.clone(), int.clone()],
-            int.clone(),
+            vec![int, int],
+            int,
         );
         Arc::make_mut(&mut partial_symbol).attributes.symbol_type =
             SymbolType::Function(FunctionType::Partial);
@@ -2695,22 +2686,12 @@ mod tests {
     fn int_hooks_over_a_renamed_int_sort_are_opaque_values() {
         let my_int = Sort::simple("SortMyInt");
         let sum = Term::application(
-            hooked(
-                "addMyInt",
-                "+",
-                vec![my_int.clone(), my_int.clone()],
-                my_int.clone(),
-            ),
+            hooked("addMyInt", "+", vec![my_int, my_int], my_int),
             Vec::new(),
-            vec![variable("M", my_int.clone()), variable("N", my_int.clone())],
+            vec![variable("M", my_int), variable("N", my_int)],
         );
         let greater = Predicate::Term(Term::application(
-            hooked(
-                "gtMyInt",
-                ">",
-                vec![my_int.clone(), my_int.clone()],
-                boolean(),
-            ),
+            hooked("gtMyInt", ">", vec![my_int, my_int], boolean()),
             Vec::new(),
             vec![sum, variable("M", my_int)],
         ));

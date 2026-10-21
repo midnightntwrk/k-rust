@@ -2634,7 +2634,7 @@ mod undecided_reason_tests {
         let sort = Sort::simple("SortS");
         let mut names = vec!["VarUser".to_owned()];
         for provenance in VariableProvenance::ALL {
-            let marked = Variable::new("VarX", sort.clone())
+            let marked = Variable::new("VarX", sort)
                 .with_provenance(provenance)
                 .name
                 .to_string();
@@ -2646,7 +2646,7 @@ mod undecided_reason_tests {
         }
         let predicates = names
             .iter()
-            .map(|name| Predicate::Ceil(Term::variable(Variable::new(name.as_str(), sort.clone()))))
+            .map(|name| Predicate::Ceil(Term::variable(Variable::new(name.as_str(), sort))))
             .collect::<Vec<_>>();
         for (index, predicate) in predicates.iter().enumerate() {
             let reason = ConditionIndeterminacy::SmtUnknown("timeout".into());

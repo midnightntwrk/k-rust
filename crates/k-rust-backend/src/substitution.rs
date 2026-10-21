@@ -76,7 +76,7 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
             arguments,
         } => Term::application(
             symbol.clone(),
-            sort_arguments.clone(),
+            *sort_arguments,
             arguments
                 .iter()
                 .map(|argument| substitute(argument, substitution))
@@ -91,11 +91,7 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
             source,
             target,
             term,
-        } => Term::injection(
-            source.clone(),
-            target.clone(),
-            substitute(term, substitution),
-        ),
+        } => Term::injection(*source, *target, substitute(term, substitution)),
         // Only the entries that mention a bound variable change: the tree is entered where the
         // variables of a subtree (its group summary) meet the substitution, and an entry whose key
         // changes is moved to its place (`Items::rebuild_where`), so the work is that of the
@@ -388,7 +384,7 @@ fn align_binding_value(variable: &Variable, value: &Term, sorts: &SortGraph) -> 
         .check_subsort(&value_sort, &variable.sort)
         .ok()
         .filter(|is_subsort| *is_subsort)
-        .map(|_| Term::injection(value_sort, variable.sort.clone(), value.clone()))
+        .map(|_| Term::injection(value_sort, variable.sort, value.clone()))
 }
 
 fn substitution_equality(predicate: &Predicate) -> Option<(Term, Term)> {
@@ -509,8 +505,7 @@ mod tests {
     fn integer_equality(left: Term, right: Term) -> Predicate {
         let int_sort = sort();
         let bool_sort = Sort::simple("SortBool");
-        let mut symbol =
-            Symbol::constructor("intEq", vec![int_sort.clone(), int_sort], bool_sort.clone());
+        let mut symbol = Symbol::constructor("intEq", vec![int_sort, int_sort], bool_sort);
         symbol.attributes.hook = Some("INT.eq".into());
         Predicate::Equals(
             Term::application(Arc::new(symbol), Vec::new(), vec![left, right]),
@@ -525,8 +520,8 @@ mod tests {
         Term::application(
             Arc::new(Symbol::constructor(
                 "kseq",
-                vec![k_item_sort.clone(), k_sort.clone()],
-                k_sort.clone(),
+                vec![k_item_sort, k_sort],
+                k_sort,
             )),
             Vec::new(),
             vec![
@@ -549,8 +544,8 @@ mod tests {
             } else {
                 "kNotEqual"
             },
-            vec![k_sort.clone(), k_sort],
-            bool_sort.clone(),
+            vec![k_sort, k_sort],
+            bool_sort,
         );
         symbol.attributes.hook = Some(hook.into());
         Predicate::Equals(
@@ -692,8 +687,8 @@ mod tests {
     fn reinjects_a_subsort_operand_of_a_kequal_binding() {
         let int_sort = Sort::simple("SortInt");
         let exp_sort = Sort::simple("SortExp");
-        let variable = Variable::new("X", exp_sort.clone());
-        let value = Term::raw_domain_value(int_sort.clone(), "5");
+        let variable = Variable::new("X", exp_sort);
+        let value = Term::raw_domain_value(int_sort, "5");
         let constraint = k_equality(
             "KEQUAL.eq",
             true,
@@ -716,7 +711,7 @@ mod tests {
     fn keeps_kequal_bindings_with_incomparable_sorts_as_predicates() {
         let foo_sort = Sort::simple("SortFoo");
         let bar_sort = Sort::simple("SortBar");
-        let variable = Variable::new("X", foo_sort.clone());
+        let variable = Variable::new("X", foo_sort);
         let value = Term::raw_domain_value(bar_sort, "bar");
         let constraint = k_equality("KEQUAL.eq", true, Term::variable(variable), value);
         let mut sorts = SortGraph::default();
@@ -746,12 +741,8 @@ mod tests {
         });
         let substitution = Substitution::from([
             (
-                Variable::new("EXP", exp_sort.clone()),
-                Term::injection(
-                    int_sort.clone(),
-                    exp_sort,
-                    Term::raw_domain_value(int_sort, "5"),
-                ),
+                Variable::new("EXP", exp_sort),
+                Term::injection(int_sort, exp_sort, Term::raw_domain_value(int_sort, "5")),
             ),
             (
                 Variable::new("LIST", list_sort),

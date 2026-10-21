@@ -248,10 +248,10 @@ fn internalization_and_the_library_constructor_read_a_text_by_the_hook_of_its_so
     let loaded = term(&definition, r#"\dv{SortMyInt{}}("+07")"#);
     assert_eq!(value_text(&BuiltinResult::Value(loaded.clone())), "7");
     let my_int = Sort::simple("SortMyInt");
-    assert_eq!(definition.domain_value(my_int.clone(), "+07"), Ok(loaded));
+    assert_eq!(definition.domain_value(my_int, "+07"), Ok(loaded));
     assert_eq!(
         definition
-            .domain_value(my_int.clone(), "-1p8")
+            .domain_value(my_int, "-1p8")
             .map(|term| value_text(&BuiltinResult::Value(term)))
             .map_err(|error| error.to_string()),
         Err(r#"Invalid domain value "-1p8" for sort SortMyInt{}"#.to_owned())
@@ -404,7 +404,7 @@ fn string_to_token_at_a_machine_integer_sort_of_unknown_width_is_not_decided() {
             .expect("evaluation should not fail")
     };
     assert_eq!(
-        outcome(&application(Sort::Variable("S".into()))),
+        outcome(&application(Sort::variable("S"))),
         BuiltinResult::NotApplicable
     );
     assert_eq!(

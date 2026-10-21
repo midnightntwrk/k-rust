@@ -311,7 +311,7 @@ pub fn pattern_matches_output(
             .map(|found| MatchCondition {
                 substitution: found.substitution.clone(),
                 constraints: found.constraints.clone(),
-                predicate_sort: predicate_sort.clone(),
+                predicate_sort: *predicate_sort,
             })
             .collect(),
         result_sort,
@@ -847,7 +847,7 @@ mod tests {
                 let copy = MatchCondition {
                     substitution: first.substitution.clone(),
                     constraints: first.constraints.clone(),
-                    predicate_sort: first.predicate_sort.clone(),
+                    predicate_sort: first.predicate_sort,
                 };
                 conditions.push(copy);
             }

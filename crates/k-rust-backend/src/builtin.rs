@@ -1263,7 +1263,7 @@ fn io_k_unit(
         });
     }
     let mut dotk = dotk.as_ref().clone();
-    dotk.result_sort = result_sort.clone();
+    dotk.result_sort = *result_sort;
     BuiltinResult::Value(Term::application(Arc::new(dotk), Vec::new(), Vec::new()))
 }
 
@@ -1292,7 +1292,7 @@ fn inject_result(value: Term, result_sort: &Sort) -> Term {
     if &source == result_sort {
         value
     } else {
-        Term::injection(source, result_sort.clone(), value)
+        Term::injection(source, *result_sort, value)
     }
 }
 
@@ -2321,7 +2321,7 @@ pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> HookResul
     } else {
         Err(BuiltinError::UnexpectedSort {
             hook: hook.into(),
-            expected: expected.clone(),
+            expected: *expected,
             actual,
         }
         .into())
@@ -2337,7 +2337,7 @@ mod tests {
         stop::{Stop, StopCause},
         term::{
             AlgebraicAxioms, CollectionSymbols, FunctionType, HeadRole, ListDefinition,
-            MapDefinition, Symbol, SymbolAttributes, SymbolType, Variable,
+            MapDefinition, SortNode, Symbol, SymbolAttributes, SymbolType, Variable,
         },
         timeout::{StepTimeoutController, StepTimeoutOptions},
     };
@@ -2370,8 +2370,8 @@ mod tests {
         Term::application(
             Arc::new(Symbol::constructor(
                 "kseq",
-                vec![k_item_sort.clone(), k_sort.clone()],
-                k_sort.clone(),
+                vec![k_item_sort, k_sort],
+                k_sort,
             )),
             Vec::new(),
             vec![
@@ -2390,7 +2390,7 @@ mod tests {
         let int = Sort::simple("SortInt");
         let p = Arc::new(Symbol::constructor(
             "p",
-            vec![int.clone(), int.clone()],
+            vec![int, int],
             Sort::simple("SortPair"),
         ));
         let pair = |name, value| {
@@ -2398,7 +2398,7 @@ mod tests {
                 p.clone(),
                 Vec::new(),
                 vec![
-                    Term::variable(Variable::new(name, int.clone())),
+                    Term::variable(Variable::new(name, int)),
                     int_term(BigInt::from(value)),
                 ],
             )
@@ -2423,12 +2423,11 @@ mod tests {
             .stack_size(64 << 20)
             .spawn(|| {
                 let sort = Sort::simple("SortS");
-                let wrap = Arc::new(Symbol::constructor("w", vec![sort.clone()], sort.clone()));
+                let wrap = Arc::new(Symbol::constructor("w", vec![sort], sort));
                 let chain = |name: &str| {
-                    (0..LEVELS).fold(
-                        Term::variable(Variable::new(name, sort.clone())),
-                        |term, _| Term::application(wrap.clone(), Vec::new(), vec![term]),
-                    )
+                    (0..LEVELS).fold(Term::variable(Variable::new(name, sort)), |term, _| {
+                        Term::application(wrap.clone(), Vec::new(), vec![term])
+                    })
                 };
                 let (x, x_copy, y) = (chain("X"), chain("X"), chain("Y"));
                 let decided = std::thread::scope(|scope| {
@@ -2457,7 +2456,7 @@ mod tests {
         let sort = Sort::simple("SortElem");
         let constant = |name| {
             Term::application(
-                Arc::new(Symbol::constructor(name, Vec::new(), sort.clone())),
+                Arc::new(Symbol::constructor(name, Vec::new(), sort)),
                 Vec::new(),
                 Vec::new(),
             )
@@ -2470,7 +2469,7 @@ mod tests {
             AlgebraicAxioms::idem(),
             AlgebraicAxioms::unit(),
         ] {
-            let mut g = Symbol::constructor("g", vec![sort.clone(); 2], sort.clone());
+            let mut g = Symbol::constructor("g", vec![sort; 2], sort);
             g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
             g.attributes = g.attributes.with_algebraic_axioms(axioms);
             let g = Arc::new(g);
@@ -2498,7 +2497,7 @@ mod tests {
         let c = Arc::new(Symbol::constructor(
             "c",
             vec![Sort::simple("SortInt")],
-            sort.clone(),
+            sort,
         ));
         let constant =
             |value| Term::application(c.clone(), Vec::new(), vec![int_term(BigInt::from(value))]);
@@ -2506,13 +2505,13 @@ mod tests {
             (AlgebraicAxioms::assoc(), true),
             (AlgebraicAxioms::idem(), false),
         ] {
-            let mut g = Symbol::constructor("g", vec![sort.clone(), sort.clone()], sort.clone());
+            let mut g = Symbol::constructor("g", vec![sort, sort], sort);
             g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
             g.attributes = g.attributes.with_algebraic_axioms(axioms);
             let g = Arc::new(g);
             let apply = |left, right| Term::application(g.clone(), Vec::new(), vec![left, right]);
-            let x = Term::variable(Variable::new("X", sort.clone()));
-            let y = Term::variable(Variable::new("Y", sort.clone()));
+            let x = Term::variable(Variable::new("X", sort));
+            let y = Term::variable(Variable::new("Y", sort));
             let left = apply(constant(1), x);
             let right = apply(
                 apply(constant(1), constant(if associative { 2 } else { 1 })),
@@ -2592,13 +2591,9 @@ mod tests {
     fn kequal_compares_whole_k_sequences() {
         let k_item = Sort::simple("SortKItem");
         let k = Sort::simple("SortK");
-        let kseq = Arc::new(Symbol::constructor(
-            "kseq",
-            vec![k_item.clone(), k.clone()],
-            k.clone(),
-        ));
+        let kseq = Arc::new(Symbol::constructor("kseq", vec![k_item, k], k));
         let dotk = Term::application(
-            Arc::new(Symbol::constructor("dotk", Vec::new(), k.clone())),
+            Arc::new(Symbol::constructor("dotk", Vec::new(), k)),
             Vec::new(),
             Vec::new(),
         );
@@ -2606,7 +2601,7 @@ mod tests {
             |item: Term, tail: Term| Term::application(kseq.clone(), Vec::new(), vec![item, tail]);
         let item = |name: &str| {
             Term::application(
-                Arc::new(Symbol::constructor(name, Vec::new(), k_item.clone())),
+                Arc::new(Symbol::constructor(name, Vec::new(), k_item)),
                 Vec::new(),
                 Vec::new(),
             )
@@ -2614,11 +2609,11 @@ mod tests {
         let injected = |value: i64| {
             Term::injection(
                 Sort::simple("SortInt"),
-                k_item.clone(),
+                k_item,
                 int_term(BigInt::from(value)),
             )
         };
-        let tail = Term::variable(Variable::new("K", k.clone()));
+        let tail = Term::variable(Variable::new("K", k));
         let a = item("a");
         let b = item("b");
         let a_b = seq(a.clone(), seq(b.clone(), dotk.clone()));
@@ -2628,7 +2623,7 @@ mod tests {
         let user = |name: &str, sort: &Sort, arguments: Vec<Term>| {
             let argument_sorts = arguments.iter().map(Term::sort).collect();
             Term::application(
-                Arc::new(Symbol::constructor(name, argument_sorts, sort.clone())),
+                Arc::new(Symbol::constructor(name, argument_sorts, *sort)),
                 Vec::new(),
                 arguments,
             )
@@ -2637,7 +2632,7 @@ mod tests {
         let y_1 = user("y", &foo, vec![int_term(BigInt::from(1))]);
         let z = Term::injection(
             Sort::simple("SortBar"),
-            foo.clone(),
+            foo,
             user("z", &Sort::simple("SortBar"), Vec::new()),
         );
         let cases = [
@@ -4385,7 +4380,7 @@ mod tests {
     fn equality_decides_the_pairs_it_decided_by_symbol_role() {
         let sort = Sort::simple("SortS");
         let symbol = |name: &str, arity: usize, build: &dyn Fn(&mut SymbolAttributes)| {
-            let mut symbol = Symbol::constructor(name, vec![sort.clone(); arity], sort.clone());
+            let mut symbol = Symbol::constructor(name, vec![sort; arity], sort);
             build(&mut symbol.attributes);
             Arc::new(symbol)
         };
@@ -4408,8 +4403,8 @@ mod tests {
             attributes.symbol_type = SymbolType::Function(FunctionType::Total);
         });
         let residual = symbol("m", 1, &|attributes| attributes.macro_or_alias = true);
-        let one = Term::raw_domain_value(sort.clone(), "1");
-        let two = Term::raw_domain_value(sort.clone(), "2");
+        let one = Term::raw_domain_value(sort, "1");
+        let two = Term::raw_domain_value(sort, "2");
         let f_one = apply(&function, vec![one.clone()]);
         let f_two = apply(&function, vec![two.clone()]);
         let sub = Sort::simple("SortSub");
@@ -4455,9 +4450,9 @@ mod tests {
             apply(&assoc, vec![f_one.clone(), two.clone()]),
             wrap_one,
             certified_wrap_one,
-            Term::injection(sub.clone(), sort.clone(), f_one.clone()),
-            Term::injection(sub.clone(), sort.clone(), two.clone()),
-            Term::injection(Sort::simple("SortOther"), sort.clone(), f_two.clone()),
+            Term::injection(sub, sort, f_one.clone()),
+            Term::injection(sub, sort, two.clone()),
+            Term::injection(Sort::simple("SortOther"), sort, f_two.clone()),
             list,
             f_one.clone(),
             apply(&residual, vec![f_one.clone()]),
@@ -4702,15 +4697,15 @@ mod tests {
         type Sort = Sort;
 
         fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
-            let hook = match sort {
-                Sort::Application { name, .. } => match name.as_ref() {
+            let hook = match sort.node() {
+                SortNode::Application { name, .. } => match name.as_ref() {
                     "SortMInt" => "MINT.MInt",
                     "SortFloat" => "FLOAT.Float",
                     "SortString" => "STRING.String",
                     "SortBytes" => "BYTES.Bytes",
                     _ => return DomainKind::of_declared_sort(sort, true, None),
                 },
-                Sort::Variable(_) => return None,
+                SortNode::Variable(_) => return None,
             };
             DomainKind::of_declared_sort(sort, true, self.hooked.then_some(hook))
         }
@@ -4735,9 +4730,9 @@ mod tests {
         let float = Sort::builtin(BuiltinSort::Float);
         let arguments = |sort: &Sort, text: &str| {
             vec![
-                Term::raw_domain_value(sort.clone(), text),
-                Term::variable(Variable::new("X", sort.clone())),
-                hooked("TEST.any", sort.clone(), Vec::new()),
+                Term::raw_domain_value(*sort, text),
+                Term::variable(Variable::new("X", *sort)),
+                hooked("TEST.any", *sort, Vec::new()),
             ]
         };
         for (with_hooks, misread) in [(false, true), (true, false)] {

@@ -910,3 +910,133 @@ fn a_cell_map_rest_steps_like_a_subject_the_index_does_not_key() {
     assert_eq!(one_cell, labels("Lbl'-LT-'k'-GT-'{}(dotk{}())"));
     assert!(one_cell.iter().any(|label| label == "on-b"), "{one_cell:?}");
 }
+
+/// A ground, rest-free thread map with the given `<k>` heads, one thread per head, under
+/// `cellState` with no spare cell.
+fn ground_threads(definition: &BackendDefinition, heads: &[&str]) -> k_rust_backend::term::Term {
+    let items = heads
+        .iter()
+        .enumerate()
+        .map(|(index, head)| {
+            format!(
+                r#"mapItem{{}}(\dv{{SortKey{{}}}}("t{index}"), thread{{}}(\dv{{SortKey{{}}}}("t{index}"),
+                  Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortS{{}}, SortKItem{{}}}}({head}{{}}()), dotk{{}}()))))"#
+            )
+        })
+        .reduce(|left, right| format!("mapConcat{{}}({left}, {right})"))
+        .expect("at least one thread");
+    internal_term(definition, &format!("cellState{{}}({items}, noK{{}}())"))
+}
+
+/// The thread-map shapes the multi-thread tests read: two or three threads with heads `a` or `b`.
+const THREAD_SHAPES: &[&[&str]] = &[
+    &["a", "a"],
+    &["a", "b"],
+    &["b", "a"],
+    &["b", "b"],
+    &["a", "a", "a"],
+    &["a", "a", "b"],
+    &["a", "b", "a"],
+];
+
+/// A variable-free subject with several threads is keyed by the `<k>` cell of every thread, and
+/// `on-b` is offered exactly when some thread's head is `b`. A rule the index drops fails against
+/// every thread alone: the subject is its only instance, so the rule's thread pattern, whose map
+/// rest takes the other threads, matches it only through one of its threads.
+#[test]
+fn every_thread_of_a_ground_thread_map_keys_the_subject() {
+    let definition = thread_map_definition();
+    let mut dropped = 0;
+    for heads in THREAD_SHAPES {
+        let subject = ground_threads(&definition, heads);
+        assert_eq!(subject.attributes().k_cells(), 2, "{heads:?}");
+        let key = subject_index(&definition, &subject);
+        let has_b = heads.contains(&"b");
+        assert_eq!(
+            key.cell_keys().len(),
+            if has_b && heads.contains(&"a") { 2 } else { 1 }
+        );
+        for stored in old_candidates(&definition, &term_index(&subject)) {
+            let label = stored.attributes.label.as_deref().unwrap_or("?");
+            if label == "on-b" {
+                assert_eq!(
+                    stored.index.covers(&key),
+                    has_b,
+                    "on-b for threads {heads:?}"
+                );
+            }
+            if stored.index.covers(&key) {
+                continue;
+            }
+            dropped += 1;
+            for head in *heads {
+                let alone = ground_threads(&definition, &[head]);
+                let matched =
+                    match_terms_in_definition(MatchMode::Rewrite, &definition, &stored.lhs, &alone);
+                assert!(
+                    matches!(matched, MatchResult::Failed(_)),
+                    "{label} dropped for threads {heads:?}, but matches the thread {head}: {matched:?}"
+                );
+            }
+        }
+    }
+    // `on-b` for each of the two shapes with no `b` thread; `fallback` covers every subject.
+    assert_eq!(dropped, 2);
+}
+
+/// The step on a ground thread map applies `on-b` exactly when some thread's head is `b`, and
+/// `fallback` otherwise (it has the lower priority): the index keeps the rules the step needs.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ground_thread_map_steps_by_the_heads_of_its_threads() {
+    use k_rust_backend::{fresh::FreshCounter, rewrite::RewriteResult, smt::Z3Solver};
+
+    use super::support::unstopped::rewrite_step_with_solver;
+
+    let definition = thread_map_definition();
+    let solver = Z3Solver::new(&definition).expect("Z3 should start");
+    for heads in THREAD_SHAPES {
+        let subject = Pattern {
+            term: ground_threads(&definition, heads),
+            constraints: Vec::new(),
+        };
+        let result =
+            rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
+        let mut labels = match result {
+            RewriteResult::Finished(applied) => vec![applied.unique_id.clone()],
+            RewriteResult::Branch { branches, .. } => branches
+                .iter()
+                .map(|applied| applied.unique_id.clone())
+                .collect(),
+            other => panic!("unexpected step result {other:?} for threads {heads:?}"),
+        };
+        labels.dedup();
+        let expected = if heads.contains(&"b") {
+            "on-b"
+        } else {
+            "fallback"
+        };
+        assert_eq!(labels, [expected], "threads {heads:?}");
+    }
+}
+
+/// A thread map with a variable anywhere in it keeps the single unkeyed entry: an instance may be
+/// another term, so the written cells need not be the ones a rule meets.
+#[test]
+fn a_thread_map_with_a_variable_is_not_keyed_by_its_threads() {
+    let definition = thread_map_definition();
+    let subject = internal_term(
+        &definition,
+        r#"cellState{}(
+            mapConcat{}(
+              mapItem{}(\dv{SortKey{}}("t0"), thread{}(\dv{SortKey{}}("t0"),
+                Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(a{}()), dotk{}())))),
+              mapItem{}(\dv{SortKey{}}("t1"), thread{}(\dv{SortKey{}}("t1"),
+                Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(a{}()), K:SortK{}))))
+            ),
+            noK{}()
+          )"#,
+    );
+    let key = subject_index(&definition, &subject);
+    assert_eq!(key.cells(), &[CellIndex::Anything, CellIndex::Anything]);
+}

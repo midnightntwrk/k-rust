@@ -396,7 +396,7 @@ fn condition_bindings<'s>(
     sides: &ImplicationSides,
 ) -> Vec<ConditionBinding<'s>> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
+    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort));
     bindings
         .into_iter()
         .map(|(variable, value)| {

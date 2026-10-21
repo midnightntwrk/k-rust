@@ -4199,7 +4199,7 @@ mod tests {
     fn disjuncts_are_printed_in_structural_order() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let state = |value: &str, constraints| Pattern {
-            term: Term::raw_domain_value(sort.clone(), value),
+            term: Term::raw_domain_value(sort, value),
             constraints,
         };
         let output = |states| {
@@ -4251,7 +4251,7 @@ mod tests {
                 state("z", Vec::new()),
                 state(
                     "a",
-                    vec![Predicate::Ceil(Term::raw_domain_value(sort.clone(), "x"))],
+                    vec![Predicate::Ceil(Term::raw_domain_value(sort, "x"))],
                 ),
                 state("a", vec![Predicate::False]),
             ]
@@ -4332,8 +4332,8 @@ mod tests {
             predicates: Vec::new(),
             substitution: Substitution::new(),
             witnesses: Substitution::from([(
-                Variable::new("Y!exists0", result_sort.clone()),
-                Term::variable(Variable::new("X", result_sort.clone())),
+                Variable::new("Y!exists0", result_sort),
+                Term::variable(Variable::new("X", result_sort)),
             )]),
         };
 
@@ -4369,8 +4369,8 @@ mod tests {
             predicates: Vec::new(),
             substitution: Substitution::new(),
             witnesses: Substitution::from([(
-                Variable::new("Y!exists0", result_sort.clone()),
-                Term::variable(Variable::new("Y", result_sort.clone())),
+                Variable::new("Y!exists0", result_sort),
+                Term::variable(Variable::new("Y", result_sort)),
             )]),
         };
         for (antecedent, binder) in [("Y:SortS{}", "Y-bexists0"), ("X:SortS{}", "Y")] {
@@ -5124,7 +5124,7 @@ mod tests {
             std::sync::Arc::new(Symbol {
                 name: "LbltestFunction".into(),
                 sort_variables: Vec::new(),
-                argument_sorts: vec![sort.clone(); arguments.len()],
+                argument_sorts: vec![sort; arguments.len()],
                 result_sort: sort,
                 attributes,
             }),
@@ -5182,8 +5182,8 @@ mod tests {
     #[test]
     fn hidden_bindings_drop_only_eligible_function_equalities() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
-        let variable = Variable::new("Var'Unds'Gen0", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "value");
+        let variable = Variable::new("Var'Unds'Gen0", sort);
+        let value = Term::raw_domain_value(sort, "value");
         let one_use = Predicate::Equals(
             test_function(vec![Term::variable(variable.clone())]),
             value.clone(),
@@ -5282,15 +5282,15 @@ mod tests {
     #[test]
     fn hidden_bindings_filter_after_boolean_orientation() {
         let sort = BackendSort::simple("SortBool");
-        let variable = Variable::new("Var'Unds'Gen0", sort.clone());
+        let variable = Variable::new("Var'Unds'Gen0", sort);
         let mut attributes = SymbolAttributes::constructor();
         attributes.symbol_type = SymbolType::Function(FunctionType::Total);
         let function = Term::application(
             std::sync::Arc::new(Symbol {
                 name: "LbltestFunction".into(),
                 sort_variables: Vec::new(),
-                argument_sorts: vec![sort.clone()],
-                result_sort: sort.clone(),
+                argument_sorts: vec![sort],
+                result_sort: sort,
                 attributes,
             }),
             Vec::new(),
@@ -5373,9 +5373,9 @@ mod tests {
     #[test]
     fn hidden_bindings_deduplicate_after_filtering() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
-        let first = Variable::new("Var'Unds'Gen0", sort.clone());
-        let second = Variable::new("Var'Unds'Gen1", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "value");
+        let first = Variable::new("Var'Unds'Gen0", sort);
+        let second = Variable::new("Var'Unds'Gen1", sort);
+        let value = Term::raw_domain_value(sort, "value");
         let matches = [
             PatternMatch {
                 substitution: Substitution::from([(first.clone(), value.clone())]),
@@ -5401,15 +5401,15 @@ mod tests {
     #[test]
     fn hidden_bindings_flatten_and_deduplicate_disjuncts_across_matches() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
-        let variable = Variable::new("VarX", sort.clone());
-        let generated = Variable::new("Var'Unds'Gen0", sort.clone());
-        let first_value = Term::raw_domain_value(sort.clone(), "first");
-        let second_value = Term::raw_domain_value(sort.clone(), "second");
+        let variable = Variable::new("VarX", sort);
+        let generated = Variable::new("Var'Unds'Gen0", sort);
+        let first_value = Term::raw_domain_value(sort, "first");
+        let second_value = Term::raw_domain_value(sort, "second");
         let first = Predicate::Equals(Term::variable(variable.clone()), first_value);
         let second = Predicate::Equals(Term::variable(variable), second_value);
         let generated_binding = Predicate::Equals(
             Term::variable(generated.clone()),
-            Term::raw_domain_value(sort.clone(), "generated"),
+            Term::raw_domain_value(sort, "generated"),
         );
         let matches = [
             PatternMatch {
@@ -5916,15 +5916,15 @@ mod tests {
         let result_sort = BackendSort::simple("SortBool");
         let substitution = Substitution::from([
             (
-                Variable::new("X", value_sort.clone()),
-                Term::raw_domain_value(value_sort.clone(), "1"),
+                Variable::new("X", value_sort),
+                Term::raw_domain_value(value_sort, "1"),
             ),
             (
-                Variable::new("Y", value_sort.clone()),
-                Term::raw_domain_value(value_sort.clone(), "2"),
+                Variable::new("Y", value_sort),
+                Term::raw_domain_value(value_sort, "2"),
             ),
             (
-                Variable::new("Z", value_sort.clone()),
+                Variable::new("Z", value_sort),
                 Term::raw_domain_value(value_sort, "3"),
             ),
         ]);

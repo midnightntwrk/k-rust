@@ -122,7 +122,7 @@ pub fn validate_test_initial_state(
         // into a Bytes token K reads one byte per code point. A canonical test reaches them
         // through the definition's rules, so the whole definition is refused (TB-02 review 4).
         let token_sort = |sort: &BackendSort| {
-            matches!(sort, BackendSort::Application { name, arguments }
+            matches!(sort.node(), k_rust_backend::term::SortNode::Application { name, arguments }
                 if arguments.is_empty()
                     && !BuiltinSort::ALL.iter().any(|builtin| sort.is_builtin(*builtin))
                     && definition.sorts().get(name).is_some_and(|sort| sort.hook.is_none()))
@@ -183,9 +183,9 @@ pub fn validate_test_initial_state(
             {
                 // Resolve the instantiated result head, including polymorphic constructors
                 // and inj's target parameter. Only FLOAT hooks supply the output premise.
-                let result_name = match &declaration.result_sort {
-                    BackendSort::Application { name, .. } => Some(name.as_ref()),
-                    BackendSort::Variable(name) => declaration
+                let result_name = match declaration.result_sort.node() {
+                    k_rust_backend::term::SortNode::Application { name, .. } => Some(name.as_ref()),
+                    k_rust_backend::term::SortNode::Variable(name) => declaration
                         .sort_variables
                         .iter()
                         .zip(&symbol.sort_parameters)
