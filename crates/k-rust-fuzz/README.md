@@ -81,9 +81,13 @@ It assembles and round-trip-checks the program with its anchor values, and retur
 `Campaign::run` runs cases on the calling thread until the budget (`Budget::Cases` or `Budget::Work`) is spent, a witness is confirmed and shrunk, the rejection cap is reached, or the `CancellationToken` is cancelled.
 The explicit proposer tries the anchors first, then the author's assignments; the other proposers are mixed by a deterministic schedule seeded from the campaign seed.
 This build provides blind generation (`ProposerKind::Blind`) and the dictionary (`ProposerKind::Dictionary`): guard harvesting, which draws each hole, with probability 1/2, from the literals of the guards and left-hand sides of the target and of the rules at most two rule-graph edges before it, of the equations their guards call, and of the higher-priority rules an `owise` rule competes with, plus or minus 1 to 3 and negated (ARCHITECTURE 8.3; the rustdoc of `proposers::dictionary`). `Campaign::new` refuses a proposer the build does not provide.
+The default `ProposerConfig` weighs blind generation alone; a positive `dictionary` weight (in the library, the campaign file's `[proposers] weights` or the bindings' `proposers.weights`) adds the dictionary, and the report then records its parameters (`identity.dictionary`).
 A candidate hit becomes a witness only after a confirmation on a fresh backend agrees.
 Each run starts from fresh proposer state, so a second run reports exactly what a fresh campaign with the same spec and budget reports.
 The `FuzzReport` (`to_canonical_json` gives its canonical bytes) is a function of the definitions, program, holes, target, options, budget, seed, the k-rust revision and `ENGINE_VERSION`.
+
+The Node-API (`k-rust-napi`) and WebAssembly (`k-rust-wasm`) packages run one campaign per call, `runFuzzCampaign`, from the specification's JSON form, and return this report; without a caller identity they record the same k-rust build identity as `krust-fuzz` (below).
+Observer targets are library-only, and the WebAssembly package has neither the solve proposer nor a per-case safety limit ([k-rust-napi](../k-rust-napi/README.md#fuzzing-example), [k-rust-wasm](../k-rust-wasm/README.md#fuzzing-example)).
 
 ## Command line
 
