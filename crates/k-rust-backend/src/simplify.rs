@@ -7986,6 +7986,28 @@ fn apply_equation(
     let instances = match instances {
         EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
         EquationInstances::Undecided => {
+            // Where a lower function group follows, an equation whose matching is undecided
+            // only at literals facing subject terms is refuted when the path condition refutes
+            // those equalities with its `requires` (`literal_instance`). Otherwise it is
+            // undecided as before, the held and the undecided case alike: neither may let a
+            // lower group apply.
+            if set_aside == SetAsideRequires::Decide
+                && let Some((substitution, equalities)) = literal_instance(definition, &rule, term)
+                && let EquationAttempt::ContextDependent =
+                    decide_unused_instance::<Simplification, MatchFailed>(
+                        definition,
+                        &rule,
+                        term,
+                        substitution,
+                        equalities,
+                        known_predicates,
+                        options,
+                        active_conditions,
+                        solver,
+                    )?
+            {
+                return Ok(EquationAttempt::ContextDependent);
+            }
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
             ));
@@ -8038,6 +8060,65 @@ fn apply_equation(
             solver,
         )
     })
+}
+
+/// The instance of `rule` at `term` when matching its left-hand side left undecided only pairs of
+/// a literal of the pattern and a subject term of the literal's sort (`decode(118)` against
+/// `decode(Op)`), with every binding forced: its substitution, and the equalities of those
+/// subject terms with their literals.
+///
+/// The left-hand side denotes, under the substitution, the subject exactly where each such
+/// subject term equals its literal: every other pair was decided by bindings that are forced,
+/// and a literal denotes one value, which a subject term matches exactly where it has that
+/// value. An equality `t = v` with a value `v` is false where `t` is undefined, so the equalities
+/// state the subject terms' definedness as well, and are exact for a pure subject term of any
+/// kind. Such an instance is read as a conditional instance ([`Instance::Conditional`]) is, with
+/// subject terms in place of subject variables. `None` for any other undecided matching.
+fn literal_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+) -> Option<(Substitution, Vec<Predicate>)> {
+    let (matched, bindings) = match_equation_in_definition(
+        definition,
+        &rule.lhs,
+        term,
+        &rule.computed_attributes.unread_map_frames,
+    );
+    let MatchResult::Indeterminate {
+        substitution,
+        remainder,
+    } = matched
+    else {
+        return None;
+    };
+    let lhs_variables = &rule.lhs.attributes().variables;
+    if bindings != Bindings::Forced
+        || substitution
+            .keys()
+            .any(|variable| !lhs_variables.contains(variable))
+        || binds_element_variable_to_set_pattern(&substitution)
+    {
+        return None;
+    }
+    let equalities = remainder
+        .into_iter()
+        .map(|(pattern, subject)| {
+            let TermKind::DomainValue { sort, .. } = pattern.kind() else {
+                return None;
+            };
+            // A constraint never holds an impure application (`crate::deferred`).
+            let comparable = match subject.kind() {
+                TermKind::Variable(variable) => variable.kind == VariableKind::Element,
+                TermKind::Application { .. } => {
+                    crate::deferred::impure_outcome(definition, &subject).is_none()
+                }
+                _ => false,
+            };
+            (comparable && subject.sort() == *sort).then(|| Predicate::Equals(subject, pattern))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!equalities.is_empty()).then_some((substitution, equalities))
 }
 
 /// The instance of `rule` under the bindings of `substitution` to its left-hand side's

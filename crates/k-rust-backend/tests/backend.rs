@@ -27,6 +27,8 @@ mod hook_result_sorts;
 mod issue_4114_overload;
 #[path = "backend/list_shared_subject_variables.rs"]
 mod list_shared_subject_variables;
+#[path = "backend/literal_rows.rs"]
+mod literal_rows;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/mixed_float_formats.rs"]
