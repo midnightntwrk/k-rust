@@ -711,6 +711,9 @@ fn validate_native_pattern(
                 macro_pattern.mac.path.span(),
             ))
         }
+        Pat::Macro(macro_pattern) if crate::rule::is_bits_macro(&macro_pattern.mac.path) => Err(
+            crate::rule::misplaced_bit_template(macro_pattern.mac.path.span()),
+        ),
         Pat::Macro(macro_pattern) => Err(unsupported_pattern(
             "nested pattern macros other than `k::lexeme!` are not supported",
             macro_pattern.span(),

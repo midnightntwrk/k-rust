@@ -136,6 +136,18 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::CatchAllEquationRow {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::InvalidBitTemplate {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::BitTemplatePosition {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::BitFieldCollision {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::BitTemplateWidthMismatch {
+            reason: String::from("example"),
+        },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

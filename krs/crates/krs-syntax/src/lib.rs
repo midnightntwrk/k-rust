@@ -71,11 +71,11 @@ pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
-    BINDER_LIST_CONTRACT, BracketAlternative, EquationRow, EquationTable, ReadableStateCounters,
-    RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition, RuleExistentials,
-    RuleExtra, RuleHeadResult, RuleImport, RuleItem, RuleMapEntry, RuleMapUpdate, RuleNarrowing,
-    RuleParameter, RulePattern, parse_equation_table_source_with_trivia,
-    parse_rule_block_source_with_trivia,
+    BINDER_LIST_CONTRACT, BracketAlternative, EquationRow, EquationTable, HiddenBinderReading,
+    ReadableStateCounters, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
+    RuleExistentials, RuleExtra, RuleHeadResult, RuleImport, RuleItem, RuleMapEntry, RuleMapUpdate,
+    RuleNarrowing, RuleParameter, RulePattern, desugar_bit_templates, is_hidden_binder,
+    parse_equation_table_source_with_trivia, parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{

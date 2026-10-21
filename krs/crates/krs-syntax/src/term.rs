@@ -1993,6 +1993,9 @@ fn validate_special_macro(
             }
             validate_rewrite(value, symbols, nodes)
         }
+        None if crate::rule::is_bits_macro(&value.mac.path) => {
+            Err(crate::rule::misplaced_bit_template(value.mac.path.span()))
+        }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, or `or_bool!` islands",
@@ -3721,6 +3724,9 @@ pub(crate) fn matched_sort_test(path: &Path) -> SyntaxError {
 }
 
 pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {
+    if crate::rule::is_bits_macro(path) {
+        return crate::rule::misplaced_bit_template(path.span());
+    }
     SyntaxError::new(
         SyntaxErrorKind::UnexpectedMacro {
             path: path_text(path),

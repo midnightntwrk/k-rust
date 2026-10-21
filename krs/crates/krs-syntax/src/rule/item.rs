@@ -283,6 +283,9 @@ impl RuleItem {
         form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
+        // `k::bits!` templates are sugar: the item is parsed as its long form.
+        let hidden = super::bits::desugar(item, form != ClauseForm::Context)?;
+        let _hidden = super::bits::GeneratedBinders::allow(hidden.unwrap_or_default());
         let function_context = parse_function_context(item, form == ClauseForm::Equation)?;
         let binders = parse_rule_binders(item, usize::from(function_context.is_some()))?;
         let subject_index = item

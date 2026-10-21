@@ -501,6 +501,18 @@ k::equations! {
 ",
     ),
     (
+        "equations_bits",
+        r#"
+k::equations! {
+    for Decode;
+    use Instruction::*;
+    decode_halt: k::bits!("01 110 110") => Halt;
+    #[k::requires(op.ne::<Int>(118))]
+    decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld(R8(y), R8(z));
+}
+"#,
+    ),
+    (
         "rules_lexeme",
         r#"
 k::rules! {
@@ -966,6 +978,16 @@ fn add_one(k::term![AddOne(value)]: Term<Int>) -> Term<Int> {
     int::add(value, 1)
 }
 ",
+    ),
+    (
+        "equation_bits",
+        r#"
+/// `x = 0, z = 4`: `INC r[y]`.
+#[k::equation]
+fn decode_inc_r(k::term![Decode(k::bits!("00 yyy 100"))]: Term<Instr>) -> Term<Instr> {
+    Instruction::Inc(R8(y))
+}
+"#,
     ),
     (
         "requires_equation",

@@ -52,6 +52,26 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: String,
     },
+    /// A `k::bits!` template was malformed.
+    InvalidBitTemplate {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` template was outside a pattern that takes one.
+    BitTemplatePosition {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` field letter collided with another name of its sentence.
+    BitFieldCollision {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// Templates of different widths matched one argument of a table.
+    BitTemplateWidthMismatch {
+        /// Complete stable explanation, naming both rows.
+        reason: String,
+    },
     /// A required keyed attribute argument was absent.
     MissingArgument {
         /// Missing argument name.
@@ -388,6 +408,10 @@ pub enum SyntaxErrorKind {
 impl SyntaxErrorKind {
     /// Returns the registered code for this syntax category.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per syntax category, each naming its registered code."
+    )]
     pub const fn code(&self) -> Code {
         match self {
             Self::ReservedBinder => codes::syntax::RESERVED_BINDER,
@@ -401,6 +425,10 @@ impl SyntaxErrorKind {
             Self::InvalidEquationTable { .. } => codes::syntax::INVALID_EQUATION_TABLE,
             Self::DuplicateEquationRow { .. } => codes::syntax::DUPLICATE_EQUATION_ROW,
             Self::CatchAllEquationRow { .. } => codes::syntax::CATCH_ALL_EQUATION_ROW,
+            Self::InvalidBitTemplate { .. } => codes::syntax::INVALID_BIT_TEMPLATE,
+            Self::BitTemplatePosition { .. } => codes::syntax::BIT_TEMPLATE_POSITION,
+            Self::BitFieldCollision { .. } => codes::syntax::BIT_FIELD_COLLISION,
+            Self::BitTemplateWidthMismatch { .. } => codes::syntax::BIT_TEMPLATE_WIDTH_MISMATCH,
             Self::InvalidArgumentValue { .. } => codes::syntax::INVALID_ARGUMENT_VALUE,
             Self::UnsupportedPath => codes::syntax::UNSUPPORTED_PATH,
             Self::UnsupportedSortDeclaration { .. } | Self::UnaliasedSort { .. } => {
@@ -754,6 +782,10 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidEquationTable { reason }
             | SyntaxErrorKind::DuplicateEquationRow { reason }
             | SyntaxErrorKind::CatchAllEquationRow { reason }
+            | SyntaxErrorKind::InvalidBitTemplate { reason }
+            | SyntaxErrorKind::BitTemplatePosition { reason }
+            | SyntaxErrorKind::BitFieldCollision { reason }
+            | SyntaxErrorKind::BitTemplateWidthMismatch { reason }
             | SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
             | SyntaxErrorKind::InvalidUnderspecified { reason }

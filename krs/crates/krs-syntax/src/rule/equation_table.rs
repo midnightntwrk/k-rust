@@ -15,8 +15,6 @@
 //! named by their labels, never by their position. The arguments are one
 //! pattern for a one-argument function, or a parenthesized list.
 
-use std::collections::BTreeMap;
-
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
@@ -46,6 +44,9 @@ pub struct EquationRow {
     arity: usize,
     source_range: TokenRange,
     layout: RuleClauseLayout,
+    /// Whether the row has an authored `#[k::requires]`; a `k::bits!`
+    /// template's guard is not one.
+    authored_requires: bool,
 }
 
 impl EquationRow {
@@ -264,6 +265,12 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
         equation_keys,
         retained,
     } = row_attributes(attributes)?;
+    let authored_requires = retained.iter().any(|attribute| {
+        matches!(
+            helper_entry(attribute.path()),
+            Some(AttributeMacro::Requires)
+        )
+    });
     let subject = quote!(#function #arguments);
     let signs = NegativeLiteralSpans::scan(subject.clone());
     let item: ItemFn = syn::parse2(quote! {
@@ -286,6 +293,7 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
         arity,
         source_range: TokenRange::new(row_start, semicolon.span),
         layout,
+        authored_requires,
     })
 }
 
@@ -336,27 +344,59 @@ fn row_attributes(attributes: Vec<Attribute>) -> Result<RowAttributes, ParseErro
     Ok(row)
 }
 
-/// The fail-fast checks between rows: two unguarded rows at one priority
-/// with the same literal arguments, and a catch-all row that shares its
-/// priority with another row.
+/// The fail-fast checks between rows: two `k::bits!` templates of different
+/// widths at one argument; two rows without an authored `requires`, at one
+/// priority, that apply to a common application (equal literals, or literals
+/// and templates whose sets meet in every argument); and a catch-all row that
+/// shares its priority with another row.
 fn check_rows(rows: &[EquationRow]) -> Result<(), SyntaxError> {
     let priority = |row: &EquationRow| {
         row.equation
             .equation_priority()
             .map_or(DEFAULT_PRIORITY, |(_, value)| value)
     };
-    let mut literal_rows = BTreeMap::<(u32, Vec<String>), &EquationRow>::new();
-    for row in rows {
+    let keys = rows
+        .iter()
+        .map(|row| row_patterns(row).iter().map(argument_key).collect())
+        .collect::<Result<Vec<Vec<_>>, _>>()?;
+    for (index, row) in rows.iter().enumerate() {
+        for (earlier, previous) in rows[..index].iter().enumerate() {
+            if let Some(reason) = width_mismatch(previous, &keys[earlier], row, &keys[index]) {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::BitTemplateWidthMismatch { reason },
+                    row.arguments.span(),
+                ));
+            }
+        }
+    }
+    for (index, row) in rows.iter().enumerate() {
         let patterns = row_patterns(row);
-        let unguarded = row.rule.requires().is_none();
-        if unguarded && let Some(literals) = literal_tuple(&patterns) {
-            if let Some(previous) = literal_rows.get(&(priority(row), literals.clone())) {
+        let unguarded = !row.authored_requires;
+        if unguarded {
+            for (earlier, previous) in rows[..index].iter().enumerate() {
+                if previous.authored_requires || priority(previous) != priority(row) {
+                    continue;
+                }
+                let Some(witness) = common_application(&keys[earlier], &keys[index]) else {
+                    continue;
+                };
+                let literal_rows = keys[earlier]
+                    .iter()
+                    .chain(&keys[index])
+                    .all(|key| matches!(key, Some(ArgumentKey::Literal { .. })));
                 let same = previous
                     .rule
                     .result()
                     .zip(row.rule.result())
                     .is_some_and(|(left, right)| left.spelling() == right.spelling());
-                let reason = if same {
+                let reason = if !literal_rows {
+                    format!(
+                        "rows `{}` and `{}` both apply to the arguments ({}), so the definition would state that one application equals both results; equations are unordered, so make the rows' bit templates or literals disjoint, or give a row a guard or another priority",
+                        previous.label().unraw(),
+                        row.label().unraw(),
+                        witness.join(", ")
+                    )
+                } else if same {
                     format!(
                         "rows `{}` and `{}` state the same equation; remove one",
                         previous.label().unraw(),
@@ -374,7 +414,6 @@ fn check_rows(rows: &[EquationRow]) -> Result<(), SyntaxError> {
                     row.arguments.span(),
                 ));
             }
-            literal_rows.insert((priority(row), literals), row);
         }
         if unguarded
             && is_catch_all(&patterns)
@@ -397,6 +436,137 @@ fn check_rows(rows: &[EquationRow]) -> Result<(), SyntaxError> {
     Ok(())
 }
 
+/// What the table checks know of one argument pattern.
+#[derive(Clone, Debug)]
+enum ArgumentKey {
+    /// A literal by canonical spelling, and by value when an Int.
+    Literal { spelling: String, int: Option<i128> },
+    /// A `k::bits!` template: its width and its fixed bits.
+    Template { width: u32, mask: u128, value: u128 },
+}
+
+/// The key of a literal or template argument, `op @` aliases seen through.
+fn argument_key(pattern: &Pat) -> Result<Option<ArgumentKey>, SyntaxError> {
+    Ok(match pattern {
+        Pat::Lit(literal) if literal.attrs.is_empty() => Some(match &literal.lit {
+            syn::Lit::Int(integer) => {
+                let spelling = canonical_integer(integer.base10_digits());
+                ArgumentKey::Literal {
+                    int: spelling.parse().ok(),
+                    spelling,
+                }
+            }
+            other => ArgumentKey::Literal {
+                spelling: other.to_token_stream().to_string(),
+                int: None,
+            },
+        }),
+        Pat::Paren(inner) => argument_key(&inner.pat)?,
+        Pat::Macro(invocation) if super::bits::is_bits_macro(&invocation.mac.path) => {
+            let template = super::bits::template_of(&invocation.mac)?;
+            let (mask, value) = template.cube();
+            Some(ArgumentKey::Template {
+                width: template.width(),
+                mask,
+                value,
+            })
+        }
+        Pat::Ident(identifier) => match &identifier.subpat {
+            Some((_, subpattern)) if matches!(&**subpattern, Pat::Macro(invocation) if super::bits::is_bits_macro(&invocation.mac.path)) => {
+                argument_key(subpattern)?
+            }
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// The reason two rows' templates at one argument have different widths.
+fn width_mismatch(
+    previous: &EquationRow,
+    previous_keys: &[Option<ArgumentKey>],
+    row: &EquationRow,
+    keys: &[Option<ArgumentKey>],
+) -> Option<String> {
+    previous_keys
+        .iter()
+        .zip(keys)
+        .enumerate()
+        .find_map(|(argument, pair)| match pair {
+            (
+                Some(ArgumentKey::Template { width: before, .. }),
+                Some(ArgumentKey::Template { width: after, .. }),
+            ) if before != after => Some(format!(
+                "rows `{}` and `{}` match argument {} with bit templates {before} and {after} bits wide; a template matches only values below 2^width, so one of them most likely misses or adds a bit",
+                previous.label().unraw(),
+                row.label().unraw(),
+                argument + 1
+            )),
+            _ => None,
+        })
+}
+
+/// Arguments to which both rows apply, one value per argument, when every
+/// argument of both is a literal or a template and each pair meets.
+fn common_application(
+    left: &[Option<ArgumentKey>],
+    right: &[Option<ArgumentKey>],
+) -> Option<Vec<String>> {
+    if left.len() != right.len() {
+        return None;
+    }
+    left.iter()
+        .zip(right)
+        .map(|(left, right)| meet(left.as_ref()?, right.as_ref()?))
+        .collect()
+}
+
+/// A value both keys match, if any.
+fn meet(left: &ArgumentKey, right: &ArgumentKey) -> Option<String> {
+    let below = |value: u128, width: u32| width >= 128 || value >> width == 0;
+    match (left, right) {
+        (
+            ArgumentKey::Literal { spelling: left, .. },
+            ArgumentKey::Literal {
+                spelling: right, ..
+            },
+        ) => (left == right).then(|| left.clone()),
+        (
+            ArgumentKey::Literal {
+                int: Some(number), ..
+            },
+            ArgumentKey::Template { width, mask, value },
+        )
+        | (
+            ArgumentKey::Template { width, mask, value },
+            ArgumentKey::Literal {
+                int: Some(number), ..
+            },
+        ) => {
+            let number = u128::try_from(*number).ok()?;
+            (below(number, *width) && number & mask == *value).then(|| number.to_string())
+        }
+        (
+            ArgumentKey::Template {
+                width: left_width,
+                mask: left_mask,
+                value: left_value,
+            },
+            ArgumentKey::Template {
+                width: right_width,
+                mask: right_mask,
+                value: right_value,
+            },
+        ) => {
+            let witness = left_value | right_value;
+            ((left_value ^ right_value) & left_mask & right_mask == 0
+                && below(witness, (*left_width).min(*right_width)))
+            .then(|| witness.to_string())
+        }
+        _ => None,
+    }
+}
+
 fn row_patterns(row: &EquationRow) -> Vec<Pat> {
     argument_patterns(&row.arguments)
         .map(|patterns| patterns.into_iter().collect())
@@ -409,23 +579,6 @@ fn argument_patterns(arguments: &Group) -> syn::Result<Punctuated<Pat, Token![,]
         Punctuated::<Pat, Token![,]>::parse_terminated_with(input, Pat::parse_multi)
     })
     .parse2(arguments.stream())
-}
-
-/// The canonical spelling of every argument when all are literals.
-fn literal_tuple(patterns: &[Pat]) -> Option<Vec<String>> {
-    patterns
-        .iter()
-        .map(|pattern| match pattern {
-            Pat::Lit(literal) if literal.attrs.is_empty() => Some(match &literal.lit {
-                syn::Lit::Int(integer) => canonical_integer(integer.base10_digits()),
-                other => other.to_token_stream().to_string(),
-            }),
-            Pat::Paren(inner) => {
-                literal_tuple(std::slice::from_ref(&inner.pat)).and_then(|mut values| values.pop())
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 fn canonical_integer(digits: &str) -> String {
