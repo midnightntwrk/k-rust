@@ -83,6 +83,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
         reaching: Reaching {
             role: DefinitionRole::Baseline,
             leaf: Some(0),
+            step: None,
         },
         kill: None,
         steps: Some(3),

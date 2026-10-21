@@ -157,6 +157,8 @@ struct Harness {
     assembly: ProgramAssembly,
     executor: Executor,
     options: CaseOptions,
+    /// The hit step of the last case [`Self::judge`] judged ([`super::JudgedRun::hit_step`]).
+    hit_step: Option<u64>,
 }
 
 impl Harness {
@@ -171,6 +173,7 @@ impl Harness {
             assembly,
             executor,
             options,
+            hit_step: None,
         }
     }
 
@@ -188,10 +191,14 @@ impl Harness {
             .assemble(program.file, program.text, program.bindings)
             .unwrap_or_else(|error| panic!("{file} does not assemble: {error}"));
         let shape = CaseRequestShape::new(&self.options, &resolved.needs(self.options.paths));
-        let (result, judgement) = resolved
+        let judged = resolved
             .run_and_judge(&mut self.executor, &initial, &shape, None)
             .expect("no abort");
-        let judgement = judgement.unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"));
+        let result = judged.result;
+        let judgement = judged
+            .judgement
+            .unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"));
+        self.hit_step = judged.hit_step;
         (result, judgement)
     }
 }
@@ -329,10 +336,11 @@ fn a_rule_target_is_run_and_judged_by_the_same_entry_point() {
         .assemble(program.file, program.text, program.bindings)
         .expect("assembles");
     let shape = CaseRequestShape::new(&coin.options, &resolved.needs(coin.options.paths));
-    let (_, judgement) = resolved
+    let judged = resolved
         .run_and_judge(&mut coin.executor, &initial, &shape, None)
         .expect("no abort");
-    assert_eq!(judgement.expect("judged").class, OutcomeClass::Hit);
+    assert_eq!(judged.judgement.expect("judged").class, OutcomeClass::Hit);
+    assert_eq!(judged.hit_step, None, "only an observer hit has a hit step");
 }
 
 /// Counts `step` and `branch` calls, and accepts nothing.
@@ -442,13 +450,13 @@ fn a_branch_after_a_shared_prefix_is_shown_once_per_committed_transition() {
     assert_eq!(leaves[0].branch[..4], leaves[1].branch[..4]);
     let paths = walk_paths(&counting, &leaves);
     assert!(!paths.unobservable);
-    assert_eq!(paths.reached, [false, false]);
+    assert_eq!(paths.reached(), [false, false]);
     // Six distinct committed transitions, one branching point with two successors.
     assert_eq!(steps.load(Ordering::SeqCst), 6);
     assert_eq!(branches.load(Ordering::SeqCst), 2);
     // A two-event monitor sees the shared prefix on both paths.
     let paths = walk_paths(&CountThenDone, &leaves);
-    assert_eq!(paths.reached, [true, true]);
+    assert_eq!(paths.reached(), [true, true]);
 }
 
 #[test]
@@ -481,13 +489,13 @@ fn an_unobservable_sibling_keeps_the_branching_and_is_never_a_miss() {
     };
     // Accepting on the hidden path: nothing is reached, and the walk says so.
     let paths = walk_paths(&out_is(hidden), &leaves);
-    assert_eq!(paths.reached, [false, false]);
+    assert_eq!(paths.reached(), [false, false]);
     assert!(paths.unobservable);
     // The branching point is the run's: both successors get their `branch` call.
     assert_eq!(branches.load(Ordering::SeqCst), 2);
     // Accepting on the shown path still reaches its leaf.
     let paths = walk_paths(&out_is(shown), &leaves);
-    assert_eq!(paths.reached, [true, false]);
+    assert_eq!(paths.reached(), [true, false]);
     assert!(paths.unobservable);
 }
 
@@ -504,10 +512,13 @@ fn a_cancelled_case_is_a_timeout_and_no_defect() {
     let shape = CaseRequestShape::new(&coin.options, &resolved.needs(coin.options.paths));
     let token = CancellationToken::new();
     token.cancel();
-    let (result, judgement) = resolved
+    let judged = resolved
         .run_and_judge(&mut coin.executor, &initial, &shape, Some(&token))
         .expect("no abort");
-    let judgement = judgement.unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"));
+    let result = judged.result;
+    let judgement = judged
+        .judgement
+        .unwrap_or_else(|defect| panic!("{defect:?}: {result:#?}"));
     assert_eq!(judgement.class, OutcomeClass::Timeout, "{result:#?}");
     assert_eq!(judgement.hit_site, None);
 }
@@ -545,10 +556,14 @@ fn an_observer_case_runs_once_and_is_charged_one_run() {
         .executor
         .run(&initial, &shape, &[], None)
         .expect("no abort");
-    let (observed, judgement) = resolved
+    let judged = resolved
         .run_and_judge(&mut coin.executor, &initial, &shape, None)
         .expect("no abort");
-    assert_eq!(judgement.expect("no defect").class, OutcomeClass::Hit);
+    let observed = judged.result;
+    assert_eq!(
+        judged.judgement.expect("no defect").class,
+        OutcomeClass::Hit
+    );
     assert!(plain.work > 0);
     assert_eq!(observed.work, plain.work);
 }
@@ -565,7 +580,7 @@ fn the_step_into_a_stopped_state_gives_no_verdict() {
         .expect("assembles");
     let leaves = observed_leaves(&mut coin, initial);
     assert_eq!(leaves.len(), 1);
-    assert_eq!(walk_paths(&CountThenDone, &leaves).reached, [true]);
+    assert_eq!(walk_paths(&CountThenDone, &leaves).reached(), [true]);
     // The same path ending in a stopped state: the accepting step built that state, which is
     // not a reached configuration, so it reaches nothing (classify's cut-leaf contract).
     for halt in [
@@ -576,11 +591,15 @@ fn the_step_into_a_stopped_state_gives_no_verdict() {
         let mut stopped = leaves.clone();
         stopped[0].reason = halt;
         let paths = walk_paths(&CountThenDone, &stopped);
-        assert_eq!(paths.reached, [false], "{halt:?}");
+        assert_eq!(paths.reached(), [false], "{halt:?}");
         // The unshown state is the cut's, not a configuration the observer missed.
         assert!(!paths.unobservable, "{halt:?}");
         // A hit on an earlier step still reaches the stopped leaf.
-        assert_eq!(walk_paths(&FirstStep, &stopped).reached, [true], "{halt:?}");
+        assert_eq!(
+            walk_paths(&FirstStep, &stopped).reached(),
+            [true],
+            "{halt:?}"
+        );
     }
 }
 
@@ -622,5 +641,65 @@ fn a_work_bound_case_is_reached_only_from_a_step_before_its_cut() {
     assert!(
         seen_depths.iter().any(|depth| *depth >= 2),
         "{seen_depths:?}"
+    );
+}
+
+/// FZ-10 review N4: the witness names the step at which the observer accepted, which the run
+/// passes on its way to its end: a function of the path, the same on every run of the case.
+#[test]
+fn an_observer_hit_names_the_step_at_which_the_observer_accepted() {
+    let mut coin = Harness::new(COIN.compiled(), one_path());
+    // `count(3)` ends naturally after several steps; `FirstStep` accepts at the first.
+    let (result, judgement) = coin.judge(&observer("first", FirstStep, false), "coin/count.pgm");
+    assert_eq!(judgement.class, OutcomeClass::Hit, "{result:#?}");
+    assert!(result.leaves[0].depth > 1, "{result:#?}");
+    assert_eq!(coin.hit_step, Some(1));
+    // `CountThenDone` accepts at the step that removes the count, the last one.
+    let (result, judgement) = coin.judge(
+        &observer("count-then-done", CountThenDone, false),
+        "coin/count.pgm",
+    );
+    assert_eq!(judgement.class, OutcomeClass::Hit, "{result:#?}");
+    let depth = result.leaves[0].depth;
+    assert_eq!(coin.hit_step, Some(depth));
+    // The same case judged again names the same step.
+    coin.judge(
+        &observer("count-then-done", CountThenDone, false),
+        "coin/count.pgm",
+    );
+    assert_eq!(coin.hit_step, Some(depth));
+    // No hit, no step.
+    let (_, judgement) = coin.judge(
+        &observer("count-then-done", CountThenDone, false),
+        "coin/flip.pgm",
+    );
+    assert_eq!(judgement.class, OutcomeClass::Miss);
+    assert_eq!(coin.hit_step, None);
+    // After a shared prefix: `count(3) ~> flip(3)` under all paths. `CountThenDone` accepts at
+    // `count-done`, step 4 of both paths, whose fifth step is `heads` or `tails`; `OutIs("4")`
+    // accepts at the fifth step of the `tails` path only.
+    let mut all = Harness::new(COIN.compiled(), all_paths());
+    let leaves = {
+        let initial = joined(&mut all, "coin/count.pgm", "coin/flip.pgm");
+        observed_leaves(&mut all, initial)
+    };
+    assert_eq!(
+        walk_paths(&CountThenDone, &leaves).hit_steps,
+        [Some(4), Some(4)]
+    );
+    let tails = OutIs {
+        wanted: "4",
+        branches: Arc::new(AtomicUsize::new(0)),
+    };
+    let steps = walk_paths(&tails, &leaves).hit_steps;
+    assert_eq!(
+        steps.iter().filter(|step| **step == Some(5)).count(),
+        1,
+        "{steps:?}"
+    );
+    assert_eq!(
+        steps.iter().filter(|step| step.is_none()).count(),
+        1,
+        "{steps:?}"
     );
 }

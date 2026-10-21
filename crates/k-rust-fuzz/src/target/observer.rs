@@ -16,7 +16,9 @@
 //! the observer walks the tree: [`Observer::start`] at the root, [`Observer::step`] on every
 //! edge, from one normalized configuration to the next (`walk_paths`), and
 //! [`Observer::branch`] for each successor of a state with several. A leaf *reaches* the target
-//! when some step on its path answered [`ObserverVerdict::Hit`].
+//! when some step on its path answered [`ObserverVerdict::Hit`]; the hit's step is the number of
+//! committed steps from the initial configuration to the configuration that step reached, which
+//! the witness records ([`crate::report::Reaching::step`]).
 //!
 //! A `work-bound`, `timeout` or `cancelled` leaf holds the stopped, unnormalised state the
 //! worklist held, not a reached configuration (`classify`'s cut-leaf contract, review 2 S1). The
@@ -351,6 +353,20 @@ pub(super) fn resolve(
     })
 }
 
+/// A case run and judged by [`ResolvedTarget::run_and_judge`].
+pub(crate) struct JudgedRun {
+    /// The judged result.
+    pub(crate) result: CaseResult,
+    /// Its judgement, or the engine defect judging it met.
+    pub(crate) judgement: Result<Judgement, EngineDefect>,
+    /// For an observer target's hit, the step of the hit leaf's path at which the observer
+    /// answered [`ObserverVerdict::Hit`]: the number of committed rewrite steps from the
+    /// initial configuration to the configuration that step reached, at least 1 and at most the
+    /// leaf's depth. A function of the leaf's path, so the same under the execution contract
+    /// whichever run computes it. `None` for every other judgement and target.
+    pub(crate) hit_step: Option<u64>,
+}
+
 impl ResolvedTarget {
     /// Whether this target is judged from observed execution ([`Self::run_and_judge`]).
     #[cfg(test)]
@@ -376,6 +392,9 @@ impl ResolvedTarget {
     /// stop cut, or whose facts were not decided, may hide a configuration the observer would
     /// accept.
     ///
+    /// An observer hit also gives the step at which the observer accepted on the hit leaf's
+    /// path ([`JudgedRun::hit_step`]).
+    ///
     /// # Errors
     ///
     /// [`Abort`] for a failed solver prelude. The judgement is an [`EngineDefect`] as for
@@ -386,7 +405,7 @@ impl ResolvedTarget {
         initial: &KorePattern,
         shape: &CaseRequestShape,
         cancel: Option<&CancellationToken>,
-    ) -> Result<(CaseResult, Result<Judgement, EngineDefect>), Abort> {
+    ) -> Result<JudgedRun, Abort> {
         match &self.resolved {
             Resolved::Observer { rules } => {
                 let (result, leaves) = executor.run_observed(
@@ -396,36 +415,48 @@ impl ResolvedTarget {
                     cancel,
                     rules.clone(),
                 )?;
-                let judgement = self.judge_observed(&result, &leaves, cancel);
-                Ok((result, judgement))
+                let (judgement, hit_step) = match self.judge_observed(&result, &leaves, cancel) {
+                    Ok((judgement, hit_step)) => (Ok(judgement), hit_step),
+                    Err(defect) => (Err(defect), None),
+                };
+                Ok(JudgedRun {
+                    result,
+                    judgement,
+                    hit_step,
+                })
             }
             Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
                 let result = executor.run(initial, shape, &self.matchers(), cancel)?;
                 let judgement = self.judge_run(&result, shape.all_paths());
-                Ok((result, judgement))
+                Ok(JudgedRun {
+                    result,
+                    judgement,
+                    hit_step: None,
+                })
             }
         }
     }
 
     /// Judge an observer case from its judged `result` and the raw observed `leaves` of the
-    /// same run ([`Self::run_and_judge`]).
+    /// same run ([`Self::run_and_judge`]), with the hit leaf's hit step for a hit.
     fn judge_observed(
         &self,
         result: &CaseResult,
         leaves: &[ExecutionLeaf],
         cancel: Option<&CancellationToken>,
-    ) -> Result<Judgement, EngineDefect> {
+    ) -> Result<(Judgement, Option<u64>), EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         if result.failure.is_some() {
             // A failed run is classed by its failure alone.
-            return exec::classify(result, &[], run_to_completion).map(plain);
+            return exec::classify(result, &[], run_to_completion)
+                .map(|class| (plain(class), None));
         }
         let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
         let breaks = result.determinism_breaks();
         if result.safety_limit_hit || !breaks.is_empty() || cancelled {
             let clock =
                 result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled;
-            return unobserved(result, run_to_completion, clock);
+            return unobserved(result, run_to_completion, clock).map(|judgement| (judgement, None));
         }
         let super::TargetKind::Observer(target) = &self.target.kind else {
             return Err(defect("an observer resolution of another target kind"));
@@ -441,17 +472,18 @@ impl ResolvedTarget {
             )));
         }
         let paths = walk_paths(&**handle, leaves);
-        let class = exec::classify(result, &paths.reached, run_to_completion)?;
+        let reached: Vec<bool> = paths.hit_steps.iter().map(Option::is_some).collect();
+        let class = exec::classify(result, &reached, run_to_completion)?;
         if class != OutcomeClass::Hit && paths.unobservable {
             // A configuration the observer could not be shown may lead to the target: never a
             // `miss`.
-            return Ok(plain(OutcomeClass::Unsupported));
+            return Ok((plain(OutcomeClass::Unsupported), None));
         }
-        let hit_site = if class == OutcomeClass::Hit {
+        let (hit_site, hit_step) = if class == OutcomeClass::Hit {
             let leaf = result
                 .leaves
                 .iter()
-                .zip(&paths.reached)
+                .zip(&reached)
                 .position(|(leaf, reached)| {
                     *reached && leaf.is_clean() && (!run_to_completion || leaf.natural_end)
                 });
@@ -460,15 +492,18 @@ impl ResolvedTarget {
                     "a case classed `hit` has no clean leaf that reaches the target",
                 ));
             };
-            Some(HitSite::Leaf(leaf))
+            (Some(HitSite::Leaf(leaf)), paths.hit_steps[leaf])
         } else {
-            None
+            (None, None)
         };
-        Ok(Judgement {
-            class,
-            hit_site,
-            blocked: false,
-        })
+        Ok((
+            Judgement {
+                class,
+                hit_site,
+                blocked: false,
+            },
+            hit_step,
+        ))
     }
 }
 
@@ -508,11 +543,21 @@ fn defect(description: &str) -> EngineDefect {
 
 /// What the observer's walk found, per leaf of the observed result.
 struct ObservedPaths {
-    /// Some step on the leaf's path answered [`ObserverVerdict::Hit`].
-    reached: Vec<bool>,
+    /// When some step on the leaf's path answered [`ObserverVerdict::Hit`], that step's depth:
+    /// the number of committed steps from the initial configuration to the configuration it
+    /// reached (the leaf *reaches* the target).
+    hit_steps: Vec<Option<u64>>,
     /// Some configuration on a path, before any hit, could not be shown to the observer: no
     /// complete observation of a path through it, or it does not decode.
     unobservable: bool,
+}
+
+#[cfg(test)]
+impl ObservedPaths {
+    /// Whether each leaf reaches the target.
+    fn reached(&self) -> Vec<bool> {
+        self.hit_steps.iter().map(Option::is_some).collect()
+    }
 }
 
 /// One edge of the path tree: a committed transition, and the node it leads to.
@@ -558,13 +603,15 @@ fn befores(leaf: &ExecutionLeaf) -> Option<Vec<&Value>> {
     complete.then(|| transitions.into_iter().map(|(_, before)| before).collect())
 }
 
-/// A position of the walk: a node of the path tree, the configuration it was entered from (none
-/// at the root), and the observer's state there (none below a hit).
+/// A position of the walk: a node of the path tree, its depth (the committed steps from the
+/// root), the configuration it was entered from (none at the root), the observer's state there
+/// (none below a hit), and the depth of the step that answered `Hit` above it, if one did.
 struct Frame {
     node: usize,
+    depth: u64,
     pre: Option<Rc<ConfigurationView>>,
     state: Option<Box<dyn Any>>,
-    hit: bool,
+    hit: Option<u64>,
 }
 
 /// Merge the leaves' paths into a tree and walk it with `observer` (module documentation).
@@ -583,7 +630,7 @@ struct Frame {
 /// configuration as the normalized one but is written differently (`3 +Int 1` for `4`), so the
 /// observer is shown the configuration the next transition leaves from, or the leaf's state.
 fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> ObservedPaths {
-    let mut reached = vec![false; leaves.len()];
+    let mut hit_steps = vec![None; leaves.len()];
     let mut unobservable = false;
     let mut nodes = vec![Node::default()];
     for (index, leaf) in leaves.iter().enumerate() {
@@ -611,12 +658,14 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
     }
     let mut work = vec![Frame {
         node: 0,
+        depth: 0,
         pre: None,
         state: Some(observer.start()),
-        hit: false,
+        hit: None,
     }];
     while let Some(Frame {
         node,
+        depth,
         pre,
         state,
         mut hit,
@@ -625,15 +674,15 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
         let current = &nodes[node];
         let mut view = None;
         let mut state = state;
-        if !hit && current.stopped && current.edges.is_empty() {
+        if hit.is_none() && current.stopped && current.edges.is_empty() {
             // The stopped state reached no configuration: the step into it gives no verdict,
             // and its leaves keep the reach of the steps before it (unreached here).
             for &leaf in &current.leaves {
-                reached[leaf] = false;
+                hit_steps[leaf] = None;
             }
             continue;
         }
-        if !hit && (pre.is_some() || !current.edges.is_empty()) {
+        if hit.is_none() && (pre.is_some() || !current.edges.is_empty()) {
             let decoded = current.configuration.map(codec::from_value);
             let Some(Ok(pattern)) = decoded else {
                 // The observer cannot be shown this configuration: the leaves below stay
@@ -642,20 +691,23 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
                 continue;
             };
             let post = Rc::new(ConfigurationView::new(pattern));
-            if let (Some(pre), Some(state)) = (&pre, state.as_deref_mut()) {
-                hit = observer.step(state, pre, &post) == ObserverVerdict::Hit;
+            if let (Some(pre), Some(state)) = (&pre, state.as_deref_mut())
+                && observer.step(state, pre, &post) == ObserverVerdict::Hit
+            {
+                hit = Some(depth);
             }
             view = Some(post);
         }
         for &leaf in &current.leaves {
-            reached[leaf] = hit;
+            hit_steps[leaf] = hit;
         }
-        if hit {
+        if hit.is_some() {
             work.extend(current.edges.iter().map(|edge| Frame {
                 node: edge.child,
+                depth: depth + 1,
                 pre: None,
                 state: None,
-                hit: true,
+                hit,
             }));
             continue;
         }
@@ -663,6 +715,7 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
         if let [only] = current.edges.as_slice() {
             frames.push(Frame {
                 node: only.child,
+                depth: depth + 1,
                 pre: view,
                 state,
                 hit,
@@ -671,6 +724,7 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
             for successor in &current.edges {
                 frames.push(Frame {
                     node: successor.child,
+                    depth: depth + 1,
                     pre: view.clone(),
                     state: state.as_deref().map(|state| observer.branch(state)),
                     hit,
@@ -681,7 +735,7 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
         work.extend(frames.into_iter().rev());
     }
     ObservedPaths {
-        reached,
+        hit_steps,
         unobservable,
     }
 }

@@ -425,8 +425,9 @@ impl LiveCases {
         let side = &mut self.baseline;
         // `run_and_judge` is `run` then `judge` for rule and pattern targets; an observer target
         // also walks its observer over the observed run (FZ-10).
-        let (result, judged) =
+        let judged =
             target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
+        let (result, hit_step, judged) = (judged.result, judged.hit_step, judged.judgement);
         let mut run = run_of(&result, &[&result]);
         run.cut = cut_of(&result);
         match judged {
@@ -460,6 +461,9 @@ impl LiveCases {
                             reaching: Reaching {
                                 role: DefinitionRole::Baseline,
                                 leaf: leaf.map(index_u64),
+                                // An observer hit's step on the hit leaf's path (ARCHITECTURE
+                                // 9.2); the leaf runs on to its end, at depth `steps`.
+                                step: hit_step,
                             },
                             kill: None,
                             steps,
@@ -558,6 +562,7 @@ impl LiveCases {
                             reaching: Reaching {
                                 role,
                                 leaf: Some(index_u64(index)),
+                                step: None,
                             },
                             kill: Some(kind),
                             steps: Some(leaf.depth),
@@ -1019,7 +1024,7 @@ mod tests {
             CallerIdentity, CaseOptions, DEFAULT_REJECTION_CAP, Definitions, ProposerConfig,
             ProposerKind,
         },
-        support::IMP,
+        support::{COIN, IMP},
         target::{PatternAt, PatternTarget, Target},
         values::{Constraints, GenerationBounds},
     };
@@ -1135,6 +1140,77 @@ mod tests {
             assert_eq!(
                 campaign.hit.map(|hit| hit.reaching_state),
                 confirmed.hit.map(|hit| hit.reaching_state)
+            );
+        }
+    }
+
+    /// Accepts at the first step of every path.
+    struct FirstStep;
+
+    impl crate::target::Observer for FirstStep {
+        type State = ();
+
+        fn start(&self) {}
+
+        fn branch(&self, (): &()) {}
+
+        fn step(
+            &self,
+            (): &mut (),
+            _pre: &crate::target::ConfigurationView,
+            _post: &crate::target::ConfigurationView,
+        ) -> crate::target::ObserverVerdict {
+            crate::target::ObserverVerdict::Hit
+        }
+    }
+
+    /// FZ-10 review N4: an observer witness names the step at which the observer accepted, as
+    /// well as the leaf's own step count, from the case and from its confirmation alike.
+    #[test]
+    fn an_observer_witness_names_its_hit_step() {
+        let compiled = COIN.compiled();
+        let spec = Arc::new(CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: vec![HoleDecl {
+                name: "N".into(),
+                sort: "Int".into(),
+                location: HoleLocation::Span(SpanAddress {
+                    program: "coin/count.pgm".into(),
+                    line: None,
+                    find: "count(3)".into(),
+                    literal: "3".into(),
+                }),
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Observer(crate::target::ObserverTarget::new(
+                    "first-step",
+                    FirstStep,
+                )),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        });
+        let mut cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        let cache = DefinitionCache::build(&spec, &cases).expect("the cache builds");
+        let mut fresh =
+            LiveCases::build_with(Arc::clone(&spec), Some(&cache)).expect("a confirmation builds");
+        for cases in [&mut cases, &mut fresh] {
+            let parts = cases.assembly_parts();
+            let run = run_live(cases, &mut parts.assemblers(), &[int(3)], None).expect("runs");
+            assert_eq!(run.class, OutcomeClass::Hit, "{run:?}");
+            let hit = run.hit.expect("a hit");
+            assert_eq!(hit.reaching.step, Some(1));
+            assert!(
+                hit.steps > Some(1),
+                "the leaf runs on to its end: {:?}",
+                hit.steps
             );
         }
     }

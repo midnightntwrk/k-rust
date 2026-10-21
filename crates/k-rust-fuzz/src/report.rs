@@ -409,6 +409,13 @@ pub struct Reaching {
     /// whole run (D16), which rests on every leaf.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub leaf: Option<u64>,
+    /// For an observer target, the step of that leaf's path at which the observer answered
+    /// `Hit`: the number of committed rewrite steps from the initial configuration to the
+    /// configuration that step reached, at least 1 and at most the case's `steps`, since the
+    /// run continues to its end after the observer accepts (ARCHITECTURE 9.2). Absent for
+    /// every other target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<u64>,
 }
 
 /// How a differential witness kills the mutant (ARCHITECTURE 4.3).
@@ -611,6 +618,7 @@ mod tests {
             reaching: Reaching {
                 role: DefinitionRole::Baseline,
                 leaf: Some(0),
+                step: None,
             },
             kill: None,
             steps: Some(12),
