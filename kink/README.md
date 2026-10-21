@@ -3,6 +3,7 @@
 kink provides execution pattern matching and semantic mutation testing for K definitions.
 It is built on k-rust and is a part of k-rust's repository: its crates (`kink/crates/*`) are members of k-rust's workspace and build against the k-rust beside them (`crates/k-rust`, `crates/k-rust-backend`), at whatever commit the checkout is.
 kink was developed as the separate repository k-in-k2, against read-only snapshots of k-rust main, and merged into k-rust under `kink/` with its history (packet M-1 of k-in-k2 `draft/tasks/k-rust-merge`).
+k-in-k2's `draft/` (plans, briefs, decisions and handoffs, not versioned with the code) moved to k-rust's `draft-personal/kink/`; a `draft/...` path cited in kink's sources and documents is under that directory, not under k-rust's own `draft/`.
 Its last snapshot was k-rust main `0068938b1c6321c9bf0fed8562a6c9847114a8bb` (k-rust 0.8.0, k-rust-backend 0.5.0); the pin moved from k-rust `501f18b9` to `8f8ad57c5` with re-pin packets P-1, P-2 and L-1 (k-in-k2 draft/tasks/repin-58720d2e),
 and from `8f8ad57c5` to `0068938b1`, which carries k-rust's round D (the 0.8.0 version bumps, UNDEF/1-2, BIND/A8-A9, MLP/5 and MLP/10), its correctness sweep and later main commits, with re-pin packet P-1 (k-in-k2 draft/tasks/repin-0068938b).
 The k-rust passages and sources cited below with line numbers are cited at that commit; kink's drift pins (light-tier tests) pin the ones kink rests on, so a k-rust change that moves one fails a kink test in k-rust's own test run, to be judged then.
