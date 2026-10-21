@@ -192,6 +192,9 @@ pub fn expand_reference_source(
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
+    // The long forms of `k::bits!` templates hold hidden binders until
+    // `rename_hidden_binders` names them.
+    let _hidden = krs_syntax::HiddenBinderReading::start();
     let descriptor_index = DescriptorIndex::new(bundle);
     let macro_entries = reference_macro_entries(&file, facade);
     let semantic_rules = semantic
@@ -212,6 +215,12 @@ pub fn expand_reference_source(
             item_use
                 .attrs
                 .push(syn::parse_quote!(#[allow(unused_imports)]));
+        }
+        // A rule or equation fn whose subject holds `k::bits!` templates
+        // is written as its long form.
+        if let syn::Item::Fn(item_fn) = &mut item {
+            krs_syntax::desugar_bit_templates(item_fn)
+                .map_err(ReferenceExpansionError::KrsSyntax)?;
         }
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
@@ -335,6 +344,9 @@ pub fn expand_reference_source(
                 .unwrap_or(items.len());
             items.insert(insertion, syn::Item::Use(map_use));
         }
+    }
+    for item in &mut items {
+        rename_hidden_binders(item)?;
     }
     file.items = items;
     let mut output =
@@ -2312,6 +2324,67 @@ fn render_facade_marker(marker: FacadeMarker) -> TokenStream {
     let module = format_ident!("{}", marker.module);
     let name = format_ident!("{}", marker.name);
     quote!(k::builtin::#module::#name)
+}
+
+/// Names the hidden binders of a `k::bits!` template's long form, which no
+/// author may write, `bits`, `bits1`, .. in the order of their ordinals,
+/// skipping every identifier the item already spells.
+fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionError> {
+    fn identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    names.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => identifiers(group.stream(), names),
+                _ => {}
+            }
+        }
+    }
+    fn rename(tokens: TokenStream, names: &BTreeMap<String, Ident>) -> TokenStream {
+        tokens
+            .into_iter()
+            .map(|token| match token {
+                proc_macro2::TokenTree::Ident(ident) => names
+                    .get(&ident.to_string())
+                    .map_or(proc_macro2::TokenTree::Ident(ident), |name| {
+                        proc_macro2::TokenTree::Ident(name.clone())
+                    }),
+                proc_macro2::TokenTree::Group(group) => {
+                    let mut renamed =
+                        proc_macro2::Group::new(group.delimiter(), rename(group.stream(), names));
+                    renamed.set_span(group.span());
+                    proc_macro2::TokenTree::Group(renamed)
+                }
+                other => other,
+            })
+            .collect()
+    }
+    let tokens = item.to_token_stream();
+    let mut spelled = BTreeSet::new();
+    identifiers(tokens.clone(), &mut spelled);
+    let mut hidden = spelled
+        .iter()
+        .filter(|name| krs_syntax::is_hidden_binder(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if hidden.is_empty() {
+        return Ok(());
+    }
+    hidden.sort_by_key(|name| {
+        name.trim_start_matches(|character: char| !character.is_ascii_digit())
+            .parse::<u64>()
+            .unwrap_or(u64::MAX)
+    });
+    let names = hidden
+        .into_iter()
+        .map(|name| {
+            let fresh = fresh_ident("bits", &mut spelled);
+            (name, fresh)
+        })
+        .collect::<BTreeMap<_, _>>();
+    *item = syn::parse2(rename(tokens, &names)).map_err(ReferenceExpansionError::GeneratedRust)?;
+    Ok(())
 }
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {

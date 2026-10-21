@@ -1803,6 +1803,132 @@ impl Unifier<'_> {
         self.guards_complementary(left, right)
             || self.guard_refuted(left)
             || self.guard_refuted(right)
+            || self.int_facts_conflict(left, right)
+    }
+
+    /// Whether the Int facts the conjuncts of both guards state cannot hold
+    /// together: for some term, a bit required both 0 and 1, two different
+    /// values, a value outside a bound or against a bit, or bounds that
+    /// leave no integer (see [`IntFact`]). Each fact is implied by its
+    /// conjunct, so unsatisfiable facts make the guards' conjunction
+    /// unsatisfiable; an unrecognized conjunct states no fact.
+    fn int_facts_conflict(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
+        let mut facts = Vec::<(Pattern, IntFact)>::new();
+        for conjunct in left.into_iter().chain(right).flat_map(conjuncts) {
+            let conjunct = self.resolve(conjunct.clone());
+            match self.int_fact(&conjunct) {
+                Some(Ok(fact)) => facts.push(fact),
+                // A conjunct false on its own refutes the guards.
+                Some(Err(())) => return true,
+                None => {}
+            }
+        }
+        let mut groups = Vec::<(Pattern, IntFacts)>::new();
+        for (term, fact) in facts {
+            let index = groups
+                .iter()
+                .position(|(existing, _)| self.same(existing, &term))
+                .unwrap_or_else(|| {
+                    groups.push((term, IntFacts::default()));
+                    groups.len() - 1
+                });
+            groups[index].1.add(fact);
+        }
+        groups.iter().any(|(_, group)| !group.satisfiable())
+    }
+
+    /// The fact a resolved guard conjunct states about one Int term:
+    /// `Some(Err(()))` when the conjunct cannot hold at all, `None` when it
+    /// states no recognized fact.
+    fn int_fact(&self, conjunct: &Pattern) -> Option<Result<(Pattern, IntFact), ()>> {
+        let literal = relation_literal(conjunct)?;
+        let [left, right] = literal.operands;
+        let left_value = self.int_literal(left);
+        let right_value = self.int_literal(right);
+        match (literal.relation, literal.positive) {
+            (BuiltinOperation::IntEqual, true) => {
+                let (term, value) = match (left_value, right_value) {
+                    (None, Some(value)) => (left, value),
+                    (Some(value), None) => (right, value),
+                    _ => return None,
+                };
+                Some(self.equality_fact(term, value))
+            }
+            (BuiltinOperation::IntLess, positive) => {
+                // `left < right` when positive, `right <= left` otherwise.
+                let fact = match (left_value, right_value, positive) {
+                    (None, Some(bound), true) => IntFact::Below(bound),
+                    (None, Some(bound), false) => IntFact::AtLeast(bound),
+                    (Some(bound), None, true) => IntFact::AtLeast(bound.checked_add(1)?),
+                    (Some(bound), None, false) => IntFact::Below(bound.checked_add(1)?),
+                    _ => return None,
+                };
+                let term = if left_value.is_none() { left } else { right };
+                Some(Ok((self.resolve(term.clone()), fact)))
+            }
+            _ => None,
+        }
+    }
+
+    /// The fact of `term ==Int value`: bits of `t` for `bitRangeInt(t, o, l)`
+    /// and for `t &Int m` with literal `o`, `l`, and `m`; otherwise the value
+    /// of `term` itself.
+    fn equality_fact(&self, term: &Pattern, value: i128) -> Result<(Pattern, IntFact), ()> {
+        let term = self.resolve(term.clone());
+        if let Pattern::Application {
+            application: ApplicationRef::Builtin(operation),
+            arguments,
+            ..
+        } = &term
+        {
+            match (operation, arguments.as_slice()) {
+                (BuiltinOperation::IntBitRange, [subject, offset, length]) => {
+                    if let (Some(offset), Some(length)) =
+                        (self.int_literal(offset), self.int_literal(length))
+                        && let (Ok(offset), Ok(length)) =
+                            (u32::try_from(offset), u32::try_from(length))
+                        && length >= 1
+                        && offset.checked_add(length).is_some_and(|end| end <= 128)
+                    {
+                        // `bitRangeInt` is non-negative and below `2^length`.
+                        let Ok(value) = u128::try_from(value) else {
+                            return Err(());
+                        };
+                        if length < 128 && value >> length != 0 {
+                            return Err(());
+                        }
+                        let mask = low_ones(length) << offset;
+                        return Ok((
+                            self.resolve(subject.clone()),
+                            IntFact::Bits {
+                                mask,
+                                value: value << offset,
+                            },
+                        ));
+                    }
+                }
+                (BuiltinOperation::IntBitAnd, [first, second]) => {
+                    let pair = match (self.int_literal(first), self.int_literal(second)) {
+                        (None, Some(mask)) => Some((first, mask)),
+                        (Some(mask), None) => Some((second, mask)),
+                        _ => None,
+                    };
+                    if let Some((subject, mask)) = pair
+                        && let Ok(mask) = u128::try_from(mask)
+                    {
+                        let Ok(value) = u128::try_from(value) else {
+                            return Err(());
+                        };
+                        if value & !mask != 0 {
+                            return Err(());
+                        }
+                        return Ok((self.resolve(subject.clone()), IntFact::Bits { mask, value }));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok((term, IntFact::Equal(value)))
     }
 
     /// Whether some conjunct of a guard, after the unifier's substitution,
@@ -1891,14 +2017,29 @@ impl Unifier<'_> {
         }
     }
 
-    /// The value of an Int literal under the current substitution; a
-    /// literal outside `i128` has none.
+    /// The value of an Int literal under the current substitution, or of a
+    /// builtin Int operation on such values whose result is defined and fits
+    /// (`+Int`, `-Int`, `*Int`, `&Int`, `>>Int` by a non-negative amount,
+    /// `divInt` and `modInt` by a non-zero divisor, and `bitRangeInt` with a
+    /// non-negative index and length): evaluating a builtin on literals is
+    /// its definition. A value outside `i128` has none.
     fn int_literal(&self, pattern: &Pattern) -> Option<i128> {
         match self.resolve(pattern.clone()) {
             Pattern::Token {
                 sort: SemanticSortRef::Builtin(BuiltinSort::Int),
                 value,
             } => value.parse().ok(),
+            Pattern::Application {
+                application: ApplicationRef::Builtin(operation),
+                arguments,
+                ..
+            } => {
+                let values = arguments
+                    .iter()
+                    .map(|argument| self.int_literal(argument))
+                    .collect::<Option<Vec<_>>>()?;
+                evaluate_int(operation, &values)
+            }
             _ => None,
         }
     }
@@ -2032,6 +2173,142 @@ impl Unifier<'_> {
         }
         negated(left).is_some_and(|negated| self.same(negated, right))
             || negated(right).is_some_and(|negated| self.same(negated, left))
+    }
+}
+
+/// A builtin Int operation on literal operands, when its result is defined
+/// and fits `i128`.
+fn evaluate_int(operation: BuiltinOperation, values: &[i128]) -> Option<i128> {
+    match (operation, values) {
+        (BuiltinOperation::IntAdd, [left, right]) => left.checked_add(*right),
+        (BuiltinOperation::IntSub, [left, right]) => left.checked_sub(*right),
+        (BuiltinOperation::IntMul, [left, right]) => left.checked_mul(*right),
+        (BuiltinOperation::IntBitAnd, [left, right]) => Some(left & right),
+        (BuiltinOperation::IntShiftRight, [value, amount]) => {
+            let amount = u32::try_from(*amount).ok()?;
+            Some(if amount >= 128 {
+                if *value < 0 { -1 } else { 0 }
+            } else {
+                value >> amount
+            })
+        }
+        (BuiltinOperation::IntEDiv, [value, divisor]) if *divisor != 0 => {
+            value.checked_div_euclid(*divisor)
+        }
+        (BuiltinOperation::IntMod, [value, divisor]) if *divisor != 0 => {
+            value.checked_rem_euclid(*divisor)
+        }
+        (BuiltinOperation::IntBitRange, [value, index, length]) => {
+            let index = u32::try_from(*index).ok()?;
+            let length = u32::try_from(*length).ok()?;
+            if length >= 127 {
+                return None;
+            }
+            let shifted = if index >= 128 {
+                if *value < 0 { -1 } else { 0 }
+            } else {
+                value >> index
+            };
+            Some(shifted.rem_euclid(1_i128 << length))
+        }
+        _ => None,
+    }
+}
+
+/// `length` low one bits.
+const fn low_ones(length: u32) -> u128 {
+    if length >= 128 {
+        u128::MAX
+    } else {
+        (1 << length) - 1
+    }
+}
+
+/// One fact a guard conjunct states about an Int term.
+#[derive(Clone, Copy, Debug)]
+enum IntFact {
+    /// The term equals the value.
+    Equal(i128),
+    /// The bits of the term's two's complement under `mask` are those of
+    /// `value` (from `bitRangeInt(t, o, l) ==Int v` or `t &Int m ==Int v`).
+    Bits { mask: u128, value: u128 },
+    /// The term is at least the bound.
+    AtLeast(i128),
+    /// The term is below the bound.
+    Below(i128),
+}
+
+/// The facts of one term, merged.
+#[derive(Default)]
+struct IntFacts {
+    equal: Option<i128>,
+    unequal: bool,
+    /// Bits known so far and their values; `clash` when a bit is required
+    /// both 0 and 1.
+    mask: u128,
+    value: u128,
+    clash: bool,
+    at_least: Option<i128>,
+    below: Option<i128>,
+}
+
+impl IntFacts {
+    fn add(&mut self, fact: IntFact) {
+        match fact {
+            IntFact::Equal(value) => {
+                if self.equal.is_some_and(|equal| equal != value) {
+                    self.unequal = true;
+                }
+                self.equal = Some(value);
+            }
+            IntFact::Bits { mask, value } => {
+                if (self.value ^ value) & self.mask & mask != 0 {
+                    self.clash = true;
+                }
+                self.mask |= mask;
+                self.value |= value & mask;
+            }
+            IntFact::AtLeast(bound) => {
+                self.at_least = Some(self.at_least.map_or(bound, |known| known.max(bound)));
+            }
+            IntFact::Below(bound) => {
+                self.below = Some(self.below.map_or(bound, |known| known.min(bound)));
+            }
+        }
+    }
+
+    /// Whether some integer may have every fact (necessary conditions only).
+    fn satisfiable(&self) -> bool {
+        if self.unequal || self.clash {
+            return false;
+        }
+        if let (Some(at_least), Some(below)) = (self.at_least, self.below)
+            && at_least >= below
+        {
+            return false;
+        }
+        if let Some(value) = self.equal {
+            // Two's complement bits of `value`, as `bitRangeInt` and `&Int` read them.
+            #[expect(
+                clippy::cast_sign_loss,
+                reason = "the two's complement bits are wanted"
+            )]
+            let bits = value as u128;
+            if (bits ^ self.value) & self.mask != 0
+                || self.at_least.is_some_and(|bound| value < bound)
+                || self.below.is_some_and(|bound| value >= bound)
+            {
+                return false;
+            }
+        }
+        // A non-negative term is at least the number its known one bits form.
+        if self.at_least.is_some_and(|bound| bound >= 0)
+            && let Some(below) = self.below
+            && i128::try_from(self.value).map_or(true, |least| least >= below)
+        {
+            return false;
+        }
+        true
     }
 }
 
@@ -2598,6 +2875,8 @@ fn render_alternative(term: &SemanticTerm) -> String {
     }
 }
 
+#[cfg(test)]
+mod int_fact_tests;
 #[cfg(test)]
 mod rule_keys_tests;
 
