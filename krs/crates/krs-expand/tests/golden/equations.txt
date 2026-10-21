@@ -559,7 +559,7 @@ const _: () = {
         clippy::let_unit_value,
         clippy::no_effect_underscore_binding
     )]
-    fn __krs_row_binders() {
+    fn __krs_scoped_binders() {
         let n = ();
     }
 };

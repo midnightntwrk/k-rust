@@ -547,7 +547,16 @@ fn expand_head_rule(
     }
     .render();
 
+    let scoped_binders = super::rules::scoped_binder_check(
+        &cfg,
+        enum_import_item
+            .map(std::slice::from_ref)
+            .unwrap_or_default(),
+        clause.bindings(),
+    );
     Ok(quote! {
+        #scoped_binders
+
         #(#attrs)*
         #visibility #fn_token #name_ident(__krs_symbolic_subject: #parameter_type) -> #parameter_type {
             let _krs_binding_check = || { #(#binding_checks)* };

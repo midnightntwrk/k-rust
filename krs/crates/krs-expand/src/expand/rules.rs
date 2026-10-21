@@ -204,12 +204,28 @@ pub(crate) fn equation_row(
             }
         };
     };
-    // A bare identifier in a row pattern is a binder. With the table's `use`
-    // items in scope, rustc rejects one that names a unit variant or a
-    // constant (`let A = ();` is a refutable pattern of another type), where
-    // Rust would read the variant: write `A()` or `Register::A` for it.
-    let binders = row.rule().parameter().pattern.bindings();
-    let binder_check = (!binders.is_empty()).then(|| {
+    let binder_check =
+        scoped_binder_check(&cfg, imports, row.rule().parameter().pattern.bindings());
+    Ok(quote! {
+        #equation
+        #arity
+        #binder_check
+    })
+}
+
+/// Checks the binders of a readable table's clause or row with the block's
+/// `use` items in scope. A bare identifier in a KRS pattern is a binder;
+/// where the block's imports make it a unit variant or a constant, which
+/// Rust would read instead, `let A = ();` is a refutable pattern of another
+/// type and rustc reports E0308 at the name, so the clause cannot silently
+/// bind everything. The variant is written `A()` or `Enum::A`. Imports of
+/// the module are already in scope of the sentence fn's own binding check.
+pub(super) fn scoped_binder_check(
+    cfg: &[Attribute],
+    imports: &[syn::ItemUse],
+    binders: &[syn::Ident],
+) -> Option<TokenStream> {
+    (!imports.is_empty() && !binders.is_empty()).then(|| {
         quote! {
             #(#cfg)*
             const _: () = {
@@ -218,16 +234,11 @@ pub(crate) fn equation_row(
                     #imports
                 )*
                 #[allow(unused_variables, clippy::let_unit_value, clippy::no_effect_underscore_binding)]
-                fn __krs_row_binders() {
+                fn __krs_scoped_binders() {
                     #(let #binders = ();)*
                 }
             };
         }
-    });
-    Ok(quote! {
-        #equation
-        #arity
-        #binder_check
     })
 }
 

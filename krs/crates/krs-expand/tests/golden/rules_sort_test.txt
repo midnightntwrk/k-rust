@@ -2,6 +2,18 @@ const _: () = {
     #[allow(unused_imports)]
     use Op::*;
 };
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Op::*;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_scoped_binders() {
+        let e = ();
+    }
+};
 pub fn prj(__krs_symbolic_subject: Expr) -> Expr {
     let _krs_binding_check = || {
         let e = ();
