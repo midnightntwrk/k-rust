@@ -59,13 +59,26 @@ impl FuzzReport {
     /// The report as canonical JSON: compact, fields in declaration order, maps ordered. Equal
     /// reports give equal bytes.
     ///
+    /// A hole value may be nested up to [`crate::values::MAX_VALUE_DEPTH`] levels, and writing
+    /// recurses once per level of the JSON, so outside WebAssembly the writer runs on a stack
+    /// that grows on the heap (`serde_stacker`) whenever the thread's runs low; on WebAssembly,
+    /// which cannot switch stacks, a report deeper than its stack allows traps (stack
+    /// exhaustion is a trap there: the stack lies below every other datum).
+    ///
     /// # Panics
     ///
     /// Never: every map of a report has string keys and no field is a float, which are the only
     /// ways `serde_json` serialization fails.
     #[must_use]
     pub fn to_canonical_json(&self) -> String {
-        serde_json::to_string(self).expect("a report has string map keys and no floats")
+        let mut bytes = Vec::new();
+        let mut writer = serde_json::Serializer::new(&mut bytes);
+        #[cfg(not(target_family = "wasm"))]
+        let written = self.serialize(serde_stacker::Serializer::new(&mut writer));
+        #[cfg(target_family = "wasm")]
+        let written = self.serialize(&mut writer);
+        written.expect("a report has string map keys and no floats");
+        String::from_utf8(bytes).expect("serde_json writes UTF-8")
     }
 
     /// The confirmed witness, when the campaign found one.
@@ -92,11 +105,27 @@ impl FuzzReport {
 
     /// Read a report written by [`Self::to_canonical_json`].
     ///
+    /// Every report this crate writes reads back, whatever the depth of its hole values (HARD-B
+    /// review S3): outside WebAssembly, `serde_json`'s recursion limit of 128 nested arrays and
+    /// objects is lifted and the reader runs on a stack that grows on the heap
+    /// (`serde_stacker`), so its depth is bounded by memory, not by the calling thread. On
+    /// WebAssembly, which cannot switch stacks, the limit stays: a report nested deeper (a hole
+    /// value of about 40 levels or more) is refused with `serde_json`'s recursion-limit error.
+    ///
     /// # Errors
     ///
     /// The JSON error, including for an unknown field.
     pub fn from_json(text: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(text)
+        let mut reader = serde_json::Deserializer::from_str(text);
+        #[cfg(not(target_family = "wasm"))]
+        let report = {
+            reader.disable_recursion_limit();
+            Self::deserialize(serde_stacker::Deserializer::new(&mut reader))?
+        };
+        #[cfg(target_family = "wasm")]
+        let report = Self::deserialize(&mut reader)?;
+        reader.end()?;
+        Ok(report)
     }
 }
 
@@ -921,11 +950,12 @@ mod tests {
     }
 
     /// HARD-B review S3: every value a campaign admits reads back from its report. A value
-    /// nested [`crate::values::MAX_VALUE_DEPTH`] levels deep, in the JSON shape that nests most
-    /// per level (an application's or a map entry's three arrays and objects, two for its leaf),
-    /// as a witness hole's value and as an explicit assignment, reads back through
-    /// [`FuzzReport::from_json`] and `serde_json`'s recursion limit; one level deeper, which the
-    /// values module refuses, does not, so the bound is the largest that holds.
+    /// nested [`crate::values::MAX_VALUE_DEPTH`] levels deep, in the JSON shapes that nest most
+    /// per level (an application's or a map entry's three arrays and objects), as a witness
+    /// hole's value and as an explicit assignment, is written and read back on a thread of a
+    /// 2 MiB stack, the size of a test thread: both directions grow the stack on the heap, and
+    /// reading lifts `serde_json`'s recursion limit of 128 nested arrays and objects.
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn the_deepest_admitted_value_reads_back_from_a_report() {
         let chain = |levels: usize, map: bool| {
@@ -959,14 +989,16 @@ mod tests {
         let most = crate::values::MAX_VALUE_DEPTH;
         for map in [false, true] {
             let report = with(chain(most, map));
-            let read = FuzzReport::from_json(&report.to_canonical_json());
-            assert_eq!(read.as_ref().ok(), Some(&report), "{most} levels: {read:?}");
-            let deeper = with(chain(most + 1, map)).to_canonical_json();
-            assert!(
-                FuzzReport::from_json(&deeper).is_err(),
-                "{} levels",
-                most + 1
-            );
+            let (read, report) = std::thread::Builder::new()
+                .stack_size(2 << 20)
+                .spawn(move || {
+                    let text = report.to_canonical_json();
+                    (FuzzReport::from_json(&text).ok(), report)
+                })
+                .expect("a thread")
+                .join()
+                .expect("no overflow");
+            assert_eq!(read.as_ref(), Some(&report), "{most} levels, map {map}");
         }
     }
 }

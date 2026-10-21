@@ -1327,6 +1327,95 @@ mod tests {
         );
     }
 
+    /// A VALUES campaign whose `$REC` hole's anchor is `rec(1, unit, t)`, where `t` is a tree
+    /// `nodes` nodes deep: a value of `nodes + 3` levels (the record, the nodes, `leaf(0)` and
+    /// its Int).
+    fn deep_record_campaign(nodes: usize) -> Result<crate::Campaign, CampaignError> {
+        let compiled = crate::support::VALUES.compiled();
+        let tree = format!(
+            "{}leaf(0){}",
+            "node(".repeat(nodes),
+            ", leaf(0))".repeat(nodes)
+        );
+        let record = format!("rec(1, unit, {tree})");
+        let bindings = [
+            ("SHAPE", "circle(5)"),
+            ("REC", record.as_str()),
+            ("PAIR", "1 & 2"),
+            ("WRAPPER", "wrap(3)"),
+            ("ACCOUNT", "account(1, .Map)"),
+            ("LIST", ".List"),
+            ("SET", ".Set"),
+            ("MAP", ".Map"),
+        ];
+        crate::Campaign::new(CampaignSpec {
+            program: ProgramInput::Source(crate::spec::ProgramSource {
+                program: Some(crate::spec::ProgramText {
+                    name: "run.values".into(),
+                    text: "run".into(),
+                    start_sort: "Pgm".into(),
+                }),
+                config_vars: bindings
+                    .iter()
+                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                    .collect(),
+            }),
+            holes: vec![HoleDecl {
+                name: "R".into(),
+                sort: "Rec".into(),
+                location: HoleLocation::ConfigVar { name: "REC".into() },
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Pattern(PatternTarget {
+                    pattern: "<k> .K </k>".into(),
+                    at: PatternAt::Final,
+                }),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::new(),
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        })
+    }
+
+    /// HARD-B review S3, round 3: an anchor of [`crate::values::MAX_VALUE_DEPTH`] levels is
+    /// admitted, becomes the witness, and its report reads back; one level deeper is refused
+    /// by `Campaign::new`. Run on a thread of a 2 MiB stack, the size of a test thread.
+    #[test]
+    fn an_anchor_at_the_depth_bound_reaches_a_report_that_reads_back() {
+        let nodes = crate::values::MAX_VALUE_DEPTH - 3;
+        let (deeper, report) = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let deeper = deep_record_campaign(nodes + 1).map(|_| ());
+                let report = deep_record_campaign(nodes)
+                    .expect("an anchor at the bound is admitted")
+                    .run(crate::spec::Budget::Cases(1), None);
+                (deeper, report)
+            })
+            .expect("a thread")
+            .join()
+            .expect("no overflow");
+        assert!(
+            matches!(deeper, Err(CampaignError::AnchorDoesNotParse { .. })),
+            "{deeper:?}"
+        );
+        let witness = report.witness().expect("the anchor reaches the target");
+        assert!(matches!(witness.first.holes[0].value, Value::Apply { .. }));
+        let text = report.to_canonical_json();
+        assert_eq!(crate::FuzzReport::from_json(&text).ok(), Some(report));
+    }
+
     /// The dictionary's harvest from the campaign's rule graph and resolved target equals the
     /// harvest it makes on a backend and graph of its own (DICT's request after N9), for a rule
     /// target and for a pattern target.

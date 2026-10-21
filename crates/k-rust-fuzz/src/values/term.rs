@@ -24,7 +24,7 @@ use num_bigint::BigInt;
 
 use super::{
     ArgumentSort, CollectionKind, CollectionSymbols, DataAlternative, DataSorts, MAX_VALUE_DEPTH,
-    Value, ValueSort, check_data,
+    Value, ValueSort, data_alternative,
     print::{PrintError, parse_int, parse_mint, to_kore},
 };
 
@@ -177,19 +177,20 @@ fn data(
     table: &DataSorts,
     index: usize,
 ) -> Result<(KorePattern, KoreSort), PrintError> {
-    match check_data(value, table, index).map_err(|_| PrintError::SortMismatch)? {
+    // `to_kore` checked the whole value: each level only selects its alternative.
+    match data_alternative(value, table, index).map_err(|_| PrintError::SortMismatch)? {
         DataAlternative::Constructor(constructor) => {
             let Value::Apply { arguments, .. } = value else {
                 unreachable!("a constructor alternative is an application");
             };
-            let arguments = constructor
-                .arguments
-                .iter()
-                .zip(arguments)
-                .map(|(sort, argument)| argument_kore(argument, sort, table, true))
-                .collect::<Result<Vec<_>, _>>()?;
+            // A loop, not an iterator chain: this recursion runs once per level of the value,
+            // and each adapter of a chain is a stack frame per level in an unoptimized build.
+            let mut patterns = Vec::with_capacity(arguments.len());
+            for (sort, argument) in constructor.arguments.iter().zip(arguments) {
+                patterns.push(argument_kore(argument, sort, table, true)?);
+            }
             Ok((
-                application(&constructor.symbol, arguments),
+                application(&constructor.symbol, patterns),
                 simple_sort(&constructor.result_kore_sort),
             ))
         }
@@ -411,15 +412,14 @@ fn data_value(
         if constructor.arguments.len() != arguments.len() {
             return Err(format!("{} has the wrong number of arguments", symbol.name));
         }
-        let arguments = constructor
-            .arguments
-            .iter()
-            .zip(arguments)
-            .map(|(sort, argument)| argument_value(argument, sort, table, below))
-            .collect::<Result<Vec<_>, _>>()?;
+        // A loop, not an iterator chain: one stack frame per level ([`data`]).
+        let mut values = Vec::with_capacity(arguments.len());
+        for (sort, argument) in constructor.arguments.iter().zip(arguments) {
+            values.push(argument_value(argument, sort, table, below)?);
+        }
         return Ok(Value::Apply {
             symbol: symbol.name.clone(),
-            arguments,
+            arguments: values,
         });
     }
     entry
@@ -536,7 +536,7 @@ fn shorter_or_longer<T: Clone>(items: &[T], least: impl FnOnce() -> Option<T>) -
 }
 
 fn second_data(value: &Value, table: &DataSorts, index: usize) -> Option<Value> {
-    if let Ok(DataAlternative::Constructor(constructor)) = check_data(value, table, index)
+    if let Ok(DataAlternative::Constructor(constructor)) = data_alternative(value, table, index)
         && let Value::Apply { symbol, arguments } = value
     {
         for (position, (sort, argument)) in constructor.arguments.iter().zip(arguments).enumerate()
@@ -556,7 +556,7 @@ fn second_data(value: &Value, table: &DataSorts, index: usize) -> Option<Value> 
             }
         }
     } else if let Ok(DataAlternative::Subsort(ArgumentSort::Value(sort))) =
-        check_data(value, table, index)
+        data_alternative(value, table, index)
         && let Some(changed) = second_value(value, sort)
     {
         return Some(changed);

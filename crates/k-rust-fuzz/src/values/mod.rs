@@ -398,30 +398,19 @@ pub const MAX_VALUE_SIZE: u128 = 1 << 17;
 /// depth, which the frontend reads, so a deeper value is refused rather than allowed to exhaust
 /// the stack (FZ-G6+09 review N8).
 ///
-/// The bound is the deepest value a report can carry and read back (HARD-B review S3): every
-/// admitted value can become a witness's hole value (the anchors are the first case), and
-/// [`crate::FuzzReport::from_json`] reads with `serde_json`'s recursion limit, which accepts at
-/// most [`JSON_NESTING_LIMIT`] nested arrays and objects. A hole value sits inside
-/// [`REPORT_VALUE_NESTING`] of them, and a value nests at most three per level (an
-/// application's tag, fields and argument array; a map's tag, entry array and entry pair) and two
-/// for its leaf, so `REPORT_VALUE_NESTING + 3 * (levels - 1) + 2` must not exceed the limit:
-/// 40 levels. Generated values stay far below it: at most a collection level, [`MAX_DEPTH`]
-/// constructor levels and a builtin leaf.
-pub const MAX_VALUE_DEPTH: usize = (JSON_NESTING_LIMIT - REPORT_VALUE_NESTING - 2) / 3 + 1;
-
-/// The most nested arrays and objects `serde_json`'s default recursion limit (128) reads.
-const JSON_NESTING_LIMIT: usize = 127;
-
-/// The arrays and objects that enclose a witness's hole value in a report: the report, its
-/// outcome, the witness, the witness case, its hole list and the hole (an explicit assignment
-/// sits inside one fewer). `report::tests::the_deepest_admitted_value_reads_back_from_a_report`
-/// pins it.
-const REPORT_VALUE_NESTING: usize = 6;
-
-const _: () = assert!(
-    MAX_DEPTH as usize + 2 <= MAX_VALUE_DEPTH,
-    "a generated value must fit in a report"
-);
+/// 1024 levels leave room for the deepest data written by hand: a K user list
+/// (`List{Int, ","}`) or another cons list nests one level per item, so an anchor of a thousand
+/// items fits, as do records nested far deeper than any hand-written one; generated values are at
+/// most a collection level, [`MAX_DEPTH`] constructor levels and a builtin leaf.
+///
+/// A campaign over an anchor at this depth (resolution, round trip, the case, its confirmation
+/// and its report) runs on a 2 MiB thread, the size of a test thread: it needs about 1.3 MiB in
+/// the test profile, measured (HARD-B round 3). A report carries every admitted value and reads
+/// it back: [`crate::FuzzReport`] writes and reads its JSON on a stack that grows on the heap.
+/// WebAssembly has a 1 MiB stack that cannot grow: there a value this deep may exhaust it, which
+/// traps (the stack lies below every other datum), and a report holding a value deeper than about
+/// 40 levels is refused by [`crate::FuzzReport::from_json`] with an error.
+pub const MAX_VALUE_DEPTH: usize = 1024;
 
 /// Check `bounds` against [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and [`MAX_DEPTH`].
 /// [`Generator::new`] calls it.
@@ -883,25 +872,30 @@ fn check_shape_at(value: &Value, sort: &ValueSort, level: usize) -> Result<(), S
                 Ok(())
             }
         }
-        (Value::List(items), ValueSort::List { element, .. }) => items
-            .iter()
-            .try_for_each(|item| check_shape_at(item, element, below)),
+        (Value::List(items), ValueSort::List { element, .. }) => {
+            for item in items {
+                check_shape_at(item, element, below)?;
+            }
+            Ok(())
+        }
         (Value::Set(items), ValueSort::Set { element, .. }) => {
             if items.windows(2).any(|pair| pair[0] >= pair[1]) {
                 return Err("a Set's elements are not sorted and distinct".to_owned());
             }
-            items
-                .iter()
-                .try_for_each(|item| check_shape_at(item, element, below))
+            for item in items {
+                check_shape_at(item, element, below)?;
+            }
+            Ok(())
         }
         (Value::Map(entries), ValueSort::Map { key, value, .. }) => {
             if entries.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
                 return Err("a Map's keys are not sorted and distinct".to_owned());
             }
-            entries.iter().try_for_each(|(entry_key, entry_value)| {
+            for (entry_key, entry_value) in entries {
                 check_shape_at(entry_key, key, below)?;
-                check_shape_at(entry_value, value, below)
-            })
+                check_shape_at(entry_value, value, below)?;
+            }
+            Ok(())
         }
         (_, ValueSort::Data { table, .. }) => {
             if table.sorts.is_empty() {
@@ -929,18 +923,9 @@ pub(crate) enum DataAlternative<'t> {
     Subsort(&'t ArgumentSort),
 }
 
-/// Check that `value` is a value of entry `index` of `table`: an application of one of its
-/// constructors to values of the argument sorts, or a value of one of its non-data subsorts.
-/// Returns how the value is built.
-pub(crate) fn check_data<'t>(
-    value: &Value,
-    table: &'t DataSorts,
-    index: usize,
-) -> Result<DataAlternative<'t>, String> {
-    check_data_at(value, table, index, 0)
-}
-
-/// [`check_data`] for a value at `level` levels below the value checked.
+/// Check that `value`, at `level` levels below the value checked, is a value of entry `index`
+/// of `table`: an application of one of its constructors to values of the argument sorts, or a
+/// value of one of its non-data subsorts. Returns how the value is built.
 fn check_data_at<'t>(
     value: &Value,
     table: &'t DataSorts,
@@ -948,6 +933,40 @@ fn check_data_at<'t>(
     level: usize,
 ) -> Result<DataAlternative<'t>, String> {
     let below = deeper(level)?;
+    let alternative = alternative_at(value, table, index, level)?;
+    if let (DataAlternative::Constructor(constructor), Value::Apply { arguments, .. }) =
+        (&alternative, value)
+    {
+        // Loops, not iterator chains, in the recursions over a value's levels: each adapter
+        // of a chain is one more stack frame per level in an unoptimized build.
+        for (sort, argument) in constructor.arguments.iter().zip(arguments) {
+            check_argument(argument, sort, table, below)?;
+        }
+    }
+    Ok(alternative)
+}
+
+/// How `value`, already known to be a value of entry `index` of `table` (it passed
+/// [`check_shape`] at an enclosing sort), is built: its constructor, found by symbol and arity
+/// without checking its arguments again, or the subsort it is a value of. Recursions over a
+/// checked value use it at each level, so that they do not check each subtree again on every
+/// level above it, which would take time and stack quadratic in the depth.
+pub(crate) fn data_alternative<'t>(
+    value: &Value,
+    table: &'t DataSorts,
+    index: usize,
+) -> Result<DataAlternative<'t>, String> {
+    alternative_at(value, table, index, 0)
+}
+
+/// [`data_alternative`] for a value at `level` levels below the value checked: a subsort
+/// alternative is checked in full (a builtin or a collection at this level).
+fn alternative_at<'t>(
+    value: &Value,
+    table: &'t DataSorts,
+    index: usize,
+    level: usize,
+) -> Result<DataAlternative<'t>, String> {
     let entry = table
         .sorts
         .get(index)
@@ -972,11 +991,6 @@ fn check_data_at<'t>(
             arguments.len()
         ));
     }
-    constructor
-        .arguments
-        .iter()
-        .zip(arguments)
-        .try_for_each(|(sort, argument)| check_argument(argument, sort, table, below))?;
     Ok(DataAlternative::Constructor(constructor))
 }
 
