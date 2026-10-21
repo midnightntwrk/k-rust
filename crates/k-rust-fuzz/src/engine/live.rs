@@ -41,6 +41,12 @@ pub(crate) struct Side {
     pub(crate) holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
     shape: CaseRequestShape,
+    /// On the `source-execution` route, the internalized definition the backend's session holds
+    /// (`Backend::select_definition`), shared, not copied: the campaign's only internalization
+    /// of this definition, from which the rule graph's backend and the confirmations' backends
+    /// are built by copy ([`GraphCheck::build`], [`DefinitionCache::build`]; phase-1 review N9).
+    /// `None` on the `from-definition` route, whose backends internalize inside their sessions.
+    internalized: Option<Arc<BackendDefinition>>,
 }
 
 /// What a side may reuse from a [`DefinitionCache`]: the internalized definition its fresh
@@ -49,7 +55,7 @@ pub(crate) struct Side {
 /// grammar, the program and the hole declarations alone.
 #[derive(Clone, Copy, Default)]
 struct Seed<'a> {
-    internalized: Option<&'a BackendDefinition>,
+    internalized: Option<&'a Arc<BackendDefinition>>,
     normal_end: Option<&'a NormalEnd>,
     resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
 }
@@ -62,13 +68,30 @@ impl Side {
         seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
         let assembly = Arc::new(ProgramAssembly::new(definition)?);
-        let backend = match seed.internalized {
+        let (backend, internalized) = match seed.internalized {
             // A fresh backend over a copy of the cached, immutable internalized definition.
-            Some(internalized) => {
-                Backend::from_internalized(internalized.clone(), spec.options.backend.options())
-                    .map_err(CampaignError::from)?
+            Some(internalized) => (
+                Backend::from_internalized(
+                    BackendDefinition::clone(internalized),
+                    spec.options.backend.options(),
+                )
+                .map_err(CampaignError::from)?,
+                Some(Arc::clone(internalized)),
+            ),
+            None => {
+                let mut backend = build_backend(definition, spec.options.backend.options())?;
+                let internalized = match &definition.route {
+                    BackendRoute::SourceExecution { .. } => {
+                        Some(backend.select_definition(None).map_err(|error| {
+                            CampaignError::Definition {
+                                message: format!("the main module does not load: {error}"),
+                            }
+                        })?)
+                    }
+                    BackendRoute::FromDefinition => None,
+                };
+                (backend, internalized)
             }
-            None => build_backend(definition, spec.options.backend.options())?,
         };
         let (mut executor, normal_end) = if let Some(normal_end) = seed.normal_end {
             (
@@ -91,6 +114,7 @@ impl Side {
                 holes: holes.clone(),
                 round_trip: Arc::clone(round_trip),
                 shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+                internalized,
             });
         }
         let holes = executor
@@ -127,6 +151,7 @@ impl Side {
             holes,
             round_trip,
             shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+            internalized,
         })
     }
 
@@ -667,6 +692,14 @@ fn quote(text: &str) -> String {
 /// the same code that computed the campaign's, so a defect of that code is not caught by
 /// confirmation (phase-1 review N8, accepted by INT-A item 3).
 ///
+/// The internalized definition is not internalized again: it is the one the campaign's own
+/// backend was built from, which that backend's session holds behind an `Arc` and never
+/// changes ([`Side::internalized`]). It is shared rather than copied, so a campaign internalizes
+/// each definition once and the cache adds no copy of it (phase-1 review N9). Sharing it shares
+/// no run state: the facts a run may have filled in lazily are functions of the definition
+/// alone, computed by infallible initializers, so a copy taken after some runs behaves as one
+/// taken before any.
+///
 /// Only the `source-execution` route's internalization is cached: the `from-definition` route
 /// internalizes inside the backend's session, and a confirmation on it builds its backend from
 /// the KORE as the campaign's own backend was built.
@@ -680,7 +713,7 @@ pub(crate) struct DefinitionCache {
 
 /// One side's part of a [`DefinitionCache`].
 struct SideCache {
-    internalized: Option<BackendDefinition>,
+    internalized: Option<Arc<BackendDefinition>>,
     normal_end: NormalEnd,
     holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
@@ -695,9 +728,9 @@ impl SideCache {
         }
     }
 
-    fn of(side: Side, internalized: Option<BackendDefinition>) -> Self {
+    fn of(side: Side) -> Self {
         Self {
-            internalized,
+            internalized: side.internalized,
             normal_end: side.normal_end,
             holes: side.holes,
             round_trip: side.round_trip,
@@ -706,32 +739,24 @@ impl SideCache {
 }
 
 impl DefinitionCache {
-    /// Internalize every `source-execution` definition of `spec` once, then, on a build of its
-    /// own (not the campaign's), compile the normal-termination pattern and the target's
-    /// patterns, resolve the holes and locate their positions once.
+    /// Take each `source-execution` definition's internalization from `cases`, the campaign's
+    /// own case execution, then, on a build of its own (not the campaign's), compile the
+    /// normal-termination pattern and the target's patterns, resolve the holes and locate their
+    /// positions once.
     ///
     /// # Errors
     ///
     /// The first refusal, as a [`CampaignError`].
-    pub(crate) fn build(spec: &Arc<CampaignSpec>) -> Result<Self, CampaignError> {
-        let internalize = |definition: &CompiledDefinition| match &definition.route {
-            BackendRoute::SourceExecution {
-                execution_rewrite_order,
-            } => Backend::internalize_source_definition(
-                &definition.kore,
-                &definition.main_module,
-                execution_rewrite_order,
-            )
-            .map(Some)
-            .map_err(CampaignError::from),
-            BackendRoute::FromDefinition => Ok(None),
+    pub(crate) fn build(
+        spec: &Arc<CampaignSpec>,
+        cases: &LiveCases,
+    ) -> Result<Self, CampaignError> {
+        let baseline = cases.baseline.internalized.clone();
+        let mutant = match &cases.judge {
+            Judge::Differential(mutant) => mutant.internalized.clone(),
+            Judge::Target(_) => None,
         };
-        let baseline = internalize(&spec.definitions.baseline)?;
-        let mutant = match &spec.definitions.mutant {
-            Some(mutant) => internalize(mutant)?,
-            None => None,
-        };
-        let side = |definition, role, internalized: &Option<BackendDefinition>| {
+        let side = |definition, role, internalized: &Option<Arc<BackendDefinition>>| {
             Side::build(
                 spec,
                 definition,
@@ -758,12 +783,13 @@ impl DefinitionCache {
             )?
             .compiled_patterns()
         };
-        let baseline = SideCache::of(baseline_side, baseline);
+        let baseline = SideCache::of(baseline_side);
         let mutant = match &spec.definitions.mutant {
-            Some(definition) => Some(SideCache::of(
-                side(definition, DefinitionRole::Mutant, &mutant)?,
-                mutant,
-            )),
+            Some(definition) => Some(SideCache::of(side(
+                definition,
+                DefinitionRole::Mutant,
+                &mutant,
+            )?)),
             None => None,
         };
         Ok(Self {
@@ -776,7 +802,10 @@ impl DefinitionCache {
 
 /// The rule graph of the baseline definition with the campaign's entry (ARCHITECTURE 6.3),
 /// computed once per campaign from the hole template ([`graph::entry::hole_template`]) on the
-/// graph's own backend, which no case uses, so that its solver cache is no case's.
+/// graph's own backend, which no case uses, so that its solver cache is no case's. On the
+/// `source-execution` route that backend is built from a copy of the campaign's internalized
+/// definition ([`Side::internalized`]) rather than from a second internalization (phase-1
+/// review N9).
 ///
 /// The graph's warnings go into the report, and every case's coverage `applied` is checked
 /// against the entry: a rule applied outside the graph, or an id the definition does not know,
@@ -811,8 +840,13 @@ impl GraphCheck {
             }
         }
         let template = graph::entry::hole_template(side.round_trip.anchor_configuration(), &holes)?;
-        let mut backend =
-            build_backend(&spec.definitions.baseline, spec.options.backend.options()).ok()?;
+        let options = spec.options.backend.options();
+        let mut backend = match &side.internalized {
+            Some(internalized) => {
+                Backend::from_internalized(BackendDefinition::clone(internalized), options).ok()?
+            }
+            None => build_backend(&spec.definitions.baseline, options).ok()?,
+        };
         let graph = RuleGraph::of_backend(&mut backend).ok()?;
         let entry = graph
             .entry(&mut backend, side.shape.request(template))
@@ -912,12 +946,15 @@ impl CaseRunner for LiveRunner<'_> {
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, ConfirmFailure> {
         let spec = Arc::clone(&self.cases.spec);
+        let cases = &self.cases;
         let cache = self
             .cache
-            .get_or_init(|| DefinitionCache::build(&spec).map_err(|error| error.to_string()))
+            .get_or_init(|| DefinitionCache::build(&spec, cases).map_err(|error| error.to_string()))
             .as_ref()
             .map_err(|error| {
-                ConfirmFailure::Failed(format!("the definition did not internalize: {error}"))
+                ConfirmFailure::Failed(format!(
+                    "the confirmation's definition cache did not build: {error}"
+                ))
             })?;
         let mut fresh = LiveCases::build_with(spec, Some(cache)).map_err(|error| {
             ConfirmFailure::Failed(format!(
@@ -968,5 +1005,152 @@ fn run_live(
         cases.run_differential(assemblers, values, cancel)
     } else {
         cases.run_target(assemblers, values, cancel)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::{
+        holes::{HoleDecl, HoleLocation, SpanAddress},
+        spec::{
+            CallerIdentity, CaseOptions, DEFAULT_REJECTION_CAP, Definitions, ProposerConfig,
+            ProposerKind,
+        },
+        support::IMP,
+        target::{PatternAt, PatternTarget, Target},
+        values::{Constraints, GenerationBounds},
+    };
+
+    fn int_hole(name: &str, find: &str, literal: &str) -> HoleDecl {
+        HoleDecl {
+            name: name.into(),
+            sort: "Int".into(),
+            location: HoleLocation::Span(SpanAddress {
+                program: "imp/le.imp".into(),
+                line: None,
+                find: find.into(),
+                literal: literal.into(),
+            }),
+            constraints: Constraints::default(),
+            allow_refused_sort: false,
+        }
+    }
+
+    /// IMP's `le.imp` with `x` and `y` as holes, and the property that `r` ends as 1, on
+    /// `route`.
+    fn le_spec(route: Option<BackendRoute>) -> Arc<CampaignSpec> {
+        let compiled = IMP.compiled();
+        let definition = match route {
+            Some(route) => compiled.definition_on(route),
+            None => compiled.definition(),
+        };
+        Arc::new(CampaignSpec {
+            definitions: Definitions {
+                baseline: Arc::new(definition),
+                mutant: None,
+            },
+            program: ProgramInput::Source(compiled.program_source("imp/le.imp")),
+            holes: vec![int_hole("X", "x = 3;", "3"), int_hole("Y", "y = 5;", "5")],
+            target: Target {
+                kind: TargetKind::Pattern(PatternTarget {
+                    pattern: concat!(
+                        r#"<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> "#,
+                        "requires R =/=Int 1"
+                    )
+                    .into(),
+                    at: PatternAt::Final,
+                }),
+                run_to_completion: false,
+                negated_property: true,
+            },
+            options: CaseOptions::default(),
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::from([(ProposerKind::Blind, 1)]),
+            },
+            bounds: GenerationBounds::default(),
+            rejection_cap: DEFAULT_REJECTION_CAP,
+            seed: 1,
+            identity: CallerIdentity::default(),
+        })
+    }
+
+    fn int(n: i64) -> Value {
+        Value::Int(n.into())
+    }
+
+    /// Phase-1 review N9: the campaign's backend, the rule graph's and the confirmations' are
+    /// all built from one internalization, which the confirmation cache shares without a copy,
+    /// while each backend still holds its own copy of it.
+    #[test]
+    fn a_source_campaign_internalizes_its_definition_once() {
+        let spec = le_spec(None);
+        let mut cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        let internalized = cases
+            .baseline
+            .internalized
+            .clone()
+            .expect("the source-execution route keeps its internalization");
+        let own = cases
+            .baseline
+            .executor
+            .backend_mut()
+            .select_definition(None)
+            .expect("loads");
+        assert!(Arc::ptr_eq(&own, &internalized), "shared, not copied");
+        assert!(GraphCheck::build(&spec, &cases).is_some());
+        let cache = DefinitionCache::build(&spec, &cases).expect("the cache builds");
+        let cached = cache.baseline.internalized.as_ref().expect("cached");
+        assert!(Arc::ptr_eq(cached, &internalized), "the cache adds no copy");
+        let mut fresh =
+            LiveCases::build_with(Arc::clone(&spec), Some(&cache)).expect("a confirmation builds");
+        let copy = fresh
+            .baseline
+            .executor
+            .backend_mut()
+            .select_definition(None)
+            .expect("loads");
+        assert!(
+            !Arc::ptr_eq(&copy, &internalized),
+            "a confirmation's backend runs on its own copy"
+        );
+        // The confirmation built from the shared internalization judges as the campaign does:
+        // the anchors (3, 5) take the `x <= y` branch, and (5, 3) violates the property.
+        let parts = cases.assembly_parts();
+        let fresh_parts = fresh.assembly_parts();
+        for (values, class) in [
+            ([int(3), int(5)], OutcomeClass::Miss),
+            ([int(5), int(3)], OutcomeClass::Hit),
+        ] {
+            let campaign =
+                run_live(&mut cases, &mut parts.assemblers(), &values, None).expect("runs");
+            let confirmed =
+                run_live(&mut fresh, &mut fresh_parts.assemblers(), &values, None).expect("runs");
+            assert_eq!(campaign.class, class);
+            assert_eq!(confirmed.class, class);
+            assert_eq!(
+                campaign.hit.map(|hit| hit.reaching_state),
+                confirmed.hit.map(|hit| hit.reaching_state)
+            );
+        }
+    }
+
+    /// The `from-definition` route internalizes inside each backend's session: nothing is
+    /// shared, and the graph and the confirmations build their backends from the KORE.
+    #[test]
+    fn a_from_definition_campaign_shares_no_internalization() {
+        let spec = le_spec(Some(BackendRoute::FromDefinition));
+        let cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        assert!(cases.baseline.internalized.is_none());
+        assert!(GraphCheck::build(&spec, &cases).is_some());
+        let cache = DefinitionCache::build(&spec, &cases).expect("the cache builds");
+        assert!(cache.baseline.internalized.is_none());
+        let fresh =
+            LiveCases::build_with(Arc::clone(&spec), Some(&cache)).expect("a confirmation builds");
+        assert!(fresh.baseline.internalized.is_none());
     }
 }
