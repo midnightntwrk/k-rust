@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 description = "WebAssembly bindings for the portable k-rust frontend"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "MIT OR Apache-2.0"
 publish = false
 
 [lib]

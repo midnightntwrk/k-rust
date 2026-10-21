@@ -828,9 +828,11 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 
 ## License
 
-`k-rust` is distributed under the BSD 3-Clause License. The bundled K Framework builtin sources
-retain their original copyright notices; see [NOTICE](NOTICE).
+`k-rust` is licensed under either of the Apache License, Version 2.0
+([`LICENSE-APACHE`](LICENSE-APACHE)) or the MIT license ([`LICENSE-MIT`](LICENSE-MIT)), at your
+option. KRS, everything under [`krs/`](krs/), is licensed the same way.
 
-KRS, everything under [`krs/`](krs/), is licensed under either of the Apache License, Version 2.0
-([`krs/LICENSE-APACHE`](krs/LICENSE-APACHE)) or the MIT license
-([`krs/LICENSE-MIT`](krs/LICENSE-MIT)), at your option.
+The third-party material keeps its BSD 3-Clause license and copyright notices: the K Framework
+builtin sources and parser runtime copied into `crates/k-rust`, the K test data among its fixtures,
+and, to the extent it derives from it, the Haskell backend that `k-rust-backend` ports. The
+licenses are in [`licenses/`](licenses/), and [NOTICE](NOTICE) says what each covers.

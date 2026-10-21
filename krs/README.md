@@ -149,4 +149,4 @@ The build runs the tour verifiers and several `cargo check` invocations, so it n
 ## License
 
 KRS (everything under `krs/`) is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
-The rest of the repository, `k-rust`, is licensed under the BSD 3-Clause license (`../LICENSE`).
+The rest of the repository, `k-rust`, is licensed the same way, except for the third-party material `../NOTICE` lists.

@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 description = "KORE syntax, parsing, printing, and serialization for k-rust"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "MIT OR Apache-2.0"
 keywords = ["k-framework", "kore", "parser", "rewriting"]
 categories = ["compilers", "parser-implementations"]
 

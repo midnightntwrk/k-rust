@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 description = "An in-process symbolic execution backend for k-rust"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause"
 keywords = ["k-framework", "kore", "rewriting", "symbolic-execution"]
 categories = ["compilers", "development-tools"]
 
