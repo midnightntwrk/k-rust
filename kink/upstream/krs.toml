@@ -1,0 +1,28 @@
+# K-in-K2 requests to KRS: the single ledger.
+# Vocabulary and field contract are in README.md beside this file.
+
+schema = 1
+updated = "2026-09-27"
+
+[reference_pin]
+krs_commit = "2d9fafd"
+checkout = "../krs"
+
+[[request]]
+id = "origin-mapping-bridge"
+title = "KRS OriginMapping joins emitted sentence provenance"
+kind = "missing-feature"
+status = "fixed"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native rule_identities_resolve_by_source_position_per_compiled_side and deleted_observed_rule_is_omitted_from_the_mutant_manifest), with KRS 2d9fafd CompiledArtifacts.sentence_provenance and adapt_definition().origins() reviewed"
+fixed_in = "2d9fafd"
+blocking = false
+needed_by = ["none for current .k inputs; a future KRS-authored input route could use this relation"]
+summary = """
+K-in-K2 does not consume KRS today. Its .k inputs use k-rust CompiledKoreArtifacts.sentence_provenance directly to resolve emitted rule identities to authored sentences.
+For KRS-authored inputs, krs_k_rust CompiledArtifacts.sentence_provenance joins emitted identities to KRS origins, and adapt_definition().origins() exposes the precompile OriginMapping. KRS retired the #krs-source-map= suffix at 2d9fafd.
+"""
+local_workaround = "retired: kink-native uses the typed k-rust sentence_provenance relation for .k inputs; no KRS workaround is active."
+requested_action = """
+Satisfied at the sentence level by CompiledArtifacts.sentence_provenance, with ordered one-to-many authors and typed rejection of missing or lossy mappings. Term and production origins remain editor and diagnostic mapping rather than emitted execution identities.
+"""
+sources = ["upstream-issues.toml KRS-BRIDGE-001"]

@@ -1,0 +1,20 @@
+# The loop corpus for the survivor report (flow F-06): every program ends on the
+# baseline well inside a small depth bound and a generous time bound, so a mutant
+# that does not end on a program stops at the depth bound: its outcome is unknown,
+# never a timeout and never a kill.
+[spec]
+entry = "loop.k"
+main_module = "LOOP"
+syntax_module = "LOOP-SYNTAX"
+
+[budget]
+time_ms = 10000
+max_depth = 200
+
+[[program]]
+id = "countdown"
+file = "programs/countdown.loop"
+
+[[program]]
+id = "twice"
+file = "programs/twice.loop"

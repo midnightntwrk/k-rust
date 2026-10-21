@@ -1,0 +1,14 @@
+# kink-flow corpus manifest for the loop fixture (flow F-03): every program
+# ends; the rules spin and unused are reached by none of them.
+[spec]
+entry = "loop.k"
+main_module = "LOOP"
+syntax_module = "LOOP-SYNTAX"
+
+[[program]]
+id = "countdown"
+file = "programs/countdown.loop"
+
+[[program]]
+id = "twice"
+file = "programs/twice.loop"

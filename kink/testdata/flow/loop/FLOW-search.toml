@@ -1,0 +1,19 @@
+# The loop corpus for the kill search (flow F-05): every program ends on the
+# baseline. Under a small time bound and a depth bound no run reaches, a mutant
+# that does not end on a program is a timeout, never a kill.
+[spec]
+entry = "loop.k"
+main_module = "LOOP"
+syntax_module = "LOOP-SYNTAX"
+
+[budget]
+time_ms = 500
+max_depth = 1000000000
+
+[[program]]
+id = "countdown"
+file = "programs/countdown.loop"
+
+[[program]]
+id = "twice"
+file = "programs/twice.loop"

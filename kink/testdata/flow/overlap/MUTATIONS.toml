@@ -1,0 +1,19 @@
+# kink-flow mutation list for the overlap fixture (re-pin R0c-fix-3).
+
+[[mutation]]
+id = "pos-widened"
+note = "pos also applies to -5 .. -1, where neg gives -1: two values for one input"
+
+  [[mutation.edit]]
+  rule = "pos"
+  find = "I >=Int 0"
+  replace = "I >=Int -5"
+
+[[mutation]]
+id = "sgn-plus-one"
+note = "the rewrite rule adds one: a transition edit, no equation changes"
+
+  [[mutation.edit]]
+  rule = "sgn"
+  find = "=> sign(I)"
+  replace = "=> sign(I) +Int 1"

@@ -1,0 +1,12 @@
+[[mutation]]
+id = "balance-plus-one"
+  [[mutation.edit]]
+  rule = "open"
+  find = "<bal> B </bal>"
+  replace = "<bal> B +Int 1 </bal>"
+[[mutation]]
+id = "seq-swapped"
+  [[mutation.edit]]
+  rule = "seq"
+  find = "P ~> Q"
+  replace = "Q ~> P"

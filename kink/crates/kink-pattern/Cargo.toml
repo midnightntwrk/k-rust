@@ -1,0 +1,12 @@
+[package]
+name = "kink-pattern"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+k-rust.workspace = true
+
+[lints]
+workspace = true
