@@ -5,7 +5,8 @@
     "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7",
     "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494",
     "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6",
-    "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b"
+    "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b",
+    "krs-patterns-functions-sugar": "464535f3657b94046a40e7b1eff94142115be2a672f430f351cfdf5167579bf6"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -22,6 +23,9 @@
     },
     "krs-patterns-functions-contexts": {
       "definition.k": "c4e1cb2341ab0d800988f0ef968118ca6c376cfcf34fc0071d7065bcff0784c0"
+    },
+    "krs-patterns-functions-sugar": {
+      "definition.k": "11b3e601a5e6632620518a33b0c29cf70d2fe7c39d59cd12d4596dc2c1c2f5ac"
     }
   },
   "reference_sha256": {
@@ -38,7 +42,8 @@
     "krs-patterns-functions-lets-haskell": "effc1eacf4a8ea6c52d7bc39aec55b10692039228b3155886c10b6090e42b54d",
     "krs-patterns-functions-contexts": "98b59bcc97d86701d2ca602a61afdfa0227778646b03aababb5f0bf175fb9b5f",
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
-    "krs-patterns-functions-contexts-haskell": "3ff30966ab124bd753fa73e653485e138e3f4b2c92211df69e8240f0875c4e74"
+    "krs-patterns-functions-contexts-haskell": "3ff30966ab124bd753fa73e653485e138e3f4b2c92211df69e8240f0875c4e74",
+    "krs-patterns-functions-sugar": "ce72f81523b3e09d887b898f343232b9ee84c80ef76ef0a5aced115a2d2fbf04"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -157,6 +162,36 @@
       "read-twice": {
         "parse": "accepted",
         "run": "86"
+      }
+    },
+    "krs-patterns-functions-sugar": {
+      "byte-of": {
+        "parse": "accepted",
+        "run": "44"
+      },
+      "half-of": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "reg-of": {
+        "parse": "accepted",
+        "run": "rb"
+      },
+      "reg-of-pair": {
+        "parse": "accepted",
+        "run": "rhl"
+      },
+      "reg-of-other": {
+        "parse": "accepted",
+        "run": "ra"
+      },
+      "pick-true": {
+        "parse": "accepted",
+        "run": "7"
+      },
+      "pick-false": {
+        "parse": "accepted",
+        "run": "0"
       }
     }
   },
