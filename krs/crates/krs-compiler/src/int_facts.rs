@@ -16,7 +16,11 @@
 use krs_ir::BuiltinOperation;
 
 /// A builtin Int operation on literal operands, when its result is defined
-/// and fits `i128`.
+/// and fits `i128`: `+`, `-`, `*`, `/Int` and `%Int` and `divInt` and
+/// `modInt` by a non-zero divisor, `&Int`, `|Int`, `xorInt`, `~Int`, `<<Int`
+/// and `>>Int` and `^Int` by a non-negative amount, `minInt`, `maxInt`,
+/// `absInt`, and `bitRangeInt` and `signExtendBitRangeInt` with a
+/// non-negative index and a length they are defined for.
 pub(crate) fn evaluate_int(operation: BuiltinOperation, values: &[i128]) -> Option<i128> {
     match (operation, values) {
         (BuiltinOperation::IntAdd, [left, right]) => left.checked_add(*right),
@@ -36,6 +40,38 @@ pub(crate) fn evaluate_int(operation: BuiltinOperation, values: &[i128]) -> Opti
         }
         (BuiltinOperation::IntMod, [value, divisor]) if *divisor != 0 => {
             value.checked_rem_euclid(*divisor)
+        }
+        (BuiltinOperation::IntTDiv, [value, divisor]) if *divisor != 0 => {
+            value.checked_div(*divisor)
+        }
+        (BuiltinOperation::IntTMod, [value, divisor]) if *divisor != 0 => {
+            value.checked_rem(*divisor)
+        }
+        (BuiltinOperation::IntShiftLeft, [value, amount]) => {
+            let amount = u32::try_from(*amount).ok()?;
+            if *value == 0 {
+                return Some(0);
+            }
+            value.checked_mul(1_i128.checked_shl(amount).filter(|_| amount < 127)?)
+        }
+        (BuiltinOperation::IntBitOr, [left, right]) => Some(left | right),
+        (BuiltinOperation::IntBitXor, [left, right]) => Some(left ^ right),
+        (BuiltinOperation::IntBitNot, [value]) => Some(!value),
+        (BuiltinOperation::IntMin, [left, right]) => Some(*left.min(right)),
+        (BuiltinOperation::IntMax, [left, right]) => Some(*left.max(right)),
+        (BuiltinOperation::IntAbs, [value]) => value.checked_abs(),
+        (BuiltinOperation::IntPow, [base, exponent]) => {
+            base.checked_pow(u32::try_from(*exponent).ok()?)
+        }
+        (BuiltinOperation::IntSignExtendBitRange, [value, index, length]) if *length >= 1 => {
+            let range = evaluate_int(BuiltinOperation::IntBitRange, &[*value, *index, *length])?;
+            // `length < 127` here, as `bitRangeInt` evaluated.
+            let half = 1_i128 << (length - 1);
+            Some(if range >= half {
+                range - 2 * half
+            } else {
+                range
+            })
         }
         (BuiltinOperation::IntBitRange, [value, index, length]) => {
             let index = u32::try_from(*index).ok()?;
@@ -153,6 +189,24 @@ impl IntFacts {
                 self.below = Some(self.below.map_or(bound, |known| known.min(bound)));
             }
         }
+    }
+
+    /// The integers from `.0` to below `.1` that the value and bound facts
+    /// allow, when they are finitely many (bit facts are not read): every
+    /// integer with all the facts lies there.
+    pub(crate) fn bounds(&self) -> Option<(i128, i128)> {
+        if let Some(value) = self.equal {
+            let end = value.checked_add(1)?;
+            return Some(if self.unequal {
+                (value, value)
+            } else {
+                (value, end)
+            });
+        }
+        let (Some(low), Some(high)) = (self.at_least, self.below) else {
+            return None;
+        };
+        Some((low, high.max(low)))
     }
 
     /// Whether some integer may have every fact (necessary conditions only).

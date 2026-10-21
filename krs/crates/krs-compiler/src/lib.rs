@@ -10,6 +10,7 @@ mod cell_warnings;
 mod console;
 mod coverage;
 mod emit;
+mod equation_domain;
 mod error;
 mod int_facts;
 mod lowering;

@@ -237,6 +237,20 @@ pub fn lower_descriptor_bundle(
             }
         });
     }
+    if let Some(overlap) = crate::equation_domain::first_equation_overlap(&modules) {
+        let range = declarations
+            .get(&overlap.second)
+            .and_then(exact_rule_head_range)
+            .map(Box::new);
+        return Err(DescriptorLoweringError::OverlappingEquations {
+            function: overlap.function,
+            first: Box::new(overlap.first),
+            second: Box::new(overlap.second),
+            application: overlap.application,
+            results: Box::new(overlap.results),
+            second_head_range: range,
+        });
+    }
     Ok(SemanticTheory::new(modules)?)
 }
 

@@ -81,6 +81,22 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second rule's application head.
         second_head_range: Option<Box<SourceRange>>,
     },
+    /// Two equations of one function at one priority apply to one argument
+    /// and give it different results.
+    OverlappingEquations {
+        /// The function, rendered.
+        function: String,
+        /// First equation in deterministic stable-identity order.
+        first: Box<StableItemId>,
+        /// Second equation in deterministic stable-identity order.
+        second: Box<StableItemId>,
+        /// The application both apply to, rendered.
+        application: String,
+        /// The first and the second equation's result there, rendered.
+        results: Box<(String, String)>,
+        /// Sole exact authored range of the second equation's head.
+        second_head_range: Option<Box<SourceRange>>,
+    },
     /// Two alternatives of one `A | B` or-pattern can match the same term with
     /// different bindings (F2 amendment clause 8, KF-030).
     AmbiguousOrPattern {
@@ -509,6 +525,21 @@ impl fmt::Display for DescriptorLoweringError {
                 first.item_name(),
                 second.item_name()
             ),
+            Self::OverlappingEquations {
+                function,
+                first,
+                second,
+                application,
+                results,
+                ..
+            } => write!(
+                formatter,
+                "equations `{}` and `{}` of `{function}` both apply to `{application}` at the same priority and give it different results, `{}` and `{}`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`).",
+                first.item_name(),
+                second.item_name(),
+                results.0,
+                results.1
+            ),
             Self::AmbiguousOrPattern { first, second, .. } => write!(
                 formatter,
                 "alternatives `{first}` and `{second}` of this or-pattern can match the same term with different bindings; K's #Or then is ambiguous (LLVM takes one, Haskell explores both). Make them disjoint or split the rule."
@@ -627,6 +658,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTerm { .. } => codes::analysis::INVALID_TERM,
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
+            Self::OverlappingEquations { .. } => codes::analysis::OVERLAPPING_EQUATIONS,
             Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
@@ -680,6 +712,9 @@ impl ToDiagnostic for DescriptorLoweringError {
         let location = match self {
             Self::OverlappingRules {
                 second_head_range, ..
+            }
+            | Self::OverlappingEquations {
+                second_head_range, ..
             } => second_head_range
                 .as_deref()
                 .cloned()
@@ -731,6 +766,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::OverlappingRules { first, second, .. } => diagnostic
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
+            Self::OverlappingEquations { first, second, .. } => diagnostic
+                .with_note(format!("first equation: {first}"))
+                .with_note(format!("second equation: {second}")),
             Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
                 diagnostic.with_note(format!("rule: {rule}"))
             }

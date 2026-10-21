@@ -197,7 +197,7 @@ enum Head {
     Family(Sort),
 }
 
-fn production_argument_sorts(production: &SemanticProduction) -> Vec<Sort> {
+pub(crate) fn production_argument_sorts(production: &SemanticProduction) -> Vec<Sort> {
     production
         .items()
         .iter()
@@ -228,7 +228,7 @@ fn is_constructor(production: &SemanticProduction) -> bool {
 }
 
 /// Substitutes an instance for the sort parameters in `sorts`.
-fn instantiate(
+pub(crate) fn instantiate(
     sorts: &[Sort],
     parameters: &[krs_ir_levels::SortParameterId],
     instance: &[Sort],
@@ -417,7 +417,7 @@ impl Signature {
 }
 
 /// How a production is named in a message: `Enum::Variant` or the struct.
-fn display_name(id: &StableItemId) -> String {
+pub(crate) fn display_name(id: &StableItemId) -> String {
     match id
         .disambiguator()
         .strip_prefix(krs_ir::ENUM_VARIANT_DISAMBIGUATOR_PREFIX)

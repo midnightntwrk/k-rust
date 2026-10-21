@@ -1,0 +1,887 @@
+//! Ground analysis of a function's equations on a bounded Int domain.
+//!
+//! An equation `f(p̄) => r requires φ` applies to the arguments that match
+//! `p̄` and make `φ` true. When every equation of a set bounds each Int
+//! argument its guard reads to a finite set (a literal, an or-pattern of
+//! literals, or top-level conjuncts `c <= x`, `x < c`, `x == c`, which a
+//! `k::bits!` template's range is), only finitely many argument vectors can
+//! tell the equations apart: the values the equations bound, and one value
+//! outside them per argument, which stands for every other (outside, a
+//! bounded equation does not apply and an unbounded one does not read the
+//! argument). Up to [`POINT_LIMIT`] such vectors, each equation's guard is
+//! evaluated on every one, which decides exactly which equations apply
+//! where. Two consumers read it: the overlap check of equations at one
+//! priority, and the coverage lint of `total` functions.
+//!
+//! The evaluation is the builtins' definition on literals (`int_facts`), and
+//! it decides nothing it is unsure of: a guard that calls a function, reads
+//! a binder the pattern does not bind, overflows `i128`, or is undefined
+//! anywhere (`10 /Int x` at `x == 0`, unless a top-level conjunct is already
+//! false there) makes the analysis give up on the whole set, so a consumer
+//! reports nothing rather than guess. Matching logic reads an undefined
+//! guard as not holding while a short-circuiting backend may read
+//! `true orElseBool ⊥` as true; giving up keeps the analysis out of that
+//! disagreement.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use krs_ir::{
+    ApplicationRef, BuiltinOperation, BuiltinSort, GuardMeaning, SemanticId, StableItemId,
+};
+use krs_ir_levels::{
+    IrCondition, SemanticModule, SemanticProduction, SemanticRule, SemanticSortRef as Sort,
+    SemanticTerm, SemanticTermKind,
+};
+
+use crate::coverage::{binder_text, display_name, instantiate, production_argument_sorts};
+use crate::int_facts::{IntFact, IntFacts, evaluate_int};
+
+/// The argument vectors one analysis may enumerate.
+pub(crate) const POINT_LIMIT: u64 = 1 << 16;
+
+/// An equation as the analysis reads it.
+#[derive(Clone, Copy)]
+pub(crate) struct EquationView<'a> {
+    pub(crate) id: &'a StableItemId,
+    /// The arguments of the left-hand side's head application.
+    pub(crate) arguments: &'a [SemanticTerm],
+    pub(crate) guard: Option<&'a SemanticTerm>,
+    pub(crate) result: &'a SemanticTerm,
+}
+
+/// What one equation admits at one argument.
+#[derive(Clone, Debug)]
+enum Admits {
+    /// Literals.
+    Values(BTreeSet<i128>),
+    /// The integers from `.0` to below `.1`, which the guard bounds.
+    Range(i128, i128),
+    /// Every value: a binder the guard does not read.
+    Any,
+}
+
+impl Admits {
+    fn contains(&self, value: i128) -> bool {
+        match self {
+            Self::Values(values) => values.contains(&value),
+            Self::Range(low, high) => *low <= value && value < *high,
+            Self::Any => true,
+        }
+    }
+}
+
+/// One equation, read for evaluation.
+struct Prepared<'a> {
+    view: EquationView<'a>,
+    admits: Vec<Admits>,
+    /// Each binder of an Int argument, and the argument it names.
+    binders: Vec<(&'a SemanticId, usize)>,
+    /// Each binder of a non-Int argument, and the argument it names.
+    free: Vec<(&'a SemanticId, usize)>,
+    /// The guard's top-level conjuncts.
+    conjuncts: Vec<&'a SemanticTerm>,
+}
+
+/// The values one argument ranges over.
+#[derive(Clone, Debug)]
+pub(crate) enum ColumnValues {
+    /// An Int argument: the values the equations bound, then one outside
+    /// them (`outside`), in the order witnesses prefer (non-negative first,
+    /// nearest zero first).
+    Int {
+        values: Vec<i128>,
+        #[cfg_attr(
+            not(test),
+            expect(dead_code, reason = "the coverage lint reads it in the next change")
+        )]
+        outside: i128,
+        #[cfg_attr(
+            not(test),
+            expect(dead_code, reason = "the coverage lint reads it in the next change")
+        )]
+        bounded: Vec<(i128, i128)>,
+    },
+    /// An argument every equation binds without reading it.
+    Free,
+}
+
+/// A set of equations whose arguments the analysis can enumerate.
+pub(crate) struct Domain<'a> {
+    equations: Vec<Prepared<'a>>,
+    columns: Vec<ColumnValues>,
+}
+
+/// One argument vector: the value of each Int argument (a free argument's
+/// entry is `0` and means nothing).
+pub(crate) type Point = Vec<i128>;
+
+/// The analysis cannot decide some equation on some argument.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Undecided;
+
+/// The value of a ground term.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Ground {
+    Int(i128),
+    Bool(bool),
+    /// The term has no value (a partial operation outside its domain).
+    Undefined,
+}
+
+/// The top-level conjuncts of a guard.
+fn conjuncts(term: &SemanticTerm) -> Vec<&SemanticTerm> {
+    if let SemanticTermKind::Application {
+        application: ApplicationRef::Builtin(operation),
+        arguments,
+        ..
+    } = term.kind()
+        && operation.guard_meaning() == GuardMeaning::Conjunction
+        && let [left, right] = arguments.as_slice()
+    {
+        let mut all = conjuncts(left);
+        all.extend(conjuncts(right));
+        return all;
+    }
+    vec![term]
+}
+
+/// Whether a term reads a variable.
+fn mentions(term: &SemanticTerm, variable: &SemanticId) -> bool {
+    match term.kind() {
+        SemanticTermKind::Variable { variable: other } => other == variable,
+        SemanticTermKind::Token { .. } => false,
+        SemanticTermKind::Application { arguments, .. } => arguments
+            .iter()
+            .any(|argument| mentions(argument, variable)),
+        SemanticTermKind::KSequence { items, .. } => {
+            items.iter().any(|item| mentions(item, variable))
+        }
+        SemanticTermKind::As { alias, pattern } => alias == variable || mentions(pattern, variable),
+        SemanticTermKind::Or { alternatives } => {
+            alternatives.iter().any(|choice| mentions(choice, variable))
+        }
+        SemanticTermKind::Matches {
+            subject, pattern, ..
+        } => mentions(subject, variable) || mentions(pattern, variable),
+        SemanticTermKind::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => mentions(pattern, variable) || mentions(value, variable) || mentions(body, variable),
+        SemanticTermKind::Rewrite { from, to } => {
+            mentions(from, variable) || mentions(to, variable)
+        }
+        // Collections and cells: assume they may read it.
+        _ => true,
+    }
+}
+
+fn int_token(term: &SemanticTerm) -> Option<i128> {
+    match term.kind() {
+        SemanticTermKind::Token { value }
+            if matches!(term.sort(), Sort::Builtin(BuiltinSort::Int)) =>
+        {
+            value.parse().ok()
+        }
+        _ => None,
+    }
+}
+
+/// A builtin operation on ground operands: `None` when the analysis cannot
+/// compute it.
+fn operation(operation: BuiltinOperation, values: &[Ground]) -> Option<Ground> {
+    if values.contains(&Ground::Undefined) {
+        // Every builtin is strict in matching logic: an undefined operand
+        // makes the application undefined.
+        return Some(Ground::Undefined);
+    }
+    let ints = values
+        .iter()
+        .map(|value| match value {
+            Ground::Int(value) => Some(*value),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let bools = values
+        .iter()
+        .map(|value| match value {
+            Ground::Bool(value) => Some(*value),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    match (operation.guard_meaning(), bools.as_deref()) {
+        (GuardMeaning::Negation, Some([value])) => return Some(Ground::Bool(!value)),
+        (GuardMeaning::Conjunction, Some([left, right])) => {
+            return Some(Ground::Bool(*left && *right));
+        }
+        (GuardMeaning::Disjunction, Some([left, right])) => {
+            return Some(Ground::Bool(*left || *right));
+        }
+        (GuardMeaning::Implication, Some([left, right])) => {
+            return Some(Ground::Bool(!left || *right));
+        }
+        (GuardMeaning::Relation(literal), _) => {
+            let (first, second) = if literal.swapped {
+                (&values[1], &values[0])
+            } else {
+                (&values[0], &values[1])
+            };
+            let holds = match (literal.relation, first, second) {
+                (BuiltinOperation::IntLess, Ground::Int(left), Ground::Int(right)) => left < right,
+                (BuiltinOperation::IntEqual, Ground::Int(left), Ground::Int(right)) => {
+                    left == right
+                }
+                (BuiltinOperation::BoolEqual, Ground::Bool(left), Ground::Bool(right)) => {
+                    left == right
+                }
+                _ => return None,
+            };
+            return Some(Ground::Bool(holds == literal.positive));
+        }
+        _ => {}
+    }
+    let ints = ints?;
+    // The partial Int operations outside their domain (domains.md: division
+    // by zero, a negative shift, exponent, index or length).
+    let undefined = match (operation, ints.as_slice()) {
+        (
+            BuiltinOperation::IntTDiv
+            | BuiltinOperation::IntTMod
+            | BuiltinOperation::IntEDiv
+            | BuiltinOperation::IntMod,
+            [_, divisor],
+        ) => *divisor == 0,
+        (
+            BuiltinOperation::IntShiftLeft
+            | BuiltinOperation::IntShiftRight
+            | BuiltinOperation::IntPow,
+            [_, amount],
+        ) => *amount < 0,
+        (BuiltinOperation::IntBitRange, [_, index, length]) => *index < 0 || *length < 0,
+        (BuiltinOperation::IntSignExtendBitRange, [_, index, length]) => *index < 0 || *length < 1,
+        _ => false,
+    };
+    if undefined {
+        return Some(Ground::Undefined);
+    }
+    evaluate_int(operation, &ints).map(Ground::Int)
+}
+
+/// The value of a term under an environment, `None` when the analysis
+/// cannot compute it.
+fn evaluate(term: &SemanticTerm, environment: &BTreeMap<&SemanticId, i128>) -> Option<Ground> {
+    match term.kind() {
+        SemanticTermKind::Token { value } => match term.sort() {
+            Sort::Builtin(BuiltinSort::Int) => value.parse().ok().map(Ground::Int),
+            Sort::Builtin(BuiltinSort::Bool) => match value.as_str() {
+                "true" => Some(Ground::Bool(true)),
+                "false" => Some(Ground::Bool(false)),
+                _ => None,
+            },
+            _ => None,
+        },
+        SemanticTermKind::Variable { variable } => {
+            environment.get(variable).copied().map(Ground::Int)
+        }
+        SemanticTermKind::Application {
+            application: ApplicationRef::Builtin(builtin),
+            arguments,
+            ..
+        } => {
+            let values = arguments
+                .iter()
+                .map(|argument| evaluate(argument, environment))
+                .collect::<Option<Vec<_>>>()?;
+            operation(*builtin, &values)
+        }
+        _ => None,
+    }
+}
+
+/// The interval a top-level conjunct bounds a variable to, as an Int fact.
+fn bound_fact(conjunct: &SemanticTerm, names: &[&SemanticId]) -> Option<IntFact> {
+    let SemanticTermKind::Application {
+        application: ApplicationRef::Builtin(builtin),
+        arguments,
+        ..
+    } = conjunct.kind()
+    else {
+        return None;
+    };
+    let GuardMeaning::Relation(literal) = builtin.guard_meaning() else {
+        return None;
+    };
+    let [first, second] = arguments.as_slice() else {
+        return None;
+    };
+    let (left, right) = if literal.swapped {
+        (second, first)
+    } else {
+        (first, second)
+    };
+    let is_name = |term: &SemanticTerm| matches!(term.kind(), SemanticTermKind::Variable { variable } if names.contains(&variable));
+    let constant = |term: &SemanticTerm| match evaluate(term, &BTreeMap::new()) {
+        Some(Ground::Int(value)) => Some(value),
+        _ => None,
+    };
+    match (literal.relation, literal.positive) {
+        (BuiltinOperation::IntEqual, true) => {
+            if is_name(left) {
+                constant(right).map(IntFact::Equal)
+            } else if is_name(right) {
+                constant(left).map(IntFact::Equal)
+            } else {
+                None
+            }
+        }
+        // `left < right` when positive, `right <= left` otherwise.
+        (BuiltinOperation::IntLess, positive) => {
+            if is_name(left) {
+                let bound = constant(right)?;
+                Some(if positive {
+                    IntFact::Below(bound)
+                } else {
+                    IntFact::AtLeast(bound)
+                })
+            } else if is_name(right) {
+                let bound = constant(left)?;
+                Some(if positive {
+                    IntFact::AtLeast(bound.checked_add(1)?)
+                } else {
+                    IntFact::Below(bound.checked_add(1)?)
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// What a pattern admits at an Int argument, and the names it binds there.
+fn int_pattern(term: &SemanticTerm) -> Option<(Option<BTreeSet<i128>>, Vec<&SemanticId>)> {
+    match term.kind() {
+        SemanticTermKind::Token { .. } => {
+            Some((Some(BTreeSet::from([int_token(term)?])), Vec::new()))
+        }
+        SemanticTermKind::Variable { variable } => Some((None, vec![variable])),
+        SemanticTermKind::As { alias, pattern } => {
+            let (values, mut names) = int_pattern(pattern)?;
+            names.push(alias);
+            Some((values, names))
+        }
+        SemanticTermKind::Or { alternatives } => Some((
+            Some(
+                alternatives
+                    .iter()
+                    .map(int_token)
+                    .collect::<Option<BTreeSet<_>>>()?,
+            ),
+            Vec::new(),
+        )),
+        _ => None,
+    }
+}
+
+/// Reads one equation, or `None` when the analysis cannot.
+fn prepare<'a>(view: EquationView<'a>, columns: &[Sort]) -> Option<Prepared<'a>> {
+    if view.arguments.len() != columns.len() {
+        return None;
+    }
+    let conjuncts = view.guard.map(conjuncts).unwrap_or_default();
+    let reads = |name: &SemanticId| view.guard.is_some_and(|guard| mentions(guard, name));
+    let mut admits = Vec::new();
+    let mut binders = Vec::new();
+    let mut free = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (index, (argument, sort)) in view.arguments.iter().zip(columns).enumerate() {
+        if matches!(sort, Sort::Builtin(BuiltinSort::Int)) {
+            let (values, names) = int_pattern(argument)?;
+            for name in &names {
+                // A binder that occurs twice matches equal subterms only.
+                if !seen.insert(*name) {
+                    return None;
+                }
+                binders.push((*name, index));
+            }
+            admits.push(match values {
+                Some(values) => Admits::Values(values),
+                None if names.iter().any(|name| reads(name)) => {
+                    let mut facts = IntFacts::default();
+                    for conjunct in &conjuncts {
+                        if let Some(fact) = bound_fact(conjunct, &names) {
+                            facts.add(fact);
+                        }
+                    }
+                    let (low, high) = facts.bounds()?;
+                    Admits::Range(low, high)
+                }
+                None => Admits::Any,
+            });
+        } else {
+            // A non-Int argument must be a binder of the argument's sort
+            // that the guard does not read.
+            let SemanticTermKind::Variable { variable } = argument.kind() else {
+                return None;
+            };
+            if argument.sort() != sort || reads(variable) || !seen.insert(variable) {
+                return None;
+            }
+            free.push((variable, index));
+            admits.push(Admits::Any);
+        }
+    }
+    Some(Prepared {
+        view,
+        admits,
+        binders,
+        free,
+        conjuncts,
+    })
+}
+
+/// The union of the values the equations bound at one Int argument, as
+/// sorted disjoint half-open intervals.
+fn union(admits: &[&Admits]) -> Vec<(i128, i128)> {
+    let mut intervals = Vec::new();
+    for admit in admits {
+        match admit {
+            Admits::Values(values) => {
+                intervals.extend(
+                    values
+                        .iter()
+                        .filter_map(|value| Some((*value, value.checked_add(1)?))),
+                );
+            }
+            Admits::Range(low, high) if low < high => intervals.push((*low, *high)),
+            Admits::Range(..) | Admits::Any => {}
+        }
+    }
+    intervals.sort_unstable();
+    let mut merged: Vec<(i128, i128)> = Vec::new();
+    for (low, high) in intervals {
+        match merged.last_mut() {
+            Some(last) if low <= last.1 => last.1 = last.1.max(high),
+            _ => merged.push((low, high)),
+        }
+    }
+    merged
+}
+
+/// The smallest non-negative integer outside the intervals, else the
+/// greatest negative one.
+fn outside(intervals: &[(i128, i128)]) -> Option<i128> {
+    let mut candidate = 0_i128;
+    for (low, high) in intervals {
+        if *low <= candidate && candidate < *high {
+            candidate = *high;
+        }
+    }
+    if candidate < i128::MAX {
+        return Some(candidate);
+    }
+    let mut candidate = -1_i128;
+    for (low, high) in intervals.iter().rev() {
+        if *low <= candidate && candidate < *high {
+            candidate = low.checked_sub(1)?;
+        }
+    }
+    Some(candidate)
+}
+
+impl<'a> Domain<'a> {
+    /// The domain of a set of equations over arguments of `columns`'
+    /// sorts, or `None` when some equation is beyond the analysis or the
+    /// domain has more than [`POINT_LIMIT`] points.
+    pub(crate) fn new(columns: &[Sort], views: &[EquationView<'a>]) -> Option<Self> {
+        let equations = views
+            .iter()
+            .map(|view| prepare(*view, columns))
+            .collect::<Option<Vec<_>>>()?;
+        let mut size = 1_u64;
+        let mut values = Vec::new();
+        for (index, sort) in columns.iter().enumerate() {
+            if !matches!(sort, Sort::Builtin(BuiltinSort::Int)) {
+                values.push(ColumnValues::Free);
+                continue;
+            }
+            let admits = equations
+                .iter()
+                .map(|equation| &equation.admits[index])
+                .collect::<Vec<_>>();
+            let bounded = union(&admits);
+            let mut count = 1_u64;
+            for (low, high) in &bounded {
+                count = count.saturating_add(u64::try_from(high - low).unwrap_or(u64::MAX));
+            }
+            size = size.saturating_mul(count);
+            if size > POINT_LIMIT {
+                return None;
+            }
+            let outside = outside(&bounded)?;
+            let mut points = bounded
+                .iter()
+                .flat_map(|(low, high)| *low..*high)
+                .chain([outside])
+                .collect::<Vec<_>>();
+            points.sort_by_key(|value| (*value < 0, value.unsigned_abs()));
+            values.push(ColumnValues::Int {
+                values: points,
+                outside,
+                bounded,
+            });
+        }
+        Some(Self {
+            equations,
+            columns: values,
+        })
+    }
+
+    /// The values of each argument.
+    pub(crate) fn columns(&self) -> &[ColumnValues] {
+        &self.columns
+    }
+
+    /// Every argument vector, in the order witnesses prefer.
+    pub(crate) fn points(&self) -> impl Iterator<Item = Point> + '_ {
+        let sizes = self
+            .columns
+            .iter()
+            .map(|column| match column {
+                ColumnValues::Int { values, .. } => values.len(),
+                ColumnValues::Free => 1,
+            })
+            .collect::<Vec<_>>();
+        let total = sizes.iter().product::<usize>();
+        (0..total).map(move |mut index| {
+            let mut point = vec![0; sizes.len()];
+            for column in (0..sizes.len()).rev() {
+                let position = index % sizes[column];
+                index /= sizes[column];
+                if let ColumnValues::Int { values, .. } = &self.columns[column] {
+                    point[column] = values[position];
+                }
+            }
+            point
+        })
+    }
+
+    /// The environment of an equation at a point.
+    fn environment(&self, equation: usize, point: &[i128]) -> BTreeMap<&'a SemanticId, i128> {
+        self.equations[equation]
+            .binders
+            .iter()
+            .map(|(name, column)| (*name, point[*column]))
+            .collect()
+    }
+
+    /// Whether an equation applies at a point.
+    pub(crate) fn applies(&self, equation: usize, point: &[i128]) -> Result<bool, Undecided> {
+        let prepared = &self.equations[equation];
+        if prepared
+            .admits
+            .iter()
+            .zip(point)
+            .zip(&self.columns)
+            .any(|((admits, value), column)| {
+                matches!(column, ColumnValues::Int { .. }) && !admits.contains(*value)
+            })
+        {
+            return Ok(false);
+        }
+        let Some(guard) = prepared.view.guard else {
+            return Ok(true);
+        };
+        let environment = self.environment(equation, point);
+        // A false top-level conjunct makes the guard not hold however the
+        // others evaluate, even undefined.
+        if prepared
+            .conjuncts
+            .iter()
+            .any(|conjunct| evaluate(conjunct, &environment) == Some(Ground::Bool(false)))
+        {
+            return Ok(false);
+        }
+        match evaluate(guard, &environment) {
+            Some(Ground::Bool(holds)) => Ok(holds),
+            _ => Err(Undecided),
+        }
+    }
+
+    /// An equation's result at a point, with its Int binders replaced by
+    /// their values and builtins on literals evaluated: a comparison key and
+    /// a rendering. `None` when the result has a form the analysis does not
+    /// compare.
+    pub(crate) fn result(&self, equation: usize, point: &[i128]) -> Option<(String, String)> {
+        let prepared = &self.equations[equation];
+        let environment = self.environment(equation, point);
+        let free = prepared
+            .free
+            .iter()
+            .map(|(name, column)| (*name, *column))
+            .collect::<BTreeMap<_, _>>();
+        ground_text(prepared.view.result, &environment, &free)
+    }
+}
+
+/// A term with its Int binders replaced and its ground builtins evaluated:
+/// a key in which every binder of a free argument is named by its position,
+/// and a rendering.
+fn ground_text(
+    term: &SemanticTerm,
+    environment: &BTreeMap<&SemanticId, i128>,
+    free: &BTreeMap<&SemanticId, usize>,
+) -> Option<(String, String)> {
+    if let Some(value) = evaluate(term, environment) {
+        match value {
+            Ground::Int(value) => return Some((value.to_string(), value.to_string())),
+            Ground::Bool(value) => return Some((value.to_string(), value.to_string())),
+            Ground::Undefined => {}
+        }
+    }
+    let list = |terms: &mut dyn Iterator<Item = &SemanticTerm>| {
+        let mut keys = Vec::new();
+        let mut texts = Vec::new();
+        for term in terms {
+            let (key, text) = ground_text(term, environment, free)?;
+            keys.push(key);
+            texts.push(text);
+        }
+        Some((keys.join(", "), texts.join(", ")))
+    };
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => {
+            let column = free.get(variable)?;
+            Some((format!("${column}"), binder_text(variable)))
+        }
+        SemanticTermKind::Token { value } => {
+            Some((format!("{:?}:{value}", term.sort()), value.clone()))
+        }
+        SemanticTermKind::Application {
+            application,
+            arguments,
+            instance,
+            ..
+        } => {
+            let (key, text) = match application {
+                ApplicationRef::Declared(id) => (format!("{id:?}{instance:?}"), display_name(id)),
+                ApplicationRef::Builtin(operation) => {
+                    let spec = operation.spec();
+                    (
+                        format!("{operation:?}"),
+                        format!("{}::{}", spec.rust_module, spec.rust_name),
+                    )
+                }
+                ApplicationRef::Generated(generated) => {
+                    (format!("{generated:?}"), format!("{generated:?}"))
+                }
+            };
+            let (keys, texts) = list(&mut arguments.iter())?;
+            let text = if arguments.is_empty() && matches!(application, ApplicationRef::Declared(_))
+            {
+                text
+            } else {
+                format!("{text}({texts})")
+            };
+            Some((format!("{key}({keys})"), text))
+        }
+        SemanticTermKind::KSequence { items, .. } => {
+            let mut keys = Vec::new();
+            let mut texts = Vec::new();
+            for item in items {
+                let (key, text) = ground_text(item, environment, free)?;
+                keys.push(key);
+                texts.push(text);
+            }
+            Some((
+                format!("seq({})", keys.join(", ")),
+                if texts.is_empty() {
+                    "k::k![]".to_owned()
+                } else {
+                    format!("k::k![{}]", texts.join(", "))
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The overlap check of equations
+
+/// Two equations of one function at one priority that apply to one argument
+/// and give it different results.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EquationOverlap {
+    /// The function, rendered.
+    pub(crate) function: String,
+    /// The first equation in stable-identity order.
+    pub(crate) first: StableItemId,
+    /// The second equation in stable-identity order.
+    pub(crate) second: StableItemId,
+    /// The application both apply to, rendered (`Decode(118)`).
+    pub(crate) application: String,
+    /// The first and the second equation's result there, rendered.
+    pub(crate) results: (String, String),
+}
+
+/// The equations of each function, grouped by the instance their head names.
+pub(crate) fn function_equations(
+    modules: &[SemanticModule],
+) -> Vec<(&SemanticProduction, Vec<Sort>, Vec<&SemanticRule>)> {
+    let mut equations = BTreeMap::<&StableItemId, BTreeMap<Vec<Sort>, Vec<&SemanticRule>>>::new();
+    for rule in modules.iter().flat_map(SemanticModule::rules) {
+        if rule.kind() != krs_ir::SentenceKind::Equation {
+            continue;
+        }
+        if let Some(body) = rule.body()
+            && let SemanticTermKind::Application {
+                application: ApplicationRef::Declared(head),
+                instance,
+                ..
+            } = body.from().kind()
+        {
+            equations
+                .entry(head)
+                .or_default()
+                .entry(instance.clone())
+                .or_default()
+                .push(rule);
+        }
+    }
+    let mut grouped = Vec::new();
+    for production in modules.iter().flat_map(SemanticModule::productions) {
+        if let Some(instances) = equations.remove(production.id()) {
+            for (instance, rules) in instances {
+                grouped.push((production, instance, rules));
+            }
+        }
+    }
+    grouped
+}
+
+/// The view of an equation, or `None` when the analysis cannot read it: it
+/// reads the configuration (a function context) or has a matching-logic
+/// `requires`.
+pub(crate) fn equation_view(rule: &SemanticRule) -> Option<EquationView<'_>> {
+    if rule.function_context().is_some() {
+        return None;
+    }
+    let body = rule.body()?;
+    let SemanticTermKind::Application { arguments, .. } = body.from().kind() else {
+        return None;
+    };
+    let guard = match rule.requires() {
+        None => None,
+        Some(IrCondition::Bool(condition)) => Some(condition.term()),
+        Some(IrCondition::Predicate(_)) => return None,
+    };
+    Some(EquationView {
+        id: rule.id(),
+        arguments,
+        guard,
+        result: body.to(),
+    })
+}
+
+/// Renders an argument vector as an application of `head`.
+pub(crate) fn render_point(head: &str, domain: &Domain<'_>, point: &[i128]) -> String {
+    let arguments = domain
+        .columns()
+        .iter()
+        .zip(point)
+        .map(|(column, value)| match column {
+            ColumnValues::Int { .. } => value.to_string(),
+            ColumnValues::Free => "_".to_owned(),
+        })
+        .collect::<Vec<_>>();
+    format!("{head}({})", arguments.join(", "))
+}
+
+/// The first overlap of two equations at one priority whose results differ,
+/// over every function whose equations at that priority the analysis can
+/// enumerate (see the module documentation). Results that are identical
+/// once the argument is substituted agree, so their overlap is no
+/// violation: the equations are confluent there.
+pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<EquationOverlap> {
+    for (production, instance, rules) in function_equations(modules) {
+        let columns = instantiate(
+            &production_argument_sorts(production),
+            production.parameters(),
+            &instance,
+        );
+        let mut priorities = BTreeMap::<u32, Vec<&SemanticRule>>::new();
+        for rule in rules {
+            priorities
+                .entry(
+                    rule.priority()
+                        .map_or(50, krs_ir_levels::SemanticRulePriority::value),
+                )
+                .or_default()
+                .push(rule);
+        }
+        for (_, mut rules) in priorities {
+            if rules.len() < 2 {
+                continue;
+            }
+            rules.sort_by(|left, right| left.id().cmp(right.id()));
+            let Some(views) = rules
+                .iter()
+                .map(|rule| equation_view(rule))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            if let Some(overlap) = overlap_among(production, &columns, &views) {
+                return Some(overlap);
+            }
+        }
+    }
+    None
+}
+
+/// The first overlap among equations at one priority, sorted by identity.
+fn overlap_among(
+    production: &SemanticProduction,
+    columns: &[Sort],
+    views: &[EquationView<'_>],
+) -> Option<EquationOverlap> {
+    let domain = Domain::new(columns, views)?;
+    for point in domain.points() {
+        let mut applying = Vec::new();
+        for index in 0..views.len() {
+            match domain.applies(index, &point) {
+                Ok(true) => applying.push(index),
+                Ok(false) => {}
+                Err(Undecided) => return None,
+            }
+        }
+        for (position, &first) in applying.iter().enumerate() {
+            for &second in &applying[position + 1..] {
+                // A result the analysis does not compare cannot be told
+                // apart from the other.
+                let (Some(left), Some(right)) =
+                    (domain.result(first, &point), domain.result(second, &point))
+                else {
+                    continue;
+                };
+                // Both equations hold here, evaluated exactly, so the
+                // overlap is genuine whatever other points hold.
+                if left.0 != right.0 {
+                    return Some(EquationOverlap {
+                        function: display_name(production.id()),
+                        first: views[first].id.clone(),
+                        second: views[second].id.clone(),
+                        application: render_point(&display_name(production.id()), &domain, &point),
+                        results: (left.1, right.1),
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests;

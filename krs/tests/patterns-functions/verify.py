@@ -288,6 +288,8 @@ NEGATIVE = (
     "context-sort",
     "context-group",
     "context-overlap",
+    "bits-halt-overlap",
+    "bits-fn-overlap",
 )
 
 

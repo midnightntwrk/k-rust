@@ -400,6 +400,12 @@
     ],
     "context-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `bump` and `read` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
+    "bits-halt-overlap": [
+      "error[krs::analysis::overlapping-equations]: equations `decode_halt` and `decode_ld_r_r` of `Decode` both apply to `Decode(118)` at the same priority and give it different results, `Instruction::Halt` and `Instruction::Ld(6, 6)`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`)."
+    ],
+    "bits-fn-overlap": [
+      "error[krs::analysis::overlapping-equations]: equations `decode_alu` and `decode_bit` of `Decode` both apply to `Decode(160)` at the same priority and give it different results, `Instruction::Alu(4)` and `Instruction::Bit(0)`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`)."
     ]
   },
   "known_divergences": {
