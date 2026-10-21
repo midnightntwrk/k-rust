@@ -13,8 +13,8 @@ module LIGHT-SYNTAX
 
   syntax Light
 
-  syntax Light ::= "green" [symbol(green), group(krsgroup-c301ef250fb7fb18a39325b8), format(%1)]
-  syntax Light ::= "red" [symbol(red), group(krsgroup-c301ef250fb7fb18a39325b8), format(%1)]
+  syntax Light ::= "green" [symbol(lightSyntaxGreen), group(krsgroup-c301ef250fb7fb18a39325b8), format(%1)]
+  syntax Light ::= "red" [symbol(lightSyntaxRed), group(krsgroup-c301ef250fb7fb18a39325b8), format(%1)]
 endmodule
 
 module LIGHT

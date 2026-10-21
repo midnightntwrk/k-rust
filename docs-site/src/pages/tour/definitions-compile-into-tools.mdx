@@ -162,7 +162,7 @@ The parser comes from the syntax.
 // [!include ~/snippets/outputs/definitions-compile-into-tools-parse-red.txt]
 ```
 
-The output is K's own notation for terms: the symbol `red` applied to no arguments, `.KList` being the empty argument list.
+The output is K's own notation for terms: the symbol `lightSyntaxRed`, named after the Rust path `LightSyntax::Red`, applied to no arguments, `.KList` being the empty argument list.
 The two `#[k::syntax]` strings are the whole grammar, so `krs parse` rejects the file `programs/blue.light`, which holds `blue`:
 
 ```console [recorded with krs]
@@ -198,7 +198,7 @@ Every row of a `k::rules!` table becomes a K `rule` like this one, labelled with
 
 The module `LIGHT` holds the rest of the semantics: `syntax KItem ::= Light` is your `Light: KItem`, and `configuration <k> $PGM:Light </k>` is your `Machine` and its `init`, where `$PGM` is K's name for the program that `pgm` receives.
 The module `LIGHT-SYNTAX` holds the productions, the part of the definition that programs may use.
-In the brackets after each production, `symbol(red)` is the symbol's identity, the name K knows it by; `group(…)` and `format(…)` are details for K's parser and printer that later grammar lessons explain.
+In the brackets after each production, `symbol(lightSyntaxRed)` is the symbol's identity, the name K knows it by, made from the Rust path `LightSyntax::Red`; `group(…)` and `format(…)` are details for K's parser and printer that later grammar lessons explain.
 
 The module `KRS-FRAMEWORK` is not something you wrote.
 KRS adds it to every definition whose `k::sorts!` names `KItem` or `KResult`, and it is the same each time: it declares those two sorts and that every `KResult` is a `KItem`.
@@ -232,7 +232,7 @@ Also try `echo yellow | krs parse --package tour-light --definition main -` befo
 <summary>Answer</summary>
 
 Two steps, `red-to-green` and then `green-to-yellow`, and the run ends stuck at `yellow`.
-Before the edit the parser rejects `yellow`; after it, the same command prints `yellow(.KList)`, because the new `#[k::syntax]` string extended the grammar.
+Before the edit the parser rejects `yellow`; after it, the same command prints `lightSyntaxYellow(.KList)`, because the new `#[k::syntax]` string extended the grammar.
 
 </details>
 

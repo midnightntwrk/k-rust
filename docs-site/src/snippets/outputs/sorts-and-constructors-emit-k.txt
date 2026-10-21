@@ -13,8 +13,8 @@ module NAT-SYNTAX
 
   syntax Nat
 
-  syntax Nat ::= "s" "(" Nat ")" [symbol(succ), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
-  syntax Nat ::= "zero" [symbol(zero), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1)]
+  syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
+  syntax Nat ::= "zero" [symbol(natSyntaxZero), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1)]
 endmodule
 
 module NAT
