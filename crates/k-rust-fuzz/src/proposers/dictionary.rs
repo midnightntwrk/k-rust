@@ -189,20 +189,24 @@ impl Harvest {
                 .collect(),
             None => graph.rule_ids().map(|id| (id.to_owned(), 0)).collect(),
         };
-        let all: Vec<(&str, &IndexedRewriteRule)> = graph
-            .rule_ids()
-            .flat_map(|id| graph.rules(id).iter().map(move |rule| (id, rule)))
-            .collect();
+        // Without a target every rule is in scope at distance 0, so its competitors are already.
+        let all: Vec<Keyed<'_>> = if target.is_some() {
+            graph
+                .rule_ids()
+                .flat_map(|id| graph.rules(id).iter().map(move |rule| Keyed::new(id, rule)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut harvest = Self::default();
         for (id, &distance) in &scope {
             let mut guards: BTreeSet<&str> = BTreeSet::from([id.as_str()]);
             for rule in graph.rules(id) {
                 harvest.rule(rule, distance);
-                for (competitor_id, competitor) in &all {
-                    if competes(competitor, rule) {
-                        harvest.rule(competitor, distance);
-                        guards.insert(competitor_id);
-                    }
+                let rule = Keyed::new(id, rule);
+                for competitor in all.iter().filter(|competitor| competitor.competes(&rule)) {
+                    harvest.rule(competitor.rule, distance);
+                    guards.insert(competitor.id);
                 }
             }
             for guard in guards {
@@ -311,24 +315,41 @@ impl Harvest {
     }
 }
 
-/// Whether `competitor` has a higher priority than `rule` (a smaller priority number) and may
-/// match a configuration `rule` matches: their left-hand sides' roots may be equal (two
-/// distinct symbols never are) and each cell key covers the other's.
-fn competes(competitor: &IndexedRewriteRule, rule: &IndexedRewriteRule) -> bool {
-    if competitor.attributes.priority >= rule.attributes.priority {
-        return false;
+/// A rewrite rule with its id and its left-hand side's root bucket.
+struct Keyed<'g> {
+    id: &'g str,
+    rule: &'g IndexedRewriteRule,
+    root: TermIndex,
+}
+
+impl<'g> Keyed<'g> {
+    fn new(id: &'g str, rule: &'g IndexedRewriteRule) -> Self {
+        Self {
+            id,
+            rule,
+            root: term_index(&rule.lhs),
+        }
     }
-    let roots = match (term_index(&competitor.lhs), term_index(&rule.lhs)) {
-        (TermIndex::Symbol(left), TermIndex::Symbol(right)) => left == right,
-        _ => true,
-    };
-    let (left, right) = (competitor.index.cells(), rule.index.cells());
-    roots
-        && left.len() == right.len()
-        && left
-            .iter()
-            .zip(right)
-            .all(|(left, right)| left.covers(right) || right.covers(left))
+
+    /// Whether this rule has a higher priority than `rule` (a smaller priority number) and may
+    /// match a configuration `rule` matches: their left-hand sides' roots may be equal (two
+    /// distinct symbols never are) and each cell key covers the other's.
+    fn competes(&self, rule: &Keyed<'_>) -> bool {
+        if self.rule.attributes.priority >= rule.rule.attributes.priority {
+            return false;
+        }
+        let roots = match (&self.root, &rule.root) {
+            (TermIndex::Symbol(left), TermIndex::Symbol(right)) => left == right,
+            _ => true,
+        };
+        let (left, right) = (self.rule.index.cells(), rule.rule.index.cells());
+        roots
+            && left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| left.covers(right) || right.covers(left))
+    }
 }
 
 /// A backend sort as KORE writes it; `None` for a sort variable.
