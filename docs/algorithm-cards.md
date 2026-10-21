@@ -541,7 +541,7 @@ reason = "chooses each conjunction that strictness, heating and cooling added to
 stage = "check matching-logic positions"
 call = "check_ml_positions"
 file = "crates/k-rust/src/definition/checks/ml_positions.rs"
-reason = "judges each matching-logic construct by the context of its position on the sentences with their macros and aliases expanded, for the Rust target; one walk over the sentences of every module"
+reason = "judges each matching-logic construct by the context of its position on the sentences with their macros and aliases expanded, for the Rust target; one walk over the sentences of every module, plus a search for a rewrite in the subterm of each application on the part of a rewrite rule its sides share, so a rule body of n nodes whose shared part has depth h costs O(n x h)"
 
 [[phase_only_stage]]
 stage = "lower term conjunctions"

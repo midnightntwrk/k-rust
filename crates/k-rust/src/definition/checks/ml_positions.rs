@@ -1,4 +1,4 @@
-//! This definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This definition check walks module sentences and terms once, and searches the subterm of each application on the part of a rewrite rule its sides share for a rewrite, so a rule body of n nodes whose shared part has depth h costs O(n x h); callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Matching-logic constructs at positions that state no meaning k-rust reads, refused at compile
 //! with [`DiagnosticCode::MlConstructPosition`], located at the sentence, for the Rust target only
