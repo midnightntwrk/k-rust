@@ -83,7 +83,7 @@ use std::{
 use k_rust::{
     k_rust_backend::{
         rule::{IndexedRewriteRule, RewriteRule, RuleRhs, TermIndex, term_index},
-        term::{HeadRole, Sort, Term, TermKind},
+        term::{HeadRole, Sort, SortNode, Term, TermKind},
     },
     kore::{
         ast::{Pattern as KorePattern, Sort as KoreSort},
@@ -599,15 +599,15 @@ impl<'g> Keyed<'g> {
 
 /// A backend sort as KORE writes it; `None` for a sort variable.
 fn sort_text(sort: &Sort) -> Option<String> {
-    match sort {
-        Sort::Application { name, arguments } => {
+    match sort.node() {
+        SortNode::Application { name, arguments } => {
             let arguments = arguments
                 .iter()
                 .map(sort_text)
                 .collect::<Option<Vec<String>>>()?;
             Some(format!("{name}{{{}}}", arguments.join(",")))
         }
-        Sort::Variable(_) => None,
+        SortNode::Variable(_) => None,
     }
 }
 
