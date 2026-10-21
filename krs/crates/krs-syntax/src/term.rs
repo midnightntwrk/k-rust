@@ -955,9 +955,7 @@ impl TermExpression {
     ) -> Result<Self, SyntaxError> {
         let root = transparent_expression(&expression);
         let root_kind = match root {
-            Expr::Path(path) if float_constant_path(&path.path).is_some() => {
-                TermRootKind::Literal
-            }
+            Expr::Path(path) if float_constant_path(&path.path).is_some() => TermRootKind::Literal,
             Expr::Path(_) => TermRootKind::Named,
             Expr::Call(_) => TermRootKind::Call,
             Expr::Struct(_) => TermRootKind::Record,
@@ -978,14 +976,7 @@ impl TermExpression {
             // `a && b`, `a || b`, and `recv.op::<D>(..)` denote builtin calls.
             other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
-                .ok_or_else(|| {
-                    SyntaxError::new(
-                        SyntaxErrorKind::UnsupportedTermExpression {
-                            reason: "the root must be a named path/call/record or an Int/Bool literal",
-                        },
-                        value.span(),
-                    )
-                })?
+                .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
                 .root_kind(),
             other => {
                 return Err(SyntaxError::new(
@@ -1387,14 +1378,7 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
             None => return Err(unsupported_pattern_form(pattern)),
         },
         Pat::Macro(value) => special_macro_kind(&value.mac.path)
-            .ok_or_else(|| {
-                SyntaxError::new(
-                    SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "the root must be a named path/call/record or an Int/Bool literal",
-                    },
-                    value.span(),
-                )
-            })?
+            .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
             .root_kind(),
         other => {
             return Err(unsupported_pattern_form(other));
@@ -1856,6 +1840,20 @@ impl TermMacroKind {
             Self::Id | Self::Bytes | Self::Anonymous | Self::Lexeme => TermRootKind::Literal,
         }
     }
+}
+
+/// The error for a macro at a term's root that is no compiler-owned term
+/// island; a `k::bits!` template there is out of place.
+fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
+    if crate::rule::is_bits_macro(path) {
+        return crate::rule::misplaced_bit_template(path.span());
+    }
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: "the root must be a named path/call/record or an Int/Bool literal",
+        },
+        span,
+    )
 }
 
 fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {

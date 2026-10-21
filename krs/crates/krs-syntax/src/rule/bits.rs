@@ -1216,6 +1216,29 @@ mod tests {
         assert!(error.to_string().contains("body of `cells!`"), "{error}");
     }
 
+    #[test]
+    fn a_template_at_the_root_of_a_condition_or_a_cell_pattern_is_misplaced() {
+        for source in [
+            "#[k::requires(k::bits!(\"01\"))] fn f(k::term![F(n)]: Term<Int>) -> Term<Int> { n }",
+            "fn f(k::term![F(n)]: Term<Int>) -> Term<Int> { k::bits!(\"01\") }",
+        ] {
+            let error = crate::RuleItem::parse_equation_source(source).unwrap_err();
+            assert_eq!(
+                error.kind().code().as_str(),
+                "krs::syntax::bit-template-position",
+                "{source}: {error}"
+            );
+        }
+        let rule = "fn r(n: Int, k::cells! { k: k::configuration::KCell(k::bits!(\"1_\"), tail @ ..), state @ .. }: Machine) -> Machine { k::cells! { k: k::configuration::KCell(0, ..tail), ..state } }";
+        let error = <crate::StateRuleItem as crate::KrsSyntax>::parse_tokens(rule.parse().unwrap())
+            .unwrap_err();
+        assert_eq!(
+            error.kind().code().as_str(),
+            "krs::syntax::bit-template-position",
+            "{error}"
+        );
+    }
+
     fn desugar_error(source: &str) -> String {
         let mut item: ItemFn = syn::parse_str(source).unwrap();
         let error = desugar_bit_templates(&mut item).unwrap_err();
