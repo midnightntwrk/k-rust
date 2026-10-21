@@ -51,6 +51,8 @@ use krs_ir_levels::{
 };
 use num_bigint::BigInt;
 
+use crate::int_facts::{IntFact, IntFacts};
+
 /// The pattern-matrix nodes one function may visit before the lint gives up
 /// on it (and reports nothing for it).
 const NODE_BUDGET: usize = 200_000;
@@ -652,7 +654,55 @@ struct GuardReader<'r> {
     signature: &'r Signature,
     paths: &'r BTreeMap<SemanticId, Path>,
     names: Names,
+    projections: Projections,
 }
+
+/// How a guard subject reads bits of another subject, its base.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Projection {
+    /// `bitRangeInt(base, offset, length)`.
+    BitRange { offset: BigInt, length: BigInt },
+    /// `base &Int mask`, with a non-negative mask.
+    Mask(BigInt),
+}
+
+impl Projection {
+    /// The fact `subject == value` states about the base: `Some(Err(()))`
+    /// when the subject cannot have that value.
+    fn fact(&self, value: &BigInt) -> Option<Result<IntFact, ()>> {
+        let value = i128::try_from(value).ok()?;
+        match self {
+            Self::BitRange { offset, length } => IntFact::bit_range(
+                i128::try_from(offset).ok()?,
+                i128::try_from(length).ok()?,
+                value,
+            ),
+            Self::Mask(mask) => IntFact::masked(i128::try_from(mask).ok()?, value),
+        }
+    }
+
+    /// The least and greatest value the subject can have.
+    fn range(&self) -> (BigInt, BigInt) {
+        match self {
+            Self::BitRange { length, .. } => (
+                BigInt::from(0),
+                usize::try_from(length)
+                    .ok()
+                    .filter(|length| *length <= 4096)
+                    .map_or_else(
+                        || BigInt::from(1) << 4096_usize,
+                        |length| BigInt::from(1) << length,
+                    )
+                    - 1,
+            ),
+            Self::Mask(mask) => (BigInt::from(0), mask.clone()),
+        }
+    }
+}
+
+/// The projections among the subjects of a function's guards, keyed by the
+/// projecting subject's canonical text, with the base's.
+pub(crate) type Projections = BTreeMap<String, (String, Projection)>;
 
 /// `GetOrDefault` as `get_or_default`, the facade's spelling of a
 /// collection operation.
@@ -669,6 +719,21 @@ fn snake_case(name: &str) -> String {
         }
     }
     out
+}
+
+/// The prefix of the binder that stands for an unnamed `k::bits!`
+/// template's value; authors cannot write it.
+const HIDDEN_BITS_BINDER: &str = "__krs_bits_";
+
+/// How a diagnostic names a binder: its name, or `_` for an unnamed one,
+/// a `k::bits!` template's hidden binder included.
+pub(crate) fn binder_text(variable: &SemanticId) -> String {
+    match variable.kind() {
+        SemanticIdKind::Named if !variable.as_str().starts_with(HIDDEN_BITS_BINDER) => {
+            variable.as_str().to_owned()
+        }
+        _ => "_".to_owned(),
+    }
 }
 
 fn path_text(path: &[usize]) -> String {
@@ -721,6 +786,19 @@ impl GuardReader<'_> {
                     (BuiltinOperation::IntShiftRight, [value, shift]) => {
                         usize::try_from(shift).ok().map(|shift| value >> shift)
                     }
+                    (BuiltinOperation::IntBitRange, [value, index, length]) => {
+                        let index = usize::try_from(index).ok()?;
+                        let length = usize::try_from(length)
+                            .ok()
+                            .filter(|length| *length <= 4096)?;
+                        let modulus = BigInt::from(1) << length;
+                        let remainder = (value >> index) % &modulus;
+                        Some(if remainder < zero {
+                            remainder + modulus
+                        } else {
+                            remainder
+                        })
+                    }
                     _ => None,
                 }
             }
@@ -742,15 +820,68 @@ impl GuardReader<'_> {
             BuiltinOperation::IntShiftLeft
             | BuiltinOperation::IntShiftRight
             | BuiltinOperation::IntPow => operand(1).is_some_and(|amount| amount >= zero),
+            // `bitRangeInt(I, IDX, LEN)` is `(I >>Int IDX) modInt (1 <<Int LEN)`:
+            // both shifts are defined for a non-negative amount, and the
+            // divisor is then at least 1.
+            BuiltinOperation::IntBitRange => {
+                operand(1).is_some_and(|index| index >= zero)
+                    && operand(2).is_some_and(|length| length >= zero)
+            }
+            // `signExtendBitRangeInt` also shifts by `LEN -Int 1`.
+            BuiltinOperation::IntSignExtendBitRange => {
+                operand(1).is_some_and(|index| index >= zero)
+                    && operand(2).is_some_and(|length| length >= BigInt::from(1))
+            }
             _ => false,
         }
     }
 
-    /// The canonical text of a defined term and records its rendering.
+    /// The canonical text of a defined term and records its rendering, and
+    /// the base it reads bits of, if any.
     fn subject(&mut self, term: &SemanticTerm) -> Option<String> {
         let (key, text) = self.canonical(term)?;
         self.names.entry(key.clone()).or_insert(text);
+        if Self::constant(term).is_none()
+            && let Some((base, projection)) = Self::projection(term)
+        {
+            let (base_key, base_text) = self.canonical(base)?;
+            self.names.entry(base_key.clone()).or_insert(base_text);
+            self.projections
+                .entry(key.clone())
+                .or_insert((base_key, projection));
+        }
         Some(key)
+    }
+
+    /// `bitRangeInt(base, o, l)` with constant `o` and `l`, or `base &Int m`
+    /// with a constant non-negative `m`: its base and how it reads it.
+    fn projection(term: &SemanticTerm) -> Option<(&SemanticTerm, Projection)> {
+        let SemanticTermKind::Application {
+            application: ApplicationRef::Builtin(operation),
+            arguments,
+            ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        match (operation, arguments.as_slice()) {
+            (BuiltinOperation::IntBitRange, [base, offset, length]) => Some((
+                base,
+                Projection::BitRange {
+                    offset: Self::constant(offset)?,
+                    length: Self::constant(length)?,
+                },
+            )),
+            (BuiltinOperation::IntBitAnd, [first, second]) => {
+                let (base, mask) = match (Self::constant(first), Self::constant(second)) {
+                    (None, Some(mask)) => (first, mask),
+                    (Some(mask), None) => (second, mask),
+                    _ => return None,
+                };
+                (mask >= BigInt::from(0)).then_some((base, Projection::Mask(mask)))
+            }
+            _ => None,
+        }
     }
 
     /// The canonical text and the rendering of a term, if it is defined
@@ -774,10 +905,7 @@ impl GuardReader<'_> {
         match term.kind() {
             SemanticTermKind::Variable { variable } => {
                 let path = self.paths.get(variable)?;
-                let text = match variable.kind() {
-                    SemanticIdKind::Named => variable.as_str().to_owned(),
-                    _ => "_".to_owned(),
-                };
+                let text = binder_text(variable);
                 Some((path_text(path), text))
             }
             SemanticTermKind::Token { value } => {
@@ -1063,15 +1191,75 @@ pub(crate) enum Verdict {
     Undecided,
 }
 
+/// The integers a valuation point stands for: from `low` to `high`
+/// inclusive, `None` being unbounded.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Region {
+    low: Option<BigInt>,
+    high: Option<BigInt>,
+}
+
+impl Region {
+    fn exactly(value: &BigInt) -> Self {
+        Self {
+            low: Some(value.clone()),
+            high: Some(value.clone()),
+        }
+    }
+
+    /// The one integer of the region, if it has one.
+    fn exact(&self) -> Option<&BigInt> {
+        match (&self.low, &self.high) {
+            (Some(low), Some(high)) if low == high => Some(low),
+            _ => None,
+        }
+    }
+
+    /// Whether the region shares an integer with `low..=high`.
+    fn meets(&self, low: &BigInt, high: &BigInt) -> bool {
+        self.low.as_ref().is_none_or(|own| own <= high)
+            && self.high.as_ref().is_none_or(|own| own >= low)
+    }
+
+    /// The bounds the region states about its subject.
+    fn facts(&self) -> Vec<IntFact> {
+        if let Some(value) = self.exact().and_then(|value| i128::try_from(value).ok()) {
+            return vec![IntFact::Equal(value)];
+        }
+        let mut facts = Vec::new();
+        if let Some(low) = self.low.as_ref().and_then(|low| i128::try_from(low).ok()) {
+            facts.push(IntFact::AtLeast(low));
+        }
+        if let Some(high) = self
+            .high
+            .as_ref()
+            .and_then(|high| i128::try_from(high).ok())
+            .and_then(|high| high.checked_add(1))
+        {
+            facts.push(IntFact::Below(high));
+        }
+        facts
+    }
+}
+
 /// Points of an Int subject that realize every truth assignment its bounds
 /// can take: each constant, and one point of each open interval between
 /// consecutive constants, all avoiding `excluded`.
+#[cfg(test)]
 fn points(constants: &BTreeSet<BigInt>, excluded: &BTreeSet<BigInt>) -> Vec<BigInt> {
+    regions(constants, excluded)
+        .into_iter()
+        .map(|(point, _)| point)
+        .collect()
+}
+
+/// [`points`], each with the region of integers it stands for.
+fn regions(constants: &BTreeSet<BigInt>, excluded: &BTreeSet<BigInt>) -> Vec<(BigInt, Region)> {
     let one = BigInt::from(1);
-    let mut chosen = BTreeSet::new();
+    let mut chosen = BTreeMap::new();
     for constant in constants {
         if !excluded.contains(constant) {
-            chosen.insert(constant.clone());
+            chosen.insert(constant.clone(), Region::exactly(constant));
         }
     }
     let ordered = constants.iter().cloned().collect::<Vec<_>>();
@@ -1118,14 +1306,90 @@ fn points(constants: &BTreeSet<BigInt>, excluded: &BTreeSet<BigInt>) -> Vec<BigI
             }
         }
         if let Some(point) = found {
-            chosen.insert(point);
+            chosen.insert(point, Region { low, high });
         }
     }
     let mut points = chosen.into_iter().collect::<Vec<_>>();
     // Non-negative points first, each side nearest zero first, so a witness
     // is the smallest natural number the patterns leave out when there is one.
-    points.sort_by_key(|point| (point < &BigInt::from(0), point.magnitude().clone()));
+    points.sort_by_key(|(point, _)| (point < &BigInt::from(0), point.magnitude().clone()));
     points
+}
+
+/// Whether the subjects' values can hold together, as far as the bits their
+/// projections fix tell (see [`IntFacts`]): `false` only when no integers
+/// realize the valuation, so a valuation it rules out stands for nothing.
+fn consistent(
+    regions: &BTreeMap<&String, &Region>,
+    projections: &Projections,
+    facts: &BTreeMap<String, Fact>,
+) -> bool {
+    let mut bases = BTreeMap::<&String, IntFacts>::new();
+    for (subject, region) in regions {
+        let Some((base, projection)) = projections.get(*subject) else {
+            continue;
+        };
+        let (least, greatest) = projection.range();
+        if !region.meets(&least, &greatest) {
+            return false;
+        }
+        let known = bases.entry(base).or_default();
+        if let Some(value) = region.exact() {
+            match projection.fact(value) {
+                Some(Ok(fact)) => known.add(fact),
+                Some(Err(())) => return false,
+                None => {}
+            }
+        }
+    }
+    for (base, known) in &mut bases {
+        if let Some(region) = regions.get(base) {
+            for fact in region.facts() {
+                known.add(fact);
+            }
+        } else if let Some(Fact::Equal(value)) = facts.get(base.as_str())
+            && let Ok(value) = i128::try_from(value)
+        {
+            known.add(IntFact::Equal(value));
+        }
+        if !known.satisfiable() {
+            return false;
+        }
+    }
+    true
+}
+
+/// The refuting valuation, without the projections of a subject whose
+/// value is exact: those say nothing more.
+fn counterexample(
+    values: BTreeMap<&String, &BigInt>,
+    orders: BTreeMap<(&String, &String), Order>,
+    truths: BTreeMap<&String, bool>,
+    regions: &BTreeMap<&String, &Region>,
+    projections: &Projections,
+) -> Counterexample {
+    let implied = |subject: &String| {
+        projections.get(subject).is_some_and(|(base, _)| {
+            regions
+                .get(base)
+                .is_some_and(|region| region.exact().is_some())
+        })
+    };
+    Counterexample {
+        values: values
+            .into_iter()
+            .filter(|(subject, _)| !implied(subject))
+            .map(|(subject, value)| (subject.clone(), value.clone()))
+            .collect(),
+        orders: orders
+            .into_iter()
+            .map(|((left, right), order)| ((left.clone(), right.clone()), order))
+            .collect(),
+        truths: truths
+            .into_iter()
+            .map(|(key, value)| (key.clone(), value))
+            .collect(),
+    }
 }
 
 fn evaluate(
@@ -1169,13 +1433,25 @@ fn evaluate(
 /// between each pair realize every assignment; two subjects are always in
 /// exactly one of three orders; distinct subjects are treated as
 /// independent, which admits more valuations than exist, never fewer.
+///
+/// A valuation that gives a projection of a subject (`bitRangeInt(t, o, l)`
+/// or `t &Int m`, see [`Projections`]) a value its base cannot have
+/// together with the others stands for no integers and is skipped.
 #[cfg(test)]
-pub(crate) fn decide(guards: &[&Formula], facts: &BTreeMap<String, Fact>) -> Verdict {
-    decide_counted(guards, facts).0
+pub(crate) fn decide(
+    guards: &[&Formula],
+    facts: &BTreeMap<String, Fact>,
+    projections: &Projections,
+) -> Verdict {
+    decide_counted(guards, facts, projections).0
 }
 
 /// [`decide`], with the number of valuations it had to consider.
-fn decide_counted(guards: &[&Formula], facts: &BTreeMap<String, Fact>) -> (Verdict, u64) {
+fn decide_counted(
+    guards: &[&Formula],
+    facts: &BTreeMap<String, Fact>,
+    projections: &Projections,
+) -> (Verdict, u64) {
     let mut atoms = BTreeSet::new();
     for guard in guards {
         guard.atoms(&mut atoms);
@@ -1203,9 +1479,9 @@ fn decide_counted(guards: &[&Formula], facts: &BTreeMap<String, Fact>) -> (Verdi
         .iter()
         .map(|(subject, constants)| {
             let values = match facts.get(subject.as_str()) {
-                Some(Fact::Equal(value)) => vec![value.clone()],
-                Some(Fact::Excluded(excluded)) => points(constants, excluded),
-                None => points(constants, &BTreeSet::new()),
+                Some(Fact::Equal(value)) => vec![(value.clone(), Region::exactly(value))],
+                Some(Fact::Excluded(excluded)) => regions(constants, excluded),
+                None => regions(constants, &BTreeSet::new()),
             };
             (*subject, values)
         })
@@ -1229,10 +1505,16 @@ fn decide_counted(guards: &[&Formula], facts: &BTreeMap<String, Fact>) -> (Verdi
     for index in 0..count {
         let mut rest = index;
         let mut values = BTreeMap::new();
+        let mut regions = BTreeMap::new();
         for (subject, domain) in &domains {
             let size = domain.len() as u64;
-            values.insert(*subject, &domain[usize::try_from(rest % size).unwrap_or(0)]);
+            let (value, region) = &domain[usize::try_from(rest % size).unwrap_or(0)];
+            values.insert(*subject, value);
+            regions.insert(*subject, region);
             rest /= size;
+        }
+        if !projections.is_empty() && !consistent(&regions, projections, facts) {
+            continue;
         }
         let mut orders = BTreeMap::new();
         for (left, right) in &pairs {
@@ -1252,20 +1534,13 @@ fn decide_counted(guards: &[&Formula], facts: &BTreeMap<String, Fact>) -> (Verdi
             .any(|guard| evaluate(guard, &values, &orders, &truths))
         {
             return (
-                Verdict::Refuted(Counterexample {
-                    values: values
-                        .into_iter()
-                        .map(|(subject, value)| (subject.clone(), value.clone()))
-                        .collect(),
-                    orders: orders
-                        .into_iter()
-                        .map(|((left, right), order)| ((left.clone(), right.clone()), order))
-                        .collect(),
-                    truths: truths
-                        .into_iter()
-                        .map(|(key, value)| (key.clone(), value))
-                        .collect(),
-                }),
+                Verdict::Refuted(counterexample(
+                    values,
+                    orders,
+                    truths,
+                    &regions,
+                    projections,
+                )),
                 index + 1,
             );
         }
@@ -1306,6 +1581,7 @@ struct Gap {
 
 struct Search<'s> {
     signature: &'s Signature,
+    projections: &'s Projections,
     nodes: usize,
     valuations: u64,
     exhausted: bool,
@@ -1562,9 +1838,10 @@ impl Search<'_> {
                 Sort::Builtin(BuiltinSort::Int) => Witness::Literal(
                     chosen
                         .unwrap_or_else(|| {
-                            points(&BTreeSet::new(), &excluded)
+                            regions(&BTreeSet::new(), &excluded)
                                 .into_iter()
                                 .next()
+                                .map(|(point, _)| point)
                                 .unwrap_or_default()
                         })
                         .to_string(),
@@ -1609,7 +1886,7 @@ impl Search<'_> {
             .iter()
             .filter_map(|row| row.guard.as_deref())
             .collect::<Vec<_>>();
-        let (verdict, valuations) = decide_counted(&guards, facts);
+        let (verdict, valuations) = decide_counted(&guards, facts, self.projections);
         self.valuations = self.valuations.saturating_add(valuations);
         if self.valuations > FUNCTION_VALUATION_BUDGET {
             self.exhausted = true;
@@ -1670,6 +1947,7 @@ fn check_instance(
     .collect::<Vec<_>>();
     let mut rows = Vec::new();
     let mut names = Names::new();
+    let mut projections = Projections::new();
     let mut binders = BTreeMap::<Path, String>::new();
     let (mut guarded, mut unread, mut contexts) = (0, 0, 0);
     for rule in rules {
@@ -1692,7 +1970,7 @@ fn check_instance(
             let mut paths = BTreeMap::<SemanticId, Path>::new();
             let mut linear = true;
             for (binder, path) in &bindings {
-                if matches!(binder.kind(), SemanticIdKind::Named) {
+                if binder_text(binder) != "_" {
                     binders
                         .entry(path.clone())
                         .or_insert_with(|| binder.as_str().to_owned());
@@ -1712,6 +1990,7 @@ fn check_instance(
                         signature,
                         paths: &paths,
                         names: Names::new(),
+                        projections: Projections::new(),
                     };
                     let Some(formula) = reader.formula(condition.term()) else {
                         unread += 1;
@@ -1719,6 +1998,9 @@ fn check_instance(
                     };
                     for (key, text) in reader.names {
                         names.entry(key).or_insert(text);
+                    }
+                    for (key, projection) in reader.projections {
+                        projections.entry(key).or_insert(projection);
                     }
                     Some(Rc::new(formula))
                 }
@@ -1732,6 +2014,7 @@ fn check_instance(
     }
     let mut search = Search {
         signature,
+        projections: &projections,
         nodes: 0,
         valuations: 0,
         exhausted: false,
@@ -1871,7 +2154,7 @@ fn uncovered_warning(
     ));
     if report.guarded > 0 {
         diagnostic.notes.push(format!(
-            "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, and only when every operation in it is defined on every argument",
+            "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
             report.guarded
         ));
     }

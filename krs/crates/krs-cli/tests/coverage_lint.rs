@@ -325,10 +325,10 @@ fn total_functions_warn_where_no_equation_applies() {
     expect_test::expect![[r#"
         [
             "warning[krs::analysis::uncovered-total-function]: total function `Clamp` has no equation for `Clamp(0)`",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, and only when every operation in it is defined on every argument",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
             "warning[krs::analysis::stale-underspecified]: `FlagBit` states `underspecified`, but its equations define every argument; remove `underspecified`",
             "warning[krs::analysis::uncovered-total-function]: total function `Page` has no equation for `Page(opcode)` when `High(opcode)` is 2",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, and only when every operation in it is defined on every argument",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
             "warning[krs::analysis::uncovered-total-function]: total function `Size` has no equation for `Size(0)`",
             "warning[krs::analysis::uncovered-total-function]: total function `Table` has no equation for `Table(3)`",
         ]
