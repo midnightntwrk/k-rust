@@ -16,6 +16,20 @@ one baseline run per program per command (flow F-12),
 report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13),
 and per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below).
 
+## Building
+
+Build the portable (no-Z3) profile for the LLM loop, from the root of k-rust's checkout:
+
+```sh
+cargo build --release -p kink-flow --no-default-features
+```
+
+The executable is `target/release/kink-flow`.
+kink-flow's default features are the Z3 solver profile, as k-rust's and the other kink crates' are (the root README, "Gate"), and k-rust's own workspace build and test run use it.
+Under Z3 tier 1 of the outcome cache (with the warm-path memos) and the pattern cache are off, so every mutation and every query runs live,
+and a complete exploration with no match is `unknown`, not `no` (`query`, "Answers"): a solver query can time out and k-rust's search responses carry no count of undecided answers to show that none did.
+That lasts until kink adopts k-rust's counts (adoption A-5) and k-rust adds the count to search responses (KINK-28).
+
 ## `FLOW.toml`
 
 ```toml

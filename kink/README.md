@@ -28,6 +28,8 @@ an LLM writes a concrete test corpus for a K specification and mutations of its 
 and the tool reports which mutations no corpus program kills.
 This section is written for the LLM that drives the loop;
 [`crates/kink-flow/README.md`](crates/kink-flow/README.md) is the reference for every field and reason.
+Build the portable profile for the loop, from the root of k-rust's checkout: `cargo build --release -p kink-flow --no-default-features`.
+The default build is the Z3 profile ("Gate", below), under which the outcome and pattern caches are off and some `no` answers of `kink-flow query` are `unknown`, until adoption A-5 and k-rust's KINK-28; the walkthrough below is written for the portable build.
 
 ### The loop
 
@@ -517,6 +519,8 @@ The tier script acquires Z3 as k-rust's gates do (k-rust `docs/testing.md`): by 
 and `KRUST_GATE_Z3=system` links the Z3 the build environment provides instead, here the machine wrapper `with-z3-static-4.16.0`, which points the `z3-sys` build at a static Z3 4.16.0 library.
 `--and EXPR` narrows a tier to the tests matching a nextest filterset, for example `--and 'package(kink-flow)'`, without judging the budget.
 The Z3 profile runs every test of every kink package (`[z3]` of `kink/.config/kink-tiers.toml` says why no binary is skipped).
+kink-flow's tests are profile-aware (merge packet M-1): its `z3` feature (default, forwarding to kink-native's) selects the Z3 column; a `no` that a complete exploration gives in the portable build is `unknown` under Z3, and the 33 kink-tier tests whose subject is the outcome cache, the warm-path memos or the pattern cache (all off under Z3 by design) compile only in the portable build, while the Z3-only light test `kink-flow::outcomes both_caches_are_off_under_the_z3_profile` pins that both caches are off.
+So the tier lint counts differ by profile: portable light 463, kink 482, heavy 132, external 7; Z3 light 463, kink 449, heavy 132, external 9 (the light and external columns also differ by tests that exist in one profile only, `cfg(feature = "z3")`).
 `cargo test --workspace` still runs the light tier, and `cargo test` of the kink packages with `-- --include-ignored` every tier.
 Run the two profiles one after the other, never at the same time in one target directory:
 each build replaces the other's `kink-corpus` and `kink-flow` executables, which the tests run and hash, under a running test.
@@ -524,8 +528,8 @@ each build replaces the other's `kink-corpus` and `kink-flow` executables, which
 The default build is the Z3 solver profile, as k-rust's is.
 `kink-native` has a `z3` feature for the Z3 profile
 (it enables k-rust `z3-inference`, which enables k-rust-backend `z3`), and `kink-campaign` and `kink-corpus` forward it as `z3`;
-the three enable it by default, and `--no-default-features` on the kink packages is the portable (no-Z3) profile.
-kink-native fails to compile when its `z3` feature and k-rust's `z3-inference` disagree (`src/execution.rs`), which Cargo's feature unification can cause when a build selects k-rust (or another package that turns Z3 on) beside kink packages without `kink-native` itself: select `kink-native` too.
+the three and `kink-flow` (which forwards it too) enable it by default, and `--no-default-features` on the kink packages is the portable (no-Z3) profile.
+kink-native fails to compile when its `z3` feature and k-rust's `z3-inference` disagree (`src/execution.rs`), which a build reaches only by turning k-rust's Z3 on beside kink packages built without their `z3` feature (for example `--no-default-features --features k-rust/z3-inference`); every kink package that depends on kink-native enables `z3` by default.
 `kink-campaign` requires its execution adapter's solver profile to match the build.
 Their tests carry profile columns for outcomes that differ between no-Z3 and Z3.
 A build that selects only kink packages with their default features takes k-rust's `z3-inference` alone, which links the Z3 the build environment provides (without `with-z3-static-4.16.0` or another provider it fails to link, `-lz3` missing);
