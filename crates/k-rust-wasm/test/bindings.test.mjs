@@ -14,6 +14,7 @@ import {
   parseProgram,
   printKast,
   printKore,
+  runFuzzCampaign,
 } from '../dist/index.js'
 
 const bytes = readFileSync(new URL('../generated/bindings_bg.wasm', import.meta.url))
@@ -526,4 +527,125 @@ test('compileBackend compiles and creates a portable session', () => {
   assert.equal(backend.capabilities.smt, false)
   assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
   backend.free()
+})
+
+const readFixture = name =>
+  readFileSync(new URL(`../../k-rust-fuzz/tests/data/imp/${name}`, import.meta.url), 'utf8')
+const SOLVER = 'none'
+
+// The IMP campaign of the crate's own test (src/fuzz.rs): blind values for `x` and `y` of `le.imp`
+// until one falsifies the claim that `r` ends as 1, which any `x > y` does.
+const impCampaign = (campaign = {}) => ({
+  definition: readFixture('imp.k'),
+  moduleName: 'IMP',
+  sourceName: 'imp.k',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: readFixture('le.imp'), 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+    ...campaign,
+  },
+})
+
+test('runs one fuzz campaign on IMP to a confirmed witness', () => {
+  const { json, report } = runFuzzCampaign(impCampaign())
+  assert.equal(report.schema, 'krust-fuzz-report')
+  assert.equal(report.version, 1)
+  assert.equal(report.identity.solver, SOLVER)
+  assert.equal(report.identity.seed, '24301')
+  assert.deepEqual(report.identity.budget, { cases: '64' })
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  assert.equal(witness.label, 'property-failure')
+  const [x, y] = (witness.shrunk ?? witness.first).holes.map(hole => BigInt(hole.value.int))
+  assert.ok(x > y, `${x} > ${y}`)
+  assert.deepEqual(report['engine-defects'], [])
+  // The report is a function of the specification: a second call gives the same bytes.
+  assert.equal(runFuzzCampaign(impCampaign()).json, json)
+})
+
+test('throws for a malformed campaign specification', () => {
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ options: { 'max-dept': 3 } })),
+    /campaign\.options: unknown field `max-dept`/,
+  )
+  assert.throws(() => runFuzzCampaign(impCampaign({ seed: 7 })), /invalid type/)
+})
+
+test('refuses the safety limit and the solve proposer before compiling anything', () => {
+  const unparsable = options => ({ ...options, definition: 'not a definition' })
+  assert.throws(
+    () => runFuzzCampaign(unparsable(impCampaign({ options: { 'safety-limit-ms': 1000 } }))),
+    /^Error: campaign\.options\.safety-limit-ms: the per-case safety limit is not available in WebAssembly/,
+  )
+  assert.throws(
+    () => runFuzzCampaign(unparsable(impCampaign({ proposers: { weights: { blind: 1, solve: 1 } } }))),
+    /^Error: campaign\.proposers\.weights\.solve: the solve proposer is not available in WebAssembly/,
+  )
+})
+
+const readCoin = name =>
+  readFileSync(new URL(`../../k-rust-fuzz/tests/data/coin/${name}`, import.meta.url), 'utf8')
+const BUILD_PREFIX = 'k-rust-wasm '
+const STACK_SIZE = null
+
+// The differential campaign of the fuzz crate's own test: COIN against COIN-KILL, which adds the
+// end N + 2 for N > 10, over the `3` of `flip(3)`.
+const coinCampaign = () => ({
+  definition: readCoin('coin.k'),
+  moduleName: 'COIN',
+  sourceName: 'coin.k',
+  includePrelude: true,
+  mutant: { definition: readCoin('coin-kill.k'), moduleName: 'COIN', sourceName: 'coin-kill.k', includePrelude: true },
+  campaign: {
+    program: { program: { name: 'flip.pgm', text: readCoin('flip.pgm'), 'start-sort': 'Pgm' }, 'config-vars': [] },
+    holes: [{ name: 'N', sort: 'Int', location: { kind: 'span', program: 'flip.pgm', find: '3', literal: '3' } }],
+    target: { kind: { kind: 'differential' }, 'run-to-completion': false, 'negated-property': false },
+    proposers: { explicit: [{ N: { int: '10' } }] },
+    seed: '7',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+  },
+})
+
+test('runs one differential fuzz campaign that kills a mutant', () => {
+  const { report } = runFuzzCampaign(coinCampaign())
+  assert.equal(report.identity.definitions.length, 2)
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  const killing = witness.shrunk ?? witness.first
+  assert.equal(killing.kill, 'added-end')
+  assert.ok(BigInt(killing.holes[0].value.int) > 10n, killing.holes[0].value.int)
+})
+
+test('refuses a misspelt field inside a hole', () => {
+  const options = impCampaign()
+  options.campaign.holes[0].constraint = { range: { min: '0', max: '0' } }
+  assert.throws(() => runFuzzCampaign(options), /unknown field `constraint`/)
+})
+
+test('names this build when the campaign gives no identity', () => {
+  const options = impCampaign({ budget: { cases: '1' } })
+  delete options.campaign.identity
+  const { report } = runFuzzCampaign(options)
+  assert.ok(report.identity['k-rust-revision'].startsWith(BUILD_PREFIX), report.identity['k-rust-revision'])
+  assert.equal(report.identity['thread-stack-size'], STACK_SIZE)
 })

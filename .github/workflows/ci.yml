@@ -208,6 +208,11 @@ jobs:
       - name: Check WebAssembly compatibility
         run: cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
 
+      # The fuzz library on its own features: its portable build is its primary build, and
+      # proptest must stay without its `std` feature, whose OS random source has no wasm32 port.
+      - name: Check the fuzz library's WebAssembly compatibility
+        run: cargo build -p k-rust-fuzz --target wasm32-unknown-unknown --locked
+
       - name: Check the standalone regex crate stays dependency-free
         run: |
           cargo build -p k-rust-regex --target wasm32-unknown-unknown --locked

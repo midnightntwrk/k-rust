@@ -17,6 +17,9 @@ test = false
 k-rust = { path = "../k-rust", default-features = false, features = [
   "z3-inference-gh-release",
 ] }
+# `runFuzzCampaignNative`: one campaign per call. Its `z3` feature (the solve proposer, not yet
+# provided) stays off: enabling it would change the fuzz crate's features in workspace builds.
+k-rust-fuzz = { path = "../k-rust-fuzz" }
 napi.workspace = true
 napi-derive.workspace = true
 serde.workspace = true

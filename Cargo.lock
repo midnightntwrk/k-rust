@@ -1223,6 +1223,7 @@ name = "k-rust-napi"
 version = "0.4.0"
 dependencies = [
  "k-rust",
+ "k-rust-fuzz",
  "napi",
  "napi-build",
  "napi-derive",
@@ -1242,6 +1243,7 @@ name = "k-rust-wasm"
 version = "0.4.0"
 dependencies = [
  "k-rust",
+ "k-rust-fuzz",
  "serde",
  "serde_json",
  "sha2 0.11.0",

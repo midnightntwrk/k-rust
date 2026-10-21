@@ -272,7 +272,7 @@ impl Eq for ObserverHandle {}
 /// observer, and [`crate::Campaign::new`] refuses it. Two targets with the same name and
 /// different observers have the same report identity but compare unequal.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ObserverTarget {
     /// The observer's identity as the client states it, for example its name and version. It is
     /// the only part of the observer in the report's target digest and so in any cache key built

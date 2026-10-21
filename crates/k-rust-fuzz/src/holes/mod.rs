@@ -54,7 +54,7 @@ use crate::{
 
 /// One hole declaration (ARCHITECTURE 2.2).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct HoleDecl {
     /// The hole's name, unique in the campaign.
     pub name: String,
@@ -73,7 +73,7 @@ pub struct HoleDecl {
 
 /// What a hole replaces (ARCHITECTURE 2.2).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum HoleLocation {
     /// A literal of the program text.
     Span(SpanAddress),
@@ -102,7 +102,7 @@ pub enum HoleLocation {
 /// unique, and otherwise carries enough context to make the span unique (`find = "x = 7;"`,
 /// `literal = "7"`).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct SpanAddress {
     /// The program's name ([`crate::spec::ProgramText::name`]), or `$NAME` for the binding of
     /// the configuration variable `NAME`.

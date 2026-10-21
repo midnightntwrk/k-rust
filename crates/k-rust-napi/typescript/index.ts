@@ -8,9 +8,11 @@ import {
   parseProgramNative,
   printKastNative,
   printKoreNative,
+  runFuzzCampaignNative,
   type NativeBackend,
   type NativeDiagnostic,
   type NativeCompileDefinitionOptions,
+  type NativeFuzzDefinition,
   type NativeParseProgramOptions,
 } from '../native.js'
 
@@ -976,6 +978,292 @@ export interface ProofResult {
   leaves: ProofLeaf[]
 }
 
+/**
+ * A definition a fuzz campaign runs on: its sources, loaded and compiled for the Rust backend
+ * as `krust kcompile` does, on krun's route.
+ */
+export interface FuzzDefinitionOptions {
+  definition: string
+  moduleName: string
+  /** The module whose grammar parses the program; selected as `krust kcompile` does when absent. */
+  syntaxModule?: string
+  sourceName?: string
+  /** Additional virtual files keyed by the names used in `requires`. */
+  sources?: Readonly<Record<string, string>> | readonly Source[]
+  markdownSelector?: string
+  /** Load k-rust's embedded standard prelude. Defaults to true. */
+  includePrelude?: boolean
+}
+
+export interface FuzzCampaignOptions extends FuzzDefinitionOptions {
+  /** The mutant of a differential target: given exactly when the target is differential. */
+  mutant?: FuzzDefinitionOptions
+  campaign: FuzzCampaign
+}
+
+/**
+ * A campaign specification, in the fuzz library's JSON (kebab-case fields).
+ *
+ * Exactly one of `program` and `kore-template` is given. `options`, `proposers` and `bounds`
+ * are partial: each field given replaces the library default, and an unknown field throws.
+ * The seed, the rejection cap and the budget's limit are canonical decimal strings, which
+ * JavaScript reads and writes exactly at any size, as the report writes them.
+ */
+export interface FuzzCampaign {
+  program?: FuzzProgramSource
+  /** A KORE initial configuration whose free element variables are the holes, as KORE text. */
+  'kore-template'?: string
+  holes?: FuzzHole[]
+  target: FuzzTarget
+  options?: Partial<FuzzCaseOptions>
+  proposers?: Partial<FuzzProposers>
+  bounds?: Partial<FuzzGenerationBounds>
+  /** Rejected cases after which the campaign ends with `rejected-out`; defaults to `"10000"`. */
+  'rejection-cap'?: string
+  seed: string
+  /**
+   * Recorded in the report as given. Without it, the report's `k-rust-revision` names this
+   * package's build (`k-rust-napi <version>`, `+<revision>` when the build set
+   * `K_RUST_REVISION`). Leave `thread-stack-size` out: the campaign runs on a thread of the
+   * binding with a 256 MiB stack, as `krust fuzz` does, and the report records that size.
+   */
+  identity?: { 'k-rust-revision': string }
+  budget: FuzzBudget
+}
+
+/** The unmodified program and its configuration-variable bindings (name without `$`, K text). */
+export interface FuzzProgramSource {
+  program?: { name: string; text: string; 'start-sort': string } | null
+  'config-vars': [string, string][]
+}
+
+/** A hole value; integers are decimal strings and bytes lowercase hex. */
+export type FuzzValue =
+  | { int: string }
+  | { bool: boolean }
+  | { string: string }
+  | { bytes: string }
+  | { 'm-int': { width: number; value: string } }
+  | { token: { sort: string; text: string } }
+  | { list: FuzzValue[] }
+  | { set: FuzzValue[] }
+  | { map: [FuzzValue, FuzzValue][] }
+  | { apply: { symbol: string; arguments: FuzzValue[] } }
+
+export type FuzzHoleLocation =
+  | { kind: 'span'; program: string; line?: number | null; find: string; literal: string }
+  | { kind: 'config-var'; name: string }
+  | { kind: 'kore-variable'; name: string }
+
+export interface FuzzConstraints {
+  range?: { min?: string; max?: string } | null
+  length?: { min?: number | null; max?: number | null } | null
+  elements?:
+    | { collection: 'elements'; element: string }
+    | { collection: 'entries'; key: string; value: string }
+    | null
+  choices?: FuzzValue[] | null
+}
+
+export interface FuzzHole {
+  name: string
+  sort: string
+  location: FuzzHoleLocation
+  constraints?: FuzzConstraints
+  'allow-refused-sort'?: boolean
+}
+
+export type FuzzRuleRef =
+  | { by: 'label'; value: string }
+  | { by: 'unique-id'; value: string }
+  | { by: 'source'; value: { source: string; line: number } }
+
+/** Observer targets are library-only: one read from JSON carries no observer and throws. */
+export type FuzzTargetKind =
+  | { kind: 'rule'; rule: FuzzRuleRef; mode: 'fired' | 'covered' | 'condition-reached' }
+  | { kind: 'pattern'; pattern: string; at: 'final' | 'any-state' }
+  | { kind: 'differential' }
+  | { kind: 'observer'; name: string }
+
+export interface FuzzTarget {
+  kind: FuzzTargetKind
+  'run-to-completion': boolean
+  'negated-property': boolean
+}
+
+export type FuzzPathMode = 'one-path' | 'all-paths'
+
+export interface FuzzCaseOptions {
+  paths: FuzzPathMode
+  'max-depth': number | null
+  'max-work': number | null
+  'max-simplification-iterations': number
+  'normal-end-pattern': string | null
+  /**
+   * Per-case wall-clock limit; a case it stops is `timeout`, outside the determinism contract.
+   * `null`, the default, sets none.
+   */
+  'safety-limit-ms': number | null
+  backend: { 'smt-timeout-ms': number; 'smt-retry-limit': number }
+  shrink: boolean
+}
+
+export type FuzzProposerKind = 'blind' | 'dictionary' | 'climb' | 'corpus' | 'solve'
+
+export interface FuzzProposers {
+  'anchors-first': boolean
+  explicit: Record<string, FuzzValue>[]
+  /**
+   * A weight of 0 disables a proposer; a positive weight for a proposer this build does not provide
+   * throws.
+   */
+  weights: Partial<Record<FuzzProposerKind, number>>
+}
+
+export interface FuzzGenerationBounds {
+  'int-bits': number
+  length: number
+  depth: number
+}
+
+export type FuzzBudget = { cases: string } | { work: string }
+
+export type FuzzOutcomeClass =
+  | 'hit'
+  | 'miss'
+  | 'stuck'
+  | 'reached-unfinished'
+  | 'depth-bound'
+  | 'work-bound'
+  | 'timeout'
+  | 'undefined'
+  | 'unsupported'
+  | 'rejected'
+  | 'baseline-incomplete'
+
+export type FuzzDefinitionRole = 'baseline' | 'mutant'
+
+export interface FuzzDefinitionIdentity {
+  role: FuzzDefinitionRole
+  'main-module': string
+  'syntax-module': string
+  'execution-digest': string
+  route: 'source-execution' | 'from-definition'
+  'frontend-digest': string
+  'execution-definition-digest': string
+  'syntax-definition-digest': string
+  'initial-configuration-digest': string | null
+  'execution-rewrite-order-digest': string | null
+}
+
+export interface FuzzReportIdentity {
+  'engine-version': number
+  'k-rust-revision': string
+  definitions: FuzzDefinitionIdentity[]
+  'program-digest': string
+  'overlay-digest': string
+  'target-digest': string
+  options: FuzzCaseOptions
+  proposers: FuzzProposers
+  bounds: FuzzGenerationBounds
+  caps: {
+    'int-bits': number
+    length: number
+    depth: number
+    enumeration: number
+    'value-size': number
+  }
+  'rejection-cap': string
+  seed: string
+  budget: FuzzBudget
+  'thread-stack-size': string | null
+  solver: 'z3' | 'none'
+}
+
+export interface FuzzHoleValue {
+  name: string
+  location: FuzzHoleLocation
+  'k-text'?: string
+  kore: string
+  value: FuzzValue
+}
+
+export interface FuzzWitnessCase {
+  holes: FuzzHoleValue[]
+  class: FuzzOutcomeClass
+  sides: {
+    role: FuzzDefinitionRole
+    'initial-configuration': string
+    'final-configurations': string[]
+  }[]
+  reaching: { role: FuzzDefinitionRole; leaf?: number }
+  kill?: 'added-end' | 'removed-end'
+  steps?: number
+}
+
+export interface FuzzWitness {
+  label: 'hit' | 'property-failure'
+  first: FuzzWitnessCase
+  shrunk: FuzzWitnessCase | null
+  'clean-leaf-facts': string[]
+  'krun-command': string | null
+}
+
+/** The bounded statement of a campaign without a witness; never a claim that none exists. */
+export interface FuzzNoWitness {
+  statement: string
+  'path-mode': FuzzPathMode
+}
+
+export type FuzzCampaignOutcome =
+  | { status: 'witness-found'; witness: FuzzWitness }
+  | { status: 'no-witness-found'; 'no-witness': FuzzNoWitness }
+  | { status: 'equivalent' }
+  | { status: 'rejected-out'; 'no-witness': FuzzNoWitness }
+  | { status: 'cancelled'; 'no-witness': FuzzNoWitness }
+  | { status: 'aborted'; reason: string; 'no-witness': FuzzNoWitness }
+
+export type FuzzRejectionReason =
+  | 'generation'
+  | 'constraint'
+  | 'print'
+  | 'assembly'
+  | 'round-trip'
+  | 'backend-refused'
+
+export interface FuzzTotals {
+  cases: number
+  work: number
+  classes: Partial<Record<FuzzOutcomeClass, number>>
+  'rejection-rate-permille': number
+  rejections: Partial<Record<FuzzRejectionReason, number>>
+  coverage: { applied: string[]; matched: string[] }
+  'target-blocked': number
+  'best-score': number[] | null
+  'outside-determinism': number
+  unconfirmed: number
+  'case-sequence-digest': string
+}
+
+/** A campaign's report: schema `krust-fuzz-report`, version 1 (docs/compatibility.md). */
+export interface FuzzReport {
+  schema: 'krust-fuzz-report'
+  version: number
+  identity: FuzzReportIdentity
+  outcome: FuzzCampaignOutcome
+  totals: FuzzTotals
+  'load-records': { kind: string; detail: string }[]
+  'sort-overrides': { hole: string; sort: string; refusal: string }[]
+  warnings: string[]
+  'engine-defects': { case: number | null; description: string }[]
+}
+
+export interface FuzzCampaignResult {
+  /** The report's canonical JSON: equal reports are equal strings. */
+  json: string
+  report: FuzzReport
+}
+
 /** A persistent native backend with cached parsed modules and Z3 preludes. */
 export class Backend {
   readonly #native: NativeBackend
@@ -1159,6 +1447,29 @@ export function printKore(kore: Kore, width?: number): string {
 /** Parse and consistently pretty-print a complete textual KORE definition. */
 export function formatKoreDefinition(source: string, width?: number): string {
   return formatKoreDefinitionNative(source, width)
+}
+
+/**
+ * Run one `krust fuzz` campaign to its end: compile the definition (and a differential target's
+ * mutant), craft hole values until the budget is spent or a witness is confirmed, and return the
+ * report. The call is synchronous and holds the calling thread for the whole campaign; bound it
+ * with `campaign.budget` and the case options, and call it from a worker thread in
+ * latency-sensitive applications. A campaign that runs returns its report whatever its outcome;
+ * a malformed specification, a definition that does not compile, and a campaign the library
+ * refuses throw.
+ */
+export function runFuzzCampaign(options: FuzzCampaignOptions): FuzzCampaignResult {
+  const { mutant, campaign, ...baseline } = options
+  const json = runFuzzCampaignNative({
+    ...nativeFuzzDefinition(baseline),
+    mutant: mutant === undefined ? undefined : nativeFuzzDefinition(mutant),
+    campaign: JSON.stringify(campaign),
+  })
+  return { json, report: JSON.parse(json) as FuzzReport }
+}
+
+function nativeFuzzDefinition(options: FuzzDefinitionOptions): NativeFuzzDefinition {
+  return { ...options, sources: normalizeSources(options.sources) }
 }
 
 function normalizeSources(

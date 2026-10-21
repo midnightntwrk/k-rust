@@ -50,7 +50,7 @@ use crate::error::SortRefusal;
 /// Its JSON form is canonical: integers are decimal strings and bytes are lowercase hex, so the
 /// report's bytes do not depend on a number's size.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Value {
     /// An `Int`.
     Int(#[serde(with = "decimal_int")] BigInt),
@@ -290,7 +290,7 @@ pub struct EmptyCollection {
 
 /// Constraints a hole declaration may carry (ARCHITECTURE 2.5).
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Constraints {
     /// An inclusive integer range, for `Int` and `MInt` holes (for `MInt`, of the unsigned
     /// value).
@@ -306,7 +306,7 @@ pub struct Constraints {
 
 /// An inclusive integer range; an absent end is unbounded.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct IntRange {
     /// The least value.
     #[serde(default, with = "decimal_int_opt")]
@@ -318,7 +318,7 @@ pub struct IntRange {
 
 /// An inclusive length range; an absent end takes the default bound.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LengthRange {
     /// The least length.
     pub min: Option<u64>,
@@ -329,7 +329,7 @@ pub struct LengthRange {
 /// Declared element sorts of a collection hole (`List<Int>`, `Map<Id, Int>`), as sort names of
 /// the definition.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "collection", rename_all = "kebab-case")]
+#[serde(tag = "collection", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum ElementSorts {
     /// The element sort of a `List` or `Set`.
     Elements {
@@ -359,7 +359,7 @@ pub enum ElementSorts {
 /// [`MAX_DEPTH`], and [`Generator::new`] keeps every value within [`MAX_VALUE_SIZE`], so that no
 /// bound makes generation allocate without limit.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct GenerationBounds {
     /// The largest bit length of a generated integer without a range.
     pub int_bits: u32,

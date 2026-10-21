@@ -32,7 +32,7 @@ use crate::{
 
 /// A campaign's target (ARCHITECTURE 4.1).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Target {
     /// What is to be reached.
     pub kind: TargetKind,
@@ -47,7 +47,7 @@ pub struct Target {
 
 /// The kinds of target (ARCHITECTURE 4.1).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum TargetKind {
     /// A rewrite rule fires, is covered, or has its condition reached (ARCHITECTURE 4.2).
     Rule(RuleTarget),
@@ -62,7 +62,7 @@ pub enum TargetKind {
 
 /// A rule target (ARCHITECTURE 4.2).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct RuleTarget {
     /// The rule, resolved through `Backend::rule_catalog`.
     pub rule: RuleRef,
@@ -77,7 +77,12 @@ pub struct RuleTarget {
 /// executable, or that is an equation is refused, because coverage and traces record ids, and
 /// such an id may be recorded for another sentence or for use the run never made.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "by", content = "value", rename_all = "kebab-case")]
+#[serde(
+    tag = "by",
+    content = "value",
+    rename_all = "kebab-case",
+    deny_unknown_fields
+)]
 pub enum RuleRef {
     /// The rule's label as the catalog writes it (`IMP.overflow`), or, when no entry has that
     /// label, the label without its module (`overflow`).
@@ -112,7 +117,7 @@ pub enum RuleMode {
 
 /// A pattern target (ARCHITECTURE 4.1).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct PatternTarget {
     /// The pattern in krun's `--pattern` surface syntax; it may carry `requires`.
     pub pattern: String,
@@ -135,7 +140,7 @@ pub enum PatternAt {
 /// [`crate::Definitions::baseline`] and [`crate::Definitions::mutant`]. The mutant runs on the
 /// campaign's path mode; the baseline always runs all paths.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct DifferentialTarget {}
 
 /// Where a hit reached the target (ARCHITECTURE 5.3, D16).
