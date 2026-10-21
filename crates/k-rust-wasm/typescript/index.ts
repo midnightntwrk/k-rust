@@ -1031,7 +1031,11 @@ export interface FuzzCampaign {
   /** Rejected cases after which the campaign ends with `rejected-out`; defaults to `"10000"`. */
   'rejection-cap'?: string
   seed: string
-  /** Recorded in the report as given; k-rust has no revision constant of its own. */
+  /**
+   * Recorded in the report as given. Without it, the report's `k-rust-revision` names this
+   * package's build (`k-rust-wasm <version>`, `+<revision>` when the build set
+   * `K_RUST_REVISION`), with no stack size.
+   */
   identity?: { 'k-rust-revision': string; 'thread-stack-size'?: number | null }
   budget: FuzzBudget
 }

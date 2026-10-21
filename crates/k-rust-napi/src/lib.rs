@@ -1,5 +1,9 @@
 //! Node-API bindings for the user-facing parts of the `k-rust` frontend.
 
+// The campaign specification reader, shared with `k-rust-wasm`, whose tests pin it to the fuzz
+// library (this crate's Rust code has no test harness: it links against Node's symbols).
+#[path = "../../k-rust-wasm/src/campaign.rs"]
+mod campaign;
 pub mod fuzz;
 
 use std::{collections::BTreeMap, path::Path, sync::Mutex};

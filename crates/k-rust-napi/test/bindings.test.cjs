@@ -499,3 +499,60 @@ test('throws for a malformed campaign specification', () => {
   )
   assert.throws(() => runFuzzCampaign(impCampaign({ seed: 7 })), /invalid type/)
 })
+
+const readCoin = name =>
+  fs.readFileSync(path.join(__dirname, '../../k-rust-fuzz/tests/data/coin', name), 'utf8')
+const BUILD_PREFIX = 'k-rust-napi '
+// The campaign thread's stack, which the report records, as krust fuzz's.
+const STACK_SIZE = '268435456'
+
+test('runs the campaign on its own thread and refuses a caller stack size', () => {
+  assert.equal(runFuzzCampaign(impCampaign({ budget: { cases: '1' } })).report.identity['thread-stack-size'], STACK_SIZE)
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ identity: { 'k-rust-revision': 'r', 'thread-stack-size': 1 } })),
+    /campaign\.identity\.thread-stack-size: the campaign runs on a thread of this binding/,
+  )
+})
+
+// The differential campaign of the fuzz crate's own test: COIN against COIN-KILL, which adds the
+// end N + 2 for N > 10, over the `3` of `flip(3)`.
+const coinCampaign = () => ({
+  definition: readCoin('coin.k'),
+  moduleName: 'COIN',
+  sourceName: 'coin.k',
+  includePrelude: true,
+  mutant: { definition: readCoin('coin-kill.k'), moduleName: 'COIN', sourceName: 'coin-kill.k', includePrelude: true },
+  campaign: {
+    program: { program: { name: 'flip.pgm', text: readCoin('flip.pgm'), 'start-sort': 'Pgm' }, 'config-vars': [] },
+    holes: [{ name: 'N', sort: 'Int', location: { kind: 'span', program: 'flip.pgm', find: '3', literal: '3' } }],
+    target: { kind: { kind: 'differential' }, 'run-to-completion': false, 'negated-property': false },
+    proposers: { explicit: [{ N: { int: '10' } }] },
+    seed: '7',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+  },
+})
+
+test('runs one differential fuzz campaign that kills a mutant', () => {
+  const { report } = runFuzzCampaign(coinCampaign())
+  assert.equal(report.identity.definitions.length, 2)
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  const killing = witness.shrunk ?? witness.first
+  assert.equal(killing.kill, 'added-end')
+  assert.ok(BigInt(killing.holes[0].value.int) > 10n, killing.holes[0].value.int)
+})
+
+test('refuses a misspelt field inside a hole', () => {
+  const options = impCampaign()
+  options.campaign.holes[0].constraint = { range: { min: '0', max: '0' } }
+  assert.throws(() => runFuzzCampaign(options), /unknown field `constraint`/)
+})
+
+test('names this build when the campaign gives no identity', () => {
+  const options = impCampaign({ budget: { cases: '1' } })
+  delete options.campaign.identity
+  const { report } = runFuzzCampaign(options)
+  assert.ok(report.identity['k-rust-revision'].startsWith(BUILD_PREFIX), report.identity['k-rust-revision'])
+  assert.equal(report.identity['thread-stack-size'], STACK_SIZE)
+})

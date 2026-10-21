@@ -601,3 +601,51 @@ test('refuses the safety limit and the solve proposer before compiling anything'
     /^Error: campaign\.proposers\.weights\.solve: the solve proposer is not available in WebAssembly/,
   )
 })
+
+const readCoin = name =>
+  readFileSync(new URL(`../../k-rust-fuzz/tests/data/coin/${name}`, import.meta.url), 'utf8')
+const BUILD_PREFIX = 'k-rust-wasm '
+const STACK_SIZE = null
+
+// The differential campaign of the fuzz crate's own test: COIN against COIN-KILL, which adds the
+// end N + 2 for N > 10, over the `3` of `flip(3)`.
+const coinCampaign = () => ({
+  definition: readCoin('coin.k'),
+  moduleName: 'COIN',
+  sourceName: 'coin.k',
+  includePrelude: true,
+  mutant: { definition: readCoin('coin-kill.k'), moduleName: 'COIN', sourceName: 'coin-kill.k', includePrelude: true },
+  campaign: {
+    program: { program: { name: 'flip.pgm', text: readCoin('flip.pgm'), 'start-sort': 'Pgm' }, 'config-vars': [] },
+    holes: [{ name: 'N', sort: 'Int', location: { kind: 'span', program: 'flip.pgm', find: '3', literal: '3' } }],
+    target: { kind: { kind: 'differential' }, 'run-to-completion': false, 'negated-property': false },
+    proposers: { explicit: [{ N: { int: '10' } }] },
+    seed: '7',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+  },
+})
+
+test('runs one differential fuzz campaign that kills a mutant', () => {
+  const { report } = runFuzzCampaign(coinCampaign())
+  assert.equal(report.identity.definitions.length, 2)
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  const killing = witness.shrunk ?? witness.first
+  assert.equal(killing.kill, 'added-end')
+  assert.ok(BigInt(killing.holes[0].value.int) > 10n, killing.holes[0].value.int)
+})
+
+test('refuses a misspelt field inside a hole', () => {
+  const options = impCampaign()
+  options.campaign.holes[0].constraint = { range: { min: '0', max: '0' } }
+  assert.throws(() => runFuzzCampaign(options), /unknown field `constraint`/)
+})
+
+test('names this build when the campaign gives no identity', () => {
+  const options = impCampaign({ budget: { cases: '1' } })
+  delete options.campaign.identity
+  const { report } = runFuzzCampaign(options)
+  assert.ok(report.identity['k-rust-revision'].startsWith(BUILD_PREFIX), report.identity['k-rust-revision'])
+  assert.equal(report.identity['thread-stack-size'], STACK_SIZE)
+})

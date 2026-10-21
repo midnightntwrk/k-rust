@@ -1,5 +1,6 @@
 //! WebAssembly bindings for the portable, host-independent `k-rust` frontend.
 
+mod campaign;
 mod fuzz;
 
 use std::{collections::BTreeMap, path::Path};

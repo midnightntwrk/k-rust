@@ -167,7 +167,8 @@ if (report.outcome.status === 'witness-found') {
 ```
 
 `options`, `proposers` and `bounds` are partial: each field given replaces the library default, and
-an unknown field throws. The seed, the rejection cap and the budget's limit are canonical decimal
+an unknown field throws, at any depth of the specification (a misspelt `constraints` of a hole
+throws rather than leaving the hole unconstrained). The seed, the rejection cap and the budget's limit are canonical decimal
 strings. A `mutant` definition, with the same fields as the baseline's, is given exactly for a
 differential target. Observer targets are library-only. A campaign that runs returns its report
 whatever its outcome, and "no witness found" is never a proof that none exists; a malformed
@@ -176,4 +177,14 @@ specification, a definition that does not compile, and a campaign the library re
 The call is synchronous and holds the calling thread until the campaign ends; nothing cancels it,
 so bound it with the budget and the case options (`max-work`, `max-depth`, and
 `safety-limit-ms` for a per-case wall-clock limit), and call it from a worker thread in
-latency-sensitive applications.
+latency-sensitive applications. Without `safety-limit-ms` (the library default is none), a step
+whose function evaluation never terminates holds the calling thread for good.
+
+The compilation and the campaign run on a thread of the binding with a 256 MiB stack, as
+`krust fuzz` does, whichever thread calls: the backend stops a step for lack of stack from the
+stack that remains, so the outcome would otherwise depend on the caller's thread. The report
+records that size as `identity.thread-stack-size`, and a campaign that sets the field throws.
+Without an `identity`, the report's `k-rust-revision` names this package's build
+(`k-rust-napi <version>`, followed by `+<revision>` when the build set `K_RUST_REVISION`). A
+panic inside the campaign, which would be a k-rust defect, throws an error rather than ending
+the process. `includePrelude` defaults to `true` here, as `krust kcompile` loads the prelude.

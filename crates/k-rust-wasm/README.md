@@ -171,7 +171,8 @@ if (report.outcome.status === 'witness-found') {
 ```
 
 `options`, `proposers` and `bounds` are partial: each field given replaces the library default, and
-an unknown field throws. The seed, the rejection cap and the budget's limit are canonical decimal
+an unknown field throws, at any depth of the specification (a misspelt `constraints` of a hole
+throws rather than leaving the hole unconstrained). The seed, the rejection cap and the budget's limit are canonical decimal
 strings. A `mutant` definition, with the same fields as the baseline's, is given exactly for a
 differential target. Observer targets are library-only. A campaign that runs returns its report
 whatever its outcome, and "no witness found" is never a proof that none exists; a malformed
@@ -184,3 +185,12 @@ a case at it. A positive `solve` weight or a `safety-limit-ms` therefore throws 
 compiled; bound every case with `max-work` or `max-depth`. Without a solver, a report's
 `identity.solver` is `"none"`, and conditions only a solver decides leave their cases
 `unsupported` rather than deciding them.
+
+Without an `identity`, the report's `k-rust-revision` names this package's build
+(`k-rust-wasm <version>`, followed by `+<revision>` when the build set `K_RUST_REVISION`).
+`includePrelude` defaults to `false` here, as for every call of this package; pass `true` to
+compile the definition as `krust kcompile` and the native package do. WebAssembly has no stack
+probe, so a recursion deep enough to exhaust the module's 8 MiB stack traps instead of stopping
+the step for lack of stack, as a native run does; and a panic inside the campaign, which would be
+a k-rust defect, traps too. A trap throws a `RuntimeError` from the call; the instance may be
+inconsistent afterwards, so initialize a fresh one before calling it again.
