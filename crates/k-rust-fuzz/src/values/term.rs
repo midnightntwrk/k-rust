@@ -23,8 +23,8 @@ use k_rust::{
 use num_bigint::BigInt;
 
 use super::{
-    ArgumentSort, CollectionKind, CollectionSymbols, DataAlternative, DataSorts, Value, ValueSort,
-    check_data,
+    ArgumentSort, CollectionKind, CollectionSymbols, DataAlternative, DataSorts, MAX_VALUE_DEPTH,
+    Value, ValueSort, check_data,
     print::{PrintError, parse_int, parse_mint, to_kore},
 };
 
@@ -229,7 +229,18 @@ fn argument_kore(
 
 /// The value of `sort` whose KORE is `pattern` (injections around it are ignored): the inverse
 /// of [`kore_of`], which reads collections of any nesting.
+///
+/// # Errors
+///
+/// A message when `pattern` is no value of `sort`, or is nested deeper than
+/// [`MAX_VALUE_DEPTH`] values, which this recursion refuses before the stack runs out.
 pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value, String> {
+    value_at(pattern, sort, 0)
+}
+
+/// [`value_of`] for a value at `level` levels below the value read.
+fn value_at(pattern: &KorePattern, sort: &ValueSort, level: usize) -> Result<Value, String> {
+    let below = deeper(level)?;
     let pattern = uninject(pattern);
     match sort.generated() {
         ValueSort::List {
@@ -237,7 +248,7 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
         } => {
             let items = items(pattern, symbols)?
                 .into_iter()
-                .map(|item| single(item, symbols).and_then(|item| value_of(item, element)))
+                .map(|item| single(item, symbols).and_then(|item| value_at(item, element, below)))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Value::List(items))
         }
@@ -246,7 +257,7 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
         } => {
             let mut items = items(pattern, symbols)?
                 .into_iter()
-                .map(|item| single(item, symbols).and_then(|item| value_of(item, element)))
+                .map(|item| single(item, symbols).and_then(|item| value_at(item, element, below)))
                 .collect::<Result<Vec<_>, _>>()?;
             items.sort();
             items.dedup();
@@ -265,8 +276,8 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
                         if symbol.name == symbols.element && arguments.len() == 2 =>
                     {
                         Ok((
-                            value_of(&arguments[0], key)?,
-                            value_of(&arguments[1], value)?,
+                            value_at(&arguments[0], key, below)?,
+                            value_at(&arguments[1], value, below)?,
                         ))
                     }
                     _ => Err(format!(
@@ -281,7 +292,7 @@ pub(super) fn value_of(pattern: &KorePattern, sort: &ValueSort) -> Result<Value,
             }
             Ok(Value::Map(entries))
         }
-        ValueSort::Data { table, .. } => data_value(pattern, table, 0),
+        ValueSort::Data { table, .. } => data_value(pattern, table, 0, level),
         builtin => domain_value(pattern, builtin, &builtin_kore_sort(sort)?),
     }
 }
@@ -367,8 +378,28 @@ fn single<'p>(
     }
 }
 
-/// The value of entry `index` of `table` whose KORE is `pattern`.
-fn data_value(pattern: &KorePattern, table: &DataSorts, index: usize) -> Result<Value, String> {
+/// The level below `level`, or a message when a value at `level` would be deeper than
+/// [`MAX_VALUE_DEPTH`].
+fn deeper(level: usize) -> Result<usize, String> {
+    if level >= MAX_VALUE_DEPTH {
+        Err(format!(
+            "the value is nested deeper than {MAX_VALUE_DEPTH} levels, the most a value read back \
+             may have"
+        ))
+    } else {
+        Ok(level + 1)
+    }
+}
+
+/// The value of entry `index` of `table` whose KORE is `pattern`, at `level` levels below the
+/// value read ([`value_at`]).
+fn data_value(
+    pattern: &KorePattern,
+    table: &DataSorts,
+    index: usize,
+    level: usize,
+) -> Result<Value, String> {
+    let below = deeper(level)?;
     let pattern = uninject(pattern);
     let entry = &table.sorts[index];
     if let KorePattern::Application { symbol, arguments } = pattern
@@ -384,7 +415,7 @@ fn data_value(pattern: &KorePattern, table: &DataSorts, index: usize) -> Result<
             .arguments
             .iter()
             .zip(arguments)
-            .map(|(sort, argument)| argument_value(argument, sort, table))
+            .map(|(sort, argument)| argument_value(argument, sort, table, below))
             .collect::<Result<Vec<_>, _>>()?;
         return Ok(Value::Apply {
             symbol: symbol.name.clone(),
@@ -394,7 +425,7 @@ fn data_value(pattern: &KorePattern, table: &DataSorts, index: usize) -> Result<
     entry
         .subsorts
         .iter()
-        .find_map(|subsort| argument_value(pattern, subsort, table).ok())
+        .find_map(|subsort| argument_value(pattern, subsort, table, level).ok())
         .ok_or_else(|| {
             format!(
                 "the pattern is no value of {}: its head is not one of the sort's constructors \
@@ -408,10 +439,11 @@ fn argument_value(
     pattern: &KorePattern,
     sort: &ArgumentSort,
     table: &DataSorts,
+    level: usize,
 ) -> Result<Value, String> {
     match sort {
-        ArgumentSort::Value(sort) => value_of(pattern, sort),
-        ArgumentSort::Data(index) => data_value(pattern, table, *index),
+        ArgumentSort::Value(sort) => value_at(pattern, sort, level),
+        ArgumentSort::Data(index) => data_value(pattern, table, *index, level),
         ArgumentSort::Empty(empty) => match uninject(pattern) {
             KorePattern::Application { symbol, arguments }
                 if symbol.name == empty.symbols.unit && arguments.is_empty() =>

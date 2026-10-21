@@ -1280,3 +1280,80 @@ fn a_refused_element_sort_keeps_its_reason() {
         Err(SortRefusal::Collection)
     );
 }
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6+09 review N8: deep values, and a renamed sort without literal syntax.
+
+/// `run` on a thread of a 2 MiB stack, the size of a test thread, so that the stack a recursion
+/// takes is the same whichever thread the test harness runs on.
+fn on_small_stack<T: Send + 'static>(run: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(run)
+        .expect("a thread")
+        .join()
+        .expect("no panic")
+}
+
+/// A value read back from KORE, or checked against its sort, recurses once per level of
+/// nesting; one nested deeper than [`super::MAX_VALUE_DEPTH`] (an anchor written by hand can be
+/// any depth, and the frontend reads any depth) is refused instead of exhausting the stack,
+/// and one at that depth is read on a test thread's stack.
+#[test]
+fn a_value_nested_too_deep_is_refused_without_exhausting_the_stack() {
+    let definition = values();
+    let syntax = values_syntax();
+    let tree = resolve(definition, &syntax, "Tree", &none());
+    let leaf = Value::Apply {
+        symbol: "Lblleaf".into(),
+        arguments: vec![int(0)],
+    };
+    let node = |left: Value| Value::Apply {
+        symbol: "Lblnode".into(),
+        arguments: vec![left, leaf.clone()],
+    };
+    let leaf_kore = to_kore(&leaf, &tree).unwrap();
+    let node_kore = to_kore(&node(leaf.clone()), &tree).unwrap();
+    let Pattern::Application { symbol, .. } = &node_kore else {
+        panic!()
+    };
+    // `node(node(... node(leaf(0), leaf(0)) ..., leaf(0)), leaf(0))`, `depth` nodes deep.
+    let deep_kore = |depth: usize| {
+        let mut pattern = leaf_kore.clone();
+        for _ in 0..depth {
+            pattern = Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![pattern, leaf_kore.clone()],
+            };
+        }
+        pattern
+    };
+    let deep_value = |depth: usize| {
+        let mut value = leaf.clone();
+        for _ in 0..depth {
+            value = node(value);
+        }
+        value
+    };
+    let most = super::MAX_VALUE_DEPTH;
+    // `depth` nodes above `leaf(0)` and its Int: `depth + 2` levels.
+    for (depth, fits) in [(most - 2, true), (most - 1, false), (100_000, false)] {
+        let (pattern, value, sort) = (deep_kore(depth), deep_value(depth), tree.clone());
+        let (read, checked) = on_small_stack(move || {
+            let read = super::term::value_of(&pattern, &sort).map(|_| ());
+            let checked = check_constraints(&value, &sort, &Constraints::default());
+            // Freeing a value 100,000 levels deep recurses as deep: the test leaks it.
+            std::mem::forget(value);
+            (read, checked)
+        });
+        assert_eq!(read.is_ok(), fits, "read at depth {depth}: {read:?}");
+        assert_eq!(
+            checked.is_ok(),
+            fits,
+            "checked at depth {depth}: {checked:?}"
+        );
+        if !fits {
+            assert!(read.unwrap_err().contains("deeper"), "depth {depth}");
+        }
+    }
+}

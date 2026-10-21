@@ -391,6 +391,16 @@ pub const MAX_DEPTH: u32 = 16;
 /// collections hold strings.
 pub const MAX_VALUE_SIZE: u128 = 1 << 17;
 
+/// The deepest value read back from KORE ([`print::parse_k_text`], the anchors) or checked
+/// against its sort ([`check_constraints`]): the number of values on its longest path from the
+/// value down (a builtin is 1 level, `leaf(0)` 2, a collection one more than its deepest
+/// element). Both recurse once per level, and an anchor written by hand can be nested to any
+/// depth, which the frontend reads, so a deeper value is refused rather than allowed to exhaust
+/// the stack (FZ-G6+09 review N8). Generated values are at most [`MAX_DEPTH`] constructors deep;
+/// this bound leaves room for hand-written anchors, such as a K user list (`List{Int, ","}`) of
+/// a thousand items, and its recursion fits in a 2 MiB thread stack.
+pub const MAX_VALUE_DEPTH: usize = 1024;
+
 /// Check `bounds` against [`MAX_INT_BITS`], [`MAX_GENERATED_LENGTH`] and [`MAX_DEPTH`].
 /// [`Generator::new`] calls it.
 ///
@@ -807,8 +817,27 @@ pub(crate) fn check_constraints(
     Ok(())
 }
 
-/// Check that `value` is a value of `sort`.
+/// Check that `value` is a value of `sort`, nested at most [`MAX_VALUE_DEPTH`] levels deep.
 pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String> {
+    check_shape_at(value, sort, 0)
+}
+
+/// The level below `level`, or a message when a value at `level` would be deeper than
+/// [`MAX_VALUE_DEPTH`] (the check recurses once per level).
+fn deeper(level: usize) -> Result<usize, String> {
+    if level >= MAX_VALUE_DEPTH {
+        Err(format!(
+            "the value is nested deeper than {MAX_VALUE_DEPTH} levels, the most a checked value \
+             may have"
+        ))
+    } else {
+        Ok(level + 1)
+    }
+}
+
+/// [`check_shape`] for a value at `level` levels below the value checked.
+fn check_shape_at(value: &Value, sort: &ValueSort, level: usize) -> Result<(), String> {
+    let below = deeper(level)?;
     match (value, sort.generated()) {
         (Value::Int(_), ValueSort::Int)
         | (Value::Bool(_), ValueSort::Bool)
@@ -832,22 +861,24 @@ pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String>
                 Ok(())
             }
         }
-        (Value::List(items), ValueSort::List { element, .. }) => {
-            items.iter().try_for_each(|item| check_shape(item, element))
-        }
+        (Value::List(items), ValueSort::List { element, .. }) => items
+            .iter()
+            .try_for_each(|item| check_shape_at(item, element, below)),
         (Value::Set(items), ValueSort::Set { element, .. }) => {
             if items.windows(2).any(|pair| pair[0] >= pair[1]) {
                 return Err("a Set's elements are not sorted and distinct".to_owned());
             }
-            items.iter().try_for_each(|item| check_shape(item, element))
+            items
+                .iter()
+                .try_for_each(|item| check_shape_at(item, element, below))
         }
         (Value::Map(entries), ValueSort::Map { key, value, .. }) => {
             if entries.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
                 return Err("a Map's keys are not sorted and distinct".to_owned());
             }
             entries.iter().try_for_each(|(entry_key, entry_value)| {
-                check_shape(entry_key, key)?;
-                check_shape(entry_value, value)
+                check_shape_at(entry_key, key, below)?;
+                check_shape_at(entry_value, value, below)
             })
         }
         (_, ValueSort::Data { table, .. }) => {
@@ -860,7 +891,7 @@ pub(crate) fn check_shape(value: &Value, sort: &ValueSort) -> Result<(), String>
                     Err("the value is not of the hole's sort".to_owned())
                 }
             } else {
-                check_data(value, table, 0).map(|_| ())
+                check_data_at(value, table, 0, level).map(|_| ())
             }
         }
         _ => Err("the value is not of the hole's sort".to_owned()),
@@ -884,6 +915,17 @@ pub(crate) fn check_data<'t>(
     table: &'t DataSorts,
     index: usize,
 ) -> Result<DataAlternative<'t>, String> {
+    check_data_at(value, table, index, 0)
+}
+
+/// [`check_data`] for a value at `level` levels below the value checked.
+fn check_data_at<'t>(
+    value: &Value,
+    table: &'t DataSorts,
+    index: usize,
+    level: usize,
+) -> Result<DataAlternative<'t>, String> {
+    let below = deeper(level)?;
     let entry = table
         .sorts
         .get(index)
@@ -892,7 +934,7 @@ pub(crate) fn check_data<'t>(
         return entry
             .subsorts
             .iter()
-            .find(|subsort| check_argument(value, subsort, table).is_ok())
+            .find(|subsort| check_argument(value, subsort, table, level).is_ok())
             .map(DataAlternative::Subsort)
             .ok_or_else(|| format!("the value is not a value of {}", entry.kore_sort));
     };
@@ -912,15 +954,21 @@ pub(crate) fn check_data<'t>(
         .arguments
         .iter()
         .zip(arguments)
-        .try_for_each(|(sort, argument)| check_argument(argument, sort, table))?;
+        .try_for_each(|(sort, argument)| check_argument(argument, sort, table, below))?;
     Ok(DataAlternative::Constructor(constructor))
 }
 
-/// Check that `value` is a value of the argument sort `sort` of `table`.
-fn check_argument(value: &Value, sort: &ArgumentSort, table: &DataSorts) -> Result<(), String> {
+/// Check that `value`, at `level` levels below the value checked, is a value of the argument
+/// sort `sort` of `table`.
+fn check_argument(
+    value: &Value,
+    sort: &ArgumentSort,
+    table: &DataSorts,
+    level: usize,
+) -> Result<(), String> {
     match sort {
-        ArgumentSort::Value(sort) => check_shape(value, sort),
-        ArgumentSort::Data(index) => check_data(value, table, *index).map(|_| ()),
+        ArgumentSort::Value(sort) => check_shape_at(value, sort, level),
+        ArgumentSort::Data(index) => check_data_at(value, table, *index, level).map(|_| ()),
         ArgumentSort::Empty(empty) => match (value, empty.kind) {
             (Value::List(items), CollectionKind::List)
             | (Value::Set(items), CollectionKind::Set)
