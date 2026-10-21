@@ -493,6 +493,7 @@ dependencies = [
  "krs-ir",
  "krs-ir-levels",
  "krs-syntax",
+ "num-bigint",
  "prettyplease",
  "proc-macro2",
  "quote",
