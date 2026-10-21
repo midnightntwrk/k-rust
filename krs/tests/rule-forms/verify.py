@@ -77,7 +77,9 @@ the outcomes must agree:
   marked(4))` to `pair(3, marked(4))` on both routes;
 - `heat-cool`: K tutorial lesson 14-A, `+` and `&&` evaluated by
   hand-written `#[k::rule(heat, hole = h)]` and `#[k::rule(cool, hole =
-  h)]` rules with KItem freezers (the `&&` rules with `result = Value`), and
+  h)]` rules with KItem freezers (the `&&` rules with `result = Value`;
+  two cool rules are readable records matching the value and its freezer,
+  two are `cells!` rules naming the tail), and
   `heat-cool-strict`, lesson 14-D, the same operators with `#[k::seqstrict]`.
   Both run `1 + 2 + 3`, `1 + (2 + 3)`, `true && false`, both `&&`
   bracketings, and the stuck `1 + true` to the same final configuration
@@ -564,7 +566,10 @@ def verify_heat_cool(harness: FixtureGate, pins: Ledger) -> None:
         "    requires isKResult(E:Exp)\n"
         "    [heat]\n",
         "  rule [cool-add-rhs]:\n"
-        "    <k> HOLE:Exp ~> freezer1 ( E:Exp ) ~> Tail:K => E:Exp + HOLE:Exp ~> Tail:K </k>\n"
+        "    <k> HOLE:Exp ~> freezer1 ( E:Exp ) => E:Exp + HOLE:Exp ... </k>\n"
+        "    [cool]\n",
+        "  rule [cool-add-lhs]:\n"
+        "    <k> HOLE:Exp ~> freezer2 ( E:Exp ) ~> Tail:K => HOLE:Exp + E:Exp ~> Tail:K </k>\n"
         "    [cool]\n",
         "    <k> HOLE:Exp && E:Exp => HOLE:Exp ~> freezer4 ( E:Exp ) ... </k>\n"
         "    [heat, result(Value)]\n",

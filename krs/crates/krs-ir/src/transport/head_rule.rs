@@ -60,16 +60,25 @@ protocol_shape! {
 }
 
 protocol_shape! {
-    /// The matched computation-cell head of a readable rule and its rewrite.
+    /// The matched computation-cell items of a readable rule and their
+    /// rewrite: `[p1, .., pn, ..]` matches at least `n` items and keeps the
+    /// rest, `[p1, .., pn]` (`exact`) matches exactly `n`.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolHeadRuleHead<T => term_map => U> {
-        /// One matched computation-cell head item.
-        pub subject: T => [term_map],
-        /// Replacement, splice, or erasure before the implicit preserved tail.
-        pub result: ProtocolHeadRuleResult<T> => [nested term_map],
+        /// The matched items, front first; at least one unless `exact`.
+        pub items: Vec<T> => [vec term_map],
+        /// Whether the pattern and the result name the whole cell, with no
+        /// preserved tail.
+        #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+        pub exact: bool => [keep],
+        /// Replacement, splice, or erasure of the matched items, before the
+        /// preserved tail unless `exact`; absent when the result leaves the
+        /// cell out, which only reads it.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub result: Option<ProtocolHeadRuleResult<T>> => [option nested term_map],
     }
-    map_order: [result, subject];
+    map_order: [result, items, exact];
 }
 
 /// Host head result.
@@ -491,6 +500,24 @@ fn validate_bindings<S, I, T>(
     Ok(())
 }
 
+/// An open computation-cell pattern matches at least one item (`[..]` is
+/// rejected: it would match any computation); a `for Sort` table's head is
+/// one item that the rule rewrites, never a whole cell or a read.
+fn validate_head<T>(
+    head: Option<&ProtocolHeadRuleHead<T>>,
+    term_table: bool,
+) -> Result<(), StateTransportError> {
+    if let Some(head) = head
+        && ((head.items.is_empty() && !head.exact)
+            || (term_table && (head.items.len() != 1 || head.exact || head.result.is_none())))
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::HeadRuleComputationItems,
+        ));
+    }
+    Ok(())
+}
+
 impl HostHeadRule {
     /// Validates host-only ownership and the closed binding/extra shape.
     ///
@@ -541,6 +568,7 @@ impl HostHeadRule {
                 ));
             }
         }
+        validate_head(self.head.as_ref(), self.head_sort.is_some())?;
         validate_bindings(&self.bindings, &self.extras)?;
         if let Some(requires) = &self.requires
             && (requires.key.role() != ProvenanceRole::RuleRequires || requires.key.ordinal() != 0)
@@ -711,6 +739,7 @@ impl DescriptorHeadRule {
         {
             return Err(StateTransportError::CellOwnerMismatch);
         }
+        validate_head(self.head.as_ref(), self.head_sort.is_some())?;
         validate_bindings(&self.bindings, &self.extras)?;
         if let Some(requires) = &self.requires
             && (requires.key.role() != ProvenanceRole::RuleRequires || requires.key.ordinal() != 0)
@@ -989,8 +1018,9 @@ mod tests {
                 refinement: Some(wire_sort()),
             }],
             head: Some(ProtocolHeadRuleHead {
-                subject: wire_term(),
-                result: ProtocolHeadRuleResult::Splice(vec![wire_term()]),
+                items: vec![wire_term()],
+                exact: false,
+                result: Some(ProtocolHeadRuleResult::Splice(vec![wire_term()])),
             }),
             requires: Some(crate::wire::WireRuleCondition {
                 key: key.clone(),
@@ -1100,8 +1130,9 @@ mod tests {
                 refinement: Some(descriptor_sort()),
             }],
             head: Some(ProtocolHeadRuleHead {
-                subject: descriptor_term(),
-                result: ProtocolHeadRuleResult::Replace(descriptor_term()),
+                items: vec![descriptor_term()],
+                exact: false,
+                result: Some(ProtocolHeadRuleResult::Replace(descriptor_term())),
             }),
             requires: Some(crate::DescriptorRuleCondition {
                 key,

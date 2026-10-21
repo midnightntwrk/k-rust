@@ -21,7 +21,7 @@ use crate::parse::{
 };
 use crate::path::{is_plain_path, parametric_collection_error};
 use crate::term_sort::{TermSort, parse_readable_sort};
-use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TokenRange};
+use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TermTree, TokenRange};
 
 enum TermTableExtra {
     Have(HaveMapExtra),
@@ -138,12 +138,64 @@ pub struct RuleClauseLayout {
     pub conditions: Option<TokenRange>,
 }
 
+/// The computation-cell items a readable clause matches: `[p1, .., pn, ..]`
+/// matches at least `n` items and keeps the rest, `[p1, .., pn]` exactly `n`.
+#[derive(Clone, Debug)]
+pub struct RuleHead {
+    pub(super) subject: bool,
+    pub(super) following: Vec<RuleHeadItem>,
+    pub(super) exact: bool,
+}
+
+/// One computation-cell item after the first that a readable clause matches.
+#[derive(Clone, Debug)]
+pub struct RuleHeadItem {
+    pub(super) pattern: crate::RulePattern,
+    pub(super) tree: TermTree,
+}
+
+impl RuleHead {
+    /// Whether the clause's rule subject is the first matched item; it is a
+    /// placeholder for `[]`, which matches no item.
+    #[must_use]
+    pub const fn subject(&self) -> bool {
+        self.subject
+    }
+
+    /// The matched items after the first, front first.
+    #[must_use]
+    pub fn following(&self) -> &[RuleHeadItem] {
+        &self.following
+    }
+
+    /// Whether the pattern names the whole cell, with no `..`.
+    #[must_use]
+    pub const fn exact(&self) -> bool {
+        self.exact
+    }
+}
+
+impl RuleHeadItem {
+    /// The item's rule pattern.
+    #[must_use]
+    pub const fn pattern(&self) -> &crate::RulePattern {
+        &self.pattern
+    }
+
+    /// The item's term tree.
+    #[must_use]
+    pub const fn tree(&self) -> &TermTree {
+        &self.tree
+    }
+}
+
 /// One named `pattern => result` clause in a readable rule block.
 #[derive(Clone, Debug)]
 pub struct RuleClause {
     pub(super) rule: RuleItem,
     pub(super) attribute: crate::RuleAttribute,
     pub(super) narrowings: Vec<RuleNarrowing>,
+    pub(super) head: Option<RuleHead>,
     pub(super) head_result: Option<RuleHeadResult>,
     pub(super) extras: Vec<RuleExtra>,
     pub(super) bindings: Vec<Ident>,
@@ -250,8 +302,16 @@ impl RuleClause {
         &self.narrowings
     }
 
+    /// Returns the matched computation-cell items, absent for a cell-record
+    /// clause that leaves the computation cell out.
+    #[must_use]
+    pub const fn head(&self) -> Option<&RuleHead> {
+        self.head.as_ref()
+    }
+
     /// Returns replacement, splice, or erasure head meaning, absent for a
-    /// cell-record clause that leaves the computation cell out.
+    /// cell-record clause that leaves the computation cell out of its
+    /// pattern or its result (which only reads it).
     #[must_use]
     pub const fn head_result(&self) -> Option<&RuleHeadResult> {
         self.head_result.as_ref()
@@ -344,9 +404,10 @@ impl RuleClause {
                     | ProvenanceRole::RuleRightRecordFieldName
             )
         });
-        if self.head_result.is_none() {
+        let subject = self.head.as_ref().is_some_and(|head| head.subject);
+        if !subject {
             // The placeholder subject of a clause without the computation cell
-            // has no authored tokens: the pattern is the whole subject record,
+            // (or matching `[]`) has no authored tokens: the pattern is the whole subject record,
             // and every left-side anchor comes from the cell entries below.
             anchors.retain(|anchor| {
                 !matches!(
@@ -400,7 +461,7 @@ impl RuleClause {
             }
         }
 
-        let mut left = if self.head_result.is_some() {
+        let mut left = if subject {
             let mut left =
                 RuleTermCounters::from_rule_pattern(self.rule.parameter().pattern.nodes());
             let mut subject_fields = Vec::new();
@@ -426,6 +487,12 @@ impl RuleClause {
             .iter()
             .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
             .count();
+        // The computation items after the first continue the subject's
+        // ordinals, before the other cells.
+        for item in self.head.iter().flat_map(|head| &head.following) {
+            append_rule_pattern_anchors(&mut anchors, &item.pattern, &item.tree, &mut left)?;
+            append_wildcard_anchors(&mut anchors, &item.tree, &mut wildcard)?;
+        }
         for extra in &self.extras {
             match extra {
                 RuleExtra::HaveMap { cell, entries } => {
@@ -561,20 +628,7 @@ impl RuleClause {
                         TokenRange::for_tokens(cell)?,
                     ));
                     append_rule_pattern_anchors(&mut anchors, before, before_tree, &mut left)?;
-                    let mut wildcards = Vec::new();
-                    before_tree.wildcard_ranges_preorder(&mut wildcards);
-                    for range in wildcards {
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleLeftWildcard,
-                            checked_ordinal(
-                                wildcard,
-                                ProvenanceRole::RuleLeftWildcard,
-                                range.first(),
-                            )?,
-                            range,
-                        ));
-                        wildcard += 1;
-                    }
+                    append_wildcard_anchors(&mut anchors, before_tree, &mut wildcard)?;
 
                     // A cell the result leaves out is read only and has no
                     // result anchors.
@@ -697,6 +751,12 @@ impl RuleClause {
     /// The term nodes of the clause in expansion order.
     fn expansion_order_nodes(&self) -> Vec<&[crate::term::TermNode]> {
         let mut terms = vec![self.rule.parameter().pattern.nodes()];
+        terms.extend(
+            self.head
+                .iter()
+                .flat_map(|head| &head.following)
+                .map(|item| item.pattern.nodes()),
+        );
         for extra in &self.extras {
             match extra {
                 RuleExtra::HaveMap { entries, .. } => {
@@ -739,6 +799,26 @@ impl RuleClause {
         }
         terms
     }
+}
+
+/// Anchors the wildcards of a left-side readable pattern, continuing the
+/// clause's wildcard ordinals.
+fn append_wildcard_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    tree: &TermTree,
+    wildcard: &mut usize,
+) -> Result<(), SyntaxError> {
+    let mut wildcards = Vec::new();
+    tree.wildcard_ranges_preorder(&mut wildcards);
+    for range in wildcards {
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLeftWildcard,
+            checked_ordinal(*wildcard, ProvenanceRole::RuleLeftWildcard, range.first())?,
+            range,
+        ));
+        *wildcard += 1;
+    }
+    Ok(())
 }
 
 /// Per-side ordinals of the K-sequence and collection anchors of readable
@@ -1296,6 +1376,11 @@ impl RuleBlock {
                 rule,
                 attribute,
                 narrowings,
+                head: Some(RuleHead {
+                    subject: true,
+                    following: Vec::new(),
+                    exact: false,
+                }),
                 head_result: Some(head_result),
                 extras: extras.into_iter().map(RuleExtra::from).collect(),
                 bindings,

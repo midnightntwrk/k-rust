@@ -1405,9 +1405,12 @@ fn render_rule(
         .iter()
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
+    // An open pattern that rewrites the cell names its tail; one that only
+    // reads it keeps the tail anonymous.
     let tail = rule
         .head
         .as_ref()
+        .filter(|head| !head.exact && head.result.is_some())
         .map(|_| fresh_ident("tail", &mut reserved));
     let state = fresh_ident("state", &mut reserved);
     let mut parameters = Vec::new();
@@ -1426,26 +1429,42 @@ fn render_rule(
     let mut left_cells = Vec::new();
     let mut right_cells = Vec::new();
     // A clause without the computation cell leaves it out of both sides (E7).
-    if let (Some(head), Some(computation), Some(tail)) = (&rule.head, &rule.computation_cell, &tail)
-    {
+    if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
         let computation = render_rule_cell_field(&computation.cell, &rule.configuration, package)?;
-        let subject = render_term(&head.subject, true, package, bundle)?;
-        left_cells.push(quote! {
-            #computation: k::configuration::KCell(#subject, #tail @ ..)
-        });
-        let result_items = match &head.result {
-            ProtocolHeadRuleResult::Replace(term) => {
-                vec![render_term(term, false, package, bundle)?]
-            }
-            ProtocolHeadRuleResult::Splice(items) => items
-                .iter()
-                .map(|term| render_term(term, false, package, bundle))
-                .collect::<Result<Vec<_>, _>>()?,
-            ProtocolHeadRuleResult::Erase => Vec::new(),
+        let subject = head
+            .items
+            .iter()
+            .map(|item| render_term(item, true, package, bundle))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rest = match (&tail, head.exact) {
+            (_, true) => Vec::new(),
+            (Some(tail), false) => vec![quote!(#tail @ ..)],
+            (None, false) => vec![quote!(..)],
         };
-        right_cells.push(quote! {
-            #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+        left_cells.push(quote! {
+            #computation: k::configuration::KCell(#(#subject),* #(, #rest)*)
         });
+        if let Some(result) = &head.result {
+            let result_items = match result {
+                ProtocolHeadRuleResult::Replace(term) => {
+                    vec![render_term(term, false, package, bundle)?]
+                }
+                ProtocolHeadRuleResult::Splice(items) => items
+                    .iter()
+                    .map(|term| render_term(term, false, package, bundle))
+                    .collect::<Result<Vec<_>, _>>()?,
+                ProtocolHeadRuleResult::Erase => Vec::new(),
+            };
+            right_cells.push(if let Some(tail) = &tail {
+                quote! {
+                    #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+                }
+            } else {
+                quote! {
+                    #computation: k::configuration::KCell(#(#result_items),*)
+                }
+            });
+        }
     }
 
     let mut instance_tails = 0_usize;
@@ -2191,10 +2210,11 @@ fn render_sort_type(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
+        // A framework sort, such as a computation item's `KItem`, is the
+        // facade's `k::KItem`.
+        SemanticSortRef::Declared(id) => render_sort_path(id, package),
         // A whole-group binder is typed by its nested `#[k::cell]` struct (KF-016).
-        SemanticSortRef::Declared(id) | SemanticSortRef::Cell(id) => {
-            render_declared_path(id, package)
-        }
+        SemanticSortRef::Cell(id) => render_declared_path(id, package),
         SemanticSortRef::Builtin(sort) => {
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))

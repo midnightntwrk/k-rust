@@ -95,6 +95,19 @@ When the overlap is intended, put the rules in one group with `#[k::rule(nondet 
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
 
+### Computation-cell patterns
+
+A readable `for Machine` record matches the computation cell with a Rust slice pattern over K's sequence, read from its front, where the next step is.
+`[p1, p2, ..]` matches a cell holding at least two items, the first matching `p1` and the second `p2`, and `..` keeps the rest; `[p1, p2]` matches a cell holding exactly those two items, and `[]` the empty computation `.K`.
+`~>` is associative with unit `.K`, so a pattern that ends in `..` splits the sequence once, after its items: `store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;` emits `<k> V:Int ~> store ( A:Int ) => .K ... </k>`, a finished value followed by the frame that consumes it, and `start: { k: [Run { n }] } => { k: [Boundary()] };` emits `<k> run ( N:Int ) => boundary </k>`, which applies only when nothing else is pending.
+Each item is one `KItem`; a binder repeated across items is nonlinear matching, as inside one item.
+`where v: Int` is the sort test that makes `v` a finished value: without it `v` is any item, and the rule overlaps every rule on the item that would follow it.
+The result has the pattern's shape: it ends in `..` exactly when the pattern does, since one `..` is the rest on both sides, so a pattern ending in `..` never drops the rest, and a whole-cell pattern has no rest to keep.
+`..` may only end the pattern, because the cell is read from its front, and it is anonymous; `[..]` alone would match any computation and is rejected (leave `k` out to keep the cell unchanged).
+Discarding the rest of the computation, or capturing it as a value, needs the `cells!` form.
+A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`.
+`krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
+
 ### Cells a rule only reads
 
 A readable `for Machine` record matches cells on the left and writes cells on the right; a cell the pattern matches and the result leaves out is only read, and keeps its content.
@@ -485,7 +498,8 @@ emits `rule [heat-add-rhs]: <k> E:Exp + HOLE:Exp => HOLE:Exp ~> freezer1 ( E:Exp
 The hole binder is always spelled `HOLE` in the emitted K, and no other binder takes that name; it is listed in a binder list like any other binder.
 K adds `requires notBool isKResult(HOLE)` to every heat rule and `requires isKResult(HOLE)` to every cool rule, so the rules carry no such guard; `result = Value` (K's `result(Value)`) uses `isValue` instead.
 Replacing hand-written rules for `+` and `&&` by `#[k::seqstrict]` gives the same steps: both run lesson 14 of the K tutorial alike natively and on Java LLVM, heat, compute, cool.
-The keys are written the same way on a readable `for Machine` clause and a `cells!` rule, whose results can put the hole before its freezer; a readable machine record matches one computation-cell item, so a cool rule, which matches the value and its freezer, is written as a `cells!` rule.
+The keys are written the same way on a readable `for Machine` clause and a `cells!` rule, so the cool rule above is also `cool_add_rhs: { k: [h, Freezer::AddRhs(e), ..] } => { k: [Add(e, h), ..] };` under `#[k::rule(cool, hole = h)]`, which emits `...` where the `cells!` rule names its tail.
+A heat or cool rule holds whatever follows it, so `krs check` rejects one whose computation-cell pattern is a whole cell (`krs::analysis::invalid-heat-cool`).
 The syntax rejects `heat` with `cool`, either without `hole = x`, `hole` or `result` without either, and either with `owise`, `priority`, `nondet`, or `anywhere`, and `#[k::fresh]` on a heat or cool rule, when the macros expand; and `krs check` rejects a hole that the left side does not bind, or binds twice (`krs::analysis::invalid-heat-cool`).
 Heat and cool rules are outside the overlap check, since K orders them by the condition it adds.
 

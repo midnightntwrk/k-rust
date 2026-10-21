@@ -664,8 +664,9 @@ mod tests {
             computation_cell_name: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: wire_term(),
-                result: ProtocolHeadRuleResult::Erase,
+                items: vec![wire_term()],
+                exact: false,
+                result: Some(ProtocolHeadRuleResult::Erase),
             }),
             requires: None,
             extras: vec![],
@@ -691,8 +692,9 @@ mod tests {
             computation_cell_name: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: host_term(),
-                result: ProtocolHeadRuleResult::Erase,
+                items: vec![host_term()],
+                exact: false,
+                result: Some(ProtocolHeadRuleResult::Erase),
             }),
             requires: None,
             extras: vec![],

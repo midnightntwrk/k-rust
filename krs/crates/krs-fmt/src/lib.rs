@@ -292,6 +292,31 @@ k::rules! { for Exp; use ExpSyntax::*; pick:Pick(c,x,y)=>Choose::<Exp>{cond:c,th
         assert!(output.contains("Choose::<Exp> {"), "{output}");
     }
 
+    /// Computation-cell patterns of several items, a whole cell, `[]`, and a
+    /// read-only `k` format like `[head, ..]`, and formatting is idempotent.
+    #[test]
+    fn computation_cell_patterns_format_idempotently() {
+        let source = "k::rules! { for Machine; use Op::*;
+store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;
+start:  { k: [Run { n }],   left: _ } => { k: [Op::Boundary], left: n };
+idle: { k: [] } => { k: [Op::Boundary] };
+  tick: { k: [Op::Boundary, ..], left: n } => { left: int::sub(n, 1) }; }
+";
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        assert_eq!(
+            format_source(&output, &FormatOptions::default()).unwrap(),
+            output
+        );
+        for expected in [
+            "k: [v, Store { addr: a }, ..]",
+            "k: [Run { n }]",
+            "k: []",
+            "left: int::sub(n, 1)",
+        ] {
+            assert!(output.contains(expected), "{expected}:\n{output}");
+        }
+    }
+
     #[test]
     fn non_krs_rules_remain_under_rustfmt_policy() {
         let source = r"use other::rules;

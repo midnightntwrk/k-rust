@@ -106,11 +106,13 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
     let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) else {
         return Err("walkthrough requires a computation-cell head".into());
     };
-    let DescriptorTerm::Application {
-        reference,
-        arguments,
-        ..
-    } = &head.subject
+    let [
+        DescriptorTerm::Application {
+            reference,
+            arguments,
+            ..
+        },
+    ] = head.items.as_slice()
     else {
         return Err("walkthrough subject requires an application".into());
     };
@@ -126,11 +128,11 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let DescriptorHeadRuleResult::Replace(DescriptorTerm::Application {
+    let Some(DescriptorHeadRuleResult::Replace(DescriptorTerm::Application {
         reference: result,
         arguments: result_args,
         ..
-    }) = &head.result
+    })) = &head.result
     else {
         return Err("walkthrough requires an application replacement".into());
     };

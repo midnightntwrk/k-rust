@@ -331,6 +331,17 @@ bug — report it, don't guess.
   constraint), slice patterns on the k sequence (`[head, ..]`, head-first
   — K's cons cell, not a Vec stack), result-side `..` (the framed tail).
   [r6a]
+  *E5 amendment (2026-10-21, SM83 feedback item 4).* The k-sequence
+  slice pattern is a front prefix of any length: `[p1, .., pn, ..]` (at
+  least n items, the rest kept) or `[p1, .., pn]` (exactly n items; `[]`
+  is `.K`). `..` ends the pattern and is anonymous, since the cell is the
+  continuation, read from its front; `[..]` alone is rejected. The result
+  is open exactly when the pattern is, so a missing `..` never drops the
+  continuation; dropping or capturing it stays in `cells!`. A `k` entry
+  the result leaves out is read only, like any other cell (E7). The rules
+  stay in the head-rule IR, which carries the items and an `exact` flag:
+  readable binder sorts are inferred (E3) and `cells!` binders are typed,
+  so one surface form keeps one IR.
 - **E6 — Builtins are term functions** (`int::add(lhs, rhs)`,
   `map::update(e, k, v)` — persistent update returning a new map); K's
   `E[X <- V]` sugar is removed from the language. Lowercase builtin

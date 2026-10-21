@@ -2156,10 +2156,18 @@ impl<
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleHead<T> {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            subject: sample::<T>(),
-            result: sample::<ProtocolHeadRuleResult<T>>(),
-        }]
+        vec![
+            Self {
+                items: vec![sample::<T>()],
+                exact: false,
+                result: Some(sample::<ProtocolHeadRuleResult<T>>()),
+            },
+            Self {
+                items: Vec::new(),
+                exact: true,
+                result: None,
+            },
+        ]
     }
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleResult<T> {

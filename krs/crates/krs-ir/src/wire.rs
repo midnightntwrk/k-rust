@@ -463,8 +463,9 @@ mod tests {
                 computation_cell_name: None,
                 bindings: vec![],
                 head: Some(super::WireHeadRuleHead {
-                    subject: term(),
-                    result: super::WireHeadRuleResult::Replace(term()),
+                    items: vec![term()],
+                    exact: false,
+                    result: Some(super::WireHeadRuleResult::Replace(term())),
                 }),
                 requires: None,
                 extras: vec![],

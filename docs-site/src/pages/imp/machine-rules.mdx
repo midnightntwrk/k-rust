@@ -21,6 +21,7 @@ The right side replaces only that computation head.
 `env` is matched but not named on the right, so `var` only reads it: a cell the result leaves out keeps its content, and the result names only the cells a rule changes.
 
 The omitted environment cell and the `..` sequence tail and map tail are frames: they persist unchanged.
+The computation cell's pattern is a slice pattern read from the front: `[a, b, ..]` matches two items and keeps the rest, and `[a]` a cell holding exactly one item; see [computation-cell patterns](/reference/language#computation-cell-patterns).
 This is one simultaneous symbolic rewrite, not a series of Rust field assignments.
 
 ## Persistent map updates

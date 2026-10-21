@@ -1343,7 +1343,7 @@ pub(super) fn validate_reparsed_payload(
                     }
                 })
                 .collect::<Vec<_>>();
-            let host_rhs = match rule.head.as_ref().map(|head| &head.result) {
+            let host_rhs = match rule.head.as_ref().and_then(|head| head.result.as_ref()) {
                 None => "none",
                 Some(krs_ir::ProtocolHeadRuleResult::Replace(_)) => "replace",
                 Some(krs_ir::ProtocolHeadRuleResult::Splice(_)) => "splice",

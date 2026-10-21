@@ -446,17 +446,19 @@ fn collect_head_rule_packages(
         }
     }
     if let Some(head) = &rule.head {
-        collect_term_packages(&head.subject, packages);
+        for term in &head.items {
+            collect_term_packages(term, packages);
+        }
         match &head.result {
-            krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                 collect_term_packages(term, packages);
             }
-            krs_ir::ProtocolHeadRuleResult::Splice(items) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
                 for term in items {
                     collect_term_packages(term, packages);
                 }
             }
-            krs_ir::ProtocolHeadRuleResult::Erase => {}
+            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
         }
     }
     for extra in &rule.extras {

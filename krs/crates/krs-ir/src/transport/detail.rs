@@ -135,6 +135,7 @@ details! {
         FrameFormIsInvalidOnThisRuleSide => "frame form is invalid on this rule side",
         UndeclaredHeadRuleExtraBinding => "head-rule extra references an undeclared binding",
         HeadRuleHeaderOwnership => "head-rule header ownership",
+        HeadRuleComputationItems => "head-rule computation-cell items: an open pattern matches at least one item, and a term table's head is one rewritten item",
         HeadRuleOrderedFallbackPriority => "head-rule ordered fallback priority",
         InvalidNondetGroup => "nondet group outside a transition or with an invalid identifier",
         HeadRuleRequiresProvenanceKey => "head-rule requires provenance key",

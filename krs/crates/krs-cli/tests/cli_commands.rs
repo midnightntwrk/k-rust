@@ -883,6 +883,221 @@ fn a_rule_without_the_computation_cell_that_only_reads_changes_no_cell() {
     }
 }
 
+/// A machine whose rules read several computation items; `{rules}` are the
+/// clauses of one readable table.
+const K_PATTERNS: &str = r#"
+use krs::KResult;
+use krs::builtin::{Int, KSequence, int};
+
+krs::sorts! { Step: krs::KItem; }
+
+#[krs::constructors(sort = Step, result = KResult)]
+#[krs::precedence((Load, Store, Run, Boundary, Abort))]
+pub enum Op {
+    #[krs::syntax("load ( {addr} )")]
+    Load { addr: Int },
+    #[krs::syntax("store ( {addr} )")]
+    Store { addr: Int },
+    #[krs::syntax("run ( {n} )")]
+    Run { n: Int },
+    #[krs::syntax("boundary")]
+    Boundary,
+    #[krs::syntax("abort ( {code} )")]
+    Abort { code: Int },
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub acc: Int,
+    #[krs::cell]
+    pub left: Int,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(#[krs::config_var(name = "PGM", main)] program: KSequence, acc: Int, left: Int) -> Self {
+        Self { k: krs::k![program], acc, left }
+    }
+}
+
+#[rustfmt::skip]
+krs::rules! {
+    for Machine;
+    use Op::*;
+    {rules}
+}
+"#;
+
+/// The emitted K sentence labelled `label`.
+fn emitted_rule(definition: &str, label: &str) -> String {
+    let start = definition
+        .find(&format!("  rule [{label}]:"))
+        .unwrap_or_else(|| panic!("rule {label} is emitted:\n{definition}"));
+    let sentence = &definition[start..];
+    let end = sentence[1..]
+        .find("\n  rule ")
+        .map(|end| end + 1)
+        .or_else(|| sentence.find("endmodule"))
+        .unwrap_or(sentence.len());
+    sentence[..end].trim_end().to_owned()
+}
+
+fn emit_definition(target: &Path, source: &str) -> String {
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), source);
+    let output = temporary.path().join("emitted");
+    assert_success(&command(target, &manifest, "emit-k", Some(&output), &[]));
+    fs::read_to_string(output.join("definition.k")).unwrap()
+}
+
+fn check_failure(target: &Path, source: &str) -> String {
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), source);
+    let check = command(target, &manifest, "check", None, &[]);
+    let stderr = String::from_utf8(check.stderr).unwrap();
+    assert!(!check.status.success(), "accepted:\n{source}");
+    stderr
+}
+
+const K_PATTERN_RULES: &str = "
+    store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, int::add(v, a)) } where v: Int;
+    start: { k: [Run { n }], left: _ } => { k: [Op::Boundary], left: n };
+    abort: { k: [Abort { code: c }, _ignored], acc: _ } => { k: [], acc: c };
+    idle: { k: [], left: n } => { k: [Op::Boundary], left: int::add(n, 1) };
+    tick: { k: [Op::Boundary, ..], left: n } => { left: int::sub(n, 1) };
+";
+
+#[test]
+fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
+    let target = shared_fixture_target();
+    let source = K_PATTERNS.replace("{rules}", K_PATTERN_RULES);
+    let definition = emit_definition(target.path(), &source);
+    let rules = ["store", "start", "abort", "idle", "tick"]
+        .map(|label| emitted_rule(&definition, label))
+        .join("\n");
+    assert_eq!(
+        rules,
+        "  rule [store]:\n    <k> V:Int ~> store ( A:Int ) => .K ... </k>\n    <acc> S:Int => S:Int +Int (V:Int +Int A:Int) </acc>\n\
+         \x20 rule [start]:\n    <k> run ( N:Int ) => boundary </k>\n    <left> _ => N:Int </left>\n\
+         \x20 rule [abort]:\n    <k> abort ( C:Int ) ~> _Ignored:KItem => .K </k>\n    <acc> _ => C:Int </acc>\n\
+         \x20 rule [idle]:\n    <k> .K => boundary </k>\n    <left> N:Int => N:Int +Int 1 </left>\n\
+         \x20 rule [tick]:\n    <k> boundary ... </k>\n    <left> N:Int => N:Int -Int 1 </left>",
+    );
+
+    // `krs expand` writes each as a `cells!` rule that compiles back to the
+    // same rules; the reference spelling names the tail of a rule that
+    // rewrites an open pattern, which K writes as a variable where the
+    // readable rule writes `...`.
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let expanded = command(target.path(), &manifest, "expand", None, &[]);
+    assert_success(&expanded);
+    let expanded = String::from_utf8(expanded.stdout).unwrap();
+    let words = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
+    for reference in [
+        "k : k::configuration::KCell(v, crate ::Op::Store(a), tail @ ..)",
+        "k : k::configuration::KCell(..tail)",
+        "k : k::configuration::KCell(crate ::Op::Run(n))",
+        "k : k::configuration::KCell(crate ::Op::Abort(c), _ignored)",
+        "k : k::configuration::KCell(), left : k::configuration::Cell(n), state @ ..",
+        "k : k::configuration::KCell(crate ::Op::Boundary, ..)",
+    ] {
+        assert!(words.contains(reference), "{reference}:\n{expanded}");
+    }
+    let reference = emit_definition(
+        target.path(),
+        &format!("extern crate krs as k;\n{expanded}"),
+    );
+    let without_k = |sentence: String| {
+        sentence
+            .lines()
+            .filter(|line| !line.contains("<k>"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        without_k(emitted_rule(&reference, "store")),
+        without_k(emitted_rule(&definition, "store")),
+        "{expanded}"
+    );
+    assert!(
+        emitted_rule(&reference, "store")
+            .contains("<k> V:Int ~> store ( A:Int ) ~> Tail:K => .K ~> Tail:K </k>"),
+        "{expanded}"
+    );
+    for label in ["start", "abort", "idle", "tick"] {
+        assert_eq!(
+            emitted_rule(&reference, label),
+            emitted_rule(&definition, label),
+            "{expanded}"
+        );
+    }
+}
+
+#[test]
+fn readable_k_patterns_overlap_only_where_one_computation_matches_both() {
+    let target = shared_fixture_target();
+    // An unnarrowed item binder is any item, so `load(1) ~> store(2)` matches both.
+    let stderr = check_failure(
+        target.path(),
+        &K_PATTERNS.replace(
+            "{rules}",
+            "store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, a) };
+             load: { k: [Load { addr: a }, ..], acc: _ } => { k: [..], acc: a };",
+        ),
+    );
+    assert!(
+        stderr.contains("krs::analysis::overlapping-rule-heads"),
+        "{stderr}"
+    );
+    // A whole one-item cell and a pattern of at least two items never meet.
+    let source = K_PATTERNS.replace(
+        "{rules}",
+        "store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, int::add(v, a)) } where v: Int;
+         load: { k: [Load { addr: a }, ..], acc: _ } => { k: [..], acc: a };
+         start: { k: [Run { n }], left: _ } => { k: [Op::Boundary], left: n };
+         run_more: { k: [Run { n }, Op::Boundary, ..], left: _ } => { k: [..], left: n };",
+    );
+    emit_definition(target.path(), &source);
+    let stderr = check_failure(
+        target.path(),
+        &K_PATTERNS.replace(
+            "{rules}",
+            "start: { k: [Run { n }], left: _ } => { k: [Op::Boundary], left: n };
+             run_any: { k: [Run { n }, ..], left: _ } => { k: [..], left: n };",
+        ),
+    );
+    assert!(
+        stderr.contains("krs::analysis::overlapping-rule-heads"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn readable_k_patterns_that_change_nothing_or_heat_a_whole_cell_are_rejected() {
+    let target = shared_fixture_target();
+    for (rules, code) in [
+        (
+            "same: { k: [Run { n }, ..] } => { k: [Run { n }, ..] };",
+            "krs::analysis::rule-changes-no-cell",
+        ),
+        (
+            "read: { k: [Run { n }, Op::Boundary, ..] } => {};",
+            "krs::analysis::rule-changes-no-cell",
+        ),
+        (
+            "#[krs::rule(cool, hole = h)] cool: { k: [h, Store { addr: a }] } => { k: [Load { addr: a }] } where h: Int;",
+            "krs::analysis::invalid-heat-cool",
+        ),
+    ] {
+        let stderr = check_failure(target.path(), &K_PATTERNS.replace("{rules}", rules));
+        assert!(stderr.contains(code), "{rules}:\n{stderr}");
+    }
+}
+
 fn command(
     target: &Path,
     manifest: &Path,

@@ -337,7 +337,9 @@ pub(super) fn lower_head_rule_descriptor(
             &mut selected,
         )?);
     }
-    if rule.head.is_none() {
+    // Every cell record is checked, since one may now only read `k`; a
+    // `for Sort` table's clause is a K term rule and is not.
+    if rule.head_sort.is_none() {
         check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
     }
     super::cell_states::check_implicit_and_explicit_instances(
@@ -519,9 +521,11 @@ fn lower_rule_existentials(
     Ok((existentials, ensures))
 }
 
-/// Rejects the two readable machine rules without the computation cell that
-/// can never be what the author meant (KF-015): one that changes no cell, and
-/// one that is enabled in every configuration, so execution never terminates.
+/// Rejects the readable machine rules that can never be what the author
+/// meant: one that changes no cell, and one without the computation cell
+/// (KF-015) that is enabled in every configuration, so execution never
+/// terminates. A rule whose computation-cell pattern matches at least one
+/// item, or the whole cell, constrains the state.
 fn check_framed_computation_rule(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
@@ -555,7 +559,8 @@ fn check_framed_computation_rule(
             range: range()?,
         });
     }
-    let unconstrained = rule.requires.is_none()
+    let unconstrained = rule.head.is_none()
+        && rule.requires.is_none()
         && rule.extras.iter().zip(clauses).all(|(extra, clause)| {
             clause.as_fixed().is_some_and(|clause| {
                 matches!(
@@ -785,17 +790,20 @@ fn infer_head_rule(
     seeds: &HeadRuleSeeds,
 ) -> Result<(), DescriptorLoweringError> {
     if let Some(head) = &rule.head {
-        builder.infer(&head.subject, head_sort, true)?;
+        for item in &head.items {
+            let k_item = builder.k_item_sort.clone();
+            builder.infer(item, head_item_sort(item, head_sort, k_item.as_ref()), true)?;
+        }
         match &head.result {
-            krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                 builder.infer(term, head_sort, false)?;
             }
-            krs_ir::ProtocolHeadRuleResult::Splice(items) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
                 for term in items {
                     builder.infer(term, head_sort, false)?;
                 }
             }
-            krs_ir::ProtocolHeadRuleResult::Erase => {}
+            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
         }
     }
     for extra in &rule.extras {
@@ -867,6 +875,7 @@ fn infer_head_rule(
         rule.requires.as_ref(),
         rule.ensures.as_ref(),
     )?;
+    default_item_binders(builder, rule, head_sort);
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
         if !builder.binding_sorts.contains_key(&binding.name) {
@@ -879,8 +888,52 @@ fn infer_head_rule(
     Ok(())
 }
 
-/// Lowers the matched head and its result into the computation-cell clause,
-/// which preserves the implicit K-sequence tail.
+/// Gives an item binder of a record that nothing else constrains its default
+/// sort: it is any one item, a `KItem`.
+fn default_item_binders(
+    builder: &mut StructuredTermBuilder<'_>,
+    rule: &krs_ir::DescriptorHeadRule,
+    head_sort: Option<&SemanticSortRef>,
+) {
+    if head_sort.is_none()
+        && let (Some(head), Some(k_item)) = (&rule.head, builder.k_item_sort.clone())
+    {
+        for item in &head.items {
+            if let DescriptorTerm::Variable { name, .. } = item
+                && !builder.binding_sorts.contains_key(name)
+                && builder
+                    .binding_constraints
+                    .get(name)
+                    .is_none_or(BTreeSet::is_empty)
+            {
+                builder
+                    .binding_constraints
+                    .entry(name.clone())
+                    .or_default()
+                    .insert(k_item.clone());
+            }
+        }
+    }
+}
+
+/// The expected sort of one matched computation item: a `for Sort` table's
+/// head has the table's sort; in a record, `_` is any one item, a `KItem`,
+/// and every other item has the sort it states or infers.
+fn head_item_sort<'a>(
+    item: &DescriptorTerm,
+    head_sort: Option<&'a SemanticSortRef>,
+    k_item: Option<&'a SemanticSortRef>,
+) -> Option<&'a SemanticSortRef> {
+    match (head_sort, item) {
+        (None, DescriptorTerm::Wildcard { .. }) => k_item,
+        _ => head_sort,
+    }
+}
+
+/// Lowers the matched items and their result into the computation-cell
+/// clause: an open pattern preserves the implicit K-sequence tail, an exact
+/// one names the whole cell, and a result that leaves the cell out only
+/// reads it.
 fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
@@ -890,40 +943,64 @@ fn lower_head_rule_computation_clause(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
-    builder.head_pending = true;
-    let subject_head = builder.lower(&head.subject, head_sort, true)?;
-    let subject_item_sort = subject_head.sort().clone();
+    let mut subject_items = Vec::with_capacity(head.items.len());
+    for (index, item) in head.items.iter().enumerate() {
+        // Only the first item is the sentence's head (KF-027).
+        builder.head_pending = index == 0;
+        let k_item = builder.k_item_sort.clone();
+        subject_items.push(builder.lower(
+            item,
+            head_item_sort(item, head_sort, k_item.as_ref()),
+            true,
+        )?);
+    }
+    builder.head_pending = false;
+    let subject_item_sort = match subject_items.as_slice() {
+        [item] => item.sort().clone(),
+        items => common_sequence_item_sort(descriptor, items, sort_parents, false)?,
+    };
     let before_k = SemanticTerm::k_sequence(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-subject")?,
         subject_item_sort,
-        vec![subject_head],
+        subject_items,
     );
-    let result_items = match &head.result {
-        krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            vec![builder.lower(term, head_sort, false)?]
+    let post = match &head.result {
+        None => CellPost::Preserve,
+        Some(result) => {
+            let result_items = match result {
+                krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+                    vec![builder.lower(term, head_sort, false)?]
+                }
+                krs_ir::ProtocolHeadRuleResult::Splice(items) => items
+                    .iter()
+                    .map(|term| builder.lower(term, head_sort, false))
+                    .collect::<Result<Vec<_>, _>>()?,
+                krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
+            };
+            let result_item_sort =
+                common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
+            let after_k = SemanticTerm::k_sequence(
+                semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
+                result_item_sort,
+                result_items,
+            );
+            CellPost::Replace { term: after_k }
         }
-        krs_ir::ProtocolHeadRuleResult::Splice(items) => items
-            .iter()
-            .map(|term| builder.lower(term, head_sort, false))
-            .collect::<Result<Vec<_>, _>>()?,
-        krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
     };
-    let result_item_sort =
-        common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
-    let after_k = SemanticTerm::k_sequence(
-        semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
-        result_item_sort,
-        result_items,
-    );
+    let frame = if head.exact {
+        CellContentFrame::Exact
+    } else {
+        CellContentFrame::KSequenceTail {
+            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
+            binding: None,
+        }
+    };
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
         semantic_cell_id(&computation.cell)?,
         before_k,
-        CellPost::Replace { term: after_k },
-        CellContentFrame::KSequenceTail {
-            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
-            binding: None,
-        },
+        post,
+        frame,
     ))
 }
 
