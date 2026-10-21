@@ -778,7 +778,7 @@ mod tests {
             .expect("format formatted body");
         assert_eq!(output, again, "equation table formatting is idempotent");
         let actual = format!("body:\n{output}");
-        expect_test::expect![[r#"
+        expect_test::expect![[r"
             body:
                 for R8;
                 use Operand::*;
@@ -787,7 +787,7 @@ mod tests {
                 // The pair.
                 #[k::equation(owise)]
                 r8_other: _       => HlIndirect;  // fallback
-                pair    : (0, -1) => Reg(A);"#]]
+                pair    : (0, -1) => Reg(A);"]]
         .assert_eq(&actual);
     }
 
