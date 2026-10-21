@@ -2502,6 +2502,7 @@ k-rust's own schema versions:
 - `k_rust::backend::IMPLICATION_SCHEMA_VERSION` (2): the schema of an implication result (`ImplicationResult`).
 - `k_rust::backend::VARIABLE_IDENTITY` (3): the scheme by which the backend reads and prints variable names ([Variable names](#variable-names)); its rustdoc states what each version promises.
 - `k_rust_kore::measure::COUNTER_SCHEMA_VERSION` (21): the counter set of the `KRUST_COUNTERS` document a `measure` build writes.
+- `k_rust_fuzz::report::REPORT_VERSION` (1): the schema of a `krust fuzz` campaign report (`FuzzReport`), the canonical JSON document `{"schema": "krust-fuzz-report", "version": 1, …}` that the fuzz library and the `runFuzzCampaign` call of the napi and wasm packages return. The report's `identity.engine-version` (`k_rust_fuzz::ENGINE_VERSION`) is not a schema version: it names the engine's case sequence, which is content.
 
 Each moves only for a change of its schema, never for a change of content or of a result.
 A change of a schema need not move its number: besides `BACKEND_SCHEMA_VERSION`'s, `IMPLICATION_SCHEMA_VERSION` stayed 2 when e4c9ea67d added the optional `failure` field.
