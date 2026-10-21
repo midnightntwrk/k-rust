@@ -11,6 +11,7 @@ mod console;
 mod coverage;
 mod emit;
 mod error;
+mod int_facts;
 mod lowering;
 mod overlap;
 pub mod partition;
