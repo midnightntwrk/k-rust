@@ -4377,6 +4377,16 @@ fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
 /// - `(a andBool b) = true` and `(a orBool b) = false` become the conjunction of the operands'
 ///   equations, and `notBool a = v` becomes `a = not v`; each operand's equation states its own
 ///   definedness, so no obligation is added.
+/// - `(a andThenBool b) = true` and `(a orElseBool b) = false` become the same conjunctions,
+///   `a`'s equation first. `a andThenBool b` is `true` exactly where `a` is `true` and `b` is
+///   `true`: a `false` `a` gives `false`, or `\bottom` where the operand it discards is read
+///   strictly, neither of which is `true`, and an undefined `a` gives `\bottom`; dually for
+///   `orElseBool`. The equivalence therefore holds whatever the definedness of the discarded
+///   operand, and adds no obligation. It is an equivalence of the asserted equation, not an
+///   evaluation of the connective: a conjunction is simplified in order and stops at a false
+///   conjunct, so `b` is simplified only under `a`'s equation and never where it is refuted.
+///   `(a andThenBool b) = false` and `(a orElseBool b) = true` are left as they are: whether a
+///   deciding `a` suffices there depends on the discarded operand's definedness.
 /// - `(a andBool b) = false` and `(a orBool b) = true` become a disjunction of the operands'
 ///   equations conjoined with `\ceil(a) /\ \ceil(b)`: one disjunct holding says nothing of the
 ///   other operand, which the strict connective requires defined.
@@ -4478,6 +4488,14 @@ fn normalize_hooked_boolean_predicate(
                     return decided_by_one(first, second, value)
                         .unwrap_or(Predicate::Equals(left, right));
                 }
+                let operands = vec![bool_operand(first, value), bool_operand(second, value)];
+                return normalize_predicate(Predicate::And(operands.into()));
+            }
+            ("BOOL.andThen", [first, second]) if value => {
+                let operands = vec![bool_operand(first, value), bool_operand(second, value)];
+                return normalize_predicate(Predicate::And(operands.into()));
+            }
+            ("BOOL.orElse", [first, second]) if !value => {
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
                 return normalize_predicate(Predicate::And(operands.into()));
             }
