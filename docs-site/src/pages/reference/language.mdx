@@ -23,6 +23,8 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::configuration]`, `#[k::cell]`, `#[k::init]` | configuration schema, cells, and declarative initialization | [Configuration and state](/imp/configuration-and-state) |
 | `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
+| `#[k::function]` on a `fn` | a function declared by its signature, and with a body its one equation | [Functions declared by a fn](#functions-declared-by-a-fn) |
+| `k::equations!` | a table of labelled equations of one function | [Equation tables](#equation-tables) |
 | `#[k::alias]`, `#[k::context_alias]` | reversible static aliases and named evaluation contexts | [Static semantics](/semantics/static-semantics) |
 | `#[k::context]` | an evaluation context, K's `context`: where evaluation may happen; K turns it into a heat rule and a cool rule | [Contexts](#contexts) |
 | `#[k::desugar]` | one-way static expansion, K's `macro`; with `recursive` on the production, `macro-rec` (and `#[k::alias(recursive)]` is `alias-rec`) | [Desugar and recursive aliases](#desugar-and-recursive-aliases) |
@@ -252,6 +254,60 @@ Because a rule that calls such a function reads those cells, the overlap check c
 
 The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and frames, and its binders are the equation's: the binder list becomes mandatory and declares the subject's binders, then the context's, each in first-occurrence order.
 A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
+
+### Functions declared by a fn
+
+`#[k::function(..)]` on a `fn` declares the function symbol from its signature, and a body declares its one equation:
+
+```rust
+/// The low 8 bits of an integer.
+#[k::function(total, internal)]
+pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(value, 256)
+}
+```
+
+It is the struct `pub struct Byte { pub value: k::Term<Int> }` with `#[k::function(total, internal, sort = Int, syntax = "byte({value})")]`, plus the equation `#[k::equation] fn byte(k::term![Byte(value)]: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(value, 256) }`, and `krs expand` prints exactly that pair.
+The fn is named as its applications are written, `Byte(x)`, in UpperCamelCase, so the name a rule uses is the name the declaration spells; the equation takes the snake-case name, `byte` (`FieldX` gives `field_x`, `R8` gives `r8`).
+The return type is the sort, so a `sort` key is rejected; every parameter is a plain name typed `k::Term<S>`, because one equation over variables is the definition of the function, and cases belong to a table or to `#[k::equation]` fns.
+`#[k::requires(..)]` on the fn guards the equation, `total` and `partial` mean what they mean on the struct, and a generic fn, a pattern parameter, `#[k::equation(..)]`, and `hook` with a body are rejected (`krs::syntax::invalid-function-shorthand`).
+
+A fn that ends with `;` declares the symbol only, for a [table](#equation-tables) or `#[k::equation]` fns to define: `#[k::function(total, internal)] pub fn R8(index: k::Term<Int>) -> k::Term<Operand>;`.
+
+`syntax` is optional on every function, struct or fn, that is not program syntax: one marked `internal`, or not `pub` (see [Program syntax and the module pair](#program-syntax-and-the-module-pair)).
+The default is the K symbol applied to the fields, `byte({value})` or `fieldX({opcode})`.
+A program-syntax function needs an explicit `syntax` (`krs::syntax::missing-function-syntax`): in a program, a terminal outranks the object language's tokens, so a default `byte` would turn a program variable named `byte` into a keyword.
+A function with a `Map`, `List`, or `Set` field already sits outside `<NS>-SYNTAX`, but that placement follows from K's module layout, so a default still asks for `internal`.
+The template is used even when no program spells the function: `krs run` prints applications through it, emitted `.k` writes every rule that mentions the function with it, and `raw_k!` names the function by it.
+
+### Equation tables
+
+`k::equations!` writes the equations of one function as a table, one equation per row:
+
+```rust
+k::equations! {
+    for R8;
+    use Operand::*;
+    use Register::*;
+    r8_b          : 0  => Reg(B);
+    r8_hl_indirect: 6  => HlIndirect;
+    r8_a          : 7  => Reg(A);
+    #[k::equation(owise)]
+    r8_other      : _  => Immediate;
+}
+```
+
+`for R8;` names a non-parametric `#[k::function]`, and each row `label: args => result;` is the equation `#[k::equation] fn label(k::term![R8(args)]: ..) -> .. { result }`, named by its label, with `R8`'s result sort.
+The arguments are one pattern, or a parenthesized list for several (`both: (true, v) => v;`, `none: () => 0;`), with every pattern an equation accepts; a row may carry `#[k::equation(..)]` keys, `#[k::requires(..)]`, and documentation, and takes no `where` narrowing.
+The table's `use` items are in scope for its rows only, and rustc resolves every unqualified name in a row through them and the module, so two of them that export one name are rustc's ambiguity error at the name.
+`krs expand` prints each row as its `#[k::equation]` fn with qualified paths, and `krs fmt` lays a table out as it lays out `k::rules!`.
+
+Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
+Two consequences are checked at once.
+Two rows without `requires` at one priority whose arguments are the same literals would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
+A row whose arguments are all `_` or distinct binders matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
+The header must name a function (rustc's ``E0277 `Seven` is not a non-parametric `#[k::function]` ``), and a row's argument count must be the function's (rustc's ``E0308 expected a tuple with 2 elements``).
+A table's index is always written, never taken from the order of an enum's variants: variant order is presentation, and reordering source must not change a definition.
 
 ### Sort-parametric productions
 
@@ -509,6 +565,7 @@ A production that is not `pub` is also emitted with K's `private` attribute: K h
 Token productions follow the visibility of their `#[k::token]` carrier: the tokens of a struct or type alias that is not `pub` are `private` too, so only the package's own rules lex them, a spec module does not, and `krs check` rejects a program production whose field sort has only private tokens (`krs::analysis::invalid-token-sort`), because no program could spell that field.
 Only K rules construct the variants of a `#[k::constructors]` family that is not `pub`, so the macro allows rustc's `dead_code` lint on it.
 `internal` is the bare flag `#[k::syntax("...", internal)]` on a variant, `internal = true` in the reference layer and on `#[k::constructor]`, a bare flag on `#[k::function]`, or the family flag `#[k::constructors(sort = ..., result = ..., internal)]`, which marks every variant.
+A function that is not program syntax may omit `syntax` and gets the default `symbol({field}, ..)`; see [Functions declared by a fn](#functions-declared-by-a-fn).
 `program` is spelled the same way and asserts that a production is program syntax; when KRS must place it in `<NS>` anyway, it reports the warning `krs::partition::not-program-syntax`.
 `krs check --partition` prints each package's partition: the contents of `<NS>-SYNTAX`, then the `pub` productions placed in `<NS>` with the reason.
 
