@@ -2334,7 +2334,9 @@ fn validate_production(
             | ProductionAttribute::ListTerminator { cons: target, .. } => {
                 require_kind::<DefinitionLevel>(symbols, target, SymbolKind::Production)?;
             }
-            ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+            ProductionAttribute::Internal { .. }
+            | ProductionAttribute::Program { .. }
+            | ProductionAttribute::Underspecified { .. } => {
                 return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
                     sentence.symbol.id.clone(),
                 ));

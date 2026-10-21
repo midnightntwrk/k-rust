@@ -768,6 +768,13 @@ stage_shape! {
             /// Template fragments; each field fragment keeps its placeholder provenance.
             template: Vec<DescriptorSmtFragment> => [keep],
         },
+        /// A total function's intended coverage gap (`underspecified = ".."`).
+        Underspecified {
+            /// Reason-string provenance.
+            key: ProvenanceKey => [keep],
+            /// The stated reason, nonempty.
+            reason: String => [keep],
+        },
         /// Marks a constructor production as a one-way static desugar (K's `macro`).
         Desugar {
             /// Desugar-marker provenance.
@@ -3176,6 +3183,15 @@ impl DescriptorProduction {
                     self.validate_smt_template(template, provenance)?;
                     "smt"
                 }
+                DescriptorProductionAttribute::Underspecified { key, reason } => {
+                    require_key(key, provenance)?;
+                    if reason.trim().is_empty() {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::EmptyUnderspecifiedReason,
+                        ));
+                    }
+                    "underspecified"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3241,6 +3257,11 @@ impl DescriptorProduction {
         if families.contains("fresh_generator") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::FreshGeneratorWithoutFunction,
+            ));
+        }
+        if families.contains("underspecified") && !families.contains("total") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::UnderspecifiedWithoutTotal,
             ));
         }
         if families.contains("smt") && !families.contains("function") {
@@ -4002,6 +4023,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Smtlib { key, .. } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionSmtlib, 0)?;
+                }
+                DescriptorProductionAttribute::Underspecified { key, .. } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionUnderspecified, 0)?;
                 }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionSmtHook, 0)?;

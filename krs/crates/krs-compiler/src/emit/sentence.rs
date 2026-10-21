@@ -455,10 +455,13 @@ fn emit_production_attribute(
             writer.push(&values.join(","));
             writer.push(")");
         }
-        ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+        ProductionAttribute::Internal { .. }
+        | ProductionAttribute::Program { .. }
+        | ProductionAttribute::Underspecified { .. } => {
             return Err(EmitError::UnsupportedShape {
                 node: "production attribute",
-                detail: "`internal` and `program` are consumed by lowering".to_owned(),
+                detail: "`internal`, `program`, and `underspecified` are consumed by lowering"
+                    .to_owned(),
             });
         }
         ProductionAttribute::Strictness {

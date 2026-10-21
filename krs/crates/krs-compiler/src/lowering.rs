@@ -2497,11 +2497,13 @@ fn lower_authored_production_attributes(
         .iter()
         .enumerate()
         // `internal` and `program` select the module a production is placed
-        // in; they are not K attributes.
+        // in, and `underspecified` silences a KRS lint; none is a K attribute.
         .filter(|(_, attribute)| {
             !matches!(
                 attribute,
-                ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. }
+                ProductionAttribute::Internal { .. }
+                    | ProductionAttribute::Program { .. }
+                    | ProductionAttribute::Underspecified { .. }
             )
         })
         .map(|(index, attribute)| {
@@ -2602,8 +2604,10 @@ fn lower_authored_production_attributes(
                     origin,
                     values: values.clone(),
                 },
-                ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
-                    unreachable!("placement attributes are filtered above")
+                ProductionAttribute::Internal { .. }
+                | ProductionAttribute::Program { .. }
+                | ProductionAttribute::Underspecified { .. } => {
+                    unreachable!("KRS-only attributes are filtered above")
                 }
                 ProductionAttribute::Private { .. } => {
                     return Err(LoweringError::UnsupportedShape {

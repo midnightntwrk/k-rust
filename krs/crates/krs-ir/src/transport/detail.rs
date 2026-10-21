@@ -203,6 +203,8 @@ details! {
         MemoWithoutFunction => "`memo` requires function metadata",
         FreshGeneratorWithoutFunction => "`fresh_generator` requires function metadata",
         SmtWithoutFunction => "`smtlib` and `smt_hook` require function metadata",
+        UnderspecifiedWithoutTotal => "`underspecified` requires total function metadata",
+        EmptyUnderspecifiedReason => "`underspecified` requires a nonempty reason",
         InvalidSmtlibSymbol => "an `smtlib` symbol is an SMT-LIB simple symbol",
         InvalidSmtTemplate => "an `smt_hook` template is nonempty text and placeholders that name nonterminal fields",
         ListMetadata => "syntactic-list metadata belongs on a constructor production without function, token, bracket, alias, or desugar metadata",

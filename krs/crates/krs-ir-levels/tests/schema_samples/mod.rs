@@ -1400,8 +1400,12 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     recursive: sample::<Option<ProvenanceKey>>(),
                 },
+                Self::Underspecified {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            25,
+            26,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1429,6 +1433,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
+                Self::Underspecified { .. } => 25,
             },
         )
     }
@@ -1990,8 +1995,12 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     recursive: true,
                 },
+                Self::Underspecified {
+                    origin: sample::<NodeOrigin>(),
+                    reason: sample::<String>(),
+                },
             ],
-            26,
+            27,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2020,6 +2029,7 @@ impl<
                 Self::Smtlib { .. } => 23,
                 Self::SmtHook { .. } => 24,
                 Self::Desugar { .. } => 25,
+                Self::Underspecified { .. } => 26,
             },
         )
     }
@@ -2647,8 +2657,12 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     recursive: sample::<Option<ProvenanceKey>>(),
                 },
+                Self::Underspecified {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            25,
+            26,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2676,6 +2690,7 @@ impl Sample for WireProductionAttribute {
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
+                Self::Underspecified { .. } => 25,
             },
         )
     }
