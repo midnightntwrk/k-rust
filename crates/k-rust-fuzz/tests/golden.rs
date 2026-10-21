@@ -32,19 +32,21 @@ const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
 const BEGIN: &str = "=====BEGIN-KRUST-FUZZ-REPORTS=====";
 const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 
-/// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 1.
+/// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 2.
 /// Pinned at integration round 1, when the modules behind the engine landed; re-pin it, with
-/// a version bump, only when the case sequence is meant to change.
+/// a version bump, only when the case sequence is meant to change. Version 2 (map holes shrink
+/// by whole entries) leaves these Int-hole campaigns' sequences and shrunk witnesses as they
+/// were, so the fingerprint is version 1's.
 const PINNED: Option<(u32, &str)> = Some((
-    1,
+    2,
     "f903fed03207d94ac94a4beff8a2c72061a003ed4663e947d2926cde1e5d16e2",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
-/// [`ENGINE_VERSION`] 1. A change of the dictionary's parameters (`report::DictionaryParameters`)
+/// [`ENGINE_VERSION`] 2, the first version with the dictionary. A change of the dictionary's parameters (`report::DictionaryParameters`)
 /// or of its harvest moves it: bump `ENGINE_VERSION` and re-pin both fingerprints.
 const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
-    1,
+    2,
     "174abe2bf3fcf2720866374ed6cbffa3c3141ab8cc3c2adb3d9f3e58ad71bd18",
 ));
 

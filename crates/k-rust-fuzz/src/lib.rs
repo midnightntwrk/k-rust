@@ -66,4 +66,7 @@ pub use values::{Constraints, Value};
 /// specification produces bumps it; the golden determinism test fails when the sequence changes
 /// without a bump. A cache key also needs the k-rust revision, which the caller supplies
 /// ([`CallerIdentity`]).
-pub const ENGINE_VERSION: u32 = 1;
+///
+/// Version 2: map holes shrink by whole entries, which moves the shrunk witness of a map hole,
+/// and the dictionary proposer's parameters join the case sequence's inputs.
+pub const ENGINE_VERSION: u32 = 2;

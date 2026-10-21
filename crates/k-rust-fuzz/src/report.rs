@@ -27,7 +27,11 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 
 /// The report's `version` field: bumped when the report's shape or the meaning of a field
 /// changes (FZ-SCHEMA lists it among the format versions of `docs/compatibility.md`).
-pub const REPORT_VERSION: u32 = 1;
+///
+/// Version 2 adds `reaching.step` to an observer target's witness cases and
+/// `identity.dictionary` to a campaign whose dictionary proposer has a positive weight; a
+/// version-1 reader, which refuses unknown fields, refuses both.
+pub const REPORT_VERSION: u32 = 2;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -818,7 +822,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":1,"identity":{"engine-version":1,"#,
+            r#"{"schema":"krust-fuzz-report","version":2,"identity":{"engine-version":2,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
