@@ -263,6 +263,68 @@ pub fn load_runnable_artifact(
     })
 }
 
+/// The KORE files a compiled directory carries beside its runnable artifact, which a host that
+/// prints and reads back values of the definition's sorts needs and `krust krun` does not.
+#[derive(Clone, Debug)]
+pub struct KoreCompanions {
+    /// `syntaxDefinition.kore`: the productions with their formats.
+    pub syntax_definition_kore: String,
+    /// `macros.kore`: the macro rules a K text is expanded with when it is read.
+    pub macros_kore: String,
+}
+
+/// Read `syntaxDefinition.kore` and `macros.kore` of a compiled directory whose runnable artifact
+/// [`load_runnable_artifact`] loads.
+///
+/// The runtime manifest does not pin these files by digest. `krust kcompile` removes the
+/// manifest before it writes any file and publishes it after them, so a published manifest
+/// names a directory whose two files the same compilation wrote, unless they were changed by
+/// hand afterwards.
+pub fn load_kore_companions(
+    directory: &Path,
+) -> Result<KoreCompanions, Box<dyn std::error::Error>> {
+    let read = |name: &str| -> Result<String, Box<dyn std::error::Error>> {
+        let path = directory.join(name);
+        let bytes = fs::read(&path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "compiled file `{}` is missing or unreadable: {error}; {RECOMPILE_REMEDY}",
+                    path.display()
+                ),
+            )
+        })?;
+        String::from_utf8(bytes)
+            .map_err(|error| corrupt_payload_error(name, error, RECOMPILE_REMEDY).into())
+    };
+    Ok(KoreCompanions {
+        syntax_definition_kore: read("syntaxDefinition.kore")?,
+        macros_kore: read("macros.kore")?,
+    })
+}
+
+/// The environment variable in which `krust fuzz` passes [`build_identity`] to the
+/// `krust-fuzz` executable it runs.
+pub const FUZZ_PARENT_BUILD_ENV: &str = "KRUST_FUZZ_PARENT_BUILD";
+
+/// This build of k-rust: its package version, followed by `+` and the revision the build
+/// environment named in `K_RUST_REVISION` (for example a commit id) when it named one.
+///
+/// `krust fuzz` passes it to the `krust-fuzz` executable it runs, which refuses to run for a
+/// `krust` of another build, and `krust-fuzz` records it as the k-rust revision of its reports.
+///
+/// It does not identify the source exactly unless the revision is set: builds of one version
+/// from different commits share it.
+#[must_use]
+pub fn build_identity() -> String {
+    match option_env!("K_RUST_REVISION") {
+        Some(revision) if !revision.is_empty() => {
+            format!("{}+{revision}", env!("CARGO_PKG_VERSION"))
+        }
+        _ => env!("CARGO_PKG_VERSION").to_owned(),
+    }
+}
+
 fn payload_identity(file: &str, bytes: &[u8]) -> PayloadIdentity {
     PayloadIdentity {
         file: file.into(),
