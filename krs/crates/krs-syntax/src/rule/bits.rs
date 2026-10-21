@@ -30,7 +30,7 @@ use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{Attribute, Expr, FnArg, Ident, ItemFn, LitInt, LitStr, Macro, Pat, Path, Token};
 
-use crate::{SyntaxError, SyntaxErrorKind};
+use crate::{SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// The prefix of a hidden template binder. It holds the reserved marker, so
 /// no authored binder may spell it (`validate_authored_binder`).
@@ -482,7 +482,14 @@ fn insert_guard(item: &mut ItemFn, occurrences: &[Occurrence], requires: Option<
             let authored = syn::parse2::<Expr>(list.tokens.clone())
                 .expect("the condition parsed before the substitution");
             let authored = if binds_looser_than_and(&authored) {
-                quote_spanned!(authored.span()=> (#authored))
+                // The parentheses take the span of the condition's last
+                // leaf. `Spanned::span` would join the condition's spans in
+                // the collector's reparse but fall back to its first token
+                // in the macro, where joining is unstable, so the closing
+                // parenthesis, and with it the condition's range, would end
+                // at different places.
+                let closing = TokenRange::for_tokens(&authored).map_or(span, TokenRange::last);
+                quote_spanned!(closing=> (#authored))
             } else {
                 authored.to_token_stream()
             };
