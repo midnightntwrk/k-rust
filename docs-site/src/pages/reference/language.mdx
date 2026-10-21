@@ -415,6 +415,7 @@ In a table, two rows that match one argument with templates of different widths 
 **Testing a value.**
 `k::bits!(op, "01 yyy zzz")`, with the value first, is the template as a test: a `Bool` term, for a `requires`, a claim, or any other place a `Bool` term may stand.
 It is `op >= 0 && op < 2^width` followed by one `bitRangeInt` equality per run of fixed bits: the terms of the pattern `k::bits!("01 yyy zzz")`'s guard, in the same order, so a claim can state exactly what a row tests.
+A claim need not restate the guard, though: the prover reads a `bitRangeInt`, a shift or a low-bit mask by constant amounts as division and remainder by a power of two, so `0 <= op < 8` is enough to reach a row whose template is `"0aaa"`, and an argument outside every template's range reaches the `owise` row even past a literal row.
 A template without free bits tests the same terms; only the pattern turns it into a literal.
 Field letters and `_` constrain nothing in a test, and a test binds nothing: its letters are accepted so that a row's template can be copied as it is, and outside the test a letter is only what the sentence's own binders make it, usually unbound.
 The value is a variable, a field of the sentence's own template, or a bit range of a variable (`x.bit_range::<Int>(0, 8)`).
