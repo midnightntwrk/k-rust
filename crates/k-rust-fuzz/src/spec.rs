@@ -63,7 +63,7 @@ pub struct CampaignSpec {
 /// Identity inputs that k-rust offers no API for, supplied by the caller and recorded in the
 /// report as given (ARCHITECTURE 5.4, T-6).
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CallerIdentity {
     /// The k-rust revision the caller built against (for example a commit id). No revision
     /// constant exists in k-rust.
@@ -203,7 +203,7 @@ pub enum ProgramInput {
 
 /// A program text and its configuration-variable bindings, as krun takes them.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ProgramSource {
     /// The program's name: the file name its locations carry, and the name a span hole's
     /// [`crate::SpanAddress::program`] addresses. `None` for a definition without `$PGM` that
@@ -218,7 +218,7 @@ pub struct ProgramSource {
 
 /// The text bound to `$PGM`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ProgramText {
     /// The name locations carry and span holes address (a file name, typically).
     pub name: String,
@@ -241,7 +241,7 @@ pub enum PathMode {
 
 /// The execution options of every case (ARCHITECTURE 5.1, 5.2).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CaseOptions {
     /// One path or all paths.
     pub paths: PathMode,
@@ -281,7 +281,7 @@ pub struct CaseOptions {
 /// The solver options of every backend a campaign builds: a serializable copy of
 /// `k_rust::backend::BackendOptions`, recorded in the report.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct BackendSettings {
     /// `BackendOptions::smt_timeout_ms`.
     pub smt_timeout_ms: u32,
@@ -364,7 +364,7 @@ pub type Assignment = BTreeMap<String, Value>;
 /// from the campaign seed. [`crate::Campaign::new`] refuses a proposer this build or milestone
 /// does not provide.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ProposerConfig {
     /// Try the assignment of every hole's anchor value first (8.1).
     pub anchors_first: bool,
@@ -408,7 +408,19 @@ pub enum Budget {
 
 #[cfg(test)]
 mod tests {
+    use serde::de::DeserializeOwned;
+    use serde_json::{Value as Json, json};
+
     use super::*;
+
+    use crate::{
+        holes::{HoleDecl, HoleLocation, SpanAddress},
+        target::{
+            DifferentialTarget, ObserverTarget, PatternTarget, RuleRef, RuleTarget, Target,
+            TargetKind,
+        },
+        values::{Constraints, ElementSorts, GenerationBounds, IntRange, LengthRange, Value},
+    };
 
     /// Fails to compile when a variant is added to [`Budget`]: a wall-clock budget must not
     /// exist (ARCHITECTURE 9.2, R-27), and any other new variant must be reviewed against the
@@ -428,6 +440,124 @@ mod tests {
             serde_json::to_string(&Budget::Work(7)).expect("a budget serializes"),
             r#"{"work":"7"}"#
         );
+    }
+
+    /// `good` reads as a `T`, and `good` with the extra field `field` does not, with an error
+    /// that names the field.
+    fn refuses<T: DeserializeOwned + std::fmt::Debug>(good: &Json, field: &str) {
+        serde_json::from_value::<T>(good.clone())
+            .unwrap_or_else(|error| panic!("{good} does not read: {error}"));
+        let mut bad = good.clone();
+        bad[field] = json!(1);
+        let error = serde_json::from_value::<T>(bad.clone())
+            .expect_err(&format!("{bad} reads with the unknown field `{field}`"));
+        assert!(error.to_string().contains(field), "{bad}: {error}");
+    }
+    /// `good` with the extra field `field` in the object at `path` does not read as a `T`.
+    fn refuses_at<T: DeserializeOwned + std::fmt::Debug>(good: &Json, path: &[&str], field: &str) {
+        let mut bad = good.clone();
+        let mut inner = &mut bad;
+        for key in path {
+            inner = &mut inner[*key];
+        }
+        inner[field] = json!(1);
+        let error = serde_json::from_value::<T>(bad.clone())
+            .expect_err(&format!("{bad} reads with the unknown field `{field}`"));
+        assert!(error.to_string().contains(field), "{bad}: {error}");
+    }
+
+    /// Every specification type of a hole refuses a field it does not know, so that a misspelt
+    /// constraint is an error rather than a silent default: a hole whose `range` is misspelt
+    /// would otherwise be searched unconstrained (BIND review S1). Each well-formed document
+    /// still reads.
+    #[test]
+    fn hole_types_refuse_unknown_fields() {
+        let span =
+            json!({ "kind": "span", "program": "p", "line": 2, "find": "x = 1;", "literal": "1" });
+        refuses::<HoleLocation>(&span, "lien");
+        refuses::<SpanAddress>(
+            &json!({ "program": "p", "find": "1", "literal": "1" }),
+            "lien",
+        );
+        refuses::<HoleLocation>(&json!({ "kind": "config-var", "name": "X" }), "line");
+        refuses::<HoleLocation>(&json!({ "kind": "kore-variable", "name": "X" }), "line");
+        let constraints = json!({
+            "range": { "min": "0", "max": "0" },
+            "length": { "min": 1, "max": 2 },
+            "elements": { "collection": "entries", "key": "Int", "value": "Int" },
+            "choices": [{ "int": "0" }],
+        });
+        let hole =
+            json!({ "name": "X", "sort": "Int", "location": span, "constraints": constraints });
+        refuses::<HoleDecl>(&hole, "constraint");
+        refuses::<Constraints>(&constraints, "rnage");
+        refuses_at::<HoleDecl>(&hole, &["constraints"], "rnage");
+        refuses_at::<HoleDecl>(&hole, &["location"], "lien");
+        refuses::<IntRange>(&json!({ "min": "0" }), "mn");
+        refuses::<LengthRange>(&json!({ "max": 3 }), "mx");
+        refuses::<ElementSorts>(
+            &json!({ "collection": "elements", "element": "Int" }),
+            "key",
+        );
+        refuses_at::<Value>(
+            &json!({ "m-int": { "width": 8, "value": "1" } }),
+            &["m-int"],
+            "sign",
+        );
+        refuses_at::<Value>(
+            &json!({ "token": { "sort": "Id", "text": "x" } }),
+            &["token"],
+            "sorts",
+        );
+        refuses_at::<Value>(
+            &json!({ "apply": { "symbol": "Lblf", "arguments": [] } }),
+            &["apply"],
+            "args",
+        );
+    }
+
+    /// The target, the program, the identity, the options, the proposers and the bounds refuse
+    /// a field they do not know, as the hole types do.
+    #[test]
+    fn target_and_option_types_refuse_unknown_fields() {
+        let rule =
+            json!({ "kind": "rule", "rule": { "by": "label", "value": "IMP.x" }, "mode": "fired" });
+        let target = json!({ "kind": rule, "run-to-completion": false, "negated-property": false });
+        refuses::<Target>(&target, "negated");
+        refuses::<TargetKind>(&rule, "lable");
+        refuses::<RuleTarget>(
+            &json!({ "rule": { "by": "unique-id", "value": "u" }, "mode": "covered" }),
+            "lable",
+        );
+        refuses::<RuleRef>(&json!({ "by": "label", "value": "IMP.x" }), "extra");
+        refuses_at::<RuleRef>(
+            &json!({ "by": "source", "value": { "source": "imp.k", "line": 3 } }),
+            &["value"],
+            "column",
+        );
+        refuses::<TargetKind>(
+            &json!({ "kind": "pattern", "pattern": "<k> _ </k>", "at": "final" }),
+            "where",
+        );
+        refuses::<PatternTarget>(&json!({ "pattern": "<k> _ </k>", "at": "final" }), "where");
+        refuses::<TargetKind>(&json!({ "kind": "differential" }), "mutant");
+        refuses::<DifferentialTarget>(&json!({}), "mutant");
+        refuses::<TargetKind>(&json!({ "kind": "observer", "name": "o" }), "verison");
+        refuses::<ObserverTarget>(&json!({ "name": "o" }), "verison");
+
+        refuses::<CallerIdentity>(&json!({ "k-rust-revision": "r" }), "thread-stack");
+        let text = json!({ "name": "p", "text": "1", "start-sort": "Pgm" });
+        refuses::<ProgramText>(&text, "sort");
+        refuses::<ProgramSource>(&json!({ "program": text, "config-vars": [] }), "programme");
+        let options = serde_json::to_value(CaseOptions::default()).expect("options serialize");
+        refuses::<CaseOptions>(&options, "max-dept");
+        refuses_at::<CaseOptions>(&options, &["backend"], "smt-timeout");
+        refuses::<BackendSettings>(&options["backend"], "smt-timeout");
+        let proposers =
+            serde_json::to_value(ProposerConfig::default()).expect("proposers serialize");
+        refuses::<ProposerConfig>(&proposers, "weight");
+        let bounds = serde_json::to_value(GenerationBounds::default()).expect("bounds serialize");
+        refuses::<GenerationBounds>(&bounds, "dept");
     }
 
     #[test]
