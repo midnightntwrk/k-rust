@@ -280,6 +280,24 @@ fn outcome_records(cache: &Path) -> BTreeMap<(String, String, String), String> {
     out
 }
 
+/// The undecided solver answers (`smt_unknowns`) of a run document: its programs' baseline runs
+/// (every program row carries the count) and every executed entry of a live mutant run (an entry
+/// carries it only when it is not zero).
+fn undecided_answers(document: &Value) -> u64 {
+    let programs = document["programs"].as_array().unwrap().iter().map(|row| {
+        row["smt_unknowns"]
+            .as_u64()
+            .expect("a program row's smt_unknowns")
+    });
+    let entries = document["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| row["executed"].as_array().into_iter().flatten())
+        .map(|entry| entry["smt_unknowns"].as_u64().unwrap_or(0));
+    programs.chain(entries).sum()
+}
+
 /// The statuses of every mutation of a fixture list are the same under corpus order, under
 /// the measured cost order and under a forged cost order that reverses corpus order inside
 /// each tier (stop rule 1 of F-13: the order-independence premise of README 6.4). Only the
@@ -331,6 +349,19 @@ fn statuses_do_not_depend_on_the_order(
 
     assert_eq!(statuses(&reversed), statuses(&by_corpus), "{name} reversed");
     assert_eq!(statuses(&by_cost), statuses(&by_corpus), "{name} cost");
+    // Under Z3 (caches off by design) the order can move a status only through an undecided
+    // solver answer, a query that timed out, which a backend reused in schedule order may answer
+    // from its cache in another order (src/search.rs, README `run` step 3). No run of these
+    // fixtures takes one, so their statuses cannot depend on the order.
+    if cfg!(feature = "z3") {
+        for document in [&by_corpus, &reversed, &by_cost] {
+            assert_eq!(
+                undecided_answers(document),
+                0,
+                "{name}: an undecided solver answer"
+            );
+        }
+    }
     let mut shared = 0;
     for (label, records) in [
         ("reversed", outcome_records(&cache)),
@@ -407,14 +438,17 @@ mod heavy {
 mod kink_tier {
     use super::*;
 
-    // Portable only: compares tier-1 records (off under Z3); order independence is no-Z3 only.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn calc_statuses_do_not_depend_on_the_order() {
         let ([by_corpus, reversed, _], shared) =
             statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS.toml");
-        assert!(shared > 0, "the byte-equality check compared records");
+        // Under Z3 tier 1 is off by design (search::tier1_refusal): no record to compare.
+        assert_eq!(
+            shared > 0,
+            !cfg!(feature = "z3"),
+            "the byte-equality check compared records"
+        );
         // The forged costs did reorder the search: inside each tier the survivor ran its programs
         // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
         // reach the add rule).

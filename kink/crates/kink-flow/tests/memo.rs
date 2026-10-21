@@ -933,12 +933,16 @@ mod kink_tier {
 mod heavy {
     use super::*;
 
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn memos_change_no_row_record_or_hint_on_calc_in_three_rounds() {
         compare("calc", "MUTATIONS-statuses.toml", &ROUNDS);
     }
 
+    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn memos_change_no_row_record_or_hint_on_markdown_in_three_rounds() {

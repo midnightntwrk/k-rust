@@ -885,18 +885,24 @@ fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
 mod heavy {
     use super::*;
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn warm_and_forged_hints_on_register() {
         warm_and_forged("register", "FLOW.toml", "MUTATIONS.toml");
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn warm_and_forged_hints_on_markdown() {
         warm_and_forged("markdown", "FLOW.toml", "MUTATIONS.toml");
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn partially_cached_statuses_are_cold_statuses_on_register() {
@@ -904,6 +910,8 @@ mod heavy {
         partial("register", "FLOW.toml", "MUTATIONS.toml");
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn partially_cached_statuses_are_cold_statuses_on_markdown() {
