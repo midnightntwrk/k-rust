@@ -54,7 +54,7 @@ the outcomes must agree:
   routes; `int x, y, z;` (recursive) declares all three names, while
   `decl x, y, z;` (plain) expands one step to `var x; decl y, z;`, a pinned
   divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
-  state that holds the macro symbol `declareOnce`, by contract: k-rust
+  state that holds the macro symbol `sugarDeclareOnce`, by contract: k-rust
   `docs/compatibility.md`, "Macro applications that survive expansion"); and
   `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both printers show
   backwards as `nest(1 , 2 , .Ints)`; the desugars `twin` and `anyPair` are
@@ -454,10 +454,10 @@ def verify_macros(harness: FixtureGate) -> None:
     harness.expand(MACROS)
     emitted = harness.emit(MACROS)
     emitted_attributes(emitted, (
-        '"unless" "(" Expr ")" Stmt [symbol(unless), macro,',
-        '"int" Ids ";" [symbol(declareMany), macro-rec,',
-        '"decl" Ids ";" [symbol(declareOnce), macro,',
-        '"nest" "(" Ints ")" [symbol(nest), alias-rec,',
+        '"unless" "(" Expr ")" Stmt [symbol(sugarUnless), macro,',
+        '"int" Ids ";" [symbol(sugarDeclareMany), macro-rec,',
+        '"decl" Ids ";" [symbol(sugarDeclareOnce), macro,',
+        '"nest" "(" Ints ")" [symbol(dataNest), alias-rec,',
         "rule unless ( C:Expr ) S:Stmt => if ( C:Expr ) { } else S:Stmt [label(",
         "rule int X:Id , Y:Id , Rest:Ids ; => var X:Id ; int Y:Id , Rest:Ids ; [label(",
         "rule nest ( I:Int , Is:Ints ) => pair ( I:Int , nest ( Is:Ints ) ) [label(",

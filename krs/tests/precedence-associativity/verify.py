@@ -29,12 +29,12 @@ TOOLS = ("kompile", "kast")
 ACCEPTED = HERE / "corpus" / "accepted" / "iterated-unary.probe"
 REJECTED = HERE / "corpus" / "rejected" / "non-associative-equality.probe"
 ASSOCIATIVITY_ERROR = "[Error] Inner Parser: Associativity filter exception."
-NATIVE_ASSOCIATIVITY_ERROR = "cannot use eq as the immediate left child of eq because of associativity"
+NATIVE_ASSOCIATIVITY_ERROR = "cannot use probeSyntaxEq as the immediate left child of probeSyntaxEq because of associativity"
 PRIORITY_PROBE = "! true == false"
 """Declared by group only: `Not` binds tighter than the non-associative equality tier."""
 NATIVE_PARSES = {
-    "iterated unary": 'not(not(#token("true","Bool")))',
-    "priority": 'eq(not(#token("true","Bool")),#token("false","Bool"))',
+    "iterated unary": 'probeSyntaxNot(probeSyntaxNot(#token("true","Bool")))',
+    "priority": 'probeSyntaxEq(probeSyntaxNot(#token("true","Bool")),#token("false","Bool"))',
 }
 first_line = substitute(r"\n[\s\S]*", "\n")
 """K reports the rejected nesting at either child from run to run, so only the first diagnostic line is kept."""
