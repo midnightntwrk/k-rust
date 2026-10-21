@@ -247,7 +247,7 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     let stderr = text(&refused.stderr);
     assert_eq!(refused.status.code(), Some(2), "{stderr}");
     assert!(
-        stderr.contains("identity mismatch: k-rust revision: the witness has `another-revision`"),
+        stderr.contains("identity mismatch: k-rust-revision: the witness has \"another-revision\""),
         "{stderr}"
     );
     assert!(text(&refused.stdout).is_empty(), "nothing ran");
@@ -261,10 +261,14 @@ fn an_identity_mismatch_is_refused_unless_forced() {
         text(&forced.stderr)
     );
     assert!(
-        stdout.contains("identity mismatch (forced): k-rust revision"),
+        stdout.contains("identity mismatch (forced): k-rust-revision"),
         "{stdout}"
     );
     assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+    assert!(
+        stdout.contains("forced: replayed despite 1 identity mismatch"),
+        "a forced replay says so: {stdout}"
+    );
 
     // `--k-rust-revision` names the replaying build's revision.
     let named = krust_fuzz(
@@ -294,10 +298,10 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     let stderr = text(&refused.stderr);
     assert_eq!(refused.status.code(), Some(2), "{stderr}");
     assert!(
-        stderr.contains("identity mismatch: program digest"),
+        stderr.contains("identity mismatch: program-digest"),
         "{stderr}"
     );
-    assert!(!stderr.contains("k-rust revision"), "{stderr}");
+    assert!(!stderr.contains("k-rust-revision"), "{stderr}");
 }
 
 #[test]
@@ -374,10 +378,19 @@ fn the_command_line_runs_the_library_campaign() {
         library.identity.target_digest
     );
     assert_eq!(report.identity.options, library.identity.options);
-    assert_eq!(
-        report.identity.definitions[0].execution_digest,
-        library.identity.definitions[0].execution_digest
-    );
+    // A runnable artifact stores the frontend and execution definitions pruned to what krun
+    // reads (`native::write_runnable_artifact`), so their `Debug` digests differ from an
+    // in-process compilation's; every other definition field, the initial configuration's
+    // digest included, is equal.
+    let comparable = |identity: &k_rust_fuzz::report::ReportIdentity| {
+        let mut definitions = identity.definitions.clone();
+        for definition in &mut definitions {
+            definition.frontend_digest.clear();
+            definition.execution_definition_digest.clear();
+        }
+        definitions
+    };
+    assert_eq!(comparable(&report.identity), comparable(&library.identity));
 }
 
 #[test]
@@ -498,4 +511,209 @@ fn krust_fuzz_help_reaches_krust_fuzz() {
     assert!(output.status.success(), "{stdout}{}", text(&output.stderr));
     assert!(stdout.contains("Usage: krust-fuzz"), "{stdout}");
     assert!(stdout.contains("--replay <FILE>"), "{stdout}");
+}
+
+/// Round 2, S2: every identity field the report holds is compared. A comment appended to the
+/// compiled `macros.kore` keeps the execution digest but is another assembly input (D22).
+#[test]
+fn a_replay_on_changed_macros_is_refused() {
+    let directory = le_workspace("macros");
+    let output = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--witness",
+            "witness.json",
+            "--no-shrink",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    write_compiled(&IMP, &directory.join("imp-macros"));
+    let macros = directory.join("imp-macros/macros.kore");
+    let text_before = fs::read_to_string(&macros).unwrap();
+    fs::write(&macros, format!("{text_before}\n// a comment\n")).unwrap();
+    let refused = krust_fuzz(
+        &directory,
+        &["--replay", "witness.json", "--definition", "imp-macros"],
+    );
+    let stderr = text(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("identity mismatch: definitions[0].syntax-definition-digest"),
+        "{stderr}"
+    );
+}
+
+/// Round 2, S3: the recorded k-rust revision distinguishes source trees without any variable
+/// set at build time.
+#[test]
+fn the_k_rust_revision_names_the_source_tree() {
+    let identity = k_rust::native::build_identity();
+    assert!(identity.contains("+src."), "{identity}");
+    let directory = le_workspace("revision");
+    let (_, report) = json_run(
+        &directory,
+        &["--campaign", "le.toml", "--cases", "1", "--json"],
+    );
+    assert_eq!(report.identity.k_rust_revision, identity);
+    let version = krust_fuzz(&directory, &["--version"]);
+    assert!(
+        text(&version.stdout).contains(&identity),
+        "--version names the k-rust build: {}",
+        text(&version.stdout)
+    );
+}
+
+/// Round 2, S4: an unwritable output path is refused before the campaign runs.
+#[test]
+fn an_unwritable_output_path_is_refused_before_the_campaign() {
+    let directory = le_workspace("unwritable");
+    // With `--cases 1` the campaign finds no witness, so before round 2 the witness path was
+    // never written and the bad path went unnoticed (exit 1).
+    for flag in ["--report", "--witness"] {
+        let output = krust_fuzz(
+            &directory,
+            &[
+                "--campaign",
+                "le.toml",
+                "--cases",
+                "1",
+                flag,
+                "missing-directory/out.json",
+            ],
+        );
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{flag}: {stderr}");
+        assert!(
+            stderr.contains("missing-directory/out.json"),
+            "{flag}: {stderr}"
+        );
+        assert!(text(&output.stdout).is_empty(), "{flag}: nothing ran");
+    }
+}
+
+/// Round 2, N7: a run that finds no witness does not leave an older witness at its path.
+#[test]
+fn a_run_without_a_witness_removes_a_stale_witness_file() {
+    let directory = le_workspace("stale");
+    let found = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--witness", "w.json"],
+    );
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stderr));
+    assert!(directory.join("w.json").is_file());
+    let none = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--cases",
+            "1",
+            "--witness",
+            "w.json",
+        ],
+    );
+    assert_eq!(none.status.code(), Some(1), "{}", text(&none.stderr));
+    assert!(
+        !directory.join("w.json").exists(),
+        "the stale witness is removed"
+    );
+}
+
+/// Round 2, notes N4 and N5: refused option combinations, and flags that switch off what the
+/// campaign file switched on.
+#[test]
+fn contradictory_options_are_refused_and_flags_switch_off_the_file() {
+    let directory = le_workspace("options");
+    let refused = |args: &[&str], needle: &str| {
+        let output = krust_fuzz(&directory, &[&["--campaign", "le.toml"][..], args].concat());
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+        assert!(stderr.contains(needle), "{args:?}: {stderr}");
+    };
+    refused(&["--safety-limit", "0"], "safety limit");
+    refused(&["--rule-mode", "covered"], "--rule-mode");
+    fs::write(
+        directory.join("all.toml"),
+        format!("{}\n[options]\npaths = \"all-paths\"\n", le_campaign()),
+    )
+    .unwrap();
+    let (_, report) = json_run(
+        &directory,
+        &[
+            "--campaign",
+            "all.toml",
+            "--cases",
+            "1",
+            "--one-path",
+            "--json",
+        ],
+    );
+    assert_eq!(
+        report.identity.options.paths,
+        k_rust_fuzz::PathMode::OnePath
+    );
+    let plain = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--no-negated-property"],
+    );
+    let stdout = text(&plain.stdout);
+    assert!(stdout.starts_with("witness found\n"), "{stdout}");
+}
+
+/// Round 2, S1 and N2: a missing or non-executable `krust-fuzz` is an error (exit 2), never
+/// the "no witness" status 1; a non-executable candidate on PATH is skipped; a leading `--`
+/// reaches `krust-fuzz`.
+#[test]
+fn krust_fuzz_lookup_failures_are_errors_and_arguments_pass_unchanged() {
+    let krust_fuzz = Path::new(env!("CARGO_BIN_EXE_krust-fuzz"));
+    let krust = krust_fuzz.with_file_name(format!("krust{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        krust.is_file(),
+        "`{}` is missing; see krust_fuzz_help_reaches_krust_fuzz",
+        krust.display()
+    );
+    let directory = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("cli")
+        .join("lookup");
+    let _ = fs::remove_dir_all(&directory);
+    for sub in ["bin", "plain", "script"] {
+        fs::create_dir_all(directory.join(sub)).unwrap();
+    }
+    // A krust with no krust-fuzz beside it.
+    let lonely = directory.join("bin/krust");
+    fs::hard_link(&krust, &lonely)
+        .or_else(|_| fs::copy(&krust, &lonely).map(|_| ()))
+        .unwrap();
+    fs::write(directory.join("plain/krust-fuzz"), "not a program\n").unwrap();
+    let script = directory.join("script/krust-fuzz");
+    fs::write(&script, "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 7\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(
+            directory.join("plain/krust-fuzz"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+    }
+    let run = |path: &str, args: &[&str]| {
+        Command::new(&lonely)
+            .args(args)
+            .env("PATH", path)
+            .stdin(Stdio::null())
+            .output()
+            .expect("krust runs")
+    };
+    let plain = directory.join("plain").display().to_string();
+    let scripted = directory.join("script").display().to_string();
+    let missing = run(&plain, &["fuzz", "--help"]);
+    assert_eq!(missing.status.code(), Some(2), "{}", text(&missing.stderr));
+    let found = run(
+        &format!("{plain}:{scripted}"),
+        &["fuzz", "--", "--x", "a b"],
+    );
+    assert_eq!(found.status.code(), Some(7), "{}", text(&found.stderr));
+    assert_eq!(text(&found.stdout), "--\n--x\na b\n");
 }

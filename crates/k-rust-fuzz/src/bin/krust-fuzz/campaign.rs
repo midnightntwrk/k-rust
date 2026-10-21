@@ -222,10 +222,6 @@ pub enum ElementsFile {
 
 /// What the flags say about the campaign; each set field overrides the campaign file.
 #[derive(Debug, Default)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each is one independent command-line switch"
-)]
 pub struct Overrides {
     pub definition: Option<PathBuf>,
     pub mutant: Option<PathBuf>,
@@ -236,9 +232,9 @@ pub struct Overrides {
     pub rule_mode: Option<RuleMode>,
     pub pattern: Option<String>,
     pub differential: bool,
-    pub run_to_completion: bool,
-    pub negated_property: bool,
-    pub all_paths: bool,
+    pub run_to_completion: Option<bool>,
+    pub negated_property: Option<bool>,
+    pub all_paths: Option<bool>,
     pub max_depth: Option<u64>,
     pub max_work: Option<u64>,
     pub normal_end: Option<String>,
@@ -248,7 +244,7 @@ pub struct Overrides {
     pub rejection_cap: Option<u64>,
     pub safety_limit_seconds: Option<u64>,
     pub no_safety_limit: bool,
-    pub no_shrink: bool,
+    pub shrink: Option<bool>,
     pub smt_timeout_ms: Option<u32>,
     pub smt_retry_limit: Option<u32>,
     pub k_rust_revision: Option<String>,
@@ -386,7 +382,7 @@ pub fn resolve(
     let has_mutant = flags.mutant.is_some() || file.mutant.is_some();
     let budget = budget(&flags, &file)?;
     let target = target(file.target.unwrap_or_default(), &flags, has_mutant)?;
-    let options = options(file.options.unwrap_or_default(), &flags);
+    let options = options(file.options.unwrap_or_default(), &flags)?;
     let from = |flag: Option<PathBuf>, written: Option<PathBuf>| -> Result<_, String> {
         match (flag, written) {
             (Some(path), _) => absolute(&current, &path).map(Some),
@@ -582,24 +578,33 @@ impl LoadedCampaign {
 /// The target of the file's `[target]` table and the flags (OD-2): rules by label, patterns in
 /// `krust krun --pattern` syntax, and the differential target when a mutant is given.
 fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Target, String> {
+    // A target named by flags replaces the file's whole target kind, with its mode and `at`.
     let flag_kind = flags.reach_rule.is_some() || flags.pattern.is_some() || flags.differential;
-    let (rule, pattern, differential) = if flag_kind {
+    let (rule, pattern, differential, mode, at) = if flag_kind {
         (
             flags.reach_rule.clone(),
             flags.pattern.clone(),
             flags.differential,
+            flags.rule_mode,
+            None,
         )
     } else {
-        (file.rule, file.pattern, file.differential.unwrap_or(false))
+        (
+            file.rule,
+            file.pattern,
+            file.differential.unwrap_or(false),
+            flags.rule_mode.or(file.mode),
+            file.at,
+        )
     };
     let kind = match (rule, pattern, differential) {
         (Some(label), None, false) => TargetKind::Rule(RuleTarget {
             rule: RuleRef::Label(label),
-            mode: flags.rule_mode.or(file.mode).unwrap_or(RuleMode::Fired),
+            mode: mode.unwrap_or(RuleMode::Fired),
         }),
         (None, Some(pattern), false) => TargetKind::Pattern(PatternTarget {
             pattern,
-            at: file.at.unwrap_or(PatternAt::Final),
+            at: at.unwrap_or(PatternAt::Final),
         }),
         (None, None, true) => TargetKind::Differential(DifferentialTarget {}),
         (None, None, false) if has_mutant => TargetKind::Differential(DifferentialTarget {}),
@@ -612,19 +617,41 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
         }
         _ => return Err("name exactly one target: a rule, a pattern or the differential".into()),
     };
-    if matches!(kind, TargetKind::Differential(_)) && !has_mutant {
-        return Err("the differential target needs a mutant: pass --mutant DIR".into());
+    if mode.is_some() && !matches!(kind, TargetKind::Rule(_)) {
+        return Err("--rule-mode (or the file's `mode`) applies only to a rule target".into());
+    }
+    if at.is_some() && !matches!(kind, TargetKind::Pattern(_)) {
+        return Err("the file's `at` applies only to a pattern target".into());
+    }
+    match (&kind, has_mutant) {
+        (TargetKind::Differential(_), false) => {
+            return Err("the differential target needs a mutant: pass --mutant DIR".into());
+        }
+        (TargetKind::Rule(_) | TargetKind::Pattern(_), true) => {
+            return Err(
+                "a mutant is given, but the target is a rule or a pattern: the mutant selects \
+                 the differential target only when no other target is named"
+                    .into(),
+            );
+        }
+        _ => {}
     }
     Ok(Target {
         kind,
-        run_to_completion: flags.run_to_completion || file.run_to_completion.unwrap_or(false),
-        negated_property: flags.negated_property || file.negated_property.unwrap_or(false),
+        run_to_completion: flags
+            .run_to_completion
+            .or(file.run_to_completion)
+            .unwrap_or(false),
+        negated_property: flags
+            .negated_property
+            .or(file.negated_property)
+            .unwrap_or(false),
     })
 }
 
 /// The case options: the library's defaults with the command line's safety limit (D24), then
 /// the file's options, then the flags.
-fn options(file: OptionsFile, flags: &Overrides) -> CaseOptions {
+fn options(file: OptionsFile, flags: &Overrides) -> Result<CaseOptions, String> {
     let mut options = CaseOptions {
         safety_limit_ms: Some(DEFAULT_SAFETY_LIMIT_SECONDS * 1000),
         ..CaseOptions::default()
@@ -632,8 +659,10 @@ fn options(file: OptionsFile, flags: &Overrides) -> CaseOptions {
     if let Some(paths) = file.paths {
         options.paths = paths;
     }
-    if flags.all_paths {
-        options.paths = PathMode::AllPaths;
+    match flags.all_paths {
+        Some(true) => options.paths = PathMode::AllPaths,
+        Some(false) => options.paths = PathMode::OnePath,
+        None => {}
     }
     options.max_depth = flags.max_depth.or(file.max_depth);
     options.max_work = flags.max_work.or(file.max_work);
@@ -641,19 +670,34 @@ fn options(file: OptionsFile, flags: &Overrides) -> CaseOptions {
         options.max_simplification_iterations = iterations;
     }
     options.normal_end_pattern = flags.normal_end.clone().or(file.normal_end_pattern);
-    if let Some(seconds) = flags.safety_limit_seconds.or(file.safety_limit_seconds) {
-        options.safety_limit_ms = Some(seconds.saturating_mul(1000));
+    if file.safety_limit_seconds.is_some() && file.no_safety_limit == Some(true) {
+        return Err(
+            "the campaign file sets both `safety-limit-seconds` and `no-safety-limit`".into(),
+        );
     }
-    if flags.no_safety_limit
-        || (flags.safety_limit_seconds.is_none() && file.no_safety_limit == Some(true))
-    {
-        options.safety_limit_ms = None;
+    // A flag overrides the file in either direction.
+    let limit = if flags.no_safety_limit {
+        None
+    } else if let Some(seconds) = flags.safety_limit_seconds {
+        Some(seconds)
+    } else if file.no_safety_limit == Some(true) {
+        None
+    } else {
+        Some(
+            file.safety_limit_seconds
+                .unwrap_or(DEFAULT_SAFETY_LIMIT_SECONDS),
+        )
+    };
+    if limit == Some(0) {
+        return Err(
+            "a safety limit of 0 seconds would stop every case; give at least 1, or \
+             --no-safety-limit"
+                .into(),
+        );
     }
-    if let Some(shrink) = file.shrink {
+    options.safety_limit_ms = limit.map(|seconds| seconds.saturating_mul(1000));
+    if let Some(shrink) = flags.shrink.or(file.shrink) {
         options.shrink = shrink;
-    }
-    if flags.no_shrink {
-        options.shrink = false;
     }
     if let Some(timeout) = flags.smt_timeout_ms.or(file.smt_timeout_ms) {
         options.backend.smt_timeout_ms = timeout;
@@ -661,7 +705,7 @@ fn options(file: OptionsFile, flags: &Overrides) -> CaseOptions {
     if let Some(limit) = flags.smt_retry_limit.or(file.smt_retry_limit) {
         options.backend.smt_retry_limit = limit;
     }
-    options
+    Ok(options)
 }
 
 fn bounds(file: &BoundsFile) -> GenerationBounds {

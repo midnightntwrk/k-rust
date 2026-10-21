@@ -2,9 +2,8 @@
 //!
 //! A witness file holds the resolved campaign and the report that found the witness. Replaying
 //! it rebuilds the campaign's specification from the recorded inputs, checks that the replay's
-//! identity is the witness's (the k-rust revision, each definition's execution digest and
-//! rewrite order, the program digest, the path mode, the target and the hole overlay), refuses
-//! on a mismatch unless forced, and runs each recorded witness case as the campaign's only
+//! identity is the witness's (every field of the report's identity but the four the replay
+//! sets itself; [`identity_mismatches`]), refuses on a mismatch unless forced, and runs each recorded witness case as the campaign's only
 //! explicit assignment. A case reproduces when the replay confirms a hit whose witness case,
 //! with its class and final configurations, equals the recorded one.
 
@@ -12,7 +11,7 @@ use std::path::Path;
 
 use k_rust_fuzz::{
     Budget, Campaign, ProposerConfig,
-    report::{DefinitionRole, FuzzReport, ReportIdentity, WitnessCase},
+    report::{FuzzReport, ReportIdentity, WitnessCase},
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,77 +85,69 @@ impl WitnessFile {
     }
 }
 
-fn role(role: DefinitionRole) -> &'static str {
-    match role {
-        DefinitionRole::Baseline => "baseline",
-        DefinitionRole::Mutant => "mutant",
-    }
+/// The identity fields of `recorded` that `now` does not have, one sentence each, named by
+/// their path in the report (`definitions[0].syntax-definition-digest`).
+///
+/// Every field of the report's identity is compared except four the replay sets itself: the
+/// proposers and the budget (one explicit assignment, one case), `options.shrink` (a replay
+/// does not shrink), and the engine version, which covers the proposer and generator code that
+/// chooses cases, none of which runs when a fixed assignment is replayed. Every other field is
+/// an input of the replayed case's execution or of its assembly, so a difference makes the
+/// replay another campaign.
+pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> Vec<String> {
+    let comparable = |identity: &ReportIdentity| {
+        let mut identity = identity.clone();
+        identity.proposers = ProposerConfig::default();
+        identity.budget = Budget::Cases(0);
+        identity.options.shrink = true;
+        identity.engine_version = 0;
+        serde_json::to_value(identity).unwrap_or(serde_json::Value::Null)
+    };
+    let mut mismatches = Vec::new();
+    differ(&comparable(recorded), &comparable(now), "", &mut mismatches);
+    mismatches
 }
 
-/// The identity fields of `recorded` that `now` does not have, one sentence each.
-pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> Vec<String> {
-    let mut mismatches = Vec::new();
-    let mut compare = |what: &str, recorded: &str, now: &str| {
-        if recorded != now {
-            mismatches.push(format!(
-                "{what}: the witness has `{recorded}`, the replay `{now}`"
+/// Append to `out` every leaf at which `recorded` and `now` differ, under `path`.
+fn differ(
+    recorded: &serde_json::Value,
+    now: &serde_json::Value,
+    path: &str,
+    out: &mut Vec<String>,
+) {
+    use serde_json::Value;
+    match (recorded, now) {
+        (Value::Object(recorded), Value::Object(now)) => {
+            let keys: std::collections::BTreeSet<&String> =
+                recorded.keys().chain(now.keys()).collect();
+            for key in keys {
+                let child = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                differ(
+                    recorded.get(key).unwrap_or(&Value::Null),
+                    now.get(key).unwrap_or(&Value::Null),
+                    &child,
+                    out,
+                );
+            }
+        }
+        (Value::Array(recorded_items), Value::Array(now_items))
+            if recorded_items.len() == now_items.len() =>
+        {
+            for (index, (recorded, now)) in recorded_items.iter().zip(now_items).enumerate() {
+                differ(recorded, now, &format!("{path}[{index}]"), out);
+            }
+        }
+        _ if recorded != now => {
+            out.push(format!(
+                "{path}: the witness has {recorded}, the replay {now}"
             ));
         }
-    };
-    compare(
-        "k-rust revision",
-        &recorded.k_rust_revision,
-        &now.k_rust_revision,
-    );
-    let roles = |identity: &ReportIdentity| {
-        identity
-            .definitions
-            .iter()
-            .map(|definition| role(definition.role))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    compare("definitions", &roles(recorded), &roles(now));
-    for (recorded, now) in recorded.definitions.iter().zip(&now.definitions) {
-        let name = role(recorded.role);
-        compare(
-            &format!("execution digest of the {name}"),
-            &recorded.execution_digest,
-            &now.execution_digest,
-        );
-        compare(
-            &format!("backend route of the {name}"),
-            &recorded.route,
-            &now.route,
-        );
-        compare(
-            &format!("rewrite order of the {name}"),
-            recorded
-                .execution_rewrite_order_digest
-                .as_deref()
-                .unwrap_or("none"),
-            now.execution_rewrite_order_digest
-                .as_deref()
-                .unwrap_or("none"),
-        );
+        _ => {}
     }
-    compare(
-        "program digest",
-        &recorded.program_digest,
-        &now.program_digest,
-    );
-    let paths = |identity: &ReportIdentity| match identity.options.paths {
-        k_rust_fuzz::PathMode::OnePath => "one-path",
-        k_rust_fuzz::PathMode::AllPaths => "all-paths",
-    };
-    compare("path mode", paths(recorded), paths(now));
-    compare("target digest", &recorded.target_digest, &now.target_digest);
-    compare(
-        "hole overlay digest",
-        &recorded.overlay_digest,
-        &now.overlay_digest,
-    );
-    mismatches
 }
 
 /// The result of replaying one recorded witness case.

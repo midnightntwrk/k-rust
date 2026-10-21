@@ -42,7 +42,6 @@ const ERROR: u8 = 2;
 #[derive(Debug, Parser)]
 #[command(
     name = "krust-fuzz",
-    version,
     about = "Craft input values that make a program reach a target under a K specification",
     long_about = "Craft input values that make a program reach a target under a K specification.\n\n\
                   The holes (typed literals of the unmodified program, or configuration \
@@ -65,7 +64,8 @@ struct Args {
     #[arg(long, value_name = "DIR")]
     definition: Option<PathBuf>,
 
-    /// Compiled directory of the mutant; selects the differential target.
+    /// Compiled directory of the mutant; selects the differential target when no other target
+    /// is named.
     #[arg(long, value_name = "DIR")]
     mutant: Option<PathBuf>,
 
@@ -85,7 +85,7 @@ struct Args {
     #[arg(long, value_name = "LABEL", conflicts_with_all = ["pattern", "differential"])]
     reach_rule: Option<String>,
 
-    /// What counts as reaching the rule.
+    /// What counts as reaching the rule (only with a rule target).
     #[arg(long, value_enum, value_name = "MODE")]
     rule_mode: Option<RuleModeArg>,
 
@@ -98,16 +98,28 @@ struct Args {
     differential: bool,
 
     /// A reaching case must also end naturally.
-    #[arg(long)]
+    #[arg(long, overrides_with = "no_run_to_completion")]
     run_to_completion: bool,
 
+    /// A reaching case need not end naturally (overrides the campaign file).
+    #[arg(long, overrides_with = "run_to_completion")]
+    no_run_to_completion: bool,
+
     /// The target is a property's violation: report a hit as a property failure.
-    #[arg(long)]
+    #[arg(long, overrides_with = "no_negated_property")]
     negated_property: bool,
 
+    /// The target is not a property's violation (overrides the campaign file).
+    #[arg(long, overrides_with = "negated_property")]
+    no_negated_property: bool,
+
     /// Explore every path of each input instead of k-rust's first-applicable path.
-    #[arg(long)]
+    #[arg(long, overrides_with = "one_path")]
     all_paths: bool,
+
+    /// Explore k-rust's first-applicable path of each input (overrides the campaign file).
+    #[arg(long, overrides_with = "all_paths")]
+    one_path: bool,
 
     /// Depth bound of every case.
     #[arg(long, value_name = "N")]
@@ -137,8 +149,8 @@ struct Args {
     #[arg(long, value_name = "N")]
     rejection_cap: Option<u64>,
 
-    /// Per-case wall-clock safety limit (60 when not set); a case it stops is a timeout,
-    /// outside the determinism contract.
+    /// Per-case wall-clock safety limit, at least 1 (60 when not set); a case it stops is a
+    /// timeout, outside the determinism contract.
     #[arg(long, value_name = "SECONDS", conflicts_with = "no_safety_limit")]
     safety_limit: Option<u64>,
 
@@ -147,8 +159,12 @@ struct Args {
     no_safety_limit: bool,
 
     /// Report the first confirmed witness without shrinking it.
-    #[arg(long)]
+    #[arg(long, overrides_with = "shrink")]
     no_shrink: bool,
+
+    /// Shrink a confirmed witness (the default; overrides the campaign file).
+    #[arg(long, overrides_with = "no_shrink")]
+    shrink: bool,
 
     /// Solver time limit per query, in milliseconds.
     #[arg(long, value_name = "MS")]
@@ -170,7 +186,8 @@ struct Args {
     #[arg(long, value_name = "FILE")]
     report: Option<PathBuf>,
 
-    /// When a witness is found, write it with the campaign to FILE, for --replay.
+    /// When a witness is found, write it with the campaign to FILE, for --replay; when none is
+    /// found, remove FILE if it exists, so that it never holds an older run's witness.
     #[arg(long, value_name = "FILE")]
     witness: Option<PathBuf>,
 
@@ -182,10 +199,11 @@ struct Args {
         value_name = "FILE",
         conflicts_with_all = [
             "campaign", "sort", "config_vars", "reach_rule", "rule_mode", "pattern",
-            "differential", "run_to_completion", "negated_property", "all_paths", "max_depth",
-            "max_work", "normal_end", "cases", "work", "seed", "rejection_cap", "safety_limit",
-            "no_safety_limit", "no_shrink", "smt_timeout", "smt_retry_limit", "json", "report",
-            "witness",
+            "differential", "run_to_completion", "no_run_to_completion", "negated_property",
+            "no_negated_property", "all_paths", "one_path", "max_depth", "max_work",
+            "normal_end", "cases", "work", "seed", "rejection_cap", "safety_limit",
+            "no_safety_limit", "no_shrink", "shrink", "smt_timeout", "smt_retry_limit", "json",
+            "report", "witness",
         ]
     )]
     replay: Option<PathBuf>,
@@ -218,18 +236,33 @@ impl From<RuleModeArg> for RuleMode {
 fn main() -> ExitCode {
     // Checked before the arguments, so that a krust-fuzz of another build does not even print
     // its help as this krust's.
+    let own = k_rust::native::build_identity();
     if let Some(parent) = std::env::var_os(k_rust::native::FUZZ_PARENT_BUILD_ENV) {
-        let own = k_rust::native::build_identity();
-        if parent.to_string_lossy() != own.as_str() {
+        let parent = parent.to_string_lossy();
+        if parent != own.as_str() {
             eprintln!(
-                "error: version skew: krust is k-rust {}, but this krust-fuzz was built against \
-                 k-rust {own}; install krust and krust-fuzz from one build",
-                parent.to_string_lossy()
+                "error: version skew: krust is k-rust {parent}, but this krust-fuzz was built \
+                 from k-rust {own}; install krust and krust-fuzz from one build"
             );
             return ExitCode::from(ERROR);
         }
+        if !k_rust::native::is_verified_build(&own) {
+            eprintln!(
+                "warning: krust and krust-fuzz are both unverified builds of k-rust {own}: \
+                 their sources cannot be compared, only their versions"
+            );
+        }
     }
-    let args = Args::parse();
+    // The version names the k-rust build, which the skew check and the reports compare.
+    let version: &'static str =
+        Box::leak(format!("{} (k-rust {own})", env!("CARGO_PKG_VERSION")).into_boxed_str());
+    let matches = <Args as clap::CommandFactory>::command()
+        .version(version)
+        .get_matches();
+    let args = match <Args as clap::FromArgMatches>::from_arg_matches(&matches) {
+        Ok(args) => args,
+        Err(error) => error.exit(),
+    };
     let worker = std::thread::Builder::new()
         .name("krust-fuzz".into())
         .stack_size(STACK_SIZE)
@@ -268,9 +301,9 @@ fn run(args: Args) -> Result<u8, String> {
         rule_mode: args.rule_mode.map(RuleMode::from),
         pattern: args.pattern,
         differential: args.differential,
-        run_to_completion: args.run_to_completion,
-        negated_property: args.negated_property,
-        all_paths: args.all_paths,
+        run_to_completion: switch(args.run_to_completion, args.no_run_to_completion),
+        negated_property: switch(args.negated_property, args.no_negated_property),
+        all_paths: switch(args.all_paths, args.one_path),
         max_depth: args.max_depth,
         max_work: args.max_work,
         normal_end: args.normal_end,
@@ -280,11 +313,16 @@ fn run(args: Args) -> Result<u8, String> {
         rejection_cap: args.rejection_cap,
         safety_limit_seconds: args.safety_limit,
         no_safety_limit: args.no_safety_limit,
-        no_shrink: args.no_shrink,
+        shrink: switch(args.shrink, args.no_shrink),
         smt_timeout_ms: args.smt_timeout,
         smt_retry_limit: args.smt_retry_limit,
         k_rust_revision: args.k_rust_revision,
     };
+    // The output paths are checked before the campaign, so that a long campaign's result is not
+    // lost to a path that cannot be written.
+    for path in [&args.report, &args.witness].into_iter().flatten() {
+        check_writable(path)?;
+    }
     let loaded = campaign::resolve(file, overrides, k_rust::native::build_identity())?;
     let spec = loaded.spec(
         loaded.resolved.proposers.clone(),
@@ -294,6 +332,12 @@ fn run(args: Args) -> Result<u8, String> {
     let mut campaign = Campaign::new(spec).map_err(|error| format!("campaign refused: {error}"))?;
     let report = campaign.run(loaded.resolved.budget, None);
     let json = report.to_canonical_json();
+    // The result is printed before any file is written, so that a failed write loses nothing.
+    if args.json {
+        println!("{json}");
+    } else {
+        print!("{}", summary(&report));
+    }
     if let Some(path) = &args.report {
         std::fs::write(path, format!("{json}\n"))
             .map_err(|error| format!("cannot write the report `{}`: {error}", path.display()))?;
@@ -301,23 +345,49 @@ fn run(args: Args) -> Result<u8, String> {
     if let Some(path) = &args.witness {
         if report.witness().is_some() {
             WitnessFile::write(path, &loaded.resolved, &report)?;
-        } else {
+        } else if path.exists() {
+            std::fs::remove_file(path).map_err(|error| {
+                format!(
+                    "no witness was found, and the older `{}` cannot be removed: {error}",
+                    path.display()
+                )
+            })?;
             eprintln!(
-                "note: no witness was found, so `{}` was not written",
+                "note: no witness was found, so the older `{}` was removed",
                 path.display()
             );
         }
-    }
-    if args.json {
-        println!("{json}");
-    } else {
-        print!("{}", summary(&report));
     }
     Ok(if report.witness().is_some() {
         FOUND
     } else {
         NOT_FOUND
     })
+}
+
+/// `Some(true)` for the switch, `Some(false)` for its negation (clap keeps only the last one
+/// given), `None` for neither.
+fn switch(on: bool, off: bool) -> Option<bool> {
+    match (on, off) {
+        (true, _) => Some(true),
+        (false, true) => Some(false),
+        (false, false) => None,
+    }
+}
+
+/// Refuse an output path that cannot be written, without changing an existing file.
+fn check_writable(path: &Path) -> Result<(), String> {
+    let existed = path.exists();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|error| format!("cannot write `{}`: {error}", path.display()))?;
+    if !existed {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
 }
 
 fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
@@ -348,8 +418,28 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
             .ok_or("--program relocates the program, but the witness has none")?;
         recorded.path = relocate(Path::new(program));
     }
-    let loaded = campaign::reload(resolved)?;
+    let loaded = campaign::reload(resolved).map_err(|error| {
+        format!(
+            "{error}\nif the witness's inputs moved, relocate them with --definition, --mutant or \
+             --program"
+        )
+    })?;
     let replay = replay::replay(&file, &loaded, args.force, STACK_SIZE as u64)?;
+    let unverified = [
+        &file.report.identity.k_rust_revision,
+        &loaded.resolved.k_rust_revision,
+    ]
+    .into_iter()
+    .filter(|revision| !k_rust::native::is_verified_build(revision))
+    .map(|revision| format!("`{revision}`"))
+    .collect::<Vec<_>>();
+    if !unverified.is_empty() {
+        eprintln!(
+            "note: the k-rust revision {} names no source digest, so builds of one version \
+             cannot be told apart by it",
+            unverified.join(" and ")
+        );
+    }
     if replay.cases.is_empty() {
         let mut message = String::from("the witness's identity is not the replay's:");
         for mismatch in &replay.mismatches {
@@ -361,6 +451,13 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     }
     for mismatch in &replay.mismatches {
         println!("identity mismatch (forced): {mismatch}");
+    }
+    if !replay.mismatches.is_empty() {
+        let count = replay.mismatches.len();
+        println!(
+            "forced: replayed despite {count} identity {}",
+            if count == 1 { "mismatch" } else { "mismatches" }
+        );
     }
     let mut reproduced = true;
     for case in &replay.cases {
