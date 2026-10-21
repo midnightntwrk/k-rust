@@ -23,8 +23,9 @@ use self::{
 };
 use crate::{
     error::CampaignError,
+    graph::RuleGraph,
     holes::ResolvedHole,
-    proposers::dictionary::{self, DictionaryProposer, HolePool},
+    proposers::dictionary::{self, DictionaryProposer, Harvest, HolePool},
     report::{
         CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, GenerationCaps, HitLabel,
         ReportIdentity, Totals, digest_hex,
@@ -114,11 +115,6 @@ impl Campaign {
         }
         let explicit = explicit_proposals(&names, &anchors, &spec.proposers)?;
         generators(&cases, &spec)?;
-        let dictionary = if weight(&spec.proposers, ProposerKind::Dictionary) > 0 {
-            Some(Arc::new(dictionary::hole_pools(&spec, holes)?))
-        } else {
-            None
-        };
         // Each side's initial configuration at the anchors, or at the first explicit
         // assignment when some hole has no anchor, identifies its grammar (FZ-06 review S2).
         let known = anchors
@@ -158,6 +154,30 @@ impl Campaign {
             None => false,
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
+        // The dictionary harvests from the campaign's rule graph, or from a graph of the
+        // campaign's one internalization when there is no graph check (a differential campaign,
+        // a template that does not build); only the `from-definition` route builds its own.
+        let dictionary = if weight(&spec.proposers, ProposerKind::Dictionary) > 0 {
+            let target = cases.target_rule_id();
+            let pools = match (&graph, cases.baseline_internalized()) {
+                (Some(check), _) => {
+                    let harvest = Harvest::from_graph(check.graph(), target, dictionary::RADIUS);
+                    dictionary::pools(&harvest, &spec, holes)
+                }
+                (None, Some(definition)) => {
+                    let harvest = Harvest::from_graph(
+                        &RuleGraph::new(definition),
+                        target,
+                        dictionary::RADIUS,
+                    );
+                    dictionary::pools(&harvest, &spec, holes)
+                }
+                (None, None) => dictionary::hole_pools(&spec, holes)?,
+            };
+            Some(Arc::new(pools))
+        } else {
+            None
+        };
         let settings = LoopSettings {
             identity: identity(&spec, &initial)?,
             rejection_cap: spec.rejection_cap,

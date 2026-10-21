@@ -510,11 +510,20 @@ pub(crate) fn hole_pools(
     spec: &CampaignSpec,
     holes: &[ResolvedHole],
 ) -> Result<Vec<HolePool>, CampaignError> {
-    let harvest = Harvest::for_campaign(spec)?;
-    Ok(holes
+    Ok(pools(&Harvest::for_campaign(spec)?, spec, holes))
+}
+
+/// The pool of each hole from `harvest`, in hole order: [`hole_pools`] with a harvest the
+/// caller made, for example from the campaign's own rule graph ([`Harvest::from_graph`]).
+pub(crate) fn pools(
+    harvest: &Harvest,
+    spec: &CampaignSpec,
+    holes: &[ResolvedHole],
+) -> Vec<HolePool> {
+    holes
         .iter()
-        .map(|hole| HolePool::new(&harvest, &hole.sort, &hole.decl.constraints, &spec.bounds))
-        .collect())
+        .map(|hole| HolePool::new(harvest, &hole.sort, &hole.decl.constraints, &spec.bounds))
+        .collect()
 }
 
 /// `literal` as a value of a hole of `sort` whose builtin domain values have the KORE sort

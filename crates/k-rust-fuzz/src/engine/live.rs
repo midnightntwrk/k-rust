@@ -317,6 +317,22 @@ impl LiveCases {
             .collect()
     }
 
+    /// The baseline's internalized definition on the `source-execution` route, the campaign's
+    /// only internalization of it ([`Side::internalized`]); `None` on the `from-definition`
+    /// route.
+    pub(crate) fn baseline_internalized(&self) -> Option<&Arc<BackendDefinition>> {
+        self.baseline.internalized.as_ref()
+    }
+
+    /// The catalog id of a rule target's rule, as the target resolved it; `None` for every
+    /// other target kind.
+    pub(crate) fn target_rule_id(&self) -> Option<&str> {
+        match &self.judge {
+            Judge::Target(target) => target.rule_id(),
+            Judge::Differential(_) => None,
+        }
+    }
+
     /// What a run's [`RunAssemblers`] borrow: each side's program assembly and definition.
     pub(crate) fn assembly_parts(&self) -> AssemblyParts {
         let part = |side: &Side| (Arc::clone(&side.assembly), Arc::clone(&side.definition));
@@ -868,6 +884,12 @@ impl GraphCheck {
         })
     }
 
+    /// The rule graph of the baseline definition, which the dictionary also harvests from
+    /// (ARCHITECTURE 8.3), so that it builds no graph or backend of its own.
+    pub(crate) fn graph(&self) -> &RuleGraph {
+        &self.graph
+    }
+
     /// The warnings the report carries for this campaign.
     pub(crate) fn warnings(&self) -> &[String] {
         &self.warnings
@@ -1212,6 +1234,47 @@ mod tests {
                 "the leaf runs on to its end: {:?}",
                 hit.steps
             );
+        }
+    }
+
+    /// The dictionary's harvest from the campaign's rule graph and resolved target equals the
+    /// harvest it makes on a backend and graph of its own (DICT's request after N9), for a rule
+    /// target and for a pattern target.
+    #[test]
+    fn the_dictionary_harvests_the_same_from_the_campaigns_graph() {
+        use crate::{
+            proposers::dictionary::{Harvest, RADIUS},
+            target::{RuleMode, RuleRef, RuleTarget},
+        };
+        let compiled = COIN.compiled();
+        let rule = Arc::new(CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: Vec::new(),
+            target: Target {
+                kind: TargetKind::Rule(RuleTarget {
+                    rule: RuleRef::Label("count-done".to_owned()),
+                    mode: RuleMode::Fired,
+                }),
+                run_to_completion: false,
+                negated_property: false,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        });
+        for spec in [rule, le_spec(None)] {
+            let cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+            let check = GraphCheck::build(&spec, &cases).expect("a graph check");
+            let shared = Harvest::from_graph(check.graph(), cases.target_rule_id(), RADIUS);
+            let own = Harvest::for_campaign(&spec).expect("harvests");
+            assert!(!own.literals().is_empty());
+            assert_eq!(shared.literals(), own.literals());
+            let internalized = cases.baseline_internalized().expect("source route");
+            let graph = RuleGraph::new(internalized);
+            let fresh = Harvest::from_graph(&graph, cases.target_rule_id(), RADIUS);
+            assert_eq!(fresh.literals(), own.literals());
         }
     }
 
