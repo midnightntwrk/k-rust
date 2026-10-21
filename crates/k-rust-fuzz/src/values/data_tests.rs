@@ -790,12 +790,7 @@ fn mint_resolves_and_matches_the_backend() {
     };
     let kore = to_kore(&value, &mint).unwrap();
     for spelling in ["200p8", "-56p8"] {
-        let backend = externalize::term(
-            &definition
-                .backend
-                .domain_value(sort.clone(), spelling)
-                .unwrap(),
-        );
+        let backend = externalize::term(&definition.backend.domain_value(sort, spelling).unwrap());
         assert_eq!(kore, backend, "{spelling}");
         assert_eq!(parse_k_text(spelling, &mint).as_ref(), Ok(&value));
         // The frontend keeps a literal as written (`-56p8`); the backend reduces it to its

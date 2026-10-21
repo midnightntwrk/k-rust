@@ -509,7 +509,7 @@ pub(super) fn resolve_with(
         return Err(SortRefusal::Unknown);
     };
     let info = definition.sorts().get(name).ok_or(SortRefusal::Unknown)?;
-    if let Some(builtin) = data::builtin_value_sort(&kore, definition) {
+    if let Some(builtin) = data::builtin_value_sort(kore, definition) {
         return Ok(match builtin {
             ValueSort::Renamed {
                 kore_sort, base, ..

@@ -159,14 +159,14 @@ impl Builder<'_> {
             // token sort (`syntax Id ::= "main"`) or of a builtin builds no data value (T-9).
             if !arguments.is_empty()
                 || !below(name)
-                || !matches!(self.classify(&symbol.result_sort), Class::Data(_))
+                || !matches!(self.classify(symbol.result_sort), Class::Data(_))
             {
                 continue;
             }
             let arguments = symbol
                 .argument_sorts
                 .iter()
-                .map(|argument| self.classify(argument))
+                .map(|argument| self.classify(*argument))
                 .collect::<Vec<_>>();
             if arguments
                 .iter()
@@ -210,7 +210,7 @@ impl Builder<'_> {
             // exempts builtins from the program-syntax rule); an excluded data subsort is
             // unavailable.
             if let Class::Leaf(leaf) =
-                self.classify(&BackendSort::application(name.as_ref(), Vec::new()))
+                self.classify(BackendSort::application(name.as_ref(), Vec::new()))
             {
                 // Two subsorts with the same values (`Int` and a renamed `AInt`) would make a
                 // value's KORE sort ambiguous: one is kept, the canonical builtin when there is
@@ -236,7 +236,7 @@ impl Builder<'_> {
     /// How values of `sort` are generated as a constructor argument or a subsort. Builtins
     /// and collections are recognized before the exclusions are read: only a data sort can be
     /// excluded.
-    fn classify(&self, sort: &BackendSort) -> Class {
+    fn classify(&self, sort: BackendSort) -> Class {
         let SortNode::Application { name, arguments } = sort.node() else {
             return Class::Unavailable;
         };
@@ -250,7 +250,7 @@ impl Builder<'_> {
             return Class::Unavailable;
         }
         match info.hook.as_deref() {
-            None if !info.has_domain_values && self.definition.domain_kind(sort).is_none() => {
+            None if !info.has_domain_values && self.definition.domain_kind(&sort).is_none() => {
                 if (self.excluded)(name) {
                     Class::Unavailable
                 } else {
@@ -312,13 +312,13 @@ fn admissible(symbol: &Symbol) -> bool {
 /// `Bytes` and `MInt{W}`, read from its hook and domain values, and wrapped in
 /// [`ValueSort::Renamed`] when the sort is hooked to one of them under another name.
 pub(super) fn builtin_value_sort(
-    sort: &BackendSort,
+    sort: BackendSort,
     definition: &BackendDefinition,
 ) -> Option<ValueSort> {
     let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
-    let (base, canonical) = match definition.domain_kind(sort)? {
+    let (base, canonical) = match definition.domain_kind(&sort)? {
         DomainKind::Int => (ValueSort::Int, sort.is_builtin(BuiltinSort::Int)),
         DomainKind::Bool => (ValueSort::Bool, sort.is_builtin(BuiltinSort::Bool)),
         DomainKind::String => (ValueSort::String, sort.is_builtin(BuiltinSort::String)),
