@@ -911,6 +911,23 @@ thread_local! {
     static HOOK_VALUES: RefCell<Option<HookValues>> = const { RefCell::new(None) };
 }
 
+/// Run `action` with this thread's results of pure builtin hooks ([`HookValueScope`]) set aside:
+/// a scope opened inside holds its own results, which are dropped when `action` ends, and the
+/// enclosing results come back unchanged, also when `action` unwinds. Work done only to describe
+/// a run (`coverage::isolated`) thus fills no entry the run would later be served from.
+pub(crate) fn hook_values_aside<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Option<HookValues>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(values) = self.0.take() {
+                HOOK_VALUES.set(values);
+            }
+        }
+    }
+    let _restore = Restore(Some(HOOK_VALUES.take()));
+    action()
+}
+
 /// A backend entry point's scope for the results of pure builtin hooks that the deferred
 /// definedness steps evaluate ([`evaluate_pure_hook`]): within it, an application to the same
 /// argument nodes under the same definition and evaluation mode is evaluated at most twice

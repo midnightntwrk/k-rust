@@ -10,8 +10,9 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
     coverage::{
-        RunCoverage, collect, collect_offering, note_applied, note_matched, note_offered, offer,
-        replay, suspend,
+        ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, RecordedValue,
+        RuleConditions, RunCoverage, collect, collect_offering, note_applied, note_matched,
+        note_offered, offer, replay, suspend,
     },
     definition::BackendDefinition,
     rewrite::{
@@ -23,7 +24,7 @@ use crate::{
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     stop::Stoppable,
     substitution::Substitution,
-    term::Term,
+    term::{Sort, Term, Variable},
     transition::ExecutionIoState,
 };
 
@@ -622,7 +623,7 @@ fn a_ceil_equation_that_discharged_a_rule_at_load_is_applied() {
             .values()
             .flat_map(|groups| groups.values().flatten())
             .find(|rule| rule.rule.attributes.label.as_deref() == Some(label))
-            .map(|rule| rule.rule.computed_attributes.discharged_by.clone())
+            .map(|rule| (*rule.rule.computed_attributes.discharged_by).clone())
             .map(|discharge| (discharge.applied, discharge.matched))
             .expect("the rule is in the definition")
     };
@@ -1114,6 +1115,303 @@ fn asking_for_offered_changes_no_result_and_no_counter() {
         }
     }
     assert!(probing > 0, "some run offers an axiom it never tried");
+}
+
+/// The options of a run that records the condition entries of `rules`, with the default caps.
+fn recording(rules: &[&str]) -> ExecutionOptions {
+    ExecutionOptions {
+        collect_conditions: Some(ConditionCollection::new(rules.iter().copied())),
+        ..collecting()
+    }
+}
+
+/// The condition records the run reported.
+fn conditions(result: &ExecutionResult) -> &[RuleConditions] {
+    coverage(result)
+        .conditions
+        .as_deref()
+        .expect("the run recorded condition entries")
+}
+
+fn int_value(definition: &BackendDefinition, value: i64) -> RecordedValue {
+    RecordedValue::Value(term(definition, &int(value)))
+}
+
+fn variable_a() -> Variable {
+    Variable::new("A", Sort::simple("SortInt"))
+}
+
+/// An atom that reads the record's one binding, `A`.
+fn atom(
+    head: &str,
+    hook: Option<&str>,
+    operands: Vec<RecordedValue>,
+    value: Option<bool>,
+) -> ConditionNode {
+    ConditionNode::Atom(ConditionAtom {
+        head: Some(head.to_owned()),
+        hook: hook.map(str::to_owned),
+        operands,
+        reads: vec![0],
+        value,
+    })
+}
+
+/// G-7: the entry into a blocked rule's `requires` is recorded with the bindings of the
+/// variables the condition reads, as the rule names them, and the condition's atom with its
+/// operands evaluated under the instance and its truth: `rejHigh`'s `normR(A) <Int 0` at
+/// `A = 5` is `5 <Int 0`, false.
+#[test]
+fn a_blocked_rules_bindings_and_failing_atom_are_recorded() {
+    let definition = definition();
+    let initial = ground(&definition, &format!("rej{{}}({})", int(5)));
+    let result = execute(&definition, initial, recording(&["rejHigh"]));
+    assert_coverage(
+        coverage(&result),
+        &["rej", "normR"],
+        &["rejHigh", "rej", "normR"],
+        "rej(5)",
+    );
+    assert_eq!(
+        conditions(&result),
+        [RuleConditions {
+            rule: "rejHigh".to_owned(),
+            records: vec![ConditionRecord {
+                bindings: vec![(variable_a(), int_value(&definition, 5))],
+                condition: vec![atom(
+                    "ltInt",
+                    Some("INT.lt"),
+                    vec![int_value(&definition, 5), int_value(&definition, 0)],
+                    Some(false),
+                )],
+                chosen: false,
+            }],
+            truncated: false,
+        }]
+    );
+}
+
+/// A condition that holds is recorded alike, with its atom true; a rule not asked for, or whose
+/// condition was never entered, has no entry.
+#[test]
+fn a_holding_condition_is_recorded_and_unrequested_rules_are_not() {
+    let definition = definition();
+    let initial = ground(&definition, &format!("load{{}}({})", int(4)));
+    let result = execute(&definition, initial, recording(&["load", "rejHigh", "ens"]));
+    assert_eq!(
+        conditions(&result),
+        [RuleConditions {
+            rule: "load".to_owned(),
+            records: vec![ConditionRecord {
+                bindings: vec![(variable_a(), int_value(&definition, 4))],
+                condition: vec![atom(
+                    "eqInt",
+                    Some("INT.eq"),
+                    vec![int_value(&definition, 4), int_value(&definition, 4)],
+                    Some(true),
+                )],
+                chosen: false,
+            }],
+            truncated: false,
+        }]
+    );
+}
+
+/// A matching-logic atom of a condition (`\equals(pi(A), 0)`) is recorded with its operands and
+/// its truth; an operand left as an application of a function is marked ground, not a value.
+#[test]
+fn a_predicate_atom_is_recorded_with_its_operands() {
+    let definition = definition();
+    let initial = ground(&definition, &format!("rp{{}}({})", int(3)));
+    let result = execute(&definition, initial, recording(&["rp"]));
+    let [rule] = conditions(&result) else {
+        panic!("{:?}", conditions(&result))
+    };
+    let [record] = &rule.records[..] else {
+        panic!("{rule:?}")
+    };
+    assert_eq!(
+        record.condition,
+        [atom(
+            r"\equals",
+            None,
+            vec![
+                RecordedValue::Ground(term(&definition, &format!("pi{{}}({})", int(3)))),
+                int_value(&definition, 0),
+            ],
+            Some(true),
+        )]
+    );
+}
+
+/// On a symbolic state the bindings and operands are marked symbolic and an atom the evaluation
+/// does not decide has no truth; the rule's variable is named as the rule names it, also where
+/// the attempt renamed it apart from a state variable spelled like it (`Rule#A`).
+#[test]
+fn symbolic_values_are_marked_and_variables_named_as_written() {
+    let definition = definition();
+    let int_sort = Sort::simple("SortInt");
+    for state_variable in ["A", "Rule#A"] {
+        let subject = Term::variable(Variable::new(state_variable, int_sort));
+        let program = term(&definition, &format!("rej{{}}({A})"));
+        let initial = Pattern {
+            term: crate::substitution::substitute(
+                &program,
+                &crate::substitution::Substitution::from([(
+                    Variable::new("A", int_sort),
+                    subject.clone(),
+                )]),
+            ),
+            constraints: Vec::new(),
+        };
+        let result = execute(&definition, initial, recording(&["rejHigh"]));
+        let [rule] = conditions(&result) else {
+            panic!("{:?}", conditions(&result))
+        };
+        let [record] = &rule.records[..] else {
+            panic!("{rule:?}")
+        };
+        assert_eq!(
+            record.bindings,
+            [(variable_a(), RecordedValue::Symbolic(subject.clone()))],
+            "{state_variable}"
+        );
+        assert_eq!(
+            record.condition,
+            [atom(
+                "ltInt",
+                Some("INT.lt"),
+                vec![
+                    RecordedValue::Symbolic(subject.clone()),
+                    int_value(&definition, 0)
+                ],
+                None,
+            )],
+            "{state_variable}"
+        );
+    }
+}
+
+/// A value larger than `max_value_size` nodes is omitted; the atom's truth is still recorded.
+#[test]
+fn values_above_the_size_cap_are_omitted() {
+    let definition = definition();
+    let initial = ground(&definition, &format!("rej{{}}({})", int(5)));
+    let mut options = recording(&["rejHigh"]);
+    options.collect_conditions.as_mut().unwrap().max_value_size = 0;
+    let result = execute(&definition, initial, options);
+    let record = &conditions(&result)[0].records[0];
+    assert_eq!(record.bindings, [(variable_a(), RecordedValue::Omitted)]);
+    assert_eq!(
+        record.condition,
+        [atom(
+            "ltInt",
+            Some("INT.lt"),
+            vec![RecordedValue::Omitted, RecordedValue::Omitted],
+            Some(false),
+        )]
+    );
+}
+
+/// Without `collect_conditions` the coverage has no records, and without `collect_coverage`
+/// the option records nothing.
+#[test]
+fn conditions_are_recorded_only_when_asked_with_coverage() {
+    let definition = definition();
+    let initial = ground(&definition, &format!("rej{{}}({})", int(5)));
+    let plain = execute(&definition, initial.clone(), collecting());
+    assert_eq!(coverage(&plain).conditions, None);
+    let without_coverage = execute(
+        &definition,
+        initial,
+        ExecutionOptions {
+            collect_coverage: false,
+            ..recording(&["rejHigh"])
+        },
+    );
+    assert_eq!(without_coverage.coverage, None);
+}
+
+/// Recording the condition entries of every rule changes nothing else in any result, on the
+/// programs, modes and modalities of the offered test (renamed-apart states included), counts
+/// no other work, and is deterministic: two runs record the same entries.
+#[test]
+fn asking_for_conditions_changes_no_result_and_no_counter() {
+    use k_rust_kore::measure;
+    let definition = definition();
+    let rules = [
+        "load", "ens", "rhsp", "rhst", "eqreq", "rejHigh", "rej", "hop", "hopLow", "rejLow", "ow",
+        "ru", "rv", "rc", "rp", "ndA", "ndB", "mid1", "mid2", "nar", "d1", "d2", "d4", "rw",
+    ];
+    let unary = [
+        "val", "load", "ens", "rhsp", "rhst", "eqreq", "rej", "ow", "ru", "rv", "rc", "rp", "d1",
+        "d2", "d4", "rw", "hop",
+    ];
+    let mut inputs = ["nd{}()", "halt{}()"]
+        .map(|program| (program.to_owned(), term(&definition, program)))
+        .to_vec();
+    for name in unary {
+        for argument in [int(5), int(-1), int(0), A.to_owned()] {
+            let program = format!("{name}{{}}({argument})");
+            inputs.push((program.clone(), term(&definition, &program)));
+        }
+    }
+    let rule_a = crate::substitution::Substitution::from([(
+        Variable::new("A", Sort::simple("SortInt")),
+        Term::variable(Variable::new("Rule#A", Sort::simple("SortInt"))),
+    )]);
+    for name in ["hop", "rej", "ow", "d1"] {
+        let program = format!("{name}{{}}({A})");
+        let renamed = crate::substitution::substitute(&term(&definition, &program), &rule_a);
+        inputs.push((format!("{name}(Rule#A)"), renamed));
+    }
+    let mut recorded = 0;
+    for (program, subject) in &inputs {
+        let initial = Pattern {
+            term: subject.clone(),
+            constraints: Vec::new(),
+        };
+        for mode in [ExecutionMode::All, ExecutionMode::Any] {
+            for result_modality in [ResultModality::PathSet, ResultModality::StateSet] {
+                let options = ExecutionOptions {
+                    mode,
+                    result_modality,
+                    max_work: Some(200),
+                    max_depth: 200,
+                    max_breadth: Some(16),
+                    collect_offered: true,
+                    ..collecting()
+                };
+                let run = |conditions: bool| {
+                    let before = measure::snapshot();
+                    let options = ExecutionOptions {
+                        collect_conditions: conditions
+                            .then(|| ConditionCollection::new(rules.iter().copied())),
+                        ..options.clone()
+                    };
+                    let result = execute(&definition, initial.clone(), options);
+                    (result, measure::snapshot().delta(&before))
+                };
+                let context = format!("{program} under {mode:?} {result_modality:?}");
+                let (mut on, on_counters) = run(true);
+                let (again, _) = run(true);
+                assert_eq!(on, again, "{context}: two runs record alike");
+                let (off, off_counters) = run(false);
+                let records = on.coverage.as_mut().unwrap().conditions.take();
+                let records = records.expect("conditions were asked for");
+                recorded += records.iter().map(|rule| rule.records.len()).sum::<usize>();
+                assert_eq!(off.coverage.as_ref().unwrap().conditions, None, "{context}");
+                assert_eq!(on, off, "{context}: conditions on, then off");
+                let differing = on_counters
+                    .iter()
+                    .zip(off_counters.iter())
+                    .filter(|((_, on), (_, off))| on != off)
+                    .collect::<Vec<_>>();
+                assert!(differing.is_empty(), "{context}: counters {differing:?}");
+            }
+        }
+    }
+    assert!(recorded > 0, "some run records a condition entry");
 }
 
 /// A [`crate::coverage::Selection`] offers exactly the candidates its site never took: after the

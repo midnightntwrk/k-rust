@@ -1149,6 +1149,18 @@ pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Whether the open run record holds a value the definition leaves open
+/// ([`PathFact::ChosenValue`]): some work of the run so far read one, on any path.
+pub(crate) fn run_read_chosen_value() -> bool {
+    OPEN.get()
+        && STATE.with_borrow(|state| {
+            state
+                .run
+                .as_ref()
+                .is_some_and(|run| run.iter().any(|fact| fact.chosen_value().is_some()))
+        })
+}
+
 /// A point in the notes of this thread, for [`since`] and [`noted_since`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Marker(u64);

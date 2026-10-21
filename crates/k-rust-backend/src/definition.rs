@@ -2152,7 +2152,7 @@ impl BackendDefinition {
             // A rule without partial symbols needed no discharge, and one discharged before
             // keeps the coverage of that discharge.
             if !rule.computed_attributes.undefined_symbols.is_empty() {
-                rule.computed_attributes.discharged_by = coverage;
+                rule.computed_attributes.discharged_by = Arc::new(coverage);
             }
             // The declared attribute stays the author's claim; the discharge is recorded apart.
             rule.computed_attributes.definedness_discharged = true;

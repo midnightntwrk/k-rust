@@ -633,6 +633,16 @@ pub struct ExecutionOptions {
     /// while it has not matched, so the cost grows with the visits times the skipped
     /// candidates; asking changes nothing else in the result.
     pub collect_offered: bool,
+    /// With [`Self::collect_coverage`], also record the condition entries of the rewrite rules it
+    /// names ([`crate::coverage::RunCoverage::conditions`]): for each entry into a named rule's
+    /// `requires` for a matched instance, the bindings of the variables the condition reads and
+    /// its atoms evaluated under the instance, up to the collection's caps
+    /// ([`crate::coverage::ConditionCollection`]). Off by default (`None`); ignored without
+    /// `collect_coverage`. Each new entry of a named rule costs one isolated simplification of each
+    /// atom and of each of its operands, without a solver; an entry equal to one recorded costs a
+    /// lookup, and a run that names no rule entered pays nothing. Recording changes nothing else
+    /// in the result.
+    pub collect_conditions: Option<crate::coverage::ConditionCollection>,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///
     /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
@@ -711,6 +721,7 @@ impl Default for ExecutionOptions {
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
             collect_offered: false,
+            collect_conditions: None,
             max_work: None,
             discard_stopped: false,
         }

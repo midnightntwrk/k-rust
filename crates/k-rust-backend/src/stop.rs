@@ -804,6 +804,22 @@ pub fn operation<T>(solver: &dyn SmtSolver, body: impl FnOnce() -> T) -> Stoppab
     }
 }
 
+/// Runs `action` with no count of stack stops open, and restores the enclosing count afterwards,
+/// also when `action` unwinds: a stop for lack of native stack minted inside is counted by no
+/// [`counting_stack_stops`] scope around it. For work that only describes a run to its caller
+/// (`coverage::isolated`), whose stops are no part of the run.
+pub(crate) fn uncounted_stack_stops<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Cell<usize>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let count = self.0.take();
+            REGISTRY.with(|registry| registry.borrow_mut().stack_stops = count);
+        }
+    }
+    let _restore = Restore(REGISTRY.with(|registry| registry.borrow_mut().stack_stops.take()));
+    action()
+}
+
 /// Runs `action` and counts the stops for lack of native stack ([`StopCause::StackExhausted`])
 /// minted on this thread while it runs, whether they end a computation or a site that only
 /// refines a sound outcome dismisses them ([`Stop::forgo_refinement`]): such a stop leaves no

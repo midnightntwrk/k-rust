@@ -610,6 +610,8 @@ pub enum ExecutionAdapterFailure {
 /// - `collect_offered: false` (k-rust 58720d2e5, KINK-04/3): no offered coverage is asked for,
 ///   which is the behaviour before that field existed; asking changes no other field of the
 ///   result, and adopting it is for the round-D re-pin (probe P-1, draft/tasks/repin-58720d2e).
+/// - `collect_conditions: None`: no condition records are asked for (they are part of the
+///   coverage k-rust reports only when asked, and asking changes no other field of the result).
 ///
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
@@ -630,6 +632,7 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
         result_modality: run.modality.output(),
         collect_coverage: true,
         collect_offered: false,
+        collect_conditions: None,
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,

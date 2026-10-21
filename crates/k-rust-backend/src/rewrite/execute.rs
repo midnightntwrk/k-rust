@@ -152,6 +152,7 @@ fn execute_counted(
     });
     let collect_coverage = options.collect_coverage;
     let collect_offered = options.collect_offered;
+    let collect_conditions = options.collect_conditions.clone();
     // Whether a bound that counts the whole run's exploration can end it: then every leaf rests
     // on the work of every path, off its own included.
     let bounded_by_run = options.max_work.is_some() || options.max_breadth.is_some();
@@ -223,7 +224,8 @@ fn execute_counted(
     }
     // The definition is selected and internalized before this call, so the collection holds
     // what the run applied and nothing a module's construction did (`crate::coverage`).
-    let ((mut result, status), coverage) = crate::coverage::collect_offering(collect_offered, run);
+    let ((mut result, status), coverage) =
+        crate::coverage::collect_recording(collect_offered, collect_conditions, run);
     result.coverage = Some(coverage);
     (result, status)
 }

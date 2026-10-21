@@ -33,6 +33,12 @@
 //! nothing else ([`RunCoverage::offered`] states what it holds). Such a site takes its
 //! candidates from a `Selection`, which offers what the site never took on every exit.
 //!
+//! An execution that also names rules (`rewrite::ExecutionOptions::collect_conditions`) records,
+//! besides, what each entry into a named rule's `requires` saw: the bindings of the variables
+//! the condition reads and its atoms evaluated under the instance ([`RunCoverage::conditions`],
+//! [`conditions`](self::ConditionRecord)). The evaluation is isolated from the run
+//! ([`isolated`]).
+//!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
 //! would also collect what selecting or loading a module applies, which depends on the requests
@@ -46,6 +52,14 @@ use std::{
 
 use k_rust_kore::measure::{self, Counter};
 use rustc_hash::FxHashSet;
+
+mod conditions;
+
+pub(crate) use conditions::record as record_condition;
+pub use conditions::{
+    ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, DEFAULT_CONDITION_LIMIT,
+    DEFAULT_MAX_VALUE_SIZE, RecordedValue, RuleConditions,
+};
 
 /// The axioms a run used, by `UNIQUE_ID`.
 ///
@@ -141,6 +155,14 @@ use rustc_hash::FxHashSet;
 /// below its first productive group, probed against its subject, before the fold tries them on
 /// the remainder.
 ///
+/// `conditions`, present exactly when the collection recorded conditions
+/// (`collect_recording`), holds for each rule it names whose `requires` phase was entered (the
+/// first recording site of `matched` above) the records of those entries, by rule id
+/// ([`RuleConditions`], [`ConditionRecord`]). A record is a function of the entry's bindings and
+/// its path and match conditions, so the records, like the sets, do not depend on an entry's
+/// multiplicity; unlike the sets they are kept in the order the run first made them, up to the
+/// collection's limit per rule, which the backend's trial order and exploration order fix.
+///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -148,6 +170,7 @@ pub struct RunCoverage {
     pub applied: BTreeSet<String>,
     pub matched: BTreeSet<String>,
     pub offered: Option<BTreeSet<String>>,
+    pub conditions: Option<Vec<RuleConditions>>,
 }
 
 /// The ids reported to the open collection, inserted once each.
@@ -181,6 +204,7 @@ impl Sink {
             applied: self.applied.into_iter().collect(),
             matched: matched.into_iter().collect(),
             offered,
+            conditions: None,
         }
     }
 }
@@ -207,20 +231,33 @@ pub(crate) fn collect<T>(action: impl FnOnce() -> T) -> (T, RunCoverage) {
 /// ([`RunCoverage::offered`]). A collection opened inside does not offer unless it asks, and its
 /// offered ids feed this one when it closes.
 pub(crate) fn collect_offering<T>(offering: bool, action: impl FnOnce() -> T) -> (T, RunCoverage) {
-    /// Restores the flags and the outer sink on every exit, and hands the inner sink back.
+    collect_recording(offering, None, action)
+}
+
+/// [`collect_offering`], with the condition entries of the rules `conditions` names recorded
+/// when it is given ([`RunCoverage::conditions`]). A collection opened inside records no
+/// conditions unless it asks, and its records stay its own.
+pub(crate) fn collect_recording<T>(
+    offering: bool,
+    conditions: Option<ConditionCollection>,
+    action: impl FnOnce() -> T,
+) -> (T, RunCoverage) {
+    /// Restores the flags and the outer sinks on every exit, and hands the inner ones back.
     struct Restore {
         was_open: bool,
         was_offering: bool,
         outer: Option<Sink>,
+        outer_conditions: Option<Option<conditions::Sink>>,
     }
     impl Restore {
-        fn close(mut self) -> Sink {
+        fn close(mut self) -> (Sink, Option<conditions::Sink>) {
             let outer = self.outer.take().unwrap_or_default();
             let inner = SINK.replace(outer);
             if self.was_open {
                 SINK.with_borrow_mut(|sink| sink.absorb(&inner));
             }
-            inner
+            let inner_conditions = conditions::replace(self.outer_conditions.take().flatten());
+            (inner, inner_conditions)
         }
     }
     impl Drop for Restore {
@@ -231,6 +268,9 @@ pub(crate) fn collect_offering<T>(offering: bool, action: impl FnOnce() -> T) ->
                 // Unwinding: the inner reports are dropped with the action.
                 SINK.set(outer);
             }
+            if let Some(outer) = self.outer_conditions.take() {
+                conditions::replace(outer);
+            }
         }
     }
 
@@ -238,10 +278,13 @@ pub(crate) fn collect_offering<T>(offering: bool, action: impl FnOnce() -> T) ->
         was_open: OPEN.replace(true),
         was_offering: OFFERING.replace(offering),
         outer: Some(SINK.take()),
+        outer_conditions: Some(conditions::replace(conditions.map(conditions::Sink::new))),
     };
     let result = action();
-    let inner = restore.close();
-    (result, inner.into_coverage(offering))
+    let (inner, inner_conditions) = restore.close();
+    let mut coverage = inner.into_coverage(offering);
+    coverage.conditions = inner_conditions.map(conditions::Sink::finish);
+    (result, coverage)
 }
 
 /// Report every set of `coverage`, a coverage collected earlier and stored (such as a rule's
@@ -252,6 +295,7 @@ pub(crate) fn replay(coverage: &RunCoverage) {
         applied,
         matched,
         offered,
+        conditions: _,
     } = coverage;
     for id in applied {
         note_applied(id);
@@ -284,6 +328,50 @@ pub(crate) fn note_applied(id: &str) {
     if OPEN.get() {
         SINK.with_borrow_mut(|sink| insert(&mut sink.applied, id));
     }
+}
+
+/// Whether the open collection records condition entries and no [`suspend`] is in effect: P11
+/// of a rule attempt then calls [`record_condition`].
+#[inline]
+pub(crate) fn records_conditions() -> bool {
+    OPEN.get() && conditions::recording()
+}
+
+/// Run `evaluation`, work done only to describe the run to its caller (a condition record), so
+/// that it changes nothing in the run, and say whether it read a value the definition leaves
+/// open.
+///
+/// As an [`offer`] probe is, it is isolated: it reports to no coverage set, counts no work,
+/// emits no diagnostic and leaves the emission positions as they were, notes no path fact into
+/// the run, and leaves the counter of renamed-apart names as it was. Besides, it fills none of
+/// the memos the run is later served from: the results of pure hooks
+/// (`deferred::hook_values_aside`) and the records of `Unspecified` evaluations
+/// (`simplify::unspecified_values_aside`) are set aside, so a later evaluation of the run
+/// computes, emits and notes what it would without this one; and a stop for lack of native stack
+/// inside it is counted by no scope (`stop::uncounted_stack_stops`). It takes nothing from the
+/// run's `FreshCounter`, which it is not given, and no solver. A stop of its own simplifications
+/// (a cancellation, a passed step deadline) is answered inside it by its caller, and is raised
+/// again by the run's next poll.
+pub(crate) fn isolated<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
+    suspend(|| {
+        measure::without_counting(|| {
+            crate::diagnostic::discarded(|| {
+                crate::path_facts::discarded(|| {
+                    let (value, facts) = crate::path_facts::collect(|| {
+                        crate::rule::with_apart_names_restored(|| {
+                            crate::deferred::hook_values_aside(|| {
+                                crate::simplify::unspecified_values_aside(|| {
+                                    crate::stop::uncounted_stack_stops(evaluation)
+                                })
+                            })
+                        })
+                    });
+                    let read_chosen = facts.all().iter().any(|fact| fact.chosen_value().is_some());
+                    (value, read_chosen)
+                })
+            })
+        })
+    })
 }
 
 /// Report that the backend began deciding the condition of a matched instance of the axiom `id`

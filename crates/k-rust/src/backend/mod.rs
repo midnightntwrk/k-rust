@@ -255,6 +255,10 @@ pub struct BackendCapabilities {
     /// ([`RunCoverageOutput::offered`]) when the request sets `collect_offered` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_offered`]).
     pub coverage_offered: bool,
+    /// `execute` and `execute_observed` also report the condition records of the run's coverage
+    /// ([`RunCoverageOutput::conditions`]) when the request sets `collect_conditions` beside
+    /// `collect_coverage` ([`ExecuteRequest::collect_conditions`]).
+    pub coverage_conditions: bool,
     /// `execute` and `execute_observed` report the stack stops the run met
     /// ([`ExecutionResult::stack_stops`]).
     pub stack_stops: bool,
@@ -350,6 +354,16 @@ pub struct ExecuteRequest {
     /// (docs/compatibility.md, "Run coverage").
     #[serde(default)]
     pub collect_offered: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::conditions`] (wire
+    /// `collectConditions`): for each rewrite rule it names whose `requires` the run began to
+    /// decide for a matched instance, the bindings of the variables the condition reads and the
+    /// condition's atoms with their operands evaluated under the instance, up to its caps
+    /// ([`ConditionCollection`]). Off by default; a request that sets it without
+    /// `collect_coverage` is refused. Asking changes no other field of the result; each new entry
+    /// of a named rule costs one simplification of each atom and of each operand
+    /// (docs/compatibility.md, "Run coverage").
+    #[serde(default)]
+    pub collect_conditions: Option<ConditionCollection>,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
     /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
     /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
@@ -428,6 +442,7 @@ impl ExecuteRequest {
             result_modality: ResultModalityOutput::StateSet,
             collect_coverage: false,
             collect_offered: false,
+            collect_conditions: None,
             max_work: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
@@ -458,7 +473,7 @@ pub struct ExecutionResult<K = Value> {
     pub discarded: Vec<ObservationEventOutput<K>>,
     /// The run's coverage, present exactly when the request set `collect_coverage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coverage: Option<RunCoverageOutput>,
+    pub coverage: Option<RunCoverageOutput<K>>,
     /// The states the run visited across all its paths, the unit
     /// [`ExecuteRequest::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
@@ -612,25 +627,178 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   `concrete` or `symbolic`). `matched` does not reach lowerings: a candidate whose match was
 ///   left undecided blocks the lower groups of its site and is recorded only in `offered`. No
 ///   list reaches a left-hand-side edit, nor the load-time uses of an axiom.
+///
+/// - `conditions`, present exactly when the request set `collect_conditions`: for each rewrite
+///   rule it names whose `requires` the run began to decide (the rules it adds to `matched`),
+///   the records of those entries ([`RuleConditionsOutput`]). They cover every state the run
+///   explored, as the lists do, and are a deterministic function of the same inputs; unlike the
+///   lists they are kept in the order the run first made each distinct entry, up to the
+///   request's limit per rule.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunCoverageOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct RunCoverageOutput<K = Value> {
     pub applied: Vec<String>,
     pub matched: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offered: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<RuleConditionsOutput<K>>>,
 }
 
-impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
-    fn from(coverage: k_rust_backend::coverage::RunCoverage) -> Self {
+/// Which rules' condition entries an execute request records (wire `collectConditions`), and
+/// how much it keeps ([`ExecuteRequest::collect_conditions`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ConditionCollection {
+    /// The rewrite rules whose entries are recorded, each named by its `UNIQUE_ID` or its label
+    /// (as [`ExecuteRequest::terminal_rules`] names them). A name that is neither, or that
+    /// names an equation, records nothing.
+    pub rules: Vec<String>,
+    /// The most records kept per rule: the first `limit` distinct entries in the run's order
+    /// (default 32); a rule with a further distinct entry is marked
+    /// [`RuleConditionsOutput::truncated`].
+    #[serde(default = "default_condition_limit")]
+    pub limit: usize,
+    /// The largest value a record holds, in term nodes (default 256); a larger one is reported
+    /// as [`RecordedValueOutput::Omitted`].
+    #[serde(default = "default_max_value_size")]
+    pub max_value_size: usize,
+}
+
+impl ConditionCollection {
+    /// The rules `rules`, with the default caps.
+    pub fn new<S: Into<String>>(rules: impl IntoIterator<Item = S>) -> Self {
         Self {
-            applied: coverage.applied.into_iter().collect(),
-            matched: coverage.matched.into_iter().collect(),
-            offered: coverage
-                .offered
-                .map(|offered| offered.into_iter().collect()),
+            rules: rules.into_iter().map(Into::into).collect(),
+            limit: default_condition_limit(),
+            max_value_size: default_max_value_size(),
         }
     }
+}
+
+fn default_condition_limit() -> usize {
+    k_rust_backend::coverage::DEFAULT_CONDITION_LIMIT
+}
+
+fn default_max_value_size() -> usize {
+    k_rust_backend::coverage::DEFAULT_MAX_VALUE_SIZE
+}
+
+impl From<ConditionCollection> for k_rust_backend::coverage::ConditionCollection {
+    fn from(collection: ConditionCollection) -> Self {
+        let mut converted = Self::new(collection.rules);
+        converted.limit = collection.limit;
+        converted.max_value_size = collection.max_value_size;
+        converted
+    }
+}
+
+/// The records of one rule's condition entries.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct RuleConditionsOutput<K = Value> {
+    /// The rule's `UNIQUE_ID`.
+    pub rule: String,
+    /// The distinct entries, in the order the run first made them. Two entries are the same when
+    /// they bind the condition's variables to the same terms under the same path and match
+    /// conditions.
+    pub records: Vec<ConditionRecordOutput<K>>,
+    /// Whether the run made a further distinct entry that the request's limit left out (wire:
+    /// present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+/// One entry into a rule's `requires` for a matched instance, recorded before the condition
+/// was decided, whatever it then decided.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ConditionRecordOutput<K = Value> {
+    /// The instance's binding of each variable of the `requires` that the match bound, as the
+    /// match bound it, sorted by variable; each variable is named as the rule is written in the
+    /// definition's KORE.
+    pub bindings: Vec<RecordedBindingOutput<K>>,
+    /// The `requires` as written, one node per conjunct, each atom evaluated under the instance.
+    pub condition: Vec<ConditionNodeOutput<K>>,
+    /// Whether a value the definition leaves open (`implementation-chosen-value`) was read by the
+    /// run before the entry, on any path, or by the record's evaluation, so that the record's
+    /// terms may be one model's (wire: present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chosen: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct RecordedBindingOutput<K = Value> {
+    pub variable: K,
+    pub value: RecordedValueOutput<K>,
+}
+
+/// The Boolean structure of a condition as written (wire: an object with one key). A conjunct
+/// `\equals(b, true)` of a Boolean term is read as `b`, and `\equals(b, false)` as `not b`; the
+/// K connectives `andBool`, `andThenBool`, `orBool`, `orElseBool`, `notBool` and `impliesBool`
+/// (by their `BOOL` hooks) and the matching-logic `\and`, `\or`, `\not` and `\implies` are
+/// nodes; everything else is an atom.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum ConditionNodeOutput<K = Value> {
+    And(Vec<ConditionNodeOutput<K>>),
+    Or(Vec<ConditionNodeOutput<K>>),
+    Not(Box<ConditionNodeOutput<K>>),
+    Implies(Box<ConditionNodeOutput<K>>, Box<ConditionNodeOutput<K>>),
+    Atom(ConditionAtomOutput<K>),
+}
+
+/// An atom of a condition, evaluated under the instance.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ConditionAtomOutput<K = Value> {
+    /// The KORE symbol of a Boolean application, the matching-logic connective of a predicate
+    /// atom (`\equals`, `\ceil`, `\floor`, `\in`, `\iff`, `\exists`, `\forall`, `\top`,
+    /// `\bottom`), or absent for a Boolean term that is no application (a variable, a literal).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    /// The symbol's `hook`, when it has one (such as `INT.lt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
+    /// The operands, each simplified under the instance and the path and match conditions: the
+    /// arguments of an application, the terms of `\equals`, `\ceil`, `\floor` and `\in`, the
+    /// term itself when it is no application, none for the other connectives.
+    pub operands: Vec<RecordedValueOutput<K>>,
+    /// The positions in the record's `bindings` of the variables the atom mentions: the bound
+    /// values its operands depend on (wire: absent when empty).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<usize>,
+    /// The atom's truth under the instance as the simplifier decides it without a solver: true,
+    /// false (refuted: false or undefined), or absent (undecided).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<bool>,
+}
+
+/// A term of a record, marked by what it denotes (wire: `kind`, and `term` for the first three).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum RecordedValueOutput<K = Value> {
+    /// A ground value: constructors, injections, domain values, and maps, sets and lists of
+    /// them, with no function application left. Its KORE means the same in every model of the
+    /// definition, unless the record is `chosen`.
+    Value { term: K },
+    /// Variable-free, but holding an application the evaluation left as it is: its meaning
+    /// depends on the definition.
+    Ground { term: K },
+    /// A term with variables.
+    Symbolic { term: K },
+    /// Found undefined (`\bottom`) under the instance.
+    Undefined,
+    /// Larger than the request's `maxValueSize` nodes.
+    Omitted,
 }
 
 fn is_zero(count: &usize) -> bool {
@@ -1291,6 +1459,7 @@ impl Backend {
             observation: true,
             coverage: true,
             coverage_offered: true,
+            coverage_conditions: true,
             stack_stops: true,
             smt_unknowns: true,
             implementation_chosen_values: true,
@@ -1438,6 +1607,11 @@ impl Backend {
                 "collectOffered requires collectCoverage: the offered level is part of the run's coverage",
             ));
         }
+        if request.collect_conditions.is_some() && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectConditions requires collectCoverage: the condition records are part of the run's coverage",
+            ));
+        }
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
@@ -1484,6 +1658,7 @@ impl Backend {
                 // what building a module applied.
                 collect_coverage: request.collect_coverage,
                 collect_offered: request.collect_offered,
+                collect_conditions: request.collect_conditions.map(Into::into),
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
             };
@@ -2642,6 +2817,57 @@ mod tests {
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["coverageOffered"], true);
+    }
+
+    /// The condition records of run coverage are declared where the facade reads and writes
+    /// them: the request's collection, the optional list of the coverage, the record types, and
+    /// a capability flag, true in every build.
+    #[test]
+    fn the_condition_records_match_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectConditions?: ConditionCollection");
+        assert_typescript_member("RunCoverage", "conditions?: RuleConditions[]");
+        assert_typescript_member("ConditionCollection", "rules: string[]");
+        assert_typescript_member("ConditionCollection", "limit?: number");
+        assert_typescript_member("ConditionCollection", "maxValueSize?: number");
+        assert_typescript_member("RuleConditions", "rule: string");
+        assert_typescript_member("RuleConditions", "records: ConditionRecord[]");
+        assert_typescript_member("RuleConditions", "truncated?: boolean");
+        assert_typescript_member("ConditionRecord", "bindings: RecordedBinding[]");
+        assert_typescript_member("ConditionRecord", "condition: ConditionNode[]");
+        assert_typescript_member("ConditionRecord", "chosen?: boolean");
+        assert_typescript_member("RecordedBinding", "variable: Kore");
+        assert_typescript_member("RecordedBinding", "value: RecordedValue");
+        assert_typescript_member("ConditionAtom", "head?: string");
+        assert_typescript_member("ConditionAtom", "hook?: string");
+        assert_typescript_member("ConditionAtom", "operands: RecordedValue[]");
+        assert_typescript_member("ConditionAtom", "reads?: number[]");
+        assert_typescript_member("ConditionAtom", "value?: boolean");
+        assert_typescript_member("BackendCapabilities", "coverageConditions: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageConditions"], true);
+        // The wire tags of a recorded value and of a condition node.
+        let value: RecordedValueOutput = serde_json::from_value(serde_json::json!({
+            "kind": "value",
+            "term": {"format": "KORE", "version": 1, "term": null},
+        }))
+        .unwrap();
+        assert!(matches!(value, RecordedValueOutput::Value { .. }));
+        for kind in ["undefined", "omitted"] {
+            let value: RecordedValueOutput =
+                serde_json::from_value(serde_json::json!({ "kind": kind })).unwrap();
+            assert_eq!(serde_json::to_value(&value).unwrap()["kind"], kind);
+        }
+        let node: ConditionNodeOutput = serde_json::from_value(serde_json::json!({
+            "implies": [{"not": {"atom": {"operands": []}}}, {"and": []}],
+        }))
+        .unwrap();
+        assert!(matches!(node, ConditionNodeOutput::Implies(..)));
     }
 
     /// The run-level records are declared where the facade writes them: the optional lists of

@@ -7444,6 +7444,23 @@ struct RecordTable {
     records: FxHashMap<Term, FxHashMap<u64, Vec<Record>>>,
 }
 
+/// Run `action` with this thread's records of `Unspecified` evaluations ([`UnspecifiedValues`])
+/// set aside: what `action` records is dropped when it ends, and the enclosing records come back
+/// unchanged, also when it unwinds. Work done only to describe a run (`coverage::isolated`) thus
+/// leaves no record a later evaluation of the run would be served from.
+pub(crate) fn unspecified_values_aside<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<RecordTable>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(table) = self.0.take() {
+                UNSPECIFIED_VALUES.set(table);
+            }
+        }
+    }
+    let _restore = Restore(Some(UNSPECIFIED_VALUES.take()));
+    action()
+}
+
 /// The evaluations of `Unspecified` applications kept for reuse while a lineage that took a step
 /// on one is open, so that an application evaluated in an attempt that failed is not evaluated
 /// again when the next equation, or a rule condition, reaches it.

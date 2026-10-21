@@ -426,7 +426,8 @@ pub struct ComputedRuleAttributes {
     /// begins deciding the rule's `requires` reports both sets as its own
     /// (`crate::coverage::RunCoverage`): the discharge removed the obligations the run would
     /// otherwise decide, and a change to any of these equations can change the discharge.
-    pub discharged_by: crate::coverage::RunCoverage,
+    /// Shared, so that renaming the rule apart copies no set.
+    pub discharged_by: Arc<crate::coverage::RunCoverage>,
     /// For a rewrite rule, whether the definition's load discharged its definedness
     /// (`BackendDefinition::discharge_rewrite_definedness`): the rule is not declared
     /// `preserves-definedness`, and the load showed its terms defined wherever its left-hand side

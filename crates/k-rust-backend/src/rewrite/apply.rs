@@ -1534,6 +1534,17 @@ fn requires(
     crate::coverage::replay(&rule.computed_attributes.discharged_by);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
+    if crate::coverage::records_conditions() {
+        // What this entry saw, for a caller that named the rule (`coverage::record_condition`);
+        // the record's evaluation is isolated from the attempt.
+        crate::coverage::record_condition(
+            context.definition,
+            rule,
+            substitution,
+            &match_knowledge,
+            context.simplification_options,
+        );
+    }
     // The instance satisfies `requires` only where its terms are defined; state that before the
     // simplifier or a solver can answer for instances where they are not.
     let requires = match simplify_rule_condition(

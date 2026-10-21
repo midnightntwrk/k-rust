@@ -386,6 +386,7 @@ test('searches and observes the persistent native backend graph', () => {
   )
   assert.equal(backend.capabilities.coverage, true)
   assert.equal(backend.capabilities.coverageOffered, true)
+  assert.equal(backend.capabilities.coverageConditions, true)
   assert.equal(backend.capabilities.stackStops, true)
   assert.equal(backend.capabilities.smtUnknowns, true)
   assert.equal(backend.capabilities.implementationChosenValues, true)
@@ -417,6 +418,10 @@ test('searches and observes the persistent native backend graph', () => {
   assert.throws(
     () => backend.execute({ state: a, collectOffered: true }),
     /collectOffered requires collectCoverage/,
+  )
+  assert.throws(
+    () => backend.execute({ state: a, collectConditions: { rules: ['a-to-b'] } }),
+    /collectConditions requires collectCoverage/,
   )
   assert.ok(backend.execute({ state: a }).leaves.every(({ trace }) => trace.length > 0))
   assert.ok(backend.execute({ state: a, trace: false }).leaves.every(({ trace }) => trace.length === 0))

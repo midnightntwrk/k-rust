@@ -218,6 +218,8 @@ export interface BackendCapabilities {
   coverage: boolean
   /** `execute` and `executeObserved` accept `collectOffered` beside `collectCoverage`. */
   coverageOffered: boolean
+  /** `execute` and `executeObserved` accept `collectConditions` beside `collectCoverage`. */
+  coverageConditions: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
   stackStops: boolean
   /** `execute` and `executeObserved` report `smtUnknowns`. */
@@ -271,6 +273,14 @@ export interface ExecuteOptions {
    * "Run coverage").
    */
   collectOffered?: boolean
+  /**
+   * With `collectCoverage`, also report `RunCoverage.conditions`: for each rewrite rule named
+   * (by id or label) whose `requires` the run began to decide, the bindings of the variables the
+   * condition reads and the condition's atoms with their operands evaluated under the instance.
+   * A request that sets it without `collectCoverage` is refused; asking changes no other field
+   * (docs/compatibility.md, "Run coverage").
+   */
+  collectConditions?: ConditionCollection
   /**
    * The most states the run may visit across all its paths; absent: no bound. A run that
    * reaches it ends with one 'work-bound' leaf for the state it did not visit, the last leaf,
@@ -523,6 +533,75 @@ export interface RunCoverage {
    * the run went on to decide its condition there.
    */
   offered?: string[]
+  /**
+   * Present exactly when the request set `collectConditions`: the records of each named rule
+   * whose `requires` the run began to decide, by rule id.
+   */
+  conditions?: RuleConditions[]
+}
+
+/** Which rules' condition entries an execute request records (`collectConditions`). */
+export interface ConditionCollection {
+  /** Rewrite rules by `UNIQUE_ID` or label. */
+  rules: string[]
+  /** The most records kept per rule, the first distinct entries in the run's order (default 32). */
+  limit?: number
+  /** The largest value a record holds, in term nodes (default 256); larger ones are 'omitted'. */
+  maxValueSize?: number
+}
+
+export interface RuleConditions {
+  /** The rule's `UNIQUE_ID`. */
+  rule: string
+  /** The distinct entries into the rule's `requires`, in the order the run first made them. */
+  records: ConditionRecord[]
+  /** Present (true) when a further distinct entry was left out by the limit. */
+  truncated?: boolean
+}
+
+/** One entry into a rule's `requires`, recorded before the condition was decided. */
+export interface ConditionRecord {
+  /** The bindings of the condition's variables, named as the rule is written, sorted. */
+  bindings: RecordedBinding[]
+  /** The `requires` as written, one node per conjunct. */
+  condition: ConditionNode[]
+  /** Present (true) when the run had read an implementation-chosen value: terms may be one model's. */
+  chosen?: boolean
+}
+
+export interface RecordedBinding {
+  variable: Kore
+  value: RecordedValue
+}
+
+/**
+ * A term of a record: 'value' (constructors and domain values only), 'ground' (variable-free with
+ * an unevaluated application), 'symbolic' (with variables), 'undefined', or 'omitted' (larger than
+ * `maxValueSize`).
+ */
+export type RecordedValue =
+  | { kind: 'value' | 'ground' | 'symbolic'; term: Kore }
+  | { kind: 'undefined' | 'omitted' }
+
+/** The Boolean structure of a condition as written; every other subterm is an atom. */
+export type ConditionNode =
+  | { and: ConditionNode[] }
+  | { or: ConditionNode[] }
+  | { not: ConditionNode }
+  | { implies: [ConditionNode, ConditionNode] }
+  | { atom: ConditionAtom }
+
+export interface ConditionAtom {
+  /** The KORE symbol, a matching-logic connective such as `\equals`, or absent for a variable or literal. */
+  head?: string
+  /** The symbol's hook, such as 'INT.lt'. */
+  hook?: string
+  /** The operands, simplified under the instance. */
+  operands: RecordedValue[]
+  /** The positions in the record's `bindings` of the variables the atom mentions; absent when none. */
+  reads?: number[]
+  /** The atom's truth without a solver: true, false (refuted), absent (undecided). */
+  value?: boolean
 }
 
 export interface TransitionId {

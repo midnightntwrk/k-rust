@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, value::RawValue};
 
 use super::{
-    BackendError, ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput,
-    ExecutionResult, TraceEntry, halt_reason, trace_entry,
+    BackendError, ConditionAtomOutput, ConditionNodeOutput, ConditionRecordOutput,
+    ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput, ExecutionResult,
+    RecordedBindingOutput, RecordedValueOutput, RuleConditionsOutput, RunCoverageOutput,
+    TraceEntry, halt_reason, trace_entry,
 };
 use crate::kore::{ast::Pattern as KorePattern, json as kore_json};
 use k_rust_backend::{
@@ -2024,7 +2026,7 @@ pub(super) fn execution_response<K: WireKore>(
             .into_iter()
             .map(uncommitted_observation_output)
             .collect(),
-        coverage: result.coverage.map(Into::into),
+        coverage: result.coverage.map(run_coverage_output).transpose()?,
         work: result.work,
         expanded: result.expanded,
         stack_stops: result.stack_stops,
@@ -2041,6 +2043,109 @@ pub(super) fn execution_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+    })
+}
+
+fn run_coverage_output<K: WireKore>(
+    coverage: k_rust_backend::coverage::RunCoverage,
+) -> Result<RunCoverageOutput<K>, BackendError> {
+    Ok(RunCoverageOutput {
+        applied: coverage.applied.into_iter().collect(),
+        matched: coverage.matched.into_iter().collect(),
+        offered: coverage
+            .offered
+            .map(|offered| offered.into_iter().collect()),
+        conditions: coverage
+            .conditions
+            .map(|rules| rules.into_iter().map(rule_conditions_output).collect())
+            .transpose()?,
+    })
+}
+
+fn rule_conditions_output<K: WireKore>(
+    rule: k_rust_backend::coverage::RuleConditions,
+) -> Result<RuleConditionsOutput<K>, BackendError> {
+    Ok(RuleConditionsOutput {
+        rule: rule.rule,
+        records: rule
+            .records
+            .into_iter()
+            .map(|record| {
+                Ok(ConditionRecordOutput {
+                    bindings: record
+                        .bindings
+                        .into_iter()
+                        .map(|(variable, value)| {
+                            Ok(RecordedBindingOutput {
+                                variable: encode_variable(&variable)?,
+                                value: recorded_value_output(value)?,
+                            })
+                        })
+                        .collect::<Result<_, BackendError>>()?,
+                    condition: record
+                        .condition
+                        .into_iter()
+                        .map(condition_node_output)
+                        .collect::<Result<_, _>>()?,
+                    chosen: record.chosen,
+                })
+            })
+            .collect::<Result<_, BackendError>>()?,
+        truncated: rule.truncated,
+    })
+}
+
+/// The node in its wire form; the recursion follows the condition as the rule writes it.
+fn condition_node_output<K: WireKore>(
+    node: k_rust_backend::coverage::ConditionNode,
+) -> Result<ConditionNodeOutput<K>, BackendError> {
+    use k_rust_backend::coverage::ConditionNode;
+    let nodes = |nodes: Vec<ConditionNode>| {
+        nodes
+            .into_iter()
+            .map(condition_node_output)
+            .collect::<Result<Vec<_>, _>>()
+    };
+    Ok(match node {
+        ConditionNode::And(conjuncts) => ConditionNodeOutput::And(nodes(conjuncts)?),
+        ConditionNode::Or(disjuncts) => ConditionNodeOutput::Or(nodes(disjuncts)?),
+        ConditionNode::Not(operand) => {
+            ConditionNodeOutput::Not(Box::new(condition_node_output(*operand)?))
+        }
+        ConditionNode::Implies(left, right) => ConditionNodeOutput::Implies(
+            Box::new(condition_node_output(*left)?),
+            Box::new(condition_node_output(*right)?),
+        ),
+        ConditionNode::Atom(atom) => ConditionNodeOutput::Atom(ConditionAtomOutput {
+            head: atom.head,
+            hook: atom.hook,
+            operands: atom
+                .operands
+                .into_iter()
+                .map(recorded_value_output)
+                .collect::<Result<_, _>>()?,
+            reads: atom.reads,
+            value: atom.value,
+        }),
+    })
+}
+
+fn recorded_value_output<K: WireKore>(
+    value: k_rust_backend::coverage::RecordedValue,
+) -> Result<RecordedValueOutput<K>, BackendError> {
+    use k_rust_backend::coverage::RecordedValue;
+    Ok(match value {
+        RecordedValue::Value(term) => RecordedValueOutput::Value {
+            term: encode_term(&term)?,
+        },
+        RecordedValue::Ground(term) => RecordedValueOutput::Ground {
+            term: encode_term(&term)?,
+        },
+        RecordedValue::Symbolic(term) => RecordedValueOutput::Symbolic {
+            term: encode_term(&term)?,
+        },
+        RecordedValue::Undefined => RecordedValueOutput::Undefined,
+        RecordedValue::Omitted => RecordedValueOutput::Omitted,
     })
 }
 
