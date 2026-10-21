@@ -18,6 +18,10 @@
 //! The macro and the collector both run this rewrite on the same authored
 //! tokens, so the generated tokens, which carry the template's span, have the
 //! same provenance on both sides.
+//!
+//! `k::bits!(value, "..")` is the template as a `Bool` test, in any term: the
+//! range and the fixed-run equalities of the pattern's guard, on `value`, in
+//! the guard's order ([`expand_bit_tests`]).
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -207,23 +211,23 @@ impl BitTemplate {
         })
     }
 
-    /// The template's guard on `binder`: the range, then one equality per
+    /// The template's guard on `subject`: the range, then one equality per
     /// fixed run, most significant first.
-    /// Every token of the guard carries `span`, so the guard's provenance
-    /// range lies where the sentence's condition starts (see [`desugar`]).
-    fn guard(&self, binder: &Ident, span: Span) -> TokenStream {
-        let binder = Ident::new(&binder.to_string(), span);
+    /// Every generated token carries `span`; the pattern's guard passes a
+    /// subject spanned alike, so its provenance range lies where the
+    /// sentence's condition starts (see [`desugar`]).
+    fn guard(&self, subject: &TokenStream, span: Span) -> TokenStream {
         let bound = LitInt::new(&power_of_two(self.width), span);
         let zero = LitInt::new("0", span);
         let mut guard = quote_spanned! {span=>
-            #binder.ge::<Int>(#zero) && #binder.lt::<Int>(#bound)
+            #subject.ge::<Int>(#zero) && #subject.lt::<Int>(#bound)
         };
         for run in &self.runs {
             let offset = LitInt::new(&run.offset.to_string(), span);
             let length = LitInt::new(&run.length.to_string(), span);
             let value = LitInt::new(&run.value.to_string(), span);
             guard.extend(quote_spanned! {span=>
-                && #binder.bit_range::<Int>(#offset, #length).eq::<Int>(#value)
+                && #subject.bit_range::<Int>(#offset, #length).eq::<Int>(#value)
             });
         }
         guard
@@ -289,7 +293,7 @@ pub(crate) fn is_bits_macro(path: &Path) -> bool {
 /// The error for `k::bits!` where no pattern is matched.
 pub(crate) fn misplaced(span: Span) -> SyntaxError {
     position_error(
-        "`k::bits!` is a pattern: it matches an `Int` argument of a rule's or equation's left-hand side (a `k::equations!` row, a `#[k::equation]` or `#[k::rule]` fn, or a `k::rules!` clause), and its fields name parts of the matched value in the `requires` and the result; it is not a term, a guard, or a cell pattern",
+        "`k::bits!` is a pattern: it matches an `Int` argument of a rule's or equation's left-hand side (a `k::equations!` row, a `#[k::equation]` or `#[k::rule]` fn, or a `k::rules!` clause), and its fields name parts of the matched value in the `requires` and the result; it is not a term, a guard, or a cell pattern. To test a value against a template in a condition or a claim, write `k::bits!(value, \"..\")`",
         span,
     )
 }
@@ -297,10 +301,15 @@ pub(crate) fn misplaced(span: Span) -> SyntaxError {
 /// Parses the template of a `k::bits!` invocation.
 pub(crate) fn template_of(invocation: &Macro) -> Result<BitTemplate, SyntaxError> {
     let literal = syn::parse2::<LitStr>(invocation.tokens.clone()).map_err(|_| {
-        invalid(
-            "`k::bits!` takes exactly one string literal, the template, as in `k::bits!(\"00 yyy 100\")`".to_owned(),
-            invocation.tokens.span(),
-        )
+        let reason = if Punctuated::<Expr, Token![,]>::parse_terminated
+            .parse2(invocation.tokens.clone())
+            .is_ok_and(|arguments| arguments.len() > 1)
+        {
+            "in a pattern, `k::bits!` takes one string literal, the template, as in `k::bits!(\"00 yyy 100\")`; a second argument is reserved for modifiers such as signed fields, which are not supported yet. The test `k::bits!(value, \"..\")` is a `Bool` term, for a condition or a claim"
+        } else {
+            "`k::bits!` takes exactly one string literal, the template, as in `k::bits!(\"00 yyy 100\")`"
+        };
+        invalid(reason.to_owned(), invocation.tokens.span())
     })?;
     BitTemplate::parse(&literal)
 }
@@ -469,6 +478,125 @@ pub(crate) fn substitute_clause_result(
     substitution.error.map_or(Ok(()), Err)
 }
 
+/// Rewrites every `k::bits!(value, "..")` test in `expression`, including
+/// inside the term lists of nested macros, into its long form; a template
+/// without a value there is out of place.
+///
+/// # Errors
+///
+/// A template without a value, a value that is no variable or bit range of
+/// one, and a malformed template.
+pub(crate) fn expand_bit_tests(expression: &mut Expr) -> Result<(), SyntaxError> {
+    let mut tests = Tests { error: None };
+    tests.visit_expr_mut(expression);
+    tests.error.map_or(Ok(()), Err)
+}
+
+/// Replaces `k::bits!(value, "..")` tests with their long forms.
+struct Tests {
+    error: Option<SyntaxError>,
+}
+
+impl VisitMut for Tests {
+    fn visit_expr_mut(&mut self, expression: &mut Expr) {
+        if self.error.is_some() {
+            return;
+        }
+        if let Expr::Macro(invocation) = expression
+            && is_bits_macro(&invocation.mac.path)
+        {
+            match test_long_form(&invocation.mac) {
+                Ok(long) => *expression = long,
+                Err(error) => self.error = Some(error),
+            }
+            return;
+        }
+        syn::visit_mut::visit_expr_mut(self, expression);
+    }
+
+    fn visit_macro_mut(&mut self, invocation: &mut Macro) {
+        if self.error.is_some() || first_template(&invocation.tokens).is_none() {
+            return;
+        }
+        // A test inside a nested term list (`k::or_bool!`, `k::k!`) is
+        // rewritten there; any other body keeps its template, which its own
+        // parse rejects.
+        if let Ok(mut arguments) =
+            Punctuated::<Expr, Token![,]>::parse_terminated.parse2(invocation.tokens.clone())
+        {
+            for argument in &mut arguments {
+                self.visit_expr_mut(argument);
+            }
+            invocation.tokens = arguments.to_token_stream();
+        }
+    }
+}
+
+/// The long form of the test `k::bits!(value, "..")`, parenthesized.
+fn test_long_form(invocation: &Macro) -> Result<Expr, SyntaxError> {
+    let parser = |input: syn::parse::ParseStream<'_>| {
+        let value: Expr = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let template: LitStr = input.parse()?;
+        input.parse::<Option<Token![,]>>()?;
+        Ok((value, template))
+    };
+    let Ok((value, template)) = parser.parse2(invocation.tokens.clone()) else {
+        if syn::parse2::<LitStr>(invocation.tokens.clone()).is_ok() {
+            return Err(misplaced(invocation.path.span()));
+        }
+        return Err(invalid(
+            "a `k::bits!` test takes the value and the template, as in `k::bits!(op, \"00 yyy 100\")`".to_owned(),
+            invocation.tokens.span(),
+        ));
+    };
+    if !is_test_value(&value) {
+        return Err(invalid(
+            "the value a `k::bits!` test reads is a variable, a field of a bit template, or a bit range of a variable (`x.bit_range::<Int>(0, 8)`): the test's long form reads it once per guard term, so bind a larger term to a name first".to_owned(),
+            value.span(),
+        ));
+    }
+    let template = BitTemplate::parse(&template)?;
+    let guard = template.guard(&value.to_token_stream(), template.span);
+    let condition: Expr = syn::parse2(guard).expect("a test's long form is an expression");
+    let delimiter = match &invocation.delimiter {
+        syn::MacroDelimiter::Paren(paren) => paren.span,
+        syn::MacroDelimiter::Brace(brace) => brace.span,
+        syn::MacroDelimiter::Bracket(bracket) => bracket.span,
+    };
+    Ok(Expr::Paren(syn::ExprParen {
+        attrs: Vec::new(),
+        paren_token: syn::token::Paren { span: delimiter },
+        expr: Box::new(condition),
+    }))
+}
+
+/// Whether `value` may be the value of a test: a variable, or a bit range of
+/// one with literal bounds, which is also what a field stands for.
+fn is_test_value(value: &Expr) -> bool {
+    let is_variable = |expression: &Expr| {
+        matches!(expression, Expr::Path(path)
+            if path.qself.is_none() && path.attrs.is_empty() && path.path.get_ident().is_some())
+    };
+    match value {
+        Expr::MethodCall(call) => {
+            call.method == "bit_range"
+                && is_variable(&call.receiver)
+                && call.args.len() == 2
+                && call.args.iter().all(|argument| {
+                    matches!(
+                        argument,
+                        Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Int(_),
+                            ..
+                        })
+                    )
+                })
+        }
+        other => is_variable(other),
+    }
+}
+
 /// Puts the templates' guards into the item's `requires`, before the
 /// authored condition at attribute `requires`, if any.
 fn insert_guard(item: &mut ItemFn, occurrences: &[Occurrence], requires: Option<usize>) {
@@ -497,7 +625,10 @@ fn insert_guard(item: &mut ItemFn, occurrences: &[Occurrence], requires: Option<
     let guards = occurrences
         .iter()
         .filter(|occurrence| occurrence.template.literal().is_none())
-        .map(|occurrence| occurrence.template.guard(&occurrence.binder, span))
+        .map(|occurrence| {
+            let binder = Ident::new(&occurrence.binder.to_string(), span);
+            occurrence.template.guard(&binder.to_token_stream(), span)
+        })
         .collect::<Vec<_>>();
     if !guards.is_empty() {
         let mut guard = TokenStream::new();
@@ -1235,6 +1366,92 @@ mod tests {
         assert_eq!(
             error.kind().code().as_str(),
             "krs::syntax::bit-template-position",
+            "{error}"
+        );
+    }
+
+    fn tested(source: &str) -> Result<String, SyntaxError> {
+        let mut expression: Expr = syn::parse_str(source).unwrap();
+        expand_bit_tests(&mut expression)?;
+        Ok(expression.to_token_stream().to_string())
+    }
+
+    #[test]
+    fn a_test_is_the_guard_of_the_pattern_with_the_same_template() {
+        for template in ["00 yyy 100", "0111", "1___ ____", "11 qq0 1_1", "a", "0"] {
+            let (long, _) = desugar(&format!(
+                "fn f(F(op @ k::bits!(\"{template}\"), x): I) -> I {{ x }}"
+            ));
+            let guard = long
+                .strip_prefix("# [k :: requires (")
+                .and_then(|rest| rest.split_once(")] fn"))
+                .map(|(guard, _)| guard.to_owned());
+            let test = tested(&format!("k::bits!(op, \"{template}\")")).unwrap();
+            match guard {
+                // The pattern's guard and the test's long form are the same
+                // terms in the same order.
+                Some(guard) => assert_eq!(test, format!("({guard})"), "{template}"),
+                // A template without free bits is a literal in a pattern,
+                // and its test still reads the range and every run.
+                None => assert!(
+                    test.starts_with("(op . ge :: < Int > (0) && op . lt :: < Int >"),
+                    "{template}: {test}"
+                ),
+            }
+        }
+        assert_eq!(
+            tested("k::bits!(op, \"0111\")").unwrap(),
+            "(op . ge :: < Int > (0) && op . lt :: < Int > (16) && op . bit_range :: < Int > (0 , 4) . eq :: < Int > (7))"
+        );
+    }
+
+    #[test]
+    fn a_test_binds_nothing_and_reads_a_variable_or_a_bit_range() {
+        // Field letters and `_` constrain nothing, and no letter survives.
+        let test = tested("k::bits!(n, \"0a\") && a.eq::<Int>(1)").unwrap();
+        assert_eq!(
+            test,
+            "(n . ge :: < Int > (0) && n . lt :: < Int > (4) && n . bit_range :: < Int > (1 , 1) . eq :: < Int > (0)) && a . eq :: < Int > (1)"
+        );
+        assert!(tested("k::bits!(x.bit_range::<Int>(3, 3), \"1__\")").is_ok());
+        assert!(
+            tested("k::or_bool!(k::bits!(n, \"1\"), k::bits!(n, \"0\"))")
+                .unwrap()
+                .contains("or_bool ! ((n .")
+        );
+        for (source, needle) in [
+            (
+                "k::bits!(n.add::<Int>(1), \"01\")",
+                "krs::syntax::invalid-bit-template: the value a `k::bits!` test reads",
+            ),
+            (
+                "k::bits!(F(n), \"01\")",
+                "krs::syntax::invalid-bit-template: the value",
+            ),
+            (
+                "k::bits!(n, \"0X\")",
+                "krs::syntax::invalid-bit-template: character 1",
+            ),
+            (
+                "k::bits!(n)",
+                "krs::syntax::invalid-bit-template: a `k::bits!` test takes the value and the template",
+            ),
+            (
+                "n && k::bits!(\"01\")",
+                "krs::syntax::bit-template-position",
+            ),
+        ] {
+            let error = tested(source).unwrap_err();
+            let error = format!("{}: {error}", error.kind().code().as_str());
+            assert!(error.contains(needle), "{source}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_second_argument_in_a_pattern_is_reserved() {
+        let error = desugar_error("fn f(F(k::bits!(n, \"01\")): Int) -> Int { 0 }");
+        assert!(
+            error.contains("reserved for modifiers such as signed fields"),
             "{error}"
         );
     }

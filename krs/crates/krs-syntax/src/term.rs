@@ -950,9 +950,13 @@ impl TermExpression {
     }
 
     fn from_expression_context(
-        expression: Expr,
+        mut expression: Expr,
         context: TermExpressionContext,
     ) -> Result<Self, SyntaxError> {
+        // A `k::bits!(value, "..")` test is sugar for its `Bool` long form.
+        if context == TermExpressionContext::Expression {
+            crate::rule::expand_bit_tests(&mut expression)?;
+        }
         let root = transparent_expression(&expression);
         let root_kind = match root {
             Expr::Path(path) if float_constant_path(&path.path).is_some() => TermRootKind::Literal,

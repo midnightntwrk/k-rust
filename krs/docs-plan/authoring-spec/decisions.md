@@ -474,6 +474,18 @@ bug — report it, don't guess.
   as one `&Int` mask (different masks are unrelated terms, so neither a
   simplifier nor a solver refutes two of them), and expansion into one
   literal equation per value (exponential in the free bits).
+  The test form `k::bits!(e, "..")` (2026-10-22) is a `Bool` term,
+  allowed wherever one is (conditions, claims, results): `e >= 0 && e <
+  2^width` and the per-run `bitRangeInt` equalities, the pattern's guard
+  terms in the guard's order, so a claim can state exactly what a row
+  tests; an all-fixed template tests the same terms. Its letters and `_`
+  constrain and bind nothing (letters are accepted so a row's template
+  copies verbatim). `e` is a variable, a field, or a bit range of a
+  variable with literal bounds: the long form repeats it once per term, so
+  a larger term is named first (`op @`, `let`); terms are pure, so the
+  restriction is about the size and readability of the long form, not
+  meaning. In a pattern, `k::bits!` takes only the template; a second
+  argument is reserved for modifiers such as signed fields.
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 

@@ -401,9 +401,18 @@ A template without `_` or fields is its decimal literal, `decode_halt` above is 
 Splitting runs at spaces keeps the guards of templates written on one grid (`xx yyy zzz`) on the same terms, so templates that differ in a fixed bit compare equal terms with different values: the rule-overlap check, which reads such guards as facts about the bits of a term, keeps `kindOf(k::bits!("0___ ____"))` and `kindOf(k::bits!("1___ ____"))` apart, and reads the same guards written by hand alike.
 
 A template stands in an `Int` argument of a rule's, an equation's, or a table row's left-hand side, or in an argument of a sort above `Int`; at a position of another sort, such as `Bool`, it is `krs::analysis::bit-template-sort`, reported at the template.
-In a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` it is rejected (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
+As a pattern, a template is rejected in a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
 A character that is no bit, an empty template, more than 128 bits, and a split field are `krs::syntax::invalid-bit-template`; a field letter that is also a binder of the sentence, a field of another template, or a name a `let` or `k::matches!` binds again is `krs::syntax::bit-field-collision`.
 In a table, two rows that match one argument with templates of different widths are `krs::syntax::bit-template-width-mismatch`, a missing or extra bit being the likely cause, and two rows without an authored `requires` whose templates and literals share a value are `krs::syntax::duplicate-equation-row`, naming the arguments both apply to.
+
+**Testing a value.**
+`k::bits!(op, "01 yyy zzz")`, with the value first, is the template as a test: a `Bool` term, for a `requires`, a claim, or any other place a `Bool` term may stand.
+It is `op >= 0 && op < 2^width` followed by one `bitRangeInt` equality per run of fixed bits: the terms of the pattern `k::bits!("01 yyy zzz")`'s guard, in the same order, so a claim can state exactly what a row tests.
+A template without free bits tests the same terms; only the pattern turns it into a literal.
+Field letters and `_` constrain nothing in a test, and a test binds nothing: its letters are accepted so that a row's template can be copied as it is, and outside the test a letter is only what the sentence's own binders make it, usually unbound.
+The value is a variable, a field of the sentence's own template, or a bit range of a variable (`x.bit_range::<Int>(0, 8)`).
+The long form reads it once per term, so a larger term, which would be repeated as many times, is bound to a name first: `op @` in the pattern, or a `let` (`krs::syntax::invalid-bit-template` otherwise).
+`k::bits!("..")` alone in a condition or a result is `krs::syntax::bit-template-position`; in a pattern, `k::bits!` takes only the template, and a second argument there is `krs::syntax::invalid-bit-template`, the place being reserved for modifiers such as signed fields.
 
 ### Sort-parametric productions
 

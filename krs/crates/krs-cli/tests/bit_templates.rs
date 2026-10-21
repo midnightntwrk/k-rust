@@ -19,7 +19,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((FieldOf, AliasOf, PairOf, SpliceOf, CodeOf, FlagOf))]
+#[k::precedence((FieldOf, AliasOf, PairOf, SpliceOf, CodeOf, FlagOf, PageOf))]
 pub enum ExpSyntax {
     #[k::syntax("fieldOf({n})")]
     FieldOf { n: Int },
@@ -33,6 +33,8 @@ pub enum ExpSyntax {
     CodeOf { n: Int },
     #[k::syntax("flagOf({b})")]
     FlagOf { b: Bool },
+    #[k::syntax("pageOf({n})")]
+    PageOf { n: Int },
 }
 
 #[k::configuration]
@@ -56,8 +58,10 @@ pub fn Flag(value: Term<Bool>) -> Term<Int>;
 "#;
 
 /// Fields in the results of readable clauses, with and without `op @`, in a
-/// replacement and in a splice; and templates beside an authored top-level
-/// `||` in a table row and in an `#[k::equation]` fn.
+/// replacement and in a splice; templates beside an authored top-level `||`
+/// in a table row and in an `#[k::equation]` fn; and `k::bits!(value, "..")`
+/// tests as a `Bool` result, in conditions, and in a claim, which states
+/// exactly the guard of the clause it is about.
 const POSITIVE: &str = r#"
 k::rules! {
     for Exp;
@@ -68,6 +72,7 @@ k::rules! {
     pair_of  : PairOf(k::bits!("0a"), k::bits!("b1"))        => a.add::<Int>(b);
     splice_of: SpliceOf(k::bits!("1 aa"))                     => k![a, a];
     code_of  : CodeOf(n)                                      => crate::Code(n);
+    page_of  : PageOf(n)                                      => crate::Page(n);
 }
 
 k::equations! {
@@ -82,6 +87,36 @@ k::equations! {
 #[k::equation]
 fn code_fn(k::term![Code(k::bits!("01 bb"))]: Term<Int>) -> Term<Int> {
     b.add::<Int>(10)
+}
+
+#[k::function(total, internal)]
+pub fn High(value: Term<Int>) -> Term<Bool>;
+
+k::equations! {
+    for High;
+    high: n => k::bits!(n, "1_ __");
+}
+
+#[k::function(total, internal)]
+pub fn Page(value: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Page;
+    #[k::requires(crate::High(n))]
+    page_high: n => 1;
+    #[k::requires(k::bits!(n, "00 aa") || k::bits!(n, "1"))]
+    page_low: n => 2;
+    #[k::equation(owise)]
+    page_other: n => 0;
+}
+
+#[k::claim(all_paths, label = "field-of-low")]
+#[k::requires(k::bits!(i, "0aaa"))]
+pub fn field_of_low(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::FieldOf(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(i.bit_range::<Int>(0, 3), ..tail), ..state }
 }
 "#;
 
@@ -148,7 +183,7 @@ fn run(target: &Path, manifest: &Path, program: &str) -> String {
 }
 
 #[test]
-fn readable_results_and_or_conditions_beside_templates_run() {
+fn templates_and_tests_check_run_and_prove() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(temporary.path(), "positive", POSITIVE);
@@ -164,6 +199,10 @@ fn readable_results_and_or_conditions_beside_templates_run() {
         "codeOf(9)",
         "codeOf(5)",
         "codeOf(4)",
+        "pageOf(9)",
+        "pageOf(2)",
+        "pageOf(5)",
+        "pageOf(16)",
     ]
     .map(|program| format!("{program} => {}", run(target.path(), &manifest, program)));
     expect_test::expect![[r#"
@@ -177,9 +216,16 @@ fn readable_results_and_or_conditions_beside_templates_run() {
             "codeOf(9) => 100",
             "codeOf(5) => 11",
             "codeOf(4) => 100",
+            "pageOf(9) => 1",
+            "pageOf(2) => 2",
+            "pageOf(5) => 0",
+            "pageOf(16) => 0",
         ]
     "#]]
     .assert_debug_eq(&outcomes);
+    let (proven, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
+    assert!(proven, "{stdout}\n{stderr}");
+    assert!(stdout.contains("field-of-low: proven"), "{stdout}");
 }
 
 /// The `error[..]` headlines of `krs check` and the locations they point at.
@@ -220,15 +266,15 @@ fn a_template_at_a_position_of_another_sort_is_reported_at_the_template() {
         [
             [
                 "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
-                "--> src/lib.rs:48:24",
+                "--> src/lib.rs:50:24",
             ],
             [
                 "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
-                "--> src/lib.rs:47:35",
+                "--> src/lib.rs:49:35",
             ],
             [
                 "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
-                "--> src/lib.rs:49:30",
+                "--> src/lib.rs:51:30",
             ],
         ]
     "#]]

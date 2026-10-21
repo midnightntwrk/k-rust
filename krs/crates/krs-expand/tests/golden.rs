@@ -513,6 +513,18 @@ k::equations! {
 "#,
     ),
     (
+        "equations_bits_test",
+        r#"
+k::equations! {
+    for IsLd;
+    #[k::requires(k::bits!(op, "11 ___ ___"))]
+    is_ld_high: op => false;
+    #[k::equation(owise)]
+    is_ld: op => k::bits!(op, "01 yyy zzz");
+}
+"#,
+    ),
+    (
         "rules_lexeme",
         r#"
 k::rules! {

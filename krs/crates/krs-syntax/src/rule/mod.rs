@@ -8,7 +8,9 @@ mod machine;
 mod pattern;
 
 pub use bits::{desugar_bit_templates, is_hidden_binder};
-pub(crate) use bits::{is_bits_macro, is_generated_binder, misplaced as misplaced_bit_template};
+pub(crate) use bits::{
+    expand_bit_tests, is_bits_macro, is_generated_binder, misplaced as misplaced_bit_template,
+};
 pub use block::{
     BracketAlternative, ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout, RuleHead,
     RuleHeadItem, RuleHeadResult, RuleImport, RuleNarrowing, parse_rule_block_source_with_trivia,
