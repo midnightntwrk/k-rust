@@ -486,7 +486,7 @@ The tests of the kink crates are in three tiers (`.config/kink-tiers.toml`):
 
 | tier | marked | runs | budget |
 |---|---|---|---|
-| light | an ordinary `#[test]` | every change; every `cargo test` and `cargo nextest run` | 120 s wall, no test over 15 s |
+| light | an ordinary `#[test]` | every change; every `cargo test` and `cargo nextest run` | 120 s wall, no test over 30 s in the tier run |
 | kink | `#[ignore = "kink"]` inside a `kink_tier` module | a change to a kink crate, its test data or this gate | 600 s wall together with light |
 | heavy | `#[ignore = "heavy"]` inside a `heavy` module | nightly, before an integration merge, when a work package closes | 3,600 s wall |
 
@@ -513,7 +513,7 @@ with-z3-static-4.16.0 scripts/kink-tier.py run gate --z3
 
 The heavy gate adds `scripts/kink-tier.py run heavy` and `with-z3-static-4.16.0 scripts/kink-tier.py run heavy --z3`.
 `--and EXPR` narrows a tier to the tests matching a nextest filterset, for example `--and 'package(kink-flow)'`, without judging the budget.
-The Z3 profile runs kink-native, kink-campaign and kink-corpus, except in the light and kink tiers the test binaries that `[z3] skip_binaries` lists because they never reach the solver.
+The Z3 profile runs every test of kink-native, kink-campaign and kink-corpus (`[z3]` of `.config/kink-tiers.toml` says why no binary is skipped).
 `cargo test --workspace` still runs the light tier, and `cargo test --workspace -- --include-ignored` every tier.
 Run the two profiles one after the other, never at the same time in one target directory:
 each build replaces the other's `kink-corpus` and `kink-flow` executables, which the tests run and hash, under a running test.

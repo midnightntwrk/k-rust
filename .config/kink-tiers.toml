@@ -15,12 +15,15 @@
 #
 # Budgets are wall seconds of one `scripts/kink-tier.py run` at the default number of test
 # threads (one per CPU) on a 32-CPU host with a 1-minute load average under half the CPUs; the
-# check reports but does not judge a run on a busier host. `per_test_s` bounds every test of the
-# tier; a light test over it belongs to the kink tier or must be made cheaper.
+# check reports but does not judge a run on a busier host. `per_test_s` bounds every light test
+# as the tier's own JUnit report times it, that is with every test slot busy: CPU contention
+# about doubles a test's time against a run of it alone (the SI-04 replay rows take 9-12 s alone
+# and 15-22 s in the tier run). A light test over it belongs to the kink tier or must be made
+# cheaper; a protected holding is made cheaper, never moved.
 
 [tier.light]
 wall_s = 120
-per_test_s = 15
+per_test_s = 30
 
 [tier.kink]
 wall_s = 600
@@ -35,6 +38,11 @@ wall_s = 3600
 [z3]
 # The Z3 profile runs the crates whose solver profile changes what they compute.
 packages = ["kink-native", "kink-campaign", "kink-corpus"]
-# Test binaries that never reach the solver or Z3 sort inference in any tier, by measurement
-# (packet TG-03): the Z3 run skips them; the heavy tier still runs them under both profiles.
+# Test binaries the Z3 run of the light and kink tiers skips. Empty by decision (test-gate TG-Z,
+# 2026-10-21): instrumented counts at 611706e found 18 binaries that never reach Z3, but they
+# hold about 10% of the Z3 run's test time and none of its longest tests; tests in 26 of the 53
+# binaries do reach the solver, several that a reading of the code had called ground-only; and
+# once kink is in k-rust's workspace the Z3 profile is the default run, so the list would have to
+# be re-derived for the other profile. A list here must come from re-running that measurement
+# (draft/tasks/test-gate/data/tg-z-instrumentation.patch) on the tree it applies to.
 skip_binaries = []
