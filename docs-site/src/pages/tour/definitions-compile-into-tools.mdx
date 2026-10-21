@@ -75,7 +75,7 @@ Each item is one of K's three parts, and each gets its own lesson later; for now
   It is a **constructor family**: an enum whose variants are the constructors of one sort, here `Red()` and `Green()` of `Light`, and `#[k::syntax("red")]` is the text that writes `Red()` in a program.
   K calls each such line a **production**: one line of the grammar, which declares a symbol and the text that writes it.
   Constructors are one kind of symbol ([Sorts and constructors](/tour/sorts-and-constructors)); functions are another ([Functions defined by rules](/tour/functions-defined-by-rules)).
-  KRS requires a family written this way to name a `result` sort (the tour writes `KResult`) and to list every constructor in a `#[k::precedence]` chain; later lessons on evaluation order and on precedence explain both, and here they change nothing.
+  KRS requires a family written this way to name a `result` sort (the tour writes `KResult`); a later lesson on evaluation order explains it, and here it changes nothing.
 - `Machine` is the **configuration**: the state of a running program, made of named **cells**.
   It has one cell, `k`, which holds the **computation**, the work still to do; its type `KSequence` makes it a sequence of computation items.
   `#[k::init]` says how a run starts: `pgm` is the program you pass on the command line, read as a `Light`, and `k::k![pgm]` builds the sequence that holds it as its one item.
@@ -219,7 +219,7 @@ The [daily workflow](/reference/workflow) reference covers the files `emit-k` wr
 ## Exercises
 
 **1. Add a yellow light.**
-In `src/lib.rs`, add a `Yellow()` constructor with `#[k::syntax("yellow")]`, add it to the precedence chain as `(Red, Yellow, Green)`, and add the row `green_to_yellow: Green() => Yellow();`.
+In `src/lib.rs`, add a `Yellow()` constructor with `#[k::syntax("yellow")]` and the row `green_to_yellow: Green() => Yellow();`.
 Before you run anything, predict the final light and the number of steps for `programs/red.light`, then check:
 
 ```sh

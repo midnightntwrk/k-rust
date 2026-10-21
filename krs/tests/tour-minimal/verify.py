@@ -61,8 +61,8 @@ def verify_expansion(source: str) -> None:
     required = (
         "#[k::sort(alias = ObjectTerm, parents = [k::KResult])]",
         "#[k::constructors(sort = ObjectTerm, reference)]",
-        '#[k::syntax("foo", group = "object_tier0", format = "foo")]',
-        '#[k::syntax("bar", group = "object_tier0", format = "bar")]',
+        '#[k::syntax("foo", format = "foo")]',
+        '#[k::syntax("bar", format = "bar")]',
         "k::configuration::KCell::new(k::k![Object::Foo()])",
         '#[k::rule(label = "foo-to-bar")]',
         "crate ::Object::Foo(), tail @ ..",

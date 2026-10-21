@@ -14,12 +14,12 @@ module NAT-SYNTAX
   syntax Answer
   syntax Nat
 
-  syntax Answer ::= "no" [symbol(answerSyntaxNo), group(krsgroup-59ef0357546594f68cb43840), format(%1)]
-  syntax Answer ::= "yes" [symbol(answerSyntaxYes), group(krsgroup-59ef0357546594f68cb43840), format(%1)]
+  syntax Answer ::= "no" [symbol(answerSyntaxNo), format(%1)]
+  syntax Answer ::= "yes" [symbol(answerSyntaxYes), format(%1)]
   // `isZero(n)` answers whether `n` is `zero`.
   syntax Answer ::= "isZero" "(" Nat ")" [symbol(isZero), function, total]
-  syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
-  syntax Nat ::= "zero" [symbol(natSyntaxZero), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1)]
+  syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), format(%1%2%3%4)]
+  syntax Nat ::= "zero" [symbol(natSyntaxZero), format(%1)]
   // `plus(m, n)` is the sum of `m` and `n`.
   syntax Nat ::= "plus" "(" Nat "," Nat ")" [symbol(plus), function, total]
   // `same(m, n)` is `yes` when `m` and `n` are the same number.

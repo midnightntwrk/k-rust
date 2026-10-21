@@ -2,5 +2,5 @@ $ krs run --package tour-light --definition main --trace programs/red.light
 <k>
   green ~> .K
 </k>
-step 1  LIGHT.red-to-green   src/lib.rs:38:5
+step 1  LIGHT.red-to-green   src/lib.rs:37:5
 krs run: stuck after 1 step; <k> starts with `green`

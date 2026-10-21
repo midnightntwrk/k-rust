@@ -10,7 +10,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Nat, result = KResult)]
-#[k::precedence((Zero, Succ))]
 pub enum NatSyntax {
     #[k::syntax("zero")]
     Zero(),
@@ -20,7 +19,6 @@ pub enum NatSyntax {
 
 // [!region answer]
 #[k::constructors(sort = Answer, result = KResult)]
-#[k::precedence((Yes, No))]
 pub enum AnswerSyntax {
     #[k::syntax("yes")]
     Yes(),
