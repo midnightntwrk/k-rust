@@ -38,6 +38,7 @@ pub mod error;
 pub mod exec;
 mod graph;
 pub mod holes;
+mod proposers;
 pub mod report;
 pub mod spec;
 pub mod target;

@@ -595,11 +595,14 @@ fixture!(VALUES, "values/values.k", "VALUES", &[]);
 // The stall benchmark's maze (FZ-13); `tests/data/maze/harness.rs` holds its cells.
 fixture!(MAZE, "maze/maze.k", "MAZE", &[program!("maze/walk.pgm")]);
 
+// The dictionary proposer's fixture (FZ-11): constants behind the rule graph and function calls.
+fixture!(DICT, "dict/dict.k", "DICT", &[program!("dict/run.pgm")]);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 27] = [
+pub static ALL: [&Fixture; 28] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -627,4 +630,5 @@ pub static ALL: [&Fixture; 27] = [
     &STREAMS,
     &VALUES,
     &MAZE,
+    &DICT,
 ];

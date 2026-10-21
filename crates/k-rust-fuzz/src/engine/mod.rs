@@ -14,15 +14,17 @@ use std::sync::{Arc, OnceLock};
 
 use k_rust::backend::CancellationToken;
 
+pub(crate) use self::schedule::derive_seed;
 use self::{
     campaign_loop::{Cuts, Ending, LoopSettings, no_witness, report_without_cases, run_loop},
     live::{GraphCheck, LiveCases, LiveRunner},
     proposer::{BlindProposer, Proposer},
-    schedule::{Schedule, derive_seed},
+    schedule::Schedule,
 };
 use crate::{
     error::CampaignError,
     holes::ResolvedHole,
+    proposers::dictionary::{self, DictionaryProposer, HolePool},
     report::{
         CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, GenerationCaps, HitLabel,
         ReportIdentity, Totals, digest_hex,
@@ -55,6 +57,9 @@ pub struct Campaign {
     /// The rule graph and the campaign's entry, computed once in [`Campaign::new`] on a backend
     /// of their own, for the report's warnings and the per-case self-check (ARCHITECTURE 6.3).
     graph: Option<Arc<GraphCheck>>,
+    /// The dictionary's pool of each hole (ARCHITECTURE 8.3), harvested once in
+    /// [`Campaign::new`] when the dictionary has a positive weight.
+    dictionary: Option<Arc<Vec<HolePool>>>,
 }
 
 impl Campaign {
@@ -109,6 +114,11 @@ impl Campaign {
         }
         let explicit = explicit_proposals(&names, &anchors, &spec.proposers)?;
         generators(&cases, &spec)?;
+        let dictionary = if weight(&spec.proposers, ProposerKind::Dictionary) > 0 {
+            Some(Arc::new(dictionary::hole_pools(&spec, holes)?))
+        } else {
+            None
+        };
         // Each side's initial configuration at the anchors, or at the first explicit
         // assignment when some hole has no anchor, identifies its grammar (FZ-06 review S2).
         let known = anchors
@@ -179,6 +189,7 @@ impl Campaign {
             equivalent,
             definition_cache: Arc::new(OnceLock::new()),
             graph,
+            dictionary,
         })
     }
 
@@ -249,6 +260,15 @@ impl Campaign {
             let rng = ValueRng::from_seed(derive_seed(self.spec.seed, "values"));
             proposers.push((weight, Box::new(BlindProposer::new(generators, rng))));
         }
+        if let Some(pools) = &self.dictionary {
+            let generators =
+                self::generators(&cases, &self.spec).expect("Campaign::new built them");
+            let proposer = DictionaryProposer::new(Arc::clone(pools), generators, self.spec.seed);
+            proposers.push((
+                weight(&self.spec.proposers, ProposerKind::Dictionary),
+                Box::new(proposer),
+            ));
+        }
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
         // One assembler per side for the whole run, so that every case reuses its parsers.
         let parts = cases.assembly_parts();
@@ -278,11 +298,11 @@ fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
     }
 }
 
-/// Every proposer with a positive weight is one this milestone provides: only blind sampling
-/// in M1 (ARCHITECTURE 8, 11).
+/// Every proposer with a positive weight is one this build provides: blind sampling and the
+/// dictionary (ARCHITECTURE 8, 11).
 fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
     for (kind, weight) in &config.weights {
-        if *weight > 0 && *kind != ProposerKind::Blind {
+        if *weight > 0 && !matches!(kind, ProposerKind::Blind | ProposerKind::Dictionary) {
             let name = serde_json::to_value(kind)
                 .ok()
                 .and_then(|name| name.as_str().map(str::to_owned))
@@ -293,6 +313,11 @@ fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
         }
     }
     Ok(())
+}
+
+/// The weight of `kind` in `config`, 0 when it has none.
+fn weight(config: &ProposerConfig, kind: ProposerKind) -> u32 {
+    config.weights.get(&kind).copied().unwrap_or(0)
 }
 
 /// One generator per hole, in hole order.

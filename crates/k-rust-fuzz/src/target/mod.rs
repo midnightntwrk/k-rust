@@ -10,7 +10,7 @@ pub(crate) mod differential;
 #[cfg(test)]
 mod fixture_tests;
 mod observer;
-mod rule;
+pub(crate) mod rule;
 #[cfg(test)]
 mod tests;
 
