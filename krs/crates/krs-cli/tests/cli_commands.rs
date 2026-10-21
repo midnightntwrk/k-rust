@@ -968,14 +968,17 @@ const K_PATTERN_RULES: &str = "
     abort: { k: [Abort { code: c }, _ignored], acc: _ } => { k: [], acc: c };
     idle: { k: [], left: n } => { k: [Op::Boundary], left: int::add(n, 1) };
     tick: { k: [Op::Boundary, ..], left: n } => { left: int::sub(n, 1) };
+    wake: { k: [Load { addr: a }, Op::Boundary, ..], acc: _ } => { k: [Load { addr: a }, Op::Boundary, ..], acc: a };
 ";
 
 #[test]
 fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
+    // `wake` restates its items unchanged, which only reads them, as `tick`
+    // does by leaving `k` out of its result.
     let target = shared_fixture_target();
     let source = K_PATTERNS.replace("{rules}", K_PATTERN_RULES);
     let definition = emit_definition(target.path(), &source);
-    let rules = ["store", "start", "abort", "idle", "tick"]
+    let rules = ["store", "start", "abort", "idle", "tick", "wake"]
         .map(|label| emitted_rule(&definition, label))
         .join("\n");
     assert_eq!(
@@ -984,7 +987,8 @@ fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
          \x20 rule [start]:\n    <k> run ( N:Int ) => boundary </k>\n    <left> _ => N:Int </left>\n\
          \x20 rule [abort]:\n    <k> abort ( C:Int ) ~> _Ignored:KItem => .K </k>\n    <acc> _ => C:Int </acc>\n\
          \x20 rule [idle]:\n    <k> .K => boundary </k>\n    <left> N:Int => N:Int +Int 1 </left>\n\
-         \x20 rule [tick]:\n    <k> boundary ... </k>\n    <left> N:Int => N:Int -Int 1 </left>",
+         \x20 rule [tick]:\n    <k> boundary ... </k>\n    <left> N:Int => N:Int -Int 1 </left>\n\
+         \x20 rule [wake]:\n    <k> load ( A:Int ) ~> boundary ... </k>\n    <acc> _ => A:Int </acc>",
     );
 
     // `krs expand` writes each as a `cells!` rule that compiles back to the
@@ -1018,11 +1022,13 @@ fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    assert_eq!(
-        without_k(emitted_rule(&reference, "store")),
-        without_k(emitted_rule(&definition, "store")),
-        "{expanded}"
-    );
+    for label in ["store", "wake"] {
+        assert_eq!(
+            without_k(emitted_rule(&reference, label)),
+            without_k(emitted_rule(&definition, label)),
+            "{expanded}"
+        );
+    }
     assert!(
         emitted_rule(&reference, "store")
             .contains("<k> V:Int ~> store ( A:Int ) ~> Tail:K => .K ~> Tail:K </k>"),

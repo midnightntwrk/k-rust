@@ -105,7 +105,7 @@ Each item is one `KItem`; a binder repeated across items is nonlinear matching, 
 The result has the pattern's shape: it ends in `..` exactly when the pattern does, since one `..` is the rest on both sides, so a pattern ending in `..` never drops the rest, and a whole-cell pattern has no rest to keep.
 `..` may only end the pattern, because the cell is read from its front, and it is anonymous; `[..]` alone would match any computation and is rejected (leave `k` out to keep the cell unchanged).
 Discarding the rest of the computation, or capturing it as a value, needs the `cells!` form.
-A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`.
+A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`, and so does a result that restates the matched items unchanged, `k: [Boundary(), ..]`.
 `krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
 
 ### Cells a rule only reads

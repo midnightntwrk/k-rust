@@ -580,6 +580,14 @@ fn check_framed_computation_rule(
     Ok(())
 }
 
+/// Whether `result` restates the items of the k sequence `before`; the item
+/// sort is an annotation of the sequence, not part of its items.
+fn same_items(before: &SemanticTerm, result: &[SemanticTerm]) -> bool {
+    matches!(before.kind(), krs_ir_levels::SemanticTermKind::KSequence { items, .. }
+        if items.len() == result.len()
+            && items.iter().zip(result).all(|(item, restated)| same_term(item, restated)))
+}
+
 /// Whether two semantic terms are the same term, ignoring their origins.
 fn same_term(left: &SemanticTerm, right: &SemanticTerm) -> bool {
     use krs_ir_levels::SemanticTermKind as Kind;
@@ -979,12 +987,19 @@ fn lower_head_rule_computation_clause(
             };
             let result_item_sort =
                 common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
-            let after_k = SemanticTerm::k_sequence(
-                semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
-                result_item_sort,
-                result_items,
-            );
-            CellPost::Replace { term: after_k }
+            // A result that restates the matched items unchanged only reads
+            // them, as a restated cell does.
+            if same_items(&before_k, &result_items) {
+                CellPost::Preserve
+            } else {
+                CellPost::Replace {
+                    term: SemanticTerm::k_sequence(
+                        semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
+                        result_item_sort,
+                        result_items,
+                    ),
+                }
+            }
         }
     };
     let frame = if head.exact {
