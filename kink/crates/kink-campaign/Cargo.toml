@@ -1,15 +1,22 @@
 [package]
 name = "kink-campaign"
-edition.workspace = true
-license.workspace = true
-rust-version.workspace = true
-version.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
-[lints]
-workspace = true
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
 
 [dependencies]
-k-rust.workspace = true
+k-rust = { path = "../../../crates/k-rust", default-features = false }
 kink-native.workspace = true
 kink-patch.workspace = true
 kink-pattern.workspace = true
@@ -17,10 +24,11 @@ kink-pattern.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-# The source scan of tests/identity.rs (packet CACHE-ID-fix-1): syn parses every member's
-# sources, toml reads the workspace's members and k-rust paths. Both are already in Cargo.lock.
-syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
-toml = { version = "=0.9.12", default-features = false, features = ["parse", "serde", "std"] }
+# The source scan of tests/identity.rs (packet CACHE-ID-fix-1): syn parses every kink member's
+# sources, toml reads the workspace's members and k-rust's version.
+syn = { workspace = true, features = ["full", "parsing", "visit"] }
+toml.workspace = true
 
 [features]
+default = ["z3"]
 z3 = ["kink-native/z3"]

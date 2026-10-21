@@ -3,7 +3,9 @@
 //! identity is the object every store keys on. Packet CACHE-ID-fix-1 (CACHE-ID review 1 minors 1
 //! and 3): the scan parses the sources (syn), so it sees `static` items, items inside blocks and
 //! `impl`s, raw strings and any literal text; it reads the members from the workspace's
-//! Cargo.toml; and the k-rust snapshot Cargo.toml builds against is the pinned revision.
+//! Cargo.toml. Since kink is a part of k-rust's workspace (merge packet M-1), the workspace is
+//! k-rust's, the scan reads its kink members, and the k-rust revision is the in-repo k-rust's
+//! version.
 
 use kink_campaign::identity::{
     KINK_IDENTITY, OUTSIDE_IDENTITY, build_identity_of, identity_difference, kink_build,
@@ -53,30 +55,49 @@ fn rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
+/// The root of k-rust's workspace, of which kink's crates are members (`kink/crates/*`).
 fn workspace() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
 fn cargo_toml(path: &Path) -> toml::Table {
     toml::from_str(&fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// `(package name, directory)` of every member of the workspace, from its Cargo.toml.
+/// `(package name, directory)` of every kink member of the workspace (a member under `kink/`),
+/// from its Cargo.toml: a member written `DIR/*` is every directory of `DIR` with a Cargo.toml.
 fn members() -> Vec<(String, PathBuf)> {
     let root = cargo_toml(&workspace().join("Cargo.toml"));
-    root["workspace"]["members"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|member| {
-            let directory = workspace().join(member.as_str().unwrap());
+    let mut directories = Vec::new();
+    for member in root["workspace"]["members"].as_array().unwrap() {
+        let member = member.as_str().unwrap();
+        if !member.starts_with("kink/") {
+            continue;
+        }
+        match member.strip_suffix("/*") {
+            Some(parent) => {
+                for entry in fs::read_dir(workspace().join(parent)).unwrap() {
+                    let directory = entry.unwrap().path();
+                    if directory.join("Cargo.toml").is_file() {
+                        directories.push(directory);
+                    }
+                }
+            }
+            None => directories.push(workspace().join(member)),
+        }
+    }
+    let mut members = directories
+        .into_iter()
+        .map(|directory| {
             let package = cargo_toml(&directory.join("Cargo.toml"));
             (
                 package["package"]["name"].as_str().unwrap().to_owned(),
                 directory,
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    members.sort();
+    members
 }
 
 fn written(expr: &syn::Expr) -> Written {
@@ -317,6 +338,13 @@ fn every_versioned_constant_is_in_the_identity_or_listed_outside_it() {
             .get(&id)
             .unwrap_or_else(|| panic!("{id:?} is not a constant of its crate"));
         assert!(item.is_str, "{id:?}");
+        if component.constant == "K_RUST_REVISION" {
+            // Merge packet M-1: the k-rust revision is the in-repo k-rust's version, which
+            // kink-native's build script reads (`env!`), not a literal;
+            // the_k_rust_revision_is_the_in_repo_k_rust_version checks its value.
+            assert_eq!(item.value, Written::Other, "{id:?}");
+            continue;
+        }
         assert_eq!(
             item.value,
             Written::Str(component.value.to_owned()),
@@ -362,26 +390,29 @@ fn every_versioned_constant_is_in_the_identity_or_listed_outside_it() {
     }
 }
 
-/// CACHE-ID review 1 minor 3: the k-rust and k-rust-backend snapshots Cargo.toml builds against
-/// are named by K_RUST_REVISION's prefix (`../k-rust-<prefix>/...`), so a re-pin that moves the
-/// path without the constant (which the semantics identity names) fails here.
+/// Merge packet M-1 (replacing CACHE-ID review 1 minor 3's snapshot check): kink builds against
+/// the k-rust beside it, and the k-rust revision the semantics identity names is that k-rust's
+/// package version. Every kink crate depends on the in-repo k-rust, and k-rust-backend is the
+/// workspace's own.
 #[test]
-fn the_k_rust_snapshot_cargo_builds_against_is_the_pinned_revision() {
+fn the_k_rust_revision_is_the_in_repo_k_rust_version() {
+    let k_rust = cargo_toml(&workspace().join("crates/k-rust/Cargo.toml"));
+    assert_eq!(
+        kink_native::K_RUST_REVISION,
+        k_rust["package"]["version"].as_str().unwrap()
+    );
     let root = cargo_toml(&workspace().join("Cargo.toml"));
-    for package in ["k-rust", "k-rust-backend"] {
-        let path = root["workspace"]["dependencies"][package]["path"]
-            .as_str()
-            .unwrap();
-        let snapshot = Path::new(path)
-            .components()
-            .find_map(|part| part.as_os_str().to_str()?.strip_prefix("k-rust-"))
-            .unwrap_or_else(|| panic!("{package}: {path} names no k-rust snapshot"));
-        assert!(
-            snapshot.len() >= 8
-                && snapshot.chars().all(|c| c.is_ascii_hexdigit())
-                && kink_native::K_RUST_REVISION.starts_with(snapshot),
-            "{package}: {path} is not k-rust {}",
-            kink_native::K_RUST_REVISION
+    assert_eq!(
+        root["workspace"]["dependencies"]["k-rust-backend"]["path"].as_str(),
+        Some("crates/k-rust-backend")
+    );
+    for (package, directory) in members() {
+        let manifest = cargo_toml(&directory.join("Cargo.toml"));
+        let path = manifest["dependencies"]["k-rust"]["path"].as_str().unwrap();
+        assert_eq!(
+            fs::canonicalize(directory.join(path)).unwrap(),
+            fs::canonicalize(workspace().join("crates/k-rust")).unwrap(),
+            "{package}"
         );
     }
 }

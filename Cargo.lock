@@ -1255,6 +1255,74 @@ dependencies = [
 ]
 
 [[package]]
+name = "kink-campaign"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-native",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+ "syn 2.0.119",
+ "toml",
+]
+
+[[package]]
+name = "kink-corpus"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-campaign",
+ "kink-native",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+]
+
+[[package]]
+name = "kink-flow"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-campaign",
+ "kink-corpus",
+ "kink-native",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "kink-native"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "k-rust-backend",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "kink-patch"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "serde",
+ "serde_json",
+ "stacker",
+]
+
+[[package]]
+name = "kink-pattern"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+]
+
+[[package]]
 name = "krs"
 version = "0.1.0"
 dependencies = [

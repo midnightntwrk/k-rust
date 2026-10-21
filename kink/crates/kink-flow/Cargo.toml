@@ -1,21 +1,28 @@
 [package]
 name = "kink-flow"
-edition.workspace = true
-license.workspace = true
-rust-version.workspace = true
-version.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
-[lints]
-workspace = true
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
 
 [dependencies]
-k-rust.workspace = true
+k-rust = { path = "../../../crates/k-rust", default-features = false }
 kink-campaign.workspace = true
 kink-corpus.workspace = true
 kink-native.workspace = true
 kink-patch.workspace = true
 serde_json.workspace = true
-toml = { version = "=0.9.12", default-features = false, features = ["parse", "serde", "std"] }
+toml.workspace = true
 
 [[bin]]
 name = "kink-flow"

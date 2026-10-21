@@ -115,6 +115,9 @@ fn exact_keys_canonical_bytes_and_profile() {
     let mut wrong = v;
     wrong["k_rust"]["revision"] = json!("wrong");
     failure(&wrong, ManifestError::RevisionMismatch);
+    // The admission-v1 manifests name k-rust by the in-repo k-rust's version since merge packet
+    // M-1 (K_RUST_REVISION, formerly the pinned commit 0068938b1): a k-rust version bump re-pins
+    // their `k_rust.revision`.
     assert_eq!(m.value()["k_rust"]["revision"], K_RUST_REVISION);
     assert_eq!(
         CorpusManifest::from_canonical_json(&format!(" {}", m.text())).unwrap_err(),

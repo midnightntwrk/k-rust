@@ -272,8 +272,9 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
 #[test]
 fn the_passages_a1_rests_on_are_pinned() {
     let manifest: toml::Value =
-        toml::from_str(&std::fs::read_to_string(root().join("Cargo.toml")).unwrap()).unwrap();
-    let backend = root().join(
+        toml::from_str(&std::fs::read_to_string(root().join("../Cargo.toml")).unwrap()).unwrap();
+    // kink is a part of k-rust's workspace (merge packet M-1): the manifest is k-rust's root one.
+    let backend = root().join("..").join(
         manifest["workspace"]["dependencies"]["k-rust-backend"]["path"]
             .as_str()
             .expect("k-rust-backend is a path dependency"),

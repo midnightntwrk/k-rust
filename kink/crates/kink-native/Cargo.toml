@@ -1,24 +1,35 @@
 [package]
 name = "kink-native"
-edition.workspace = true
-license.workspace = true
-rust-version.workspace = true
-version.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-k-rust.workspace = true
+k-rust = { path = "../../../crates/k-rust", default-features = false }
 k-rust-backend.workspace = true
 kink-patch.workspace = true
 kink-pattern.workspace = true
 serde_json.workspace = true
 
 [features]
-# The Z3 profile (SYM-3B-00: machine wrapper `with-z3-static-4.16.0`, no gh-release, no bundled
-# build). No other workspace member enables it, so `cargo test --workspace` stays no-Z3.
+# The Z3 profile is the default, as k-rust's is: in k-rust's default workspace build k-rust's own
+# default features select Z3, and the compile-time assertion in src/execution.rs requires this
+# feature to agree. `--no-default-features` on the kink packages is the portable (no-Z3) profile.
+# The feature links the Z3 the build environment provides (k-rust `z3-inference`, for example
+# under `with-z3-static-4.16.0`); k-rust's default features add the gh-release download.
+default = ["z3"]
 z3 = ["k-rust/z3-inference"]
 
 [dev-dependencies]
-toml = { version = "=0.9.12", default-features = false, features = ["parse", "serde", "std"] }
+toml.workspace = true
 
-[lints]
-workspace = true
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

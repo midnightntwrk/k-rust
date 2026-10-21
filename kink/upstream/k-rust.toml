@@ -35,7 +35,7 @@
 # original fields) and where_requested_shape_differs (how an accepted fix differs from the request).
 
 schema = 1
-updated = "2026-10-19"
+updated = "2026-10-21"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native, kink-campaign, kink-corpus and kink-flow all depend on k-rust.
@@ -50,18 +50,21 @@ updated = "2026-10-19"
 # basis as the run that established it, and has an update_2026_10_17 where the new pin changed something about it.
 # Every open and partial row was re-screened at this pin on 2026-10-17.
 # RE-PIN to k-rust main 8f8ad57c5 (packets P-1, P-2 and L-1 of draft/tasks/repin-58720d2e), then to k-rust main
-# 0068938b1 (round D: k-rust 0.8.0, k-rust-backend 0.5.0; packet P-1 of draft/tasks/repin-0068938b): the commit,
-# versions and checkout below name the pin the workspace builds against (kink-native tests/pin.rs checks them); every
-# row in this file is still judged at 501f18b9 as described above.
+# 0068938b1 (round D: k-rust 0.8.0, k-rust-backend 0.5.0; packet P-1 of draft/tasks/repin-0068938b), the last
+# read-only snapshot K-in-K2 built against; every row in this file is still judged at 501f18b9 as described above.
+# MERGE into k-rust (packet M-1 of K-in-K2 draft/tasks/k-rust-merge, 2026-10-21): kink is now kink/ in k-rust's
+# repository and builds against the k-rust beside it, so this ledger records kink's premises on the in-repo k-rust.
+# The commit below is the k-rust commit at which they were last judged, not what the workspace builds against
+# (kink-native's K_RUST_REVISION is the in-repo k-rust's version; kink-native tests/pin.rs and kink-campaign
+# tests/identity.rs check both).
 k_rust_commit = "0068938b1c6321c9bf0fed8562a6c9847114a8bb"
 k_rust_version = "0.8.0"
-# kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
+# kink-native also depends on k-rust-backend, for execution cancellation and diagnostics.
 k_rust_backend_version = "0.5.0"
 k_release = "7.1.337"
-# The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-0068938b"
-live_checkout = "../inspirations/midnightntwrk/k-rust"
-source = "Cargo.toml [workspace.dependencies] path dependency"
+# The k-rust tree kink builds against, relative to kink/: the repository kink is part of.
+checkout = ".."
+source = "kink/crates/*/Cargo.toml path dependencies on ../../../crates/k-rust and the workspace's k-rust-backend"
 
 [retired_pins]
 "927b9ce6352357db340c221ff5377b294b8324e9" = "Former K-in-K2 read-only archive pin (k-rust main on 2026-10-06; checkout ../k-rust-927b9ce6), retired on 2026-10-17 for main 501f18b9 (re-pin RP-01, approved by Sebastien on 2026-10-16), which carries k-rust's answers to handoff KINK-01..16. The R0 chain (K-in-K2 e88e0e2..1ee9955) migrated kink with every protected kill and SI-04 replay row unchanged in both profiles. Its requests are re-judged at 501f18b9 in this file; their statuses as judged at 927b9ce6 are in this file at K-in-K2 1ee9955."

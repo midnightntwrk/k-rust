@@ -1,7 +1,8 @@
 [workspace]
 resolver = "3"
 # krs/ holds KRS, the Rust-shaped K authoring language built on k-rust (krs/README.md).
-members = ["crates/*", "krs/crates/*"]
+# kink/ holds kink, semantic mutation testing for K definitions built on k-rust (kink/README.md).
+members = ["crates/*", "krs/crates/*", "kink/crates/*"]
 # KRS's test, port, and documentation packages are workspaces of their own; without the exclusion
 # Cargo reads their inherited package fields from this manifest when another workspace depends on them.
 exclude = ["krs/browser", "krs/docs-site", "krs/semantics", "krs/tests"]
@@ -17,6 +18,15 @@ k-rust-backend = { version = "0.5.0", path = "crates/k-rust-backend" }
 k-rust-regex = { version = "0.4.0", path = "crates/k-rust-regex" }
 lean-conformance = { path = "crates/lean-conformance" }
 k256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+# kink's crates (kink/README.md). kink-native, kink-campaign and kink-corpus select the Z3 solver
+# profile by default, as k-rust does; their edges take no default features, so that
+# `--no-default-features` on the kink packages builds the portable (no-Z3) profile.
+kink-campaign = { path = "kink/crates/kink-campaign", default-features = false }
+kink-corpus = { path = "kink/crates/kink-corpus", default-features = false }
+kink-flow = { path = "kink/crates/kink-flow" }
+kink-native = { path = "kink/crates/kink-native", default-features = false }
+kink-patch = { path = "kink/crates/kink-patch" }
+kink-pattern = { path = "kink/crates/kink-pattern" }
 napi = "3.4.0"
 napi-build = "2.2.4"
 napi-derive = "3.3.0"

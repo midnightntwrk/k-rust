@@ -118,11 +118,12 @@ fn function<'s>(source: &'s str, name: &str) -> &'s str {
     &source[start..end]
 }
 
-/// The k-rust-backend source directory the workspace builds against (its path dependency).
+/// The k-rust-backend source directory the workspace builds against (its path dependency in
+/// k-rust's root manifest, since kink is a part of k-rust's workspace: merge packet M-1).
 fn k_rust_backend() -> PathBuf {
     let manifest: toml::Value =
-        toml::from_str(&std::fs::read_to_string(root().join("Cargo.toml")).unwrap()).unwrap();
-    root().join(
+        toml::from_str(&std::fs::read_to_string(root().join("../Cargo.toml")).unwrap()).unwrap();
+    root().join("..").join(
         manifest["workspace"]["dependencies"]["k-rust-backend"]["path"]
             .as_str()
             .expect("k-rust-backend is a path dependency"),

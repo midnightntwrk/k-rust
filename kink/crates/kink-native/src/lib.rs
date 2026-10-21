@@ -45,5 +45,12 @@ pub use validator::{
     ValidatedDefinition,
 };
 
-/// k-rust revision pinned by upstream/k-rust.toml.
-pub const K_RUST_REVISION: &str = "0068938b1c6321c9bf0fed8562a6c9847114a8bb";
+/// The k-rust kink builds against, named by the version of k-rust's package (build.rs reads it
+/// from the in-repo `crates/k-rust/Cargo.toml`). kink is built inside k-rust's workspace against
+/// the k-rust beside it, so a hard-coded commit would be false as soon as k-rust moved. The name
+/// and the documents' `k_rust_revision` / `k_rust.revision` fields are kept. No store's soundness
+/// rests on it: every store honoured without re-deriving its verdicts also keys on `kink_build`,
+/// the SHA-256 of the executable, which changes with the linked k-rust (kink-campaign `identity`).
+/// The k-rust commit kink's premises were last judged at is `[reference_pin]` of
+/// upstream/k-rust.toml.
+pub const K_RUST_REVISION: &str = env!("KINK_K_RUST_VERSION");

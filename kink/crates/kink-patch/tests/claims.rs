@@ -648,9 +648,10 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
 ];
 
 /// The k-rust tree the workspace builds against: the parent of the `k-rust-backend` path
-/// dependency's `crates/` directory.
+/// dependency's `crates/` directory, read from k-rust's root manifest (kink is a part of k-rust's
+/// workspace since merge packet M-1).
 fn k_rust_tree() -> std::path::PathBuf {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let manifest =
         std::fs::read_to_string(root.join("Cargo.toml")).expect("the workspace manifest");
     let line = manifest
