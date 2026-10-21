@@ -18,7 +18,7 @@
 //!
 //! [[cost]]
 //! mode = "subject_index"
-//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like"
+//! bound = "O(1) when the subject's stored k_cells count is 0; for 1, O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like; for a variable-free subject with several, the same check over every path to a cell, plus O(c log c) to collect and sort the c cells' keys"
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
@@ -48,6 +48,9 @@
 //! A subject's `<k>` cell is keyed only when every instance of the subject has it as its one
 //! `<k>` cell (`k_cell_is_exact`): not through a collection with a rest or with an item that is
 //! not `constructor_like`, whose instances may hold further cells, nor through a function.
+//! A variable-free subject with several `<k>` cells (several threads), each exact in that sense,
+//! is keyed by every one of them (`subject_cells`): a rule's one `<k>` cell meets one of them, so
+//! a rule is offered when its keys cover those of some cell. `RuleIndex::covers` reads them so.
 //!
 //! A subject's keys hold for the term they were computed from, and only for it: the matcher
 //! refutes a dropped candidate against that term. An `anywhere` head keyed `Overloaded`, a
@@ -601,9 +604,15 @@ pub struct RuleIndex(Vec<CellIndex>);
 
 impl RuleIndex {
     /// Whether a rule with these keys may match the subject `subject` was computed from: every
-    /// cell key covers the subject's.
+    /// cell key covers the keys of one of the subject's `<k>` cells.
     pub fn covers(&self, subject: &SubjectKey) -> bool {
-        let subject = subject.cells();
+        subject
+            .cells
+            .iter()
+            .any(|cells| self.covers_cells(cells.cells()))
+    }
+
+    fn covers_cells(&self, subject: &[CellIndex]) -> bool {
         self.0.len() == subject.len()
             && self
                 .0
@@ -618,13 +627,15 @@ impl RuleIndex {
 }
 
 /// The keys rewrite selection uses for one subject, built only by [`subject_index`]: whether the
-/// subject's root is fixed, with its term index, and the cell keys of its `<k>` cell. Two subjects
-/// with equal keys are offered the same candidates, so a caller that reselects rules only when the
-/// keys change (the rewrite loop's remainder) compares this whole key, root fixedness included.
+/// subject's root is fixed, with its term index, and the cell keys of each of its `<k>` cells
+/// (one entry, all `Anything`, when no cell is keyed). Two subjects with equal keys are offered
+/// the same candidates, so a caller that reselects rules only when the keys change (the rewrite
+/// loop's remainder) compares this whole key, root fixedness included.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SubjectKey {
     top: TopKey,
-    cells: RuleIndex,
+    /// Sorted and without repeats; never empty.
+    cells: Vec<RuleIndex>,
 }
 
 /// The subject's term index, and whether its root is the root of every value the subject
@@ -641,9 +652,22 @@ enum TopKey {
 }
 
 impl SubjectKey {
-    /// The cell keys: the head of the subject's one `<k>` cell and the item after it.
+    /// The cell keys of a subject keyed by at most one `<k>` cell: the head of that cell and the
+    /// item after it, or `Anything` twice when no cell is keyed.
+    ///
+    /// # Panics
+    ///
+    /// If the subject is keyed by several `<k>` cells; read [`SubjectKey::cell_keys`] then.
     pub fn cells(&self) -> &[CellIndex] {
-        self.cells.cells()
+        let [cells] = self.cells.as_slice() else {
+            panic!("a subject keyed by several <k> cells has no single cell key");
+        };
+        cells.cells()
+    }
+
+    /// The cell keys of each `<k>` cell the subject is keyed by, sorted and without repeats.
+    pub fn cell_keys(&self) -> &[RuleIndex] {
+        &self.cells
     }
 
     /// The term-index buckets this key offers, in trial order: the own bucket, then `Variable`,
@@ -2307,6 +2331,11 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
         1 if side == KeySide::Rule || k_cell_is_exact(term) => fetch_k_cell(term),
         _ => None,
     };
+    cell_keys(definition, cell, side)
+}
+
+/// The keys of the `<k>` cell `cell`, or `Anything` twice for no cell.
+fn cell_keys(definition: &BackendDefinition, cell: Option<&Term>, side: KeySide) -> RuleIndex {
     // The second key is the item after the head, when the cell is `kseq(head, kseq(next, _))`:
     // `kseq` is a constructor, so a pattern and a subject that both have that shape match only
     // if their next items match. The key rejects only a pair of distinct rigid items (a
@@ -2344,7 +2373,80 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> SubjectKey 
     };
     SubjectKey {
         top,
-        cells: index_of(definition, term, KeySide::Subject),
+        cells: subject_cells(definition, term),
+    }
+}
+
+/// The cell keys of a subject, one entry per `<k>` cell it is keyed by.
+///
+/// A rule's left-hand side keys its one `<k>` cell, and a rule with several keys nothing
+/// (`index_of`), so a rule that is keyed at all meets the subject through one cell. A subject with
+/// several `<k>` cells (several threads) is keyed by every one of them when it has no variable and
+/// every cell is exact in the sense of [`k_cell_is_exact`]: then every instance of the subject is
+/// the subject itself, its `<k>` cells are the ones written in it, and the rule's cell, which the
+/// matcher pairs with a subject `<k>` cell as for one cell, is paired with one of them. A rule
+/// whose keys cover none of theirs is refuted against each, so against the subject. Otherwise the
+/// subject keeps the single key of `index_of`, which is `Anything` for several cells.
+fn subject_cells(definition: &BackendDefinition, term: &Term) -> Vec<RuleIndex> {
+    if term.attributes().k_cells() < 2
+        || !term.attributes().variables.is_empty()
+        || !k_cell_is_exact(term)
+    {
+        return vec![index_of(definition, term, KeySide::Subject)];
+    }
+    let mut cells = Vec::new();
+    collect_k_cells(term, &mut cells);
+    let mut keys = cells
+        .into_iter()
+        .map(|cell| cell_keys(definition, Some(cell), KeySide::Subject))
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// Every `<k>` cell of `term` not nested in a `<k>` cell, descending only into children that hold
+/// one by their stored count.
+fn collect_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
+    fn visit<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
+        if term.attributes().k_cells() > 0 {
+            collect_k_cells(term, cells);
+        }
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                cells.push(term);
+                return;
+            }
+            arguments.iter().for_each(|argument| visit(argument, cells));
+        }
+        TermKind::And(left, right) => {
+            visit(left, cells);
+            visit(right, cells);
+        }
+        TermKind::Injection { term, .. } => visit(term, cells),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries.iter() {
+                visit(key, cells);
+                visit(value, cells);
+            }
+            rest.iter().for_each(|rest| visit(rest, cells));
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().for_each(|head| visit(head, cells));
+            if let Some((middle, tails)) = rest {
+                visit(middle, cells);
+                tails.iter().for_each(|tail| visit(tail, cells));
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().for_each(|element| visit(element, cells));
+            rest.iter().for_each(|rest| visit(rest, cells));
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
 }
 
@@ -2388,8 +2490,9 @@ pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
     }
 }
 
-/// Whether the one `<k>` cell of `term` (whose stored `k_cells` count is 1) is, in every instance
-/// of `term`, the only `<k>` cell a rule's `<k>` cell can be matched against.
+/// Whether the `<k>` cells written in `term` (whose stored `k_cells` count is not 0) are, in every
+/// instance of `term`, the only `<k>` cells a rule's `<k>` cell can be matched against: for one
+/// cell, the only one; for several, each through the path that leads to it.
 ///
 /// A rule's left-hand side and the subject hold their `<k>` cells at the cell path the
 /// configuration declares. Along that path the matcher pairs a free constructor's arguments with
@@ -2434,8 +2537,8 @@ fn k_cell_is_exact(term: &Term) -> bool {
             symbol.attributes.head_role() == HeadRole::FreeConstructor
                 && arguments
                     .iter()
-                    .find(|argument| holds(argument))
-                    .is_some_and(k_cell_is_exact)
+                    .filter(|argument| holds(argument))
+                    .all(k_cell_is_exact)
         }
         TermKind::Injection { term, .. } => k_cell_is_exact(term),
         TermKind::Map { entries, rest, .. } => {
