@@ -402,6 +402,25 @@ bug — report it, don't guess.
   (`krs::syntax::catch-all-equation-row`). `krs expand` prints each row as
   its `#[k::equation]` fn, and `krs fmt` lays tables out as F5 lays out
   `k::rules!`.
+- **E10 — `total` is linted for coverage, not proved** (2026-10, SM83
+  feedback item 5). `total` claims a value on every argument; where no
+  equation applies the value exists but is unconstrained, so a gap is
+  under-specification, never unsoundness, and the definition stays legal:
+  a warning, `krs::analysis::uncovered-total-function`, on by default and
+  reported by every command, never a fail-fast error (F4 does not apply).
+  It is judged on the assembled definition, because another package may
+  add constructors, subsorts, or a parametric constructor to a sort.
+  Priorities and `owise` decide which equation applies, never whether one
+  does, so they play no part. A guarded equation counts only through a
+  sound abstraction of its `requires` (Boolean structure, comparisons with
+  integer constants and between two integers, opaque atoms) whose every
+  operation is defined on every argument: a wrong "covered" is worse than
+  a false warning. Partial, hooked and `smt_hook` functions, and total
+  functions (or parametric instances) with no equation, are not linted.
+  `#[k::function(total, underspecified = "reason")]` states a gap on
+  purpose; it is KRS-only (lowering drops it before K) and warns when the
+  equations cover every argument after all
+  (`krs::analysis::stale-underspecified`).
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 

@@ -65,6 +65,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `krun --color on` and `krs run --color always` print them; `kast --output program`, `kast --output pretty`, and `krun --output program` do not, and print an authored `%c` or `%r` as the letter `c` or `r`.
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
+`#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
@@ -255,12 +256,34 @@ fn bar_plus(
 
 It emits K's function-context rule, the rewrite in `[[ .. ]]` and the cells it reads on the following lines: `rule [[ barPlus ( N:Int ) => B:Int +Int N:Int ]]`, then `<bar> B:Int </bar>` and `<baz> 0 </baz>`, then `requires 0 <=Int B:Int`.
 The caller never passes the configuration: `read: ReadBar() => crate::BarPlus(1);` stays `barPlus ( 1 )`, and K adds a hidden configuration argument to `barPlus` and threads it through every function that needs it, including a function such as `barTwice`, whose own equation has no context but calls `barPlus`.
-K's warning for a total function whose context may not match shows that argument: `Non exhaustive match detected: barPlus(_,<generatedTop>(_,<bar>(_),<baz>(#token("1","Int")),_))`; KRS does not diagnose it.
+K's warning for a total function whose context may not match shows that argument: `Non exhaustive match detected: barPlus(_,<generatedTop>(_,<bar>(_),<baz>(#token("1","Int")),_))`; KRS's [coverage lint](#coverage-of-total-functions) does not count an equation with a context, so it reports `barPlus` as having no equation at all.
 The context is read-only: an equation returns a term, never the configuration, so this is not a multi-cell rule, which is a transition.
 Because a rule that calls such a function reads those cells, the overlap check counts them in the rule's footprint (as unconstrained cells): a rule that writes `<bar>` and a rule on `<k>` that calls `barPlus` are reported as overlapping.
 
 The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and frames, and its binders are the equation's: the binder list becomes mandatory and declares the subject's binders, then the context's, each in first-occurrence order.
 A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
+
+### Coverage of total functions
+
+`total` claims that a function has a value on every argument, and KRS trusts the claim: where no equation applies, the function still has a value, but the definition does not say which.
+Every command reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
+It is a warning, not an error, because the definition means something: an unconstrained value, not a contradiction.
+
+The check runs on the assembled definition, because a package that depends on another may add constructors, subsorts, or a parametric constructor to its sorts; a function covered in one definition can be uncovered in a larger one, and the witness names the constructor that uncovers it.
+A sort's values are its constructors' terms, its subsorts' values, and builtin domain values: `true` and `false` exhaust Bool, while Int, String, Bytes, Map, List, Set, token sorts and `KItem` need a binder.
+A binder covers the values of its own sort only, so `x: Int` in an `Exp` argument covers the Ints and not `Plus(..)`.
+Priorities and `owise` decide which equation applies, never whether one does, so an `owise` equation is an equation like any other; `concrete` and `symbolic` restrict how a backend applies an equation, not what it states, and play no part either.
+An or-pattern covers each alternative; a Map, List, Set or K-sequence pattern, a function application in a pattern, and a binder that occurs twice cover nothing the check can see.
+
+A guarded equation covers its pattern where its `requires` holds.
+The check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
+It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, and a division counts only by a nonzero constant.
+The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
+A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
+
+Partial functions are not checked, since a missing case is what `partial` means, nor are hooked and `smt_hook` functions, which the backend or the SMT translation define, nor total functions, or instances of a sort-parametric one, with no equation at all, which are declared rather than defined.
+Simplifications are lemmas, not definitions, and do not count; neither do `raw_k!` sentences, which the check does not read.
+A warned function takes more equations, an `#[k::equation(owise)]` equation, `partial`, or `underspecified = "reason"`, which states the gap on purpose; `underspecified` on a function whose equations cover every argument is itself a warning (`krs::analysis::stale-underspecified`).
 
 ### Functions declared by a fn
 
