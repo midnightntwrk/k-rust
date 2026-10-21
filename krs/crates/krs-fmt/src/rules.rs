@@ -1,7 +1,7 @@
 use std::iter::FromIterator;
 use std::str::FromStr;
 
-use krs_syntax::{RuleBlock, SourceRange, TokenRange, TriviaKind, TriviaTable};
+use krs_syntax::{RuleBlock, RuleClauseLayout, SourceRange, TokenRange, TriviaKind, TriviaTable};
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use unicode_width::UnicodeWidthStr;
 
@@ -29,11 +29,13 @@ struct GapLayout {
 }
 
 #[derive(Clone, Debug)]
-struct ClauseSource<'source> {
+struct ClauseSource {
     start: usize,
     end: usize,
     name_start: usize,
-    clause: &'source krs_syntax::RuleClause,
+    layout: RuleClauseLayout,
+    /// A cell-record clause, laid out one cell per line.
+    machine: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -65,36 +67,92 @@ struct AlignedClause {
 }
 
 /// Formats one complete `rules!` body at its Rustfmt-selected indentation.
-#[expect(
-    clippy::too_many_lines,
-    reason = "One ordered pass preserves trivia geometry around every clause."
-)]
 pub(crate) fn format_rule_body(
     source: &str,
     source_offset: usize,
     indent: &str,
     trailing_style: TrailingCommentStyle,
 ) -> Result<String, FormatError> {
-    let (block, trivia) =
-        krs_syntax::parse_rule_block_source_with_trivia(source).map_err(|error| {
-            let range = error.source_range().map_or_else(String::new, |range| {
-                format!(
-                    " at bytes {}..{}",
-                    source_offset + range.start(),
-                    source_offset + range.end()
-                )
-            });
-            FormatError::new(
-                FormatErrorKind::DslSyntax,
-                format!("cannot parse `k::rules!` body{range}: {error}"),
-            )
-        })?;
+    let (block, trivia) = krs_syntax::parse_rule_block_source_with_trivia(source)
+        .map_err(|error| body_syntax_error("k::rules!", source_offset, &error))?;
     let clauses = clause_sources(&block)?;
-    let comments = line_comments(&trivia);
+    format_clauses(
+        source,
+        indent,
+        trailing_style,
+        &trivia,
+        &clauses,
+        "k::rules!",
+    )
+}
+
+/// Formats one complete `equations!` body at its Rustfmt-selected
+/// indentation, with the `rules!` table layout: one row per line, labels,
+/// `=>`, and results aligned across the table.
+pub(crate) fn format_equation_body(
+    source: &str,
+    source_offset: usize,
+    indent: &str,
+    trailing_style: TrailingCommentStyle,
+) -> Result<String, FormatError> {
+    let (table, trivia) = krs_syntax::parse_equation_table_source_with_trivia(source)
+        .map_err(|error| body_syntax_error("k::equations!", source_offset, &error))?;
+    let clauses = table
+        .rows()
+        .iter()
+        .map(|row| {
+            let range = row.source_range();
+            let layout = row.layout();
+            ClauseSource {
+                start: range.first().byte_range().start,
+                end: range.last().byte_range().end,
+                name_start: layout.label.first().byte_range().start,
+                layout,
+                machine: false,
+            }
+        })
+        .collect::<Vec<_>>();
+    format_clauses(
+        source,
+        indent,
+        trailing_style,
+        &trivia,
+        &clauses,
+        "k::equations!",
+    )
+}
+
+fn body_syntax_error(
+    macro_name: &str,
+    source_offset: usize,
+    error: &krs_syntax::SyntaxError,
+) -> FormatError {
+    let range = error.source_range().map_or_else(String::new, |range| {
+        format!(
+            " at bytes {}..{}",
+            source_offset + range.start(),
+            source_offset + range.end()
+        )
+    });
+    FormatError::new(
+        FormatErrorKind::DslSyntax,
+        format!("cannot parse `{macro_name}` body{range}: {error}"),
+    )
+}
+
+fn format_clauses(
+    source: &str,
+    indent: &str,
+    trailing_style: TrailingCommentStyle,
+    trivia: &TriviaTable,
+    clauses: &[ClauseSource],
+    macro_name: &str,
+) -> Result<String, FormatError> {
+    let comments = line_comments(trivia);
     let first_clause = clauses.first().ok_or_else(|| {
         FormatError::new(
             FormatErrorKind::DslSyntax,
-            "a `k::rules!` block must contain at least one clause",
+            format!("a `{macro_name}` block must contain at least one clause"),
         )
     })?;
     let header_end = trivia
@@ -106,7 +164,7 @@ pub(crate) fn format_rule_body(
         .ok_or_else(|| {
             FormatError::new(
                 FormatErrorKind::DslSyntax,
-                "a `k::rules!` block has no parseable header",
+                format!("a `{macro_name}` block has no parseable header"),
             )
         })?;
 
@@ -147,7 +205,7 @@ pub(crate) fn format_rule_body(
                 .filter_map(|comment| comment.text(source))
                 .map(|comment| GapEvent::Comment(comment.to_owned())),
         );
-        let (attributes, body) = render_clause(source, clause_source, &comments, &block)?;
+        let (attributes, body) = render_clause(source, clause_source, &comments)?;
         rendered.push(RenderedClause {
             leading,
             attributes,
@@ -197,7 +255,7 @@ pub(crate) fn format_rule_body(
         .join("\n"))
 }
 
-fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource<'_>>, FormatError> {
+fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource>, FormatError> {
     block
         .clauses()
         .iter()
@@ -216,7 +274,8 @@ fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource<'_>>, FormatErro
                 start,
                 end,
                 name_start,
-                clause,
+                layout: clause.layout(),
+                machine: block.is_configuration(),
             })
         })
         .collect()
@@ -259,9 +318,8 @@ fn render_header(source: &str) -> Result<Vec<String>, FormatError> {
 
 fn render_clause(
     source: &str,
-    clause_source: &ClauseSource<'_>,
+    clause_source: &ClauseSource,
     comments: &[SourceRange],
-    block: &RuleBlock,
 ) -> Result<(Vec<String>, ClauseBody), FormatError> {
     let attributes = source_without_comments(
         source,
@@ -275,7 +333,7 @@ fn render_clause(
         .filter(|line| !line.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-    let layout = clause_source.clause.layout();
+    let layout = clause_source.layout;
     let parts = ClauseParts {
         label: clause_tokens(source, layout.label)?,
         pattern: clause_tokens(source, layout.pattern)?,
@@ -285,7 +343,7 @@ fn render_clause(
             .map(|range| clause_tokens(source, range))
             .transpose()?,
     };
-    let body = if block.is_configuration() {
+    let body = if clause_source.machine {
         ClauseBody::Lines(render_machine_clause(&parts)?)
     } else {
         ClauseBody::Row(render_single_clause(&parts))
@@ -700,6 +758,37 @@ mod tests {
 
                 pick: Pick(c, x, y) => crate::Choose::<Exp> { cond: c, then_branch: x, else_branch: y };
                 pair: Both(x)       => Pair::<Int, dyn ExpSort>(x, x);"]].assert_eq(&actual);
+    }
+
+    #[test]
+    fn formats_equation_tables_with_the_rule_table_layout() {
+        let source = r"
+            for R8;
+            use Operand::*;
+            use Register::*;
+            r8_b:0=>Reg( B );
+            // The pair.
+            #[k::equation(owise)]
+            r8_other : _ => HlIndirect;  // fallback
+            pair:(0,-1)=>Reg(A);
+        ";
+        let output = format_equation_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let again = format_equation_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(output, again, "equation table formatting is idempotent");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r#"
+            body:
+                for R8;
+                use Operand::*;
+                use Register::*;
+                r8_b    : 0       => Reg(B);
+                // The pair.
+                #[k::equation(owise)]
+                r8_other: _       => HlIndirect;  // fallback
+                pair    : (0, -1) => Reg(A);"#]]
+        .assert_eq(&actual);
     }
 
     #[test]

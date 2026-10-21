@@ -122,6 +122,19 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidLocalRewrite {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::MissingFunctionSyntax,
+        SyntaxErrorKind::InvalidFunctionShorthand {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::InvalidEquationTable {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::DuplicateEquationRow {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::CatchAllEquationRow {
+            reason: String::from("example"),
+        },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

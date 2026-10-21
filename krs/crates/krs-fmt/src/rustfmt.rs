@@ -16,6 +16,7 @@ pub(crate) struct ElidedSource {
 }
 
 pub(crate) struct RuleBody {
+    entry: FunctionMacro,
     marker: String,
     source: String,
     source_start: usize,
@@ -23,6 +24,7 @@ pub(crate) struct RuleBody {
 
 #[derive(Clone, Copy)]
 struct BodyRange {
+    entry: FunctionMacro,
     start: usize,
     end: usize,
 }
@@ -38,7 +40,7 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
     let mut ranges = Vec::new();
     for invocation in surface::invocations(&syntax, facade) {
         let InvocationKind::Function {
-            entry: FunctionMacro::Rules,
+            entry: entry @ (FunctionMacro::Rules | FunctionMacro::Equations),
             delimiter: Some(delimiter),
             ..
         } = invocation.kind
@@ -48,7 +50,10 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
         if !matches!(delimiter, syn::MacroDelimiter::Brace(_)) {
             return Err(FormatError::new(
                 FormatErrorKind::NonBraceRules,
-                "KRS `rules!` must use braces so `krs fmt` can enforce its block layout",
+                format!(
+                    "KRS `{}!` must use braces so `krs fmt` can enforce its block layout",
+                    entry.name()
+                ),
             ));
         }
         // `syn::parse_file` strips a shebang before assigning span byte ranges.
@@ -66,7 +71,7 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
                 "a `rules!` body span escaped its source",
             )
         })?;
-        ranges.push(BodyRange { start, end });
+        ranges.push(BodyRange { entry, start, end });
     }
     ranges.sort_by_key(|range| range.start);
     Ok(ranges)
@@ -89,6 +94,7 @@ pub(crate) fn elide_rule_bodies(
                 )
             })?;
             Ok(RuleBody {
+                entry: range.entry,
                 marker: format!("__KRS_FMT_BODY_{index}"),
                 source: body.to_owned(),
                 source_start: range.start,
@@ -144,7 +150,12 @@ pub(crate) fn splice_rule_bodies(
             })?;
         let base_indent = line_indent(source, range.start);
         let body_indent = format!("{base_indent}    ");
-        let formatted = rules::format_rule_body(
+        let format = if body.entry == FunctionMacro::Equations {
+            rules::format_equation_body
+        } else {
+            rules::format_rule_body
+        };
+        let formatted = format(
             &body.source,
             body.source_start,
             &body_indent,

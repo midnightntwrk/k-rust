@@ -236,6 +236,24 @@ impl RuleItem {
         .apply_unbound_variables(attribute)
     }
 
+    /// Validates one `k::equations!` row, lowered to `fn label(F(args): F)
+    /// -> F { result }`: its sort is the result sort of the header's function
+    /// `F`.
+    pub(super) fn from_table_item(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(
+            &mut item,
+            crate::term_sort::parse_function_result_sort,
+            false,
+            false,
+            signs,
+            false,
+            ClauseForm::Equation,
+        )
+    }
+
     pub(super) fn from_readable_item(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,

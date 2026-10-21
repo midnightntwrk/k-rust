@@ -175,6 +175,32 @@ pub struct Increment {
 "##,
     ),
     (
+        "function_default_syntax",
+        r"
+#[k::function(total, internal, sort = k::builtin::int::Int)]
+pub struct Increment {
+    pub value: Term<k::builtin::int::Int>,
+}
+",
+    ),
+    (
+        "function_shorthand",
+        r"
+/// The low 8 bits.
+#[k::function(total, internal)]
+pub fn Byte(value: Term<k::builtin::int::Int>) -> Term<k::builtin::int::Int> {
+    int::rem_euclid(value, 256)
+}
+",
+    ),
+    (
+        "function_shorthand_declaration",
+        r##"
+#[k::function(partial, syntax = "#r({index})")]
+pub fn R8(index: Term<k::builtin::int::Int>) -> Term<Operand>;
+"##,
+    ),
+    (
         "function_memo",
         r#"
 #[k::function(total, memo, sort = k::builtin::int::Int, syntax = "square({value})")]
@@ -456,6 +482,21 @@ k::rules! {
     use Object::*;
 
     foo_to_bar: Foo() => Bar();
+}
+",
+    ),
+    (
+        "equations",
+        r"
+k::equations! {
+    for R8;
+    use Operand::*;
+    use Register::*;
+    r8_b: 0 => Reg(B);
+    #[k::requires(int::gt(n, 7))]
+    r8_big: n => Immediate;
+    #[k::equation(owise)]
+    r8_other: _ => HlIndirect;
 }
 ",
     ),
@@ -1386,7 +1427,18 @@ fn invocation(tokens: TokenStream, facade_alias: &str) -> Invocation {
             input: item.mac.tokens.clone(),
         };
     }
-    let attributes = item_attributes(&mut item);
+    // A bodiless `fn` declaration is verbatim to syn.
+    let mut shorthand = match &item {
+        syn::Item::Verbatim(tokens) => Some(
+            syn::parse2::<krs_syntax::ShorthandItem>(tokens.clone())
+                .expect("a verbatim golden item is a bodiless fn"),
+        ),
+        _ => None,
+    };
+    let attributes = match &mut shorthand {
+        Some(shorthand) => &mut shorthand.attrs,
+        None => item_attributes(&mut item),
+    };
     let index = attributes
         .iter()
         .position(|attribute| {
@@ -1408,7 +1460,10 @@ fn invocation(tokens: TokenStream, facade_alias: &str) -> Invocation {
         entry,
         call_site: attribute.span(),
         arguments,
-        item: item.to_token_stream(),
+        item: shorthand.map_or_else(
+            || item.to_token_stream(),
+            |shorthand| shorthand.to_token_stream(),
+        ),
     }
 }
 

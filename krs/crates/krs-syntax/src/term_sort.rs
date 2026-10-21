@@ -14,6 +14,9 @@ pub struct TermSort {
     sort: Path,
     dynamic: bool,
     predicate: bool,
+    /// Whether this is the result sort of the function named by [`Self::sort`],
+    /// which a `k::equations!` header names instead of a sort.
+    function_result: bool,
 }
 
 impl TermSort {
@@ -40,6 +43,14 @@ impl TermSort {
     #[must_use]
     pub const fn is_predicate(&self) -> bool {
         self.predicate
+    }
+
+    /// Whether [`Self::sort`] names a function whose result sort this is: the
+    /// sort of every equation in a `k::equations!` table, which rustc
+    /// resolves through the function's `__KrsFunction::Result`.
+    #[must_use]
+    pub const fn is_function_result(&self) -> bool {
+        self.function_result
     }
 
     /// Returns the token-stream text of the sort path, such as `model :: Expr`,
@@ -139,6 +150,7 @@ pub(crate) fn parse_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         sort,
         dynamic,
         predicate: false,
+        function_result: false,
     })
 }
 
@@ -160,6 +172,7 @@ pub(crate) fn parse_rule_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
             ty,
             dynamic: false,
             predicate: true,
+            function_result: false,
         });
     }
     parse_term_sort(ty)
@@ -198,6 +211,7 @@ pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         ty,
         dynamic: false,
         predicate: false,
+        function_result: false,
     })
 }
 
@@ -212,6 +226,7 @@ pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
             sort: sort.path.clone(),
             dynamic: false,
             predicate: false,
+            function_result: false,
         }),
         Type::TraitObject(object) if object.dyn_token.is_some() && object.bounds.len() == 1 => {
             let Some(TypeParamBound::Trait(bound)) = object.bounds.first() else {
@@ -226,9 +241,28 @@ pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
                 sort: bound.path.clone(),
                 dynamic: true,
                 predicate: false,
+                function_result: false,
             })
         }
         Type::Group(group) => parse_instance_sort(&group.elem),
         _ => None,
+    }
+}
+
+/// The sort of a `k::equations!` row: the result sort of the function the
+/// table's header path names.
+pub(crate) fn parse_function_result_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    match &ty {
+        Type::Path(path) if path.qself.is_none() && is_plain_path(&path.path) => Ok(TermSort {
+            sort: path.path.clone(),
+            ty,
+            dynamic: false,
+            predicate: false,
+            function_result: true,
+        }),
+        _ => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidTermType,
+            ty.span(),
+        )),
     }
 }

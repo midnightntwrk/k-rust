@@ -277,6 +277,10 @@ pub(super) struct TermBuilder<'a> {
     /// the record's path as the author's Rust would (KF-016, KF-023).
     enum_import_item: Option<&'a syn::ItemUse>,
     lexical_rule_head: bool,
+    /// The `use` items of a `k::equations!` table: rustc resolves every
+    /// one-segment application path through them, as the author's Rust
+    /// would with those items in scope.
+    lexical_imports: Option<&'a [syn::ItemUse]>,
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether `k::rewrite!` is admitted: the subject of a single-body rule
     /// (KF-011).
@@ -326,6 +330,7 @@ impl<'a> TermBuilder<'a> {
             enum_variant: None,
             enum_import_item: None,
             lexical_rule_head: false,
+            lexical_imports: None,
             tooling_binding_references: Vec::new(),
             allow_rewrite: false,
             in_rewrite: false,
@@ -432,6 +437,16 @@ impl<'a> TermBuilder<'a> {
     /// spelling is the sort marker (`Choose::<dyn ExpSort>`).
     pub(super) const fn with_readable_instances(mut self) -> Self {
         self.readable_instances = true;
+        self
+    }
+
+    /// Resolves every one-segment application path through rustc with
+    /// `imports` in scope (a `k::equations!` table).
+    pub(super) const fn with_lexical_imports(
+        mut self,
+        imports: Option<&'a [syn::ItemUse]>,
+    ) -> Self {
+        self.lexical_imports = imports;
         self
     }
 
@@ -734,7 +749,13 @@ impl<'a> TermBuilder<'a> {
                 let application_ordinal = take_counter(&mut self.counters.application)?;
                 let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
                 let key = wire_key(side.role(TermRole::ApplicationHead), application_ordinal);
-                let lexical = self.take_lexical_rule_head(application.head());
+                let lexical = if self.lexical_imports.is_some() {
+                    !application.is_notation()
+                        && application.head().leading_colon.is_none()
+                        && application.head().segments.len() == 1
+                } else {
+                    self.take_lexical_rule_head(application.head())
+                };
                 let authored_path = if lexical {
                     spelling(application.head())
                 } else {
@@ -1425,6 +1446,9 @@ impl<'a> TermBuilder<'a> {
     }
 
     fn take_lexical_rule_head(&mut self, path: &Path) -> bool {
+        if self.lexical_imports.is_some() {
+            return path.leading_colon.is_none() && path.segments.len() == 1;
+        }
         let enabled = ::core::mem::take(&mut self.lexical_rule_head);
         enabled && path.leading_colon.is_none() && path.segments.len() == 1
     }
@@ -1453,9 +1477,11 @@ impl<'a> TermBuilder<'a> {
         let import = self
             .enum_import_item
             .filter(|_| self.enum_glob.is_some())
+            .into_iter()
+            .chain(self.lexical_imports.unwrap_or_default())
             .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
         quote! {{
-            #import
+            #(#import)*
             let __krs_rule_application_witness: ::core::option::Option<_> =
                 ::core::option::Option::None;
             if let ::core::option::Option::Some(#pattern) =
