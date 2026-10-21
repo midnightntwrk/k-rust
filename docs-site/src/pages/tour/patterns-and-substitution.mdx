@@ -206,6 +206,47 @@ With `t = s(s(zero))` the run prints `yes`; any other `t` leaves the `same` appl
 
 </details>
 
+**4. A pattern written as bits.**
+Numbers here are trees, but K also has builtin integers, the sort `Int`, and a decoder for machine code matches integers by their bits.
+`k::bits!("1___")` is a pattern of sort `Int` written as its bits, most significant first: it matches the integers from `0` to `15` whose top bit is `1` (see [bit templates](/reference/language#bit-templates)).
+Add a partial function `top` from `Int` to `Answer`, with the syntax `top({value})`, and two equations whose patterns are `Top(k::bits!("1___"))`, giving `yes`, and `Top(k::bits!("0___"))`, giving `no`.
+Put `top(9)` in a new file `programs/top-nine.answer` and `top(16)` in `programs/top-sixteen.answer`, and run both:
+
+```sh
+krs run --package tour-nat-patterns --definition main programs/top-nine.answer
+krs run --package tour-nat-patterns --definition main programs/top-sixteen.answer
+```
+
+Why does `top(16)` stay as it is, although the top bit of `16`, written in four bits, would be `0`?
+
+<details>
+<summary>Answer</summary>
+
+`top(9)` gives `yes`: `9` is `1001` in four bits.
+`top(16)` is left in place because a template of four bits matches only the integers from `0` to `15`: its width is part of the pattern, so neither equation applies to `16`, whose bits are `10000`.
+`krs expand --package tour-nat-patterns --definition main` shows the guard each template stands for, `int::ge(bits, 0)`, `int::lt(bits, 16)`, and for the fixed bit `int::eq(int::bit_range(bits, 3, 1), 1)`, where `bits` is the matched integer.
+One spelling of the function and its equations:
+
+```rust
+/// `top(n)` answers whether the top bit of the 4-bit number `n` is set.
+#[k::function(partial, sort = Answer, syntax = "top({value})")]
+pub struct Top {
+    pub value: Term<k::builtin::Int>,
+}
+
+#[k::equation]
+fn top_set(k::term![Top(k::bits!("1___"))]: Term<Answer>) -> Term<Answer> {
+    AnswerSyntax::Yes()
+}
+
+#[k::equation]
+fn top_clear(k::term![Top(k::bits!("0___"))]: Term<Answer>) -> Term<Answer> {
+    AnswerSyntax::No()
+}
+```
+
+</details>
+
 ## Next
 
 The first part of the tour ends here: a definition declares sorts and constructors, defines functions by equations, and selects terms with patterns.

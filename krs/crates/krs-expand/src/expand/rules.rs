@@ -225,6 +225,11 @@ pub(super) fn scoped_binder_check(
     imports: &[syn::ItemUse],
     binders: &[syn::Ident],
 ) -> Option<TokenStream> {
+    // A bit template's hidden binder cannot name a unit variant.
+    let binders = binders
+        .iter()
+        .filter(|binder| !krs_syntax::is_hidden_binder(&binder.to_string()))
+        .collect::<Vec<_>>();
     (!imports.is_empty() && !binders.is_empty()).then(|| {
         quote! {
             #(#cfg)*
@@ -560,6 +565,11 @@ fn expand_ordinary_rule(
         .collect::<Vec<_>>();
     let mut binding_checks = Vec::new();
     for binding in &rule.condition_bindings() {
+        // A bit template's hidden binder is no name an author wrote or can
+        // use, so tooling is not shown one at the template.
+        if krs_syntax::is_hidden_binder(&binding.to_string()) {
+            continue;
+        }
         let generated = call_site_ident(binding)?;
         binding_checks.push(quote! {
             let #binding = ();

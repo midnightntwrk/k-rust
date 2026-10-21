@@ -214,10 +214,14 @@ pub fn expand_reference_source(
                 .push(syn::parse_quote!(#[allow(unused_imports)]));
         }
         // A rule or equation fn whose subject holds `k::bits!` templates
-        // is written as its long form.
-        if let syn::Item::Fn(item_fn) = &mut item {
-            krs_syntax::desugar_bit_templates(item_fn)
-                .map_err(ReferenceExpansionError::KrsSyntax)?;
+        // is written as its long form, its condition restated from the
+        // descriptor as a table row's is.
+        if let syn::Item::Fn(item_fn) = &mut item
+            && krs_syntax::desugar_bit_templates(item_fn)
+                .map_err(ReferenceExpansionError::KrsSyntax)?
+                .is_some()
+        {
+            restate_requires(item_fn, package, module_path, bundle, &descriptor_index)?;
         }
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
@@ -1640,6 +1644,49 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// Restates the `requires` of a rule or equation fn from its descriptor, in
+/// the function-call spelling of a table row's or a readable clause's
+/// condition; the fn's attribute path and position are kept.
+fn restate_requires(
+    item: &mut syn::ItemFn,
+    package: &PackageId,
+    module_path: &[String],
+    bundle: &krs_ir::DescriptorBundle,
+    descriptor_index: &DescriptorIndex<'_>,
+) -> Result<(), ReferenceExpansionError> {
+    let name = item.sig.ident.unraw().to_string();
+    let condition = descriptor_index
+        .values()
+        .find_map(|descriptor| match descriptor.payload() {
+            krs_ir::DescriptorPayload::StructuredRule(rule)
+                if descriptor.id().package() == package
+                    && descriptor.id().module_path() == module_path
+                    && descriptor.id().item_name() == name =>
+            {
+                rule.requires.as_ref()
+            }
+            _ => None,
+        });
+    let Some(condition) = condition else {
+        return Ok(());
+    };
+    let term = render_term(&condition.term, false, package, bundle)?;
+    for attribute in &mut item.attrs {
+        if attribute.path().segments.len() > 1
+            && attribute
+                .path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "requires")
+            && let syn::Meta::List(list) = &mut attribute.meta
+        {
+            list.tokens = term;
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// The `#[k::equation]` fn one `k::equations!` row stands for, with its

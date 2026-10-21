@@ -1253,6 +1253,10 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
         {
             TermExpression::from_expression(expression.clone())
         }
+        // A `k::bits!(value, "..")` test is a `Bool` term.
+        Expr::Macro(expression_macro) if crate::rule::is_bits_macro(&expression_macro.mac.path) => {
+            term(expression.clone())
+        }
         Expr::Macro(expression_macro) => {
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));

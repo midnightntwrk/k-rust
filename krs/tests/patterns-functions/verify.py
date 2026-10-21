@@ -113,7 +113,16 @@ the hidden binder `Krs_Bits0` of an unnamed template is renamed to `Op`; the
 two `kindOf` transitions, whose templates differ in the top bit, pass the
 overlap check; and `decodeOf(4)` is `inc rb`, `decodeOf(118)` `halt`,
 `decodeOf(65)` `ld rb, rc`, `decodeOf(256)` and `decodeOf(-1)` `unknown`, and
-`decodeCbOf(255)` `set 7 ra`, natively and on Java K's LLVM backend.
+`decodeCbOf(255)` `set 7 ra`, natively and on Java K's LLVM backend. Readable
+clauses whose results read fields, with and without `op @`, make `regOf(5)`
+`rl` and `regOf(147)` `alu 147 rc`; templates beside an authored top-level
+`||` in a table row and an `#[k::equation]` fn, and `k::bits!(opcode, "..")`
+tests in a condition and a result, make `edgeOf(56)` `3`, `edgeOf(245)` `13`,
+and `edgeOf(112)` `6`. `krs check` warns that `DecodeCb`, whose templates
+cover exactly `0..=255`, has no equation for `DecodeCb(256)`. Two negative
+fixtures overlap equations of one function at one priority: SM83-style
+`#[k::equation]` fns for HALT and `LD r, r'` without `op != 118`, and a fn
+whose template meets a table row's.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -132,7 +141,8 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import (  # noqa: E402
-    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, java_run_outcome,
+    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, diagnostic_lines,
+    java_run_outcome,
 )
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -218,6 +228,10 @@ SUGAR_PROGRAMS = (
 )
 
 BITS = Fixture(MANIFEST, "krs-patterns-functions-bits")
+BITS_WARNINGS = (
+    "warning[krs::analysis::uncovered-total-function]: total function `DecodeCb` has no equation for `DecodeCb(256)`",
+    "warning[krs::analysis::uncovered-total-function]: total function `R8` has no equation for `R8(8)`",
+)
 BITS_LONG = Fixture(MANIFEST, "krs-patterns-functions-bits-long")
 BITS_PROGRAMS = (
     Program("decode-inc", "decodeOf(4)", "accepted", "inc rb"),
@@ -236,6 +250,14 @@ BITS_PROGRAMS = (
     Program("decode-cb-rot", "decodeCbOf(7)", "accepted", "rot 0 ra"),
     Program("kind-low", "kindOf(5)", "accepted", "0"),
     Program("kind-high", "kindOf(200)", "accepted", "1"),
+    Program("reg-low", "regOf(5)", "accepted", "rl"),
+    Program("reg-high", "regOf(147)", "accepted", "alu 147 rc"),
+    Program("edge-jr", "edgeOf(56)", "accepted", "3"),
+    Program("edge-jr-other", "edgeOf(40)", "accepted", "0"),
+    Program("edge-ld", "edgeOf(112)", "accepted", "6"),
+    Program("edge-ld-other", "edgeOf(70)", "accepted", "0"),
+    Program("edge-push", "edgeOf(245)", "accepted", "13"),
+    Program("edge-push-other", "edgeOf(213)", "accepted", "0"),
 )
 # The hidden binder of an unnamed template, and the long form's name for it.
 BITS_HIDDEN_BINDER = ("Krs_Bits0", "Op")
@@ -275,6 +297,8 @@ NEGATIVE = (
     "context-sort",
     "context-group",
     "context-overlap",
+    "bits-halt-overlap",
+    "bits-fn-overlap",
 )
 
 
@@ -513,9 +537,14 @@ def verify_sugar(harness: FixtureGate) -> None:
 
 
 def verify_bits(harness: FixtureGate) -> None:
-    """Bit templates emit the K of their hand-written long form, up to the hidden binder's name, and run natively and on Java LLVM."""
+    """Bit templates and tests emit the K of their hand-written long form, up to the hidden binder's name, and run natively and on Java LLVM."""
 
-    harness.check(BITS)
+    checked = harness.check(BITS)
+    # The coverage lint reads the templates' guards: `DecodeCb`'s four rows
+    # cover 0..=255 exactly, so the first argument they miss is 256.
+    warnings = diagnostic_lines(checked.stderr)
+    if warnings != list(BITS_WARNINGS):
+        raise GateError(f"{BITS.package}: krs check warned {warnings!r}, not {list(BITS_WARNINGS)!r}")
     expansion = harness.expand(BITS)
     # `krs expand` writes the long form, naming an unnamed template's value.
     for fragment in (
@@ -587,7 +616,7 @@ def main() -> int:
         print("PASS sugar: the function shorthand and equation tables emit their long form's K; byteOf, halfOf, regOf, and pickOf agree natively and on Java LLVM")
 
         verify_bits(harness)
-        print("PASS bits: bit templates emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, and kindOf agree natively and on Java LLVM")
+        print("PASS bits: bit templates and tests emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, kindOf, regOf, and edgeOf agree natively and on Java LLVM")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

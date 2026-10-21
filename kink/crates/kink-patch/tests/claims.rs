@@ -542,6 +542,10 @@ fn trusted_claims_are_pinned() {
 /// named by a record when evaluation observes it contradicted, which is all the `total` row
 /// cites; such a run carries the record on its `contradictedClaims` list, which excludes it
 /// since re-pin adoption A-1, whatever leaf it ends on, so the change moves no verdict.
+///
+/// Re-pin of smt.rs's second passage (`smt_lemmas`): byte-identical, moved down 78 lines by the
+/// translation of `bitRangeInt`, `>>Int` and low-bit masks of `&Int` by literal amounts, which
+/// precedes it in the file. Only its lines are re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     (
         "docs/compatibility.md",
@@ -629,8 +633,8 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        1136,
-        1147,
+        1214,
+        1225,
         "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
     ),
     (

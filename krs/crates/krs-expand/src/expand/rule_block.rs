@@ -118,9 +118,13 @@ fn expand_head_rule(
     let mut binding_checks = Vec::new();
     for binding in clause.bindings() {
         let name = binding.unraw().to_string();
-        binding_checks.push(quote! {
-            let #binding = ();
-        });
+        // A bit template's hidden binder is no name an author wrote or can
+        // use, so tooling is not shown one at the template.
+        if !krs_syntax::is_hidden_binder(&name) {
+            binding_checks.push(quote! {
+                let #binding = ();
+            });
+        }
         let refinement = if let Some((ordinal, narrowing)) = clause
             .narrowings()
             .iter()
@@ -442,7 +446,15 @@ fn expand_head_rule(
     key_functions.extend(existential_key_functions);
     key_functions.extend(fresh_key_functions);
     key_functions.extend(evaluation_key_function);
-    let tooling_binding_references = builder.tooling_binding_references;
+    let tooling_binding_references = builder
+        .tooling_binding_references
+        .into_iter()
+        .filter(|path| {
+            !path
+                .get_ident()
+                .is_some_and(|ident| krs_syntax::is_hidden_binder(&ident.to_string()))
+        })
+        .collect::<Vec<_>>();
     for existential in rule.existentials().names() {
         binding_checks.push(quote! {
             let #existential = ();

@@ -289,8 +289,14 @@ Priorities and `owise` decide which equation applies, never whether one does, so
 An or-pattern covers each alternative; a Map, List, Set or K-sequence pattern, a function application in a pattern, and a binder that occurs twice cover nothing the check can see.
 
 A guarded equation covers its pattern where its `requires` holds.
-The check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
-It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, and a division counts only by a nonzero constant.
+When every equation of the function bounds each `Int` argument its `requires` reads to finitely many values, by a literal pattern, an or-pattern of literals, or top-level comparisons with constants (`0 <= x && x < 256`, which every [bit template](#bit-templates) has), and those values, with one more outside them per argument, are at most 2^16 argument vectors, the check evaluates every `requires` on each of them.
+That decides coverage exactly: outside the bounded values a bounded equation does not apply and the others do not read the argument, so one value there stands for all of them.
+The four templates `k::bits!("00 yyy zzz")` to `k::bits!("11 bbb zzz")` of `DecodeCb` cover `0..=255` and no more, so the witness is `DecodeCb(256)`.
+The evaluation is the builtins' definition on literals; a `requires` that calls a function, or is undefined somewhere (`12 / x` at `0`) unless a false top-level conjunct already rules that argument out, ends it, and the check falls back to the abstraction below.
+
+Otherwise the check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
+A comparison `x.bit_range::<Int>(o, l) == v` or `(x & m) == v` with constant `o`, `l` and `m` also fixes bits of `x`, and the check skips valuations no integer `x` has, so a bit template's equation covers the values it matches.
+It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, a division counts only by a nonzero constant, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, only with constant `o` and `l` that are not negative.
 The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
 A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
 
@@ -349,6 +355,7 @@ Rows are unordered, like every set of equations: a row never wins by its positio
 Two consequences are checked at once.
 Two rows without `requires` at one priority whose arguments are the same literals, or literals and [bit templates](#bit-templates) that share a value, would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
 A row whose arguments are all `_` matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
+These checks see one table's patterns only; the [overlap check of equations](#overlapping-equations) also reads guards and `#[k::equation]` fns.
 A bare name in a row's pattern is a binder, as in every KRS pattern, so a unit variant is written `A()` or `Register::A`; where the table's `use` items or the module make a bare name a unit variant or a constant, which Rust would read as that constant, rustc rejects the row (``E0308 mismatched types`` at the name) instead of letting it bind everything.
 The header must name a function (rustc's ``E0277 `Seven` is not a non-parametric `#[k::function]` ``), and a row's argument count must be the function's (rustc's ``E0308 expected a tuple with 2 elements``).
 A table's index is always written, never taken from the order of an enum's variants: variant order is presentation, and reordering source must not change a definition.
@@ -400,10 +407,43 @@ K emits `rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3,
 A template without `_` or fields is its decimal literal, `decode_halt` above is the row `118 => Halt`, so it is matched as a literal, without a guard.
 Splitting runs at spaces keeps the guards of templates written on one grid (`xx yyy zzz`) on the same terms, so templates that differ in a fixed bit compare equal terms with different values: the rule-overlap check, which reads such guards as facts about the bits of a term, keeps `kindOf(k::bits!("0___ ____"))` and `kindOf(k::bits!("1___ ____"))` apart, and reads the same guards written by hand alike.
 
-A template stands in an `Int` argument of a rule's, an equation's, or a table row's left-hand side.
-In a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` it is rejected (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
+A template stands in an `Int` argument of a rule's, an equation's, or a table row's left-hand side, or in an argument of a sort above `Int`; at a position of another sort, such as `Bool`, it is `krs::analysis::bit-template-sort`, reported at the template.
+As a pattern, a template is rejected in a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
 A character that is no bit, an empty template, more than 128 bits, and a split field are `krs::syntax::invalid-bit-template`; a field letter that is also a binder of the sentence, a field of another template, or a name a `let` or `k::matches!` binds again is `krs::syntax::bit-field-collision`.
 In a table, two rows that match one argument with templates of different widths are `krs::syntax::bit-template-width-mismatch`, a missing or extra bit being the likely cause, and two rows without an authored `requires` whose templates and literals share a value are `krs::syntax::duplicate-equation-row`, naming the arguments both apply to.
+
+**Testing a value.**
+`k::bits!(op, "01 yyy zzz")`, with the value first, is the template as a test: a `Bool` term, for a `requires`, a claim, or any other place a `Bool` term may stand.
+It is `op >= 0 && op < 2^width` followed by one `bitRangeInt` equality per run of fixed bits: the terms of the pattern `k::bits!("01 yyy zzz")`'s guard, in the same order, so a claim can state exactly what a row tests.
+A claim need not restate the guard, though: the prover reads a `bitRangeInt`, a shift or a low-bit mask by constant amounts as division and remainder by a power of two, so `0 <= op < 8` is enough to reach a row whose template is `"0aaa"`, and an argument outside every template's range reaches the `owise` row even past a literal row.
+A template without free bits tests the same terms; only the pattern turns it into a literal.
+Field letters and `_` constrain nothing in a test, and a test binds nothing: its letters are accepted so that a row's template can be copied as it is, and outside the test a letter is only what the sentence's own binders make it, usually unbound.
+The value is a variable, a field of the sentence's own template, or a bit range of a variable (`x.bit_range::<Int>(0, 8)`).
+The long form reads it once per term, so a larger term, which would be repeated as many times, is bound to a name first: `op @` in the pattern, or a `let` (`krs::syntax::invalid-bit-template` otherwise).
+`k::bits!("..")` alone in a condition or a result is `krs::syntax::bit-template-position`; in a pattern, `k::bits!` takes only the template, and a second argument there is `krs::syntax::invalid-bit-template`, the place being reserved for modifiers such as signed fields.
+
+**Migrating from field functions.**
+A decoder written with field functions, such as `FieldX(op) = op >> 6` and `FieldY(op) = (op >> 3) & 7` in guards like `FieldX(op) == 0 && FieldZ(op) == 4`, becomes one template per row:
+
+- the fixed fields become fixed bits, and each field the row reads becomes a letter that the result uses directly: `FieldY(op)` becomes `y`;
+- a row that also needs the whole value keeps it with `op @ k::bits!(..)`, as `decode_ld_r_r` above does for `op.ne::<Int>(118)`;
+- a field computed from another (`FieldY(op) - 4` for the two low bits of `y`) becomes its own letters, `"00 1cc 000"`;
+- the template also requires `0 <= op < 2^width`: a guard that reads its top field without a mask (`op >> 6`) already did, but one that masks it (`(op >> 6) & 3`) also matched values such as `260`, which a template leaves to the `owise` row;
+- the field functions, which the templates no longer call, can go, and a claim that restated a guard writes `k::bits!(op, "00 yyy 100")`.
+
+#### Overlapping equations
+
+Equations are unordered, so two equations of one function at one priority that apply to one argument state that their results are equal there.
+KRS checks this on the assembled definition, for table rows and `#[k::equation]` fns alike, guarded or not, whenever it can evaluate the equations: when they bound their `Int` arguments to at most 2^16 argument vectors, as for the [coverage check](#coverage-of-total-functions), it evaluates every `requires` on each of them.
+Two equations that both apply to one argument, with results that differ once the argument is substituted and builtins on literals are evaluated, are `krs::analysis::overlapping-equations`.
+`decode_ld_r_r` above with a typo in its guard, `op.ne::<Int>(117)`, is (without any `requires`, the table check above reports the two rows first)
+
+```text
+error[krs::analysis::overlapping-equations]: equations `decode_halt` and `decode_ld_r_r` of `Decode` both apply to `Decode(118)` at the same priority and give it different results, `Instruction::Halt` and `Instruction::Ld(R8(6), R8(6))`; ..
+```
+
+Identical results agree, so equations that overlap with them are no error.
+Equations the check cannot evaluate, because a `requires` calls a function or leaves an argument it reads unbounded, are not checked; nor are templates over more than 16 bits, though the table check above still compares unguarded rows' templates of any width.
 
 ### Sort-parametric productions
 

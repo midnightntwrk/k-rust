@@ -7101,6 +7101,79 @@ fn a_condition_over_a_hook_shortcut_becomes_its_definedness_obligation() {
     assert_eq!(result, Predicate::Ceil(term(&definition, TEN_BY_X)));
 }
 
+/// `(a andThenBool b) = true` holds exactly where `a = true` and `b = true` do, and
+/// `(a orElseBool b) = false` exactly where `a = false` and `b = false` do, whatever the
+/// definedness of `b` where `a` decides the connective: asserted, each reads as the conjunction
+/// of its operands' equations in their order, as its strict counterpart does. Split, a guard's
+/// second operand meets the other facts, so two guards that fix one term to different values
+/// contradict each other without a solver, where the connective as one atom would not.
+#[test]
+fn an_asserted_short_circuit_connective_reads_as_its_operands_equations() {
+    let definition = definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq")]
+            hooked-symbol and{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            hooked-symbol andThen{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.andThen")]
+            hooked-symbol or{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.or")]
+            hooked-symbol orElse{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.orElse")]
+            symbol inRange{}(SortInt{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+            symbol field{}(SortInt{}) : SortInt{} [function{}(), total{}(), no-evaluators{}()]
+        "#,
+    );
+    let range = "inRange{}(X:SortInt{})";
+    let field_is = |value: &str| {
+        format!(r#"eqInt{{}}(field{{}}(X:SortInt{{}}), \dv{{SortInt{{}}}}("{value}"))"#)
+    };
+    let asserted = |connective: &str, value: &str, second: &str| {
+        Predicate::Equals(
+            term(&definition, &format!("{connective}{{}}({range}, {second})")),
+            term(&definition, &format!(r#"\dv{{SortBool{{}}}}("{value}")"#)),
+        )
+    };
+    for (short_circuit, strict, value) in [("andThen", "and", "true"), ("orElse", "or", "false")] {
+        let second = field_is("4");
+        let operands = Predicate::And(
+            [range, second.as_str()]
+                .map(|operand| {
+                    Predicate::Equals(
+                        term(&definition, operand),
+                        term(&definition, &format!(r#"\dv{{SortBool{{}}}}("{value}")"#)),
+                    )
+                })
+                .to_vec()
+                .into(),
+        );
+        let split = simplify_predicate(&definition, &asserted(short_circuit, value, &second));
+        assert!(
+            matches!(&split, Predicate::And(conjuncts) if conjuncts.len() == 2),
+            "{split:?}"
+        );
+        assert_eq!(
+            split,
+            simplify_predicate(&definition, &operands),
+            "{short_circuit}"
+        );
+        assert_eq!(
+            split,
+            simplify_predicate(&definition, &asserted(strict, value, &second)),
+            "{short_circuit}"
+        );
+    }
+    let guards = Predicate::And(
+        ["0", "2"]
+            .map(|value| asserted("andThen", "true", &field_is(value)))
+            .to_vec()
+            .into(),
+    );
+    assert_eq!(simplify_predicate(&definition, &guards), Predicate::False);
+}
+
 /// The declaration the unbound-result-variable tests add: a second partial function `p`, besides
 /// the fixture's `f` and its total injective `wrap`.
 const UNBOUND_RESULT_SYMBOLS: &str = r#"

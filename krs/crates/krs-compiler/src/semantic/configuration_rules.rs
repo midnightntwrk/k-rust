@@ -65,6 +65,7 @@ impl StateRuleTerms<'_> {
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
             declared_binders: BTreeMap::new(),
+            subject_keys: BTreeMap::new(),
         };
         builder.infer(term, expected_sort, subject)?;
         builder.resolve_binding_sorts()?;
@@ -102,6 +103,7 @@ impl StateRuleTerms<'_> {
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
             declared_binders: BTreeMap::new(),
+            subject_keys: BTreeMap::new(),
         };
         super::ml::check_condition_placement(&builder, kind, condition, ensures)?;
         super::ml::infer_condition(&mut builder, condition)?;

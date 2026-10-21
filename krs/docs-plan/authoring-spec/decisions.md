@@ -405,8 +405,10 @@ bug — report it, don't guess.
   nothing; the index is always written, never taken from an enum's
   declaration order, which C7 keeps presentational. The table's `use`
   items reach its rows only, and rustc resolves the rows' unqualified
-  names through them. Equations stay outside the overlap check (F2.1);
-  instead two table-local checks fail fast (F4): two unguarded rows at one
+  names through them. Equations stay outside the overlap check of
+  transitions (F2.1); instead two table-local checks fail fast (F4), and
+  E11's overlap check of equations reads every equation of the function:
+  two unguarded rows at one
   priority with the same literal arguments
   (`krs::syntax::duplicate-equation-row`), and a catch-all row beside
   others at its priority, which needs `owise`
@@ -426,7 +428,14 @@ bug — report it, don't guess.
   sound abstraction of its `requires` (Boolean structure, comparisons with
   integer constants and between two integers, opaque atoms) whose every
   operation is defined on every argument: a wrong "covered" is worse than
-  a false warning. Partial, hooked and `smt_hook` functions, and total
+  a false warning. Since 2026-10-22 (bit templates, E11) the abstraction
+  reads comparisons of `bitRangeInt(t, o, l)` and `t &Int m` (constant
+  `o`, `l`, `m`) as facts about the bits of `t` and skips valuations no
+  integer realizes, and counts `bitRangeInt` with constant non-negative
+  `o` and `l` as defined (it is `(I >>Int IDX) modInt (1 <<Int LEN)`,
+  defined for non-negative shifts); and where E11's ground analysis applies
+  to all of a function's equations, coverage is decided by evaluation
+  instead, exactly, with the first uncovered argument as the witness. Partial, hooked and `smt_hook` functions, and total
   functions (or parametric instances) with no equation, are not linted.
   `#[k::function(total, underspecified = "reason")]` states a gap on
   purpose; it is KRS-only (lowering drops it before K) and warns when the
@@ -468,12 +477,55 @@ bug — report it, don't guess.
   `requires` at one priority whose sets meet in every argument are
   `krs::syntax::duplicate-equation-row`, with a common argument. The
   overlap check reads the guards as F2 clause 4's Int facts. No IR change.
+  Since 2026-10-22, equations of one function at one priority are checked
+  for overlap on the assembled definition, table rows and `#[k::equation]`
+  fns alike, guarded or not, by a ground analysis: when every equation
+  bounds each `Int` argument its `requires` reads to finitely many values
+  (literals, or top-level comparisons with constants, which a template's
+  range is) and those values, with one more outside them per argument, are
+  at most 2^16 argument vectors, every `requires` is evaluated on each
+  (outside the bounded values a bounded equation does not apply and the
+  others do not read the argument, so one value stands for all). Two
+  equations that apply to one argument with results that differ once it
+  is substituted and builtins on literals are evaluated are
+  `krs::analysis::overlapping-equations`, an error: equations are
+  unordered, so they would state the two results equal, which with free
+  constructors is a contradiction and on a backend an arbitrary choice.
+  Identical results agree, so the equations are confluent there and
+  nothing is reported; a warning would be noise nobody can silence. The
+  analysis decides nothing it is unsure of: a function call, an unbound
+  binder, an overflow, or an undefined operation not excluded by a false
+  top-level conjunct (matching logic reads `true orElseBool ⊥` as
+  undefined, a short-circuiting backend as true) gives up on the set,
+  which then is not checked. It is a new code, not a generalized
+  `duplicate-equation-row`, because it judges the assembled definition
+  across tables, fns and packages, at the analysis stage. The syntactic
+  table checks stay: they fail fast in the macro (an IDE nicety), and
+  they cover what the analysis does not, templates of any width in
+  unguarded rows; the analysis covers guarded rows and fns, which they
+  cannot read. SM83's HALT (`01 110 110`) against `LD r,r'` (`01 yyy
+  zzz`) without `op != 118` is the case in point. On the four ports the
+  analysis enumerates no equation group (their Int-keyed functions have
+  non-`Int` arguments or unbounded guards), adds no finding, and costs
+  under a millisecond.
   `krs expand` prints the long form and names a hidden binder `bits` (or a
   fresh variant) there. Rejected: a structured template in the IR (the
   sugar and its long form would be checked differently), a guard spelled
   as one `&Int` mask (different masks are unrelated terms, so neither a
   simplifier nor a solver refutes two of them), and expansion into one
   literal equation per value (exponential in the free bits).
+  The test form `k::bits!(e, "..")` (2026-10-22) is a `Bool` term,
+  allowed wherever one is (conditions, claims, results): `e >= 0 && e <
+  2^width` and the per-run `bitRangeInt` equalities, the pattern's guard
+  terms in the guard's order, so a claim can state exactly what a row
+  tests; an all-fixed template tests the same terms. Its letters and `_`
+  constrain and bind nothing (letters are accepted so a row's template
+  copies verbatim). `e` is a variable, a field, or a bit range of a
+  variable with literal bounds: the long form repeats it once per term, so
+  a larger term is named first (`op @`, `let`); terms are pure, so the
+  restriction is about the size and readability of the long form, not
+  meaning. In a pattern, `k::bits!` takes only the template; a second
+  argument is reserved for modifiers such as signed fields.
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 

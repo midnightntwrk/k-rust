@@ -32,6 +32,9 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) binding_sorts: BTreeMap<String, SemanticSortRef>,
     /// Author-declared and occurrence-derived upper-bound constraints.
     pub(super) binding_constraints: BTreeMap<String, BTreeSet<SemanticSortRef>>,
+    /// The provenance key of each variable's first occurrence in the
+    /// subject, where a diagnostic about its sort points.
+    pub(super) subject_keys: BTreeMap<String, ProvenanceKey>,
     /// Typed binders of a term-shaped rule fn (KF-009): the declared sort,
     /// which every occurrence must accept, and its parameter-type key.
     pub(super) declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
@@ -90,9 +93,14 @@ impl StructuredTermBuilder<'_> {
             // checked when it is lowered.
             DescriptorTerm::Variable { name, .. }
                 if !self.is_inferring_local(name) && self.is_let_local(name) => {}
-            DescriptorTerm::Variable { name, .. } => {
+            DescriptorTerm::Variable { key, name, .. } => {
                 if !self.binding_names.contains(name) && !self.is_inferring_local(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
+                }
+                if subject {
+                    self.subject_keys
+                        .entry(name.clone())
+                        .or_insert_with(|| key.clone());
                 }
                 if let Some(expected) = expected_sort {
                     self.check_declared_binder(name, expected)?;
@@ -1256,10 +1264,27 @@ impl StructuredTermBuilder<'_> {
                 .join(", ");
             let inferred = match candidates.as_slice() {
                 [sort] => sort.clone(),
+                // A hidden binder is a template's value: its subject
+                // occurrence is the template, and its other occurrences,
+                // the guard and the fields, are `Int` arguments.
                 [] if krs_syntax::is_hidden_binder(name) => {
-                    return Err(self.invalid_term(format!(
-                        "a `k::bits!` template matches an `Int`, but it stands where the sorts [{occurrence_sorts}] meet in no common sort; a template belongs in an `Int` argument"
-                    )));
+                    let int = SemanticSortRef::Builtin(BuiltinSort::Int);
+                    let position = constraints
+                        .iter()
+                        .filter(|sort| **sort != int)
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(DescriptorLoweringError::BitTemplateSort {
+                        item: Box::new(self.descriptor.id().clone()),
+                        reason: format!(
+                            "a `k::bits!` template matches an `Int`, but it stands where a term of sort {position} is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it"
+                        ),
+                        range: self
+                            .subject_keys
+                            .get(name)
+                            .and_then(|key| self.authored_range(key)),
+                    });
                 }
                 [] => {
                     return Err(self.invalid_term(format!(
