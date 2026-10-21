@@ -233,17 +233,12 @@ fn templates_that_differ_in_a_fixed_bit_do_not_overlap() {
     assert_eq!(overlap(&[INT], &equations), None);
     let views = views(&equations);
     let domain = Domain::new(&[INT], &views).unwrap();
-    let ColumnValues::Int {
-        values,
-        outside,
-        bounded,
-    } = &domain.columns()[0]
-    else {
+    let ColumnValues::Int { values, bounded } = &domain.columns()[0] else {
         panic!("an Int column");
     };
     assert_eq!(
-        (values.len(), *outside, bounded.as_slice()),
-        (257, 256, &[(0, 256)][..])
+        (values.len(), values.last(), bounded.as_slice()),
+        (257, Some(&256), &[(0, 256)][..])
     );
     // `inc` holds exactly on `00 yyy 100`.
     for point in domain.points() {
@@ -491,13 +486,19 @@ fn the_enumeration_decides_every_argument_as_brute_force_does() {
         // Each coordinate stands for itself when the domain lists it, and
         // otherwise for `outside`.
         let representative = |column: usize, value: i128| match &domain.columns()[column] {
-            ColumnValues::Int {
-                values, outside, ..
-            } => {
+            ColumnValues::Int { values, bounded } => {
                 if values.contains(&value) {
                     value
                 } else {
-                    *outside
+                    // The one listed value outside the bounded intervals.
+                    *values
+                        .iter()
+                        .find(|listed| {
+                            !bounded
+                                .iter()
+                                .any(|(low, high)| low <= *listed && *listed < high)
+                        })
+                        .unwrap()
                 }
             }
             ColumnValues::Free => unreachable!("Int columns"),

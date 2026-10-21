@@ -51,6 +51,7 @@ use krs_ir_levels::{
 };
 use num_bigint::BigInt;
 
+use crate::equation_domain::{ColumnValues, Domain, Undecided, equation_view};
 use crate::int_facts::{IntFact, IntFacts};
 
 /// The pattern-matrix nodes one function may visit before the lint gives up
@@ -1925,6 +1926,99 @@ struct Report {
     guarded: usize,
     unread: usize,
     contexts: usize,
+    /// For a function the ground analysis decided: the values its
+    /// equations bound, described.
+    evaluated: Option<String>,
+}
+
+/// The values the equations bound at each argument, described.
+fn describe_bounded(columns: &[ColumnValues]) -> String {
+    let describe = |bounded: &[(i128, i128)]| {
+        if bounded.is_empty() {
+            return "no value".to_owned();
+        }
+        bounded
+            .iter()
+            .map(|(low, high)| {
+                if high - low == 1 {
+                    low.to_string()
+                } else {
+                    format!("{low}..={}", high - 1)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let ints = columns
+        .iter()
+        .enumerate()
+        .filter_map(|(index, column)| match column {
+            ColumnValues::Int { bounded, .. } => Some((index, describe(bounded))),
+            ColumnValues::Free => None,
+        })
+        .collect::<Vec<_>>();
+    match ints.as_slice() {
+        [(_, only)] if columns.len() == 1 => only.clone(),
+        _ => ints
+            .iter()
+            .map(|(index, text)| format!("argument {} in {text}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+/// Coverage decided by the ground analysis of the equations
+/// (`equation_domain`): exact, so the outcome needs no abstraction of the
+/// guards. `None` when the analysis gives up.
+fn evaluate_instance(columns: &[Sort], rules: &[&SemanticRule]) -> Option<Outcome> {
+    let views = rules
+        .iter()
+        .map(|rule| equation_view(rule))
+        .collect::<Option<Vec<_>>>()?;
+    let domain = Domain::new(columns, &views)?;
+    let mut gaps = Vec::new();
+    for point in domain.points() {
+        let mut covered = false;
+        for index in 0..views.len() {
+            match domain.applies(index, &point) {
+                Ok(true) => {
+                    covered = true;
+                    break;
+                }
+                Ok(false) => {}
+                Err(Undecided) => return None,
+            }
+        }
+        if !covered && gaps.len() < WITNESS_LIMIT {
+            gaps.push(Gap {
+                values: domain
+                    .columns()
+                    .iter()
+                    .zip(&point)
+                    .map(|(column, value)| match column {
+                        ColumnValues::Int { .. } => Witness::Literal(value.to_string()),
+                        ColumnValues::Free => Witness::Any,
+                    })
+                    .collect(),
+                condition: None,
+            });
+        }
+    }
+    if gaps.is_empty() {
+        return Some(Outcome::Covered);
+    }
+    Some(Outcome::Uncovered(Report {
+        gaps,
+        names: Names::new(),
+        binders: BTreeMap::new(),
+        guarded: rules
+            .iter()
+            .filter(|rule| rule.requires().is_some())
+            .count(),
+        unread: 0,
+        contexts: 0,
+        evaluated: Some(describe_bounded(domain.columns())),
+    }))
 }
 
 fn check_instance(
@@ -1937,14 +2031,20 @@ fn check_instance(
         &production_argument_sorts(production),
         production.parameters(),
         instance,
-    )
-    .into_iter()
-    .enumerate()
-    .map(|(index, sort)| Column {
-        sort,
-        path: vec![index],
-    })
-    .collect::<Vec<_>>();
+    );
+    evaluate_instance(&columns, rules).unwrap_or_else(|| search_instance(signature, columns, rules))
+}
+
+/// Coverage decided by the pattern matrix and the guard abstraction.
+fn search_instance(signature: &Signature, columns: Vec<Sort>, rules: &[&SemanticRule]) -> Outcome {
+    let columns = columns
+        .into_iter()
+        .enumerate()
+        .map(|(index, sort)| Column {
+            sort,
+            path: vec![index],
+        })
+        .collect::<Vec<_>>();
     let mut rows = Vec::new();
     let mut names = Names::new();
     let mut projections = Projections::new();
@@ -2033,6 +2133,7 @@ fn check_instance(
         guarded,
         unread,
         contexts,
+        evaluated: None,
     })
 }
 
@@ -2152,7 +2253,13 @@ fn uncovered_warning(
         "`total` claims a value for every argument; where no equation applies, the value is some unspecified `{}`",
         sort_name(production.result_sort())
     ));
-    if report.guarded > 0 {
+    if let Some(bounded) = &report.evaluated {
+        if report.guarded > 0 {
+            diagnostic.notes.push(format!(
+                "KRS evaluated the `requires` of its equations on every argument they bound ({bounded}) and on one argument beyond them, which stands for every other"
+            ));
+        }
+    } else if report.guarded > 0 {
         diagnostic.notes.push(format!(
             "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
             report.guarded

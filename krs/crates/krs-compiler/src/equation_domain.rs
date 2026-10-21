@@ -85,20 +85,13 @@ struct Prepared<'a> {
 /// The values one argument ranges over.
 #[derive(Clone, Debug)]
 pub(crate) enum ColumnValues {
-    /// An Int argument: the values the equations bound, then one outside
-    /// them (`outside`), in the order witnesses prefer (non-negative first,
+    /// An Int argument: the values the equations bound and one outside
+    /// them, in the order witnesses prefer (non-negative first,
     /// nearest zero first).
     Int {
         values: Vec<i128>,
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "the coverage lint reads it in the next change")
-        )]
-        outside: i128,
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "the coverage lint reads it in the next change")
-        )]
+        /// The values the equations bound, as sorted disjoint half-open
+        /// intervals; `values` is these and one value outside them.
         bounded: Vec<(i128, i128)>,
     },
     /// An argument every equation binds without reading it.
@@ -528,7 +521,6 @@ impl<'a> Domain<'a> {
             points.sort_by_key(|value| (*value < 0, value.unsigned_abs()));
             values.push(ColumnValues::Int {
                 values: points,
-                outside,
                 bounded,
             });
         }

@@ -78,6 +78,31 @@ k::equations! {
     page_b: opcode => B();
 }
 
+/// Two bit templates cover `0..=15` and nothing beyond it.
+#[k::function(total, internal)]
+pub fn Nibble(value: Term<Int>) -> Term<Reg>;
+
+k::equations! {
+    for Nibble;
+    use Register::*;
+    nibble_low: k::bits!("0___") => A();
+    nibble_high: k::bits!("1___") => B();
+}
+
+/// A template, the value its `requires` excludes, and the rest: covered.
+#[k::function(total, internal)]
+pub fn Opcode(value: Term<Int>) -> Term<Reg>;
+
+k::equations! {
+    for Opcode;
+    use Register::*;
+    #[k::requires(op.ne::<Int>(6))]
+    opcode_load: op @ k::bits!("0___") => A();
+    opcode_halt: 6 => B();
+    #[k::equation(owise)]
+    opcode_other: _ => B();
+}
+
 /// Complementary guards: covered.
 #[k::function(total, internal)]
 pub fn Signed(value: Term<Int>) -> Term<Int>;
@@ -327,6 +352,8 @@ fn total_functions_warn_where_no_equation_applies() {
             "warning[krs::analysis::uncovered-total-function]: total function `Clamp` has no equation for `Clamp(0)`",
             "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
             "warning[krs::analysis::stale-underspecified]: `FlagBit` states `underspecified`, but its equations define every argument; remove `underspecified`",
+            "warning[krs::analysis::uncovered-total-function]: total function `Nibble` has no equation for `Nibble(16)`",
+            "= note: KRS evaluated the `requires` of its equations on every argument they bound (0..=15) and on one argument beyond them, which stands for every other",
             "warning[krs::analysis::uncovered-total-function]: total function `Page` has no equation for `Page(opcode)` when `High(opcode)` is 2",
             "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
             "warning[krs::analysis::uncovered-total-function]: total function `Size` has no equation for `Size(0)`",

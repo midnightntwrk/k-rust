@@ -118,7 +118,11 @@ clauses whose results read fields, with and without `op @`, make `regOf(5)`
 `rl` and `regOf(147)` `alu 147 rc`; templates beside an authored top-level
 `||` in a table row and an `#[k::equation]` fn, and `k::bits!(opcode, "..")`
 tests in a condition and a result, make `edgeOf(56)` `3`, `edgeOf(245)` `13`,
-and `edgeOf(112)` `6`.
+and `edgeOf(112)` `6`. `krs check` warns that `DecodeCb`, whose templates
+cover exactly `0..=255`, has no equation for `DecodeCb(256)`. Two negative
+fixtures overlap equations of one function at one priority: SM83-style
+`#[k::equation]` fns for HALT and `LD r, r'` without `op != 118`, and a fn
+whose template meets a table row's.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -137,7 +141,8 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import (  # noqa: E402
-    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, java_run_outcome,
+    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, diagnostic_lines,
+    java_run_outcome,
 )
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -223,6 +228,10 @@ SUGAR_PROGRAMS = (
 )
 
 BITS = Fixture(MANIFEST, "krs-patterns-functions-bits")
+BITS_WARNINGS = (
+    "warning[krs::analysis::uncovered-total-function]: total function `DecodeCb` has no equation for `DecodeCb(256)`",
+    "warning[krs::analysis::uncovered-total-function]: total function `R8` has no equation for `R8(8)`",
+)
 BITS_LONG = Fixture(MANIFEST, "krs-patterns-functions-bits-long")
 BITS_PROGRAMS = (
     Program("decode-inc", "decodeOf(4)", "accepted", "inc rb"),
@@ -530,7 +539,12 @@ def verify_sugar(harness: FixtureGate) -> None:
 def verify_bits(harness: FixtureGate) -> None:
     """Bit templates and tests emit the K of their hand-written long form, up to the hidden binder's name, and run natively and on Java LLVM."""
 
-    harness.check(BITS)
+    checked = harness.check(BITS)
+    # The coverage lint reads the templates' guards: `DecodeCb`'s four rows
+    # cover 0..=255 exactly, so the first argument they miss is 256.
+    warnings = diagnostic_lines(checked.stderr)
+    if warnings != list(BITS_WARNINGS):
+        raise GateError(f"{BITS.package}: krs check warned {warnings!r}, not {list(BITS_WARNINGS)!r}")
     expansion = harness.expand(BITS)
     # `krs expand` writes the long form, naming an unnamed template's value.
     for fragment in (
