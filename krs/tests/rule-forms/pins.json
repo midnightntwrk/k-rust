@@ -9,7 +9,7 @@
     "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0",
     "krs-rule-forms-local-rewrite": "9a662ec82271a9cf2020f8a89cd380e6a931d7d1766ace7f7be26fb6e701142b",
     "krs-rule-forms-local-term": "2bfd40690b28c39fdc54258115f4753260a04db8cf9c8751984d9906db56b690",
-    "krs-rule-forms-heat-cool": "783bed83efcfb03409d6c847cd274b3a87354aa60552b3b48911811e2762b9bf",
+    "krs-rule-forms-heat-cool": "ed5aa7b9240e9fbf0fcfacc17d4730513b969186b1297adf1d84b7cf7c324172",
     "krs-rule-forms-contexts": "c50732ffc14df3fd201ab48fbabcdaa173ce6af2d081c5b3b80aa525df10120b",
     "krs-rule-forms-contexts-lvalue": "6f20ce814890248a7332fe96b0acfd6980fe9f636f226ec810093164e636993b",
     "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42"
@@ -43,7 +43,7 @@
       "definition.k": "14ba65f801cc27238d8b2aba8f6963662457d01716e328bbc8573b491a7bc92b"
     },
     "krs-rule-forms-heat-cool": {
-      "definition.k": "2430b03da5f3b4170fa0a5bc541c3774bb2071bd673ab726060b372075298ce3"
+      "definition.k": "0873eccd6da0d93d6e179f0f4a9244fb23db4f9fcdad60e0607d99ab6bdb4413"
     },
     "krs-rule-forms-heat-cool-strict": {
       "definition.k": "786938fc768e88193ded2eb0365df297affa214dba976fe787cee8d6653d617a"
@@ -68,7 +68,7 @@
     "krs-rule-forms-local-rewrite": "98525bc9c5b910cb2974bcd0e3922bff729329774fd4fd78a6e511caa3ff28b6",
     "krs-rule-forms-restating-imp": "d261d05bb3a87908277492ab3630d853a74a57d42a43753568322a7cfc676534",
     "krs-rule-forms-local-term": "42080d864f585d7a6c00ce23a085ea25f0e3778f4d8a865de303f8521aff3cdf",
-    "krs-rule-forms-heat-cool": "c4c10d598acbf726ccd9c1b4a27a8b3ac47f5407243b134de78a38360155cc3c",
+    "krs-rule-forms-heat-cool": "883cbf1783db3cf33cb807b16bb330fd772a0e9943ebafefdeb052c39633a2ed",
     "krs-rule-forms-heat-cool-strict": "7e53e6cdb05575d64004b2e835d5175d869eb0d25a1f374e4542f43c74759a65",
     "krs-rule-forms-contexts": "30123b598ec24f3b8eaf9f46d3f93e76a8844d23fd8f25136ee227d74623df97",
     "krs-rule-forms-contexts-lvalue": "ec77b0870ada7c966baeea31bcaca7ed55a7b02e176e371025079d7cb27fdd31",
