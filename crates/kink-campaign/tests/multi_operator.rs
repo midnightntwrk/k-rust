@@ -629,6 +629,20 @@ mod kink_tier {
         mixed_generations(ScheduleMode::Full, false, &[2, 3]);
     }
 
+    // FirstKill's multi-equals-single comparison, in two parts (review of TG-C); the heavy test
+    // adds FirstKill's manifest replay rows.
+    #[test]
+    #[ignore = "kink"]
+    fn mixed_generations_equal_single_runs_of_cond_true_and_cond_false_in_first_kill() {
+        mixed_generations(ScheduleMode::FirstKill, false, &[0, 1]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn mixed_generations_equal_single_runs_of_delete_rule_and_code_in_first_kill() {
+        mixed_generations(ScheduleMode::FirstKill, false, &[2, 3]);
+    }
+
     #[test]
     #[ignore = "kink"]
     fn compiled_catalogue_sweep_of_counter_preserves_the_baseline_declaration_census() {

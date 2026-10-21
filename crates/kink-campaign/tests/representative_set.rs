@@ -515,6 +515,26 @@ macro_rules! cases {
     };
 }
 
+/// Five compile workers on a case with several distinct candidates too: the rotation gives that
+/// variant only to cases with one candidate (review of TG-C).
+mod extra {
+    use super::*;
+
+    mod kink_tier {
+        use super::*;
+
+        #[test]
+        #[ignore = "kink"]
+        fn multi_generation_with_five_compile_workers() {
+            check(
+                "multi-generation: counter catalogue and code",
+                &[Workers(5)],
+                true,
+            );
+        }
+    }
+}
+
 cases! {
     s1_whole: "S1 whole=true", SharingOff;
     k_whole: "K whole=true", Workers(5);

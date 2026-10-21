@@ -504,13 +504,15 @@ mod kink_tier {
     #[test]
     #[ignore = "kink"]
     fn every_one_sided_kill_agrees_with_the_unbounded_verdict() {
-        one_sided_kills_agree_with_the_unbounded_verdict(|work| vec![0, 2, work - 1]);
+        one_sided_kills_agree_with_the_unbounded_verdict(|work| vec![0, 1, 2, work - 1]);
     }
 
     #[test]
     #[ignore = "kink"]
     fn every_one_sided_kill_beside_an_unclean_unbounded_run_is_explained() {
-        one_sided_kills_beside_an_unclean_unbounded_run_are_explained(|work| vec![0, 3, work - 1]);
+        one_sided_kills_beside_an_unclean_unbounded_run_are_explained(|work| {
+            vec![0, 2, 3, work - 1]
+        });
     }
 
     /// early's 7 becomes 8: the early final configuration `done(18)` is not among the baseline's
