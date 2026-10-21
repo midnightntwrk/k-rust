@@ -2,16 +2,17 @@
 //!
 //! A witness file holds the resolved campaign and the report that found the witness. Replaying
 //! it rebuilds the campaign's specification from the recorded inputs, checks that the replay's
-//! identity is the witness's (every field of the report's identity but the four the replay
-//! sets itself; [`identity_mismatches`]), refuses on a mismatch unless forced, and runs each recorded witness case as the campaign's only
-//! explicit assignment. A case reproduces when the replay confirms a hit whose witness case,
+//! identity is the witness's (every field of the report's identity but the five that only
+//! choose cases or that the replay sets itself; [`identity_mismatches`]), refuses on a mismatch
+//! unless forced, and runs each recorded witness case as the campaign's only explicit
+//! assignment. A case reproduces when the replay confirms a hit whose witness case,
 //! with its class and final configurations, equals the recorded one.
 
 use std::path::Path;
 
 use k_rust_fuzz::{
     Budget, Campaign, ProposerConfig,
-    report::{FuzzReport, ReportIdentity, WitnessCase},
+    report::{FuzzReport, REPORT_SCHEMA, REPORT_VERSION, ReportIdentity, WitnessCase},
 };
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +68,15 @@ impl WitnessFile {
                 file.version
             ));
         }
+        if file.report.schema != REPORT_SCHEMA || file.report.version != REPORT_VERSION {
+            return Err(format!(
+                "`{}` holds a {} version {} report; this krust-fuzz reads {REPORT_SCHEMA} \
+                 version {REPORT_VERSION}",
+                path.display(),
+                file.report.schema,
+                file.report.version
+            ));
+        }
         if file.report.witness().is_none() {
             return Err(format!(
                 "`{}` records a campaign that found no witness",
@@ -102,11 +112,14 @@ impl WitnessFile {
 /// The identity fields of `recorded` that `now` does not have, one sentence each, named by
 /// their path in the report (`definitions[0].syntax-definition-digest`).
 ///
-/// Every field of the report's identity is compared except four the replay sets itself: the
-/// proposers and the budget (one explicit assignment, one case), `options.shrink` (a replay
-/// does not shrink), and the engine version, which covers the proposer and generator code that
-/// chooses cases, none of which runs when a fixed assignment is replayed. Every other field is
-/// an input of the replayed case's execution or of its assembly, so a difference makes the
+/// Every field of the report's identity is compared except five: the proposers and the budget,
+/// which the replay sets itself (one explicit assignment, one case), `options.shrink` (a replay
+/// does not shrink), the engine version, which covers the proposer and generator code that
+/// chooses cases, and `dictionary`, the dictionary proposer's parameters, which only weigh its
+/// draws. None of the code the last two describe runs when a fixed assignment is replayed, so
+/// they cannot change the replayed case. (Replaying with the recorded proposers instead would
+/// record a dictionary that chose nothing, and still no draw would differ.) Every other field
+/// is an input of the replayed case's execution or of its assembly, so a difference makes the
 /// replay another campaign.
 pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> Vec<String> {
     let comparable = |identity: &ReportIdentity| {
@@ -115,6 +128,7 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
         identity.budget = Budget::Cases(0);
         identity.options.shrink = true;
         identity.engine_version = 0;
+        identity.dictionary = None;
         serde_json::to_value(identity).unwrap_or(serde_json::Value::Null)
     };
     let mut mismatches = Vec::new();

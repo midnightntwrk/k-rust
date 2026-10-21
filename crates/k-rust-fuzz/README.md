@@ -158,9 +158,9 @@ The summary goes to standard output, or the canonical report with `--json`; `--r
 Both paths are checked before the campaign runs (and must name different files), and the result is printed before they are written, so a failed write loses no result.
 The exit status is 0 when a witness was found and confirmed, 1 when not (including `equivalent`, `rejected-out` and `aborted`), and 2 on an error (including a failed write after the result was printed).
 
-A witness file (`schema: "krust-fuzz-witness"`, `version: 1`) holds the campaign as resolved (absolute paths, every option) and the report.
+A witness file (`schema: "krust-fuzz-witness"`, `version: 1`) holds the campaign as resolved (absolute paths, every option) and the report; `--replay` refuses a witness whose report is not a `krust-fuzz-report` of the `REPORT_VERSION` this build writes.
 `--replay FILE` loads the recorded definitions and program, rebuilds the specification and checks that its identity is the witness's.
-It compares every field of the report's identity except four that the replay sets itself: the proposers and the budget, `options.shrink`, and the engine version, which covers only the code that chooses cases.
+It compares every field of the report's identity except five: the proposers and the budget, which the replay sets itself, `options.shrink`, and the engine version and the dictionary's parameters (`dictionary`), which cover only the code that chooses cases.
 That includes the k-rust revision, each definition's modules, execution digest, route, rewrite order, frontend, execution-definition and syntax-and-macro digests and initial configuration, the program, overlay and target digests, the options, the bounds and the solver.
 On a mismatch it lists every difference by its path in the report (for example `definitions[0].syntax-definition-digest`) and refuses (exit status 2) unless `--force` is given.
 A forced replay prints each mismatch and a `forced: replayed despite N identity mismatches` line; its exit status still says whether the cases reproduced.
