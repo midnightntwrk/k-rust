@@ -2831,6 +2831,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut smt = false;
     let mut list = false;
     let mut raw_hook = false;
+    let mut underspecified = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -2870,6 +2871,9 @@ pub(crate) fn validate_production_shape<L: Validation>(
             }
             ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. } => {
                 std::mem::replace(&mut list, true)
+            }
+            ProductionAttribute::Underspecified { .. } => {
+                std::mem::replace(&mut underspecified, true)
             }
         };
         if already {
@@ -2920,6 +2924,11 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::FreshGenerator { .. }
             | ProductionAttribute::RawHook { .. }
             | ProductionAttribute::Desugar { .. } => {}
+            ProductionAttribute::Underspecified { reason, .. } => {
+                if reason.trim().is_empty() {
+                    return Err(L::error(ValidationError::InvalidFunctionProduction));
+                }
+            }
             ProductionAttribute::Smtlib { symbol, .. } => {
                 if !krs_ir::is_smtlib_simple_symbol(symbol) {
                     return Err(L::error(ValidationError::InvalidSmtMetadata));
@@ -2988,6 +2997,10 @@ pub(crate) fn validate_production_shape<L: Validation>(
     // K's freshGenerator is a function; analysis requires it to be total (KF-022).
     // K's smtlib and smt-hook give a function's SMT translation (KF-044).
     if (total || memo || fresh_generator || smt) && !function {
+        return Err(L::error(ValidationError::InvalidFunctionProduction));
+    }
+    // The coverage lint's opt-out states a gap in a total function's equations.
+    if underspecified && !(function && total) {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if (hook.is_some() || raw_hook) && !(function && total) {

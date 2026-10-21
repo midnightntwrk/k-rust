@@ -8,6 +8,7 @@ pub mod artifacts;
 pub mod capability;
 mod cell_warnings;
 mod console;
+mod coverage;
 mod emit;
 mod error;
 mod lowering;
@@ -23,6 +24,7 @@ pub mod testing;
 
 pub use artifacts::*;
 pub use cell_warnings::cell_collection_warnings;
+pub use coverage::coverage_warnings;
 pub use emit::{
     EmitError, EmittedK, EmittedSpec, definition_module_imports, definition_sentence_source,
     emit_k, smt_only_function_warnings, trusted_claim_warnings,

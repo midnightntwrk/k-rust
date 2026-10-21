@@ -18,7 +18,10 @@ use crate::term::{
     is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
     unexpected_macro,
 };
-use crate::term_sort::{TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_sort};
+use crate::term_sort::{
+    TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_or_readable_sort,
+    parse_term_sort,
+};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
     TermExpression, TermNode, TermSymbolKind, TermTree, TokenRange,
@@ -233,6 +236,24 @@ impl RuleItem {
         .apply_unbound_variables(attribute)
     }
 
+    /// Validates one `k::equations!` row, lowered to `fn label(F(args): F)
+    /// -> F { result }`: its sort is the result sort of the header's function
+    /// `F`.
+    pub(super) fn from_table_item(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(
+            &mut item,
+            crate::term_sort::parse_function_result_sort,
+            false,
+            false,
+            signs,
+            false,
+            ClauseForm::Equation,
+        )
+    }
+
     pub(super) fn from_readable_item(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
@@ -262,6 +283,9 @@ impl RuleItem {
         form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
+        // `k::bits!` templates are sugar: the item is parsed as its long form.
+        let hidden = super::bits::desugar(item, form != ClauseForm::Context)?;
+        let _hidden = super::bits::GeneratedBinders::allow(hidden.unwrap_or_default());
         let function_context = parse_function_context(item, form == ClauseForm::Equation)?;
         let binders = parse_rule_binders(item, usize::from(function_context.is_some()))?;
         let subject_index = item
@@ -1062,8 +1086,7 @@ fn parse_rule_binders(item: &ItemFn, trailing: usize) -> Result<Vec<RuleBinder>,
             ));
         }
         let authored = (*argument.ty).clone();
-        let term_sort =
-            parse_term_sort(authored.clone()).or_else(|_| parse_readable_sort(authored))?;
+        let term_sort = parse_term_or_readable_sort(authored)?;
         binders.push(RuleBinder {
             name: pattern.ident.clone(),
             term_sort,

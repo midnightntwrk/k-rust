@@ -8,7 +8,7 @@ use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant
 
 use crate::attribute::{
     ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, StaticMode,
-    StaticProductionAttribute, VariantSyntaxAttribute,
+    StaticProductionAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
@@ -80,9 +80,18 @@ pub struct EnumConstructorVariant {
     static_marker: Option<VariantStaticMarker>,
     precedence_group: Option<usize>,
     precedence_member_range: Option<TokenRange>,
+    explicit_symbol: Option<SymbolAttribute>,
 }
 
 impl EnumConstructorVariant {
+    /// Returns the variant's `#[k::symbol("path::Name")]` override: a pinned
+    /// public identity whose final component names the emitted symbol in
+    /// place of the default `lowerCamel(Enum)` + `Variant`.
+    #[must_use]
+    pub const fn explicit_symbol(&self) -> Option<&SymbolAttribute> {
+        self.explicit_symbol.as_ref()
+    }
+
     /// Returns the span-preserving Rust variant after KRS helper attributes
     /// have been consumed.
     #[must_use]
@@ -227,6 +236,9 @@ impl EnumConstructorVariant {
                 marker.range,
             ));
             anchors.extend(marker.attribute.provenance());
+        }
+        if let Some(symbol) = &self.explicit_symbol {
+            anchors.extend(symbol.provenance()?);
         }
         Ok(anchors)
     }
@@ -386,12 +398,6 @@ impl EnumConstructorDeclaration {
                         variant.ident.span(),
                     ));
                 }
-                if reference_family && syntax.group().is_none() {
-                    return Err(unsupported_enum(
-                        "a reference variant requires an explicit `group` in `syntax`",
-                        variant.ident.span(),
-                    ));
-                }
                 if reference_family && syntax.format().is_none() {
                     return Err(unsupported_enum(
                         "a reference variant requires an explicit `format` in `syntax`",
@@ -443,6 +449,7 @@ impl EnumConstructorDeclaration {
                 static_marker: helpers.static_marker,
                 precedence_group: None,
                 precedence_member_range: None,
+                explicit_symbol: helpers.symbol,
             });
         }
         if variants.is_empty() {
@@ -452,22 +459,28 @@ impl EnumConstructorDeclaration {
             ));
         }
 
+        // A chain is optional: without one the variants belong to no
+        // production group. Whether the family needs one depends on the
+        // assembled sort order, so `krs::analysis::missing-precedence-chain`
+        // checks it over the whole definition.
         let (precedence_groups, precedence_declaration_range, precedence_chain_range) =
-            if reference_family {
-                (None, None, None)
-            } else {
-                let precedence = precedence.ok_or_else(|| {
-                    invalid_enum_precedence(
-                        "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain",
-                        item.ident.span(),
+            match precedence {
+                Some(precedence) => {
+                    validate_precedence_members(&precedence, &item.ident, &mut variants)?;
+                    (
+                        EnumPrecedenceGroups::from_vec(precedence.groups),
+                        Some(precedence.declaration_range),
+                        Some(precedence.chain_range),
                     )
-                })?;
-                validate_precedence_members(&precedence, &item.ident, &mut variants)?;
-                (
-                    EnumPrecedenceGroups::from_vec(precedence.groups),
-                    Some(precedence.declaration_range),
-                    Some(precedence.chain_range),
-                )
+                }
+                None if reference_family => {
+                    validate_reference_groups(&item.ident, &variants)?;
+                    (None, None, None)
+                }
+                None => {
+                    validate_chainless_groups(&item.ident, &variants)?;
+                    (None, None, None)
+                }
             };
 
         Ok(Self {
@@ -513,7 +526,8 @@ impl EnumConstructorDeclaration {
         self.reference_family
     }
 
-    /// Returns exhaustive precedence groups in tightest-to-weakest order.
+    /// Returns exhaustive precedence groups in tightest-to-weakest order; none
+    /// when the family has no chain.
     pub fn precedence_groups(&self) -> impl Iterator<Item = &EnumPrecedenceGroup> {
         self.precedence_groups
             .iter()
@@ -794,6 +808,52 @@ fn take_enum_precedence(
     Ok(precedence)
 }
 
+/// A readable variant's group comes from the chain, so a family without one
+/// names no group.
+fn validate_chainless_groups(
+    family: &Ident,
+    variants: &[EnumConstructorVariant],
+) -> Result<(), SyntaxError> {
+    if let Some(group) = variants
+        .iter()
+        .find_map(|variant| variant.syntax().and_then(VariantSyntaxAttribute::group))
+    {
+        return Err(invalid_enum_precedence(
+            format!(
+                "variant group `{}` needs a chain: `{family}` has no `#[k::precedence]`, and a readable variant's group comes from it (a one-tier chain `name (A, B)` names a group)",
+                group.value()
+            ),
+            group.span(),
+        ));
+    }
+    Ok(())
+}
+
+/// A reference family is the materialized form of a readable one, whose
+/// variants are either all grouped (a chain) or none (no chain).
+fn validate_reference_groups(
+    family: &Ident,
+    variants: &[EnumConstructorVariant],
+) -> Result<(), SyntaxError> {
+    let mut syntax = variants
+        .iter()
+        .filter_map(|variant| variant.syntax().map(|syntax| (variant, syntax)));
+    let Some((_, first)) = syntax.clone().next() else {
+        return Ok(());
+    };
+    let grouped = first.group().is_some();
+    if let Some((variant, _)) = syntax.find(|(_, syntax)| syntax.group().is_some() != grouped) {
+        return Err(invalid_enum_precedence(
+            format!(
+                "reference family `{family}` gives `group` to some variants but not to `{}`: either every variant with `syntax` names its group or none does",
+                variant.name()
+            ),
+            variant.name().span(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_precedence_members(
     precedence: &EnumPrecedenceChain,
     family: &Ident,
@@ -912,6 +972,7 @@ struct VariantHelpers {
     format: Option<LitStr>,
     strictness: Option<VariantStrictness>,
     static_marker: Option<VariantStaticMarker>,
+    symbol: Option<SymbolAttribute>,
 }
 
 /// A variant's `#[k::alias]` or `#[k::desugar]` marker (KF-028).
@@ -972,6 +1033,8 @@ fn take_variant_helpers(
                 ));
             };
             helpers.syntax = Some(VariantSyntaxAttribute::parse_tokens(list.tokens.clone())?);
+        } else if is_helper_named(&attribute, "symbol") {
+            helpers.symbol = Some(variant_symbol(&attribute, helpers.symbol.is_some())?);
         } else if is_helper_named(&attribute, "format") {
             if helpers.format.is_some() {
                 return Err(unsupported_enum(
@@ -1037,7 +1100,7 @@ fn take_variant_helpers(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
+                "enum constructor variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, `desugar`, and `symbol` KRS helpers; precedence belongs on the enum",
                 attribute.span(),
             ));
         } else {
@@ -1046,6 +1109,24 @@ fn take_variant_helpers(
     }
     *attributes = retained;
     Ok(helpers)
+}
+
+/// A variant's `#[k::symbol("path::Name")]` helper; `duplicate` when the
+/// variant already carries one.
+fn variant_symbol(attribute: &Attribute, duplicate: bool) -> Result<SymbolAttribute, SyntaxError> {
+    if duplicate {
+        return Err(unsupported_enum(
+            "an enum constructor variant may carry only one `#[k::symbol]` helper",
+            attribute.span(),
+        ));
+    }
+    let Meta::List(list) = &attribute.meta else {
+        return Err(unsupported_enum(
+            "`k::symbol` requires one parenthesized string literal, such as `#[k::symbol(\"api::Name\")]`",
+            attribute.span(),
+        ));
+    };
+    SymbolAttribute::parse_tokens(list.tokens.clone())
 }
 
 fn marker_tokens(attribute: &Attribute) -> Result<TokenStream, SyntaxError> {

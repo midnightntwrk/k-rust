@@ -11,9 +11,19 @@
 //!
 //! - A quantifier is an application of `#Exists` or `#Forall` to exactly two arguments,
 //!   annotations aside: its binder, then its body.
-//!   Nothing else binds here: an application of an `mlBinder` production is an ordinary
-//!   application, and so are the patterns of `#fun`, `#let` and match, which bind in the local
-//!   functions `resolve_fun` lowers them to.
+//!   Nothing else binds in the walks that read quantifiers only ([`Binders::Quantifiers`], the
+//!   default of every operation here): an application of an `mlBinder` production is an
+//!   ordinary application, and so, there, are the local functions, which `resolve_fun` lowers to
+//!   generated functions before any KORE binder is built.
+//! - A local function (`#fun2(P => B, A)`, `#fun3(P, B, A)`, `#let(P, A, B)`, and the matches
+//!   `P :=K A` and `P :/=K A`; [`local_function`]) binds the variables of its pattern in its own
+//!   scope: the pattern and the body, not the argument `A` it is applied to (a match's pattern
+//!   binds in itself only). Its parameters are the variables at the pattern's positions, outside
+//!   every rewrite's right side and every nested local function, less the names a quantifier
+//!   there binds ([`LocalFunction::parameters`]). A walk of the sentences as written, before
+//!   `resolve_fun`, reads them as binders too ([`Binders::LocalFunctions`]), so that a check of
+//!   those sentences tells a local function's parameter from the rule's variable of its
+//!   spelling.
 //! - A quantifier binds the variables of its binder, in its body and nowhere else.
 //!   The binder is the bound variable, under annotations, or under a semantic cast before
 //!   semantic casts are resolved.
@@ -151,6 +161,108 @@ pub fn quantifier_kind(label: &Label) -> Option<QuantifierKind> {
     }
 }
 
+/// Which constructs a walk reads as binders (module documentation, "The rule").
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Binders {
+    /// The quantifiers only.
+    Quantifiers,
+    /// The quantifiers and the local functions, for the sentences as written, before
+    /// `resolve_fun` lowers the local functions.
+    LocalFunctions,
+}
+
+/// A local function node taken apart; see [`local_function`].
+#[derive(Clone, Copy, Debug)]
+pub struct LocalFunction<'t> {
+    /// The arguments, as stored.
+    pub arguments: &'t [Term],
+    /// The index of the argument holding the pattern: `#fun2`'s equation `P => B`, whose
+    /// pattern is the equation outside the right sides of its rewrites, or the pattern itself.
+    pub pattern: usize,
+    /// For each argument, whether it lies in the function's own scope, where its parameters
+    /// are bound; the others are evaluated in the enclosing scope.
+    pub in_scope: &'static [bool],
+}
+
+impl<'t> LocalFunction<'t> {
+    /// The names this local function binds in its scope: the distinct names of the variables at
+    /// its pattern's positions, outside every rewrite's right side and every nested local
+    /// function, less the names a quantifier there binds and the unresolved anonymous ones, in
+    /// preorder.
+    pub fn parameters(&self) -> Vec<&'t str> {
+        let mut names: Vec<&'t str> = Vec::new();
+        // Each item is a node and the number of entries of `excluded` in its scope.
+        let mut excluded: Vec<&'t str> = Vec::new();
+        let mut pending: Vec<(&'t Term, usize)> = vec![(&self.arguments[self.pattern], 0)];
+        // Invariant: `names` holds the parameters among the nodes visited so far, in preorder;
+        // `excluded[..scope]` the names the quantifiers around each pending node bind there;
+        // each pop visits one node of the pattern, so the loop ends.
+        while let Some((node, scope)) = pending.pop() {
+            excluded.truncate(scope);
+            if let Some(quantifier) = quantifier(node) {
+                excluded.extend(quantifier.bound());
+                pending.push((quantifier.body, excluded.len()));
+                continue;
+            }
+            if local_function(node).is_some() {
+                continue;
+            }
+            match node.unannotated() {
+                Term::Variable { name, .. } => {
+                    if !is_unresolved_anonymous(name)
+                        && !excluded.contains(&name.as_str())
+                        && !names.contains(&name.as_str())
+                    {
+                        names.push(name);
+                    }
+                }
+                Term::Rewrite { left, .. } => pending.push((left, scope)),
+                other @ (Term::InjectedLabel(_)
+                | Term::As { .. }
+                | Term::Sequence(_)
+                | Term::Apply { .. }
+                | Term::Token { .. }
+                | Term::Annotated { .. }) => {
+                    pending.extend(
+                        other
+                            .children()
+                            .into_iter()
+                            .rev()
+                            .map(|child| (child, scope)),
+                    );
+                }
+            }
+        }
+        names
+    }
+}
+
+/// The local function `term` is, annotations aside: `#fun2` over two arguments, `#fun3` or
+/// `#let` over three, or a match `_:=K_` or `_:/=K_` over two; `None` for any other term.
+pub fn local_function(term: &Term) -> Option<LocalFunction<'_>> {
+    let Term::Apply { label, arguments } = term.unannotated() else {
+        return None;
+    };
+    let in_scope: &'static [bool] = if label.is(InternalLabel::Fun2) && arguments.len() == 2 {
+        &[true, false]
+    } else if label.is(InternalLabel::Fun3) && arguments.len() == 3 {
+        &[true, true, false]
+    } else if label.is(InternalLabel::Let) && arguments.len() == 3 {
+        &[true, false, true]
+    } else if (label.is(InternalLabel::KEqualsK) || label.is(InternalLabel::KNotEqualsK))
+        && arguments.len() == 2
+    {
+        &[true, false]
+    } else {
+        return None;
+    };
+    Some(LocalFunction {
+        arguments,
+        pattern: 0,
+        in_scope,
+    })
+}
+
 /// Whether `name` is an anonymous variable as written, before `resolve anonymous variables`
 /// names it: `_`, `?_`, `!_` or `@_`.
 pub fn is_unresolved_anonymous(name: &str) -> bool {
@@ -160,18 +272,20 @@ pub fn is_unresolved_anonymous(name: &str) -> bool {
 /// What one variable occurrence is, by the rule of this module.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Role {
-    /// No quantifier binds it.
+    /// No binder binds it.
     Free,
-    /// The quantifier numbered `binder` binds it: quantifiers are numbered 0, 1, … in the
-    /// preorder of the term walked.
+    /// The binder numbered `binder` binds it: the binders the walk reads ([`Binders`]) are
+    /// numbered 0, 1, … in the preorder of the term walked.
     Bound {
-        /// The binding quantifier's number.
+        /// The binding binder's number.
         binder: usize,
     },
-    /// It is a variable of the binder of the quantifier numbered `binder`. An unresolved
-    /// anonymous variable there binds nothing, but is still the binder's own.
+    /// It is a variable of the binder of the quantifier numbered `binder`, or one of the
+    /// parameters of the local function numbered `binder` at a position of its pattern. An
+    /// unresolved anonymous variable in a quantifier's binder binds nothing, but is still the
+    /// binder's own.
     Binding {
-        /// The quantifier's number.
+        /// The binder's number.
         binder: usize,
     },
 }
@@ -190,26 +304,33 @@ pub struct Occurrence<'t> {
 }
 
 /// Every variable occurrence of `term`, in preorder (a quantifier's binder before its body),
-/// with its role.
+/// with its role, quantifiers being the only binders ([`occurrences_in`]).
 ///
 /// The names of the free occurrences are [`free_variables`]; the first-occurrence order of the
 /// free names, and the quantifier that binds each bound occurrence, are what a reader numbering
-/// variables up to renaming needs. The walk keeps its pending subterms in a work list, so a term
-/// of any depth takes no native stack per level.
+/// variables up to renaming needs.
 pub fn occurrences(term: &Term) -> Vec<Occurrence<'_>> {
+    occurrences_in(term, Binders::Quantifiers)
+}
+
+/// Every variable occurrence of `term`, in preorder (a quantifier's binder before its body), with
+/// its role, read with `binders` as the binders. The walk keeps its pending subterms in a work
+/// list, so a term of any depth takes no native stack per level.
+pub fn occurrences_in(term: &Term, binders: Binders) -> Vec<Occurrence<'_>> {
     let mut found = Vec::new();
-    let mut bound: Vec<(&str, usize)> = Vec::new();
-    let mut quantifiers = 0_usize;
-    // Each item is a term and the number of entries of `bound` in its scope.
-    let mut pending: Vec<(&Term, usize)> = vec![(term, 0)];
-    // Invariant: `found` holds the occurrences of the nodes visited so far, in preorder;
-    // `bound[..scope]` is the names bound around each pending term with their quantifiers'
-    // numbers, innermost last; `quantifiers` is the number of quantifiers visited so far.
-    while let Some((node, scope)) = pending.pop() {
-        bound.truncate(scope);
+    // The scopes, as a tree of links: each binds a name to a binder's number, under a parent.
+    let mut links: Vec<(&str, usize, Option<usize>)> = Vec::new();
+    let mut numbered = 0_usize;
+    // Each item is a term, the innermost link of its scope, and the local function at a
+    // position of whose pattern it stands.
+    let mut pending: Vec<(&Term, Option<usize>, Option<usize>)> = vec![(term, None, None)];
+    // Invariant: `found` holds the occurrences of the nodes visited so far, in preorder; the
+    // chain of links from each pending term's scope is the names bound around it with their
+    // binders' numbers, innermost first; `numbered` is the number of binders visited so far.
+    while let Some((node, scope, pattern_of)) = pending.pop() {
         if let Some(quantifier) = quantifier(node) {
-            let number = quantifiers;
-            quantifiers += 1;
+            let number = numbered;
+            numbered += 1;
             let mut binder = vec![quantifier.binder];
             // Invariant: the variables of the binder's nodes visited so far are in `found`, in
             // preorder; `binder` holds the unvisited ones, the next on top.
@@ -225,17 +346,52 @@ pub fn occurrences(term: &Term) -> Vec<Occurrence<'_>> {
                     binder.extend(part.children().into_iter().rev());
                 }
             }
-            bound.extend(quantifier.bound().into_iter().map(|name| (name, number)));
-            pending.push((quantifier.body, bound.len()));
+            let mut inner = scope;
+            for name in quantifier.bound() {
+                links.push((name, number, inner));
+                inner = Some(links.len() - 1);
+            }
+            pending.push((quantifier.body, inner, pattern_of));
+            continue;
+        }
+        if binders == Binders::LocalFunctions
+            && let Some(function) = local_function(node)
+        {
+            let number = numbered;
+            numbered += 1;
+            let mut inner = scope;
+            for name in function.parameters() {
+                links.push((name, number, inner));
+                inner = Some(links.len() - 1);
+            }
+            for (index, argument) in function.arguments.iter().enumerate().rev() {
+                if function.in_scope[index] {
+                    let at_pattern = (index == function.pattern).then_some(number);
+                    pending.push((argument, inner, at_pattern));
+                } else {
+                    pending.push((argument, scope, None));
+                }
+            }
             continue;
         }
         match node.unannotated() {
             Term::Variable { name, sort } => {
-                let role = bound
-                    .iter()
-                    .rev()
-                    .find(|(bound, _)| *bound == name)
-                    .map_or(Role::Free, |(_, binder)| Role::Bound { binder: *binder });
+                let mut link = scope;
+                let mut binder = None;
+                // Invariant: no link before `link` on the chain binds `name`.
+                while let Some(index) = link {
+                    let (bound, number, parent) = links[index];
+                    if bound == name {
+                        binder = Some(number);
+                        break;
+                    }
+                    link = parent;
+                }
+                let role = match binder {
+                    None => Role::Free,
+                    Some(binder) if pattern_of == Some(binder) => Role::Binding { binder },
+                    Some(binder) => Role::Bound { binder },
+                };
                 found.push(Occurrence {
                     node,
                     name,
@@ -243,8 +399,12 @@ pub fn occurrences(term: &Term) -> Vec<Occurrence<'_>> {
                     role,
                 });
             }
+            Term::Rewrite { left, right } => {
+                // A local function's pattern is its equation outside the rewrites' right sides.
+                pending.push((right, scope, None));
+                pending.push((left, scope, pattern_of));
+            }
             other @ (Term::InjectedLabel(_)
-            | Term::Rewrite { .. }
             | Term::As { .. }
             | Term::Sequence(_)
             | Term::Apply { .. }
@@ -255,12 +415,22 @@ pub fn occurrences(term: &Term) -> Vec<Occurrence<'_>> {
                         .children()
                         .into_iter()
                         .rev()
-                        .map(|child| (child, scope)),
+                        .map(|child| (child, scope, pattern_of)),
                 );
             }
         }
     }
     found
+}
+
+/// The names that occur free in `term` read with `binders` as the binders: those of the
+/// occurrences of [`occurrences_in`] whose role is [`Role::Free`].
+pub fn free_variables_in(term: &Term, binders: Binders) -> BTreeSet<String> {
+    occurrences_in(term, binders)
+        .into_iter()
+        .filter(|occurrence| occurrence.role == Role::Free)
+        .map(|occurrence| occurrence.name.to_owned())
+        .collect()
 }
 
 /// The names that occur free in `term`; `_` (or `?_`, `!_`, `@_`) is among them when an

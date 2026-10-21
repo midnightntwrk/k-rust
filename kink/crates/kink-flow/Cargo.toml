@@ -1,0 +1,40 @@
+[package]
+name = "kink-flow"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[dependencies]
+k-rust = { path = "../../../crates/k-rust", default-features = false }
+kink-campaign.workspace = true
+kink-corpus.workspace = true
+kink-native.workspace = true
+kink-patch.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[features]
+# The Z3 solver profile, default as for kink-native, kink-campaign and kink-corpus (k-rust's
+# default build is Z3); it forwards to theirs, and lets the tests choose their profile column with
+# `cfg(feature = "z3")`. `--no-default-features` on the kink packages is the portable profile, the
+# recommended build for the LLM loop (README).
+default = ["z3"]
+z3 = ["kink-corpus/z3", "kink-campaign/z3", "kink-native/z3"]
+
+[[bin]]
+name = "kink-flow"
+path = "src/main.rs"
+
+[dev-dependencies]
+kink-pattern.workspace = true

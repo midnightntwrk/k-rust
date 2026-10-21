@@ -22,6 +22,10 @@ impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Fr
         })
     }
 }
+impl ::k::__KrsFunction for FreshExpr {
+    type Result = Expr;
+    type Arguments = (k::builtin::int::Int,);
+}
 #[doc(hidden)]
 fn __krs_constructor_descriptor_54aeae99bc279287() -> ::core::result::Result<
     ::k::HostDescriptor,

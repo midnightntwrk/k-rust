@@ -430,7 +430,7 @@ fn lower_cell_declaration(
                     .with_declaration(declaration.declaration.clone())
             }
         };
-        cells.push(cell);
+        cells.push(cell.with_field(field.rust_field.clone()));
     }
     Ok(cells)
 }

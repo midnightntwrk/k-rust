@@ -12,7 +12,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = ObjectTerm, result = KResult)]
-#[k::precedence((Foo, Bar))]
 pub enum Object {
     #[k::syntax("foo")]
     Foo(),

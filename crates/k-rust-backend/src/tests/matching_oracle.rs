@@ -169,7 +169,7 @@ pub(super) fn match_map_terms_all(
             ) {
                 MatchResult::Success(found) => next.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
-                MatchResult::Indeterminate { .. } => return None,
+                MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => return None,
             }
         }
         substitutions = next;
@@ -246,7 +246,9 @@ impl MapMatchProblem<'_> {
             match match_terms(self.mode, self.sorts, &rest, &remainder) {
                 MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
-                MatchResult::Indeterminate { .. } => *indeterminate = true,
+                MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
+                    *indeterminate = true
+                }
             }
             return;
         }
@@ -258,7 +260,7 @@ impl MapMatchProblem<'_> {
             let key_substitution = match match_terms(self.mode, self.sorts, &key, subject_key) {
                 MatchResult::Success(found) => found,
                 MatchResult::Failed(_) => continue,
-                MatchResult::Indeterminate { .. } => {
+                MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
                     *indeterminate = true;
                     continue;
                 }
@@ -278,7 +280,9 @@ impl MapMatchProblem<'_> {
                     );
                 }
                 MatchResult::Failed(_) => {}
-                MatchResult::Indeterminate { .. } => *indeterminate = true,
+                MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
+                    *indeterminate = true
+                }
             }
         }
     }
@@ -318,7 +322,9 @@ impl SetMatchProblem<'_> {
             match match_terms(self.mode, self.sorts, &rest, &remainder) {
                 MatchResult::Success(found) => solutions.push(compose(&found, &substitution)),
                 MatchResult::Failed(_) => {}
-                MatchResult::Indeterminate { .. } => *indeterminate = true,
+                MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
+                    *indeterminate = true
+                }
             }
             return;
         }
@@ -339,7 +345,9 @@ impl SetMatchProblem<'_> {
                     );
                 }
                 MatchResult::Failed(_) => {}
-                MatchResult::Indeterminate { .. } => *indeterminate = true,
+                MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
+                    *indeterminate = true
+                }
             }
         }
     }

@@ -1,0 +1,3 @@
+// Declaring a variable twice is stuck at the second declaration.
+int a, a;
+a = 1;

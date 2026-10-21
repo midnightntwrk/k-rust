@@ -2014,6 +2014,96 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
     }
 }
 
+/// A definition whose first step consumes a partial Boolean of the configuration by a literal
+/// pattern position (`stb(false, I)`, `stn(true, I)`), and whose next step distinguishes the
+/// instances where that Boolean was undefined (`chk(0)`).
+#[cfg(feature = "z3-inference")]
+const CONSUMED_PARTIAL_BOOLEAN: &str = r#"
+module CB-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= stb(Bool, Int) [symbol(stb)] | stn(Bool, Int) [symbol(stn)]
+               | chk(Int) [symbol(chk)] | bad() [symbol(bad)] | good() [symbol(good)]
+endmodule
+
+module CB
+  imports CB-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  rule <k> stb(false, I) => chk(I) ... </k>
+  rule <k> stn(true, I) => chk(I) ... </k>
+  rule <k> chk(0) => bad() ... </k>
+  rule <k> chk(I) => good() ... </k> requires I =/=Int 0
+endmodule
+"#;
+
+/// `stb(X /Int Y >Int 0, Y)` is undefined where `Y` is 0, so it has no instance there and
+/// nothing is reached from it there. Its first step consumes `X /Int Y >Int 0` by the literal
+/// `false` and leaves `chk(Y)`, whose term no longer holds the quotient, so only the successor's
+/// constraints can keep `Y = 0` out: `\not(X /Int Y >Int 0)` alone holds there (the solver reads
+/// `/Int` as a total operation), and `chk(0) => bad()` would then apply. So no run reaches
+/// `bad()`, by execution (both strategies) or search, and every `good()` it reaches states that
+/// `Y` is not 0. The same holds where the step consumes `notBool (X /Int Y >Int 0)` by `true`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefined_instances() {
+    use k_rust::backend::ExecutionStrategy;
+
+    let compiled = compile(CONSUMED_PARTIAL_BOOLEAN, "CB", "CB-SYNTAX", "Pgm", "good()");
+    let comparison = r#"Lbl'Unds-GT-'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, VarY:SortInt{}), \dv{SortInt{}}("0"))"#;
+    let y_is_not_zero = r#"\not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(VarY:SortInt{}, \dv{SortInt{}}("0")))"#;
+    for program in [
+        format!("Lblstb{{}}({comparison}, VarY:SortInt{{}})"),
+        format!("Lblstn{{}}(LblnotBool'Unds'{{}}({comparison}), VarY:SortInt{{}})"),
+    ] {
+        let initial = undefined_instances_initial(&program);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let mut backend =
+                Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest {
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                })
+                .unwrap();
+            let states = text(&result);
+            assert!(
+                states.iter().all(|state| !state.contains("Lblbad{}(")),
+                "{program} {strategy:?}: {states:#?}"
+            );
+            let good = states
+                .iter()
+                .filter(|state| state.contains("Lblgood{}("))
+                .collect::<Vec<_>>();
+            assert!(
+                !good.is_empty() && good.iter().all(|state| state.contains(y_is_not_zero)),
+                "{program} {strategy:?}: {states:#?}"
+            );
+        }
+        let mut backend = Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+        let response = backend
+            .search(SearchRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        let found = response
+            .states
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            found.iter().all(|state| !state.contains("Lblbad{}("))
+                && found.iter().any(|state| state.contains("Lblgood{}(")),
+            "{program} search: {found:#?}"
+        );
+    }
+}
+
 /// The definedness of `sti(X /Int Y)` is `Y` not 0. When the initial constraints establish it
 /// (`Y >Int 0`), the configuration has no undefined instance, so nothing is restricted or named;
 /// when they refute it together (`Y *Int Y ==Int 0`, which no single obligation's simplification
@@ -2858,6 +2948,110 @@ fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
     assert!(ExecuteRequest::new(parse_pattern("a{}()").unwrap()).trace);
 }
 
+/// A rule's defining symbol is the root of its left-hand pattern, and `P #as V` denotes what `P`
+/// denotes while naming the matched term, so a root alias changes no rule's role:
+///
+/// - `f(X) #as _V => X +Int 1` is an equation of the function `f`, so `f(1) +Int 2` evaluates
+///   to 4 (a rewrite of the computation cell would leave `f(1)` unevaluated below `+Int`);
+/// - `m(X) #as _T => X` is a rule of the macro production `m`, so `m` is expanded where `h`'s
+///   right side applies it and where a program writes it;
+/// - `pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]` is an equation of the
+///   constructor `pair`, so `pair(3, 1)` becomes `pair(1, 3)`;
+/// - `pair(X, Y) #as P => done(P) requires X >Int Y` is an ordinary rewrite rule, a transition
+///   from the matched `pair(X, Y)`, so its right side may use the alias: `pair(3, 1)` steps to
+///   `done(pair(3, 1))`.
+///
+/// An equation whose right side or condition uses its root alias would mention its own redex,
+/// and is refused by the definition checks (`definition_checks`), so every equation here leaves
+/// its alias unused.
+#[test]
+fn a_root_alias_leaves_a_rule_of_its_head() {
+    const FUNCTION: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= f(Int) [function, symbol(f)]
+  rule f(X) #as _V => X +Int 1
+  configuration <k> f($PGM:Int) +Int 2 </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(FUNCTION, "MAIN", "MAIN", "Int", "1"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"\dv{SortInt{}}("4")"#) && !leaves[0].contains("Lblf{}"),
+        "{leaves:?}"
+    );
+
+    const MACRO: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= m(Int) [macro, symbol(m)]
+  syntax Int ::= h(Int) [function, symbol(h)]
+  rule h(X) => m(X) +Int 1
+  rule m(X) #as _T => X
+  configuration <k> $PGM:Int </k>
+endmodule
+"#;
+    for (program, value) in [("h(1)", "2"), ("m(5)", "5")] {
+        let leaves = text(&execute(
+            &compile(MACRO, "MAIN", "MAIN", "Int", program),
+            "MAIN",
+            None,
+        ));
+        assert_eq!(leaves.len(), 1, "{program}: {leaves:?}");
+        assert!(
+            leaves[0].contains(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
+                && !leaves[0].contains("Lblm{}")
+                && !leaves[0].contains("Lblh{}"),
+            "{program}: {leaves:?}"
+        );
+    }
+
+    const ANYWHERE_RUN: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  rule pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(ANYWHERE_RUN, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("3"))"#),
+        "{leaves:?}"
+    );
+
+    const REWRITE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  syntax KItem ::= done(Pair) [symbol(done)]
+  rule pair(X, Y) #as P => done(P) requires X >Int Y
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(REWRITE, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lbldone{}(Lblpair{}(\dv{SortInt{}}("3"), \dv{SortInt{}}("1")))"#),
+        "{leaves:?}"
+    );
+}
+
 /// A local function whose body tests a sort: `#let Y = X #in isInt(Y)` lowers to a lambda over
 /// the sort predicate `isInt`, so `h(1)` rewrites to `m(true)`.
 #[test]
@@ -3295,6 +3489,43 @@ fn a_macro_binder_spelled_like_a_parameter_binds_its_own_variable() {
         )
     };
     assert_bound_name_runs(header, literal, ["M", "B"], "go(3)", ("done", "3"));
+}
+
+/// A macro is textual substitution: a `?` variable of a macro's right side that no parameter
+/// receives is an existential variable of the macro's text, so at each use it is a fresh
+/// existential variable of the using sentence, with its sigil. The three macros below are each
+/// used in a rule's condition, where a `?` variable occurs in the condition alone and so is
+/// quantified existentially inside it, and each runs alike whatever the existential is called.
+/// - `m(N) => (#Exists ?B . {?B #Equals N}) #And {?Y #Equals N}`, the BIND/A4 rebase's probe:
+///   some value equals X, so `go(3)` gives `done(3)`.
+/// - `s(N) => {?Y #Equals N +Int 1}` used twice, `requires s(X) #And s(X +Int 1)`: each use has
+///   its own existential (one variable for both would equal X + 1 and X + 2 at once), so `go(3)`
+///   gives `done(3)`.
+/// - `b(N) => #Exists ?Y . {?Y #Equals N}`, whose `?Y` its own quantifier binds: `go(3)` gives
+///   `done(3)`.
+#[test]
+fn a_macro_existential_is_a_fresh_existential_at_each_use() {
+    let header = |name: &str| {
+        format!("  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= {name}(Int) [macro]\n")
+    };
+    let probe = |name: &str| {
+        format!(
+            "  rule m(N) => (#Exists ?B:Int . {{?B #Equals N}}) #And {{{name} #Equals N}}\n  rule <k> go(X) => done(X) ... </k> requires m(X)\n"
+        )
+    };
+    assert_bound_name_runs(&header("m"), probe, ["?Y", "?W"], "go(3)", ("done", "3"));
+    let twice = |name: &str| {
+        format!(
+            "  rule s(N) => {{{name} #Equals N +Int 1}}\n  rule <k> go(X) => done(X) ... </k> requires s(X) #And s(X +Int 1)\n"
+        )
+    };
+    assert_bound_name_runs(&header("s"), twice, ["?Y", "?W"], "go(3)", ("done", "3"));
+    let bound = |name: &str| {
+        format!(
+            "  rule b(N) => #Exists {name}:Int . {{{name} #Equals N}}\n  rule <k> go(X) => done(X) ... </k> requires b(X)\n"
+        )
+    };
+    assert_bound_name_runs(&header("b"), bound, ["?Y", "?W"], "go(3)", ("done", "3"));
 }
 
 /// A quantifier in a condition binds its variable in its body only, so `#Exists X . {s(X)

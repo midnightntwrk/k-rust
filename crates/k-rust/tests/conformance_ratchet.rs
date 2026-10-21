@@ -2362,7 +2362,10 @@ print(json.dumps({
 /// recipe's --pattern `?` variables in K_DIFFERENTIAL_PATTERN_EXISTENTIALS, empty for a plain run,
 /// so N4 renames every other `?` variable as a rule existential (the comparator's own behaviour is
 /// `execution_comparator_renames_rule_existentials_without_a_search_pattern` in
-/// reference_differential.rs).
+/// reference_differential.rs). A pass the comparator reports as resting on N15 (its
+/// `N15 summary:` line, `execution_comparator_labels_and_counts_pairs_only_the_implication_oracle_equates`)
+/// records a distinct comparison label and the pair count, so the log separates it from a
+/// structural match.
 #[test]
 fn conformance_driver_compares_kore_output_modulo_existential_renaming() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -2372,14 +2375,16 @@ sys.path.insert(0, sys.argv[1])
 import run
 
 calls = []
+comparator_stdout = [""]
 def fake_test_binary(name, env, cwd):
     calls.append({"name": name, "env": env})
-    return 0, "", ""
+    return 0, comparator_stdout[0], ""
 run.run_test_binary = fake_test_binary
 run.run_krust_program = lambda case, kind, prog, stdin_path, extra, sort, syntax_module, step: (
     ["krust"], 0, "t{}(Ex-hVar'QuesUnds'Gen0-b0:SortInt{})", "", 0.0, False)
 run.confirm_oracle = lambda case, rec, step: None
-def driver(recipe_text):
+def driver(recipe_text, stdout=""):
+    comparator_stdout[0] = stdout
     root = tempfile.mkdtemp()
     case = run.Case("kore-output")
     case.dir = root; case.log = os.path.join(root, "logs")
@@ -2390,11 +2395,14 @@ def driver(recipe_text):
     calls.clear()
     step = run.do_krun(case, run.split_recipe(recipe_text))
     return {"verdict": step["verdict"], "comparison": step.get("comparison"),
+            "implication_pairs": step.get("implication_pairs"),
             "calls": [[call["name"], call["env"].get("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")] for call in calls]}
 
 print(json.dumps({
     "plain": driver("/kbin/krun program --output kore | diff - program.out"),
     "search": driver("/kbin/krun program --search-final --pattern '<k> ?Y:Int T:Int ?X:Int </k>' --output kore | diff - program.out"),
+    "implication": driver("/kbin/krun program --output kore | diff - program.out",
+                          "running 1 test\nN15 summary: 2 paired disjunct(s) equal only by krust kore-implies (supplementary evidence)\n"),
 }))
 "#;
     let output = Command::new("python3")
@@ -2425,7 +2433,19 @@ print(json.dumps({
                 .contains("modulo C10 existential renaming"),
             "{name}: {probes}"
         );
+        assert!(
+            !probe["comparison"].as_str().unwrap().contains("N15"),
+            "{name}: {probes}"
+        );
+        assert!(probe["implication_pairs"].is_null(), "{name}: {probes}");
     }
+    let implication = &probes["implication"];
+    assert_eq!(implication["verdict"], "match", "{probes}");
+    let comparison = implication["comparison"].as_str().unwrap();
+    for needle in ["C10", "N15", "krust kore-implies", "supplementary"] {
+        assert!(comparison.contains(needle), "{comparison}");
+    }
+    assert_eq!(implication["implication_pairs"], 2, "{probes}");
 }
 
 #[test]

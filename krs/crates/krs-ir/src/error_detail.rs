@@ -93,6 +93,7 @@ details! {
         FreshGenerator => "fresh generator",
         Smt => "smt",
         Desugar => "desugar",
+        Underspecified => "underspecified",
     }
 }
 

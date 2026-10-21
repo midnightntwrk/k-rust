@@ -1,0 +1,14 @@
+# The loop corpus for the cost order (flow F-13): both programs reach the done rule and
+# kill the done-returns-one mutation; slow, first in corpus order, takes many more steps.
+[spec]
+entry = "loop.k"
+main_module = "LOOP"
+syntax_module = "LOOP-SYNTAX"
+
+[[program]]
+id = "slow"
+text = "countdown(3000)"
+
+[[program]]
+id = "fast"
+text = "countdown(1)"

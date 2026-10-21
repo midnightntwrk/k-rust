@@ -216,14 +216,20 @@ impl VariableNaming {
         scope.name(&self.reserved)
     }
 
-    /// Names initializer variables that are not external configuration variables, which keep
-    /// their `$NAME` spelling.
+    /// Names the variables of a configuration initializer.
+    ///
+    /// An external configuration variable is spelled `$NAME` wherever it
+    /// occurs, at a cell's root or inside its initial term.
     #[must_use]
     pub fn configuration(&self, sentence: &ConfigurationSentence) -> SentenceVariables {
         let mut scope = Scope::default();
         scope.initializer(sentence.initializer());
         for variable in sentence.variables() {
             scope.occurrences.remove(variable.id());
+            scope.fixed.insert(
+                variable.id().clone(),
+                format!("${}", variable.external_name()),
+            );
         }
         scope.name(&self.reserved)
     }

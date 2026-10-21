@@ -238,7 +238,7 @@ pub(crate) fn resolve_function_with_config_pass(
 /// cell concretization and semantics-module generation, and so after macro expansion.
 ///
 /// After binding, a rule or claim that still holds the variable where the root of its left-hand
-/// side does not bind it ([`left_hand_side_binds_configuration`], the predicate of invariant CF1)
+/// side does not bind it (`left_hand_side_binds_configuration`, the predicate of invariant CF1)
 /// has no configuration in scope, and is rejected at the sentence
 /// ([`DiagnosticCode::InvalidFunctionConfiguration`]). Reading the configuration needs one in
 /// scope: a rewrite of the configuration has it (its left-hand side is the generated top cell, which
@@ -683,6 +683,18 @@ fn resolve_with_config_body(
         Term::Rewrite { left, right } => ((**left).clone(), Some((**right).clone())),
         _ => (function.clone(), None),
     };
+    // The head is read through root aliases ([`crate::definition::RuleHead::of`]): `f(X) #as V`
+    // is headed by `f`. Each alias is put back around the rebuilt application, where it names
+    // the application with its configuration argument, the term the rule now matches.
+    let mut aliases = Vec::new();
+    let mut function = function;
+    // Invariant: `aliases` holds the alias variables, outermost first, of the root `#as` nodes
+    // peeled from the left side so far.
+    while let Term::As { pattern, alias } = function.unannotated() {
+        aliases.push((**alias).clone());
+        let pattern = (**pattern).clone();
+        function = pattern;
+    }
     let Term::Apply {
         label: function_label,
         arguments: function_arguments,
@@ -738,6 +750,12 @@ fn resolve_with_config_body(
     };
     if let Some(metadata) = function.metadata() {
         result = result.with_metadata(metadata.clone());
+    }
+    for alias in aliases.into_iter().rev() {
+        result = Term::As {
+            pattern: Box::new(result),
+            alias: Box::new(alias),
+        };
     }
     if let Some(right) = right {
         Term::Rewrite {

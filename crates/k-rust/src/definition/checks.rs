@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::ast::{ProductionItem, Sentence};
-use super::catalog::{LabelHead, ProductionCatalog};
+use super::catalog::LabelHead;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
@@ -42,6 +42,7 @@ mod ml_positions;
 mod production_shapes;
 mod regexes;
 mod rhs_variables;
+mod root_aliases;
 mod sorts;
 mod term_position;
 
@@ -171,13 +172,18 @@ fn check_module_with_options_and_catalog(
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
+        .chain(check_variable_naming_attributes(&sentences))
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(if options.backend == StructuralCheckBackend::Rust {
-            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None, None)
+            ml_positions::check_ml_construct_positions(&sentences, production_catalog, None)
         } else {
             Vec::new()
         })
         .chain(fresh_variables::check_fresh_variables(
+            &sentences,
+            production_catalog,
+        ))
+        .chain(root_aliases::check_equation_root_aliases(
             &sentences,
             production_catalog,
         ))
@@ -205,8 +211,7 @@ fn check_module_with_options_and_catalog(
 
 /// The matching-logic position refusals (`ml_positions`) of every module's local sentences, each
 /// judged against its module's productions: the check the compile pipeline repeats once macros
-/// and aliases are expanded at their uses, for the Rust target (`rust_target`). There the sorts
-/// are known, so an or-pattern an injection places below a symbol is judged too. For every
+/// and aliases are expanded at their uses, for the Rust target (`rust_target`). For every
 /// target, a claim's right-side alias that `lower term conjunctions` does not lower is refused,
 /// its applications' effects judged by the productions and equations of `compiled`: no compiled
 /// form of the claim keeps the alias's pattern. For the Rust target, an application inside a
@@ -252,29 +257,22 @@ pub(crate) fn check_ml_construct_positions_in_definition(
         if !rust_target {
             continue;
         }
-        let productions = views.production_catalog(module_id);
-        let injector = std::cell::OnceCell::new();
-        let injected = |label: &crate::kast::Label, index: usize, argument: &Term| {
-            injected_or_pattern(
-                &views,
-                module_id,
-                &injector,
-                productions,
-                label,
-                index,
-                argument,
-            )
-        };
         diagnostics.extend(ml_positions::check_ml_construct_positions(
             &sentences,
-            productions,
-            Some(&injected),
+            views.production_catalog(module_id),
             Some(&affects_value),
         ));
     }
     diagnostics.sort();
     diagnostics.dedup();
     diagnostics
+}
+
+/// The refusals of the quantifiers of the search pattern `sentence`, judged as a rule, whose
+/// binder is no element variable, by the binder check of the definitions' rules
+/// ([`DiagnosticCode::InvalidBinder`]).
+pub(crate) fn search_pattern_binder_diagnostics(sentence: &Sentence) -> Vec<Diagnostic> {
+    rhs_variables::binder_diagnostics(sentence)
 }
 
 /// The refusals of the search pattern `sentence` by the matching-logic position walk (module
@@ -289,45 +287,6 @@ pub(crate) fn search_pattern_position_diagnostics(
     diagnostics.sort();
     diagnostics.dedup();
     diagnostics
-}
-
-/// Whether the or-pattern `argument`, at the root of argument `index` of an application of
-/// `label`, is placed below an injection or a k-sequence when sort injection places it at the
-/// argument's declared sort: the alternatives' sort is below the argument's. `false` where the
-/// label has no single signature or the argument is not placed (the sentence's own sort errors
-/// are reported where they arise).
-fn injected_or_pattern<'v>(
-    views: &'v crate::definition::DefinitionViews<'v>,
-    module: crate::definition::ModuleId,
-    injector: &std::cell::OnceCell<Option<crate::kompile::SortInjector<'v, 'v>>>,
-    productions: &ProductionCatalog<'_>,
-    label: &crate::kast::Label,
-    index: usize,
-    argument: &Term,
-) -> bool {
-    let Some(signatures) = productions.signatures_for(&LabelHead::from(label)) else {
-        return false;
-    };
-    let mut signatures = signatures.iter();
-    let (Some(signature), None) = (signatures.next(), signatures.next()) else {
-        return false;
-    };
-    let Some(sort) = signature.arguments.get(index) else {
-        return false;
-    };
-    let Some(injector) = injector
-        .get_or_init(|| crate::kompile::SortInjector::with_views(views, module).ok())
-        .as_ref()
-    else {
-        return false;
-    };
-    injector.inject(argument, sort).is_ok_and(|placed| {
-        !matches!(
-            crate::kompile::ml_constructs::read_through_casts(&placed),
-            Term::Apply { label, arguments }
-                if label.is(InternalLabel::Or) && arguments.len() == 2
-        )
-    })
 }
 
 /// Run all implemented structural checks across a resolved definition.
@@ -450,7 +409,13 @@ pub fn check_k_terms(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 
 /// Where rewrites and `#as` may occur: a rule and a `#fun` have at least one rewrite, a rewrite is
 /// not nested in another, nor under a function rule's context or an `#as` pattern, `#as` is not
-/// on a right-hand side, and an existential variable is not on a left-hand side.
+/// on a right-hand side, and an existential variable is not on a left-hand side or in a
+/// `requires`.
+///
+/// An existential variable is a `?` variable free in the sentence, which the right side
+/// quantifies. A `?` variable that a quantifier binds (`#Exists ?Y . P`) is that quantifier's own
+/// variable, whatever its spelling (`kast::binding`), so it is judged as the same quantifier over
+/// `Y` is: neither its binder nor an occurrence it binds is refused.
 pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -486,7 +451,8 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 }
 
 /// A named variable that occurs once is reported as unused, and an anonymous-named variable that
-/// occurs more than once as used; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
+/// occurs more than once as used, each variable counted apart from another of its spelling that a
+/// quantifier or a local function binds; `HOLE` and `HERE` in contexts are exempt. A quantifier whose
 /// binder is an anonymous variable (`#Exists _ . P`) is reported as binding nothing.
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -495,15 +461,27 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             continue;
         }
         warn_anonymous_binders(sentence, &mut diagnostics);
-        let mut counts = BTreeMap::<String, usize>::new();
-        for (_, term) in sentence.terms() {
-            term.visit_preorder(&mut |term| {
-                if let Term::Variable { name, .. } = term {
-                    *counts.entry(name.clone()).or_default() += 1;
-                }
-            });
+        // Occurrences are counted per variable, not per spelling (`kast::binding`): the free
+        // occurrences of a name in any term of the sentence are one variable, and each quantifier
+        // or local function (`#fun`, `#let`, a match `P :=K A`) binds a variable of its own for
+        // each name it binds, its binding occurrences included.
+        let mut counts = BTreeMap::<(Option<(usize, usize)>, String), usize>::new();
+        for (root, (_, term)) in sentence.terms().enumerate() {
+            for occurrence in crate::kast::binding::occurrences_in(
+                term,
+                crate::kast::binding::Binders::LocalFunctions,
+            ) {
+                let scope = match occurrence.role {
+                    crate::kast::binding::Role::Free => None,
+                    crate::kast::binding::Role::Bound { binder }
+                    | crate::kast::binding::Role::Binding { binder } => Some((root, binder)),
+                };
+                *counts
+                    .entry((scope, occurrence.name.to_owned()))
+                    .or_default() += 1;
+            }
         }
-        for (name, count) in counts {
+        for ((_, name), count) in counts {
             let named_anonymous = is_named_anonymous(&name);
             if count == 1
                 && !named_anonymous
@@ -526,6 +504,63 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
                     DiagnosticCode::InvalidAnonymousVariable,
                     format!(
                         "Variable '{name}' declared as unused, but it is used. Remove underscore from variable name if this is intentional."
+                    ),
+                    sentence,
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+/// FU-55: a `concrete` or `symbolic` attribute of a rule or claim names free variables of it. An
+/// attribute lies outside every quantifier's and every local function's scope, so a name it lists
+/// can only be a variable free in the sentence's terms (`kast::binding`, with local functions as
+/// binders); a name that is none is refused at the sentence. A local function's parameter is
+/// matched against the value the function is applied to when the function is evaluated, not
+/// against the subject when the rule is chosen, so `concrete(Z)` says nothing of it.
+pub fn check_variable_naming_attributes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for sentence in sentences {
+        if !matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
+            continue;
+        }
+        let attributes = sentence.attributes();
+        let keys = [AttributeKey::Concrete, AttributeKey::Symbolic];
+        if keys.iter().all(|key| attributes.string(*key).is_none()) {
+            continue;
+        }
+        let free = sentence
+            .terms()
+            .flat_map(|(_, term)| {
+                crate::kast::binding::free_variables_in(
+                    term,
+                    crate::kast::binding::Binders::LocalFunctions,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        for key in keys {
+            let Some(value) = attributes.string(key) else {
+                continue;
+            };
+            // Invariant: every name of `value` before `name` was checked.
+            for name in value
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                let element = name.trim_start_matches('@');
+                if free.contains(name)
+                    || free.contains(element)
+                    || free.contains(&format!("@{element}"))
+                {
+                    continue;
+                }
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidAttribute,
+                    format!(
+                        "The {} attribute names {name}, which is no free variable of the sentence: an attribute lies outside every quantifier and local function, so a name it lists must be a variable the sentence uses free.",
+                        key.as_str()
                     ),
                     sentence,
                 ));
@@ -892,6 +927,59 @@ fn is_anonymous(name: &str) -> bool {
     crate::kast::binding::is_unresolved_anonymous(name)
 }
 
+/// The kinds of rule that state an equation between the term their left-hand side matches and
+/// their right-hand side, rather than a rewrite step of the configuration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EquationKind {
+    /// A rule with a macro-like attribute, or of a macro-like production: expanded wherever its
+    /// left-hand side occurs.
+    MacroOrAlias,
+    /// An `anywhere` rule: applied to its left-hand side wherever that term occurs.
+    Anywhere,
+    /// A `simplification` rule: an equation on the term its left-hand side matches.
+    Simplification,
+    /// A rule whose head is a `function` production: evaluated wherever the function is applied.
+    Function,
+}
+
+impl EquationKind {
+    /// The equation kind of `sentence`, or `None` for a rewrite rule and for every other
+    /// sentence. A kind declared on the rule wins over its head's kind, macro-like first.
+    fn of(sentence: &Sentence, productions: &super::ProductionCatalog<'_>) -> Option<Self> {
+        if !matches!(sentence, Sentence::Rule { .. }) {
+            return None;
+        }
+        let attributes = sentence.attributes();
+        let head = LabelHead::from(&super::match_rule_label(sentence));
+        let production_attributes = productions.attributes_for(&head);
+        let declared = |key: AttributeKey| {
+            attributes.has(key)
+                || production_attributes.is_some_and(|attributes| attributes.has(key))
+        };
+        if AttributeKey::MACRO_LIKE.into_iter().any(declared) {
+            Some(Self::MacroOrAlias)
+        } else if attributes.has(AttributeKey::Anywhere) {
+            Some(Self::Anywhere)
+        } else if attributes.has(AttributeKey::Simplification) {
+            Some(Self::Simplification)
+        } else if productions.function_labels().contains(&head) {
+            Some(Self::Function)
+        } else {
+            None
+        }
+    }
+
+    /// The kind as a diagnostic names a rule of it.
+    fn rule(self) -> &'static str {
+        match self {
+            Self::MacroOrAlias => "a macro or alias rule",
+            Self::Anywhere => "an anywhere rule",
+            Self::Simplification => "a simplification rule",
+            Self::Function => "a function rule",
+        }
+    }
+}
+
 fn anonymous_variable_exempt(sentence: &Sentence, name: &str) -> bool {
     matches!(sentence, Sentence::ContextAlias { .. }) && name == "HERE"
         || matches!(
@@ -912,15 +1000,28 @@ struct RewriteState {
     in_as: bool,
     in_function_context: bool,
     in_function_body: bool,
+    /// The names the quantifiers around the visited term bind there, innermost last.
+    quantified: Vec<String>,
 }
 
-// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
+// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, `state.quantified` the names the quantifiers around it bind, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
 fn visit_rewrite_term(
     term: &Term,
     state: &mut RewriteState,
     diagnostics: &mut Vec<Diagnostic>,
     sentence: &Sentence,
 ) {
+    // A quantifier's binder is its own variable, not an occurrence of the sentence's, and the
+    // names it binds are bound in its body (`kast::binding`).
+    if let Some(quantifier) = crate::kast::binding::quantifier(term) {
+        let depth = state.quantified.len();
+        state
+            .quantified
+            .extend(quantifier.bound().into_iter().map(str::to_owned));
+        visit_rewrite_term(quantifier.body, state, diagnostics, sentence);
+        state.quantified.truncate(depth);
+        return;
+    }
     match term.unannotated() {
         Term::Rewrite { left, right } => {
             let was_in_rewrite = state.in_rewrite;
@@ -977,7 +1078,7 @@ fn visit_rewrite_term(
             state.in_as = was_in_as;
         }
         Term::Variable { name, .. } => {
-            if !state.in_rewrite_rhs && name.starts_with('?') {
+            if !state.in_rewrite_rhs && name.starts_with('?') && !state.quantified.contains(name) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidExistentialVariable,
                     format!(

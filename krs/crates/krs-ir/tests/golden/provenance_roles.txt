@@ -196,6 +196,7 @@ FunctionFreshGenerator=function_fresh_generator
 ClaimTrusted=claim_trusted
 FunctionSmtlib=function_smtlib
 FunctionSmtHook=function_smt_hook
+FunctionUnderspecified=function_underspecified
 SmtHookPlaceholder=smt_hook_placeholder
 RestrictionConcrete=restriction_concrete
 RestrictionSymbolic=restriction_symbolic

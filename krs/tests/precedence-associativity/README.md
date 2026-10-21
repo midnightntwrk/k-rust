@@ -13,7 +13,7 @@ root. The verifier builds the production `krs` CLI, emits this Rust-authored
 definition, compiles it with the pinned K frontend, and checks both parses.
 It also parses both probes with native `krs parse`, plus `! true == false`,
 whose only tree under the group priority `(Not) > (Eq)` is
-`eq(not(true), false)`; the priority and associativity are declared by
+`probeSyntaxEq(probeSyntaxNot(true), false)`; the priority and associativity are declared by
 production group only, so this checks that the native route resolves group
 tags to the members' labels as K does.
 

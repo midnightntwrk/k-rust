@@ -204,14 +204,25 @@ pub fn expand_reference_source(
     let mut needs_map_macro = false;
     let mut items = Vec::new();
     for (index, mut item) in std::mem::take(&mut file.items).into_iter().enumerate() {
+        if let Some(long_form) = materialize_function_shorthand(&item)? {
+            items.extend(long_form);
+            continue;
+        }
         if let syn::Item::Use(item_use) = &mut item {
             item_use
                 .attrs
                 .push(syn::parse_quote!(#[allow(unused_imports)]));
         }
+        // A rule or equation fn whose subject holds `k::bits!` templates
+        // is written as its long form.
+        if let syn::Item::Fn(item_fn) = &mut item {
+            krs_syntax::desugar_bit_templates(item_fn)
+                .map_err(ReferenceExpansionError::KrsSyntax)?;
+        }
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
             materialize_constructor_flags(item_struct);
+            materialize_function_syntax(item_struct)?;
         }
         let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
             materialize_syntax_list(item_enum, package, module_path, bundle, &descriptor_index)?;
@@ -239,6 +250,40 @@ pub fn expand_reference_source(
             Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
         ) {
             items.extend(materialize_readable_sorts(invocation)?);
+            continue;
+        }
+        if entry == Some(&FunctionMacro::Equations) {
+            let table = krs_syntax::EquationTable::parse_tokens(invocation.mac.tokens.clone())
+                .map_err(ReferenceExpansionError::KrsSyntax)?;
+            for row in table.rows() {
+                let name = row.label().unraw().to_string();
+                if !rendered_names.insert(name.clone()) {
+                    return Err(ReferenceExpansionError::DuplicateRule(name));
+                }
+                let descriptors = descriptor_index
+                    .values()
+                    .filter_map(|descriptor| match descriptor.payload() {
+                        krs_ir::DescriptorPayload::StructuredRule(rule)
+                            if descriptor.id().package() == package
+                                && descriptor.id().module_path() == module_path
+                                && descriptor.id().item_name() == name
+                                && descriptor.id().item_kind() == krs_ir::ItemKind::Equation =>
+                        {
+                            Some(rule.as_ref())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let [rule] = descriptors.as_slice() else {
+                    return Err(ReferenceExpansionError::RuleCoverage {
+                        name,
+                        found: descriptors.len(),
+                    });
+                };
+                items.push(syn::Item::Fn(render_equation_row(
+                    row, rule, package, bundle,
+                )?));
+            }
             continue;
         }
         if entry != Some(&FunctionMacro::Rules) {
@@ -296,6 +341,9 @@ pub fn expand_reference_source(
                 .unwrap_or(items.len());
             items.insert(insertion, syn::Item::Use(map_use));
         }
+    }
+    for item in &mut items {
+        rename_hidden_binders(item)?;
     }
     file.items = items;
     let mut output =
@@ -367,18 +415,17 @@ fn materialize_enum_productions(
         let Some(syntax) = variant.syntax() else {
             continue;
         };
-        let group_ordinal = variant.precedence_group().ok_or_else(|| {
-            ReferenceExpansionError::GeneratedRust(syn::Error::new(
-                output_variant.ident.span(),
-                "readable enum variant has no checked precedence group",
-            ))
-        })?;
-        let group = declaration
-            .precedence_groups()
-            .nth(group_ordinal)
-            .expect("enum precedence ordinal identifies a parsed group")
-            .emitted_name(declaration.enum_name(), group_ordinal);
-        let group = syn::LitStr::new(&group, Span::call_site());
+        // A family without a chain has no groups, and its reference form
+        // names none.
+        let group = variant.precedence_group().map(|group_ordinal| {
+            let group = declaration
+                .precedence_groups()
+                .nth(group_ordinal)
+                .expect("enum precedence ordinal identifies a parsed group")
+                .emitted_name(declaration.enum_name(), group_ordinal);
+            let group = syn::LitStr::new(&group, Span::call_site());
+            quote!(group = #group,)
+        });
         let template = syntax.syntax();
         let format = syntax.format().ok_or_else(|| {
             ReferenceExpansionError::GeneratedRust(syn::Error::new(
@@ -400,7 +447,7 @@ fn materialize_enum_productions(
             .map(|colors| quote!(colors = [#(#colors),*],));
         let materialized: syn::Attribute = syn::parse_quote!(#[k::syntax(
             #template,
-            group = #group,
+            #group
             #avoid
             #prefer
             #placement
@@ -492,6 +539,107 @@ fn materialize_syntax_list(
 /// Writes the reference spelling `internal = true` / `program = true` for a
 /// bare placement flag in `#[k::constructor(..)]`; `#[k::function]` keeps its
 /// bare flags in both layers (decision X2).
+/// The `#[k::function(..)]` attribute of an item, by its last path segment.
+fn function_attribute_index(attributes: &[syn::Attribute]) -> Option<usize> {
+    attributes.iter().position(|attribute| {
+        attribute.path().segments.len() >= 2 && attribute_is(attribute, "function")
+    })
+}
+
+/// The attribute `#[prefix::name(tokens)]` beside `template`'s path.
+fn sibling_attribute(
+    template: &syn::Attribute,
+    name: &str,
+    tokens: &TokenStream,
+) -> syn::Attribute {
+    let mut path = template.path().clone();
+    if let Some(last) = path.segments.last_mut() {
+        last.ident = Ident::new(name, Span::call_site());
+    }
+    if tokens.is_empty() {
+        syn::parse_quote!(#[#path])
+    } else {
+        syn::parse_quote!(#[#path(#tokens)])
+    }
+}
+
+/// Writes the default syntax of a function struct that omits `syntax`, so
+/// the reference surface states every key.
+fn materialize_function_syntax(item: &mut syn::ItemStruct) -> Result<(), ReferenceExpansionError> {
+    let Some(index) = function_attribute_index(&item.attrs) else {
+        return Ok(());
+    };
+    let syn::Meta::List(list) = &item.attrs[index].meta else {
+        return Ok(());
+    };
+    let mut attribute = krs_syntax::FunctionAttribute::parse_tokens(list.tokens.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    if attribute.has_authored_syntax() {
+        return Ok(());
+    }
+    let declaration = krs_syntax::ConstructorDeclaration::from_item(item.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    attribute
+        .complete_default_syntax(&declaration)
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let syntax = attribute.production().syntax.clone();
+    let mut tokens = list.tokens.clone();
+    tokens.extend(quote!(, syntax = #syntax));
+    item.attrs[index] = sibling_attribute(&item.attrs[index], "function", &tokens);
+    Ok(())
+}
+
+/// The long form of `#[k::function(..)]` on a `fn`: the struct with its
+/// sort and syntax stated, and the `#[k::equation]` its body defines.
+fn materialize_function_shorthand(
+    item: &syn::Item,
+) -> Result<Option<Vec<syn::Item>>, ReferenceExpansionError> {
+    let Some(mut shorthand) = krs_syntax::ShorthandItem::from_item(item) else {
+        return Ok(None);
+    };
+    let Some(index) = function_attribute_index(&shorthand.attrs) else {
+        return Ok(None);
+    };
+    let function = shorthand.attrs.remove(index);
+    let tokens = match &function.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => TokenStream::new(),
+    };
+    let lowered = krs_syntax::FunctionShorthand::lower(tokens.clone(), shorthand)
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let production = lowered.attribute().production();
+    let sort = &production.sort;
+    let mut keys = tokens;
+    keys.extend(quote!(, sort = #sort));
+    if !lowered.attribute().has_authored_syntax() {
+        let syntax = &production.syntax;
+        keys.extend(quote!(, syntax = #syntax));
+    }
+    let mut structure = lowered.structure().clone();
+    structure
+        .attrs
+        .push(sibling_attribute(&function, "function", &keys));
+    let mut items = vec![syn::Item::Struct(structure)];
+    if let Some(equation) = lowered.equation() {
+        let mut equation = equation.clone();
+        equation.attrs.insert(
+            0,
+            sibling_attribute(&function, "equation", &TokenStream::new()),
+        );
+        // The subject reads as a hand-written equation's, `k::term![F(x)]`.
+        let mut term_path = function.path().clone();
+        if let Some(last) = term_path.segments.last_mut() {
+            last.ident = Ident::new("term", Span::call_site());
+        }
+        if let Some(syn::FnArg::Typed(subject)) = equation.sig.inputs.first_mut() {
+            let pattern = &subject.pat;
+            *subject.pat = syn::parse_quote!(#term_path![#pattern]);
+        }
+        items.push(syn::Item::Fn(equation));
+    }
+    Ok(Some(items))
+}
+
 fn materialize_constructor_flags(item: &mut syn::ItemStruct) {
     for attribute in &mut item.attrs {
         if !attribute_is(attribute, "constructor") {
@@ -1257,9 +1405,12 @@ fn render_rule(
         .iter()
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
+    // An open pattern that rewrites the cell names its tail; one that only
+    // reads it keeps the tail anonymous.
     let tail = rule
         .head
         .as_ref()
+        .filter(|head| !head.exact && head.result.is_some())
         .map(|_| fresh_ident("tail", &mut reserved));
     let state = fresh_ident("state", &mut reserved);
     let mut parameters = Vec::new();
@@ -1272,32 +1423,48 @@ fn render_rule(
             }
         })?;
         let ty = render_sort_type(sort, package)?;
-        parameters.push(quote!(#name: #ty));
+        parameters.push((binding.name.clone(), quote!(#name: #ty)));
     }
 
     let mut left_cells = Vec::new();
     let mut right_cells = Vec::new();
     // A clause without the computation cell leaves it out of both sides (E7).
-    if let (Some(head), Some(computation), Some(tail)) = (&rule.head, &rule.computation_cell, &tail)
-    {
+    if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
         let computation = render_rule_cell_field(&computation.cell, &rule.configuration, package)?;
-        let subject = render_term(&head.subject, true, package, bundle)?;
-        left_cells.push(quote! {
-            #computation: k::configuration::KCell(#subject, #tail @ ..)
-        });
-        let result_items = match &head.result {
-            ProtocolHeadRuleResult::Replace(term) => {
-                vec![render_term(term, false, package, bundle)?]
-            }
-            ProtocolHeadRuleResult::Splice(items) => items
-                .iter()
-                .map(|term| render_term(term, false, package, bundle))
-                .collect::<Result<Vec<_>, _>>()?,
-            ProtocolHeadRuleResult::Erase => Vec::new(),
+        let subject = head
+            .items
+            .iter()
+            .map(|item| render_term(item, true, package, bundle))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rest = match (&tail, head.exact) {
+            (_, true) => Vec::new(),
+            (Some(tail), false) => vec![quote!(#tail @ ..)],
+            (None, false) => vec![quote!(..)],
         };
-        right_cells.push(quote! {
-            #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+        left_cells.push(quote! {
+            #computation: k::configuration::KCell(#(#subject),* #(, #rest)*)
         });
+        if let Some(result) = &head.result {
+            let result_items = match result {
+                ProtocolHeadRuleResult::Replace(term) => {
+                    vec![render_term(term, false, package, bundle)?]
+                }
+                ProtocolHeadRuleResult::Splice(items) => items
+                    .iter()
+                    .map(|term| render_term(term, false, package, bundle))
+                    .collect::<Result<Vec<_>, _>>()?,
+                ProtocolHeadRuleResult::Erase => Vec::new(),
+            };
+            right_cells.push(if let Some(tail) = &tail {
+                quote! {
+                    #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+                }
+            } else {
+                quote! {
+                    #computation: k::configuration::KCell(#(#result_items),*)
+                }
+            });
+        }
     }
 
     let mut instance_tails = 0_usize;
@@ -1325,17 +1492,19 @@ fn render_rule(
                 left_cells.push(left);
                 right_cells.extend(right);
             }
-            ProtocolHeadRuleExtra::HaveMap {
-                cell,
-                key,
-                value_binding,
-            } => {
+            ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
-                let key = render_term(key, true, package, bundle)?;
-                let value = rust_ident(value_binding);
+                let entries = entries
+                    .iter()
+                    .map(|entry| {
+                        let key = render_term(&entry.key, true, package, bundle)?;
+                        let value = rust_ident(&entry.value_binding);
+                        Ok(quote!(#key -> #value))
+                    })
+                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
                 let rest = fresh_ident(&format!("rest{ordinal}"), &mut reserved);
                 left_cells.push(quote! {
-                    #cell: k::configuration::Cell(map![#key -> #value, #rest @ ..])
+                    #cell: k::configuration::Cell(map![#(#entries,)* #rest @ ..])
                 });
             }
             ProtocolHeadRuleExtra::UpdateMap {
@@ -1360,18 +1529,24 @@ fn render_rule(
                 let group = is_group_cell(&cell.cell, bundle);
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
-                let after = render_term(after, false, package, bundle)?;
+                let after = after
+                    .as_ref()
+                    .map(|after| render_term(after, false, package, bundle))
+                    .transpose()?;
+                // A read-only cell is a subject entry without a result entry.
                 if group {
                     // A nested field's entry has no wrapper (KF-016).
                     left_cells.push(quote!(#cell: #before));
-                    right_cells.push(quote!(#cell: #after));
+                    right_cells.extend(after.map(|after| quote!(#cell: #after)));
                 } else {
                     left_cells.push(quote! {
                         #cell: k::configuration::Cell(#before)
                     });
-                    right_cells.push(quote! {
-                        #cell: k::configuration::Cell(#after)
-                    });
+                    right_cells.extend(after.map(|after| {
+                        quote! {
+                            #cell: k::configuration::Cell(#after)
+                        }
+                    }));
                 }
             }
         }
@@ -1422,6 +1597,33 @@ fn render_rule(
         rule.nondet.as_ref(),
         &label,
     );
+    // A `cells!` rule declares its typed binders in their first-occurrence
+    // order in the subject, which lists the cells in another order than
+    // the readable record (map reads first), so the order is read back from
+    // the rendered subject.
+    let subject = quote!(#(#left_cells,)* #state @ ..);
+    // A `k::bits!` template's hidden binder is no authored binder, so the
+    // subject is read back with it renamed, and the names mapped back.
+    let (readable, renamed) = rename_hidden_tokens(subject.clone());
+    let order = krs_syntax::parse_cells_pattern(readable)
+        .and_then(|cells| krs_syntax::cells_pattern_term_binders(&cells))
+        .map_err(ReferenceExpansionError::KrsSyntax)?
+        .into_iter()
+        .map(|binder| {
+            renamed
+                .iter()
+                .find(|(_, fresh)| **fresh == binder)
+                .map_or(binder, |(hidden, fresh)| Ident::new(hidden, fresh.span()))
+        })
+        .collect::<Vec<_>>();
+    let position = |name: &str| {
+        order
+            .iter()
+            .position(|binder| binder.unraw() == name)
+            .unwrap_or(usize::MAX)
+    };
+    parameters.sort_by_key(|(name, _)| position(name));
+    let parameters = parameters.into_iter().map(|(_, parameter)| parameter);
     syn::parse2(quote! {
         #(#attrs)*
         #(#existential_helpers)*
@@ -1429,15 +1631,58 @@ fn render_rule(
         #requires
         pub fn #name(
             #(#parameters,)*
-            k::cells! {
-                #(#left_cells,)*
-                #state @ ..
-            }: #configuration,
+            k::cells! { #subject }: #configuration,
         ) -> #configuration {
             k::cells! {
                 #(#right_cells,)*
                 ..#state
             }
+        }
+    })
+    .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// The `#[k::equation]` fn one `k::equations!` row stands for, with its
+/// paths qualified, since the table's `use` items do not reach it.
+fn render_equation_row(
+    row: &krs_syntax::EquationRow,
+    rule: &krs_ir::StructuredRuleDescriptor,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<syn::ItemFn, ReferenceExpansionError> {
+    let sort = match &rule.subject_sort.sort {
+        krs_ir::DescriptorSortRef::Builtin(sort) => {
+            let sort = render_builtin_sort(*sort);
+            quote!(k::Term<#sort>)
+        }
+        other => {
+            let sort = render_descriptor_sort(other, package)?;
+            quote!(k::Term<#sort>)
+        }
+    };
+    let subject = render_term(&rule.subject, true, package, bundle)?;
+    let result = rule
+        .result
+        .as_ref()
+        .map(|result| render_term(result, false, package, bundle))
+        .transpose()?;
+    let requires = rule
+        .requires
+        .as_ref()
+        .map(|condition| {
+            render_term(&condition.term, false, package, bundle)
+                .map(|term| quote!(#[k::requires(#term)]))
+        })
+        .transpose()?;
+    let keys = row.equation_keys().map(|keys| quote!((#keys)));
+    let attrs = &row.rule().item().attrs;
+    let name = row.label();
+    syn::parse2(quote! {
+        #(#attrs)*
+        #[k::equation #keys]
+        #requires
+        fn #name(k::term![#subject]: #sort) -> #sort {
+            #result
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
@@ -1965,10 +2210,11 @@ fn render_sort_type(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
+        // A framework sort, such as a computation item's `KItem`, is the
+        // facade's `k::KItem`.
+        SemanticSortRef::Declared(id) => render_sort_path(id, package),
         // A whole-group binder is typed by its nested `#[k::cell]` struct (KF-016).
-        SemanticSortRef::Declared(id) | SemanticSortRef::Cell(id) => {
-            render_declared_path(id, package)
-        }
+        SemanticSortRef::Cell(id) => render_declared_path(id, package),
         SemanticSortRef::Builtin(sort) => {
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))
@@ -2106,6 +2352,75 @@ fn render_facade_marker(marker: FacadeMarker) -> TokenStream {
     let module = format_ident!("{}", marker.module);
     let name = format_ident!("{}", marker.name);
     quote!(k::builtin::#module::#name)
+}
+
+/// Names the hidden binders of a `k::bits!` template's long form, which no
+/// author may write, `bits`, `bits1`, .. in the order of their ordinals,
+/// skipping every identifier the item already spells.
+fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionError> {
+    let (tokens, renamed) = rename_hidden_tokens(item.to_token_stream());
+    if !renamed.is_empty() {
+        *item = syn::parse2(tokens).map_err(ReferenceExpansionError::GeneratedRust)?;
+    }
+    Ok(())
+}
+
+/// `tokens` with each hidden template binder renamed as
+/// [`rename_hidden_binders`] does, and the renaming.
+fn rename_hidden_tokens(tokens: TokenStream) -> (TokenStream, BTreeMap<String, Ident>) {
+    fn identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    names.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => identifiers(group.stream(), names),
+                _ => {}
+            }
+        }
+    }
+    fn rename(tokens: TokenStream, names: &BTreeMap<String, Ident>) -> TokenStream {
+        tokens
+            .into_iter()
+            .map(|token| match token {
+                proc_macro2::TokenTree::Ident(ident) => names
+                    .get(&ident.to_string())
+                    .map_or(proc_macro2::TokenTree::Ident(ident), |name| {
+                        proc_macro2::TokenTree::Ident(name.clone())
+                    }),
+                proc_macro2::TokenTree::Group(group) => {
+                    let mut renamed =
+                        proc_macro2::Group::new(group.delimiter(), rename(group.stream(), names));
+                    renamed.set_span(group.span());
+                    proc_macro2::TokenTree::Group(renamed)
+                }
+                other => other,
+            })
+            .collect()
+    }
+    let mut spelled = BTreeSet::new();
+    identifiers(tokens.clone(), &mut spelled);
+    let mut hidden = spelled
+        .iter()
+        .filter(|name| krs_syntax::is_hidden_binder(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if hidden.is_empty() {
+        return (tokens, BTreeMap::new());
+    }
+    hidden.sort_by_key(|name| {
+        name.trim_start_matches(|character: char| !character.is_ascii_digit())
+            .parse::<u64>()
+            .unwrap_or(u64::MAX)
+    });
+    let names = hidden
+        .into_iter()
+        .map(|name| {
+            let fresh = fresh_ident("bits", &mut spelled);
+            (name, fresh)
+        })
+        .collect::<BTreeMap<_, _>>();
+    (rename(tokens, &names), names)
 }
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {

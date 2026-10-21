@@ -1,0 +1,89 @@
+# kink-flow mutation list for the Markdown fixture (flow F-10). Every address, find text and
+# line is in the K view of spec.md: the prose is whitespace there, and lines are spec.md's lines.
+# The list holds valid and invalid mutations; markdown.rs resolves each one on spec.md and on
+# its K view spec-view.k and requires the same outcome.
+
+[[mutation]]
+id = "inc-adds-two"
+note = "a labelled rule by its bare label (killed by the inc program)"
+
+  [[mutation.edit]]
+  rule = "inc"
+  find = "+Int 1"
+  replace = "+Int 2"
+
+[[mutation]]
+id = "add-becomes-sub"
+note = "the unlabelled rule, by its line in spec.md"
+
+  [[mutation.edit]]
+  line = 31
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "dec-subtracts-two"
+note = "a [label(dec)] rule addressed as LIT.dec"
+
+  [[mutation.edit]]
+  rule = "LIT.dec"
+  find = "-Int 1"
+  replace = "-Int 2"
+
+[[mutation]]
+id = "twice-adds-two-at-once"
+note = "an equal result written another way: no program can kill it (a survivor)"
+
+  [[mutation.edit]]
+  rule = "twice"
+  find = "I +Int 1 +Int 1"
+  replace = "I +Int 2"
+
+[[mutation]]
+id = "add-swaps-operands"
+note = "by the unique occurrence of find in the K view (the prose has I1 -Int I2, not this text)"
+
+  [[mutation.edit]]
+  find = "I1 +Int I2"
+  replace = "I2 +Int I1"
+
+[[mutation]]
+id = "no-dec"
+note = "the dec rule is deleted, by line"
+
+  [[mutation.edit]]
+  line = 45
+  delete = true
+
+[[mutation]]
+id = "twice-ambiguous"
+note = "invalid: +Int 1 occurs twice in the twice rule (find-ambiguous)"
+
+  [[mutation.edit]]
+  rule = "twice"
+  find = "+Int 1"
+  replace = "+Int 0"
+
+[[mutation]]
+id = "file-ambiguous"
+note = "invalid: I +Int 1 occurs in the inc and twice rules (the prose copies do not count)"
+
+  [[mutation.edit]]
+  find = "I +Int 1"
+  replace = "I +Int 0"
+
+[[mutation]]
+id = "prose-only"
+note = "invalid: I1 -Int I2 occurs only in prose, which is not K text (find-not-found)"
+
+  [[mutation.edit]]
+  find = "I1 -Int I2"
+  replace = "I1 +Int I2"
+
+[[mutation]]
+id = "ghost-rule"
+note = "invalid: the ghost fence is not selected, so no rule is labelled ghost"
+
+  [[mutation.edit]]
+  rule = "ghost"
+  delete = true

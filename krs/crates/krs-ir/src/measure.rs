@@ -44,8 +44,9 @@
 //!
 //! Stable `krs` span ids, in execution order (`check`, `expand`, `emit_k`,
 //! `stage`, and `exec` ids belong to their command only; the `native` ids
-//! belong to `build` and, on a stage-cache miss, to `parse`, `run`, `search`,
-//! and `prove`):
+//! belong to `build`, to `check` (all but `native.write`, and none when the
+//! selected route refuses a capability the definition needs), and, on a
+//! stage-cache miss, to `parse`, `run`, `search`, and `prove`):
 //!
 //! | Id | Stage |
 //! |---|---|
@@ -60,7 +61,6 @@
 //! | `protocol.decode` | decode collector stdout as a descriptor bundle |
 //! | `semantic.lower` | descriptor bundle to semantic theory |
 //! | `definition.lower` | semantic theory to Definition IR and sidecars |
-//! | `check.adapt` | `check`: backend support and structural adaptation |
 //! | `expand.render` | `expand`: select, reread, and render the source |
 //! | `emit_k.render` | `emit-k`: canonical JSON and K rendering |
 //! | `emit_k.write` | `emit-k`: artifact writes |

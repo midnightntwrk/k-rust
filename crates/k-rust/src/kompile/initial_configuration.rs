@@ -128,6 +128,20 @@ pub enum ConfigurationError {
         variable: String,
         sort: KastSort,
     },
+    /// A value bound without the parser ([`ConfigurationAssembler::bind_term`]) whose sort is
+    /// not at most the variable's declared sort.
+    ValueSort(Box<ValueSortMismatch>),
+}
+
+/// A value bound without the parser whose sort is not at most its variable's declared sort.
+#[derive(Debug)]
+pub struct ValueSortMismatch {
+    /// The variable, with its `$`.
+    pub variable: String,
+    /// The variable's declared sort.
+    pub declared: KastSort,
+    /// The value's sort.
+    pub actual: KastSort,
 }
 
 impl fmt::Display for ConfigurationError {
@@ -184,6 +198,17 @@ impl fmt::Display for ConfigurationError {
                 f,
                 "configuration variable `{variable}` has actual sort {sort}, which cannot be placed at K"
             ),
+            Self::ValueSort(mismatch) => {
+                let ValueSortMismatch {
+                    variable,
+                    declared,
+                    actual,
+                } = mismatch.as_ref();
+                write!(
+                    f,
+                    "configuration variable `{variable}` is declared at sort {declared}, but its value has sort {actual}"
+                )
+            }
         }
     }
 }
@@ -366,42 +391,10 @@ impl<'g> ConfigurationAssembler<'g> {
     /// The name is checked before the text is parsed, so a repeated or undeclared name is
     /// reported as such whatever its text. A failed bind leaves the configuration unchanged.
     pub fn bind(&mut self, name: &str, text: &str) -> Result<(), ConfigurationError> {
-        let name = name.strip_prefix('$').unwrap_or(name);
-        if name.is_empty() {
-            return Err(ConfigurationError::EmptyName);
-        }
-        if name == "PGM" {
-            return Err(ConfigurationError::ProgramVariable);
-        }
-        if self.bound.contains(name) {
-            return Err(ConfigurationError::Duplicate { name: name.into() });
-        }
-        let variables = self.variables;
-        let sort = variables
-            .get(name)
-            .ok_or_else(|| ConfigurationError::UnknownVariable {
-                name: name.into(),
-                available: variables
-                    .keys()
-                    .filter(|candidate| candidate.as_str() != "PGM")
-                    .map(|candidate| format!("${candidate}"))
-                    .collect(),
-            })?;
-        let declared_parser = self.parser_modules()?.get(name).cloned();
-        let parser_module = match declared_parser {
-            Some(parser_module) => parser_module,
-            None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
-                "STRING-SYNTAX".to_owned()
-            }
-            None => self.main_module.clone(),
-        };
+        let (name, sort) = self.unbound_variable(name)?;
+        let (name, sort) = (name.as_str(), &sort);
+        let parser_module = self.parser_module(name, sort)?;
         let resolved = self.grammar.resolved();
-        if resolved.module_id(&parser_module).is_none() {
-            return Err(ConfigurationError::ParserModuleNotFound {
-                variable: name.into(),
-                module: parser_module,
-            });
-        }
         if !self.parsers.contains_key(&parser_module) {
             self.parsers.insert(
                 parser_module.clone(),
@@ -434,6 +427,93 @@ impl<'g> ConfigurationAssembler<'g> {
             value,
         });
         Ok(())
+    }
+
+    /// Bind the configuration variable `name` (with or without its `$`) to `term`, a term over
+    /// this definition's labels built without the parser: [`Self::bind`] after its parse.
+    ///
+    /// The term is macro-expanded and typed as a parsed value is, so its labels and tokens need
+    /// no injections; its sort must be at most the declared sort, which the parser guarantees
+    /// for text by parsing at that sort. Its tokens take the lexical hooks of the module that
+    /// would parse the variable's text. A failed bind leaves the configuration unchanged.
+    pub fn bind_term(&mut self, name: &str, term: Term) -> Result<(), ConfigurationError> {
+        let (name, sort) = self.unbound_variable(name)?;
+        let token_module = self.parser_module(&name, &sort)?;
+        let expanded = self.expand(
+            ParsedProgram::from_term(term),
+            &configuration_position(&sort),
+        )?;
+        let resolved = self.grammar.resolved();
+        if self.injector.is_none() {
+            self.injector = Some(SortInjector::new(resolved, &self.main_module)?);
+        }
+        let injector = self
+            .injector
+            .as_ref()
+            .expect("the injector was created above");
+        let variable = format!("${name}");
+        let value = ConfigurationValue::from_expanded_at(
+            injector,
+            resolved,
+            &self.main_module,
+            &token_module,
+            &expanded,
+            &variable,
+            &sort,
+        )?;
+        self.bound.insert(name);
+        self.bindings.push(ConfigurationBinding {
+            name: variable,
+            value,
+        });
+        Ok(())
+    }
+
+    /// The module whose grammar reads the value of the variable `name` of sort `sort`: its
+    /// cell's `parser` module, `STRING-SYNTAX` for a stream variable, or the main module.
+    fn parser_module(&mut self, name: &str, sort: &KastSort) -> Result<String, ConfigurationError> {
+        let declared_parser = self.parser_modules()?.get(name).cloned();
+        let parser_module = match declared_parser {
+            Some(parser_module) => parser_module,
+            None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
+                "STRING-SYNTAX".to_owned()
+            }
+            None => self.main_module.clone(),
+        };
+        if self.grammar.resolved().module_id(&parser_module).is_none() {
+            return Err(ConfigurationError::ParserModuleNotFound {
+                variable: name.into(),
+                module: parser_module,
+            });
+        }
+        Ok(parser_module)
+    }
+
+    /// The declared sort of `name` (with or without its `$`), checked to be a declared variable
+    /// other than `$PGM` that is not bound yet.
+    fn unbound_variable(&self, name: &str) -> Result<(String, KastSort), ConfigurationError> {
+        let name = name.strip_prefix('$').unwrap_or(name);
+        if name.is_empty() {
+            return Err(ConfigurationError::EmptyName);
+        }
+        if name == "PGM" {
+            return Err(ConfigurationError::ProgramVariable);
+        }
+        if self.bound.contains(name) {
+            return Err(ConfigurationError::Duplicate { name: name.into() });
+        }
+        let variables = self.variables;
+        let sort = variables
+            .get(name)
+            .ok_or_else(|| ConfigurationError::UnknownVariable {
+                name: name.into(),
+                available: variables
+                    .keys()
+                    .filter(|candidate| candidate.as_str() != "PGM")
+                    .map(|candidate| format!("${candidate}"))
+                    .collect(),
+            })?;
+        Ok((name.to_owned(), sort.clone()))
     }
 
     /// Bind each declared `String`-sorted stream variable that is still unbound: `$IO` to `on`
@@ -675,7 +755,55 @@ mod value {
             program: &ExpandedProgram,
             variable: &str,
         ) -> Result<Self, ConfigurationError> {
-            let (term, sort) = injector.inject_ground(program).map_err(|error| {
+            let (term, sort) = Self::typed(injector, main_module, program, variable)?;
+            Self::placed(
+                injector,
+                resolved,
+                main_module,
+                token_module,
+                term,
+                sort,
+                variable,
+            )
+        }
+
+        /// [`Self::from_expanded`] for a value whose sort the parser did not establish: the
+        /// value's sort must be at most `declared`.
+        pub(super) fn from_expanded_at(
+            injector: &SortInjector<'_, '_>,
+            resolved: &ResolvedDefinition,
+            main_module: &str,
+            token_module: &str,
+            program: &ExpandedProgram,
+            variable: &str,
+            declared: &KastSort,
+        ) -> Result<Self, ConfigurationError> {
+            let (term, sort) = Self::typed(injector, main_module, program, variable)?;
+            if injector.placement(&sort, declared).is_none() {
+                return Err(ConfigurationError::ValueSort(Box::new(ValueSortMismatch {
+                    variable: variable.into(),
+                    declared: declared.clone(),
+                    actual: sort,
+                })));
+            }
+            Self::placed(
+                injector,
+                resolved,
+                main_module,
+                token_module,
+                term,
+                sort,
+                variable,
+            )
+        }
+
+        fn typed(
+            injector: &SortInjector<'_, '_>,
+            main_module: &str,
+            program: &ExpandedProgram,
+            variable: &str,
+        ) -> Result<(Term, KastSort), ConfigurationError> {
+            injector.inject_ground(program).map_err(|error| {
                 if let SortInjectionError::UnknownLabel(label) = &error
                     && label == LOCATION_LABEL
                     && let Some((sort, place)) = first_located_term(program.term())
@@ -694,7 +822,18 @@ mod value {
                 } else {
                     ConfigurationError::SortInjection(error)
                 }
-            })?;
+            })
+        }
+
+        fn placed(
+            injector: &SortInjector<'_, '_>,
+            resolved: &ResolvedDefinition,
+            main_module: &str,
+            token_module: &str,
+            term: Term,
+            sort: KastSort,
+            variable: &str,
+        ) -> Result<Self, ConfigurationError> {
             let placement = injector
                 .placement(&sort, &KastSort::builtin(BuiltinSort::K))
                 .ok_or_else(|| ConfigurationError::Unplaceable {

@@ -200,6 +200,9 @@ pub(super) struct DeclarationCatalog<'a> {
 /// In a rule result (`splice`), an item of sort `K` (`io::write`, `io::putc`, `io::log`)
 /// splices into the sequence as K's `~>` does: the sequence's items then have sort `K`, and
 /// every other item injects into `KItem`. A pattern keeps the single common sort.
+/// Items with no one most-specific common declared sort, such as an `Int`
+/// value followed by a frame, are each a `KItem` of their own sort, so the
+/// sequence's items have sort `K` there too.
 pub(super) fn common_sequence_item_sort(
     descriptor: &Descriptor,
     items: &[SemanticTerm],
@@ -230,15 +233,15 @@ pub(super) fn common_sequence_item_sort(
         .cloned()
         .collect::<Vec<_>>();
     let [item_sort] = most_specific.as_slice() else {
+        if !k_item {
+            return Ok(SemanticSortRef::k_sequence());
+        }
         return Err(DescriptorLoweringError::InvalidTerm {
             id: Box::new(descriptor.id().clone()),
-            detail: if k_item {
+            detail:
                 "K sequence items do not have one most-specific common sort; a `K` item splices \
                  into a sequence only in a rule result"
-                    .into()
-            } else {
-                "K sequence items do not have one most-specific common sort".into()
-            },
+                    .into(),
         });
     };
     Ok(item_sort.clone())

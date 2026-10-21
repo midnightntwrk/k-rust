@@ -1256,6 +1256,11 @@ impl StructuredTermBuilder<'_> {
                 .join(", ");
             let inferred = match candidates.as_slice() {
                 [sort] => sort.clone(),
+                [] if krs_syntax::is_hidden_binder(name) => {
+                    return Err(self.invalid_term(format!(
+                        "a `k::bits!` template matches an `Int`, but it stands where the sorts [{occurrence_sorts}] meet in no common sort; a template belongs in an `Int` argument"
+                    )));
+                }
                 [] => {
                     return Err(self.invalid_term(format!(
                         "variable {name:?} has no declared common descendant for occurrence sorts [{occurrence_sorts}]"

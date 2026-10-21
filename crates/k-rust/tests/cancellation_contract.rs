@@ -54,6 +54,13 @@ fn with_watchdog<T>(operation: impl FnOnce() -> T) -> T {
 
 /// [`with_watchdog`] with the cancellation after `delay`.
 fn with_watchdog_after<T>(delay: Duration, operation: impl FnOnce() -> T) -> T {
+    with_watchdog_reporting(delay, operation).0
+}
+
+/// [`with_watchdog_after`], also telling whether the cancellation had fired by the time
+/// `operation` returned. It is read before `operation`'s end is signalled, since the watchdog
+/// also cancels once that signal arrives.
+fn with_watchdog_reporting<T>(delay: Duration, operation: impl FnOnce() -> T) -> (T, bool) {
     let token = CancellationToken::new();
     let (finished, done) = mpsc::channel::<()>();
     let watchdog = {
@@ -65,9 +72,10 @@ fn with_watchdog_after<T>(delay: Duration, operation: impl FnOnce() -> T) -> T {
         })
     };
     let outcome = token.scope(operation);
+    let fired = token.is_cancelled();
     drop(finished);
     watchdog.join().unwrap();
-    outcome
+    (outcome, fired)
 }
 
 #[test]
@@ -215,13 +223,33 @@ fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
     panic!("the proof never recorded its stuck leaf before the cancellation");
 }
 
-/// With the default limit of one counterexample, the stuck leaf ends the proof; a watchdog that
-/// fires later, or a cancellation the last leaf's refinement observed, leaves that verdict.
+/// With the default limit of one counterexample, the stuck leaf ends the proof by itself, before
+/// any cancellation: the `count` branch never ends, so only the limit can end the proof first.
+///
+/// So the test passes only on `Ok(disproved)` returned before the watchdog fired. A proof the
+/// cancellation ended also keeps a `disproved` verdict (`cancellation_keeps_verdict`), so an `Ok`
+/// after the watchdog fired shows nothing about the limit, and a cancellation that lands before
+/// the stuck leaf answers `Err(Cancelled)`, as in
+/// `a_proof_cancelled_while_it_runs_answers_the_cancellation`. Either is a retry with a longer
+/// delay, since a loaded host can take any time to reach the leaf; a proof that ignored the limit
+/// would fire the watchdog at every delay and fail.
 #[test]
 fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
     let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
-    let result = with_watchdog(|| backend.prove(ProveRequest::default())).unwrap();
-    assert_eq!(result.status, "disproved");
+    for delay in [100, 400, 1_600, 6_400] {
+        match with_watchdog_reporting(Duration::from_millis(delay), || {
+            backend.prove(ProveRequest::default())
+        }) {
+            (Ok(result), fired) => {
+                assert_eq!(result.status, "disproved");
+                if !fired {
+                    return;
+                }
+            }
+            (Err(error), _) => assert_cancelled(&error),
+        }
+    }
+    panic!("the proof never ended at its counterexample limit before the cancellation");
 }
 
 /// Under `cancelledResult: error` a cancellation that ends a running `execute` answers `Err` with

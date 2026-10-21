@@ -579,6 +579,15 @@ pub enum ProductionAttribute<S, D> {
         /// Checked template fragments in source order.
         template: Vec<SmtFragment>,
     },
+    /// `underspecified = ".."` of a total function: the author states that
+    /// its equations leave some arguments without a value on purpose, which
+    /// silences the coverage lint. KRS-only: nothing is emitted to K.
+    Underspecified {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Why the gap is intended, as written.
+        reason: String,
+    },
     /// Declares a constructor production as a one-way static desugar, K's
     /// `macro` (`macro-rec` when `recursive`), expanded before anything runs
     /// and never printed backwards (KF-028).
@@ -629,7 +638,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::RawHook { origin, .. }
             | Self::FreshGenerator { origin }
             | Self::Smtlib { origin, .. }
-            | Self::SmtHook { origin, .. } => origin,
+            | Self::SmtHook { origin, .. }
+            | Self::Underspecified { origin, .. } => origin,
         }
     }
 
@@ -666,6 +676,7 @@ impl<S, D> ProductionAttribute<S, D> {
                 Some(crate::ProductionAttributeFamily::Smt)
             }
             Self::Desugar { .. } => Some(crate::ProductionAttributeFamily::Desugar),
+            Self::Underspecified { .. } => Some(crate::ProductionAttributeFamily::Underspecified),
         }
     }
 }

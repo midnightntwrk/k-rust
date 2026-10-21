@@ -110,6 +110,7 @@ details! {
 details! {
     /// A state term validation failure.
     StateTermReason {
+        EmptyMapRead => "a map read requires at least one entry",
         OneSidedAliasReusesResultFrame => "a one-sided context alias cannot reuse a result frame",
         UnexpectedAnonymousOccurrence => "anonymous occurrences are claim-subject-only",
         InvalidApplicationPathOrHeadClass => "application path keys or head class are invalid",
@@ -134,6 +135,7 @@ details! {
         FrameFormIsInvalidOnThisRuleSide => "frame form is invalid on this rule side",
         UndeclaredHeadRuleExtraBinding => "head-rule extra references an undeclared binding",
         HeadRuleHeaderOwnership => "head-rule header ownership",
+        HeadRuleComputationItems => "head-rule computation-cell items: an open pattern matches at least one item, and a term table's head is one rewritten item",
         HeadRuleOrderedFallbackPriority => "head-rule ordered fallback priority",
         InvalidNondetGroup => "nondet group outside a transition or with an invalid identifier",
         HeadRuleRequiresProvenanceKey => "head-rule requires provenance key",
@@ -202,6 +204,8 @@ details! {
         MemoWithoutFunction => "`memo` requires function metadata",
         FreshGeneratorWithoutFunction => "`fresh_generator` requires function metadata",
         SmtWithoutFunction => "`smtlib` and `smt_hook` require function metadata",
+        UnderspecifiedWithoutTotal => "`underspecified` requires total function metadata",
+        EmptyUnderspecifiedReason => "`underspecified` requires a nonempty reason",
         InvalidSmtlibSymbol => "an `smtlib` symbol is an SMT-LIB simple symbol",
         InvalidSmtTemplate => "an `smt_hook` template is nonempty text and placeholders that name nonterminal fields",
         ListMetadata => "syntactic-list metadata belongs on a constructor production without function, token, bracket, alias, or desugar metadata",

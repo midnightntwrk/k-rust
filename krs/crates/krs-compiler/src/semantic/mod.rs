@@ -6,6 +6,7 @@ mod configuration;
 mod configuration_rules;
 mod error;
 mod evaluation;
+mod family_precedence;
 mod fresh;
 mod grammar;
 mod infer;
@@ -14,6 +15,7 @@ mod lists;
 pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;
+mod or_positions;
 mod origin;
 mod overload;
 mod package;
@@ -168,6 +170,7 @@ pub fn lower_descriptor_bundle(
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
+    family_precedence::check_chainless_families(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
     tokens::check_program_token_fields(&modules)?;
     token_collisions::check_token_collisions(&modules)?;
@@ -177,6 +180,7 @@ pub fn lower_descriptor_bundle(
     evaluation::check_evaluation_steps(&modules)?;
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
+    or_positions::check_or_pattern_positions(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
     statics::check_static_clauses(&modules)?;
     visibility::check_proof_visibility(&modules)?;

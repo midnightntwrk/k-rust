@@ -2,7 +2,8 @@
 //!
 //! A quantifier `#Exists X . P` or `#Forall X . P` binds the variables of its binder in its body
 //! and nowhere else (`kast::binding`), and a local function binds the variables of its pattern in
-//! its own body (`#fun(P => B)(A)` and `#let P = A #in B` in `P` and `B`, not in `A`; the
+//! its own body (`#fun(P => B)(A)` and `#let P = A #in B` in `P` and `B`, not in `A`, and the
+//! match `P :=K A` or `P :/=K A` in `P`, not in `A`; the
 //! lowering of `kompile::passes::resolve_fun` and the definition check's `term_position` read them
 //! so). So the variable such a binder binds is a variable of its own, apart from every other
 //! variable of the rule that has its spelling: the left side's `X`, a sibling binder's `X`, an
@@ -101,12 +102,15 @@ struct Binding<'a> {
     quantifier: bool,
 }
 
-/// The local functions: `#fun2(P => B, A)`, `#fun3(P, B, A)` and `#let(P, A, B)`.
+/// The local functions: `#fun2(P => B, A)`, `#fun3(P, B, A)` and `#let(P, A, B)`, and the
+/// matches `P :=K A` and `P :/=K A`, which are lowered as the local predicate of the pattern `P`
+/// applied to `A` (`kompile::passes::resolve_fun`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LocalFunction {
     Fun2,
     Fun3,
     Let,
+    Match,
 }
 
 impl Grammar {
@@ -143,6 +147,11 @@ impl Grammar {
                     Some(LocalFunction::Fun3)
                 } else if label.is(InternalLabel::Let) && arity == 3 {
                     Some(LocalFunction::Let)
+                } else if (label.is(InternalLabel::KEqualsK)
+                    || label.is(InternalLabel::KNotEqualsK))
+                    && arity == 2
+                {
+                    Some(LocalFunction::Match)
                 } else {
                     None
                 }
@@ -199,6 +208,8 @@ impl Grammar {
             (LocalFunction::Fun2, [equation, _]) => (equation, &[true, false]),
             (LocalFunction::Fun3, [pattern, _, _]) => (pattern, &[true, true, false]),
             (LocalFunction::Let, [pattern, _, _]) => (pattern, &[true, false, true]),
+            // A match's pattern binds in itself only; the matched term is the enclosing term's.
+            (LocalFunction::Match, [pattern, _]) => (pattern, &[true, false]),
             _ => return None,
         };
         let mut names = Vec::new();

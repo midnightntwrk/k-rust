@@ -1203,6 +1203,8 @@ fn every_priority_group_selection_offers_what_it_never_tries() {
         ("rule.rs", "applicable_groups"),
         ("rule.rs", "applicable_rewrite_groups"),
         ("definition.rs", "predicate_equations_for"),
+        // Reads the depth of the left-hand sides of a connective's equations; tries none.
+        ("simplify.rs", "written_predicate"),
         ("simplify/scan.rs", "scan_group"),
         // The load-time confluence check, which no run's coverage includes.
         ("confluence/join.rs", "*"),

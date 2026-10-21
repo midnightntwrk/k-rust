@@ -17,7 +17,7 @@ use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_re
 use crate::term::{
     local_rewrite_error, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
 };
-use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_term_or_readable_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
     StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral,
@@ -1426,8 +1426,7 @@ fn parse_typed_bindings(item: &ItemFn) -> Result<Vec<(Ident, TermSort)>, SyntaxE
         }
         let authored_type = (*argument.ty).clone();
         crate::parse::validate_authored_binder(&pattern.ident.to_string(), pattern.ident.span())?;
-        let sort = parse_term_sort(authored_type.clone())
-            .or_else(|_| parse_readable_sort(authored_type))?;
+        let sort = parse_term_or_readable_sort(authored_type)?;
         output.push((pattern.ident.clone(), sort));
     }
     Ok(output)
@@ -1481,6 +1480,22 @@ fn validate_cells_path(path: &Path, span: proc_macro2::Span) -> Result<(), Synta
         ));
     }
     Ok(())
+}
+
+/// The term binders a `cells!` pattern introduces, in the first-occurrence
+/// preorder that a rule's typed term parameters follow.
+///
+/// # Errors
+///
+/// Returns the binding error a `cells!` rule subject would report.
+pub fn cells_pattern_term_binders(cells: &CellsExpression) -> Result<Vec<Ident>, SyntaxError> {
+    let mut bindings = Vec::new();
+    collect_cells_bindings(cells, &mut bindings)?;
+    Ok(bindings
+        .into_iter()
+        .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+        .map(|binding| binding.name)
+        .collect())
 }
 
 fn collect_cells_bindings(

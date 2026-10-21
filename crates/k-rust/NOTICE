@@ -1,6 +1,11 @@
-k-rust includes pinned K Framework builtin source files in `builtin/` and the
-standalone parser runtime files in `cparser/`. They were
-copied from runtimeverification/k commit
+This package is licensed under either of the Apache License, Version 2.0
+(LICENSE-APACHE) or the MIT license (LICENSE-MIT), at your option, except for
+the material below.
+
+`builtin/` (the K builtin sources) and `cparser/` (the standalone parser runtime)
+were copied from runtimeverification/k commit
 4a46d1231473b599c699160132fd6e76a5c46406 and retain their original copyright
-notices. The K Framework is distributed under the BSD 3-Clause License included
-in this package.
+notices, as do the test fixtures from that commit that say so in their README and
+the tests `tests/lexer.rs` ports from pyk. The K Framework is distributed under the
+BSD 3-Clause License, included in this package as LICENSE-K-FRAMEWORK. The builtin
+sources are compiled into this package, so its binaries reproduce this notice.

@@ -339,6 +339,42 @@ impl Pattern {
         result
     }
 
+    /// `self` with every free occurrence of `variable` replaced by `replacement`, or `None` when
+    /// a binder of `self` binds `variable` or a free variable of `replacement`.
+    ///
+    /// Without such a binder no occurrence of `variable` is bound and no variable of
+    /// `replacement` is captured where it is placed, so the result states of `replacement` what
+    /// `self` states of `variable`. With one, renaming would be needed first; the caller decides
+    /// instead of this function choosing names.
+    pub fn substitute_free(&self, variable: &Variable, replacement: &Pattern) -> Option<Pattern> {
+        let free = replacement.free_variables();
+        let mut captured = false;
+        for_each_post_order(self, |pattern| {
+            if let Pattern::Exists {
+                variable: bound, ..
+            }
+            | Pattern::Forall {
+                variable: bound, ..
+            }
+            | Pattern::Mu {
+                variable: bound, ..
+            }
+            | Pattern::Nu {
+                variable: bound, ..
+            } = pattern
+            {
+                captured |= **bound == *variable || free.contains(&**bound);
+            }
+        });
+        if captured {
+            return None;
+        }
+        Some(rebuild(self, |pattern, children| match pattern {
+            Pattern::Variable(found) if found == variable => replacement.clone(),
+            _ => clone_node(pattern, children),
+        }))
+    }
+
     /// Visit every sort that a node of `self` carries, node by node in post-order and, within a
     /// node, in field order: a variable's sort, an application's sort parameters, a connective's
     /// sort, a binder's sort and its bound variable's sort, the operand and result sorts of a
@@ -850,5 +886,49 @@ mod tests {
             })),
         };
         assert_eq!(visited(&pattern), [parametric, sort("SortOuter")]);
+    }
+
+    /// Substitution replaces exactly the free occurrences of the variable, and refuses a pattern
+    /// with a binder of the variable or of a variable of the replacement.
+    #[test]
+    fn substitution_replaces_free_occurrences_and_refuses_capture() {
+        let x = *variable("SortInt");
+        let y = Variable {
+            name: "Y".into(),
+            ..x.clone()
+        };
+        let application = |arguments: Vec<Pattern>| Pattern::Application {
+            symbol: symbol(&[]),
+            arguments,
+        };
+        let replacement = application(vec![Pattern::Variable(y.clone())]);
+        let pattern = Pattern::And {
+            sort: sort("SortInt"),
+            arguments: vec![
+                Pattern::Variable(x.clone()),
+                application(vec![
+                    Pattern::Variable(x.clone()),
+                    Pattern::Variable(y.clone()),
+                ]),
+            ],
+        };
+        assert_eq!(
+            pattern.substitute_free(&x, &replacement),
+            Some(Pattern::And {
+                sort: sort("SortInt"),
+                arguments: vec![
+                    replacement.clone(),
+                    application(vec![replacement.clone(), Pattern::Variable(y.clone())]),
+                ],
+            })
+        );
+        for bound in [x.clone(), y.clone()] {
+            let binder = Pattern::Exists {
+                sort: sort("SortInt"),
+                variable: Box::new(bound),
+                body: Box::new(pattern.clone()),
+            };
+            assert_eq!(binder.substitute_free(&x, &replacement), None);
+        }
     }
 }

@@ -12,8 +12,8 @@
 //! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
 //! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
 //! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
-//! [`deferred_obligations`]. Such an operand is not evaluated beyond the bounded steps that decide
-//! its atoms: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
+//! `deferred_obligations`. Such an operand is not evaluated beyond the bounded steps that decide
+//! its atoms: an atom is decided only by `decide_defined` (folding by pure builtin hooks on
 //! ground constructor-like arguments, collections included, with the value of one equation step on
 //! literal arguments whose right-hand side those hooks fold to a literal; ceil equations whose
 //! instantiated condition that folding decides, or whose instance is stated in the atom's place
@@ -25,7 +25,7 @@
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint
-//! must never hold an impure application: [`deferred_obligations`] returns that case as a
+//! must never hold an impure application: `deferred_obligations` returns that case as a
 //! [`DeferredOutcome`], which its callers turn into the step's unsupported-hook stop.
 
 use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, sync::Arc};
@@ -202,9 +202,9 @@ pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) 
 /// It holds every symbol with an `IO.` hook or declared `impure`, and every head of a function
 /// equation, an anywhere rule or a simplification (every equation that can rewrite an
 /// application) whose right-hand side, requires or ensures mentions a symbol it holds: such an
-/// application may be rewritten into one that performs the effect. The frontend's propagation of
-/// `impure` follows function-headed rules only, so an anywhere head and the functions that reach
-/// it are found here and not there; hand-written KORE without the attribute is covered too.
+/// application may be rewritten into one that performs the effect. The frontend declares `impure`
+/// by the same closure, from the same seeds over the same rules and rule parts, so on compiled
+/// KORE the load adds no symbol; hand-written KORE without the attribute is covered here too.
 ///
 /// `unindexed` holds when an equation whose left-hand side has no symbol at its root (a
 /// collection, an injection, a variable) mentions such a symbol: it can rewrite terms the walk
@@ -288,6 +288,11 @@ impl ConsoleReach {
     /// Whether an application of `symbol` may perform a console effect.
     pub(crate) fn may_reach(&self, symbol: &Symbol) -> bool {
         self.symbols.contains(&symbol.name)
+    }
+
+    /// The names of the symbols held, sorted; `None` when `unindexed` holds.
+    pub(crate) fn symbol_names(&self) -> Option<std::collections::BTreeSet<String>> {
+        (!self.unindexed).then(|| self.symbols.iter().map(|name| name.to_string()).collect())
     }
 }
 

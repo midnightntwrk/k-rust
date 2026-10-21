@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 description = "Crafts concrete input values that make a program reach a target under a K specification"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "MIT OR Apache-2.0"
 keywords = ["fuzzing", "k-framework", "kore", "testing"]
 categories = ["development-tools::testing"]
 publish = false
@@ -13,7 +13,7 @@ publish = false
 [dependencies]
 # The portable build is the primary build (kink builds k-rust without default features); the
 # backend crate is reached through the facade's `k_rust::k_rust_backend` re-export.
-k-rust = { version = "=0.7.0", path = "../k-rust", default-features = false }
+k-rust = { version = "=0.8.0", path = "../k-rust", default-features = false }
 # Prints collection and data-sort hole values as program text (G-6, values/text.rs).
 krs-unparse = { version = "=0.1.0", path = "../../krs/crates/krs-unparse" }
 num-bigint.workspace = true

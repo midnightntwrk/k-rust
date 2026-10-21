@@ -28,7 +28,7 @@ An unproved or false symbolic condition makes the rule inapplicable; it does not
 
 Transition rules have no source-order priority; their only order is an explicit `priority = N` or `owise`.
 When KRS can establish that two transitions can apply to one configuration at one priority, analysis rejects the ambiguity: K would take either rule.
-Literal complementary guards such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)` separate two rules, as does a guard that unifying the patterns turns into a false comparison of two Int literals, such as `int::ge(x, 10)` against a rule on `0`; an intended choice is declared with `#[k::rule(nondet = NAME)]` on every rule of the group.
+Complementary guards such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, or `kequal::ne(v, Null())` and `kequal::eq(v, Null())`, separate two rules, as does a guard that unifying the patterns makes false on literal operands, such as `int::ge(x, 10)` against a rule on `0`; an intended choice is declared with `#[k::rule(nondet = NAME)]` on every rule of the group.
 
 This negative fixture deliberately gives two rules the same `Foo()` head:
 
@@ -54,7 +54,7 @@ These cases are deliberately not interchangeable:
 
 | Example | Checked outcome | What owns it |
 | --- | --- | --- |
-| `#nonnegativeIdentity(-1)` | The partial function's only equation requires `0 <=Int -1`, so the application denotes bottom. | Static semantics; see [functions and static semantics](/semantics/static-semantics#an-undefined-partial-application). |
+| `#nonnegativeIdentity(-1)` | The partial function's only equation requires `0 <=Int -1`, so no equation constrains the application: the definition neither gives it a value nor makes it bottom. | Static semantics; see [functions and static semantics](/semantics/static-semantics#an-uncovered-partial-application). |
 | `y = x + 1;` in the checked IMP stuck-state fixture | LLVM performs two rewrites, exits successfully, and leaves a non-final configuration containing the unresolved lookup. | The authored IMP transition system is stuck: syntax was accepted, but no rule can make further progress. |
 | `i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs` from KWasm | The checked final instruction sequence is `trap ~> .Instrs ~> .K` with an empty value stack. | KWasm authors `trap` as an `Instruction::Trap` constructor and rules that reach it. |
 
@@ -62,7 +62,7 @@ A **normal form** is the remaining non-error possibility: no transition applies,
 The IMP stuck-state verifier hash-pins both configurations, and the KWasm corpus checks both 32- and 64-bit division-by-zero traps through its native K-Rust runner, with an optional pinned K reference gate.
 
 The absence of a rule is not automatically an exception.
-Bottom supplies no denotation, stuckness preserves an object-language configuration, and a trap is a language-authored state.
+An unconstrained application has no value the definition names, stuckness preserves an object-language configuration, and a trap is a language-authored state.
 None of these is the LLVM integer-hook abort used by a separate IMP division-by-zero oracle.
 
 Next, [inspect the lowering](/semantics/lowering) to see which stage owns each representation and diagnostic.

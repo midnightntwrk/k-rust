@@ -484,6 +484,9 @@ fn unification_root_policy<'t>(
                     UnifierStep::Decompose(Decomposition::SameApplication(same))
                 }
                 RootComparison::ArityMismatch => UnifierStep::ArgumentLengthsDiffer,
+                // One symbol whose sort arguments are one only on some instances of their sort
+                // variables: unifying them needs a sort substitution, which this unifier lacks.
+                RootComparison::OpenSortArguments => UnifierStep::Unsupported,
                 // Compared by their own arms in `Unifier::unify_one` before any classification.
                 RootComparison::DomainValues | RootComparison::Injections => UnifierStep::Keep,
                 RootComparison::Collections(_) => UnifierStep::Unsupported,
@@ -1266,7 +1269,14 @@ mod tests {
 
     /// The step `Unifier::unify_one` took, after its variable and conjunction arms, at the
     /// integration base (`c11e4adb`): each arm as written there, with its `decomposable` and
-    /// `rigid`, over the roles.
+    /// `rigid`, over the roles. One departure: two free-constructor roots of one symbol whose
+    /// sort arguments differ only where a sort variable stands (`f{S}` against `f{SortInt}`)
+    /// are unsupported, where the base refuted them as a clash. Some instance of the sort
+    /// variable makes the two roots one root, so no clash refutes the pair; unifying it needs a
+    /// sort substitution, which the unifier does not compute. Two equation-head applications of
+    /// one symbol at different sort arguments keep their equation, as at the base: the unifier
+    /// refutes no equation-head root and decomposes one only at equal sort arguments, so it
+    /// asks no instance-normal evidence for such a pair and the root is open.
     fn transcribed_step(definition: &BackendDefinition, left: &Term, right: &Term) -> &'static str {
         let decomposable = |symbol: &Symbol| match symbol.attributes.head_role() {
             HeadRole::FreeConstructor => true,
@@ -1313,6 +1323,24 @@ mod tests {
                 } else {
                     "decompose"
                 }
+            }
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    ..
+                },
+            ) if left_symbol.name == right_symbol.name
+                && crate::matching::sort_list_relation(left_sorts, right_sorts)
+                    == crate::matching::SortRelation::Open
+                && left_symbol.attributes.head_role() == HeadRole::FreeConstructor =>
+            {
+                "unsupported"
             }
             (
                 TermKind::Application {

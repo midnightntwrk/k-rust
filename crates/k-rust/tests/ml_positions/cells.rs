@@ -13,6 +13,7 @@ const INVALID_SEARCH_PATTERN: Code = Code::Diag("InvalidSearchPattern");
 const INVALID_FUNCTION_PATTERN: Code = Code::Diag("InvalidFunctionPattern");
 const ILLEGAL_FUNCTION_ON_LHS: Code = Code::Diag("IllegalFunctionOnLhs");
 const INVALID_REWRITE: Code = Code::Diag("InvalidRewrite");
+const INVALID_BINDER: Code = Code::Diag("InvalidBinder");
 const UNBOUND_VARIABLE: Code = Code::Diag("UnboundVariable");
 
 /// The shard a cell belongs to: its group and position (`extra` cells form one shard).
@@ -1411,7 +1412,10 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
             meaning_runs: Meaning::Unstated,
         });
     }
-    // The lemma of eq-eq on a ground atom: a rewrite rule's condition {f(1) #Equals 1}.
+    // The lemma of eq-eq on a ground atom: a rewrite rule's condition {f(1) #Equals 1}. The
+    // lemma says nothing where the operand it consumes, f(1), is undefined (docs/compatibility.md,
+    // the predicate-lemma contract), so the condition is ⌈f(1)⌉, which no equation of f decides:
+    // go(1) gives done(1) under ⌈f(1)⌉ and is stuck otherwise, or halts undecided.
     cells.push(CellSpec {
         name: "psimp/pred-simp__eq-eq-ground".to_owned(),
         route: Route::Kompile,
@@ -1420,12 +1424,12 @@ fn predicate_simplification_cells(cells: &mut Vec<CellSpec>) {
         ),
         pattern: None,
         programs: vec![go(1), go(3)],
-        meaning: "f(X) = 1 iff X = 1, so go(1) steps to done(1) and go(3) is stuck".to_owned(),
+        meaning: "f(X) = 1 iff X = 1 where f(X) is defined, so go(1) steps to done(1) under \\ceil(f(1)) and is stuck otherwise, and go(3) is stuck".to_owned(),
         expect: Expect::runs(vec![
-            Run::new(go(1), vec![stuck(done(1))]),
+            Run::new(go(1), vec![stuck(done(1)), stuck(go(1))]),
             Run::new(go(3), vec![stuck(go(3))]),
         ]),
-        allow: Allow::None,
+        allow: Allow::Undecided,
         meaning_runs: Meaning::Unstated,
     });
     for (id, lemma, driver, runs, meaning) in table {
@@ -1468,6 +1472,7 @@ fn extra_cells(cells: &mut Vec<CellSpec>) {
     ];
     macro_built_cells(cells);
     walk_cells(cells);
+    nested_quantifier_cells(cells);
     for (name, text, meaning, [at1, at3]) in table {
         let run = |n: i64, value: i64| {
             if name == "rule-requires-matchk__or" && value == 0 {
@@ -1529,10 +1534,11 @@ fn macro_built_cells(cells: &mut Vec<CellSpec>) {
     });
 }
 
-/// Shapes the position check decides outside the audit's tables (MLP/4b): a set variable bound by
-/// a quantifier, or-patterns of an equation below a symbol or at an argument's root, a predicate
-/// alone at a shared or built position, and guarded or unguarded alternatives of an equation's
-/// result.
+/// Shapes the position check decides outside the audit's tables (MLP/4b): or-patterns of an
+/// equation below a symbol or at an argument's root, a predicate alone at a shared or built
+/// position, and guarded or unguarded alternatives of an equation's result; and a set variable
+/// bound by a quantifier, which is no pattern at any position and which the binder check refuses
+/// (`InvalidBinder`), not the position check.
 fn walk_cells(cells: &mut Vec<CellSpec>) {
     const KITEMS: &str = "  syntax KItem ::= g(Int) [symbol(g)] | h(Int) [symbol(h)]\n  syntax Int ::= ff(KItem) [function, symbol(ff)]\n  rule [d]: <k> go(X) => done(ff(g(X))) ... </k>\n  rule [o]: ff(_) => 7 [owise]\n";
     const F: &str = "  syntax Int ::= f(Int) [function, symbol(f)]\n  rule [g]: <k> go(X) => done(f(X)) ... </k>\n";
@@ -1558,21 +1564,24 @@ fn walk_cells(cells: &mut Vec<CellSpec>) {
         allow: Allow::None,
         meaning_runs: Meaning::Unstated,
     };
-    cells.push(refused(
-        "rule-requires__exists-setvar",
-        "  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists @T:Int . {X #Equals @T}\n"
-            .to_owned(),
-        "a quantifier binds an element variable; @T is a set variable, bound only by a fixpoint: not a pattern",
-        Meaning::Unstated,
-    ));
-    cells.push(refused(
+    cells.push(CellSpec {
+        expect: Expect::refuse(INVALID_BINDER),
+        ..refused(
+            "rule-requires__exists-setvar",
+            "  rule [p]: <k> go(X) => done(X) ... </k> requires #Exists @T:Int . {X #Equals @T}\n"
+                .to_owned(),
+            "a quantifier binds an element variable; @T is a set variable, bound only by a fixpoint: not a pattern",
+            Meaning::Unstated,
+        )
+    });
+    cells.push(accepted(
         "fun-lhs__or-below-symbol",
         format!("{KITEMS}  rule [p]: ff(g(1 #Or 2)) => 5\n"),
-        "g(1 #Or 2) is g(1) #Or g(2): ff(g(1)) = ff(g(2)) = 5, ff(g(3)) = 7; an equation's or-pattern below a symbol is refused (matched only at an argument's root)",
-        Meaning::States(Expect::runs(vec![
+        "g(1 #Or 2) is g(1) #Or g(2): ff(g(1)) = ff(g(2)) = 5, ff(g(3)) = 7; an equation's or-pattern below a symbol is distributed, one equation per alternative",
+        vec![
             Run::new(go(1), vec![stuck(done(5))]),
             Run::new(go(3), vec![stuck(done(7))]),
-        ])),
+        ],
     ));
     cells.push(accepted(
         "fun-lhs__or-of-or-root",
@@ -1642,4 +1651,51 @@ fn walk_cells(cells: &mut Vec<CellSpec>) {
         "an unguarded alternative beside a guarded one: f(1) would be both 10 and 20, an axiom with no model",
         Meaning::NoModel,
     ));
+}
+
+/// A quantifier below a symbol of a left side: a left side is matched against a state, or an
+/// equation's against the application's arguments, and a quantifier there has no matching meaning
+/// at any depth, so it is refused at its rule as at the direct position (`left/*__exists`,
+/// `left/*__forall`), below a constructor of a rewrite rule's left side and of a function or
+/// simplification equation's argument.
+fn nested_quantifier_cells(cells: &mut Vec<CellSpec>) {
+    const WRAP: &str = "  syntax KItem ::= wrap(KItem) [symbol(wrap)] | g(Int) [symbol(g)]\n";
+    const K: &str =
+        "  syntax KItem ::= g(Int) [symbol(g)]\n  syntax Int ::= k(KItem) [function, symbol(k)]\n";
+    let table = [
+        (
+            "rule-lhs__nested-exists",
+            format!("{WRAP}  rule [p]: <k> wrap(g(#Exists Y:Int . Y)) => done(0) ... </k>\n"),
+        ),
+        (
+            "rule-lhs__nested-forall",
+            format!("{WRAP}  rule [p]: <k> wrap(g(#Forall Y:Int . Y)) => done(0) ... </k>\n"),
+        ),
+        (
+            "fun-lhs__nested-exists",
+            format!(
+                "{K}  rule [p]: k(g(#Exists Y:Int . Y)) => 1\n  rule [o]: k(_) => 0 [owise]\n  rule [g]: <k> go(X) => done(k(g(X))) ... </k>\n"
+            ),
+        ),
+        (
+            "simp-lhs__nested-forall",
+            format!(
+                "{K}  rule [p]: k(g(#Forall Y:Int . Y)) => 1 [simplification]\n  rule [g]: <k> go(X) => done(k(g(X))) ... </k>\n"
+            ),
+        ),
+    ];
+    for (name, text) in table {
+        cells.push(CellSpec {
+            name: format!("extra/{name}"),
+            route: Route::Kompile,
+            text,
+            pattern: None,
+            programs: vec![go(1)],
+            meaning: "a quantifier below a symbol of a matched position: no matching meaning"
+                .to_owned(),
+            expect: Expect::refuse(ML_CONSTRUCT_POSITION),
+            allow: Allow::None,
+            meaning_runs: Meaning::Unstated,
+        });
+    }
 }

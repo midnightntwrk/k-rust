@@ -13,7 +13,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 
 `krs parse`, `run`, `search`, and `prove` play the roles of K's `kast`, `krun`, `krun --search`, and `kprove`: they compile the same Definition IR in-process through `krs-exec` and the `k-rust` symbolic backend, and `--output json` prints a `krs-exec/1` report.
 
-`krs check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, with diagnostic codes, notes, and authored source snippets when the source revision matches.
+`krs check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, with diagnostic codes, notes, help, and authored source snippets when the source revision matches.
 Pass `--message-format=json` for machine consumption: located diagnostics use schema-1 JSON envelope lines, while unlocated diagnostics and other failures retain prose lines.
 
 ## Current state
@@ -149,4 +149,4 @@ The build runs the tour verifiers and several `cargo check` invocations, so it n
 ## License
 
 KRS (everything under `krs/`) is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
-The rest of the repository, `k-rust`, is licensed under the BSD 3-Clause license (`../LICENSE`).
+The rest of the repository, `k-rust`, is licensed the same way, except for the third-party material `../NOTICE` lists.

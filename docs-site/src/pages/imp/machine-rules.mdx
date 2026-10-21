@@ -18,8 +18,10 @@ Machine rules relate whole symbolic configurations while mentioning only the cel
 `for Machine;` makes each clause a configuration rule.
 The left side of `var` requires an identifier at the head of `k` and a matching `name -> value` entry in `env`.
 The right side replaces only that computation head.
+`env` is matched but not named on the right, so `var` only reads it: a cell the result leaves out keeps its content, and the result names only the cells a rule changes.
 
 The omitted environment cell and the `..` sequence tail and map tail are frames: they persist unchanged.
+The computation cell's pattern is a slice pattern read from the front: `[a, b, ..]` matches two items and keeps the rest, and `[a]` a cell holding exactly one item; see [computation-cell patterns](/reference/language#computation-cell-patterns).
 This is one simultaneous symbolic rewrite, not a series of Rust field assignments.
 
 ## Persistent map updates
@@ -31,6 +33,7 @@ Map lookup in a pattern and persistent update on a result are different operatio
 Neither reads or mutates a host `HashMap` during definition collection.
 
 `where name: Id` and `where value: Value` narrow binders to the sorts required by the cell and builtin operations.
+A narrowing is a sort test, so it names a sort: K's `List`, `Map`, and `Set` are each one unparameterized sort, and `where log: List<BusCycle>` is rejected with a pointer to `where log: List`; the same holds for a field's or a `k::Term<..>` sort.
 Clause source order remains semantically irrelevant.
 The clause names identify the authored rule sentences; constructor and cell identities still come from their Rust-resolved declarations.
 

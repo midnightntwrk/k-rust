@@ -438,6 +438,8 @@ provenance_roles! {
     FunctionSmtlib => "function_smtlib",
     /// `smt_hook = ".."` template string of a function production.
     FunctionSmtHook => "function_smt_hook",
+    /// `underspecified = ".."` reason string of a total function production.
+    FunctionUnderspecified => "function_underspecified",
     /// One `{field}` placeholder of a function's `smt_hook` template.
     SmtHookPlaceholder => "smt_hook_placeholder",
     /// `concrete` or `concrete(..)` of an equation or simplification.

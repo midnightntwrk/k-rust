@@ -20,6 +20,32 @@ use std::{
     error::Error,
 };
 
+/// The value of one configuration variable for [`Configuration::assemble_pattern`].
+pub(crate) enum Binding {
+    /// Surface text, parsed at the declared sort.
+    Text(String),
+    /// A KAST term over the definition's labels, typed at the declared sort without a parse.
+    Term(k_rust::kast::Term),
+}
+
+/// Why [`Configuration::assemble_pattern`] failed.
+#[derive(Debug)]
+pub(crate) enum AssemblyError {
+    /// The value bound to `variable` without the parser is no term of its sort.
+    Value {
+        variable: String,
+        error: Box<ConfigurationError>,
+    },
+    /// Any other failure, as the assembler reports it.
+    Configuration(ConfigurationError),
+}
+
+impl From<ConfigurationError> for AssemblyError {
+    fn from(error: ConfigurationError) -> Self {
+        Self::Configuration(error)
+    }
+}
+
 /// The program grammar and declared variable sorts that every configuration of one loaded definition is assembled against.
 struct Grammar {
     program: ProgramGrammar,
@@ -260,12 +286,12 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns the assembler's typed error for a parse failure or a missing variable.
-    pub fn assemble_pattern(
+    pub(crate) fn assemble_pattern(
         &mut self,
         program: Option<&str>,
-        variables: &BTreeMap<String, String>,
+        variables: &BTreeMap<String, Binding>,
         stdin: Option<&[u8]>,
-    ) -> Result<Pattern, ConfigurationError> {
+    ) -> Result<Pattern, AssemblyError> {
         self.assembler.clear();
         let result = self.assemble_typed(program, variables, stdin);
         self.assembler.clear();
@@ -275,9 +301,9 @@ impl Configuration {
     fn assemble_typed(
         &mut self,
         program: Option<&str>,
-        variables: &BTreeMap<String, String>,
+        variables: &BTreeMap<String, Binding>,
         stdin: Option<&[u8]>,
-    ) -> Result<Pattern, ConfigurationError> {
+    ) -> Result<Pattern, AssemblyError> {
         if let Some(source) = program {
             let start_sort = self.grammar.variables.get("PGM").map_or_else(
                 || KastSort::builtin(BuiltinSort::KItem),
@@ -285,15 +311,25 @@ impl Configuration {
             );
             self.assembler.program(&start_sort, source)?;
         }
-        for (name, source) in variables {
-            self.assembler.bind(name, source)?;
+        for (name, binding) in variables {
+            match binding {
+                Binding::Text(source) => self.assembler.bind(name, source)?,
+                Binding::Term(term) => {
+                    if let Err(error) = self.assembler.bind_term(name, term.clone()) {
+                        return Err(AssemblyError::Value {
+                            variable: name.clone(),
+                            error: Box::new(error),
+                        });
+                    }
+                }
+            }
         }
         // `program_uses_input` true binds an empty `$STDIN`; false binds the supplied bytes.
         self.assembler
             .bind_stream_defaults(false, stdin.is_none(), || {
                 Ok::<_, ConfigurationError>(stdin.map(<[u8]>::to_vec).unwrap_or_default())
             })?;
-        self.assembler.finish()
+        Ok(self.assembler.finish()?)
     }
 
     /// Parse program text at `sort` with the syntax module's grammar, as `kast --sort` does.

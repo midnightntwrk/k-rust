@@ -8,7 +8,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Nat, result = KResult)]
-#[k::precedence((Zero, Succ))]
 pub enum NatSyntax {
     #[k::syntax("zero")]
     Zero(),
@@ -36,7 +35,7 @@ fn plus_succ(k::term![Plus(NatSyntax::Succ(m), n)]: Term<Nat>) -> Term<Nat> {
 // [!endregion plus]
 
 // [!region pred]
-/// `pred(n)` is the number before `n`; `pred(zero)` has no value.
+/// `pred(n)` is the number before `n`; no equation constrains `pred(zero)`.
 #[k::function(partial, sort = Nat, syntax = "pred({value})")]
 pub struct Pred {
     pub value: Term<Nat>,

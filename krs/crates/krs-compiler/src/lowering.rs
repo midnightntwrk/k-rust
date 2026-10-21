@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
-use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
+use krs_diagnostic::{Diagnostic, Label, Location, ToDiagnostic, codes};
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationClause,
     ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
@@ -16,13 +16,13 @@ use krs_ir::{
 };
 use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
-    ContextAliasSentence, DefinitionClaim, DefinitionIr, DefinitionModule, DefinitionRuleCondition,
-    DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence, DefinitionSimplification,
-    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
-    LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem, ProductionSentence,
-    RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
-    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ContextAliasSentence, DeclarationPath, DefinitionClaim, DefinitionIr, DefinitionModule,
+    DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence,
+    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
+    DefinitionValidationError, LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem,
+    ProductionSentence, RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule,
+    SemanticProduction, SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory,
+    SemanticVariable, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
     k_surface::{ImportPolicy, builtin_imports},
 };
 use sha2::{Digest, Sha256};
@@ -129,8 +129,22 @@ pub enum LoweringError {
         first: String,
         /// Second stable owner.
         second: String,
+        /// Exact parser-owned authored provenance for the first owner.
+        first_origin: Box<OriginStack>,
         /// Exact parser-owned authored provenance for the second owner.
         second_origin: OriginStack,
+    },
+    /// A production's symbol is a name K generates itself for the
+    /// definition's sorts or cells, such as the sort predicate `isExpr`.
+    GeneratedSymbolCollision {
+        /// The production's symbol.
+        value: String,
+        /// The production.
+        owner: String,
+        /// What K generates under that name.
+        generated: String,
+        /// Exact parser-owned authored provenance for the production.
+        origin: OriginStack,
     },
     /// A syntactic list's derived cons or terminator symbol collides with
     /// another production's symbol (KF-020, R11).
@@ -179,6 +193,15 @@ impl fmt::Display for LoweringError {
                 formatter,
                 "{namespace} name collision for {value:?} between {first} and {second}"
             ),
+            Self::GeneratedSymbolCollision {
+                value,
+                owner,
+                generated,
+                ..
+            } => write!(
+                formatter,
+                "{owner} has the symbol {value:?}, which K generates as {generated}"
+            ),
             Self::ListSymbolCollision { list, other, .. } => {
                 let base = lower_camel(list);
                 write!(
@@ -216,7 +239,9 @@ impl ToDiagnostic for LoweringError {
                 | CollisionNamespace::EmittedLabel
                 | CollisionNamespace::LabelId => codes::analysis::NAME_COLLISION,
             },
-            Self::ListSymbolCollision { .. } => codes::analysis::SYMBOL_NAME_COLLISION,
+            Self::ListSymbolCollision { .. } | Self::GeneratedSymbolCollision { .. } => {
+                codes::analysis::SYMBOL_NAME_COLLISION
+            }
             Self::SourceMapCollision(_) => codes::analysis::SOURCE_MAP_COLLISION,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidDefinition(_) => codes::analysis::INVALID_DEFINITION,
@@ -231,7 +256,11 @@ impl ToDiagnostic for LoweringError {
         };
         let location = match self {
             Self::NameCollision { second_origin, .. }
-            | Self::ListSymbolCollision { second_origin, .. } => second_origin
+            | Self::ListSymbolCollision { second_origin, .. }
+            | Self::GeneratedSymbolCollision {
+                origin: second_origin,
+                ..
+            } => second_origin
                 .exact_authored_range()
                 .map_or(Location::None, Location::Source),
             Self::Partition(PartitionError::MixedGroup { origin, .. }) => origin
@@ -240,7 +269,31 @@ impl ToDiagnostic for LoweringError {
                 .map_or(Location::None, Location::Source),
             _ => Location::None,
         };
-        Diagnostic::error(code, self.to_string(), location)
+        let mut diagnostic = Diagnostic::error(code, self.to_string(), location);
+        if let Self::NameCollision { first_origin, .. } = self
+            && let Some(range) = first_origin.exact_authored_range()
+        {
+            diagnostic = diagnostic.with_secondary(
+                Label::new(Location::Source(range)).with_message("the first owner of the name"),
+            );
+        }
+        match self {
+            Self::NameCollision {
+                namespace: CollisionNamespace::EmittedSymbol,
+                ..
+            } => {
+                diagnostic = diagnostic.with_help(
+                    "rename one of the declarations, or give one production another symbol with `#[k::symbol(\"path::Name\")]`; KRS never renames a symbol to resolve a collision",
+                );
+            }
+            Self::GeneratedSymbolCollision { .. } => {
+                diagnostic = diagnostic.with_help(
+                    "rename the production, or give it another symbol with `#[k::symbol(\"path::Name\")]`",
+                );
+            }
+            _ => {}
+        }
+        diagnostic
     }
 }
 
@@ -558,13 +611,14 @@ impl NamingPass {
     )]
     fn run(theory: &SemanticTheory) -> Result<Self, LoweringError> {
         let mut pass = Self::default();
-        let mut identities = BTreeMap::<String, String>::new();
-        let mut emitted = BTreeMap::<String, String>::new();
-        let mut labels = BTreeMap::<String, String>::new();
-        let mut modules = BTreeMap::<String, String>::new();
+        let mut identities = Claims::new();
+        let mut emitted = Claims::new();
+        let mut labels = Claims::new();
+        let mut modules = Claims::new();
         let mut list_owners = BTreeMap::<String, String>::new();
         let mut production_displays = BTreeMap::<String, String>::new();
-        let qualified = qualified_variant_symbols(theory);
+        let mut production_symbols = Vec::<(String, String, OriginStack)>::new();
+        let mut cell_names = Vec::<String>::new();
 
         for module in theory.modules() {
             validate_module_name(module.id().as_str())?;
@@ -618,14 +672,14 @@ impl NamingPass {
                 )?;
                 pass.sorts.insert(
                     sort.id().clone(),
-                    SymbolIdentity::new(id, name, SymbolKind::Sort)?,
+                    SymbolIdentity::new(id, name, SymbolKind::Sort)?
+                        .with_declaration(declaration_path(sort.id())?),
                 );
             }
             for production in module.productions() {
                 let owner = stable_symbol_text(production.id(), production.explicit_symbol());
                 let id = SymbolId::new(format!("production:{}", lower_hex(owner.as_bytes())))?;
-                let name =
-                    production_symbol_name(production, &owner, qualified.contains(production.id()));
+                let name = production_symbol_name(production, &owner);
                 validate_label_name("production symbol", &name)?;
                 claim(
                     &mut identities,
@@ -636,14 +690,16 @@ impl NamingPass {
                 )?;
                 let display = production_display_name(production.id());
                 let list = list_enum_name(production).map(str::to_owned);
+                let description = production_owner(production, &display);
+                production_symbols.push((
+                    name.clone(),
+                    description.clone(),
+                    production.origin().origin().clone(),
+                ));
                 let claimed = claim(
                     &mut emitted,
                     name.clone(),
-                    format!(
-                        "production `{}` of {}",
-                        rust_item_path(production.id(), &display),
-                        production.id().package().k_namespace()
-                    ),
+                    description,
                     CollisionNamespace::EmittedSymbol,
                     production.origin(),
                 );
@@ -670,9 +726,14 @@ impl NamingPass {
                     list_owners.insert(name.clone(), list);
                 }
                 production_displays.insert(name.clone(), display);
+                let symbol = SymbolIdentity::new(id, name, SymbolKind::Production)?;
                 pass.productions.insert(
                     production.id().clone(),
-                    SymbolIdentity::new(id, name, SymbolKind::Production)?,
+                    if production.id().is_generated_production() {
+                        symbol
+                    } else {
+                        symbol.with_declaration(declaration_path(production.id())?)
+                    },
                 );
             }
             if let Some(configuration) = module.configuration() {
@@ -682,6 +743,7 @@ impl NamingPass {
                     &mut pass.group_cells,
                     &mut identities,
                     &mut emitted,
+                    &mut cell_names,
                 )?;
             }
             // Context aliases that share a name are one evaluation
@@ -748,6 +810,23 @@ impl NamingPass {
                 &split.origin,
             )?;
             pass.configuration = Some(split);
+        }
+        let generated = k_generated_symbols(
+            pass.sorts
+                .values()
+                .map(|sort| sort.emitted_name().to_owned())
+                .collect(),
+            &cell_names,
+        );
+        for (value, owner, origin) in production_symbols {
+            if let Some(generated) = generated.get(&value) {
+                return Err(LoweringError::GeneratedSymbolCollision {
+                    value,
+                    owner,
+                    generated: generated.clone(),
+                    origin,
+                });
+            }
         }
         pass.overload_roots = overload_roots(theory)?;
         Ok(pass)
@@ -855,13 +934,15 @@ fn name_fixed_cells(
     cells: &[FixedCell<SemanticSortRef, krs_ir::SemanticId>],
     lowered: &mut BTreeMap<krs_ir::SemanticId, SymbolId>,
     groups: &mut BTreeMap<StableItemId, SymbolId>,
-    identities: &mut BTreeMap<String, String>,
-    emitted: &mut BTreeMap<String, String>,
+    identities: &mut Claims,
+    emitted: &mut Claims,
+    cell_names: &mut Vec<String>,
 ) -> Result<(), LoweringError> {
     for cell in cells {
         let owner = format!("configuration cell {}", cell.id().as_str());
         let id = SymbolId::new(format!("cell:{}", lower_hex(cell.id().as_str().as_bytes())))?;
         validate_cell_name(cell.name())?;
+        cell_names.push(cell.name().to_owned());
         claim(
             identities,
             id.as_str().to_owned(),
@@ -881,7 +962,7 @@ fn name_fixed_cells(
         }
         lowered.insert(cell.id().clone(), id);
         if let FixedCellContent::Children { children } = cell.content() {
-            name_fixed_cells(children, lowered, groups, identities, emitted)?;
+            name_fixed_cells(children, lowered, groups, identities, emitted, cell_names)?;
         }
     }
     Ok(())
@@ -1485,7 +1566,7 @@ fn lower_fixed_cells(
             })?;
             let origin = origins.lower(cell.origin(), "cell", None, Some(cell.id().as_str()))?;
             let attributes = lower_cell_attributes(cell.attributes(), origins)?;
-            match cell.content() {
+            let lowered = match cell.content() {
                 FixedCellContent::Term { sort } => FixedCell::leaf(
                     origin,
                     symbol,
@@ -1502,7 +1583,11 @@ fn lower_fixed_cells(
                     lower_fixed_cells(children, names, origins)?,
                 )
                 .map_err(state_shape_error),
-            }
+            }?;
+            Ok(match cell.field() {
+                Some(field) => lowered.with_field(field),
+                None => lowered,
+            })
         })
         .collect()
 }
@@ -2412,11 +2497,13 @@ fn lower_authored_production_attributes(
         .iter()
         .enumerate()
         // `internal` and `program` select the module a production is placed
-        // in; they are not K attributes.
+        // in, and `underspecified` silences a KRS lint; none is a K attribute.
         .filter(|(_, attribute)| {
             !matches!(
                 attribute,
-                ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. }
+                ProductionAttribute::Internal { .. }
+                    | ProductionAttribute::Program { .. }
+                    | ProductionAttribute::Underspecified { .. }
             )
         })
         .map(|(index, attribute)| {
@@ -2517,8 +2604,10 @@ fn lower_authored_production_attributes(
                     origin,
                     values: values.clone(),
                 },
-                ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
-                    unreachable!("placement attributes are filtered above")
+                ProductionAttribute::Internal { .. }
+                | ProductionAttribute::Program { .. }
+                | ProductionAttribute::Underspecified { .. } => {
+                    unreachable!("KRS-only attributes are filtered above")
                 }
                 ProductionAttribute::Private { .. } => {
                     return Err(LoweringError::UnsupportedShape {
@@ -2846,22 +2935,29 @@ pub(crate) fn main_semantic_module(modules: &[SemanticModule]) -> Option<&Semant
     Some(configured)
 }
 
+/// Claimed names: each name's owner and its authored provenance.
+type Claims = BTreeMap<String, (String, OriginStack)>;
+
+/// Claims `value` for `owner`; a name has one owner, and a second claim is
+/// an error naming both, never a rename.
 fn claim(
-    names: &mut BTreeMap<String, String>,
+    names: &mut Claims,
     value: String,
     owner: String,
     namespace: CollisionNamespace,
     second_origin: &NodeOrigin,
 ) -> Result<(), LoweringError> {
-    if let Some(first) = names.insert(value.clone(), owner.clone()) {
+    if let Some((first, first_origin)) = names.get(&value) {
         return Err(LoweringError::NameCollision {
             namespace,
             value,
-            first,
+            first: first.clone(),
             second: owner,
+            first_origin: Box::new(first_origin.clone()),
             second_origin: second_origin.origin().clone(),
         });
     }
+    names.insert(value, (owner, second_origin.origin().clone()));
     Ok(())
 }
 
@@ -2952,13 +3048,17 @@ fn stable_symbol_text(id: &StableItemId, explicit: Option<&krs_ir::ExplicitSymbo
         return stable_item_text(id);
     };
 
+    // The explicit path is the whole public identity: an enum variant's
+    // `enum:<Enum>` disambiguator is left out, so renaming the enum keeps the
+    // pinned identity, and a variant and a struct pinned to one path collide.
+    // Every other declaration's disambiguator is empty already.
     let mut text = String::new();
     push_component(&mut text, id.package().k_namespace());
     for component in explicit.as_str().split("::") {
         push_component(&mut text, component);
     }
     push_component(&mut text, &id.item_kind().stable_text());
-    push_component(&mut text, id.disambiguator());
+    push_component(&mut text, "");
     text
 }
 
@@ -2977,40 +3077,22 @@ fn list_enum_name(production: &krs_ir_levels::SemanticProduction) -> Option<&str
     }
 }
 
-/// Enum variants whose variant-derived symbol another production of the
-/// definition derives too (FU-19). Each takes its enum's name as a prefix
-/// (`ExpSyntax::Dot` is `expSyntaxDot`, `LValSyntax::Dot` is `lValSyntaxDot`),
-/// so same-named variants of different families do not collide; every other
-/// symbol keeps the variant or struct name alone.
-fn qualified_variant_symbols(theory: &SemanticTheory) -> BTreeSet<StableItemId> {
-    let mut derived = BTreeMap::<String, Vec<&StableItemId>>::new();
-    for production in theory
-        .modules()
-        .iter()
-        .flat_map(SemanticModule::productions)
-    {
-        if list_enum_name(production).is_none()
-            && production.explicit_symbol().is_none()
-            && !production.id().is_generated_production()
-        {
-            derived
-                .entry(lower_camel(production.id().item_name()))
-                .or_default()
-                .push(production.id());
-        }
-    }
-    derived
-        .into_values()
-        .filter(|ids| ids.len() > 1)
-        .flatten()
-        .filter(|id| enum_family(id).is_some())
-        .cloned()
-        .collect()
-}
-
 /// `display` prefixed with the item's Rust module path below the crate root
 /// (`first::Collision`), so a collision diagnostic tells apart two
 /// same-named declarations of one package in different modules.
+/// The KRS declaration path of an authored item: its crate, module path, and
+/// name, with an enum variant's enum before the variant.
+fn declaration_path(id: &StableItemId) -> Result<DeclarationPath, LoweringError> {
+    let crate_name = id.package().cargo_name().replace('-', "_");
+    let segments = id
+        .module_path()
+        .iter()
+        .map(String::as_str)
+        .chain(enum_family(id))
+        .chain([id.item_name()]);
+    Ok(DeclarationPath::new(crate_name, segments)?)
+}
+
 fn rust_item_path(id: &StableItemId, display: &str) -> String {
     id.module_path()
         .iter()
@@ -3026,11 +3108,18 @@ fn enum_family(id: &StableItemId) -> Option<&str> {
         .strip_prefix(krs_ir::ENUM_VARIANT_DISAMBIGUATOR_PREFIX)
 }
 
-fn production_symbol_name(
-    production: &krs_ir_levels::SemanticProduction,
-    owner: &str,
-    qualified: bool,
-) -> String {
+/// A production's emitted symbol, which depends only on its own declaration
+/// (never on which other productions exist):
+///
+/// - a syntactic list's cons and terminator: `lowerCamel(Enum)` + `Cons`/`Nil`;
+/// - an explicit `#[k::symbol("path::Name")]`: `lowerCamel(Name)`;
+/// - a generated token or bracket production: a hash of its identity;
+/// - an enum variant: `lowerCamel(Enum)` + `Variant` (`Op::Add` is `opAdd`);
+/// - a struct: `lowerCamel(Struct)`.
+///
+/// Two productions that derive one symbol are a collision error; no symbol
+/// is ever renamed to make room for another.
+fn production_symbol_name(production: &krs_ir_levels::SemanticProduction, owner: &str) -> String {
     if let Some(list) = list_enum_name(production) {
         let is_cons = production
             .attributes()
@@ -3044,11 +3133,78 @@ fn production_symbol_name(
     }
     if production.id().is_generated_production() {
         SymbolIdentity::generated_production_name(&short_hash(owner))
-    } else if let Some(family) = enum_family(production.id()).filter(|_| qualified) {
+    } else if let Some(family) = enum_family(production.id()) {
         format!("{}{}", lower_camel(family), production.id().item_name())
     } else {
         lower_camel(production.id().item_name())
     }
+}
+
+/// A production in a collision diagnostic: its Rust path and package, and
+/// how its symbol was derived.
+fn production_owner(production: &krs_ir_levels::SemanticProduction, display: &str) -> String {
+    let path = rust_item_path(production.id(), display);
+    let namespace = production.id().package().k_namespace();
+    let derivation = if let Some(symbol) = production.explicit_symbol() {
+        format!(" (pinned by `#[k::symbol(\"{}\")]`)", symbol.as_str())
+    } else if let Some(family) = enum_family(production.id()).filter(|_| {
+        list_enum_name(production).is_none() && !production.id().is_generated_production()
+    }) {
+        format!(
+            " (enum `{family}` + variant `{}`)",
+            production.id().item_name()
+        )
+    } else {
+        String::new()
+    };
+    format!("production `{path}` of {namespace}{derivation}")
+}
+
+/// The symbols K generates itself for a definition's sorts and cells, each
+/// with what K generates it as. A production may not take one of them.
+///
+/// Every sort `S` has the predicate `isS`. Every cell sort `C` (`<k>` has
+/// `KCell`, and K adds `GeneratedTopCell` and `GeneratedCounterCell`) also
+/// has the sorts `COpt` and `CFragment` and the symbols `initC`, `noC`, and
+/// `getC`.
+fn k_generated_symbols(sorts: Vec<String>, cells: &[String]) -> BTreeMap<String, String> {
+    let mut sorts = sorts;
+    sorts.extend(
+        krs_ir::BuiltinSort::ALL
+            .iter()
+            .map(|sort| sort.k_name().to_owned()),
+    );
+    sorts.extend(["K", "KItem", "KResult", "KConfigVar"].map(str::to_owned));
+    let cell_sorts = cells
+        .iter()
+        .map(|cell| krs_ir_levels::k_surface::cell_sort_name(cell))
+        .chain(["GeneratedTopCell", "GeneratedCounterCell"].map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    let mut generated = BTreeMap::new();
+    for cell in &cell_sorts {
+        for (prefix, role) in [
+            ("init", "the initializer"),
+            ("no", "the empty value"),
+            ("get", "the projection"),
+        ] {
+            generated.insert(
+                format!("{prefix}{cell}"),
+                format!("{role} of the cell sort `{cell}`"),
+            );
+        }
+        sorts.extend([
+            cell.clone(),
+            format!("{cell}Opt"),
+            format!("{cell}Fragment"),
+        ]);
+    }
+    for sort in sorts {
+        generated.insert(
+            format!("is{sort}"),
+            format!("the sort predicate of `{sort}`"),
+        );
+    }
+    generated
 }
 
 fn push_component(output: &mut String, value: &str) {
@@ -3150,7 +3306,131 @@ mod tests {
             };
             assert_eq!(actual, expected_range);
             assert!(diagnostic.notes.is_empty());
+            let [first] = diagnostic.secondary.as_slice() else {
+                panic!("missing first collision owner range");
+            };
+            let Location::Source(first_range) = &first.location else {
+                panic!("first collision owner has no source range");
+            };
+            assert_eq!(*first_range, expected_range);
+            assert_eq!(
+                diagnostic.help.len(),
+                usize::from(namespace == CollisionNamespace::EmittedSymbol)
+            );
         }
+    }
+
+    fn production(
+        name: &str,
+        family: Option<&str>,
+        explicit: Option<&str>,
+    ) -> krs_ir_levels::SemanticProduction {
+        let id = StableItemId::new(
+            krs_ir::testing::package("KRS-STABLE-NAMES", "fixture"),
+            ["api"],
+            name,
+            ItemKind::Constructor,
+            family.map_or_else(String::new, |family| format!("enum:{family}")),
+        )
+        .unwrap();
+        krs_ir_levels::SemanticProduction::with_api(
+            krs_ir::testing::origin("sem.production"),
+            id,
+            krs_ir_levels::SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+            vec![
+                krs_ir::GrammarProductionItem::terminal(
+                    krs_ir::testing::origin("sem.terminal"),
+                    "t",
+                )
+                .unwrap(),
+            ],
+            Vec::new(),
+            krs_ir::RustVisibility::Inherited,
+            explicit.map(|symbol| ExplicitSymbol::new(symbol).unwrap()),
+        )
+        .unwrap()
+    }
+
+    fn symbol(production: &krs_ir_levels::SemanticProduction) -> String {
+        let owner = stable_symbol_text(production.id(), production.explicit_symbol());
+        super::production_symbol_name(production, &owner)
+    }
+
+    #[test]
+    fn a_symbol_depends_only_on_its_own_declaration() {
+        // A variant is always qualified by its enum, whatever else the
+        // definition declares; a struct keeps its own name.
+        assert_eq!(symbol(&production("Add", Some("Op"), None)), "opAdd");
+        assert_eq!(
+            symbol(&production("Dot", Some("ExpSyntax"), None)),
+            "expSyntaxDot"
+        );
+        assert_eq!(
+            symbol(&production("Dot", Some("LValSyntax"), None)),
+            "lValSyntaxDot"
+        );
+        assert_eq!(
+            symbol(&production("Update8", Some("Instruction"), None)),
+            "instructionUpdate8"
+        );
+        assert_eq!(symbol(&production("Dot", None, None)), "dot");
+        // `#[k::symbol]` names the production by its final path component.
+        assert_eq!(
+            symbol(&production("Add", Some("Op"), Some("api::Plus"))),
+            "plus"
+        );
+        // A struct whose name is the concatenation derives the same symbol:
+        // the naming pass rejects the pair instead of renaming either one.
+        assert_eq!(symbol(&production("OpAdd", None, None)), "opAdd");
+    }
+
+    #[test]
+    fn an_explicit_symbol_is_the_whole_identity_of_a_variant() {
+        let variant = production("Add", Some("Op"), Some("api::Plus"));
+        let renamed_enum = production("Add", Some("Operator"), Some("api::Plus"));
+        let structure = production("Plus", None, Some("api::Plus"));
+        let text = stable_symbol_text(variant.id(), variant.explicit_symbol());
+        assert_eq!(
+            text,
+            stable_symbol_text(renamed_enum.id(), renamed_enum.explicit_symbol())
+        );
+        assert_eq!(
+            text,
+            stable_symbol_text(structure.id(), structure.explicit_symbol())
+        );
+        let implicit = production("Add", Some("Op"), None);
+        assert_ne!(
+            stable_symbol_text(implicit.id(), None),
+            stable_symbol_text(production("Add", Some("Operator"), None).id(), None)
+        );
+    }
+
+    #[test]
+    fn k_generated_symbols_cover_sort_predicates_and_cell_operations() {
+        let generated = super::k_generated_symbols(
+            vec!["Expr".to_owned()],
+            &["k".to_owned(), "call-stack".to_owned()],
+        );
+        for name in [
+            "isExpr",
+            "isInt",
+            "isKItem",
+            "isKCell",
+            "isKCellOpt",
+            "isKCellFragment",
+            "initKCell",
+            "noKCell",
+            "getKCell",
+            "initCallStackCell",
+            "isGeneratedTopCell",
+            "initGeneratedTopCell",
+            "getGeneratedCounterCell",
+        ] {
+            assert!(generated.contains_key(name), "{name} is not reserved");
+        }
+        assert_eq!(generated["isExpr"], "the sort predicate of `Expr`");
+        assert!(!generated.contains_key("isZero"));
+        assert!(!generated.contains_key("expr"));
     }
 
     #[test]

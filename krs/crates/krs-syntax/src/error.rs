@@ -29,6 +29,49 @@ pub enum SyntaxErrorKind {
         /// Repeated argument name.
         name: &'static str,
     },
+    /// A `#[k::function]` that is program syntax omitted its `syntax`.
+    MissingFunctionSyntax,
+    /// A `#[k::function]` on a `fn` was outside the shorthand's shape.
+    InvalidFunctionShorthand {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::equations!` table was malformed.
+    InvalidEquationTable {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// Two rows of one `k::equations!` table state the same equation.
+    DuplicateEquationRow {
+        /// Complete stable explanation, naming both rows.
+        reason: String,
+    },
+    /// A catch-all row of a `k::equations!` table shares a priority with
+    /// another row.
+    CatchAllEquationRow {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` template was malformed.
+    InvalidBitTemplate {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` template was outside a pattern that takes one.
+    BitTemplatePosition {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` field letter collided with another name of its sentence.
+    BitFieldCollision {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// Templates of different widths matched one argument of a table.
+    BitTemplateWidthMismatch {
+        /// Complete stable explanation, naming both rows.
+        reason: String,
+    },
     /// A required keyed attribute argument was absent.
     MissingArgument {
         /// Missing argument name.
@@ -193,6 +236,16 @@ pub enum SyntaxErrorKind {
     },
     /// A symbolic constructor field or rule type was not a supported `Term` sort.
     InvalidTermType,
+    /// A rule narrowing or a field or term sort gave one of K's unparameterized
+    /// collection sorts (`List`, `Map`, `Set`) generic arguments.
+    ParametricCollectionSort {
+        /// The collection sort: `List`, `Map`, or `Set`.
+        collection: &'static str,
+        /// The authored path without its generic arguments.
+        bare: String,
+        /// Whether the path is a `where` narrowing rather than a field or term sort.
+        narrowing: bool,
+    },
     /// A rule body was not exactly one unterminated term expression.
     UnsupportedRuleBody {
         /// Specific body restriction.
@@ -329,6 +382,11 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// A function's `underspecified` key was malformed or misplaced.
+    InvalidUnderspecified {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
     /// A `concrete`, `symbolic`, or `smt_lemma` key was malformed (KF-043).
     InvalidMatchRestriction {
         /// Complete explanation, naming the fix.
@@ -350,6 +408,10 @@ pub enum SyntaxErrorKind {
 impl SyntaxErrorKind {
     /// Returns the registered code for this syntax category.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per syntax category, each naming its registered code."
+    )]
     pub const fn code(&self) -> Code {
         match self {
             Self::ReservedBinder => codes::syntax::RESERVED_BINDER,
@@ -358,6 +420,15 @@ impl SyntaxErrorKind {
             Self::UnknownArgument { .. } => codes::syntax::UNKNOWN_ARGUMENT,
             Self::DuplicateArgument { .. } => codes::syntax::DUPLICATE_ARGUMENT,
             Self::MissingArgument { .. } => codes::syntax::MISSING_ARGUMENT,
+            Self::MissingFunctionSyntax => codes::syntax::MISSING_FUNCTION_SYNTAX,
+            Self::InvalidFunctionShorthand { .. } => codes::syntax::INVALID_FUNCTION_SHORTHAND,
+            Self::InvalidEquationTable { .. } => codes::syntax::INVALID_EQUATION_TABLE,
+            Self::DuplicateEquationRow { .. } => codes::syntax::DUPLICATE_EQUATION_ROW,
+            Self::CatchAllEquationRow { .. } => codes::syntax::CATCH_ALL_EQUATION_ROW,
+            Self::InvalidBitTemplate { .. } => codes::syntax::INVALID_BIT_TEMPLATE,
+            Self::BitTemplatePosition { .. } => codes::syntax::BIT_TEMPLATE_POSITION,
+            Self::BitFieldCollision { .. } => codes::syntax::BIT_FIELD_COLLISION,
+            Self::BitTemplateWidthMismatch { .. } => codes::syntax::BIT_TEMPLATE_WIDTH_MISMATCH,
             Self::InvalidArgumentValue { .. } => codes::syntax::INVALID_ARGUMENT_VALUE,
             Self::UnsupportedPath => codes::syntax::UNSUPPORTED_PATH,
             Self::UnsupportedSortDeclaration { .. } | Self::UnaliasedSort { .. } => {
@@ -415,6 +486,7 @@ impl SyntaxErrorKind {
             }
             Self::UnsupportedRulePattern { .. } => codes::syntax::UNSUPPORTED_RULE_PATTERN,
             Self::InvalidTermType => codes::syntax::INVALID_TERM_TYPE,
+            Self::ParametricCollectionSort { .. } => codes::syntax::PARAMETRIC_COLLECTION_SORT,
             Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
@@ -440,6 +512,7 @@ impl SyntaxErrorKind {
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
+            Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
             Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
             Self::InvalidSpecModule { .. } => codes::syntax::INVALID_SPEC_MODULE,
@@ -531,6 +604,9 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::DuplicateArgument { name } => {
                 write!(formatter, "duplicate argument `{name}`")
             }
+            SyntaxErrorKind::MissingFunctionSyntax => formatter.write_str(
+                "this function is program syntax (`pub` and not `internal`), so it needs an explicit `syntax = \"..\"`: a default terminal could shadow a token of the object language; mark it `internal` (or make it non-`pub`) to use the default `symbol({field}, ..)`",
+            ),
             SyntaxErrorKind::MissingArgument { name } => {
                 write!(formatter, "missing required argument `{name} = ...`")
             }
@@ -651,6 +727,27 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::InvalidTermType => {
                 formatter.write_str("expected `Term<SortPath>` or `Term<dyn SortPath>`")
             }
+            SyntaxErrorKind::ParametricCollectionSort {
+                collection,
+                bare,
+                narrowing,
+            } => {
+                let test = if *narrowing {
+                    "a `where` narrowing tests the sort"
+                } else {
+                    "a field or term sort is the sort"
+                };
+                let contents = if *collection == "Map" {
+                    "its keys or values"
+                } else {
+                    "its elements"
+                };
+                write!(
+                    formatter,
+                    "K's `{collection}` sort is not parametric, so {test} `{collection}` and \
+                     cannot constrain {contents}; write `{bare}` without generic arguments"
+                )
+            }
             SyntaxErrorKind::UnsupportedRuleBody { reason } => {
                 write!(formatter, "unsupported rule body: {reason}")
             }
@@ -681,8 +778,17 @@ impl fmt::Display for SyntaxError {
                 attribute,
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
-            SyntaxErrorKind::RawKShape { reason }
+            SyntaxErrorKind::InvalidFunctionShorthand { reason }
+            | SyntaxErrorKind::InvalidEquationTable { reason }
+            | SyntaxErrorKind::DuplicateEquationRow { reason }
+            | SyntaxErrorKind::CatchAllEquationRow { reason }
+            | SyntaxErrorKind::InvalidBitTemplate { reason }
+            | SyntaxErrorKind::BitTemplatePosition { reason }
+            | SyntaxErrorKind::BitFieldCollision { reason }
+            | SyntaxErrorKind::BitTemplateWidthMismatch { reason }
+            | SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
+            | SyntaxErrorKind::InvalidUnderspecified { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }

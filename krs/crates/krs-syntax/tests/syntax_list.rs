@@ -138,6 +138,11 @@ fn malformed_lists_are_rejected() {
             INTS,
             "add the strictness or drop `result`",
         ),
+        (
+            r#"separator = ",""#,
+            r#"pub enum Ints { #[k::symbol("api::Push")] Cons { head: Int, tail: Ints }, Nil() }"#,
+            "`#[k::symbol]` cannot rename them",
+        ),
         (r#"separator = "a+""#, INTS, "exactly one K terminal"),
         (r#"separator = ", ""#, INTS, "exactly one K terminal"),
         (

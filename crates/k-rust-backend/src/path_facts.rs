@@ -13,7 +13,7 @@
 //!   with the claim;
 //! - a `Bytes` result the memory allowance refused ([`PathFact::AllowanceRefusal`]) and an
 //!   application left unevaluated as an unsupported hook ([`PathFact::UnsupportedHook`]): facts
-//!   of the run only ([`PathFact::on_paths`]), which reach the run record and no path.
+//!   of the run only (`PathFact::on_paths`), which reach the run record and no path.
 //!
 //! Such a fact is a fact about the decisions a path rests on, not about the result the work
 //! contributed to, so it is never withdrawn with that work. The diagnostic channel
@@ -22,24 +22,24 @@
 //! collector has no drop, rewind, discard or retraction at all. Every rule below is stated per
 //! fact, so a further kind of fact is a further variant and needs no new rule.
 //!
-//! - A phase of a run collects what it noted ([`collect`]); closing a collection adds what it
-//!   holds to the enclosing collection. A fact noted inside a candidate-owned scope ([`owned`])
+//! - A phase of a run collects what it noted (`collect`); closing a collection adds what it
+//!   holds to the enclosing collection. A fact noted inside a candidate-owned scope (`owned`)
 //!   is kept apart from the enclosing phase's own facts (`Facts::owned`), so that the phase can
 //!   attribute it to the candidate alone. A fact of the run only reaches no collection.
 //! - A structure that lets a later step skip an evaluation stores the facts its evaluation noted
-//!   ([`marker`], [`since`]) and notes them again where it is served ([`replay`]).
+//!   (`marker`, `since`) and notes them again where it is served (`replay`).
 //! - An evaluation whose value only decides a definedness that is the same in every model runs
-//!   with the notes of chosen values suspended ([`suspend`]): they reach no collection and no
+//!   with the notes of chosen values suspended (`suspend`): they reach no collection and no
 //!   run record, and a memo filled there still learns them, so it replays them where they count.
 //!   Every other kind is noted there too, since it can steer the definedness the evaluation
 //!   decides: a definedness-only fold reads an allowance refusal as "not defined without a
 //!   value" where a larger allowance gives a value (`deferred::defined_without_value`).
 //! - A contradicted claim names the rewrite rule whose attempt (its match, its conditions, its
-//!   right-hand side) or whose successor's normalization observed it ([`observed_by`]), so that
+//!   right-hand side) or whose successor's normalization observed it (`observed_by`), so that
 //!   the same contradiction observed by two rules is two records.
-//! - The run-level record ([`run`]) holds every distinct fact the run noted outside a
+//! - The run-level record (`run`) holds every distinct fact the run noted outside a
 //!   suspension, in first-observed order, whatever became of the work and the paths that met it.
-//!   A result lists the definition's load record before it ([`RunRecord::of`]), each entry
+//!   A result lists the definition's load record before it (`RunRecord::of`), each entry
 //!   tagged with who observed it ([`ObservedIn`]); a leaf carries the run's own facts only.
 //!
 //! With nothing open a note reads one thread-local flag and returns.
@@ -61,7 +61,7 @@ use crate::{
 };
 
 /// A fact a path's leaves carry whatever became of the work that found it, or, for the kinds
-/// that are facts of the run only ([`Self::on_paths`]), that the run record holds whatever
+/// that are facts of the run only (`Self::on_paths`), that the run record holds whatever
 /// became of that work.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
@@ -187,7 +187,7 @@ pub struct ContradictedClaim {
     /// produced successor's normalization observed the contradiction; `None` when no rule's
     /// work did (the normalization of an initial state, or work outside a run's steps).
     pub rule: Option<ObservingRule>,
-    /// Whether the record refutes the claim at a ground input ([`ground`]): the contradicted
+    /// Whether the record refutes the claim at a ground input (`ground`): the contradicted
     /// application is variable-free, the work that found it `\bottom` noted no path fact of any
     /// kind but ground records, and it assumed nothing but `\top`. For a `total` claim that work
     /// is the evaluation of the application from its equation's selection on, under no known
@@ -254,9 +254,10 @@ pub struct ContradictedPreservation {
 
 /// A rewrite rule by the parts a report names it by, and whether it claims that its result term
 /// is defined (`claims_defined_result`), the claim a normalization of its result can refute
-/// ([`note_contradicted_preservation`]).
-#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ObservingRule {
+/// (`note_contradicted_preservation`). One per rule, shared by every step that names it
+/// (`RuleIdentity::of`).
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuleIdentity {
     /// The rule's `UNIQUE_ID`.
     pub unique_id: String,
     pub label: Option<String>,
@@ -265,10 +266,90 @@ pub struct ObservingRule {
     /// Whether one successor's normalization can refute the rule's `preserves-definedness`
     /// ([`claims_defined_result`]), a function of the rule.
     pub(crate) claims_defined_result: bool,
+}
+
+impl RuleIdentity {
+    fn new(rule: &RewriteRule) -> Self {
+        Self {
+            unique_id: rule.attributes.unique_id.clone(),
+            label: rule.attributes.label.clone(),
+            origin: rule.attributes.origins.first().cloned(),
+            claims_defined_result: claims_defined_result(rule),
+        }
+    }
+
+    /// `rule`'s identity, built at its first use and then shared: a rule attempt, an applied
+    /// candidate, its successor's producer and each rule scope of a step name the rule, so a
+    /// step would otherwise copy its id, label and origin several times.
+    pub(crate) fn of(rule: &RewriteRule) -> Arc<Self> {
+        let identity = rule
+            .computed_attributes
+            .identity
+            .0
+            .get_or_init(|| Arc::new(Self::new(rule)));
+        debug_assert_eq!(
+            **identity,
+            Self::new(rule),
+            "a rule's shared identity is the one its attributes give"
+        );
+        Arc::clone(identity)
+    }
+}
+
+/// A rule's [`RuleIdentity`] once it has been built (`RuleIdentity::of`): derived data, so it
+/// takes no part in the rule's equality, and a clone of the rule starts without it, since a
+/// clone may be changed before it is used.
+#[derive(Default)]
+pub struct RuleIdentityCell(std::sync::OnceLock<Arc<RuleIdentity>>);
+
+impl RuleIdentityCell {
+    /// A cell holding this one's identity, if built, for a rule that names the same rule.
+    pub(crate) fn sharing(&self) -> Self {
+        let cell = Self::default();
+        if let Some(identity) = self.0.get() {
+            let _ = cell.0.set(Arc::clone(identity));
+        }
+        cell
+    }
+}
+
+impl Clone for RuleIdentityCell {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl PartialEq for RuleIdentityCell {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for RuleIdentityCell {}
+
+impl std::fmt::Debug for RuleIdentityCell {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RuleIdentityCell")
+    }
+}
+
+/// A rule as the work of one of its steps names it: its shared [`RuleIdentity`], whose fields it
+/// reads as its own, and what that step's work depended on.
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ObservingRule {
+    identity: Arc<RuleIdentity>,
     /// For the normalization of a successor a step built, whether the step's attempt depended on
     /// something that may differ between models ([`Dependence`]): the work that decided its
     /// premises, which a record of the rule's claim rests on too.
     pub(crate) premises_depend: Dependence,
+}
+
+impl std::ops::Deref for ObservingRule {
+    type Target = RuleIdentity;
+
+    fn deref(&self) -> &RuleIdentity {
+        &self.identity
+    }
 }
 
 /// The parts that name the rule; `premises_depend` is a fact of one step's work, not of the
@@ -336,12 +417,14 @@ impl ObservingRule {
     }
 
     pub(crate) fn of(rule: &RewriteRule) -> Self {
+        Self::with(RuleIdentity::of(rule), Dependence::default())
+    }
+
+    /// The rule `identity`, as the work of a step that depended on `premises_depend` names it.
+    pub(crate) fn with(identity: Arc<RuleIdentity>, premises_depend: Dependence) -> Self {
         Self {
-            unique_id: rule.attributes.unique_id.clone(),
-            label: rule.attributes.label.clone(),
-            origin: rule.attributes.origins.first().cloned(),
-            claims_defined_result: claims_defined_result(rule),
-            premises_depend: Dependence::default(),
+            identity,
+            premises_depend,
         }
     }
 }
@@ -502,7 +585,18 @@ pub(crate) struct Facts {
 impl Facts {
     /// Every fact, shared or owned.
     pub(crate) fn all(&self) -> FactSet {
+        if self.owned.is_empty() {
+            return self.shared.clone();
+        }
+        if self.shared.is_empty() {
+            return self.owned.clone();
+        }
         self.shared.union(&self.owned).cloned().collect()
+    }
+
+    /// Whether nothing was noted.
+    fn is_empty(&self) -> bool {
+        self.shared.is_empty() && self.owned.is_empty()
     }
 }
 
@@ -606,7 +700,11 @@ impl State {
 
     fn close(&mut self) -> Sink {
         let sink = self.sinks.pop().expect("a collection is closed once");
-        if let Some(enclosing) = self.sinks.last_mut() {
+        // A collection that noted nothing hands nothing on, which is what nearly every one of a
+        // step's collections does.
+        if !sink.facts.is_empty()
+            && let Some(enclosing) = self.sinks.last_mut()
+        {
             if sink.owned {
                 enclosing.facts.owned.extend(sink.facts.all());
             } else {
@@ -979,7 +1077,9 @@ pub(crate) fn collect_with_diagnostics<T>(
     action: impl FnOnce() -> T,
 ) -> (T, Vec<BackendDiagnostic>) {
     let ((result, mut list), facts) = collect(|| diagnostic::collect(action));
-    list.extend(diagnostics(&facts.all()));
+    if !facts.is_empty() {
+        list.extend(diagnostics(&facts.all()));
+    }
     (result, list)
 }
 
@@ -1230,17 +1330,41 @@ mod tests {
         );
     }
 
+    /// A collection hands on what it noted, and one that noted nothing hands on nothing, owned or
+    /// shared: the enclosing collection ends as if the empty one had never been opened.
+    #[test]
+    fn a_collection_hands_on_exactly_what_it_noted() {
+        let fact = |hook: &str| {
+            PathFact::ChosenValue(ChosenValue::new(Arc::from(hook), ChosenClass::Order))
+        };
+        let ((), facts) = collect(|| {
+            let ((), empty) = collect(|| {});
+            assert!(empty.shared.is_empty() && empty.owned.is_empty());
+            let ((), owned_empty) = owned(|| {});
+            assert!(owned_empty.is_empty());
+            let ((), shared) = collect(|| note(fact("shared")));
+            assert_eq!(shared.all(), FactSet::from([fact("shared")]));
+            let ((), owned_facts) = owned(|| note(fact("owned")));
+            assert_eq!(owned_facts, FactSet::from([fact("owned")]));
+        });
+        assert_eq!(facts.shared, FactSet::from([fact("shared")]));
+        assert_eq!(facts.owned, FactSet::from([fact("owned")]));
+        assert_eq!(facts.all(), FactSet::from([fact("owned"), fact("shared")]));
+    }
+
     /// A rule scope is opened only while something is open, and closed on every exit.
     #[test]
     fn a_rule_scope_is_restored_on_every_exit() {
         let rule = || {
-            Some(ObservingRule {
-                unique_id: "r".to_owned(),
-                label: None,
-                origin: None,
-                claims_defined_result: false,
-                premises_depend: Dependence::default(),
-            })
+            Some(ObservingRule::with(
+                Arc::new(RuleIdentity {
+                    unique_id: "r".to_owned(),
+                    label: None,
+                    origin: None,
+                    claims_defined_result: false,
+                }),
+                Dependence::default(),
+            ))
         };
         assert_eq!(observed_by(rule, || 1), 1);
         assert!(STATE.with_borrow(|state| state.rules.is_empty()));

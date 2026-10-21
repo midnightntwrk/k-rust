@@ -1,0 +1,159 @@
+# IMP with an LLM-written corpus
+
+This directory runs the kink-flow loop (root README, "Using kink-flow") on IMP,
+the K tutorial's `pl-tutorial/1_k/2_imp/lesson_4` (flow packet F-09).
+The corpus and the mutation list were written by an LLM driving the loop.
+
+| File | Content |
+| --- | --- |
+| `imp.k` | The lesson's definition, unchanged below a header naming its source path and revision (K `4a46d123`). |
+| `LICENSE-K.md` | The K framework's licence (BSD 3-Clause), which covers `imp.k`. |
+| `FLOW.toml` | The corpus: the lesson's three programs with reduced bounds, and four programs written for survivors. |
+| `programs/` | The program files. |
+| `MUTATIONS.toml` | 21 mutations: 18 single edits and 3 correlated ones. |
+
+Run it from this directory:
+
+```sh
+kink-flow check FLOW.toml
+kink-flow results FLOW.toml
+kink-flow run FLOW.toml MUTATIONS.toml
+```
+
+## Results at k-rust 927b9ce6
+
+- `results`: every one of the 17 rules is covered by a comparable program; the lesson's three programs alone cover them.
+- `run`: 20 mutations are killed; `add-commuted` survives and is equivalent
+  (`+Int` is commutative and the rule only fires on two `Int` values), so it is kept as the one explained survivor.
+- Killers (since flow F-13 the search tries the cheapest programs first): `sum` 7, `arith` 6, `and` 3, `redeclare` 2, `divzero` 1, `primes` 1.
+  In the manifest's order (`--order corpus`, as before F-13) they are `sum` 8, `primes` 5, `arith` 3, `and` 2, `divzero` 1, `redeclare` 1;
+  the statuses are the same in both orders.
+  `divzero` and `redeclare` kill through the exit-stop oracle, not the final configuration
+  (the report's `slots` show `exit-stop` distinguishing, `["normal"]` against `["undefined-step"]`):
+  the baseline is stuck, and the mutant's rule now applies with an undefined result (`1 /Int 0`, a map with a repeated key).
+- `collatz` is `timeout` (see below) and cannot kill a mutant. Its cause shows path explosion:
+  `when the bound fired k-rust returned 1287 leaves (stuck 1286, cancelled 1), the deepest at depth 505; those leaves had applied 15 of the 17 rules a run can observe`,
+  where a mutant that loops forever shows one cancelled leaf tens of thousands of steps deep.
+- Every rule is targeted by some mutation except the two unlabelled rules on lines 55 and 65 (`untargeted_rules` in the report).
+
+## Results at k-rust 501f18b9 with state-set runs (re-pin lane 1, L1-1)
+
+Since re-pin L1-1 every program run is one unobserved k-rust state-set run: k-rust merges equal
+configurations and expands each distinct state of a depth once, so the evaluation orders of the
+`strict` operators meet again instead of multiplying (k-rust KINK-01). A complete state set has
+exactly the distinct final configurations of the path set (re-pin decision 3; kink-flow
+`tests/modality.rs` checks it on this corpus, on demand: every program on the baseline and on all
+21 mutants under both modalities; re-pin L1-1-fix-1 found no difference in 143 compared runs, and
+11 mutant runs finished only as state sets). A mutant's run may also carry a work budget
+(`[budget] work_factor`, set to 4 above).
+
+A cold `run` in corpus order (`--order corpus`, release binary, under the 24 GiB scope, host
+load 18-20): 20.7 s and 0.11 GiB peak, against 140.1 s and 10.2 GiB at 1ee9955 (path sets, load
+4-6). Without `work_factor`: 32.4 s and 0.32 GiB. Every status equals the path-set run's (20
+killed, `add-commuted` survives). Two things change, both because runs now finish inside
+`time_ms`:
+- `collatz` is `comparable` (its baseline takes 10 ms; as a path set it took 34.6 s, past the 10 s
+  bound, so it was `timeout`), so every mutation's call also runs it. It kills nothing; the
+  calls are otherwise those of the path-set run.
+- `and-false-returns-rhs` is killed by `primes`, whose mutant run ended as a path set only at the
+  time bound (still not after 120 s), instead of by `and`. The kill rests on re-pin decision 3
+  (k-rust's state-set merge is correct). The L1-1 review confirmed it without that premise: the
+  baseline's `primes` path set is complete with one distinct final configuration (`s = 2`), and one
+  concrete path of the mutant ends stuck outside it (`s = 0`); every path of an IMP program ends in
+  one configuration, since only the order of side-effect-free strict arguments varies.
+  `crates/kink-flow/tests/imp_primes_kill.rs` (ignored, on demand) repeats that confirmation.
+Five mutant runs that ran out the time bound before now end in the work bound, within about
+0.2 s (`unknown` on that program, where it was `timeout`; the cause names the budget and the
+census says `work-bound 1`), and so do three of the new `collatz` runs; none of these programs
+kills its mutant. `work_factor = 1` keeps every status and killer too (22.8 s); 4 is the margin.
+
+Since re-pin L1-2 a work-bound mutant run can also kill one-sidedly: a clean, ground, stuck final
+configuration it has finished before the budget, absent from the baseline's complete set (decision 6;
+the root README, "What a kill trusts"). On this list it changes nothing: none of the five
+work-bound runs above has finished a final configuration when the budget stops it, so every
+status, killer, call and executed entry equals the L1-1 run (cold corpus order 16.7-17.0 s and
+0.12 GiB, against 14.4-17.5 s at cb97902 on the same host). kink-flow `tests/one_sided.rs` (on
+demand) re-runs every mutant of this list under budgets below its own work on each program whose
+unbounded run compares: 25 one-sided kills, each on a program whose unbounded run distinguishes,
+and none on the 89 programs whose unbounded run agrees.
+
+## Cost: strict operators multiply the paths
+
+The measurements in this section are from the path-set runs before re-pin L1-1.
+
+kink compares the set of final configurations, so it explores every evaluation order.
+IMP's `+` and `/` are `strict`, and k-rust does not merge equal intermediate states
+(k-rust request KINK-01, `pathset-state-dedup`), so each loop iteration multiplies the paths.
+Measured with the release binary (wall time of `results` for one program with time_ms = 60000, compile included; host load about 10):
+
+| Program | Bound | Wall | Peak RSS |
+| --- | --- | --- | --- |
+| sum | n = 3 | 1.6 s | 0.1 GiB |
+| sum | n = 6 | 7.9 s | 1.1 GiB |
+| primes | m = 4 | 4.3 s | 0.2 GiB |
+| primes | m = 5 | did not end within 60 s | 2.8 GiB |
+| collatz | m = 3 | 36 s | 2.3 GiB |
+
+At the lesson's own bounds (sum n = 100, collatz m = 10, primes m = 10) the growth above rules out a run (not attempted),
+so the seed programs use n = 3, m = 3 and m = 4.
+
+A mutant that loops where the baseline ends multiplies its paths without end.
+With `time_ms = 10000`, a cold `run` of this list peaked at 16.4 GiB resident;
+an earlier attempt with `time_ms = 120000` reached 58 GiB before it was stopped.
+Run kink-flow under a memory limit, for example
+`systemd-run --user --scope -p MemoryMax=24G -p MemorySwapMax=0 kink-flow run ...`,
+and keep `time_ms` small.
+
+## Re-runs: the outcome cache
+
+`kink-flow run` caches every proved outcome of a mutation on a program (flow F-14),
+so re-checking this list costs far less than the first run.
+Measured with the release binary on scratch copies of this directory,
+each run under `systemd-run --user --scope -p MemoryMax=24G -p MemorySwapMax=0` (peak = the scope's `memory.peak`; host load 21-37):
+
+| Scenario | Wall | Peak | Campaign calls (one mutant compile each) | Result |
+| --- | --- | --- | --- | --- |
+| cold run, fresh cache | 216.5 s | 12.7 GiB | 21, over 126 programs | killed 20, survived 1 (`add-commuted`); the killers above; 39 outcomes cached |
+| warm re-run, no change | 4.9 s | 0.11 GiB | 0 | 20 killed from the cache, `add-commuted` from its 6 cached agreements |
+| one program added (`added`: `x = 1 + 2; y = x / 2;`) | 5.7 s | 0.10 GiB | 1, over `added` alone | its baseline, then `add-commuted` on it; the killed mutations untouched |
+| comment-only edit of `imp.k` (a line appended) | 69.7 s | 0.40 GiB | 21: one per killed mutation over its last killer, and `add-commuted` over the 6 comparable programs | every baseline again; the specification digest changed, so no cached outcome applies (until k-rust's KINK-14 execution digest) |
+| real edit of the unary minus rule (`0 -Int I1` becomes `0 -Int I1 +Int 0`) | 94.7 s | 10.8 GiB | 21: 19 over the last killer alone; `neg-drops-sign` (its rule's text changed, so its hint no longer applies) and `add-commuted` over the 6 comparable programs | statuses and killers equal to a cold run of the edited copy (227.8 s) |
+| `run --verify` after the cold run | 209.5 s | 14.5 GiB | 21, over 126 programs | every one of the 39 cached outcomes re-proved; no mismatch |
+
+Since flow F-12 each program's baseline runs at most once per command:
+the result update and every campaign call of a command share one in-memory baseline session,
+so a call reuses the baseline runs this command already made (the run document's `baseline_runs: {live, reused}`).
+Measured with the release binary before (F-14, `e7f5347`) and after F-12, same host session, each run under the 24 GiB scope above;
+statuses, killers, killer sources and calls are equal in every scenario:
+
+| Scenario | Before F-12 | After F-12 | Baseline runs after (live / reused) |
+| --- | --- | --- | --- |
+| cold run, fresh cache | 229.8 s (load 39) | 128.8 s (load 27) | 7 / 126: each program once, in the result update; every call reuses them |
+| warm re-run, no change | 6.6 s | 6.2 s | 0 / 0: no campaign call |
+| `outcomes/` deleted (each killed mutation one call over its hint) | 50.5 s | 24.9 s | 6 / 20 |
+| comment-only edit of `imp.k` | 83.5 s | 47.9 s | 7 / 26 |
+
+The cold run's peak memory comes from the mutants that loop until `time_ms` (6.8 GiB before and 15.5 GiB after here,
+12.7 GiB in the F-14 table above): it depends on how far they get in 10 s on a loaded host, not on the baseline runs.
+
+A rebuilt `kink-flow` starts a new outcome context (the cache key includes the executable's digest),
+so the first run after a rebuild re-proves each killed mutation with one call over its last killer,
+as after the comment-only edit above, but without running the baselines again (their results are still current).
+
+## Cheaper killers first (flow F-13)
+
+Inside each group of the kill search (the programs that reach an edited rule, then the rest) the programs run cheapest first,
+by the wall time of their baseline run (`wall_ms` in `results`): here `redeclare`, `arith`, `and` and `divzero` take about 1 ms,
+`sum` about 0.1 s and `primes` about 3.5 s. The order never changes a status, only which killer is found first and the cost.
+Measured with the release binary on scratch copies, each run under the 24 GiB scope above (host load 19-25):
+
+| Scenario | Cost order (default) | Corpus order (`--order corpus`) |
+| --- | --- | --- |
+| cold run, fresh cache | 38.1 s, peak 0.42 GiB; calls take 16.8 s in all | 120.1 s, peak 14.0 GiB; calls take 98.4 s in all |
+| warm re-run, no change | 4.2 s, no campaign call | (as cost order: no call) |
+| `outcomes/` deleted: each killed mutation one call over its hint | 20.7 s; a call takes 0.39 s on average, 0.70 s at most | 28.6 s; 0.96 s on average, 5.6 s at most (`primes`) |
+
+Statuses are equal in every scenario (20 killed, `add-commuted` survived); five mutations get another killer
+(`arith`, `redeclare` or `and` instead of `primes` or `sum`).
+The cold run is cheaper mostly because a mutant that loops is now killed by a fast program before it can run a slow one to `time_ms`:
+in corpus order six (mutation, program) runs time out after 10 s each and make the 14 GiB peak; in cost order none does.

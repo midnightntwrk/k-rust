@@ -1169,6 +1169,95 @@ fn anonymous_check_warns_of_a_quantifier_whose_binder_is_anonymous() {
     assert!(warnings_of(quantifier("#Forall", "Y", x_differs("Y"))).is_empty());
 }
 
+/// FU-52: occurrences are counted per variable, not per spelling. In `X => 0 requires
+/// #Exists X . {X ==K 1}` the left side's `X` occurs once and the quantifier's `X` is another
+/// variable, so the left side's is reported unused, exactly as with the binder named `Z`.
+#[test]
+fn anonymous_check_counts_a_bound_variable_apart_from_a_free_one_of_its_spelling() {
+    let unused = |binder: &str| {
+        let sentence = Sentence::Rule {
+            body: rewrite(Term::variable("X"), token("0")),
+            requires: Term::apply(
+                "#Exists",
+                vec![
+                    Term::variable(binder),
+                    Term::apply("_==K_", vec![Term::variable(binder), token("1")]),
+                ],
+            ),
+            ensures: truth(),
+            attributes: located(),
+        };
+        check_anonymous_variables(&[&sentence])
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnusedVariable)
+            .map(|diagnostic| diagnostic.message)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        unused("X"),
+        [
+            "Variable 'X' defined but not used. Prefix variable name with underscore if this is intentional."
+        ]
+    );
+    assert_eq!(unused("X"), unused("Z"));
+}
+
+/// A local function binds the variables of its pattern in its own scope (`kast::binding`), so a
+/// match pattern's `X` in `go(X) => done(1) requires X :=K h()` and a `#fun` parameter `X` are
+/// variables of their own, apart from the rule's `X`: each occurs once, and both are reported
+/// unused, exactly as with the parameter named `Q`.
+#[test]
+fn anonymous_check_counts_a_local_function_parameter_apart_from_a_rule_variable() {
+    let unused = |sentence: Sentence| {
+        check_anonymous_variables(&[&sentence])
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnusedVariable)
+            .map(|diagnostic| diagnostic.message)
+            .collect::<Vec<_>>()
+    };
+    let rule = |body: Term, requires: Term| Sentence::Rule {
+        body,
+        requires,
+        ensures: truth(),
+        attributes: located(),
+    };
+    let go = |argument: Term| Term::apply("go", vec![argument]);
+    let done = |argument: Term| Term::apply("done", vec![argument]);
+    let matched = |parameter: &str| {
+        rule(
+            rewrite(go(Term::variable("X")), done(token("1"))),
+            Term::apply(
+                "_:=K_",
+                vec![Term::variable(parameter), Term::apply("h", vec![])],
+            ),
+        )
+    };
+    let function = |parameter: &str| {
+        rule(
+            rewrite(
+                go(Term::variable("X")),
+                done(Term::apply(
+                    "#fun2",
+                    vec![
+                        rewrite(Term::variable(parameter), token("1")),
+                        Term::variable("X"),
+                    ],
+                )),
+            ),
+            truth(),
+        )
+    };
+    let message = |name: &str| {
+        format!(
+            "Variable '{name}' defined but not used. Prefix variable name with underscore if this is intentional."
+        )
+    };
+    assert_eq!(unused(matched("X")), [message("X"), message("X")]);
+    assert_eq!(unused(matched("Q")), [message("X"), message("Q")]);
+    assert_eq!(unused(function("X")), [message("X")]);
+    assert_eq!(unused(function("Q")), [message("Q")]);
+}
+
 #[test]
 fn anonymous_check_preserves_context_exemptions_and_generated_suppression() {
     let context = Sentence::Context {
@@ -1325,6 +1414,38 @@ fn concrete_mode_rejects_each_existential_occurrence() {
         3
     );
     assert!(symbolic.is_empty());
+}
+
+/// FU-57: the concrete backend refuses a sentence's existential variables, the free `?`
+/// variables. A `?` variable a quantifier binds is that quantifier's variable, so
+/// `#Forall ?B . {?B #Equals ?B}` on the right side holds no existential, as with `B`, while a
+/// free `?Y` beside it is one.
+#[test]
+fn concrete_mode_counts_only_free_existential_variables() {
+    let forall = |name: &str| {
+        Term::apply(
+            "#Forall",
+            vec![
+                Term::variable(name),
+                Term::apply("_==K_", vec![Term::variable(name), Term::variable(name)]),
+            ],
+        )
+    };
+    let unsupported = |right: Term| {
+        check_rhs_variables(
+            &[&rule_with_body(rewrite(token("0"), right))],
+            StructuralCheckOptions::default(),
+        )
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable)
+        .count()
+    };
+    assert_eq!(unsupported(forall("?B")), 0);
+    assert_eq!(unsupported(forall("B")), 0);
+    assert_eq!(
+        unsupported(Term::sequence([forall("?B"), Term::variable("?Y")])),
+        1
+    );
 }
 
 #[test]
@@ -5033,6 +5154,214 @@ fn fresh_variables_occur_only_where_a_rewrite_rule_builds_its_result() {
             ),
             "Fresh variable !X cannot occur in a context",
         );
+    }
+}
+
+/// The prelude-free syntax the root-alias cases below share: `Int` tokens, a constructor `foo`,
+/// the functions `f`, `g` and `wrap`, the predicates `gt` and `ok`, and the macro `m` and alias
+/// `al`. The rule under test follows on line [`ROOT_ALIAS_RULE_LINE`].
+const ROOT_ALIAS_SYNTAX: &str = r#"module MAIN
+  syntax K
+  syntax Bool ::= r"true|false" [token]
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Int ::= f(Int) [function, symbol(f)] | g(Int) [function, symbol(g)]
+  syntax Foo ::= foo(Int) [symbol(foo)] | wrap(Foo) [function, symbol(wrap)]
+  syntax Bool ::= gt(Int, Int) [function, symbol(gt)] | ok(Foo) [function, symbol(ok)]
+  syntax Int ::= m(Int) [macro, symbol(m)] | al(Int) [alias, symbol(al)]
+"#;
+const ROOT_ALIAS_RULE_LINE: u32 = 9;
+
+/// `rule`, written on line [`ROOT_ALIAS_RULE_LINE`] after [`ROOT_ALIAS_SYNTAX`].
+fn root_alias_source(rule: &str) -> String {
+    format!("{ROOT_ALIAS_SYNTAX}  {rule}\nendmodule\n")
+}
+
+/// The root alias of an equation-like rule (function, `anywhere`, `simplification`, macro or
+/// alias) names the very term the equation rewrites, so an occurrence of it in the right-hand
+/// side or a clause makes the equation mention its own left-hand side: a tautology, a rule that
+/// applies to its own result without end, or an axiom with no model. Each is refused at the
+/// rule, naming the alias, the kind of rule and the place, and suggesting the head term.
+#[test]
+fn an_equations_root_alias_used_outside_its_left_hand_side_is_refused_at_the_rule() {
+    for (rule, alias, kind, place) in [
+        (
+            "rule f(X) #as V => g(V)",
+            "V",
+            "a function rule",
+            "right-hand side",
+        ),
+        (
+            "rule f(X) #as V => V",
+            "V",
+            "a function rule",
+            "right-hand side",
+        ),
+        (
+            "rule f(X) #as V:Int => g(V)",
+            "V",
+            "a function rule",
+            "right-hand side",
+        ),
+        (
+            "rule f(X) #as V => X requires gt(V, 0)",
+            "V",
+            "a function rule",
+            "requires clause",
+        ),
+        (
+            "rule f(X) #as V => X ensures gt(V, 0)",
+            "V",
+            "a function rule",
+            "ensures clause",
+        ),
+        (
+            "rule f(X) #as _V => g(_V)",
+            "_V",
+            "a function rule",
+            "right-hand side",
+        ),
+        (
+            "rule (f(X) #as _W) #as V => g(V)",
+            "V",
+            "a function rule",
+            "right-hand side",
+        ),
+        (
+            "rule foo(X) #as P => wrap(P) [anywhere]",
+            "P",
+            "an anywhere rule",
+            "right-hand side",
+        ),
+        (
+            "rule foo(X) #as P => foo(0) requires ok(P) [anywhere]",
+            "P",
+            "an anywhere rule",
+            "requires clause",
+        ),
+        (
+            "rule g(X) #as V => f(V) [simplification]",
+            "V",
+            "a simplification rule",
+            "right-hand side",
+        ),
+        (
+            "rule g(X) #as V => X requires gt(V, 0) [simplification]",
+            "V",
+            "a simplification rule",
+            "requires clause",
+        ),
+        (
+            "rule m(X) #as V => g(V)",
+            "V",
+            "a macro or alias rule",
+            "right-hand side",
+        ),
+        (
+            "rule m(X) #as V => X requires gt(V, 0)",
+            "V",
+            "a macro or alias rule",
+            "requires clause",
+        ),
+        (
+            "rule al(X) #as V => g(V)",
+            "V",
+            "a macro or alias rule",
+            "right-hand side",
+        ),
+    ] {
+        let source = root_alias_source(rule);
+        let error = compile_error(&source);
+        assert_eq!(error.stage, "definition checks", "{source}\n{error:?}");
+        let refusals = error
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidAsPattern)
+            .collect::<Vec<_>>();
+        let [refusal] = refusals.as_slice() else {
+            panic!("{source}\none refusal expected: {:#?}", error.diagnostics)
+        };
+        assert_eq!(refusal.severity, Severity::Error, "{source}");
+        let opening = format!("The root alias {alias} of {kind} occurs in its {place}.");
+        assert!(
+            refusal.message.starts_with(&opening),
+            "{source}\n{}",
+            refusal.message
+        );
+        // The head is the rule's first application, written without the casts inference adds.
+        let head = rule.trim_start_matches("rule ").trim_start_matches('(');
+        let head = &head[..head.find(')').expect("the head closes") + 1];
+        let closing = format!("Write the head term `{head}` in place of {alias}.");
+        assert!(
+            refusal.message.ends_with(&closing),
+            "{source}\n{}",
+            refusal.message
+        );
+        let location = refusal.location.expect("the refusal is located");
+        assert_eq!(
+            (location.start_line, location.start_column),
+            (ROOT_ALIAS_RULE_LINE, 3),
+            "{source}"
+        );
+    }
+
+    // Each place the alias occurs is named once.
+    let error = compile_error(&root_alias_source(
+        "rule f(X) #as V => g(V) requires gt(V, 0)",
+    ));
+    let refusal = error
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == DiagnosticCode::InvalidAsPattern)
+        .unwrap_or_else(|| panic!("{error:?}"));
+    assert!(
+        refusal.message.starts_with(
+            "The root alias V of a function rule occurs in its right-hand side and requires clause."
+        ),
+        "{}",
+        refusal.message
+    );
+}
+
+/// A root alias that occurs nowhere but on the left-hand side states nothing about the result
+/// and is accepted on an equation, whether it is anonymous, named with a leading `_`, or named
+/// plainly; and a root alias of an ordinary rewrite rule names the term a transition starts
+/// from, which its right-hand side may use. None of them is refused by the root-alias check.
+#[test]
+fn a_root_alias_an_equation_leaves_unused_or_a_rewrite_rule_uses_is_accepted() {
+    for rule in [
+        "rule f(X) #as _ => g(X)",
+        "rule f(X) #as _V => g(X)",
+        "rule f(X) #as V => g(X)",
+        "rule foo(X) #as _P => foo(g(X)) requires gt(X, 0) [anywhere]",
+        "rule g(X) #as _V => X requires gt(X, 0) [simplification]",
+        "rule m(X) #as _V => g(X)",
+        "rule al(X) #as _V => g(X)",
+        "syntax KItem ::= done(Foo) [symbol(done)]\n  configuration <k> .K </k>\n  rule foo(X) #as P => done(P)",
+        "syntax KItem ::= done(Foo) [symbol(done)]\n  configuration <k> .K </k>\n  rule foo(X) #as P => done(foo(X)) requires ok(P)",
+    ] {
+        let source = root_alias_source(rule);
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let (loaded, _) = k_rust::outer::load_for_compilation(
+            k_rust::outer::ResolvedSource::new("definition.k", &source),
+            "MAIN",
+            Some("MAIN"),
+            &mut resolver,
+            &k_rust::outer::LoadOptions::default(),
+        )
+        .unwrap_or_else(|error| panic!("{source}\nthe source should load: {error:?}"));
+        if let Err(error) = k_rust::kompile::compile_loaded_definition(
+            &loaded,
+            k_rust::kompile::CompileOptions::default(),
+        ) {
+            assert!(
+                !error
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == DiagnosticCode::InvalidAsPattern),
+                "{source}\n{error:?}"
+            );
+            panic!("{source}\nthe definition should compile: {error:?}");
+        }
     }
 }
 

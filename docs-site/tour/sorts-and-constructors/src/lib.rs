@@ -9,7 +9,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Nat, result = KResult)]
-#[k::precedence((Zero, Succ))]
 pub enum NatSyntax {
     #[k::syntax("zero")]
     Zero(),

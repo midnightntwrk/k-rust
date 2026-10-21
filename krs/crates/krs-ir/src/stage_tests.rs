@@ -668,8 +668,9 @@ fn head_rule() -> DescriptorHeadRule {
         computation_cell: Some(cell(2)),
         bindings: Vec::new(),
         head: Some(crate::ProtocolHeadRuleHead {
-            subject: term(3),
-            result: crate::DescriptorHeadRuleResult::Replace(term(4)),
+            items: vec![term(3)],
+            exact: false,
+            result: Some(crate::DescriptorHeadRuleResult::Replace(term(4))),
         }),
         requires: None,
         extras: Vec::new(),

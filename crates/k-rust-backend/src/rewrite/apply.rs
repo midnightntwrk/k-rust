@@ -865,7 +865,9 @@ fn knowledge(
 
 /// P3: `Failed` ends the attempt (`Counter::RewriteMatchFailures`), `Success` yields the
 /// substitution with no match conditions, `Indeterminate` goes through the recovery ladder
-/// (P4 to P6).
+/// (P4 to P6), and `Undecided` (a question the matcher does not answer, such as a sort question
+/// that depends on a sort-parametric rule's sort variable) ends the attempt undecided: some
+/// instance of the rule may apply, so it is neither dropped nor recorded as refuted.
 fn dispatch_match(
     context: RuleContext<'_>,
     fresh_counter: &mut FreshCounter,
@@ -873,12 +875,22 @@ fn dispatch_match(
     inherited_conditions: &mut Vec<Predicate>,
     inherited_knowledge: &mut Vec<Predicate>,
 ) -> Phase<(Substitution, Vec<Predicate>)> {
+    let undecided = || -> Phase<(Substitution, Vec<Predicate>)> {
+        Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+            IndeterminateReason::Match {
+                rule_id: context.rule.attributes.unique_id.clone(),
+                substitution: Substitution::new(),
+                remainder: vec![(context.rule.lhs.clone(), context.pattern.term.clone())],
+            },
+        )))
+    };
     match matching {
         MatchResult::Failed(_) => {
             measure::bump(Counter::RewriteMatchFailures);
             context.reached(RefutationSite::Match);
             Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
         }
+        MatchResult::Undecided(_) => undecided(),
         MatchResult::Indeterminate {
             substitution,
             remainder,
@@ -895,6 +907,7 @@ fn dispatch_match(
                     measure::bump(Counter::RewriteMatchFailures);
                     Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
                 }
+                MatchResult::Undecided(_) => undecided(),
                 MatchResult::Success(substitution) => Ok((substitution, Vec::new())),
                 MatchResult::Indeterminate {
                     substitution,
@@ -952,6 +965,7 @@ fn recover_by_simplification(
     };
     match recovered {
         RecoveredMatch::Failed(reason) => Ok(MatchResult::Failed(reason)),
+        RecoveredMatch::Undecided(reason) => Ok(MatchResult::Undecided(reason)),
         RecoveredMatch::Matched {
             solution,
             remainder,
@@ -2282,8 +2296,7 @@ fn apply_rhs_alternative(
             },
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
-            origin: rule.attributes.origins.first().cloned(),
-            claims_defined_result: crate::path_facts::claims_defined_result(rule),
+            identity: crate::path_facts::RuleIdentity::of(rule),
             // What the successor's normalization inherits of this attempt's work, which decided
             // the step's premises: asked only where the rule's claim can be refuted there.
             premises_depend: if crate::path_facts::claims_defined_result(rule)

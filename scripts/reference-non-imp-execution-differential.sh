@@ -182,6 +182,8 @@ run_reference_krun() {
   return 1
 }
 
+# The comparator's output is not captured, so the N15 label of a pair whose constraints only
+# krust kore-implies equated is in the log of a passing case.
 compare_execution() {
   local reference=$1
   local actual=$2
@@ -191,7 +193,7 @@ compare_execution() {
     K_RUST_EXECUTION="$actual" \
     K_DIFFERENTIAL_DEFINITION="$definition" \
     K_DIFFERENTIAL_MODULE="$module" \
-    compare_artifacts executed_kore_matches_the_reference_backend
+    compare_artifacts executed_kore_matches_the_reference_backend --nocapture
 }
 
 # N26: the port ran plain krust krun (--strategy any, one successor per step); its result must

@@ -1,0 +1,34 @@
+[package]
+name = "kink-campaign"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[dependencies]
+k-rust = { path = "../../../crates/k-rust", default-features = false }
+kink-native.workspace = true
+kink-patch.workspace = true
+kink-pattern.workspace = true
+
+serde_json.workspace = true
+
+[dev-dependencies]
+# The source scan of tests/identity.rs (packet CACHE-ID-fix-1): syn parses every kink member's
+# sources, toml reads the workspace's members and k-rust's version.
+syn = { workspace = true, features = ["full", "parsing", "visit"] }
+toml.workspace = true
+
+[features]
+default = ["z3"]
+z3 = ["kink-native/z3"]

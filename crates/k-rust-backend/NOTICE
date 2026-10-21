@@ -1,0 +1,7 @@
+This package is licensed under either of the Apache License, Version 2.0
+(LICENSE-APACHE) or the MIT license (LICENSE-MIT), at your option.
+
+It ports the behaviour of runtimeverification/haskell-backend commit
+ad54c7a55085b726c4d3c2728242a7e0695b0439 to Rust. To the extent it derives from
+that source, the haskell-backend's BSD 3-Clause License applies, included in this
+package as LICENSE-HASKELL-BACKEND.

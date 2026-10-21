@@ -29,12 +29,13 @@ mod view;
 
 pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
-    EmittedSentenceProvenance, compile_loaded_definition, compile_loaded_definition_timed,
+    CompiledProofDefinition, EmittedSentenceProvenance, compile_loaded_definition,
+    compile_loaded_definition_for_proof, compile_loaded_definition_timed,
     compile_loaded_definition_with_timings, on_definitions_stack,
 };
 pub use fresh_names::GeneratedVariableIdentity;
 pub use initial_configuration::{
-    ConfigurationAssembler, ConfigurationError, ProgramGrammar, UnlocatableTerm,
+    ConfigurationAssembler, ConfigurationError, ProgramGrammar, UnlocatableTerm, ValueSortMismatch,
     program_start_position,
 };
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]

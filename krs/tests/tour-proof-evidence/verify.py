@@ -56,7 +56,7 @@ def require_sha256_pin(pins: Ledger, key: str) -> None:
         raise GateError(f"{pins.path.name} {key} output pin is absent")
 
 
-def verify_undefined_partial() -> None:
+def verify_uncovered_partial() -> None:
     source = require_fragments(
         "tests/imp/rust-definition/src/static_adjunct.rs",
         "#[k::function(partial, sort = Int, syntax = \"#nonnegativeIdentity({value})\")]",
@@ -74,7 +74,7 @@ def verify_undefined_partial() -> None:
     require_fragments(
         "../docs-site/src/pages/semantics/static-semantics.mdx",
         "#nonnegativeIdentity(-1)",
-        "the application has no denotation: semantic bottom",
+        "the application is unconstrained, not semantic bottom",
         "not a claimed `krun` trace",
     )
 
@@ -196,13 +196,13 @@ def verify_capability_matrix() -> None:
 
 
 def main() -> int:
-    verify_undefined_partial()
+    verify_uncovered_partial()
     verify_stuck_state()
     verify_authored_trap()
     verify_llvm_claim_omission()
     verify_capability_matrix()
     print(
-        "PASS tour proof evidence: undefined partial, stuck state, authored trap, "
+        "PASS tour proof evidence: uncovered partial, stuck state, authored trap, "
         "LLVM claim omission, and capability matrix"
     )
     return 0

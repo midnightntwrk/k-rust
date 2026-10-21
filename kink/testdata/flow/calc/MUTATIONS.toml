@@ -1,0 +1,50 @@
+# kink-flow mutation list for the calc fixture (flow F-04). Every mutation here is valid.
+
+[[mutation]]
+id = "add-becomes-sub"
+note = "addition evaluates as subtraction (a labelled rule, by its bare label)"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "sub-off-by-one"
+note = "subtraction subtracts one more (the unlabelled rule, by line; the rule grows)"
+
+  [[mutation.edit]]
+  line = 23
+  find = "I1 -Int I2"
+  replace = "I1 -Int I2 -Int 1"
+
+[[mutation]]
+id = "mul-becomes-add"
+note = "multiplication evaluates as addition (by the unique occurrence of find in the file)"
+
+  [[mutation.edit]]
+  find = "I1 *Int I2"
+  replace = "I1 +Int I2"
+
+[[mutation]]
+id = "no-mul"
+note = "the multiplication rule is deleted (module-qualified label)"
+
+  [[mutation.edit]]
+  rule = "CALC.mul"
+  delete = true
+
+[[mutation]]
+id = "add-swaps-operands"
+note = "two edits in one rule: I1 +Int I2 becomes I2 +Int I1"
+
+  [[mutation.edit]]
+  rule = "add"
+  find = "=> I1"
+  replace = "=> I2"
+
+  [[mutation.edit]]
+  file = "calc.k"
+  line = 21
+  find = "+Int I2"
+  replace = "+Int I1"

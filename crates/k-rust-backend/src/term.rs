@@ -76,7 +76,6 @@
 use std::{
     cell::Cell,
     cmp::Ordering,
-    collections::BTreeMap,
     fmt,
     hash::{Hash, Hasher},
     sync::{Arc, LazyLock, OnceLock},
@@ -176,6 +175,22 @@ impl Sort {
         )
     }
 
+    /// The position in `BuiltinSort::ALL` of the builtin sort this sort is, when it is the
+    /// nullary application of that builtin's shared name allocation, as [`Self::builtin`] and
+    /// every sort a definition internalizes hold it; `None` for any other sort, a sort of a
+    /// builtin's name in an allocation of its own included.
+    pub(crate) fn shared_builtin_index(&self) -> Option<usize> {
+        let Self::Application { name, arguments } = self else {
+            return None;
+        };
+        if !arguments.is_empty() {
+            return None;
+        }
+        builtin_names()
+            .iter()
+            .position(|builtin| Arc::ptr_eq(builtin, name))
+    }
+
     /// True when a sort variable occurs anywhere in the sort.
     pub fn has_variable(&self) -> bool {
         match self {
@@ -185,21 +200,37 @@ impl Sort {
     }
 }
 
+/// The `Name` a definition's sort table keys the sort `name` with: the one [`Sort::builtin`]
+/// uses when `name` is a builtin sort's KORE name, a new one otherwise. Internalized sorts take
+/// their names from that table, so all sorts of one name, builtin ones included, share one
+/// allocation, and comparing them takes the pointer shortcut of `Ord for Sort` and of `Arc`'s
+/// equality instead of reading the text.
+pub(crate) fn sort_name(name: &str) -> Name {
+    BuiltinSort::ALL
+        .iter()
+        .find(|sort| sort.kore_name() == name)
+        .map_or_else(|| Name::from(name), |sort| builtin_name(*sort))
+}
+
 /// One `Name` per `BuiltinSort` variant, created on first use and indexed by the variant's
 /// position in `BuiltinSort::ALL`.
 fn builtin_name(sort: BuiltinSort) -> Name {
-    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
-    let names = NAMES.get_or_init(|| {
-        BuiltinSort::ALL
-            .iter()
-            .map(|sort| Name::from(sort.kore_name()))
-            .collect()
-    });
     let index = BuiltinSort::ALL
         .iter()
         .position(|candidate| *candidate == sort)
         .expect("every builtin sort is listed in BuiltinSort::ALL");
-    names[index].clone()
+    builtin_names()[index].clone()
+}
+
+/// The `Name`s of [`builtin_name`], in the order of `BuiltinSort::ALL`.
+fn builtin_names() -> &'static [Name] {
+    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        BuiltinSort::ALL
+            .iter()
+            .map(|sort| Name::from(sort.kore_name()))
+            .collect()
+    })
 }
 
 /// The kind of a variable. Element variables order before set variables, and a [`Variable`]
@@ -211,11 +242,35 @@ pub enum VariableKind {
     Set,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Variable {
     pub kind: VariableKind,
     pub sort: Sort,
     pub name: Name,
+}
+
+impl PartialOrd for Variable {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Variable {
+    /// Lexicographic over (`kind`, `sort`, `name`), the order a derived `Ord` gives; two handles
+    /// of one name allocation are equal names without reading them (`Arc`'s own order reads
+    /// the text even then).
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.sort.cmp(&other.sort))
+            .then_with(|| {
+                if Arc::ptr_eq(&self.name, &other.name) {
+                    Ordering::Equal
+                } else {
+                    self.name.cmp(&other.name)
+                }
+            })
+    }
 }
 
 impl Variable {
@@ -1320,6 +1375,33 @@ impl Term {
         )
     }
 
+    /// [`Self::int`] of a machine integer, written without a `BigInt`: the decimal digits of its
+    /// magnitude, after a `-` when it is negative, which is the canonical `Int` text (no sign
+    /// for zero or a positive value, no leading zero), so the canonicalizer is not run again.
+    pub(crate) fn small_int(value: i64) -> Self {
+        // `i64::MIN` has 19 digits; with its sign, 20 bytes.
+        let mut text = [0_u8; 20];
+        let mut start = text.len();
+        let mut magnitude = value.unsigned_abs();
+        loop {
+            start -= 1;
+            text[start] = b'0' + (magnitude % 10) as u8;
+            magnitude /= 10;
+            if magnitude == 0 {
+                break;
+            }
+        }
+        if value < 0 {
+            start -= 1;
+            text[start] = b'-';
+        }
+        Self::domain_value_of_canonical(
+            DomainKind::Int,
+            Sort::builtin(BuiltinSort::Int),
+            KoreString::from_bytes(&text[start..]),
+        )
+    }
+
     /// The `Bool` domain value `true` or `false`, at the sort `SortBool`, which has the `Bool`
     /// kind by its name whether or not a definition hooks it.
     pub fn bool(value: bool) -> Self {
@@ -2032,15 +2114,7 @@ impl Term {
                 symbol,
                 sort_arguments,
                 ..
-            } => {
-                let substitution = symbol
-                    .sort_variables
-                    .iter()
-                    .cloned()
-                    .zip(sort_arguments.iter().cloned())
-                    .collect::<BTreeMap<_, _>>();
-                substitute_sort(&symbol.result_sort, &substitution)
-            }
+            } => instantiate_result_sort(symbol, sort_arguments),
             TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
                 sort.clone()
             }
@@ -2812,6 +2886,9 @@ fn apart_step<'t>(
         head::RootComparison::SameApplication(same) => ApartStep::Arguments(same),
         // Applications of one symbol with different arities are ill-formed.
         head::RootComparison::ArityMismatch => ApartStep::Undecided,
+        // One symbol whose sort arguments are one on some instances of their sort variables:
+        // the two terms are one term there.
+        head::RootComparison::OpenSortArguments => ApartStep::Undecided,
         head::RootComparison::DomainValues => head::Apart::of_domain_values(left_root, right_root)
             .map_or(ApartStep::Undecided, ApartStep::Apart),
         head::RootComparison::Injections => {
@@ -3002,6 +3079,50 @@ impl DomainKind {
             },
             _ => Self::Token,
         })
+    }
+
+    /// Whether two texts can name one element of a sort of this kind, so that its canonical text
+    /// is not always the text as written (`canonical_text`): `07` and `7` are one integer,
+    /// `01p8` and `1p8` one machine integer, `1.0` and `1.00` one Float. A Boolean's, a
+    /// `String`'s and a `Bytes` value's text is its one text, as a token's is.
+    pub(crate) fn identifies_texts(self) -> bool {
+        match self {
+            Self::Int | Self::MInt(_) | Self::Float => true,
+            Self::Bool | Self::String | Self::Bytes | Self::Token => false,
+        }
+    }
+
+    /// The kind the builtin hooks' argument readers take a domain value of `sort` to have,
+    /// judging by the sort's name alone: `SortInt`, `SortBool`, `SortString`, `SortBytes` and
+    /// `SortFloat` their builtins' kinds, and `SortMInt{Sort<digits>{}}` the machine integers of
+    /// that width. `None` for every other sort, a `SortMInt` whose argument names no numeral or
+    /// is still a sort variable included: no reader reads a literal of one.
+    ///
+    /// It is the kind the definition gives the sort only where the definition declares the
+    /// sort with its builtin's hook ([`Self::of_declared_sort`]; `SortInt` and `SortBool` take
+    /// their kinds from their names). Where this kind identifies texts
+    /// ([`Self::identifies_texts`]) and the definition gives the sort another, the evaluation
+    /// entry refuses the application before any reader sees the argument
+    /// (`crate::builtin::misread_by_name`).
+    pub(crate) fn named(sort: &Sort) -> Option<Self> {
+        let Sort::Application { name, arguments } = sort else {
+            return None;
+        };
+        if !arguments.is_empty() {
+            return match mint_width(sort)? {
+                MIntWidth::NoWidth => None,
+                width => Some(Self::MInt(width)),
+            };
+        }
+        [
+            (BuiltinSort::Int, Self::Int),
+            (BuiltinSort::Bool, Self::Bool),
+            (BuiltinSort::String, Self::String),
+            (BuiltinSort::Bytes, Self::Bytes),
+            (BuiltinSort::Float, Self::Float),
+        ]
+        .into_iter()
+        .find_map(|(builtin, kind)| (name.as_ref() == builtin.kore_name()).then_some(kind))
     }
 }
 
@@ -3326,20 +3447,39 @@ fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Items<Term>, Opti
     }
 }
 
-fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
-    match sort {
-        Sort::Variable(name) => substitution
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| sort.clone()),
-        Sort::Application { name, arguments } => Sort::Application {
-            name: name.clone(),
-            arguments: arguments
+/// The result sort of an application of `symbol` at `sort_arguments`: its declared result sort
+/// with each of its sort variables replaced by the argument at that variable's position. A
+/// symbol's result sort mentions only the symbol's own sort variables (checked at load), so a
+/// symbol without sort variables has its declared result sort. A variable without an argument
+/// at its position stays; of two positions of one name (load refuses them), the last one with
+/// an argument counts.
+fn instantiate_result_sort(symbol: &Symbol, sort_arguments: &[Sort]) -> Sort {
+    fn instantiate(sort: &Sort, variables: &[Name], arguments: &[Sort]) -> Sort {
+        match sort {
+            Sort::Variable(name) => variables
                 .iter()
-                .map(|argument| substitute_sort(argument, substitution))
-                .collect(),
-        },
+                .zip(arguments)
+                .rev()
+                .find_map(|(variable, argument)| (variable == name).then_some(argument))
+                .unwrap_or(sort)
+                .clone(),
+            Sort::Application {
+                name,
+                arguments: inner,
+            } if !inner.is_empty() => Sort::Application {
+                name: name.clone(),
+                arguments: inner
+                    .iter()
+                    .map(|argument| instantiate(argument, variables, arguments))
+                    .collect(),
+            },
+            Sort::Application { .. } => sort.clone(),
+        }
     }
+    if symbol.sort_variables.is_empty() {
+        return symbol.result_sort.clone();
+    }
+    instantiate(&symbol.result_sort, &symbol.sort_variables, sort_arguments)
 }
 
 fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttributes {
@@ -4330,8 +4470,76 @@ impl Term {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::counted::Counted;
+
+    /// The substitution `Term::sort` applied before `instantiate_result_sort`, as the reference.
+    fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
+        match sort {
+            Sort::Variable(name) => substitution
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| sort.clone()),
+            Sort::Application { name, arguments } => Sort::Application {
+                name: name.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| substitute_sort(argument, substitution))
+                    .collect(),
+            },
+        }
+    }
+
+    /// `instantiate_result_sort` is the substitution of the symbol's sort variables, zipped with
+    /// the sort arguments into a map, applied to its result sort: over result sorts mentioning
+    /// variables of the symbol and others, nested in applications, and over variable lists with
+    /// repeated names and argument lists of every length up to one more than the variables.
+    #[test]
+    fn instantiated_result_sort_is_the_substitution_of_the_sort_variables() {
+        let variable = |name: &str| Sort::Variable(Name::from(name));
+        let results = [
+            Sort::simple("SortA"),
+            variable("S"),
+            variable("U"),
+            Sort::application("SortPair", vec![variable("S"), variable("T")]),
+            Sort::application(
+                "SortBox",
+                vec![Sort::application(
+                    "SortPair",
+                    vec![variable("T"), Sort::simple("SortA")],
+                )],
+            ),
+        ];
+        let variable_lists: [&[&str]; 5] = [&[], &["S"], &["S", "T"], &["T", "S"], &["S", "S"]];
+        let pool = [
+            Sort::simple("SortInt"),
+            Sort::simple("SortBool"),
+            variable("R"),
+        ];
+        for result_sort in &results {
+            for variables in variable_lists {
+                for count in 0..=variables.len() + 1 {
+                    let arguments = pool[..count.min(pool.len())].to_vec();
+                    let mut symbol = Symbol::constructor("s", Vec::new(), result_sort.clone());
+                    symbol.sort_variables =
+                        variables.iter().map(|name| Name::from(*name)).collect();
+                    let substitution = symbol
+                        .sort_variables
+                        .iter()
+                        .cloned()
+                        .zip(arguments.iter().cloned())
+                        .collect::<BTreeMap<_, _>>();
+                    assert_eq!(
+                        instantiate_result_sort(&symbol, &arguments),
+                        substitute_sort(result_sort, &substitution),
+                        "{result_sort:?} {variables:?} {arguments:?}"
+                    );
+                }
+            }
+        }
+    }
 
     fn sort() -> Sort {
         Sort::simple("SomeSort")

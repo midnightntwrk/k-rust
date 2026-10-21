@@ -603,15 +603,27 @@ fn an_equation_whose_question_variables_are_all_bound_is_emitted() {
     }
 }
 
-/// The refusal of a function, `anywhere` or macro rule with a free `?` variable names the free
-/// `?` variables only: `?B`, bound by its quantifier, is not an existential of the rule. The
-/// macro is not used, so the refusal of its own axiom is what is observed: expanding it at a use
-/// site mints its free `?Y` without the sigil (BIND/A8).
+/// The refusal of a function or `anywhere` rule with a free `?` variable names the free `?`
+/// variables only: `?B`, bound by its quantifier, is not an existential of the rule. A macro is
+/// textual substitution, so its free `?Y` is an existential of its text (BIND/A8): its axiom
+/// quantifies `?Y` existentially around the right side, binding exactly the free `?Y`, and the
+/// macro is used with `?Y` existential at the use site.
 #[test]
 fn the_equation_existentials_refusal_names_only_the_free_question_variables() {
     for (module, _, sentences) in
         bound_question_sentences(|variable| format!(" #And {{?Y #Equals {variable}}}"))
     {
+        if module == "MAC" {
+            let artifacts = compile_probe(&existential_probe(module, &sentences), module)
+                .unwrap_or_else(|error| panic!("MAC should compile: {error}"));
+            let macros: String = artifacts.macros_kore.split_whitespace().collect();
+            assert!(
+                macros.contains("\\exists{SortBool{}}(Var'Ques'Y:"),
+                "{}",
+                artifacts.macros_kore
+            );
+            continue;
+        }
         let sentences = sentences.replace(" requires m(X)", "");
         let error = compile_probe(&existential_probe(module, &sentences), module)
             .err()
@@ -1269,6 +1281,122 @@ fn emits_owise_competitors_as_a_right_nested_binary_disjunction() {
     assert_eq!(competitors, 2);
 }
 
+/// The disjuncts of the competitor guard `\not(C1 \or .. \or \bottom)` of the owise equation
+/// labelled `label` in the semantic module emitted from `source`, each printed without
+/// whitespace.
+fn owise_competitor_disjuncts(source: &str, label: &str) -> Vec<String> {
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap();
+    let owise = modules
+        .semantics
+        .sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } => attributes
+                .0
+                .iter()
+                .any(|attribute| {
+                    matches!(
+                        attribute,
+                        Pattern::Application { symbol, arguments }
+                            if symbol.name == "label"
+                                && arguments == &[Pattern::String(label.into())]
+                    )
+                })
+                .then_some(pattern.as_ref()),
+            _ => None,
+        })
+        .expect("the owise equation should be emitted");
+    let Pattern::Implies { left, .. } = owise else {
+        panic!("owise equation should be an implication")
+    };
+    let Pattern::And { arguments, .. } = left.as_ref() else {
+        panic!("owise equation should conjoin its match conditions")
+    };
+    let mut disjunction = arguments
+        .iter()
+        .find_map(|argument| match argument {
+            Pattern::Not { argument, .. } => Some(argument.as_ref()),
+            _ => None,
+        })
+        .expect("the owise equation should negate its competitors");
+    let printer = Printer::compact();
+    let mut disjuncts = Vec::new();
+    // Invariant: `disjuncts` holds the printed disjuncts to the left of `disjunction`.
+    while let Pattern::Or { arguments, .. } = disjunction {
+        disjuncts.push(
+            printer
+                .print_pattern(&arguments[0])
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>(),
+        );
+        disjunction = &arguments[1];
+    }
+    assert!(
+        matches!(disjunction, Pattern::Bottom { .. }),
+        "the competitor disjunction should end in bottom"
+    );
+    disjuncts
+}
+
+/// An owise equation of `g` states its right side exactly where no other equation of `g` in the
+/// emitted theory applies, so its guard negates the equations that generated axioms state of `g`
+/// as well as the rules of `g` (CS-07-2).
+///
+/// - `hExp` is the greater element of the overload pair `(hVal, hExp)`, so the theory holds the
+///   overload axiom `hExp(inj(K0)) = inj(hVal(K0))`. Without it in the guard, the owise axiom
+///   would state `hExp(X0) = inj(zero)` at `X0 = inj(K0)` too, and the two axioms together would
+///   equate the distinct constructors `one` and `zero`.
+/// - `_+_` carries `unit(.L)`, so the theory holds `K + .L = K` and `.L + K = K`; without them in
+///   the guard, the owise axiom would state `a + .L = .L` beside `a + .L = a`.
+#[test]
+fn an_owise_guard_negates_the_generated_equations_of_its_head() {
+    let overload = indoc! {r#"
+        module MAIN
+          syntax Val ::= "one" [symbol(one)] | "zero" [symbol(zero)]
+          syntax Exp ::= Val
+          syntax Val ::= "h(" Val ")" [function, overload(h), symbol(hVal)]
+          syntax Exp ::= "h(" Exp ")" [function, overload(h), symbol(hExp)]
+          rule h(_:Val) => one
+          rule h(_:Exp) => zero [owise, label(otherwise)]
+        endmodule
+    "#};
+    let disjuncts = owise_competitor_disjuncts(overload, "otherwise");
+    assert!(
+        disjuncts.iter().any(|disjunct| {
+            disjunct.starts_with(r"\exists{R}(K0:SortVal{},")
+                && disjunct.contains(
+                    r"\in{SortExp{},R}(X0:SortExp{},inj{SortVal{},SortExp{}}(K0:SortVal{}))",
+                )
+        }),
+        "the overload axiom of hExp should compete with its owise equation: {disjuncts:?}"
+    );
+
+    let unit = indoc! {r#"
+        module MAIN
+          syntax L ::= ".L" [symbol(.L)]
+                     | "a" [symbol(a)]
+                     | L "+" L [function, unit(.L), symbol(plus)]
+          rule _:L + _:L => .L [owise, label(otherwise)]
+        endmodule
+    "#};
+    let disjuncts = owise_competitor_disjuncts(unit, "otherwise");
+    for position in ["X0", "X1"] {
+        let unit_match = format!(r"\in{{SortL{{}},R}}({position}:SortL{{}},Lbl'Stop'L{{}}())");
+        assert!(
+            disjuncts
+                .iter()
+                .any(|disjunct| disjunct.contains(&unit_match)),
+            "the unit axiom with .L at {position} should compete with the owise equation: {disjuncts:?}"
+        );
+    }
+    assert_eq!(disjuncts.len(), 2, "{disjuncts:?}");
+}
+
 module_snapshot!(
     routes_macro_and_alias_axioms_to_the_standalone_sentence_list,
     r#"
@@ -1369,6 +1497,94 @@ module_snapshot!(
     "#,
     "MAIN"
 );
+
+/// An application is impure exactly when evaluating it may perform an effect: when a rule that
+/// evaluation can apply to it (a function, anywhere or simplification rule, or a macro's own
+/// rule, which expansion applies before evaluation) applies an impure label in its right side,
+/// `requires` or `ensures`. `eff` is declared `impure`; `viaAny` reaches it through an anywhere
+/// rule and `fa` and `callsFa` through `viaAny`; `viaEns` through its `ensures`; `simp` through a
+/// simplification; `m` is a macro whose right side applies it; `fu` calls `myRead`, which is hooked
+/// to a console read (`IO.getc`) without being declared `impure`. `clean` and `callsClean` reach
+/// no impure label, nor does `pure`, whose simplification restates a value, nor `lhsS`, whose
+/// simplification applies `eff` only on its left side, where it is matched, not evaluated.
+#[test]
+fn impure_attribute_closes_over_every_rule_evaluation_applies() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "done" [symbol(done)]
+          syntax Exp ::= "eff(" Exp ")" [function, impure, symbol(eff)]
+          syntax Bool ::= "isDone(" Exp ")" [function, symbol(isDone)]
+          syntax Exp ::= "viaAny(" Exp ")" [symbol(viaAny)]
+          syntax Exp ::= "fa" [function, symbol(fa)]
+          syntax Exp ::= "callsFa" [function, symbol(callsFa)]
+          syntax Exp ::= "viaEns(" Exp ")" [function, symbol(viaEns)]
+          syntax Exp ::= "simp(" Exp ")" [function, symbol(simp)]
+          syntax Exp ::= "m(" Exp ")" [macro, symbol(m)]
+          syntax Exp ::= "clean(" Exp ")" [symbol(clean)]
+          syntax Exp ::= "callsClean" [function, symbol(callsClean)]
+          syntax Exp ::= "pure(" Exp ")" [function, symbol(pure)]
+          syntax Exp ::= "myRead(" Exp ")" [function, hook(IO.getc), symbol(myRead)]
+          syntax Exp ::= "fu" [function, symbol(fu)]
+          syntax Exp ::= "lhsS(" Exp ")" [function, symbol(lhsS)]
+
+          rule eff(X:Exp) => X:Exp
+          rule viaAny(X:Exp) => eff(X:Exp) [anywhere]
+          rule fa => viaAny(done)
+          rule callsFa => fa
+          rule viaEns(X:Exp) => X:Exp ensures isDone(eff(X:Exp))
+          rule simp(X:Exp) => eff(X:Exp) [simplification]
+          rule m(X:Exp) => eff(X:Exp)
+          rule clean(X:Exp) => X:Exp [anywhere]
+          rule callsClean => clean(done)
+          rule pure(X:Exp) => X:Exp [simplification]
+          rule fu => myRead(done)
+          rule lhsS(X:Exp) => X:Exp
+          rule lhsS(eff(X:Exp)) => X:Exp [simplification]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let impure = |module: &k_rust::kore::ast::Module, symbol: &str| {
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared.name == symbol => Some(attributes.0.iter().any(|attribute| {
+                    matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "impure")
+                })),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{symbol} should be declared"))
+    };
+    for module in [&modules.semantics, &modules.syntax] {
+        for symbol in [
+            "Lbleff",
+            "LblviaAny",
+            "Lblfa",
+            "LblcallsFa",
+            "LblviaEns",
+            "Lblsimp",
+            "Lblm",
+            "LblmyRead",
+            "Lblfu",
+        ] {
+            assert!(impure(module, symbol), "{symbol} in {}", module.name);
+        }
+        for symbol in [
+            "Lbldone",
+            "Lblclean",
+            "LblcallsClean",
+            "Lblpure",
+            "LblisDone",
+            "LbllhsS",
+        ] {
+            assert!(!impure(module, symbol), "{symbol} in {}", module.name);
+        }
+    }
+}
 
 /// `injective` is an axiom of the emitted theory, so it is declared only for productions whose
 /// equations cannot identify two applications with different arguments.
@@ -4022,5 +4238,45 @@ case_tests! {
         assert!(!super::declares_sequence_symbol(
             &artifacts.syntax_definition_kore
         ));
+    }
+}
+
+/// A macro's `?Y` is an existential variable of the macro's text, so each use of the macro
+/// introduces its own existential variable, with its sigil: `requires s(X) #And s(X +Int 1)`
+/// over `s(N) => {?Y #Equals N +Int 1}` quantifies two distinct `?` variables inside the
+/// condition, and neither is left free in the rule.
+#[test]
+fn each_use_of_a_macro_existential_is_its_own_existential_variable() {
+    let definition = compiled_probe(
+        &existential_probe(
+            "TWICE",
+            "  syntax Bool ::= s(Int) [macro]\n  rule s(N) => {?Y #Equals N +Int 1}\n  rule [p]: <k> go(X) => done(X) ... </k> requires s(X) #And s(X +Int 1)\n",
+        ),
+        "TWICE",
+    );
+    let pattern = labelled_axiom(&definition, "TWICE.p");
+    let mut binders = Vec::new();
+    collect_existentials(pattern, &mut binders);
+    let existential = binders
+        .iter()
+        .filter(|name| name.starts_with("Var'Ques"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(existential.len(), 2, "{binders:?} in {pattern}");
+    assert!(
+        pattern
+            .free_variables()
+            .iter()
+            .all(|variable| !variable.name.starts_with("Var'Ques")),
+        "{pattern}"
+    );
+}
+
+/// The variable of every `\exists` of `pattern`, in preorder.
+fn collect_existentials(pattern: &Pattern, binders: &mut Vec<String>) {
+    if let Pattern::Exists { variable, .. } = pattern {
+        binders.push(variable.name.clone());
+    }
+    for child in k_rust::kore::walk::children(pattern) {
+        collect_existentials(child, binders);
     }
 }

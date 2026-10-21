@@ -446,30 +446,36 @@ fn collect_head_rule_packages(
         }
     }
     if let Some(head) = &rule.head {
-        collect_term_packages(&head.subject, packages);
+        for term in &head.items {
+            collect_term_packages(term, packages);
+        }
         match &head.result {
-            krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                 collect_term_packages(term, packages);
             }
-            krs_ir::ProtocolHeadRuleResult::Splice(items) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
                 for term in items {
                     collect_term_packages(term, packages);
                 }
             }
-            krs_ir::ProtocolHeadRuleResult::Erase => {}
+            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
         }
     }
     for extra in &rule.extras {
         match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { key, .. } => {
-                collect_term_packages(key, packages);
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                for entry in entries {
+                    collect_term_packages(&entry.key, packages);
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::UpdateMap { update, .. } => {
                 collect_term_packages(update, packages);
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
                 collect_term_packages(before, packages);
-                collect_term_packages(after, packages);
+                if let Some(after) = after {
+                    collect_term_packages(after, packages);
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
                 for term in before

@@ -175,6 +175,32 @@ pub struct Increment {
 "##,
     ),
     (
+        "function_default_syntax",
+        r"
+#[k::function(total, internal, sort = k::builtin::int::Int)]
+pub struct Increment {
+    pub value: Term<k::builtin::int::Int>,
+}
+",
+    ),
+    (
+        "function_shorthand",
+        r"
+/// The low 8 bits.
+#[k::function(total, internal)]
+pub fn Byte(value: Term<k::builtin::int::Int>) -> Term<k::builtin::int::Int> {
+    int::rem_euclid(value, 256)
+}
+",
+    ),
+    (
+        "function_shorthand_declaration",
+        r##"
+#[k::function(partial, syntax = "#r({index})")]
+pub fn R8(index: Term<k::builtin::int::Int>) -> Term<Operand>;
+"##,
+    ),
+    (
         "function_memo",
         r#"
 #[k::function(total, memo, sort = k::builtin::int::Int, syntax = "square({value})")]
@@ -460,6 +486,33 @@ k::rules! {
 ",
     ),
     (
+        "equations",
+        r"
+k::equations! {
+    for R8;
+    use Operand::*;
+    use Register::*;
+    r8_b: 0 => Reg(B);
+    #[k::requires(int::gt(n, 7))]
+    r8_big: n => Immediate;
+    #[k::equation(owise)]
+    r8_other: _ => HlIndirect;
+}
+",
+    ),
+    (
+        "equations_bits",
+        r#"
+k::equations! {
+    for Decode;
+    use Instruction::*;
+    decode_halt: k::bits!("01 110 110") => Halt;
+    #[k::requires(op.ne::<Int>(118))]
+    decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld(R8(y), R8(z));
+}
+"#,
+    ),
+    (
         "rules_lexeme",
         r#"
 k::rules! {
@@ -715,6 +768,14 @@ k::rules! {
         env: set(e, name, value),
     }
     where value: Value;
+
+    swap: {
+        computation: [StmtSyntax::Swap(a, b), ..],
+        env: { a -> x, b -> y, .. },
+    } => {
+        computation: [x, y, ..],
+    }
+    where a: Id, b: Id;
 }
 ",
     ),
@@ -917,6 +978,16 @@ fn add_one(k::term![AddOne(value)]: Term<Int>) -> Term<Int> {
     int::add(value, 1)
 }
 ",
+    ),
+    (
+        "equation_bits",
+        r#"
+/// `x = 0, z = 4`: `INC r[y]`.
+#[k::equation]
+fn decode_inc_r(k::term![Decode(k::bits!("00 yyy 100"))]: Term<Instr>) -> Term<Instr> {
+    Instruction::Inc(R8(y))
+}
+"#,
     ),
     (
         "requires_equation",
@@ -1378,7 +1449,18 @@ fn invocation(tokens: TokenStream, facade_alias: &str) -> Invocation {
             input: item.mac.tokens.clone(),
         };
     }
-    let attributes = item_attributes(&mut item);
+    // A bodiless `fn` declaration is verbatim to syn.
+    let mut shorthand = match &item {
+        syn::Item::Verbatim(tokens) => Some(
+            syn::parse2::<krs_syntax::ShorthandItem>(tokens.clone())
+                .expect("a verbatim golden item is a bodiless fn"),
+        ),
+        _ => None,
+    };
+    let attributes = match &mut shorthand {
+        Some(shorthand) => &mut shorthand.attrs,
+        None => item_attributes(&mut item),
+    };
     let index = attributes
         .iter()
         .position(|attribute| {
@@ -1400,7 +1482,10 @@ fn invocation(tokens: TokenStream, facade_alias: &str) -> Invocation {
         entry,
         call_site: attribute.span(),
         arguments,
-        item: item.to_token_stream(),
+        item: shorthand.map_or_else(
+            || item.to_token_stream(),
+            |shorthand| shorthand.to_token_stream(),
+        ),
     }
 }
 

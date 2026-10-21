@@ -63,7 +63,7 @@ fn tour_minimal_expands_in_a_fallback_process() {
     assert!(
         outputs[5]
             .to_string()
-            .contains("__krs_head_rule_sort_2cb94a8d9d940990")
+            .contains("__krs_head_rule_sort_edc54d797361b2d2")
     );
     assert!(outputs.iter().all(|output| !output.is_empty()));
 }

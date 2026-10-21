@@ -38,6 +38,7 @@ use crate::definition::production_kind::{ProductionKind, Totality};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     AttributeKey, DefinitionViews, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
+    RuleHead, peel_aliases,
 };
 use crate::names::BuiltinSort;
 use crate::{
@@ -657,6 +658,10 @@ impl Resolver<'_, '_, '_> {
             else {
                 continue;
             };
+            // An aliased equation `f(X) #as V => R` is not a candidate: its right side may apply
+            // `f` through `V`, which names `f(X)` itself, so judging `R` defined from what its
+            // variables denote would not show that `f(X)` denotes a value. It still counts as a
+            // rule of `f` below.
             let Term::Apply { label, arguments } = left.unannotated() else {
                 continue;
             };
@@ -1354,11 +1359,8 @@ fn bool_token(value: bool) -> Term {
 }
 
 /// A rule's configuration context, left-hand side and right-hand side when it is not a lemma and
-/// its body is a rewrite at the top, possibly under `[[ .. ]]`.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "Term is syntax; only the listed variants are special here"
-)]
+/// its body is a rewrite at the top, possibly under `[[ .. ]]`: its head as every stage reads it
+/// ([`RuleHead::of`]). The left side is as written, root aliases included.
 fn defining_rule(sentence: &Sentence) -> Option<(Option<&Term>, &Term, &Term)> {
     let Sentence::Rule {
         body, attributes, ..
@@ -1369,27 +1371,16 @@ fn defining_rule(sentence: &Sentence) -> Option<(Option<&Term>, &Term, &Term)> {
     if attributes.has(AttributeKey::Simplification) {
         return None;
     }
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only the listed variants are special here"
-    )]
-    let (context, equation) = match body.unannotated() {
-        Term::Apply { label, arguments } if label.is(InternalLabel::WithConfig) => {
-            match arguments.as_slice() {
-                [equation, cell] => (Some(cell), equation),
-                _ => return None,
-            }
-        }
-        _ => (None, body),
-    };
-    match equation.unannotated() {
-        Term::Rewrite { left, right } => Some((context, &**left, &**right)),
-        _ => None,
-    }
+    let head = RuleHead::of(body);
+    Some((head.context, head.left, head.right?))
 }
 
 /// The number of rules, lemmas aside, whose left-hand side is headed by each label, over every
 /// module of `definition`.
+///
+/// The head is read through root aliases: `f(X) #as V => R` is a rule of `f`, an axiom of the
+/// compiled definition like `f(X) => R[f(X)/V]`, and it can take priority over or restrict
+/// another rule of `f` exactly as that one could.
 fn rule_heads(definition: &Definition) -> BTreeMap<String, usize> {
     let mut heads = BTreeMap::new();
     // Invariant: `heads` counts the non-lemma rules headed by each label among the modules and sentences before the current one; each iteration consumes one sentence.
@@ -1399,7 +1390,7 @@ fn rule_heads(definition: &Definition) -> BTreeMap<String, usize> {
         .flat_map(|module| &module.local_sentences)
     {
         if let Some((_, left, _)) = defining_rule(sentence)
-            && let Term::Apply { label, .. } = left.unannotated()
+            && let Term::Apply { label, .. } = peel_aliases(left).unannotated()
         {
             *heads.entry(label.name.clone()).or_default() += 1;
         }
@@ -1463,6 +1454,28 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
 #[cfg(test)]
 mod stage_tests {
     use crate::kompile::stage_harness::{labelled, render, rendered_changes, run_to_stage};
+
+    /// `f(a) #as _V => g(a)` is a rule of `f` (an alias names the matched term and constrains
+    /// nothing), an axiom that can take priority over `f(X) => X`, so `f` has two defining
+    /// rules and its first equation alone does not show that `f` is defined everywhere.
+    #[test]
+    fn an_aliased_rule_counts_as_a_rule_of_its_head() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)]
+  syntax Exp ::= f(Exp) [function, symbol(f)] | g(Exp) [function, symbol(g)]
+  configuration <k> a </k>
+  rule f(X) => X
+  rule f(a) #as _V => g(a) [priority(10)]
+endmodule
+"#,
+            "resolve local functions",
+        );
+        let heads = super::rule_heads(&run.input);
+        assert_eq!(heads.get("f"), Some(&2), "{heads:?}");
+    }
 
     /// A local function is lifted to a generated function whose equation is applied without
     /// the configuration, so it cannot draw a fresh value itself. A `!X` of the enclosing

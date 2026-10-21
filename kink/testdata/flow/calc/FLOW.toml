@@ -1,0 +1,21 @@
+# kink-flow corpus manifest for the calc fixture (flow F-02).
+[spec]
+entry = "calc.k"
+main_module = "CALC"
+syntax_module = "CALC-SYNTAX"
+
+[[program]]
+id = "add"
+file = "programs/add.calc"
+
+[[program]]
+id = "nested"
+file = "programs/nested.calc"
+
+[[program]]
+id = "sub"
+file = "programs/sub.calc"
+
+[[program]]
+id = "inline"
+text = "2 * 3 + 1"

@@ -88,9 +88,17 @@ test('exposes the diagnostic on only the branch candidate that emitted it', () =
 })
 
 const termExhausted = [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }]
+// The fixture's KORE carries no source or location attributes, so a rule's origin is only its
+// sentence: its index among all of MAIN's sentences (the sort, nine symbols, then the axioms).
+const sentenceIndex = { 'norm-c': 11, 'check-ok': 12 }
 const conditionExhausted = (ruleId) => [
   { kind: 'simplification-budget-exhausted', limit: 3, subject: 'predicates' },
-  { kind: 'rule-condition-unsimplified', ruleId, limit: 3 },
+  {
+    kind: 'rule-condition-unsimplified',
+    ruleId,
+    origin: { source: null, location: null, sentence: { module: 'MAIN', index: sentenceIndex[ruleId] } },
+    limit: 3,
+  },
 ]
 const ending = (entries, field, symbol) =>
   entries.find((entry) => JSON.stringify(entry[field]).includes(`"name":"${symbol}"`))
@@ -246,6 +254,34 @@ test('round-trips KAST and KORE through typed JSON', () => {
 
   const kore = parseKore('X:S')
   assert.equal(printKore(kore.kore), kore.text)
+})
+
+test('prints KAST text that reads back as the printed term', () => {
+  for (const [source, text] of [
+    ['``X~>foo(.KList)``=>Y', '``X~>foo(.KList)``=>Y'],
+    ['X~>``foo(.KList)=>Y``', 'X~>``foo(.KList)=>Y``'],
+    ['``X=>Y``=>Z', '``X=>Y``=>Z'],
+    ['``X #as Y``=>Z', '``X #as Y``=>Z'],
+  ]) {
+    const parsed = parseKast(source)
+    assert.equal(parsed.text, text)
+    assert.equal(printKast(parsed.kast), text)
+    assert.deepEqual(parseKast(printKast(parsed.kast)).kast, parsed.kast)
+  }
+  const rewrite = parseKast('``X~>foo(.KList)``=>Y').kast
+  assert.equal(rewrite.term.node, 'KRewrite')
+  assert.equal(rewrite.term.lhs.node, 'KSequence')
+
+  const variable = parseKast('X').kast
+  const sort = parseKast('#token("1","Int")').kast.term.sort
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, sort } }),
+    /variable X has sort Int/,
+  )
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, name: '@X' } }),
+    /not readable as textual KAST/,
+  )
 })
 
 test('reads deep typed JSON without a surface-specific recursion limit', () => {

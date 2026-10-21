@@ -425,15 +425,15 @@ enum Family {
 fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
     for (source, expected_kind) in [
         (
-            "#[k::constructors(sort = Expr, result = KResult)] enum Missing { #[k::syntax(\"x\")] X }",
+            "#[k::constructors(sort = Expr, result = KResult)] enum Unchained { #[k::syntax(\"x\", group = \"atoms\")] X }",
             SyntaxErrorKind::InvalidEnumPrecedence {
-                reason: "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain".into(),
+                reason: "variant group `atoms` needs a chain: `Unchained` has no `#[k::precedence]`, and a readable variant's group comes from it (a one-tier chain `name (A, B)` names a group)".into(),
             },
         ),
         (
             "#[k::constructors(sort = Expr, result = KResult)] enum Bad { #[k::precedence(middle)] #[k::syntax(\"x\")] X }",
             SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
-                reason: "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
+                reason: "enum constructor variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, `desugar`, and `symbol` KRS helpers; precedence belongs on the enum",
             },
         ),
         (
@@ -525,11 +525,13 @@ fn reference_family_rejects_partially_materialized_layer_one_forms() {
     let cases = [
         (
             r#"#[k::constructors(sort = Expr, reference)]
-enum MissingGroup {
-    #[k::syntax("x", format = "x")]
+enum MixedGroups {
+    #[k::syntax("x", group = "atom", format = "x")]
     X,
+    #[k::syntax("y", format = "y")]
+    Y,
 }"#,
-            "requires an explicit `group`",
+            "reference family `MixedGroups` gives `group` to some variants but not to `Y`",
         ),
         (
             r#"#[k::constructors(sort = Expr, reference)]
@@ -687,6 +689,49 @@ enum Family {
 }
 
 #[test]
+fn a_readable_family_may_omit_its_chain_and_then_has_no_groups() {
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Instr, result = KResult)]
+enum Instruction {
+    #[k::syntax("nop")]
+    Nop,
+    #[k::syntax("{op} a, {src}")]
+    Alu8 { op: AluOp, src: Operand8 },
+}"#,
+    )
+    .unwrap();
+    assert_eq!(declaration.precedence_groups().count(), 0);
+    assert!(declaration.precedence_descriptor().unwrap().is_none());
+    assert!(declaration.associativity_provenance().unwrap().is_none());
+    assert!(
+        declaration
+            .variants()
+            .iter()
+            .all(|variant| variant.precedence_group().is_none())
+    );
+}
+
+#[test]
+fn a_reference_family_may_name_no_group_at_all() {
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Expr, reference)]
+enum Ungrouped {
+    #[k::syntax("x", format = "x")]
+    X,
+    #[k::syntax("y", format = "y")]
+    Y,
+}"#,
+    )
+    .unwrap();
+    assert!(
+        declaration
+            .variants()
+            .iter()
+            .all(|variant| variant.syntax().unwrap().group().is_none())
+    );
+}
+
+#[test]
 fn a_single_precedence_group_has_no_chain_descriptor() {
     let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[k::constructors(sort = Expr, result = KResult)]
@@ -701,4 +746,65 @@ enum Single {
     assert!(declaration.precedence_chain_groups().is_none());
     assert!(declaration.precedence_descriptor().unwrap().is_none());
     assert!(declaration.precedence_provenance().unwrap().is_none());
+}
+
+#[test]
+fn variant_symbol_override_is_consumed_with_its_provenance() {
+    let declaration = EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Expr, result = KResult)]
+#[k::precedence((Add, Sub))]
+enum Op {
+    #[k::symbol("api::Plus")]
+    #[k::syntax("{lhs} + {rhs}")]
+    Add { lhs: Expr, rhs: Expr },
+    #[k::syntax("{lhs} - {rhs}")]
+    Sub { lhs: Expr, rhs: Expr },
+}"#,
+    )
+    .unwrap();
+    let [add, sub] = declaration.variants() else {
+        panic!("two variants");
+    };
+    assert_eq!(add.explicit_symbol().unwrap().value().as_str(), "api::Plus");
+    assert!(add.variant().attrs.is_empty());
+    assert!(
+        add.provenance()
+            .unwrap()
+            .iter()
+            .any(|anchor| anchor.role() == ProvenanceRole::StableSymbol)
+    );
+    assert!(sub.explicit_symbol().is_none());
+    assert!(
+        !sub.provenance()
+            .unwrap()
+            .iter()
+            .any(|anchor| anchor.role() == ProvenanceRole::StableSymbol)
+    );
+}
+
+#[test]
+fn variant_symbol_override_rejects_duplicates_and_bad_paths() {
+    for (variant, expected) in [
+        (
+            r#"#[k::symbol("a::X")] #[k::symbol("b::X")] #[k::syntax("x")] X()"#,
+            Some(SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "an enum constructor variant may carry only one `#[k::symbol]` helper",
+            }),
+        ),
+        (
+            r#"#[k::symbol] #[k::syntax("x")] X()"#,
+            Some(SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "`k::symbol` requires one parenthesized string literal, such as `#[k::symbol(\"api::Name\")]`",
+            }),
+        ),
+        (r#"#[k::symbol("a/b")] #[k::syntax("x")] X()"#, None),
+    ] {
+        let source = format!(
+            "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad {{ {variant} }}"
+        );
+        let error = EnumConstructorDeclaration::parse_source(&source).unwrap_err();
+        if let Some(expected) = expected {
+            assert_eq!(error.kind(), &expected, "{source}");
+        }
+    }
 }

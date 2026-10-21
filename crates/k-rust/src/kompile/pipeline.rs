@@ -442,7 +442,8 @@ stage_adapter!(
 /// sentences as the backend will read them: macros and aliases expanded at their uses, and the
 /// conjunctions passes added to conditions chosen. The definition checks judged every sentence as
 /// written; a refusal here is a shape a macro or alias body takes in the context of a use, or one
-/// that needs the sorts (an or-pattern an injection places below a symbol), for the Rust target;
+/// that needs the definition's equations (an effect inside a predicate operand), for the Rust
+/// target;
 /// and, for every target, a claim's right-side alias that `lower term conjunctions` will not
 /// lower, whose pattern no compiled form of the claim would keep.
 fn check_ml_positions_stage(
@@ -1030,6 +1031,12 @@ pub(crate) fn run_stages_seeded_with_resolved(
         .and_then(|current| current.into_definition_and_resolved("resolve pipeline output"))
 }
 
+/// The child phase of a stage that checks the stage's output against the kompile invariants
+/// (`kompile/invariants.rs`), in builds that run those checks. The stage's own seconds include
+/// it.
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+const CHECK_INVARIANTS: &str = "check invariants";
+
 fn run_stages_seeded_current(
     stages: &[Stage],
     start: Definition,
@@ -1048,9 +1055,28 @@ fn run_stages_seeded_current(
         measure::without_counting(|| state.checks.start(&current.definition, options));
     })?;
     for stage in stages {
-        let deepest = DeepestTerm::of(&current.definition);
-        let ran = timings.time(stage.name, || {
-            deepest.run(stage.name, || run_stage(stage, &current, state, options))?
+        // The stage's phase covers sizing the stack for its input, running it, and, in builds
+        // that check invariants, checking its output (as the child phase `CHECK_INVARIANTS`).
+        #[cfg_attr(
+            not(any(debug_assertions, feature = "kompile-invariant-checks")),
+            allow(unused_mut)
+        )]
+        let mut checked: Result<(), CompileError> = Ok(());
+        let ran = timings.time_nested(stage.name, |children| {
+            let deepest = DeepestTerm::of(&current.definition);
+            let ran = deepest.run(stage.name, || run_stage(stage, &current, state, options))??;
+            #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+            {
+                let output = ran.0.as_ref().unwrap_or(&current.definition);
+                checked = children.time(CHECK_INVARIANTS, || {
+                    DeepestTerm::of(output).run(stage.name, || {
+                        measure::without_counting(|| state.checks.after(stage, output, options));
+                    })
+                });
+            }
+            #[cfg(not(any(debug_assertions, feature = "kompile-invariant-checks")))]
+            let _ = children;
+            Ok(ran)
         });
         let (output, next_resolved) = match ran {
             Ok(ran) => ran,
@@ -1059,13 +1085,7 @@ fn run_stages_seeded_current(
                 return Err(error);
             }
         };
-        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
-        {
-            let checked = output.as_ref().unwrap_or(&current.definition);
-            DeepestTerm::of(checked).run(stage.name, || {
-                measure::without_counting(|| state.checks.after(stage, checked, options));
-            })?;
-        }
+        checked?;
         observer(
             stage,
             &current.definition,

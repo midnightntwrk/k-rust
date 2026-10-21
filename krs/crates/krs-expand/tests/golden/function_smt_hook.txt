@@ -27,6 +27,10 @@ impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Cl
         })
     }
 }
+impl ::k::__KrsFunction for ClampSub {
+    type Result = Int;
+    type Arguments = (k::builtin::int::Int, k::builtin::int::Int);
+}
 #[doc(hidden)]
 fn __krs_constructor_descriptor_2daa73bccd43d194() -> ::core::result::Result<
     ::k::HostDescriptor,

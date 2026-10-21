@@ -1,0 +1,9 @@
+The bindings in this package are licensed under either of the Apache License,
+Version 2.0 (LICENSE-APACHE) or the MIT license (LICENSE-MIT), at your option.
+
+The compiled module includes k-rust, which bundles the K builtin sources copied
+from runtimeverification/k commit 4a46d1231473b599c699160132fd6e76a5c46406
+(BSD 3-Clause License, LICENSE-K-FRAMEWORK), and k-rust-backend, which ports the
+behaviour of runtimeverification/haskell-backend commit
+ad54c7a55085b726c4d3c2728242a7e0695b0439 (BSD 3-Clause License,
+LICENSE-HASKELL-BACKEND).

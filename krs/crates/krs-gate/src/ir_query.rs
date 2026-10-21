@@ -2146,7 +2146,7 @@ mod tests {
                 },
             ],
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: application(
+                items: vec![application(
                     DescriptorApplicationRef::Declared(item(
                         "syntax",
                         "Add",
@@ -2162,8 +2162,9 @@ mod tests {
                             })
                             .collect(),
                     ),
-                ),
-                result: DescriptorHeadRuleResult::Replace(application(
+                )],
+                exact: false,
+                result: Some(DescriptorHeadRuleResult::Replace(application(
                     DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
                     Arguments::Positional(
                         ["lhs", "rhs"]
@@ -2171,7 +2172,7 @@ mod tests {
                             .map(|name| Box::new(var(name)))
                             .collect(),
                     ),
-                )),
+                ))),
             }),
             requires: None,
             extras: vec![],

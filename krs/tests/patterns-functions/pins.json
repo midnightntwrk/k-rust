@@ -5,40 +5,50 @@
     "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7",
     "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494",
     "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6",
-    "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b"
+    "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b",
+    "krs-patterns-functions-sugar": "464535f3657b94046a40e7b1eff94142115be2a672f430f351cfdf5167579bf6",
+    "krs-patterns-functions-bits": "a9c8ac815959025a3e3e38a81318c4b877f59be5394f07cf0bba0e55ae865332"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
-      "definition.k": "9a71924fb2dface26f20ac60d80ca276763a121d28a6048a609d7685c4214bc4"
+      "definition.k": "b9180797cdf2662ef3e10243d0cd9da3da08271d4c14a1378e29aea1a6aa55ab"
     },
     "krs-patterns-functions-alternatives": {
-      "definition.k": "4e704e6207049918ac58fa79951e6c977892e1e7cf69c2a5e9d8017160e1108b"
+      "definition.k": "38183ebe01834be7828410e1025b49ec680fe3967760c2ee1fa119d473061e9e"
     },
     "krs-patterns-functions-matches": {
-      "definition.k": "fc410812c066fb1fb4b609781c05c0160a0cba9af9ccf8611e5a1384a72e362b"
+      "definition.k": "ae5941118f653b70afd9deffaa9ceb737616dea6f1078eb364712a31875de39c"
     },
     "krs-patterns-functions-lets": {
-      "definition.k": "ca482bee929fafc8bd3581132e72e1d462b9bf98d817e0c8f860b1a70a4d9149"
+      "definition.k": "8ac0e0e97b124dd57d271a2a70bfd21a1d928e58f23af541d71ea07a5815d05c"
     },
     "krs-patterns-functions-contexts": {
-      "definition.k": "c4e1cb2341ab0d800988f0ef968118ca6c376cfcf34fc0071d7065bcff0784c0"
+      "definition.k": "e752c435ea0f00f698c37f19147a440b5ce64f295834a6953188bb775fecc6b9"
+    },
+    "krs-patterns-functions-sugar": {
+      "definition.k": "744acd07a1d15594384c289ef5725dadcb350b496626e1c54c8af897c4d78e62"
+    },
+    "krs-patterns-functions-bits": {
+      "definition.k": "a2c018fd5b955c509905b7ae240d4aa8de9be28ca683bb6eada4bdef1ab60527"
     }
   },
   "reference_sha256": {
-    "krs-patterns-functions-aliases": "3f756be6d78514b98ff551c72ce73d7c7e35f34c7666eb0deacb46c630dad871",
+    "krs-patterns-functions-aliases": "c2f1bc0a9762dc2a209522f050185abb675f805162aa7a994377ef763dc8a192",
     "krs-patterns-functions-aliases-reference": "9a975a22f4eee36cedd871b9df5faff076809c214a53ff79b758a8b040b5a6a1",
-    "krs-patterns-functions-alternatives": "a2516923734b6aaa2cd7921d9c36c9e82c7001a8f668e08ae5446a76a89dbc2a",
+    "krs-patterns-functions-alternatives": "f1d6f0366cc1d5922c34283fbd7d9d116cf605b10d3060fb0126cdcd3c136703",
     "krs-patterns-functions-alternatives-reference": "3145e8c0f545cd877e4b12990233676f6181a07de30fba7fe4d97c061b6af7e4",
-    "krs-patterns-functions-alternatives-haskell": "de71f4e64a8a68b6883fad685ceaaeb1eb52c80854728e39cc9e744320f33b6d",
-    "krs-patterns-functions-matches": "7c4d6f77738f365292c6314a3c161cda392a6142e6734a893149cae58c380910",
+    "krs-patterns-functions-alternatives-haskell": "bad92dc825402b24f50ad10fdaf800e2bc2758237a0420c333d2e6086f04a42d",
+    "krs-patterns-functions-matches": "890aa4181b57245096f475b44d096c00293101caf7dbef277b06edd4eda197aa",
     "krs-patterns-functions-matches-reference": "c4a5e1108b5807aa9101369670cafe128b6e76ed18d08ac61202bdaf2fa3ef3a",
-    "krs-patterns-functions-matches-haskell": "385e0af84bf0022c40ec9283f65cd6949a3a243d19f4255267701f2c7c44c98d",
-    "krs-patterns-functions-lets": "fc53c13b00226c259c38584c9ff976a2e14334bd3d1009126a3db208b5e04713",
+    "krs-patterns-functions-matches-haskell": "5c7e5d5307dca442e731c8ca39356bedd1206258196335eabcd2cec50d73370a",
+    "krs-patterns-functions-lets": "7d2e8289e20e78f7f0944205844db332dd083507cb16a60f200e7b5e74dc71a5",
     "krs-patterns-functions-lets-reference": "ed2b8722bab84511de7fc0a81e047fc548a708d572c6911f7c9afa3e2b38e76c",
-    "krs-patterns-functions-lets-haskell": "effc1eacf4a8ea6c52d7bc39aec55b10692039228b3155886c10b6090e42b54d",
-    "krs-patterns-functions-contexts": "98b59bcc97d86701d2ca602a61afdfa0227778646b03aababb5f0bf175fb9b5f",
+    "krs-patterns-functions-lets-haskell": "079ea02262dfe84d509101a63a18589c2ddcfd2c5d320369a9e82304d09f1f35",
+    "krs-patterns-functions-contexts": "69b7199deaaaf3005bfdbc3fed34cd72913ba9707c482539d4da5317e81986d9",
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
-    "krs-patterns-functions-contexts-haskell": "3ff30966ab124bd753fa73e653485e138e3f4b2c92211df69e8240f0875c4e74"
+    "krs-patterns-functions-contexts-haskell": "99bf2f669427d4b1136238cb1a208d26b1e90e77dad64a0f30ad648f6363acbc",
+    "krs-patterns-functions-sugar": "677a14fd74c6717e28c88c2b9b55b16632d53b845e8ab4596dcd31dcb77325cd",
+    "krs-patterns-functions-bits": "5404845e2528c9718319497786849ea839bf1c9bceb3b8a0677e07a5473d063d"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -158,6 +168,102 @@
         "parse": "accepted",
         "run": "86"
       }
+    },
+    "krs-patterns-functions-sugar": {
+      "byte-of": {
+        "parse": "accepted",
+        "run": "44"
+      },
+      "half-of": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "reg-of": {
+        "parse": "accepted",
+        "run": "rb"
+      },
+      "reg-of-pair": {
+        "parse": "accepted",
+        "run": "rhl"
+      },
+      "reg-of-other": {
+        "parse": "accepted",
+        "run": "ra"
+      },
+      "pick-true": {
+        "parse": "accepted",
+        "run": "7"
+      },
+      "pick-false": {
+        "parse": "accepted",
+        "run": "0"
+      }
+    },
+    "krs-patterns-functions-bits": {
+      "decode-inc": {
+        "parse": "accepted",
+        "run": "inc rb"
+      },
+      "decode-dec": {
+        "parse": "accepted",
+        "run": "dec ra"
+      },
+      "decode-jr": {
+        "parse": "accepted",
+        "run": "jr 0"
+      },
+      "decode-halt": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "decode-ld": {
+        "parse": "accepted",
+        "run": "ld rb, rc"
+      },
+      "decode-alu": {
+        "parse": "accepted",
+        "run": "alu 0 rb"
+      },
+      "decode-push": {
+        "parse": "accepted",
+        "run": "push 0"
+      },
+      "decode-rst": {
+        "parse": "accepted",
+        "run": "rst 56"
+      },
+      "decode-nop": {
+        "parse": "accepted",
+        "run": "nop"
+      },
+      "decode-wide": {
+        "parse": "accepted",
+        "run": "unknown 256"
+      },
+      "decode-negative": {
+        "parse": "accepted",
+        "run": "unknown -1"
+      },
+      "decode-unlisted": {
+        "parse": "accepted",
+        "run": "unknown 211"
+      },
+      "decode-cb-set": {
+        "parse": "accepted",
+        "run": "set 7 ra"
+      },
+      "decode-cb-rot": {
+        "parse": "accepted",
+        "run": "rot 0 ra"
+      },
+      "kind-low": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "kind-high": {
+        "parse": "accepted",
+        "run": "1"
+      }
     }
   },
   "diagnostics": {
@@ -187,6 +293,9 @@
     ],
     "or-remainder": [
       "error[krs::syntax::invalid-pattern-or]: or-patterns combine terms, not remainders"
+    ],
+    "or-simplification": [
+      "error[krs::analysis::invalid-pattern-or]: a simplification rewrites one term, and an or-pattern in its left-hand side is not one; write one simplification per alternative"
     ],
     "matches-shadow": [
       "error[krs::analysis::invalid-matches]: `e` in k::matches! binds a new variable; it does not compare with the rule's `e`. Use int::eq/bool::eq, or write `_`"

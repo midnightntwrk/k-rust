@@ -1200,3 +1200,95 @@ endmodule
         .expect("the configuration should be assembled");
     assert_eq!(count_applications(&pattern, "Lbls"), 100_000);
 }
+
+fn apply(label: &str) -> k_rust::kast::Term {
+    k_rust::kast::Term::Apply {
+        label: k_rust::kast::Label::new(label),
+        arguments: Vec::new(),
+    }
+}
+
+fn token(token: &str, sort: &str) -> k_rust::kast::Term {
+    k_rust::kast::Term::Token {
+        token: token.to_owned(),
+        sort: Sort::new(sort),
+    }
+}
+
+#[test]
+fn a_term_bound_without_the_parser_is_expanded_and_typed_as_its_text_is() {
+    let compiled = definition();
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut from_text = assembler(&grammar, &compiled);
+    from_text.program(&Sort::new("Input"), "go").unwrap();
+    from_text.bind("STATE", "configMacro").unwrap();
+    from_text.bind("ENV", "selected").unwrap();
+    from_text.bind("NAME", "\"abc\"").unwrap();
+    from_text.bind("ANY", "done").unwrap();
+    from_text.bind("STDIN", "\"text\"").unwrap();
+    let mut from_terms = assembler(&grammar, &compiled);
+    from_terms.program(&Sort::new("Input"), "go").unwrap();
+    // The macro is expanded, and no term carries an injection: typing inserts them.
+    from_terms
+        .bind_term("$STATE", apply("configMacro"))
+        .unwrap();
+    // The label names the production; the token takes the parser module's lexical hook.
+    from_terms.bind_term("ENV", apply("selectedEnv")).unwrap();
+    from_terms
+        .bind_term("NAME", token("\"abc\"", "Name"))
+        .unwrap();
+    from_terms.bind_term("ANY", apply("done")).unwrap();
+    from_terms
+        .bind_term("STDIN", token("\"text\"", "String"))
+        .unwrap();
+    assert_eq!(
+        render(&from_terms.finish().unwrap()),
+        render(&from_text.finish().unwrap())
+    );
+}
+
+#[test]
+fn a_term_must_have_at_most_the_declared_sort() {
+    let compiled = definition();
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = assembler(&grammar, &compiled);
+    let error = assembler
+        .bind_term("STATE", apply("selectedEnv"))
+        .unwrap_err();
+    assert!(
+        matches!(&error, ConfigurationError::ValueSort(mismatch)
+            if mismatch.variable == "$STATE"
+                && mismatch.declared == Sort::new("Input")
+                && mismatch.actual == Sort::new("Env")),
+        "{error:?}"
+    );
+    // The failed bind left the variable unbound.
+    assembler.bind_term("STATE", apply("done")).unwrap();
+    // A K-sorted variable holds a sequence as well as one item.
+    assembler
+        .bind_term(
+            "ANY",
+            k_rust::kast::Term::Sequence(vec![apply("done"), apply("done")]),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_term_binding_checks_its_name_as_a_text_binding_does() {
+    let compiled = definition();
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = assembler(&grammar, &compiled);
+    assembler.bind("STATE", "done").unwrap();
+    assert!(matches!(
+        assembler.bind_term("STATE", apply("done")),
+        Err(ConfigurationError::Duplicate { name }) if name == "STATE"
+    ));
+    assert!(matches!(
+        assembler.bind_term("PGM", apply("go")),
+        Err(ConfigurationError::ProgramVariable)
+    ));
+    assert!(matches!(
+        assembler.bind_term("MISSING", apply("done")),
+        Err(ConfigurationError::UnknownVariable { name, .. }) if name == "MISSING"
+    ));
+}

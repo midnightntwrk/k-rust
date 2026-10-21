@@ -301,6 +301,10 @@ pub struct FixedCell<S, C> {
     /// Definition IR names the cell by its symbol instead and omits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     declaration: Option<StableItemId>,
+    /// The Rust field of the configuration or nested-cell struct that declares
+    /// the cell, which may differ from its K name (`#[k::cell(name = ..)]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    field: Option<String>,
 }
 
 impl<S, C> FixedCell<S, C> {
@@ -324,6 +328,7 @@ impl<S, C> FixedCell<S, C> {
             attributes,
             content: FixedCellContent::Term { sort },
             declaration: None,
+            field: None,
         })
     }
 
@@ -352,6 +357,7 @@ impl<S, C> FixedCell<S, C> {
             attributes,
             content: FixedCellContent::Children { children },
             declaration: None,
+            field: None,
         })
     }
 
@@ -390,6 +396,19 @@ impl<S, C> FixedCell<S, C> {
     pub fn with_declaration(mut self, declaration: StableItemId) -> Self {
         self.declaration = Some(declaration);
         self
+    }
+
+    /// Records the Rust field that declares the cell.
+    #[must_use]
+    pub fn with_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
+    }
+
+    /// Returns the Rust field that declares the cell; absent in hand-built IR.
+    #[must_use]
+    pub fn field(&self) -> Option<&str> {
+        self.field.as_deref()
     }
 
     /// Returns the nominal declaration of a nested cell in Semantic IR.

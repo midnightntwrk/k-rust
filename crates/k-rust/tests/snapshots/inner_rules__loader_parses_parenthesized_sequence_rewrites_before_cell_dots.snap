@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Foo ::= \"a\"\n  configurat
 [
     SentenceSummary {
         kind: "claim",
-        body: "`<k>`(#noDots(.KList),`a_MAIN_Foo`(.KList)~>#SemanticCastToK(_)=>.K,#dots(.KList))",
+        body: "`<k>`(#noDots(.KList),`` `a_MAIN_Foo`(.KList)~>#SemanticCastToK(_)``=>.K,#dots(.KList))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",

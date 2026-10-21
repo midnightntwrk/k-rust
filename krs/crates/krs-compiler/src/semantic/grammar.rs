@@ -475,6 +475,12 @@ fn lower_production_attribute(
         DescriptorProductionAttribute::Memo { key } => ProductionAttribute::Memo {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },
+        DescriptorProductionAttribute::Underspecified { key, reason } => {
+            ProductionAttribute::Underspecified {
+                origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+                reason: reason.clone(),
+            }
+        }
         DescriptorProductionAttribute::Smtlib { key, symbol } => ProductionAttribute::Smtlib {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
             symbol: symbol.clone(),

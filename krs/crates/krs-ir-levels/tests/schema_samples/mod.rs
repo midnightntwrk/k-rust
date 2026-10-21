@@ -910,6 +910,14 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
         }]
     }
 }
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleMapEntry<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<T>(),
+            value_binding: sample::<String>(),
+        }]
+    }
+}
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleKSequenceItem<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -1392,8 +1400,12 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     recursive: sample::<Option<ProvenanceKey>>(),
                 },
+                Self::Underspecified {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            25,
+            26,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1421,6 +1433,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
+                Self::Underspecified { .. } => 25,
             },
         )
     }
@@ -1982,8 +1995,12 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     recursive: true,
                 },
+                Self::Underspecified {
+                    origin: sample::<NodeOrigin>(),
+                    reason: sample::<String>(),
+                },
             ],
-            26,
+            27,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2012,6 +2029,7 @@ impl<
                 Self::Smtlib { .. } => 23,
                 Self::SmtHook { .. } => 24,
                 Self::Desugar { .. } => 25,
+                Self::Underspecified { .. } => 26,
             },
         )
     }
@@ -2079,8 +2097,7 @@ impl<
             vec![
                 Self::HaveMap {
                     cell: sample::<I>(),
-                    key: sample::<T>(),
-                    value_binding: sample::<String>(),
+                    entries: sample::<Vec<ProtocolHeadRuleMapEntry<T>>>(),
                 },
                 Self::UpdateMap {
                     cell: sample::<I>(),
@@ -2089,9 +2106,15 @@ impl<
                 },
                 Self::RewriteCell {
                     cell: sample::<I>(),
-                    result_key: sample::<ProvenanceKey>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
                     before: sample::<T>(),
-                    after: sample::<T>(),
+                    after: Some(sample::<T>()),
+                },
+                Self::RewriteCell {
+                    cell: sample::<I>(),
+                    result_key: None,
+                    before: sample::<T>(),
+                    after: None,
                 },
                 Self::RewriteState {
                     cell: sample::<I>(),
@@ -2133,10 +2156,18 @@ impl<
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleHead<T> {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            subject: sample::<T>(),
-            result: sample::<ProtocolHeadRuleResult<T>>(),
-        }]
+        vec![
+            Self {
+                items: vec![sample::<T>()],
+                exact: false,
+                result: Some(sample::<ProtocolHeadRuleResult<T>>()),
+            },
+            Self {
+                items: Vec::new(),
+                exact: true,
+                result: None,
+            },
+        ]
     }
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleResult<T> {
@@ -2634,8 +2665,12 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     recursive: sample::<Option<ProvenanceKey>>(),
                 },
+                Self::Underspecified {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            25,
+            26,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2663,6 +2698,7 @@ impl Sample for WireProductionAttribute {
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
+                Self::Underspecified { .. } => 25,
             },
         )
     }
@@ -3054,7 +3090,8 @@ impl Sample for DefinitionModule {
                     vec![],
                     sort.clone(),
                 )
-                .unwrap(),
+                .unwrap()
+                .with_field("cell"),
             ],
             sample_origin("definition.initializer"),
             SemanticId::new("definition.initializer").unwrap(),

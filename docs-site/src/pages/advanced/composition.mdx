@@ -74,7 +74,7 @@ Selection order has no semantic meaning: the planner canonicalizes the same set 
 
 Default declaration identities follow their Rust-resolved owning items and therefore change when public declarations move.
 `#[k::symbol("public::Name")]`, immediately before the KRS declaration attribute, can pin a public symbol while preserving the new source provenance.
-It delegates only to a sort or standalone constructor declaration; it is not a general renaming attribute.
+It delegates only to a sort or standalone constructor declaration, or, written among a family variant's helpers, to that variant, whose pinned identity then no longer depends on the enum's name; it is not a general renaming attribute.
 
 The composition fixture uses explicit identities where both packages deliberately reuse the Rust names `Common` and `Same`:
 

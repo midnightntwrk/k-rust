@@ -97,7 +97,7 @@ fn tour_minimal_expands_through_the_protocol() {
     );
     assert_eq!(
         value["evidence"]["authored_sha256"],
-        "c75ac1cab9a016ca34e606492341e5753b7a46b2af8195277fd3c0a3add71915"
+        "5126dfe56fc89bb6c49c6b6613403ef8c04099f2d6846b03a2100985884a7a11"
     );
     assert_eq!(value["requests_framework"], true);
     assert_eq!(value["registrations"].as_array().unwrap().len(), 7);

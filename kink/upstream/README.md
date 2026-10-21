@@ -1,0 +1,44 @@
+# Upstream request ledgers
+
+This directory holds the requests kink (formerly the repository K-in-K2) makes of the projects it builds on.
+Each file is the single place where a request, its status, and any local workaround are recorded.
+Since kink was merged into k-rust (`kink/`), `k-rust.toml` records kink's premises on the in-repo k-rust beside it:
+the requests kink made of k-rust, the k-rust behaviour each kink feature rests on, and the k-rust commit at which they were last judged.
+
+| File | Upstream | Status judged against |
+|---|---|---|
+| [`k-rust.toml`](k-rust.toml) | k-rust, in-repo (`checkout = ".."`, relative to `kink/`) | `[reference_pin]`: the k-rust commit at which kink's premises were last judged |
+| [`krs.toml`](krs.toml) | KRS | `[reference_pin]`: the reviewed commit of `../krs` |
+
+The format follows KRS's `draft/upstream/README.md`.
+Requests that KRS already tracks against k-rust are listed under `[[krs_owned]]` by their KRS `id` and are not restated.
+
+## Request fields
+
+| Field | Content |
+|---|---|
+| `id` | Stable kebab-case identifier; never reused. |
+| `title` | One-line statement of the defect or gap. |
+| `kind` | `bug`, `correctness`, `missing-feature`, or another short class. |
+| `status` | `open`, `partial`, `fixed`, `wontfix`, or `unknown`, judged at the reference pin. |
+| `status_basis` | `test run at <commit> on <date>`, `static screen of source at <commit> on <date>`, or `carried from <source>, not requalified`. |
+| `blocking` | Whether the request blocks a K-in-K2 goal. |
+| `fixed_in` | The upstream commit, or `present at <pin>`; required when `status = "fixed"`. |
+| `summary`, `reproducer`, `local_workaround`, `requested_action`, `sources` | As in the KRS ledger. |
+| `handoff` | The request's id (`KINK-NN`) in the current k-rust handoff; present only on requests that handoff asks for. |
+| `status_at_main` | `open`, `partial`, `fixed`, or `unknown`, judged at the k-rust main named in `status_at_main_basis`; `status` stays judged at the reference pin. |
+| `status_at_main_basis` | Same forms as `status_basis`. |
+| `original_requested_action` | The `requested_action` as first asked, kept on a row whose `requested_action` was later narrowed or merged; `status` at the pin is judged against this text. |
+| `update_YYYY_MM_DD` | A later measurement or note appended without rewriting the original fields. |
+| `where_requested_shape_differs` | How an accepted upstream fix differs from the requested shape. |
+
+`[[withdrawn]]` records requests that K-in-K2 no longer makes, with the reason.
+
+## Moving the reference pin
+
+kink builds against the k-rust beside it in the same repository, so every k-rust commit is built and tested with kink's light tier, and kink's drift pins fail when a passage or source kink rests on moves.
+The reference pin moves when kink's premises are judged again at a later k-rust commit:
+run kink's gate (README, "Gate"), then re-screen every `open` and `partial` request at that commit and update `status_basis` and `[reference_pin]`.
+Record the former pin in `[retired_pins]` with the reason it was retired.
+A row whose status was replaced keeps its former value in git history; an `update_YYYY_MM_DD` field says what the move found.
+kink-native's `every_halt_variant_is_classified_exhaustively` maps the closed `HaltReasonOutput` enum to `HaltClass` and checks every variant. A new upstream variant requires an exhaustive Rust match update (`execution-leaf-completeness`).

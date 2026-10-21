@@ -97,16 +97,24 @@ k::rules! {
     };
 }
 
-// A readable machine record matches one computation-cell head, and a cool
-// rule matches two items, the value and the freezer, so the cool rules are
-// written in the reference form.
-#[k::rule(cool, hole = h, label = "cool-add-rhs")]
-pub fn cool_add_rhs(
-    h: Exp,
-    e: Exp,
-    k::cells! { k: k::configuration::KCell(h, Freezer::AddRhs(e), tail @ ..), state @ .. }: Machine,
-) -> Machine {
-    k::cells! { k: k::configuration::KCell(Op::Add(e, h), ..tail), ..state }
+// A cool rule matches two items, the value and its freezer. Two are written
+// as readable records and two in the reference form, which names the tail.
+k::rules! {
+    for Machine;
+    use Op::*;
+
+    #[k::rule(cool, hole = h)]
+    cool_add_rhs: {
+        k: [h, Freezer::AddRhs(e), ..]
+    } => {
+        k: [Add(e, h), ..]
+    };
+    #[k::rule(cool, hole = h, result = Value)]
+    cool_and_rhs: {
+        k: [h, Freezer::AndRhs(e), ..]
+    } => {
+        k: [And(e, h), ..]
+    };
 }
 
 #[k::rule(cool, hole = h, label = "cool-add-lhs")]
@@ -116,15 +124,6 @@ pub fn cool_add_lhs(
     k::cells! { k: k::configuration::KCell(h, Freezer::AddLhs(e), tail @ ..), state @ .. }: Machine,
 ) -> Machine {
     k::cells! { k: k::configuration::KCell(Op::Add(h, e), ..tail), ..state }
-}
-
-#[k::rule(cool, hole = h, result = Value, label = "cool-and-rhs")]
-pub fn cool_and_rhs(
-    h: Exp,
-    e: Exp,
-    k::cells! { k: k::configuration::KCell(h, Freezer::AndRhs(e), tail @ ..), state @ .. }: Machine,
-) -> Machine {
-    k::cells! { k: k::configuration::KCell(Op::And(e, h), ..tail), ..state }
 }
 
 #[k::rule(cool, hole = h, result = Value, label = "cool-and-lhs")]

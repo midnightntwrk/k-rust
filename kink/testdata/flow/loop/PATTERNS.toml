@@ -1,0 +1,17 @@
+# Pattern checks for the loop corpus (flow F-18; crates/kink-flow/README.md, "Checking a pattern").
+
+# The initial configuration counts: countdown's run starts here.
+[[pattern]]
+id = "countdown-starts"
+pattern = "<k> countdown(3) </k>"
+programs = ["countdown"]
+
+# The final configuration counts: countdown's run ends here, and only here.
+[[pattern]]
+id = "zero"
+pattern = "<k> 0 </k>"
+
+# A state of a run that never ends (FLOW-timeout.toml): the search stops at its first match.
+[[pattern]]
+id = "spin-five"
+pattern = "<k> spin(5) </k>"

@@ -165,14 +165,21 @@ fn expand_head_rule(
     // A head that also reads as a List collection's front record lets rustc
     // resolve its record roots, which may name the instance struct (KF-023).
     let alternative = clause.bracket_alternative();
-    let subject = if clause.head_result().is_some() {
+    let mut items = Vec::new();
+    if clause.head().is_some_and(krs_syntax::RuleHead::subject) {
         if alternative.is_some() {
             builder.arm_record_root(rule.subject_tree());
         }
-        Some(builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?)
-    } else {
-        None
-    };
+        items.push(builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?);
+    }
+    // The computation items after the first are expanded before the other
+    // cells, as the parser numbers their anchors.
+    for item in clause.head().iter().flat_map(|head| head.following()) {
+        if alternative.is_some() {
+            builder.arm_record_root(item.tree());
+        }
+        items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+    }
 
     let mut have_ordinal = 0_u32;
     let mut update_ordinal = 0_u32;
@@ -185,10 +192,21 @@ fn expand_head_rule(
     let mut right_states = krs_syntax::ReadableStateCounters::after_head(clause.head_result());
     for extra in clause.extras() {
         match extra {
-            krs_syntax::RuleExtra::HaveMap { cell, key, value } => {
+            krs_syntax::RuleExtra::HaveMap { cell, entries } => {
                 let cell_name = cell.unraw().to_string();
-                let value_binding = value.unraw().to_string();
-                let key = builder.expand_wire(key.tree(), TermSide::Left, &mut slots)?;
+                let entries = entries
+                    .iter()
+                    .map(|entry| {
+                        Ok(krs_ir::wire::WireHeadRuleMapEntry {
+                            key: builder.expand_wire(
+                                entry.key.tree(),
+                                TermSide::Left,
+                                &mut slots,
+                            )?,
+                            value_binding: entry.value.unraw().to_string(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ExpandError>>()?;
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
@@ -202,8 +220,7 @@ fn expand_head_rule(
                         key: rule_left_cells_field_role.key(ordinal),
                         name: cell_name,
                     },
-                    key,
-                    value_binding,
+                    entries,
                 });
             }
             krs_syntax::RuleExtra::RewriteCell {
@@ -269,9 +286,11 @@ fn expand_head_rule(
         }
         Some(krs_syntax::RuleHeadResult::Erase(_)) => Some(krs_ir::wire::WireHeadRuleResult::Erase),
     };
-    let head = subject
-        .zip(result)
-        .map(|(subject, result)| krs_ir::wire::WireHeadRuleHead { subject, result });
+    let head = clause.head().map(|head| krs_ir::wire::WireHeadRuleHead {
+        items,
+        exact: head.exact(),
+        result,
+    });
     let mut update_extras = Vec::new();
     let mut rewrite_index = 0_usize;
     let mut state_index = 0_usize;
@@ -348,22 +367,32 @@ fn expand_head_rule(
                 let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
                 rewrite_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
-                builder.arm_record_root(after.tree());
-                let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
-                let right_ordinal = update_ordinal;
-                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell updates",
+                // A cell the result leaves out is read only: it has no
+                // result term and no result-field key.
+                let (result_key, after) = if let Some(after) = after {
+                    builder.arm_record_root(after.tree());
+                    let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
+                    let right_ordinal = update_ordinal;
+                    update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            cell.span(),
+                            "too many readable cell updates",
+                        )
+                    })?;
+                    (
+                        Some(rule_right_cells_field_role.key(right_ordinal)),
+                        Some(after),
                     )
-                })?;
+                } else {
+                    (None, None)
+                };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
                         key: rule_left_cells_field_role.key(*left_ordinal),
                         name: cell_name.clone(),
                     },
-                    result_key: rule_right_cells_field_role.key(right_ordinal),
+                    result_key,
                     before: before.clone(),
                     after,
                 });
@@ -527,7 +556,16 @@ fn expand_head_rule(
     }
     .render();
 
+    let scoped_binders = super::rules::scoped_binder_check(
+        &cfg,
+        enum_import_item
+            .map(std::slice::from_ref)
+            .unwrap_or_default(),
+        clause.bindings(),
+    );
     Ok(quote! {
+        #scoped_binders
+
         #(#attrs)*
         #visibility #fn_token #name_ident(__krs_symbolic_subject: #parameter_type) -> #parameter_type {
             let _krs_binding_check = || { #(#binding_checks)* };
@@ -750,22 +788,26 @@ fn bracket_alternative_wire(
             "the List reading of a bracketed cell value does not match its computation-cell reading",
         )
     };
-    let subject = record_children(&head.subject).ok_or_else(mismatch)?;
+    let subject = head
+        .items
+        .iter()
+        .map(|item| record_children(item).ok_or_else(mismatch))
+        .collect::<crate::Result<Vec<_>>>()?;
     let results = match &head.result {
-        krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+        Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
             vec![record_children(term).ok_or_else(mismatch)?]
         }
-        krs_ir::ProtocolHeadRuleResult::Splice(terms) => terms
+        Some(krs_ir::ProtocolHeadRuleResult::Splice(terms)) => terms
             .iter()
             .map(|term| record_children(term).ok_or_else(mismatch))
             .collect::<crate::Result<Vec<_>>>()?,
-        krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
+        Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => Vec::new(),
     };
     let before = alternative_instances(
         alternative.before(),
         krs_syntax::RuleSide::Left,
         counters.left,
-        vec![subject],
+        subject,
     )
     .ok_or_else(mismatch)?;
     let (result_key, after) = match alternative.after() {

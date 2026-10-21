@@ -9,12 +9,20 @@ fn z3_acquisition_is_feature_selectable() {
     let frontend = manifest(&root.join("crates/k-rust/Cargo.toml"));
     let backend = manifest(&root.join("crates/k-rust-backend/Cargo.toml"));
 
-    let z3 = &workspace["workspace"]["dependencies"]["z3"];
-    assert_eq!(z3["default-features"].as_bool(), Some(false));
-    assert!(
-        z3.get("features").is_none(),
-        "the workspace dependency must not impose an acquisition mode: {z3:#?}"
-    );
+    // The backend links `z3-sys` directly to read Z3's error state; it is the same crate the
+    // `z3` crate builds on, so neither workspace entry may pick how Z3 is acquired.
+    for name in ["z3", "z3-sys"] {
+        let dependency = &workspace["workspace"]["dependencies"][name];
+        assert_eq!(
+            dependency["default-features"].as_bool(),
+            Some(false),
+            "{name}"
+        );
+        assert!(
+            dependency.get("features").is_none(),
+            "the workspace dependency {name} must not impose an acquisition mode: {dependency:#?}"
+        );
+    }
 
     let frontend_features = frontend["features"].as_table().unwrap();
     assert_feature(
@@ -49,7 +57,7 @@ fn z3_acquisition_is_feature_selectable() {
     );
 
     let backend_features = backend["features"].as_table().unwrap();
-    assert_feature(backend_features, "z3", &["dep:z3"]);
+    assert_feature(backend_features, "z3", &["dep:z3", "dep:z3-sys"]);
     assert_feature(backend_features, "z3-gh-release", &["z3", "z3/gh-release"]);
 
     for (name, features) in [

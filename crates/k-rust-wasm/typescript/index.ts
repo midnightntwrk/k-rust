@@ -726,6 +726,7 @@ export type SmtFailure =
   | { kind: 'unavailable' }
   | { kind: 'unknown'; reason: string }
   | { kind: 'inconsistent-ground-truth' }
+  | { kind: 'malformed-script'; message: string }
   | { kind: 'missing-model' }
   | { kind: 'missing-model-value'; variable: Kore }
   | { kind: 'invalid-model-value'; variable: Kore; value: string }
@@ -1170,7 +1171,14 @@ export function parseKast(source: string): SerializedKast {
   return JSON.parse(parseKastWasm(source)) as SerializedKast
 }
 
-/** Print typed KAST JSON v4 using k-rust's canonical textual printer. */
+/**
+ * Print typed KAST JSON v4 using k-rust's canonical textual printer.
+ *
+ * The text reads back through `parseKast` as the same term, up to sequence flattening and the
+ * identification of a one-item sequence with its item.
+ * Throws for a term textual KAST cannot spell: a variable with a sort, a variable name outside
+ * `[_A-Z][A-Za-z0-9'_]*` (such as a set variable's `@X`), or an application of the empty label.
+ */
 export function printKast(kast: Kast): string {
   assertInitialized()
   return printKastWasm(JSON.stringify(kast))

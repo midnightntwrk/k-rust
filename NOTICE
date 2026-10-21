@@ -1,5 +1,20 @@
-k-rust includes pinned K Framework builtin source files under
-`crates/k-rust/builtin/`. They were copied from runtimeverification/k commit
-4a46d1231473b599c699160132fd6e76a5c46406 and retain their original copyright
-notices. The K Framework is distributed under the BSD 3-Clause License included
-in this repository.
+k-rust is licensed under either of the Apache License, Version 2.0 (LICENSE-APACHE)
+or the MIT license (LICENSE-MIT), at your option, except for the third-party
+material below, which keeps its original license and copyright notices.
+
+K Framework (BSD 3-Clause License, licenses/K-FRAMEWORK-BSD-3-Clause.txt;
+Runtime Verification's pyk test data, crates/k-rust/tests/fixtures/kore/LICENSE.md):
+- `crates/k-rust/builtin/` (the K builtin sources) and `crates/k-rust/cparser/`
+  (the standalone parser runtime) were copied from runtimeverification/k commit
+  4a46d1231473b599c699160132fd6e76a5c46406. The builtin sources are compiled
+  into k-rust, so binary distributions of k-rust reproduce this notice.
+- Test fixtures under `crates/k-rust/tests/fixtures/` that say so in their
+  README, and the tests `crates/k-rust/tests/lexer.rs` ports from pyk, come
+  from the same commit.
+- The test fixture `crates/k-rust-fuzz/tests/data/imp/imp.k` is the K Team's IMP
+  definition, unchanged, with its copyright line.
+
+Haskell backend (BSD 3-Clause License, licenses/HASKELL-BACKEND-BSD-3-Clause.txt):
+- `crates/k-rust-backend` ports the behaviour of runtimeverification/haskell-backend
+  commit ad54c7a55085b726c4d3c2728242a7e0695b0439 to Rust (docs/backend-port.md).
+  To the extent it derives from that source, its notice applies.

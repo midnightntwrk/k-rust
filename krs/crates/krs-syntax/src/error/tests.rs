@@ -66,6 +66,11 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::UnsupportedRuleSignature { reason: "example" },
         SyntaxErrorKind::UnsupportedRulePattern { reason: "example" },
         SyntaxErrorKind::InvalidTermType,
+        SyntaxErrorKind::ParametricCollectionSort {
+            collection: "List",
+            bare: example(),
+            narrowing: true,
+        },
         SyntaxErrorKind::UnsupportedRuleBody { reason: "example" },
         SyntaxErrorKind::UnexpectedMacro {
             path: String::from("example"),
@@ -84,6 +89,7 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidSyntaxList { reason: "example" },
         SyntaxErrorKind::RawKShape { reason: example() },
         SyntaxErrorKind::InvalidSmtMetadata { reason: example() },
+        SyntaxErrorKind::InvalidUnderspecified { reason: example() },
         SyntaxErrorKind::InvalidMatchRestriction { reason: example() },
         SyntaxErrorKind::InvalidUnboundVariables { reason: example() },
         SyntaxErrorKind::InvalidSpecModule { reason: example() },
@@ -115,6 +121,31 @@ fn syntax_categories_have_distinct_registered_codes() {
             reason: String::from("example"),
         },
         SyntaxErrorKind::InvalidLocalRewrite {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::MissingFunctionSyntax,
+        SyntaxErrorKind::InvalidFunctionShorthand {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::InvalidEquationTable {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::DuplicateEquationRow {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::CatchAllEquationRow {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::InvalidBitTemplate {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::BitTemplatePosition {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::BitFieldCollision {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::BitTemplateWidthMismatch {
             reason: String::from("example"),
         },
     ];

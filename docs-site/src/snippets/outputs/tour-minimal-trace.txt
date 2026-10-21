@@ -2,5 +2,5 @@ $ krs run --package krs-tour-minimal --definition main --trace
 <k>
   bar ~> .K
 </k>
-step 1  KRS-TOUR-MINIMAL.foo-to-bar   src/lib.rs:43:5
+step 1  KRS-TOUR-MINIMAL.foo-to-bar   src/lib.rs:42:5
 krs run: stuck after 1 step; <k> starts with `bar`

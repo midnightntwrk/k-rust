@@ -53,8 +53,16 @@ fn text_term() -> impl Strategy<Value = Term> {
         prop_oneof![
             (label(), prop::collection::vec(inner.clone(), 0..4))
                 .prop_map(|(label, arguments)| Term::Apply { label, arguments }),
-            prop_oneof![Just(Vec::new()), prop::collection::vec(inner, 2..4),]
+            prop_oneof![Just(Vec::new()), prop::collection::vec(inner.clone(), 2..4),]
                 .prop_map(Term::sequence),
+            (inner.clone(), inner.clone()).prop_map(|(left, right)| Term::Rewrite {
+                left: Box::new(left),
+                right: Box::new(right),
+            }),
+            (inner.clone(), inner).prop_map(|(pattern, alias)| Term::As {
+                pattern: Box::new(pattern),
+                alias: Box::new(alias),
+            }),
         ]
     })
 }
@@ -78,6 +86,14 @@ fn text_normalize(term: Term) -> Term {
                 _ => Term::Sequence(flattened),
             }
         }
+        TermParts::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(text_normalize(*left)),
+            right: Box::new(text_normalize(*right)),
+        },
+        TermParts::As { pattern, alias } => Term::As {
+            pattern: Box::new(text_normalize(*pattern)),
+            alias: Box::new(text_normalize(*alias)),
+        },
         term => Term::from(term),
     }
 }
@@ -91,9 +107,22 @@ proptest! {
         prop_assert_eq!(json::from_str(&encoded).unwrap(), term);
     }
 
+    // The text reads back as the printed term up to sequence flattening and the identification
+    // of a one-item sequence with its item, the only normalizations the format has: rewrites and
+    // aliases nested on the left or right, and over or under a sequence, are distinct terms.
+    // Printing is therefore injective up to those normalizations, which is what a test that
+    // compares printed text relies on.
     #[test]
     fn textual_kast_round_trip(term in text_term()) {
         let printed = term.to_string();
-        prop_assert_eq!(parser::parse_term(&printed).unwrap(), text_normalize(term));
+        prop_assert_eq!(parser::parse_term(&printed).unwrap(), text_normalize(term.clone()));
+        prop_assert_eq!(k_rust::kast::printer::Printer::new().try_print_term(&term), Ok(printed));
+    }
+
+    #[test]
+    fn textual_kast_tells_terms_apart(left in text_term(), right in text_term()) {
+        if left.to_string() == right.to_string() {
+            prop_assert_eq!(text_normalize(left), text_normalize(right));
+        }
     }
 }

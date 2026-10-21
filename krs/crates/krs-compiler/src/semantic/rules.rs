@@ -10,7 +10,7 @@ use krs_ir::{
     StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
-    MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
+    MapEntry, MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
     SemanticRulePriority, SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef,
     SemanticTerm, SemanticVariable,
 };
@@ -337,7 +337,9 @@ pub(super) fn lower_head_rule_descriptor(
             &mut selected,
         )?);
     }
-    if rule.head.is_none() {
+    // Every cell record is checked, since one may now only read `k`; a
+    // `for Sort` table's clause is a K term rule and is not.
+    if rule.head_sort.is_none() {
         check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
     }
     super::cell_states::check_implicit_and_explicit_instances(
@@ -519,9 +521,11 @@ fn lower_rule_existentials(
     Ok((existentials, ensures))
 }
 
-/// Rejects the two readable machine rules without the computation cell that
-/// can never be what the author meant (KF-015): one that changes no cell, and
-/// one that is enabled in every configuration, so execution never terminates.
+/// Rejects the readable machine rules that can never be what the author
+/// meant: one that changes no cell, and one without the computation cell
+/// (KF-015) that is enabled in every configuration, so execution never
+/// terminates. A rule whose computation-cell pattern matches at least one
+/// item, or the whole cell, constrains the state.
 fn check_framed_computation_rule(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
@@ -555,7 +559,8 @@ fn check_framed_computation_rule(
             range: range()?,
         });
     }
-    let unconstrained = rule.requires.is_none()
+    let unconstrained = rule.head.is_none()
+        && rule.requires.is_none()
         && rule.extras.iter().zip(clauses).all(|(extra, clause)| {
             clause.as_fixed().is_some_and(|clause| {
                 matches!(
@@ -573,6 +578,14 @@ fn check_framed_computation_rule(
         });
     }
     Ok(())
+}
+
+/// Whether `result` restates the items of the k sequence `before`; the item
+/// sort is an annotation of the sequence, not part of its items.
+fn same_items(before: &SemanticTerm, result: &[SemanticTerm]) -> bool {
+    matches!(before.kind(), krs_ir_levels::SemanticTermKind::KSequence { items, .. }
+        if items.len() == result.len()
+            && items.iter().zip(result).all(|(item, restated)| same_term(item, restated)))
 }
 
 /// Whether two semantic terms are the same term, ignoring their origins.
@@ -737,12 +750,14 @@ fn seed_head_rule_sorts(
                 (semantic_sort_ref(&key.sort), semantic_sort_ref(&value.sort)),
             );
         }
-        if let krs_ir::ProtocolHeadRuleExtra::HaveMap { value_binding, .. } = extra
+        if let krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } = extra
             && let Some((_, value_sort)) = map_argument_sorts.get(&cell.cell)
         {
-            binding_sorts
-                .entry(value_binding.clone())
-                .or_insert_with(|| value_sort.clone());
+            for entry in entries {
+                binding_sorts
+                    .entry(entry.value_binding.clone())
+                    .or_insert_with(|| value_sort.clone());
+            }
         }
         if let krs_ir::ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } = extra {
             let cell_sort = cell_sorts.get(&cell.cell).ok_or_else(|| {
@@ -783,27 +798,32 @@ fn infer_head_rule(
     seeds: &HeadRuleSeeds,
 ) -> Result<(), DescriptorLoweringError> {
     if let Some(head) = &rule.head {
-        builder.infer(&head.subject, head_sort, true)?;
+        for item in &head.items {
+            let k_item = builder.k_item_sort.clone();
+            builder.infer(item, head_item_sort(item, head_sort, k_item.as_ref()), true)?;
+        }
         match &head.result {
-            krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                 builder.infer(term, head_sort, false)?;
             }
-            krs_ir::ProtocolHeadRuleResult::Splice(items) => {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
                 for term in items {
                     builder.infer(term, head_sort, false)?;
                 }
             }
-            krs_ir::ProtocolHeadRuleResult::Erase => {}
+            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
         }
     }
     for extra in &rule.extras {
         match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, key, .. } => {
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
                 let expected = seeds
                     .map_argument_sorts
                     .get(&cell.cell)
                     .map(|(key_sort, _)| key_sort);
-                builder.infer(key, expected, true)?;
+                for entry in entries {
+                    builder.infer(&entry.key, expected, true)?;
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::UpdateMap {
                 cell,
@@ -836,7 +856,9 @@ fn infer_head_rule(
                     }
                 })?;
                 builder.infer(before, Some(expected), true)?;
-                builder.infer(after, Some(expected), false)?;
+                if let Some(after) = after {
+                    builder.infer(after, Some(expected), false)?;
+                }
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteState {
                 cell,
@@ -861,6 +883,7 @@ fn infer_head_rule(
         rule.requires.as_ref(),
         rule.ensures.as_ref(),
     )?;
+    default_item_binders(builder, rule, head_sort);
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
         if !builder.binding_sorts.contains_key(&binding.name) {
@@ -873,8 +896,52 @@ fn infer_head_rule(
     Ok(())
 }
 
-/// Lowers the matched head and its result into the computation-cell clause,
-/// which preserves the implicit K-sequence tail.
+/// Gives an item binder of a record that nothing else constrains its default
+/// sort: it is any one item, a `KItem`.
+fn default_item_binders(
+    builder: &mut StructuredTermBuilder<'_>,
+    rule: &krs_ir::DescriptorHeadRule,
+    head_sort: Option<&SemanticSortRef>,
+) {
+    if head_sort.is_none()
+        && let (Some(head), Some(k_item)) = (&rule.head, builder.k_item_sort.clone())
+    {
+        for item in &head.items {
+            if let DescriptorTerm::Variable { name, .. } = item
+                && !builder.binding_sorts.contains_key(name)
+                && builder
+                    .binding_constraints
+                    .get(name)
+                    .is_none_or(BTreeSet::is_empty)
+            {
+                builder
+                    .binding_constraints
+                    .entry(name.clone())
+                    .or_default()
+                    .insert(k_item.clone());
+            }
+        }
+    }
+}
+
+/// The expected sort of one matched computation item: a `for Sort` table's
+/// head has the table's sort; in a record, `_` is any one item, a `KItem`,
+/// and every other item has the sort it states or infers.
+fn head_item_sort<'a>(
+    item: &DescriptorTerm,
+    head_sort: Option<&'a SemanticSortRef>,
+    k_item: Option<&'a SemanticSortRef>,
+) -> Option<&'a SemanticSortRef> {
+    match (head_sort, item) {
+        (None, DescriptorTerm::Wildcard { .. }) => k_item,
+        _ => head_sort,
+    }
+}
+
+/// Lowers the matched items and their result into the computation-cell
+/// clause: an open pattern preserves the implicit K-sequence tail, an exact
+/// one names the whole cell, and a result that leaves the cell out only
+/// reads it.
 fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
@@ -884,40 +951,71 @@ fn lower_head_rule_computation_clause(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
-    builder.head_pending = true;
-    let subject_head = builder.lower(&head.subject, head_sort, true)?;
-    let subject_item_sort = subject_head.sort().clone();
+    let mut subject_items = Vec::with_capacity(head.items.len());
+    for (index, item) in head.items.iter().enumerate() {
+        // Only the first item is the sentence's head (KF-027).
+        builder.head_pending = index == 0;
+        let k_item = builder.k_item_sort.clone();
+        subject_items.push(builder.lower(
+            item,
+            head_item_sort(item, head_sort, k_item.as_ref()),
+            true,
+        )?);
+    }
+    builder.head_pending = false;
+    let subject_item_sort = match subject_items.as_slice() {
+        [item] => item.sort().clone(),
+        items => common_sequence_item_sort(descriptor, items, sort_parents, false)?,
+    };
     let before_k = SemanticTerm::k_sequence(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-subject")?,
         subject_item_sort,
-        vec![subject_head],
+        subject_items,
     );
-    let result_items = match &head.result {
-        krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            vec![builder.lower(term, head_sort, false)?]
+    let post = match &head.result {
+        None => CellPost::Preserve,
+        Some(result) => {
+            let result_items = match result {
+                krs_ir::ProtocolHeadRuleResult::Replace(term) => {
+                    vec![builder.lower(term, head_sort, false)?]
+                }
+                krs_ir::ProtocolHeadRuleResult::Splice(items) => items
+                    .iter()
+                    .map(|term| builder.lower(term, head_sort, false))
+                    .collect::<Result<Vec<_>, _>>()?,
+                krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
+            };
+            let result_item_sort =
+                common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
+            // A result that restates the matched items unchanged only reads
+            // them, as a restated cell does.
+            if same_items(&before_k, &result_items) {
+                CellPost::Preserve
+            } else {
+                CellPost::Replace {
+                    term: SemanticTerm::k_sequence(
+                        semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
+                        result_item_sort,
+                        result_items,
+                    ),
+                }
+            }
         }
-        krs_ir::ProtocolHeadRuleResult::Splice(items) => items
-            .iter()
-            .map(|term| builder.lower(term, head_sort, false))
-            .collect::<Result<Vec<_>, _>>()?,
-        krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
     };
-    let result_item_sort =
-        common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
-    let after_k = SemanticTerm::k_sequence(
-        semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
-        result_item_sort,
-        result_items,
-    );
+    let frame = if head.exact {
+        CellContentFrame::Exact
+    } else {
+        CellContentFrame::KSequenceTail {
+            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
+            binding: None,
+        }
+    };
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
         semantic_cell_id(&computation.cell)?,
         before_k,
-        CellPost::Replace { term: after_k },
-        CellContentFrame::KSequenceTail {
-            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
-            binding: None,
-        },
+        post,
+        frame,
     ))
 }
 
@@ -1121,18 +1219,16 @@ fn lower_head_rule_fixed_extra(
         return lower_head_rule_group_rewrite(
             builder,
             cell,
-            result_key,
+            result_key.as_ref(),
             before,
-            after,
+            after.as_ref(),
             &declaration.declaration,
         );
     };
     match extra {
-        krs_ir::ProtocolHeadRuleExtra::HaveMap {
-            cell,
-            key,
-            value_binding,
-        } => lower_head_rule_map_read(builder, cell, key, value_binding, *wrapper, sort),
+        krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+            lower_head_rule_map_read(builder, cell, entries, *wrapper, sort)
+        }
         krs_ir::ProtocolHeadRuleExtra::UpdateMap {
             cell,
             base_binding,
@@ -1143,18 +1239,29 @@ fn lower_head_rule_fixed_extra(
             result_key,
             before,
             after,
-        } => lower_head_rule_cell_rewrite(builder, cell, result_key, before, after, *wrapper, sort),
+        } => lower_head_rule_cell_rewrite(
+            builder,
+            cell,
+            result_key.as_ref(),
+            before,
+            after.as_ref(),
+            *wrapper,
+            sort,
+        ),
         krs_ir::ProtocolHeadRuleExtra::RewriteState { .. } => {
             unreachable!("optional and collection extras are lowered by cell_states")
         }
     }
 }
 
+/// Lowers a read of entries `k1 -> v1, ..., kn -> vn` of a Map cell to the
+/// preserved cell pattern `K1 |-> V1 ... Kn |-> Vn _`. Its items are distinct
+/// entries of the map, so it matches only where the keys are pairwise
+/// different and each is present.
 fn lower_head_rule_map_read(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
-    key: &DescriptorTerm,
-    value_binding: &str,
+    entries: &[krs_ir::DescriptorHeadRuleMapEntry],
     wrapper: krs_ir::CellWrapper,
     sort: &DescriptorSortReference,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -1167,26 +1274,42 @@ fn lower_head_rule_map_read(
             detail: format!("extra cell {:?} is not a Map cell", cell.cell.field),
         });
     }
-    let key = builder.lower(key, None, true)?;
-    let value_sort = builder
-        .binding_sorts
-        .get(value_binding)
-        .cloned()
-        .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
+    let mut items = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let key = builder.lower(&entry.key, None, true)?;
+        let value_binding = &entry.value_binding;
+        let value_sort = builder
+            .binding_sorts
+            .get(value_binding)
+            .cloned()
+            .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
+                id: Box::new(descriptor.id().clone()),
+                detail: format!("map value binding {value_binding:?} has no inferred sort"),
+            })?;
+        // Each value variable has its own origin; the first keeps the
+        // spelling of a one-entry read.
+        let role = match index {
+            0 => "map-binding-value".to_owned(),
+            index => format!("map-binding-value-{index}"),
+        };
+        let value = SemanticTerm::variable(
+            semantic_origin(descriptor, cell.key.clone(), &role)?,
+            value_sort,
+            SemanticId::new(value_binding.clone())?,
+        );
+        items.push(MapEntry { key, value });
+    }
+    let items =
+        MapOperands::items(items).map_err(|error| DescriptorLoweringError::InvalidTerm {
             id: Box::new(descriptor.id().clone()),
-            detail: format!("map value binding {value_binding:?} has no inferred sort"),
+            detail: error.to_string(),
         })?;
-    let value = SemanticTerm::variable(
-        semantic_origin(descriptor, cell.key.clone(), "map-binding-value")?,
-        value_sort,
-        SemanticId::new(value_binding.to_owned())?,
-    );
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, cell.key.clone(), "completed-map-read")?,
         semantic_cell_id(&cell.cell)?,
         SemanticTerm::map(
             semantic_origin(descriptor, cell.key.clone(), "completed-map-item")?,
-            MapOperands::entry(key, value),
+            items,
         ),
         CellPost::Preserve,
         CellContentFrame::MapRemainder {
@@ -1240,12 +1363,15 @@ fn lower_head_rule_collection_write(
     ))
 }
 
+/// Lowers an ordinary leaf cell entry of a readable record. The cell is read
+/// only when the result leaves it out or restates its pattern unchanged, and
+/// rewritten otherwise.
 fn lower_head_rule_cell_rewrite(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
-    result_key: &ProvenanceKey,
+    result_key: Option<&ProvenanceKey>,
     before: &DescriptorTerm,
-    after: &DescriptorTerm,
+    after: Option<&DescriptorTerm>,
     wrapper: krs_ir::CellWrapper,
     sort: &DescriptorSortReference,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -1261,53 +1387,73 @@ fn lower_head_rule_cell_rewrite(
     }
     let expected = semantic_sort_ref(&sort.sort);
     let before = builder.lower(before, Some(&expected), true)?;
-    let after = builder.lower(after, Some(&expected), false)?;
+    let post = lower_restated_post(builder, &before, after, &expected)?;
     let clause = FixedCellClause::new(
         semantic_origin(descriptor, cell.key.clone(), "completed-cell-rewrite")?,
         semantic_cell_id(&cell.cell)?,
         before,
-        CellPost::Replace { term: after },
+        post,
         CellContentFrame::Exact,
     );
-    let _ = semantic_origin(
-        descriptor,
-        result_key.clone(),
-        "completed-cell-rewrite-result",
-    )?;
+    if let Some(result_key) = result_key {
+        let _ = semantic_origin(
+            descriptor,
+            result_key.clone(),
+            "completed-cell-rewrite-result",
+        )?;
+    }
     Ok(clause)
+}
+
+/// The post-state of a readable record's cell entry: unchanged when the
+/// result leaves the cell out or restates the same term, which denote the
+/// same rule, and replaced otherwise.
+fn lower_restated_post(
+    builder: &mut StructuredTermBuilder<'_>,
+    before: &SemanticTerm,
+    after: Option<&DescriptorTerm>,
+    expected: &SemanticSortRef,
+) -> Result<CellPost<SemanticTerm>, DescriptorLoweringError> {
+    let Some(after) = after else {
+        return Ok(CellPost::Preserve);
+    };
+    let after = builder.lower(after, Some(expected), false)?;
+    Ok(if same_term(before, &after) {
+        CellPost::Preserve
+    } else {
+        CellPost::Replace { term: after }
+    })
 }
 
 /// Lowers a whole nested (group) cell entry of a readable record, such as
 /// `frame: f`, into a whole-cell clause of the group's generated cell sort
-/// (KF-016). An entry restated unchanged is preserved.
+/// (KF-016). An entry left out of the result or restated unchanged is
+/// preserved.
 fn lower_head_rule_group_rewrite(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
-    result_key: &ProvenanceKey,
+    result_key: Option<&ProvenanceKey>,
     before: &DescriptorTerm,
-    after: &DescriptorTerm,
+    after: Option<&DescriptorTerm>,
     declaration: &StableItemId,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
     let expected = SemanticSortRef::Cell(declaration.clone());
     let before = builder.lower(before, Some(&expected), true)?;
-    let after = builder.lower(after, Some(&expected), false)?;
-    let post = if same_term(&before, &after) {
-        CellPost::Preserve
-    } else {
-        CellPost::Replace { term: after }
-    };
+    let post = lower_restated_post(builder, &before, after, &expected)?;
     let clause = FixedCellClause::whole(
         semantic_origin(descriptor, cell.key.clone(), "completed-group-rewrite")?,
         semantic_cell_id(&cell.cell)?,
         before,
         post,
     );
-    let _ = semantic_origin(
-        descriptor,
-        result_key.clone(),
-        "completed-group-rewrite-result",
-    )?;
+    if let Some(result_key) = result_key {
+        let _ = semantic_origin(
+            descriptor,
+            result_key.clone(),
+            "completed-group-rewrite-result",
+        )?;
+    }
     Ok(clause)
 }
 

@@ -134,6 +134,79 @@ pub enum SymbolKind {
     Cell,
 }
 
+/// The KRS declaration a symbol was lowered from: the Rust path of the item
+/// that declares it, from its crate root.
+///
+/// An enum variant's path ends with its enum and variant
+/// (`sm83::machine::Register::A`); a struct's or a sort's ends with its name.
+/// The path names the declaration, not a `use` path that re-exports it, and
+/// is independent of the emitted K name, so tools that address a definition
+/// by KRS names stay correct when the naming of emitted symbols changes.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeclarationPath {
+    crate_name: String,
+    segments: Vec<String>,
+}
+
+impl DeclarationPath {
+    /// Creates a declaration path from a Rust crate name and the segments below its root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DefinitionValidationError::InvalidDeclarationPath`] for an empty crate name,
+    /// no segments, or a component that is blank or contains `::`, `/`, or `\\`.
+    pub fn new(
+        crate_name: impl Into<String>,
+        segments: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, DefinitionValidationError> {
+        let path = Self {
+            crate_name: crate_name.into(),
+            segments: segments.into_iter().map(Into::into).collect(),
+        };
+        path.validate()?;
+        Ok(path)
+    }
+
+    /// Checks the invariants [`Self::new`] establishes, for a path read from JSON.
+    fn validate(&self) -> Result<(), DefinitionValidationError> {
+        let valid = |component: &str| {
+            !component.trim().is_empty()
+                && !component.contains("::")
+                && !component.contains(['/', '\\'])
+        };
+        if self.segments.is_empty()
+            || !valid(&self.crate_name)
+            || !self.segments.iter().all(|segment| valid(segment))
+        {
+            return Err(DefinitionValidationError::InvalidDeclarationPath(
+                self.to_string(),
+            ));
+        }
+        Ok(())
+    }
+    /// Returns the Rust crate name (`-` already written `_`).
+    #[must_use]
+    pub fn crate_name(&self) -> &str {
+        &self.crate_name
+    }
+    /// Returns the path segments below the crate root.
+    #[must_use]
+    pub fn segments(&self) -> &[String] {
+        &self.segments
+    }
+}
+
+impl fmt::Display for DeclarationPath {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.crate_name)?;
+        for segment in &self.segments {
+            write!(formatter, "::{segment}")?;
+        }
+        Ok(())
+    }
+}
+
 /// The sole declaration of a generated symbol's ID and emitted K name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -141,6 +214,11 @@ pub struct SymbolIdentity {
     id: SymbolId,
     emitted_name: String,
     kind: SymbolKind,
+    /// The KRS declaration of an authored sort or production; absent for
+    /// cells, for productions that a grammar registration generates, and for
+    /// hand-built IR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    declaration: Option<DeclarationPath>,
 }
 
 const GENERATED_PRODUCTION_SYMBOL_PREFIX: &str = "krsGenerated_";
@@ -177,7 +255,19 @@ impl SymbolIdentity {
             id,
             emitted_name,
             kind,
+            declaration: None,
         })
+    }
+    /// Records the KRS declaration the symbol was lowered from.
+    #[must_use]
+    pub fn with_declaration(mut self, declaration: DeclarationPath) -> Self {
+        self.declaration = Some(declaration);
+        self
+    }
+    /// Returns the KRS declaration the symbol was lowered from, when it has one.
+    #[must_use]
+    pub const fn declaration(&self) -> Option<&DeclarationPath> {
+        self.declaration.as_ref()
     }
     /// Returns the stable identity.
     #[must_use]
@@ -373,6 +463,7 @@ impl DefinitionIr {
         let mut nodes = BTreeSet::new();
         let mut symbols = BTreeMap::new();
         let mut symbol_names = BTreeSet::new();
+        let mut symbol_declarations = BTreeSet::new();
         let mut labels = BTreeSet::new();
         let mut label_names = BTreeSet::new();
         let mut production_signatures = BTreeMap::new();
@@ -411,7 +502,12 @@ impl DefinitionIr {
                 match sentence {
                     DefinitionSentence::SyntaxSort(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
-                        declare_symbol(&sentence.symbol, &mut symbols, &mut symbol_names)?;
+                        declare_symbol(
+                            &sentence.symbol,
+                            &mut symbols,
+                            &mut symbol_names,
+                            &mut symbol_declarations,
+                        )?;
                     }
                     DefinitionSentence::Subsort(sentence) => {
                         subsort_parents
@@ -421,7 +517,12 @@ impl DefinitionIr {
                     }
                     DefinitionSentence::Production(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
-                        declare_symbol(&sentence.symbol, &mut symbols, &mut symbol_names)?;
+                        declare_symbol(
+                            &sentence.symbol,
+                            &mut symbols,
+                            &mut symbol_names,
+                            &mut symbol_declarations,
+                        )?;
                         crate::ir_validation::insert_production_signature::<DefinitionLevel>(
                             &mut production_signatures,
                             sentence.symbol.id.clone(),
@@ -1605,6 +1706,10 @@ pub enum DefinitionValidationError {
     DuplicateLabel(LabelId),
     /// Two declarations chose the same emitted name.
     DuplicateEmittedName(String),
+    /// Two symbols of one kind claim the same KRS declaration.
+    DuplicateDeclaration(String),
+    /// A declaration path is empty or has a blank or path-shaped component.
+    InvalidDeclarationPath(String),
     /// A production group identity was declared twice.
     DuplicateProductionGroup(ProductionGroupId),
     /// A grammar sentence or production references an undeclared group.
@@ -1823,6 +1928,12 @@ impl fmt::Display for DefinitionValidationError {
             Self::DuplicateLabel(id) => write!(formatter, "duplicate label {id}"),
             Self::DuplicateEmittedName(name) => {
                 write!(formatter, "duplicate emitted name {name:?}")
+            }
+            Self::DuplicateDeclaration(path) => {
+                write!(formatter, "two symbols claim the declaration {path}")
+            }
+            Self::InvalidDeclarationPath(path) => {
+                write!(formatter, "invalid declaration path {path:?}")
             }
             Self::DuplicateProductionGroup(group) => {
                 write!(formatter, "duplicate production group {group}")
@@ -2108,6 +2219,7 @@ fn declare_symbol(
     symbol: &SymbolIdentity,
     symbols: &mut BTreeMap<SymbolId, SymbolKind>,
     names: &mut BTreeSet<String>,
+    declarations: &mut BTreeSet<(SymbolKind, DeclarationPath)>,
 ) -> Result<(), DefinitionValidationError> {
     if symbols.insert(symbol.id.clone(), symbol.kind).is_some() {
         return Err(DefinitionValidationError::DuplicateSymbol(
@@ -2117,6 +2229,16 @@ fn declare_symbol(
     if !names.insert(symbol.emitted_name.clone()) {
         return Err(DefinitionValidationError::DuplicateEmittedName(
             symbol.emitted_name.clone(),
+        ));
+    }
+    if let Some(declaration) = &symbol.declaration {
+        declaration.validate()?;
+    }
+    if let Some(declaration) = &symbol.declaration
+        && !declarations.insert((symbol.kind, declaration.clone()))
+    {
+        return Err(DefinitionValidationError::DuplicateDeclaration(
+            declaration.to_string(),
         ));
     }
     Ok(())
@@ -2212,7 +2334,9 @@ fn validate_production(
             | ProductionAttribute::ListTerminator { cons: target, .. } => {
                 require_kind::<DefinitionLevel>(symbols, target, SymbolKind::Production)?;
             }
-            ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+            ProductionAttribute::Internal { .. }
+            | ProductionAttribute::Program { .. }
+            | ProductionAttribute::Underspecified { .. } => {
                 return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
                     sentence.symbol.id.clone(),
                 ));

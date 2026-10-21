@@ -307,7 +307,8 @@ for name in "${selected[@]}"; do
       fi
       (
         export "${comparison_environment[@]}"
-        compare_artifacts executed_kore_matches_the_reference_backend
+        # Uncaptured, so the N15 and N48 labels of a passing comparison are in the log.
+        compare_artifacts executed_kore_matches_the_reference_backend --nocapture
       )
     done
   done

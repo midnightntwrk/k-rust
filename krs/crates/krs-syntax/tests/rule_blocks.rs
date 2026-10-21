@@ -2,6 +2,7 @@
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ProvenanceRole, RuleExtra, RuleHeadResult};
+use quote::ToTokens;
 
 #[test]
 fn nonlinear_subject_bindings_are_one_catalog_entry_with_repeated_occurrences() {
@@ -189,8 +190,8 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     );
     assert!(matches!(
         clause.extras(),
-        [RuleExtra::HaveMap { cell, value, .. }]
-            if cell == "env" && value == "value"
+        [RuleExtra::HaveMap { cell, entries }]
+            if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
     let roles = clause
         .provenance()
@@ -201,6 +202,61 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     assert!(roles.contains(&ProvenanceRole::RuleLeftCellsField));
     assert!(roles.contains(&ProvenanceRole::RuleLeftMapKey));
     assert!(roles.contains(&ProvenanceRole::RuleLeftMapValue));
+}
+
+#[test]
+fn machine_map_patterns_read_several_entries_of_one_cell() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+
+        swap: {
+            computation: [Swap(a, b), ..],
+            regs: { a -> x, Reg::B -> y, b -> z, .. },
+        } => {
+            computation: [x, y, z, ..],
+        };
+        ",
+    )
+    .unwrap();
+    let clause = &block.clauses()[0];
+    assert_eq!(
+        clause
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["a", "b", "x", "y", "z"]
+    );
+    let [RuleExtra::HaveMap { cell, entries }] = clause.extras() else {
+        panic!("expected one map read, got {:?}", clause.extras());
+    };
+    assert_eq!(cell, "regs");
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| (
+                entry.key.expression().to_token_stream().to_string(),
+                entry.value.to_string()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("a".to_owned(), "x".to_owned()),
+            ("Reg :: B".to_owned(), "y".to_owned()),
+            ("b".to_owned(), "z".to_owned()),
+        ]
+    );
+    let anchors = clause.provenance().unwrap();
+    let ordinals = |role| {
+        anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .map(krs_syntax::ProvenanceAnchor::ordinal)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftCellsField), [0]);
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftMapKey), [0, 1, 2]);
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftMapValue), [0, 1, 2]);
 }
 
 #[test]
@@ -248,8 +304,8 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
     );
     assert!(matches!(
         block.clauses()[0].extras(),
-        [RuleExtra::HaveMap { cell, value, .. }]
-            if cell == "env" && value == "value"
+        [RuleExtra::HaveMap { cell, entries }]
+            if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
     assert!(matches!(
         block.clauses()[1].extras(),
@@ -312,7 +368,7 @@ fn machine_records_support_ordinary_fixed_cell_term_rewrites() {
         [RuleExtra::RewriteCell { cell, before, after, .. }]
             if cell == "valstack"
                 && before.spelling() == "Stack :: Cons (rhs , Stack :: Cons (lhs , rest))"
-                && after.spelling() == "rest"
+                && after.as_ref().is_some_and(|after| after.spelling() == "rest")
     ));
     let roles = clause
         .provenance()
@@ -324,6 +380,70 @@ fn machine_records_support_ordinary_fixed_cell_term_rewrites() {
     assert!(roles.contains(&ProvenanceRole::RuleRightCellsField));
     assert!(roles.contains(&ProvenanceRole::RuleLeftApplicationHead));
     assert!(roles.contains(&ProvenanceRole::RuleRightReference));
+}
+
+#[test]
+fn a_fixed_cell_left_out_of_the_result_is_read_only() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+        use Instr::Store;
+
+        store: {
+            instrs: [Store(r), ..],
+            z: Value::Int(value),
+            regs: regs,
+            frame: f,
+        } => {
+            instrs: [..],
+            regs: map::update(regs, r, value),
+        }
+        where r: Reg;
+        ",
+    )
+    .unwrap();
+
+    let clause = &block.clauses()[0];
+    assert_eq!(
+        clause
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["r", "value", "regs", "f"]
+    );
+    // `z` and the group `frame` are read only; `regs` is updated.
+    let [
+        RuleExtra::RewriteCell {
+            cell: z,
+            before,
+            after: None,
+            ..
+        },
+        RuleExtra::UpdateMap { cell: regs, .. },
+        RuleExtra::RewriteCell {
+            cell: frame,
+            after: None,
+            ..
+        },
+    ] = clause.extras()
+    else {
+        panic!("expected two reads and an update: {:?}", clause.extras());
+    };
+    assert_eq!(z, "z");
+    assert_eq!(before.spelling(), "Value :: Int (value)");
+    assert_eq!(regs, "regs");
+    assert_eq!(frame, "frame");
+    // Each cell has a subject anchor; only the updated cell has a result anchor.
+    let anchors = clause.provenance().unwrap();
+    let count = |role| {
+        anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .count()
+    };
+    assert_eq!(count(ProvenanceRole::RuleLeftCellsField), 2);
+    assert_eq!(count(ProvenanceRole::RuleRightCellsField), 1);
 }
 
 #[test]
@@ -360,8 +480,32 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "`=>` is reserved for rewrites; map entries use `->`",
         ),
         (
-            "for Machine; x: { computation: [a, ..], stack: Cons(v, rest) } => { computation: [a, ..] };",
-            "ordinary fixed-cell pattern requires a corresponding result",
+            "for Machine; x: { computation: [a, ..], env: { a -> v, a -> w, .. } } => { computation: [v, ..] };",
+            "a machine-rule map pattern reads key `a` twice; its entries are distinct items of the map, so no map matches it",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { Key(1) -> v, b -> w, Key(1) -> u, .. } } => { computation: [v, ..] };",
+            "reads key `Key (1)` twice",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> v, .. } } => { computation: [v, ..] };",
+            "duplicate readable rule binding `v`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w } } => { computation: [v, ..] };",
+            "a machine-rule map pattern is `{ key -> value, .. }`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w, } } => { computation: [v, ..] };",
+            "a machine-rule map pattern is `{ key -> value, .. }`",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], stack: _ } => { computation: [a, ..] };",
+            "`stack: _` matches any content and the result leaves the cell unchanged, so the entry has no effect; leave the cell out of the pattern",
+        ),
+        (
+            "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
+            "an ordinary fixed cell's result is one term",
         ),
         (
             "for Expr; x: Wrap(a) => a where update env = map::lookup(env, a);",

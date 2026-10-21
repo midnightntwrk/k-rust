@@ -1,0 +1,12 @@
+[spec]
+entry = "cellmap.k"
+main_module = "CELLMAP"
+syntax_module = "CELLMAP-SYNTAX"
+[budget]
+max_depth = 100
+[[program]]
+id = "open12"
+text = "seq(open(1, 10), open(2, 20))"
+[[program]]
+id = "open21"
+text = "seq(open(2, 20), open(1, 10))"

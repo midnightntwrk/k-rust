@@ -82,8 +82,9 @@ pub enum CompileSearchPatternError {
     /// at a position where it states no meaning the route reads (the matching-logic position
     /// walk of the definition checks, applied to the pattern: its body is matched as a rule's
     /// left side is, its `requires` is a condition)
-    /// ([`DiagnosticCode::InvalidSearchPattern`](crate::diagnostic::DiagnosticCode)). The first
-    /// refusal is reported.
+    /// ([`DiagnosticCode::InvalidSearchPattern`](crate::diagnostic::DiagnosticCode)), or a
+    /// quantifier whose binder is no element variable (the binder check of the definitions'
+    /// rules, `InvalidBinder`). The first refusal is reported, a binder's before a position's.
     Denotation(Box<Diagnostic>),
 }
 
@@ -264,10 +265,12 @@ pub fn compile_search_pattern(
             })
             .contains(&label.name)
     };
-    if let Some(refusal) =
-        crate::definition::checks::search_pattern_position_diagnostics(&judged, &affects_value)
-            .into_iter()
-            .next()
+    if let Some(refusal) = crate::definition::checks::search_pattern_binder_diagnostics(&judged)
+        .into_iter()
+        .chain(
+            crate::definition::checks::search_pattern_position_diagnostics(&judged, &affects_value),
+        )
+        .next()
     {
         return Err(CompileSearchPatternError::Denotation(Box::new(refusal)));
     }

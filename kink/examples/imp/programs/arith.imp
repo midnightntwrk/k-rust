@@ -1,0 +1,5 @@
+// Arithmetic without loops: + and / on values a mutant changes, and unary minus.
+int a, b, c;
+a = 2 + 3;
+b = 7 / 2;
+c = -4;

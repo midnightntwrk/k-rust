@@ -5,6 +5,10 @@ members = [
     "packages/matches",
     "packages/lets",
     "packages/contexts",
+    "packages/sugar",
+    "packages/sugar-long",
+    "packages/bits",
+    "packages/bits-long",
 ]
 resolver = "3"
 

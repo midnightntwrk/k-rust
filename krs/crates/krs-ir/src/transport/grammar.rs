@@ -29,11 +29,12 @@ use crate::{
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
 ///
-/// A variant descriptor uses the variant identifier as `item_name` (so the
-/// emitted K label remains `true`, `false`, and so on) and
+/// A variant descriptor uses the variant identifier as `item_name` and
 /// `enum:<owning-enum>` as its disambiguator. This distinguishes
 /// `Boolean::False` from both a same-module `struct False` and
 /// `OtherBoolean::False` without putting `::` into an identity component.
+/// The emitted K symbol of a variant combines both: `lowerCamel(Enum)` +
+/// `Variant` (`booleanFalse`).
 pub const ENUM_VARIANT_DISAMBIGUATOR_PREFIX: &str = "enum:";
 
 /// Derives the stable [`crate::HostItemId`] disambiguator for every descriptor
@@ -766,6 +767,13 @@ stage_shape! {
             key: ProvenanceKey => [keep],
             /// Template fragments; each field fragment keeps its placeholder provenance.
             template: Vec<DescriptorSmtFragment> => [keep],
+        },
+        /// A total function's intended coverage gap (`underspecified = ".."`).
+        Underspecified {
+            /// Reason-string provenance.
+            key: ProvenanceKey => [keep],
+            /// The stated reason, nonempty.
+            reason: String => [keep],
         },
         /// Marks a constructor production as a one-way static desugar (K's `macro`).
         Desugar {
@@ -3175,6 +3183,15 @@ impl DescriptorProduction {
                     self.validate_smt_template(template, provenance)?;
                     "smt"
                 }
+                DescriptorProductionAttribute::Underspecified { key, reason } => {
+                    require_key(key, provenance)?;
+                    if reason.trim().is_empty() {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::EmptyUnderspecifiedReason,
+                        ));
+                    }
+                    "underspecified"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3240,6 +3257,11 @@ impl DescriptorProduction {
         if families.contains("fresh_generator") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::FreshGeneratorWithoutFunction,
+            ));
+        }
+        if families.contains("underspecified") && !families.contains("total") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::UnderspecifiedWithoutTotal,
             ));
         }
         if families.contains("smt") && !families.contains("function") {
@@ -4001,6 +4023,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Smtlib { key, .. } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionSmtlib, 0)?;
+                }
+                DescriptorProductionAttribute::Underspecified { key, .. } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionUnderspecified, 0)?;
                 }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionSmtHook, 0)?;

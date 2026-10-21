@@ -550,14 +550,15 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
             r#"total, sort = Int, syntax = "f({value})", hook = krypto::keccak256_raw, hook = krypto::keccak256_raw"#,
             SyntaxErrorKind::DuplicateArgument { name: "hook" },
         ),
-        (
-            r"total, sort = Int",
-            SyntaxErrorKind::MissingArgument { name: "syntax" },
-        ),
     ] {
         let error = krs_syntax::FunctionAttribute::parse_source(source).unwrap_err();
         assert_eq!(error.kind(), &expected_kind, "{source}");
     }
+    // An omitted `syntax` is completed from the declaration, which knows
+    // whether the production is program syntax.
+    let attribute = krs_syntax::FunctionAttribute::parse_source("total, sort = Int").unwrap();
+    assert!(!attribute.has_authored_syntax());
+    assert!(attribute.production().syntax_template().is_none());
 }
 
 #[test]

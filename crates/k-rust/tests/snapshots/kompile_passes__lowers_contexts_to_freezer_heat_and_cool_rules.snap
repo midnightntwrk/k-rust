@@ -10,12 +10,12 @@ description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"a\" [symbol(a)]\n
     ),
     (
         "heat",
-        "f(#SemanticCastToExp(HOLE))=>HOLE~>`#freezerf0_`(.KList)",
+        "f(#SemanticCastToExp(HOLE))=>``HOLE~>`#freezerf0_`(.KList)``",
         None,
     ),
     (
         "cool",
-        "HOLE~>`#freezerf0_`(.KList)=>f(#SemanticCastToExp(HOLE))",
+        "``HOLE~>`#freezerf0_`(.KList)``=>f(#SemanticCastToExp(HOLE))",
         None,
     ),
 ]

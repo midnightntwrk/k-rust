@@ -1,8 +1,8 @@
 {
   "name": "@midnightntwrk/k-rust-wasm",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Portable WebAssembly and TypeScript bindings for the k-rust frontend",
-  "license": "BSD-3-Clause",
+  "license": "(MIT OR Apache-2.0) AND BSD-3-Clause",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/midnightntwrk/k-rust.git",
@@ -24,7 +24,11 @@
     "generated/bindings.d.ts",
     "generated/bindings_bg.wasm",
     "generated/bindings_bg.wasm.d.ts",
-    "LICENSE",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "LICENSE-K-FRAMEWORK",
+    "LICENSE-HASKELL-BACKEND",
+    "NOTICE",
     "README.md"
   ],
   "engines": {

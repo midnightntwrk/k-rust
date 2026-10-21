@@ -756,7 +756,8 @@ def materialize(name: str, workspace: Path) -> Path:
 
 
 def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> None:
-    harness.check(fixture)
+    # Only the native-rust route runs rule existentials, so only a check of that route passes.
+    harness.check(fixture, "--backend", "haskell")
     expansion = harness.expand(fixture)
     if fixture == L21_READABLE and READABLE_HELPERS not in expansion:
         raise GateError(f"{fixture.package}: krs expand does not keep the clause helpers before #[k::rule]")
@@ -778,6 +779,10 @@ def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> No
     if refused.returncode == 0 or not refusal:
         raise GateError(f"{fixture.package}: krs build --backend llvm accepted rule existentials")
     harness.pins.expect(("capability_refusals", fixture.package), refusal[0])
+    # `krs check` predicts `build` on every backend, so it refuses with the same refusal.
+    checked = harness._krs(fixture, "check", check=False)
+    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != refusal[:1]:
+        raise GateError(f"{fixture.package}: krs check did not refuse as krs build --backend llvm does:\n{checked.stderr}")
 
     directory = harness.workspace / "programs" / fixture.package
     directory.mkdir(parents=True, exist_ok=True)

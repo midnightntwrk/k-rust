@@ -1,11 +1,11 @@
 [package]
 name = "k-rust-backend"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.99"
 description = "An in-process symbolic execution backend for k-rust"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause"
 keywords = ["k-framework", "kore", "rewriting", "symbolic-execution"]
 categories = ["compilers", "development-tools"]
 
@@ -21,6 +21,7 @@ sha2.workspace = true
 sha3.workspace = true
 substrate-bn.workspace = true
 z3 = { workspace = true, optional = true }
+z3-sys = { workspace = true, optional = true }
 # MPFR, linked only for the test feature `mpfr-oracle`: an independent oracle of the canonical
 # Float text (`builtin/float/canonical/mpfr_oracle.rs`). No build of the backend computes with it.
 rug = { workspace = true, optional = true }
@@ -69,5 +70,5 @@ mpfr-oracle = ["dep:rug"]
 # For tests; off in every normal build, where every domain value is built with its sort's kind.
 raw-domain-values = []
 measure = ["k-rust-kore/measure"]
-z3 = ["dep:z3"]
+z3 = ["dep:z3", "dep:z3-sys"]
 z3-gh-release = ["z3", "z3/gh-release"]

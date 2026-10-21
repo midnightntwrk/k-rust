@@ -91,14 +91,13 @@ impl RuleCondition {
 /// One explicit gradual extra-cell clause in a readable rule.
 #[derive(Clone, Debug)]
 pub enum RuleExtra {
-    /// Failable preserved map binding read.
+    /// Failable preserved read of one or more entries of a map cell.
     HaveMap {
         /// Named fixed cell.
         cell: Ident,
-        /// Required key term.
-        key: Box<TermExpression>,
-        /// Value binder introduced only when the map item is present.
-        value: Ident,
+        /// The read entries, at least one, in authored order; their keys are
+        /// pairwise distinct terms.
+        entries: Vec<RuleMapEntry>,
     },
     /// Simultaneous map update.
     UpdateMap {
@@ -109,7 +108,9 @@ pub enum RuleExtra {
         /// Complete ordinary three-argument update term.
         update: Box<RuleMapUpdate>,
     },
-    /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
+    /// Exact match of one ordinary fixed cell, simultaneously rewritten when
+    /// the result record restates it and read only when the result leaves it
+    /// out.
     RewriteCell {
         /// Named fixed cell.
         cell: Ident,
@@ -117,8 +118,9 @@ pub enum RuleExtra {
         before: Box<RulePattern>,
         /// Parser-owned subject tree for descriptor expansion and provenance.
         before_tree: Box<TermTree>,
-        /// Complete replacement term after the rewrite.
-        after: Box<TermExpression>,
+        /// Complete replacement term after the rewrite, absent when the
+        /// result leaves the cell out (the cell is then read only).
+        after: Option<Box<TermExpression>>,
     },
     /// An optional (`?`) or collection (`*`) cell (KF-023): `Some(p)` or
     /// `None`, or an instance list, and its result when the record restates
@@ -161,6 +163,16 @@ pub(super) fn condition_token_range(input: ParseStream<'_>) -> syn::Result<Token
     Ok(TokenRange::for_tokens(&tokens)?)
 }
 
+/// One entry of a map read: the rule applies only where the map holds an
+/// entry for `key`, and `value` binds what that entry maps to.
+#[derive(Clone, Debug)]
+pub struct RuleMapEntry {
+    /// Required key term.
+    pub key: Box<TermExpression>,
+    /// Value binder introduced only when the map item is present.
+    pub value: Ident,
+}
+
 /// One validated ordinary three-argument map update.
 #[derive(Clone, Debug)]
 pub struct RuleMapUpdate {
@@ -192,8 +204,10 @@ impl From<HaveMapExtra> for RuleExtra {
     fn from(extra: HaveMapExtra) -> Self {
         Self::HaveMap {
             cell: extra.cell,
-            key: extra.key,
-            value: extra.value,
+            entries: vec![RuleMapEntry {
+                key: extra.key,
+                value: extra.value,
+            }],
         }
     }
 }

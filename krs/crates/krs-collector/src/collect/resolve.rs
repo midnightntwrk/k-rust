@@ -656,7 +656,7 @@ fn readable_group_terms(
     for extra in &mut rule.extras {
         match extra {
             krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
-                for term in [before, after] {
+                for term in std::iter::once(before).chain(after) {
                     let taken = std::mem::replace(term, placeholder_term());
                     *term = readable_group_term(taken, declarations);
                 }
@@ -1363,8 +1363,11 @@ mod tests {
             computation_cell_name: None,
             bindings: Vec::new(),
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: unresolved_term("Subject"),
-                result: krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term("Result")),
+                items: vec![unresolved_term("Subject")],
+                exact: false,
+                result: Some(krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term(
+                    "Result",
+                ))),
             }),
             requires: None,
             extras: vec![krs_ir::ProtocolHeadRuleExtra::HaveMap {
@@ -1372,8 +1375,10 @@ mod tests {
                     key,
                     name: "missing".to_owned(),
                 },
-                key: unresolved_term("Extra"),
-                value_binding: "value".to_owned(),
+                entries: vec![krs_ir::ProtocolHeadRuleMapEntry {
+                    key: unresolved_term("Extra"),
+                    value_binding: "value".to_owned(),
+                }],
             }],
             existentials: Vec::new(),
             ensures: None,
@@ -1418,11 +1423,11 @@ mod tests {
         rule.extras.clear();
         assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Result");
         let head = rule.head.as_mut().unwrap();
-        head.result = krs_ir::ProtocolHeadRuleResult::Erase;
+        head.result = Some(krs_ir::ProtocolHeadRuleResult::Erase);
         assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Subject");
-        rule.head.as_mut().unwrap().subject = krs_ir::HostTerm::Wildcard {
+        rule.head.as_mut().unwrap().items = vec![krs_ir::HostTerm::Wildcard {
             key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftWildcard, 0),
-        };
+        }];
         assert_sort_error(&payload_error(&payload(rule), &targets), "Header");
     }
 

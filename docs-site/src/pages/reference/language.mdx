@@ -23,13 +23,15 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::configuration]`, `#[k::cell]`, `#[k::init]` | configuration schema, cells, and declarative initialization | [Configuration and state](/imp/configuration-and-state) |
 | `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
+| `#[k::function]` on a `fn` | a function declared by its signature, and with a body its one equation | [Functions declared by a fn](#functions-declared-by-a-fn) |
+| `k::equations!` | a table of labelled equations of one function | [Equation tables](#equation-tables) |
 | `#[k::alias]`, `#[k::context_alias]` | reversible static aliases and named evaluation contexts | [Static semantics](/semantics/static-semantics) |
 | `#[k::context]` | an evaluation context, K's `context`: where evaluation may happen; K turns it into a heat rule and a cool rule | [Contexts](#contexts) |
 | `#[k::desugar]` | one-way static expansion, K's `macro`; with `recursive` on the production, `macro-rec` (and `#[k::alias(recursive)]` is `alias-rec`) | [Desugar and recursive aliases](#desugar-and-recursive-aliases) |
 | `#[k::simplification]` | logical normalization lemma | [Static semantics](/semantics/static-semantics) |
 | `#[k::claim]` | reachability proof sentence | [Reachability claims](/verification/reachability-claims) |
 | `#[k::spec_module(name = "..", imports = [..])]` | an author K proof module on an inline `mod`: its claims, simplification lemmas, and tokens for existing sorts, emitted into `spec.k` and proved with `krs prove --spec-module NAME`; a package may hold only spec modules | [Spec modules](/verification/reachability-claims#spec-modules) |
-| `#[k::symbol("public::Name")]` | pinned public identity for a sort or standalone constructor; place it immediately before that KRS declaration attribute | [Composition](/advanced/composition) |
+| `#[k::symbol("public::Name")]` | pinned public identity and K symbol for a sort, a standalone constructor, or a family variant; on a struct or trait place it immediately before that KRS declaration attribute, on a variant anywhere among its helpers | [Composition](/advanced/composition) |
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
@@ -41,6 +43,12 @@ The family form is preferred when a closed set of alternatives shares an open re
 
 `#[k::strict]` and `#[k::seqstrict]` add strict or left-to-right evaluation positions to constructor declarations.
 Enum helper `#[k::precedence(...)]` names intra-family tiers, using explicit `left`, `right`, or `non_assoc` and leaving bare groups unconstrained.
+A chain, when written, lists every variant exactly once (`krs::syntax::invalid-enum-precedence`).
+It is required exactly when it could change a parse: when some variant's template begins or ends with a field whose sort admits the family's sort, that is, the sort itself, one of its supersorts in the whole definition, or `KItem` or `K`.
+Such a field lets one of the family's productions sit directly at the edge of another, the only position its tiers constrain.
+Without a chain the variants belong to no production group; a family that needs one and has none is `krs::analysis::missing-precedence-chain`, an error in every command that lowers the definition (`check`, `emit-k`, `build`, `run`, `prove`).
+A variant's `group` comes from the chain, so it is rejected without one; a reference family names a `group` on every variant or on none.
+Declaration order never supplies precedence.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
 
 Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` and `prefer` syntax flags.
@@ -49,14 +57,17 @@ Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, th
 `overload = Path` says that a production specialises another one with the same text: `#[k::syntax("{base}.{field}", overload = ExpSyntax::Dot)]` on `LValSyntax::Dot { base: LVal, field: Id }` makes `a.b` parse as the `LVal` access, the most specific production, instead of being ambiguous.
 The key is written the same way in both layers and on `#[k::constructor]`; rustc resolves the path, and KRS checks that the target is a constructor production with the same arity whose result and argument sorts are each a supersort of the member's, at least one strictly.
 Targets chain to one root, whose symbol is K's family key, and K's overload axioms make rewriting treat `expSyntaxDot(inj(L), F)` and `inj(lValSyntaxDot(L, F))` as equal, so `overload` is more than a parser hint; Rust itself has no overloading.
-A production's K symbol is its variant or struct name with a lowercase first letter (`Inc` is `inc`), unless `#[k::symbol]` pins it.
-Two enum variants of one definition with the same name would share that symbol, so each of them takes its enum's name as a prefix instead: `ExpSyntax::Dot` is `expSyntaxDot` and `LValSyntax::Dot` is `lValSyntaxDot`, while a variant whose name is unique keeps the short symbol; any symbol that still collides is rejected with `krs::analysis::symbol-name-collision`.
+A production's K symbol depends only on its own declaration: a struct's is its name with a lowercase first letter (`Inc` is `inc`), and a variant's is its enum's name with a lowercase first letter followed by the variant name (`ExpSyntax::Dot` is `expSyntaxDot`, `Op::Add` is `opAdd`), whatever else the definition declares.
+`#[k::symbol("path::Name")]` on a struct or a variant pins another one, the final path component with a lowercase first letter (`name`); a syntactic list's `Cons`/`Nil` symbols come from its enum and cannot be pinned.
+Two productions that derive one symbol, such as `Op::Add` and a struct `OpAdd`, or a production whose symbol is one K generates itself, such as the sort predicate `isExp` or a cell's `initKCell`, are rejected with `krs::analysis::symbol-name-collision`; KRS never renames a symbol to make room for another.
 A format is the syntax template plus K's layout codes `%n`, `%i`, and `%d`, the colour codes `%c` and `%r`, and `%%`; KRS emits each terminal by its position, so `while ({condition}) {body}` prints with `format(%1 %2%3%4 %5)`.
 Colours belong to terminals: `color = "magenta"` paints every terminal, and `colors = ["blue", "blue"]` names one colour per printed terminal and one per `%c`, in printing order; `%r` resets.
 `krun --color on` and `krs run --color always` print them; `kast --output program`, `kast --output pretty`, and `krun --output program` do not, and print an authored `%c` or `%r` as the letter `c` or `r`.
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
+`#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
+A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
 `#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
@@ -75,13 +86,35 @@ The standalone `#[k::priority(N)]` attribute is retired: KRS rejects it and name
 K does not forbid overlapping rules: when two rules can apply to one configuration, `krun` takes one and `krun --search` finds both.
 KRS reports such a pair, because in Rust two arms matching one input are usually a mistake (`krs::analysis::overlapping-rule-heads`).
 The check covers every transition: readable clauses, `#[k::rule]` functions (completed to the head of the computation cell), and `cells!` rules; equations are not checked.
-Rules at different priorities never overlap, and two rules whose guards contain literal complements, such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, `int::lt` and `int::ge`, or `g` and `bool::not(g)`, are separate.
-So are two rules where unifying the patterns turns a guard into a false comparison of two Int literals: a rule on `0` and a rule on `x` with `int::ge(x, 10)` never apply to one configuration, because `0 >=Int 10` is false (K tutorial lesson 1.21).
-Any other pair of guards is treated as possibly overlapping; KRS does no arithmetic and asks no solver.
+Rules at different priorities never overlap, and two rules whose guards contain complementary conjuncts are separate: `g` and `bool::not(g)`, or an equality and its negation on the same operands (`int::eq` and `int::ne`, likewise for `bool`, `string`, `kequal` and `float`, and `bool::xor` against `bool::eq`), or an Int or String comparison and its converse-negation (`int::lt(a, b)` and `int::ge(a, b)`, `string::le(a, b)` and `string::gt(a, b)`).
+So are two rules where unifying the patterns makes a guard false on literal operands: a rule on `0` and a rule on `x` with `int::ge(x, 10)` never apply to one configuration, because `0 >=Int 10` is false (K tutorial lesson 1.21); the same holds for a String comparison of two literals, a Bool guard the other rule binds to `false`, and `kequal::eq(v, Null())` when the other rule pins `v` to another constructor.
+The Float orders are not complements, because a NaN operand makes both `a <Float b` and `a >=Float b` false.
+Any other pair of guards is treated as possibly overlapping; KRS evaluates guards only on literals and constructor terms, and asks no solver.
 Members of one `overload` family are one head, as K's overload axioms make them: a rule on `ExpSyntax::Dot` whose base is an `LVal` overlaps a rule on `LValSyntax::Dot`, while a rule on `ExpSyntax::Dot` whose base is an `Int` does not.
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
+
+### Computation-cell patterns
+
+A readable `for Machine` record matches the computation cell with a Rust slice pattern over K's sequence, read from its front, where the next step is.
+`[p1, p2, ..]` matches a cell holding at least two items, the first matching `p1` and the second `p2`, and `..` keeps the rest; `[p1, p2]` matches a cell holding exactly those two items, and `[]` the empty computation `.K`.
+`~>` is associative with unit `.K`, so a pattern that ends in `..` splits the sequence once, after its items: `store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;` emits `<k> V:Int ~> store ( A:Int ) => .K ... </k>`, a finished value followed by the frame that consumes it, and `start: { k: [Run { n }] } => { k: [Boundary()] };` emits `<k> run ( N:Int ) => boundary </k>`, which applies only when nothing else is pending.
+Each item is one `KItem`; a binder repeated across items is nonlinear matching, as inside one item.
+`where v: Int` is the sort test that makes `v` a finished value: without it `v` is any item, and the rule overlaps every rule on the item that would follow it.
+The result has the pattern's shape: it ends in `..` exactly when the pattern does, since one `..` is the rest on both sides, so a pattern ending in `..` never drops the rest, and a whole-cell pattern has no rest to keep.
+`..` may only end the pattern, because the cell is read from its front, and it is anonymous; `[..]` alone would match any computation and is rejected (leave `k` out to keep the cell unchanged).
+Discarding the rest of the computation, or capturing it as a value, needs the `cells!` form.
+A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`, and so does a result that restates the matched items unchanged, `k: [Boundary(), ..]`.
+`krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
+
+### Cells a rule only reads
+
+A readable `for Machine` record matches cells on the left and writes cells on the right; a cell the pattern matches and the result leaves out is only read, and keeps its content.
+`store: { k: [Store(r), ..], z: v, regs: m } => { k: [..], regs: map::update(m, r, v) }` reads `z` to bind `v` and emits `<z> V:Int </z>` with no rewrite inside, the K reading of a cell the rule names without changing it.
+`krs expand` writes it as a `cells!` subject entry with no result entry, `z: k::configuration::Cell(v)`; a pattern that constrains the content, such as `z: 0`, is read the same way, and the rule applies only where it matches.
+Writing the cell back unchanged, `z: v` on both sides, denotes the same rule and emits the same read, so the result names only the cells the rule changes; a nested group entry (`frame: f`) and an ordinary leaf read alike.
+`z: _` left out of the result constrains and binds nothing, so the rule would be the same without it; it is a syntax error that asks for the entry to be removed.
 
 ### Rules that leave the computation cell out
 
@@ -89,13 +122,19 @@ A K rule names only the cells it needs, and that includes `<k>`.
 A readable `for Machine` record may leave the computation cell out: `burn: { fuel: f, acc: a } => { fuel: int::sub(f, 1), acc: int::add(a, f) }` under `#[k::requires(int::gt(f, 0))]` emits `rule [burn]: <fuel> F:Int => F:Int -Int 1 </fuel> <acc> A:Int => A:Int +Int F:Int </acc> requires F:Int >Int 0`, with no `<k>`.
 The omitted computation cell is framed like every omitted cell, so the rule fires whenever its cells match, interleaved with the program; a Rust reader expects a struct pattern without `..` to be exhaustive, but here omission means untouched.
 `krs expand` writes the reference `cells!` rule without a `KCell` entry or tail.
-Such a rule is rejected when it changes no cell (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
+Such a rule is rejected when it changes no cell, for instance when it only reads (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
+
+A readable record reads entries of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
+It may read several, `regs: { a -> x, b -> y, .. }`, which is K's `<regs> A |-> X B |-> Y ... </regs>` and the `cells!` entry `regs: k::configuration::Cell(map![a -> x, b -> y, ..])`.
+Each item is a different entry of the map, so the pattern matches only where the keys differ: with `a` and `b` bound to one key, the rule does not apply.
+Two keys written as the same term could never differ, so `{ a -> x, a -> y, .. }` is a syntax error, and so is the pattern `map![a -> x, a -> y, ..]` in a `cells!` entry; read one entry and bind its value once instead.
+Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is in an initializer.
 
 ### Whole nested-cell variables
 
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.
-In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: list::concat(list::item(f), s), frame: f }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
+In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: list::concat(list::item(f), s) }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
 The group clause is written bare, never inside `<frame>...</frame>`, and a group the rule names covers every cell inside it.
 As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: list::concat(list::item(Held { saved: f }), s)` emits `ListItem(held ( F:FrameCell ))`.
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
@@ -177,6 +216,10 @@ In Rust, `|` tries its alternatives left to right; in K, `#Or` means "any of the
 KRS lets you write `|` only where the readings agree.
 Every alternative binds the same names (``variable `x` is not bound in all alternatives``, rustc's E0408), each at one sort, and two alternatives that bind names must not match one term with different bindings (`krs::analysis::ambiguous-or-pattern`): `Pick(Pair(x, Red()) | Pair(x, Green()))` is accepted, `Pick(Pair(x, y) | Pair(y, x))` is not, and alternatives that bind no names may overlap freely.
 The rule-overlap check treats an or-pattern as each of its alternatives.
+An equation with alternatives is one equation per alternative: `Code(Red() | Green())` is the two equations `code(red())` and `code(green())`.
+A constructor and an alias distribute over `|`, so alternatives below either mean the same as alternatives at the root: `Code(Pair(x, Red() | Green()))` is `Code(Pair(x, Red()) | Pair(x, Green()))`, and `Code(op @ (Red() | Green()))` is `Code((op @ Red()) | (op @ Green()))`.
+An or-pattern in each of two arguments is one equation per pair of alternatives. Alternatives in a function context cell, which is one more argument of the function, and in a `k::matches!` pattern, which K tests with a generated equation, are read the same way.
+A simplification rewrites one term, so its left-hand side takes no `|` at all (`krs::analysis::invalid-pattern-or`).
 `|` in a result, a requires or ensures condition, or an initializer is a syntax error that points to `||`, `bool::or`, or `k::or_bool!` for Boolean disjunction; so are `|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function.
 
 ### Shape tests
@@ -226,12 +269,141 @@ fn bar_plus(
 
 It emits K's function-context rule, the rewrite in `[[ .. ]]` and the cells it reads on the following lines: `rule [[ barPlus ( N:Int ) => B:Int +Int N:Int ]]`, then `<bar> B:Int </bar>` and `<baz> 0 </baz>`, then `requires 0 <=Int B:Int`.
 The caller never passes the configuration: `read: ReadBar() => crate::BarPlus(1);` stays `barPlus ( 1 )`, and K adds a hidden configuration argument to `barPlus` and threads it through every function that needs it, including a function such as `barTwice`, whose own equation has no context but calls `barPlus`.
-K's warning for a total function whose context may not match shows that argument: `Non exhaustive match detected: barPlus(_,<generatedTop>(_,<bar>(_),<baz>(#token("1","Int")),_))`; KRS does not diagnose it.
+K's warning for a total function whose context may not match shows that argument: `Non exhaustive match detected: barPlus(_,<generatedTop>(_,<bar>(_),<baz>(#token("1","Int")),_))`; KRS's [coverage lint](#coverage-of-total-functions) does not count an equation with a context, so it reports `barPlus` as having no equation at all.
 The context is read-only: an equation returns a term, never the configuration, so this is not a multi-cell rule, which is a transition.
 Because a rule that calls such a function reads those cells, the overlap check counts them in the rule's footprint (as unconstrained cells): a rule that writes `<bar>` and a rule on `<k>` that calls `barPlus` are reported as overlapping.
 
 The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and frames, and its binders are the equation's: the binder list becomes mandatory and declares the subject's binders, then the context's, each in first-occurrence order.
 A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
+
+### Coverage of total functions
+
+`total` claims that a function has a value on every argument, and KRS trusts the claim: where no equation applies, the function still has a value, but the definition does not say which.
+Every command reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
+It is a warning, not an error, because the definition means something: an unconstrained value, not a contradiction.
+
+The check runs on the assembled definition, because a package that depends on another may add constructors, subsorts, or a parametric constructor to its sorts; a function covered in one definition can be uncovered in a larger one, and the witness names the constructor that uncovers it.
+A sort's values are its constructors' terms, its subsorts' values, and builtin domain values: `true` and `false` exhaust Bool, while Int, String, Bytes, Map, List, Set, token sorts and `KItem` need a binder.
+A binder covers the values of its own sort only, so `x: Int` in an `Exp` argument covers the Ints and not `Plus(..)`.
+Priorities and `owise` decide which equation applies, never whether one does, so an `owise` equation is an equation like any other; `concrete` and `symbolic` restrict how a backend applies an equation, not what it states, and play no part either.
+An or-pattern covers each alternative; a Map, List, Set or K-sequence pattern, a function application in a pattern, and a binder that occurs twice cover nothing the check can see.
+
+A guarded equation covers its pattern where its `requires` holds.
+The check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
+It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, and a division counts only by a nonzero constant.
+The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
+A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
+
+Partial functions are not checked, since a missing case is what `partial` means, nor are hooked and `smt_hook` functions, which the backend or the SMT translation define, nor total functions, or instances of a sort-parametric one, with no equation at all, which are declared rather than defined.
+Simplifications are lemmas, not definitions, and do not count; neither do `raw_k!` sentences, which the check does not read.
+A warned function takes more equations, an `#[k::equation(owise)]` equation, `partial`, or `underspecified = "reason"`, which states the gap on purpose; `underspecified` on a function whose equations cover every argument is itself a warning (`krs::analysis::stale-underspecified`).
+
+### Functions declared by a fn
+
+`#[k::function(..)]` on a `fn` declares the function symbol from its signature, and a body declares its one equation:
+
+```rust
+/// The low 8 bits of an integer.
+#[k::function(total, internal)]
+pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(value, 256)
+}
+```
+
+It is the struct `pub struct Byte { pub value: k::Term<Int> }` with `#[k::function(total, internal, sort = Int, syntax = "byte({value})")]`, plus the equation `#[k::equation] fn byte(k::term![Byte(value)]: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(value, 256) }`, and `krs expand` prints exactly that pair.
+The fn is named as its applications are written, `Byte(x)`, in UpperCamelCase, so the name a rule uses is the name the declaration spells; the equation takes the snake-case name, `byte` (`FieldX` gives `field_x`, `R8` gives `r8`).
+The return type is the sort, so a `sort` key is rejected; every parameter is a plain name typed `k::Term<S>`, because one equation over variables is the definition of the function, and cases belong to a table or to `#[k::equation]` fns.
+`#[k::requires(..)]` on the fn guards the equation, `total` and `partial` mean what they mean on the struct, and a generic fn, a pattern parameter, `#[k::equation(..)]`, and `hook` with a body are rejected (`krs::syntax::invalid-function-shorthand`).
+
+A fn that ends with `;` declares the symbol only, for a [table](#equation-tables) or `#[k::equation]` fns to define: `#[k::function(total, internal)] pub fn R8(index: k::Term<Int>) -> k::Term<Operand>;`.
+
+`syntax` is optional on every function, struct or fn, that is not program syntax: one marked `internal`, or not `pub` (see [Program syntax and the module pair](#program-syntax-and-the-module-pair)).
+The default is the K symbol applied to the fields, `byte({value})` or `fieldX({opcode})`.
+A program-syntax function needs an explicit `syntax` (`krs::syntax::missing-function-syntax`): in a program, a terminal outranks the object language's tokens, so a default `byte` would turn a program variable named `byte` into a keyword.
+A function with a `Map`, `List`, or `Set` field already sits outside `<NS>-SYNTAX`, but that placement follows from K's module layout, so a default still asks for `internal`.
+The template is used even when no program spells the function: `krs run` prints applications through it, emitted `.k` writes every rule that mentions the function with it, and `raw_k!` names the function by it.
+
+### Equation tables
+
+`k::equations!` writes the equations of one function as a table, one equation per row:
+
+```rust
+k::equations! {
+    for R8;
+    use Operand::*;
+    use Register::*;
+    r8_b          : 0  => Reg(B);
+    r8_hl_indirect: 6  => HlIndirect;
+    r8_a          : 7  => Reg(A);
+    #[k::equation(owise)]
+    r8_other      : _  => Immediate;
+}
+```
+
+`for R8;` names a non-parametric `#[k::function]`, and each row `label: args => result;` is the equation `#[k::equation] fn label(k::term![R8(args)]: ..) -> .. { result }`, named by its label, with `R8`'s result sort.
+The arguments are one pattern, or a parenthesized list for several (`both: (true, v) => v;`, `none: () => 0;`), with every pattern an equation accepts; a row may carry `#[k::equation(..)]` keys, `#[k::requires(..)]`, and documentation, and takes no `where` narrowing.
+The table's `use` items are in scope for its rows only, and rustc resolves every unqualified name in a row through them and the module, so two of them that export one name are rustc's ambiguity error at the name.
+`krs expand` prints each row as its `#[k::equation]` fn with qualified paths, and `krs fmt` lays a table out as it lays out `k::rules!`.
+
+Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
+Two consequences are checked at once.
+Two rows without `requires` at one priority whose arguments are the same literals, or literals and [bit templates](#bit-templates) that share a value, would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
+A row whose arguments are all `_` matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
+A bare name in a row's pattern is a binder, as in every KRS pattern, so a unit variant is written `A()` or `Register::A`; where the table's `use` items or the module make a bare name a unit variant or a constant, which Rust would read as that constant, rustc rejects the row (``E0308 mismatched types`` at the name) instead of letting it bind everything.
+The header must name a function (rustc's ``E0277 `Seven` is not a non-parametric `#[k::function]` ``), and a row's argument count must be the function's (rustc's ``E0308 expected a tuple with 2 elements``).
+A table's index is always written, never taken from the order of an enum's variants: variant order is presentation, and reordering source must not change a definition.
+
+### Bit templates
+
+`k::bits!("00 yyy 100")` is a pattern of sort `Int` written as its bits, for decoding instruction words and other bit fields:
+
+```rust
+k::equations! {
+    for Decode;
+    use Instruction::*;
+    decode_nop   : 0                           => Nop;
+    decode_jr_cc : k::bits!("00 1cc 000")      => Jr(c);
+    decode_inc_r : k::bits!("00 yyy 100")      => Inc(crate::R8(y));
+    decode_halt  : k::bits!("01 110 110")      => Halt;
+    #[k::requires(op.ne::<Int>(118))]
+    decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld(crate::R8(y), crate::R8(z));
+    #[k::equation(owise)]
+    decode_other : opcode                      => Unknown(opcode);
+}
+```
+
+The template is a string because Rust's lexer rejects `0b00yyy100`.
+Its characters are read most significant bit first: `0` and `1` are fixed bits, `_` is a bit that may be either, a lowercase letter is a bit of the field it names, and spaces separate groups and are not bits.
+The width is the number of bits, here 8, and a template matches exactly the integers `n` with `0 <= n < 2^width` whose fixed bits are as written, so `decodeOf(4)` is `inc rb` while `decodeOf(260)`, whose low 8 bits are those of `4`, and `decodeOf(-252)` fall to the `owise` row.
+A field names that part of the matched value, `bitRangeInt(n, offset, length)`, in the sentence's `requires` and result: `y` above is bits 5 to 3.
+A field's bits must be adjacent (``field `a` is split``), because a scattered field would need an order to assemble its parts that the template cannot state; name each part with its own letter and combine them in the result.
+`op @ k::bits!(..)` also binds the whole value; otherwise the value has no name an author can write.
+
+A template is sugar, and `krs expand` prints its long form.
+`decode_inc_r` above is the equation
+
+```rust
+#[k::requires(
+    bits.ge::<Int>(0) && bits.lt::<Int>(256)
+        && bits.bit_range::<Int>(6, 2).eq::<Int>(0)
+        && bits.bit_range::<Int>(0, 3).eq::<Int>(4)
+)]
+#[k::equation]
+fn decode_inc_r(k::term![Decode(bits)]: Term<Instr>) -> Term<Instr> {
+    Instruction::Inc(crate::R8(bits.bit_range::<Int>(3, 3)))
+}
+```
+
+that is: the template becomes a variable, the `requires` gains the range and one `bitRangeInt` equality per run of fixed bits within a group, before any condition the row already has, and each field becomes its bit range.
+The template's guard comes first because the template is part of the pattern: `&&` evaluates left to right, so a condition of yours is evaluated only on values the template matches, and a function it calls that is defined only there is never applied outside them.
+K emits `rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3, 3) ) requires .. andThenBool ((bitRangeInt(Krs_Bits0:Int, 0, 3)) ==Int 4)`: the value's variable is a generated one, which no binder of yours can collide with or shadow, and `krs expand` names it `bits` (or a fresh variant).
+A template without `_` or fields is its decimal literal, `decode_halt` above is the row `118 => Halt`, so it is matched as a literal, without a guard.
+Splitting runs at spaces keeps the guards of templates written on one grid (`xx yyy zzz`) on the same terms, so templates that differ in a fixed bit compare equal terms with different values: the rule-overlap check, which reads such guards as facts about the bits of a term, keeps `kindOf(k::bits!("0___ ____"))` and `kindOf(k::bits!("1___ ____"))` apart, and reads the same guards written by hand alike.
+
+A template stands in an `Int` argument of a rule's, an equation's, or a table row's left-hand side.
+In a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` it is rejected (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
+A character that is no bit, an empty template, more than 128 bits, and a split field are `krs::syntax::invalid-bit-template`; a field letter that is also a binder of the sentence, a field of another template, or a name a `let` or `k::matches!` binds again is `krs::syntax::bit-field-collision`.
+In a table, two rows that match one argument with templates of different widths are `krs::syntax::bit-template-width-mismatch`, a missing or extra bit being the likely cause, and two rows without an authored `requires` whose templates and literals share a value are `krs::syntax::duplicate-equation-row`, naming the arguments both apply to.
 
 ### Sort-parametric productions
 
@@ -288,7 +460,7 @@ pub fn assign(
 ```
 
 emits `rule [assign]: <k> (Name:Id = Value:Value ; => .K) ... </k> <env> Name:Id |-> (_ => Value:Value) ... </env>`, and the term-shaped `fn unmark_left(k::term![ExpSyntax::Pair(k::rewrite!(ExpSyntax::Marked(value) => value), _)]: Term<Exp>) {}` emits `rule pair ( (marked ( Value:Exp ) => Value:Exp) , _ )`, completed at the head of the computation cell like any term rule.
-A readable rule, or a reference rule with a result, restates the before and after of each cell it touches, which is the same rule; the single-body form is reference-only.
+A readable rule, or a reference rule with a result, states the before and after of each cell it changes, which is the same rule; the single-body form is reference-only.
 The left side of a rewrite is a pattern and binds like the rest of the subject; the right side is a term over those bindings, and `()` on the right is `.K`, which removes a whole K-sequence item.
 The binder list of a `cells!` rule declares the left image's binders (the subject with each rewrite replaced by its left side), in first-occurrence order.
 In a map a rewrite changes a value: `name -> k::rewrite!(_ => value)` requires the key to exist, while `map::update` in a result would add it, so assigning an undeclared variable is stuck in the local form and proceeds in the restating one.
@@ -326,7 +498,8 @@ emits `rule [heat-add-rhs]: <k> E:Exp + HOLE:Exp => HOLE:Exp ~> freezer1 ( E:Exp
 The hole binder is always spelled `HOLE` in the emitted K, and no other binder takes that name; it is listed in a binder list like any other binder.
 K adds `requires notBool isKResult(HOLE)` to every heat rule and `requires isKResult(HOLE)` to every cool rule, so the rules carry no such guard; `result = Value` (K's `result(Value)`) uses `isValue` instead.
 Replacing hand-written rules for `+` and `&&` by `#[k::seqstrict]` gives the same steps: both run lesson 14 of the K tutorial alike natively and on Java LLVM, heat, compute, cool.
-The keys are written the same way on a readable `for Machine` clause and a `cells!` rule, whose results can put the hole before its freezer; a readable machine record matches one computation-cell item, so a cool rule, which matches the value and its freezer, is written as a `cells!` rule.
+The keys are written the same way on a readable `for Machine` clause and a `cells!` rule, so the cool rule above is also `cool_add_rhs: { k: [h, Freezer::AddRhs(e), ..] } => { k: [Add(e, h), ..] };` under `#[k::rule(cool, hole = h)]`, which emits `...` where the `cells!` rule names its tail.
+A heat or cool rule holds whatever follows it, so `krs check` rejects one whose computation-cell pattern is a whole cell (`krs::analysis::invalid-heat-cool`).
 The syntax rejects `heat` with `cool`, either without `hole = x`, `hole` or `result` without either, and either with `owise`, `priority`, `nondet`, or `anywhere`, and `#[k::fresh]` on a heat or cool rule, when the macros expand; and `krs check` rejects a hole that the left side does not bind, or binds twice (`krs::analysis::invalid-heat-cool`).
 Heat and cool rules are outside the overlap check, since K orders them by the condition it adds.
 
@@ -489,6 +662,7 @@ A production that is not `pub` is also emitted with K's `private` attribute: K h
 Token productions follow the visibility of their `#[k::token]` carrier: the tokens of a struct or type alias that is not `pub` are `private` too, so only the package's own rules lex them, a spec module does not, and `krs check` rejects a program production whose field sort has only private tokens (`krs::analysis::invalid-token-sort`), because no program could spell that field.
 Only K rules construct the variants of a `#[k::constructors]` family that is not `pub`, so the macro allows rustc's `dead_code` lint on it.
 `internal` is the bare flag `#[k::syntax("...", internal)]` on a variant, `internal = true` in the reference layer and on `#[k::constructor]`, a bare flag on `#[k::function]`, or the family flag `#[k::constructors(sort = ..., result = ..., internal)]`, which marks every variant.
+A function that is not program syntax may omit `syntax` and gets the default `symbol({field}, ..)`; see [Functions declared by a fn](#functions-declared-by-a-fn).
 `program` is spelled the same way and asserts that a production is program syntax; when KRS must place it in `<NS>` anyway, it reports the warning `krs::partition::not-program-syntax`.
 `krs check --partition` prints each package's partition: the contents of `<NS>-SYNTAX`, then the `pub` productions placed in `<NS>` with the reason.
 
@@ -694,5 +868,35 @@ Every alias prints in reverse, so with `rule zeroAlias => 0` every `0`, even a v
 An `alias-rec` reverses repeatedly: with `nest(.Ints) => nil` and `nest(I, Is) => pair(I, nest(Is))`, the value `pair(1, pair(2, nil))` prints as `nest(1 , 2 , .Ints)`.
 `krs parse --output program` prints a parsed program the same way, with its macros as written, as `kast --module MAIN --output program` does: KRS reverses the main module's aliases, while a bare `kast --output program` uses only the program-syntax module, which has no alias rules.
 A production without a printable format prints its term as KAST, with a `warning:` line naming it.
+
+### Values from Rust
+
+A Rust program that runs a definition through the `krs-exec` crate can give configuration variables as values and read results by KRS names, without writing K text or reading KORE.
+`Semantics::values()` returns the definition's `ValueIndex`, which names constructors and sorts by the Rust path of their declaration, in full or by any `::`-aligned suffix that is unique: `Register::A` or `sm83::machine::Register::A`, never the emitted symbol (`registerC`).
+
+```rust
+let index = semantics.values().clone();
+let a = index.ctor("Register::A", [])?;
+let read = index.ctor("Cycle::Read", [("addr", 1.into()), ("value", 2.into())])?;
+let state = semantics.configure(&ConfigInputs {
+    variables: vec![
+        ("REGS".into(), Value::map([(a.clone(), 7.into())]).into()),
+        ("BUS".into(), Value::list([read]).into()),
+        ("PC".into(), "256".into()), // text, parsed at the declared sort
+    ],
+    ..ConfigInputs::default()
+})?;
+let report = semantics.run(&state, RunOptions::default())?;
+let View::State(view) = semantics.view(&report.state)? else { panic!("the state is #Bottom") };
+let regs = view.value("cpu.regs")?;          // the cell `regs` of the group cell `cpu`
+assert_eq!(regs.as_map().unwrap()[&a], 7.into());
+```
+
+- A `Value` is a constructor application (`Ctor`: its declaration, the sort arguments of a parametric production, and its fields by name), an `Int` (a `BigInt`), a `Bool`, a `String`, `Bytes`, a `Float` (its canonical literal), a `Token` of a sort without a builtin hook, a K sequence (`Seq`, the content of a `k` cell), a `List`, a `Set`, a `Map`, or `Opaque`: the KORE pattern of anything else, such as a variable, an unevaluated function application, or a collection with a symbolic part.
+- Values carry no injections: `Register::A` is the same value as a map key, a field, or a cell content. Two ground values are equal exactly when they are the same term.
+- A configuration value is typed as its text would be, and must have at most the variable's declared sort. A value names its constructor, so it is never ambiguous: as text, a `Map` key is parsed at `KItem`, where a terminal two sorts share (`c`) has two readings.
+- A cell path is the chain of Rust field names below the configuration, joined by `.`, so a cell renamed with `#[k::cell(name = "eiPending")]` is still `ei_pending`. `StateView::value` reads a leaf cell, `at` a group cell as a sub-view, `present` whether an optional cell exists, and `instances` the instances of a repeated cell.
+- `Semantics::views` gives one view per disjunct of a search or proof state (`View::Bottom` for `#Bottom`), each with the predicates conjoined with its configuration as `constraints()`.
+- `Map<Reg, Int>`-style arguments of KRS collection types are Rust-side documentation: K's collections are not parametric, and a value is checked only against K's signature.
 
 For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).

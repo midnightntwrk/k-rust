@@ -32,6 +32,7 @@
 
 const _: () = assert!(cfg!(feature = "measure"));
 
+#[cfg(feature = "z3")]
 use std::sync::Arc;
 use std::sync::Mutex;
 

@@ -31,7 +31,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \\not; c = assumed conjuncts that share its key; k = known predicates"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited", "SimplifyConjunctNodes", "SimplifyKnownPredicates"]
 //! span = "per call"
@@ -47,7 +47,7 @@
 //!
 //! [[cost]]
 //! mode = "predicate equations (apply_predicate_theory)"
-//! bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
+//! bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them; before the equations, when its top connective has any, one walk of the sub-predicate, no deeper than the deepest left-hand side of those equations, that sets aside hoisted definedness conjuncts (written_predicate), with one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct, and after an equation applies, one ceil_term call per conjunct atom of its result when a conjunct was set aside on the whole subject"
 //!
 //! [[cost]]
 //! mode = "normalization of a simplified sub-predicate (normalize_root, normalize_hereditary)"
@@ -80,6 +80,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::BTreeSet,
+    ops::ControlFlow,
     sync::Arc,
 };
 
@@ -106,8 +107,8 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     evaluation::EvaluationMode,
     matching::{
-        Bindings, CollectionMatches, DecidedSolutions, FailReason, InjectionEquality, MatchFailed,
-        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        Bindings, CollectionMatches, DecidedSolutions, InjectionEquality, MatchFailed, MatchMode,
+        MatchResult, UndecidedReason, match_collection_remainders_all_in_definition,
         match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
     path_facts::FactSet,
@@ -786,6 +787,19 @@ pub fn simplify_predicates_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
+    // The empty conjunction is `\top` and simplifies to itself, `[]`, under any facts and any
+    // budget: the fixed point below meets no conjunct, finds no finite-domain violation and
+    // returns its input before the budget is read, emitting nothing and noting nothing. A ground
+    // rewrite step meets it four or five times (the match conditions, the definedness of
+    // `ceil_free` bindings, an absent `requires` or `ensures`, the successor's constraints), so
+    // it is answered here without the entry's scopes and indexes. The `ApartScope` is still
+    // opened, since opening an outermost one restarts the thread's `!apart` counter, and the
+    // entry is still counted.
+    if predicates.is_empty() {
+        let _apart = crate::rule::ApartScope::enter();
+        measure::bump(Counter::SimplifyInvocations);
+        return Ok(Ok(Vec::new()));
+    }
     diagnostic::retract_dropped(
         || simplify_predicates_entry(definition, predicates, known_predicates, options, solver),
         |result| match result {
@@ -2240,9 +2254,13 @@ fn simplify_predicate_on_stack(
             } else {
                 right.clone()
             };
-            let equality =
-                normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
-            let equality = normalize_injection_equality(definition, equality);
+            let known = |obligation: &Predicate| assumptions.contains(obligation);
+            let equality = normalize_hooked_boolean_predicate(
+                definition,
+                Predicate::Equals(left, right),
+                &known,
+            );
+            let equality = normalize_injection_equality(definition, equality, &known);
             let equality = match equality {
                 Predicate::Equals(left, right) => {
                     let (equality, resimplify) =
@@ -2596,7 +2614,9 @@ fn simplify_predicate_on_stack(
     // above, so they are such results, and one level of normalization over them equals
     // `normalize_predicate` (`normalize_root`). An atom's simplification may conjoin the
     // conditions its terms' simplification left unsimplified, so it is normalized throughout.
-    let simplified = normalize_hooked_boolean_predicate(definition, simplified);
+    let simplified = normalize_hooked_boolean_predicate(definition, simplified, &|obligation| {
+        assumptions.contains(obligation)
+    });
     let simplified = match predicate {
         Predicate::Not(_)
         | Predicate::And(_)
@@ -2654,10 +2674,34 @@ fn simplify_predicate_on_stack(
             solver,
         );
     }
-    let Some(simplified) = apply_predicate_theory(
+    // A predicate equation `P = Q` is matched against the predicate as written, with the
+    // definedness conjuncts that hoisting stated beside its atoms set aside
+    // (`WrittenPredicate`): the subject equals its written form, those set aside on the whole
+    // subject hold wherever the instance is used, and they are conjoined to the result unless
+    // the result implies them.
+    let written = written_predicate(definition, &simplified, assumptions.terms.predicates)
+        .map_err(SimplificationError::from)?;
+    let (subject, set_aside) = match &written {
+        Some(written) => (&written.predicate, written.set_aside.as_slice()),
+        None => (&simplified, &[][..]),
+    };
+    let extended_known;
+    let known = if set_aside.is_empty() {
+        assumptions.terms.predicates
+    } else {
+        extended_known = assumptions
+            .terms
+            .predicates
+            .iter()
+            .chain(set_aside)
+            .cloned()
+            .collect::<Vec<_>>();
+        extended_known.as_slice()
+    };
+    let Some(rewritten) = apply_predicate_theory(
         definition,
-        &simplified,
-        assumptions.terms.predicates,
+        subject,
+        known,
         SimplificationOptions {
             max_iterations: limit,
             budget: BudgetPolicy::Fail,
@@ -2670,6 +2714,8 @@ fn simplify_predicate_on_stack(
         indeterminate.commit(|| Subject::Predicate(simplified.clone()));
         return Ok(simplified);
     };
+    let simplified =
+        reattach_set_aside(definition, set_aside, rewritten).map_err(SimplificationError::from)?;
     if *remaining == 0 {
         return Err(SimplificationError::PredicateIterationLimit {
             limit,
@@ -2690,13 +2736,17 @@ fn simplify_predicate_on_stack(
     )
 }
 
-fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predicate) -> Predicate {
+fn normalize_injection_equality(
+    definition: &BackendDefinition,
+    predicate: Predicate,
+    known: &dyn Fn(&Predicate) -> bool,
+) -> Predicate {
     let Predicate::Equals(left, right) = predicate else {
         return predicate;
     };
     match match_injection_equality(Some(definition.sort_graph()), &left, &right) {
         Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
-            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right))
+            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right), known)
         }
         // Separated injections are apart; the caller reads that through `terms_apart`
         // (R-eq), which states the definedness a refutation requires.
@@ -3134,6 +3184,286 @@ fn apply_ceil_equation_instance(
     )))
 }
 
+/// A predicate as its author wrote it, beside the definedness conjuncts that hoisting stated
+/// (`definedness::condition_definedness`).
+///
+/// Hoisting conjoins to an atom `a` the obligations of the operand it asserts equal to a value
+/// defined under the known predicates, `\ceil(b) /\ a`, which equals `a` wherever the known
+/// predicates hold, because `a` is empty wherever `b` is (`definedness::atom_definedness`). A
+/// predicate equation `P = Q` states that `P` and `Q` are equal predicates, and is applied to a
+/// subject only where the known predicates hold, so its left-hand side is matched against the
+/// atoms without those conjuncts. Each definedness conjunct that an atom of the same conjunction
+/// implies is set aside, whether hoisting stated it or the author wrote it:
+/// - in a conjunction, it is removed, and it is a conjunct of the whole conjunction;
+/// - in a disjunction, each disjunct equals its own written form, and the conjuncts set aside
+///   from every disjunct are conjuncts of the whole disjunction;
+/// - below a negation, an implication, an equivalence or a quantifier, the operand equals its
+///   written form, and nothing set aside there is a conjunct of the whole.
+///
+/// Only a conjunct that is not itself such an atom is set aside (a `\ceil`, a deferred
+/// definedness atom, a membership, an absence or a negation), so no two conjuncts are set aside
+/// for implying each other.
+struct WrittenPredicate {
+    /// The written form, equal to the subject as a predicate.
+    predicate: Predicate,
+    /// The conjuncts set aside that are conjuncts of the whole subject: the subject is their
+    /// conjunction with `predicate`.
+    set_aside: Vec<Predicate>,
+}
+
+/// The written form of `predicate` ([`WrittenPredicate`]), or `None` when nothing is set aside or
+/// the definition has no predicate equation of its top connective.
+///
+/// An equation's left-hand side is matched only as deep as its connectives reach, so the walk
+/// stops at the depth of the deepest left-hand side of the predicate's top connective: below it a
+/// conjunct set aside could change no match. Each sub-predicate the simplifier visits is thus
+/// walked to a depth bounded by the definition's equations, not to its own height.
+fn written_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Result<Option<WrittenPredicate>, DeferredOutcome> {
+    let Some(theory) = definition.predicate_equations_for(predicate) else {
+        return Ok(None);
+    };
+    let depth = theory
+        .values()
+        .flatten()
+        .map(|rule| connective_depth(&rule.lhs))
+        .max()
+        .unwrap_or(0);
+    Ok(
+        set_aside_definedness(definition, predicate, known, depth)?.map(
+            |(predicate, set_aside)| WrittenPredicate {
+                predicate,
+                set_aside,
+            },
+        ),
+    )
+}
+
+/// The written form of a predicate equation's left-hand side ([`WrittenPredicate`]), with no known
+/// predicates, against which subjects are matched in their own written form.
+///
+/// A conjunct set aside from the left-hand side `P` is implied by the written form `W`, so `P`,
+/// which is `W` conjoined with what was set aside on the whole of it, is `W`: the equation
+/// `W = Q` is the equation `P = Q`. Unchanged when a definedness question has no answer.
+pub(crate) fn written_lemma_left_side(definition: &BackendDefinition, lhs: Predicate) -> Predicate {
+    match set_aside_definedness(definition, &lhs, &[], usize::MAX) {
+        Ok(Some((written, _implied))) => written,
+        Ok(None) | Err(_) => lhs,
+    }
+}
+
+/// The number of predicate nodes on the longest path from the root of `predicate` to an atom.
+fn connective_depth(predicate: &Predicate) -> usize {
+    1 + match predicate {
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            inner.iter().map(connective_depth).max().unwrap_or(0)
+        }
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            connective_depth(inner)
+        }
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            connective_depth(left).max(connective_depth(right))
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => 0,
+    }
+}
+
+/// The written form of `predicate` and the conjuncts set aside on the whole of it
+/// ([`WrittenPredicate`]), walking `depth` predicate nodes deep, with the atoms decided under
+/// `known` (below a quantifier, only those that do not mention its variable); `None` when nothing
+/// is set aside.
+fn set_aside_definedness(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+    depth: usize,
+) -> Result<Option<(Predicate, Vec<Predicate>)>, DeferredOutcome> {
+    if depth == 0 {
+        return Ok(None);
+    }
+    let below = depth - 1;
+    let operand = |inner: &Predicate| -> Result<Option<Arc<Predicate>>, DeferredOutcome> {
+        Ok(set_aside_definedness(definition, inner, known, below)?
+            .map(|(written, _)| Arc::new(written)))
+    };
+    let under_binder = |variable: &Variable,
+                        inner: &Predicate|
+     -> Result<Option<Arc<Predicate>>, DeferredOutcome> {
+        let holds = |fact: &Predicate| !mentions_free(fact, variable);
+        if known.iter().all(holds) {
+            return operand(inner);
+        }
+        let unshadowed = known
+            .iter()
+            .filter(|fact| holds(fact))
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(
+            set_aside_definedness(definition, inner, &unshadowed, below)?
+                .map(|(written, _)| Arc::new(written)),
+        )
+    };
+    Ok(match predicate {
+        Predicate::And(conjuncts) => {
+            let candidate = |conjunct: &Predicate| {
+                matches!(
+                    conjunct,
+                    Predicate::Ceil(_)
+                        | Predicate::Defined(_)
+                        | Predicate::In(..)
+                        | Predicate::Absent(_)
+                        | Predicate::Not(_)
+                )
+            };
+            let mut implied = Vec::new();
+            if conjuncts.iter().any(candidate) {
+                for conjunct in conjuncts.iter() {
+                    implied.extend(crate::definedness::atom_definedness(
+                        definition, conjunct, known,
+                    )?);
+                }
+            }
+            let mut changed = false;
+            let mut kept = Vec::with_capacity(conjuncts.len());
+            let mut set_aside: Vec<Predicate> = Vec::new();
+            for conjunct in conjuncts.iter() {
+                if candidate(conjunct) && implied.contains(conjunct) {
+                    changed = true;
+                    if !set_aside.contains(conjunct) {
+                        set_aside.push(conjunct.clone());
+                    }
+                    continue;
+                }
+                match set_aside_definedness(definition, conjunct, known, below)? {
+                    Some((written, inner)) => {
+                        changed = true;
+                        kept.push(written);
+                        for predicate in inner {
+                            if !set_aside.contains(&predicate) {
+                                set_aside.push(predicate);
+                            }
+                        }
+                    }
+                    None => kept.push(conjunct.clone()),
+                }
+            }
+            if !changed {
+                return Ok(None);
+            }
+            let written = if kept.len() == 1 {
+                kept.pop().expect("one conjunct is kept")
+            } else {
+                Predicate::And(kept.into())
+            };
+            Some((written, set_aside))
+        }
+        Predicate::Or(disjuncts) => {
+            let mut changed = false;
+            let mut written = Vec::with_capacity(disjuncts.len());
+            let mut common: Option<Vec<Predicate>> = None;
+            for disjunct in disjuncts.iter() {
+                let (disjunct, set_aside) =
+                    match set_aside_definedness(definition, disjunct, known, below)? {
+                        Some(parts) => {
+                            changed = true;
+                            parts
+                        }
+                        None => (disjunct.clone(), Vec::new()),
+                    };
+                written.push(disjunct);
+                common = Some(match common {
+                    None => set_aside,
+                    Some(common) => common
+                        .into_iter()
+                        .filter(|predicate| set_aside.contains(predicate))
+                        .collect(),
+                });
+            }
+            if !changed {
+                return Ok(None);
+            }
+            Some((Predicate::Or(written.into()), common.unwrap_or_default()))
+        }
+        Predicate::Not(inner) => operand(inner)?.map(|inner| (Predicate::Not(inner), Vec::new())),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            let (new_left, new_right) = (operand(left)?, operand(right)?);
+            if new_left.is_none() && new_right.is_none() {
+                return Ok(None);
+            }
+            let left = new_left.unwrap_or_else(|| left.clone());
+            let right = new_right.unwrap_or_else(|| right.clone());
+            Some((
+                if matches!(predicate, Predicate::Implies(..)) {
+                    Predicate::Implies(left, right)
+                } else {
+                    Predicate::Iff(left, right)
+                },
+                Vec::new(),
+            ))
+        }
+        Predicate::Exists(variable, inner) => under_binder(variable, inner)?
+            .map(|inner| (Predicate::Exists(variable.clone(), inner), Vec::new())),
+        Predicate::Forall(variable, inner) => under_binder(variable, inner)?
+            .map(|inner| (Predicate::Forall(variable.clone(), inner), Vec::new())),
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Defined(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => None,
+    })
+}
+
+/// `result`, the rewritten written form, conjoined with the conjuncts set aside on the whole
+/// subject ([`WrittenPredicate`]), except those `result` implies: `\ceil(t) /\ φ` is `φ` when `φ`
+/// is `\bottom`, has `\ceil(t)` as a conjunct, or has a conjunct atom that implies it (`t = c`
+/// with `c` defined, `definedness::atom_definedness`).
+fn reattach_set_aside(
+    definition: &BackendDefinition,
+    set_aside: &[Predicate],
+    result: Predicate,
+) -> Result<Predicate, DeferredOutcome> {
+    if set_aside.is_empty() || result == Predicate::False {
+        return Ok(result);
+    }
+    let conjuncts = match &result {
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
+        other => vec![other.clone()],
+    };
+    let mut implied = conjuncts.clone();
+    for conjunct in &conjuncts {
+        implied.extend(crate::definedness::atom_definedness(
+            definition,
+            conjunct,
+            &[],
+        )?);
+    }
+    let mut reattached = set_aside
+        .iter()
+        .filter(|predicate| !implied.contains(predicate))
+        .cloned()
+        .collect::<Vec<_>>();
+    if reattached.is_empty() {
+        return Ok(result);
+    }
+    reattached.push(result);
+    Ok(normalize_predicate(Predicate::And(reattached.into())))
+}
+
 /// Rewrite `predicate` by the first predicate equation that applies, in priority order; `None`
 /// when none does. The diagnostics of the indeterminate attempts are held in `indeterminate`,
 /// which the caller commits if the predicate is kept.
@@ -3191,15 +3521,13 @@ fn predicate_equation_probe<'a>(
 ) -> impl FnMut(&PredicateRewriteRule) -> bool + 'a {
     move |rule| {
         let matched = match match_predicate(definition, &rule.lhs, predicate) {
-            PredicateMatch::Failed {
-                shared_names: false,
-            } => return false,
+            PredicateMatch::Failed => return false,
             matched => match rename_predicate_rule_apart(rule, predicate, known_predicates) {
                 Some((renamed, _)) => match_predicate(definition, &renamed.lhs, predicate),
                 None => matched,
             },
         };
-        !matches!(matched, PredicateMatch::Failed { .. })
+        !matches!(matched, PredicateMatch::Failed)
     }
 }
 
@@ -3220,19 +3548,15 @@ fn apply_predicate_equation(
     // when its names can matter. Matching binds the equation's variables to the subject's terms,
     // which it never substitutes into, so the names of the equation's variables decide nothing
     // where the subject has no variable of the same name: a match that fails without meeting a
-    // shared name (`PredicateMatch::Failed { shared_names: false }`) fails renamed too, as the
-    // renamed problem has the same pairs up to the renaming and possibly more. Otherwise the
+    // shared name (`PredicateMatch::Failed`) fails renamed too, as the renamed problem has the
+    // same pairs up to the renaming and possibly more. Otherwise the
     // clash is checked, once per equation that matched or could, not per equation tried, and on
     // one the attempt is made renamed (`rename_predicate_rule_apart`), as before; the renaming
     // also keeps the variables the left-hand side does not bind apart from the path, which
     // matching does not read.
     let matched = match_predicate(definition, &rule.lhs, predicate);
-    if !matches!(
-        matched,
-        PredicateMatch::Failed {
-            shared_names: false
-        }
-    ) && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
+    if !matches!(matched, PredicateMatch::Failed)
+        && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
     {
         return apply_predicate_equation(
             definition,
@@ -3245,8 +3569,10 @@ fn apply_predicate_equation(
         );
     }
     let substitution = match matched {
-        PredicateMatch::Failed { .. } => return Ok(EquationAttempt::NotApplicable(())),
-        PredicateMatch::Indeterminate => {
+        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable(())),
+        // A shared name the renaming did not remove, or a question matching does not answer:
+        // neither refutes the equation.
+        PredicateMatch::SharedNames | PredicateMatch::Indeterminate => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
@@ -3767,12 +4093,12 @@ pub(crate) fn without_term_conjunctions(term: &Term) -> Option<(Term, Vec<Predic
 
 enum PredicateMatch {
     Success(Substitution),
-    /// No match. `shared_names` is whether the term matcher refused because a variable of the
-    /// pattern and one of the subject have one name ([`FailReason::SharedVariables`]); any other
-    /// failure is one of the predicates' shapes or terms, whatever the names.
-    Failed {
-        shared_names: bool,
-    },
+    /// No match: the predicates' shapes differ, or their terms are refuted, whatever the names.
+    Failed,
+    /// The term matcher refused because a variable of the pattern and one of the subject have
+    /// one name ([`UndecidedReason::SharedVariables`]). That is no refutation: renamed apart,
+    /// the pattern has the same instances and may match.
+    SharedNames,
     Indeterminate,
 }
 
@@ -3799,9 +4125,7 @@ fn match_predicate(
     // costs nothing more. Without a quantifier in the pattern, a subject quantifier is in no
     // pair (its connective meets another of the pattern's), so nothing needs renaming.
     if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
-        return PredicateMatch::Failed {
-            shared_names: false,
-        };
+        return PredicateMatch::Failed;
     }
     let renamed;
     if has_quantifier(pattern) {
@@ -3835,9 +4159,7 @@ fn match_predicate(
                     None => {}
                     Some(bound) if bound == Term::variable((*subject_bound).clone()) => {}
                     Some(_) => {
-                        return PredicateMatch::Failed {
-                            shared_names: false,
-                        };
+                        return PredicateMatch::Failed;
                     }
                 }
             }
@@ -3846,16 +4168,14 @@ fn match_predicate(
                     .iter()
                     .any(|(_, bound)| value.attributes().variables.contains(bound))
             }) {
-                return PredicateMatch::Failed {
-                    shared_names: false,
-                };
+                return PredicateMatch::Failed;
             }
             PredicateMatch::Success(substitution)
         }
-        MatchResult::Failed(reason) => PredicateMatch::Failed {
-            shared_names: matches!(reason, FailReason::SharedVariables(_)),
-        },
-        MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
+        MatchResult::Failed(_) => PredicateMatch::Failed,
+        MatchResult::Undecided(UndecidedReason::SharedVariables(_)) => PredicateMatch::SharedNames,
+        MatchResult::Undecided(UndecidedReason::Subsorting(_) | UndecidedReason::OpenSorts(..))
+        | MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
     }
 }
 
@@ -4044,16 +4364,50 @@ fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
 ///
 /// The frontend represents K operands as singleton K sequences, while collection definedness
 /// compares their underlying KItems. Lowering both to the item makes those logically identical
-/// conditions share one internal representation. The ceil obligations retain strictness: a
-/// Boolean result from K equality implies that both operands were defined.
+/// conditions share one internal representation.
+///
+/// Every rewrite is an equivalence, on every instance, including those where an operand is
+/// undefined. Each symbol application is strict (an undefined argument makes it undefined), and
+/// `\equals(t, v)` with `v` a value is false where `t` is undefined, so the input equation states
+/// the definedness of `t`; the output states it too wherever its own atoms do not imply it:
+///
+/// - `t = true` stays the atom `t`, which means that equation: no obligation is added.
+/// - `t = false` becomes `\ceil(t) /\ \not(t)`: `\not(t)` alone also holds where `t` is
+///   undefined.
+/// - `(a andBool b) = true` and `(a orBool b) = false` become the conjunction of the operands'
+///   equations, and `notBool a = v` becomes `a = not v`; each operand's equation states its own
+///   definedness, so no obligation is added.
+/// - `(a andBool b) = false` and `(a orBool b) = true` become a disjunction of the operands'
+///   equations conjoined with `\ceil(a) /\ \ceil(b)`: one disjunct holding says nothing of the
+///   other operand, which the strict connective requires defined.
+/// - A K or integer equality becomes the equation or disequation of its operands conjoined with
+///   both operands' obligations, since `\equals(\bottom, \bottom)` is `\top`.
+///
+/// Each obligation is the operand's `ceil_term`, which is empty for a `ceil_free` operand, so a
+/// predicate over defined-by-construction terms keeps its plain form. Where `ceil_term` cannot
+/// state the obligation (it depends on an impure application in an operand a conditional never
+/// evaluates, `crate::deferred`), the equation is returned as it is. The result is a fixed point,
+/// so a predicate the simplifier normalizes again gains nothing more: an obligation is added only
+/// where an equation of a term with `false` (or of a connective with the value one operand
+/// decides) is rewritten away, and an equation left in the result is one returned as it is.
+///
+/// `known` tells whether the context already states an obligation (a known fact, or a sibling
+/// conjunct as it currently stands). The obligations the `t = false` rewrite and the rewrite of
+/// a connective decided by one operand add are left out where known: the context conjoins them,
+/// so what is left is equivalent to the equation there, and simplifying the result again under
+/// the same context gains nothing. A disjunct of a connective decided by one operand never
+/// restates an obligation its disjunction is conjoined with, since that conjunction holds
+/// wherever the disjunct is read.
 fn normalize_hooked_boolean_predicate(
     definition: &BackendDefinition,
     predicate: Predicate,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Predicate {
     if let Predicate::Term(term) = &predicate {
         let normalized = normalize_hooked_boolean_predicate(
             definition,
             Predicate::Equals(term.clone(), Term::bool(true)),
+            known,
         );
         return match &normalized {
             Predicate::Equals(left, right) if left == term && bool_value(right) == Some(true) => {
@@ -4076,7 +4430,7 @@ fn normalize_hooked_boolean_predicate(
         symbol, arguments, ..
     } = application.kind()
     else {
-        return boolean_literal_equality(application, value)
+        return boolean_literal_equality(definition, application, value, known)
             .unwrap_or(Predicate::Equals(left, right));
     };
     if let Some(operator) = symbol.attributes.hook.as_deref() {
@@ -4084,28 +4438,53 @@ fn normalize_hooked_boolean_predicate(
             normalize_hooked_boolean_predicate(
                 definition,
                 Predicate::Equals(term.clone(), Term::bool(value)),
+                known,
             )
+        };
+        // The connective's value decided by one operand's equation (`false` for a conjunction,
+        // `true` for a disjunction): a disjunction of the operands' equations, which states
+        // neither operand's definedness beside the one whose equation holds. Each disjunct is
+        // read where both operands' obligations hold, so a disjunct's conjunct among them is
+        // `\top` there and is left out: `O /\ ((O1 /\ E) \/ F)` is `O /\ (E \/ F)` when `O1` is
+        // a member of `O`.
+        let decided_by_one = |first: &Term, second: &Term, value| {
+            let (Ok(mut obligations), Ok(second_obligations)) =
+                (ceil_term(definition, first), ceil_term(definition, second))
+            else {
+                return None;
+            };
+            obligations.extend(second_obligations);
+            let disjunct = |term: &Term| without_conjuncts(bool_operand(term, value), &obligations);
+            let disjunction = Predicate::Or(vec![disjunct(first), disjunct(second)].into());
+            let mut predicates = obligations
+                .iter()
+                .filter(|obligation| !known(obligation))
+                .cloned()
+                .collect::<Vec<_>>();
+            predicates.push(disjunction);
+            Some(normalize_predicate(Predicate::And(predicates.into())))
         };
         match (operator, arguments.as_slice()) {
             ("BOOL.and", [first, second]) => {
+                if !value {
+                    return decided_by_one(first, second, value)
+                        .unwrap_or(Predicate::Equals(left, right));
+                }
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
-                return normalize_predicate(if value {
-                    Predicate::And(operands.into())
-                } else {
-                    Predicate::Or(operands.into())
-                });
+                return normalize_predicate(Predicate::And(operands.into()));
             }
             ("BOOL.or", [first, second]) => {
+                if value {
+                    return decided_by_one(first, second, value)
+                        .unwrap_or(Predicate::Equals(left, right));
+                }
                 let operands = vec![bool_operand(first, value), bool_operand(second, value)];
-                return normalize_predicate(if value {
-                    Predicate::Or(operands.into())
-                } else {
-                    Predicate::And(operands.into())
-                });
+                return normalize_predicate(Predicate::And(operands.into()));
             }
             ("BOOL.not", [operand]) => return bool_operand(operand, !value),
             ("SET.in", [element, set]) => {
-                if let Some(membership) = set_membership_equations(definition, element, set, value)
+                if let Some(membership) =
+                    set_membership_equations(definition, element, set, value, known)
                 {
                     return membership;
                 }
@@ -4119,7 +4498,7 @@ fn normalize_hooked_boolean_predicate(
         Some("INT.eq") => (!value, false),
         Some("INT.ne") => (value, false),
         _ => {
-            return boolean_literal_equality(application, value)
+            return boolean_literal_equality(definition, application, value, known)
                 .unwrap_or(Predicate::Equals(left, right));
         }
     };
@@ -4177,6 +4556,7 @@ fn set_membership_equations(
     element: &Term,
     set: &Term,
     value: bool,
+    known: &dyn Fn(&Predicate) -> bool,
 ) -> Option<Predicate> {
     let TermKind::Set {
         elements,
@@ -4198,7 +4578,8 @@ fn set_membership_equations(
     let mut equations = Vec::with_capacity(candidates.len());
     for existing in candidates {
         let (left, right) = align_subsort_operands(definition, element, existing)?;
-        let equality = normalize_injection_equality(definition, Predicate::Equals(left, right));
+        let equality =
+            normalize_injection_equality(definition, Predicate::Equals(left, right), known);
         equations.push(if value {
             equality
         } else {
@@ -4215,15 +4596,51 @@ fn set_membership_equations(
     Some(normalize_predicate(Predicate::And(predicates.into())))
 }
 
-fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
+/// `term = value` for a Boolean `term` that no other arm of
+/// [`normalize_hooked_boolean_predicate`] decomposes, or `None` when `term` is not Boolean, is
+/// a literal, or (for `false`) has a definedness `ceil_term` cannot state.
+///
+/// `term = true` is the atom `term`. `term = false` holds exactly where `term` is defined and
+/// not `true`, so it is `\ceil(term) /\ \not(term)`: the negated atom alone also holds where
+/// `term` is undefined, since `\equals(\bottom, true)` is false. The obligation is
+/// `ceil_term(term)`, empty for a `ceil_free` term, less its members the context states
+/// (`known`), where the negated atom alone is equivalent to the equation.
+fn boolean_literal_equality(
+    definition: &BackendDefinition,
+    term: &Term,
+    value: bool,
+    known: &dyn Fn(&Predicate) -> bool,
+) -> Option<Predicate> {
     if !term.sort().is_builtin(BuiltinSort::Bool) || bool_value(term).is_some() {
         return None;
     }
-    Some(if value {
-        Predicate::Term(term.clone())
-    } else {
-        Predicate::Not(Arc::new(Predicate::Term(term.clone())))
-    })
+    if value {
+        return Some(Predicate::Term(term.clone()));
+    }
+    let negation = Predicate::Not(Arc::new(Predicate::Term(term.clone())));
+    let mut predicates = ceil_term(definition, term).ok()?;
+    predicates.retain(|obligation| !known(obligation));
+    if predicates.is_empty() {
+        return Some(negation);
+    }
+    predicates.push(negation);
+    Some(normalize_predicate(Predicate::And(predicates.into())))
+}
+
+/// `predicate` read where every member of `stated` holds: a conjunct of it among `stated` is
+/// `\top` there and is left out, and so is `predicate` itself when it is one.
+fn without_conjuncts(predicate: Predicate, stated: &[Predicate]) -> Predicate {
+    match predicate {
+        Predicate::And(conjuncts) => normalize_predicate(Predicate::And(
+            conjuncts
+                .iter()
+                .filter(|conjunct| !stated.contains(conjunct))
+                .cloned()
+                .collect(),
+        )),
+        predicate if stated.contains(&predicate) => Predicate::True,
+        predicate => predicate,
+    }
 }
 
 fn align_subsort_operands(
@@ -4508,22 +4925,14 @@ fn simplify_on_stack(
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
     let mut term = term.clone();
-    let mut accumulated = Accumulated::default();
-    // The last equation applied in this lineage to an application of a `total` symbol, before
-    // any undefined term appeared: an undefined term reached afterwards lies in that equation's
-    // result, whose arguments were defined when it fired (`ContradictedTotal`).
-    let mut total_step: Option<TotalStep> = None;
-    // Whether a contradicted claim found here would be noted, so that the work done only to
-    // find one is worth doing (`claims_checked_in`).
-    let checks = claims_checked_in(definition);
-    // The function-equation steps this lineage took on `Unspecified` applications, oldest first,
-    // each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`), and, after one
-    // failed, the equations its application is retried without.
-    let mut frames: Vec<UnspecifiedFrame> = Vec::new();
-    let mut retry: Option<UnspecifiedRetry> = None;
-    // The values this lineage's nested lineages computed for `Unspecified` applications, open
-    // from the first such step on (`UnspecifiedValues`).
-    let mut values: Option<UnspecifiedValues> = None;
+    let mut lineage = Lineage {
+        values: None,
+        retry: None,
+        frames: Vec::new(),
+        checks: claims_checked_in(definition),
+        total_step: None,
+        accumulated: Accumulated::default(),
+    };
     // Each round simplifies the children then the root; the rounds end on a fixed point, an
     // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` grows only when
     // a failed attempt is undone. Invariant: `term` equals the input modulo `applied_rules` under
@@ -4537,7 +4946,7 @@ fn simplify_on_stack(
             stop::check()?;
             // A retried application is the subject of the step that failed: its children were
             // simplified in that round, and only its root is tried again.
-            let retried = retry.take();
+            let retried = lineage.retry.take();
             // The application before its children were simplified: the operands a short-circuit
             // hook evaluated, whose definedness its result entails (`hook_argument_definedness`).
             let before_children = retried.is_none().then(|| term.clone());
@@ -4564,170 +4973,265 @@ fn simplify_on_stack(
                     execution.as_deref_mut(),
                 )?
             };
-            // Where the root step's work begins: a record of the claim of a `total` application
-            // the step applies an equation to asks what the work from here on depended on
-            // (`crate::path_facts::note_contradicted_total`).
-            let before_root = if checks {
-                crate::path_facts::marker()
-            } else {
-                crate::path_facts::Marker::default()
-            };
-            let (root, root_step, root_equation, unspecified) = simplify_root(
+            match lineage.root_step(
                 definition,
-                &children.term,
-                before_children.as_ref(),
+                children,
+                before_children,
+                retried,
                 assumptions,
                 options,
+                remaining,
                 active_conditions,
                 solver,
                 execution.as_deref_mut(),
-                retried,
-            )?;
-            let children = accumulated.absorb(children);
-            let mut before_step = unspecified.as_ref().map(|_| accumulated.mark());
-            // The root step's own result conjoins `\bottom` and nothing says where: an applied
-            // equation's `#Bottom` right-hand side or refuted `ensures` (`FoundBottom`).
-            // Only the claim check reads where (`crate::path_facts::claims_checked`).
-            let root_bottom = root.undefined_term.is_none()
-                && root.bottom.is_none()
-                && checks
-                && root.conjoins_bottom();
-            let root = accumulated.absorb(root);
-            if accumulated.undefined_term.is_none() {
-                // A child's own report comes first: it names the innermost equation. Otherwise
-                // the undefined term arose in this lineage, after the last `total` step if there
-                // was one. The root step of this round is not that step's cause: an equation's
-                // result carries no undefined term, so a root report comes from a builtin or a
-                // repeated collection.
-                let (undefined, contradicted) = match children.undefined_term {
-                    Some(term) => (Some(term), children.contradicted_total),
-                    None => (root.undefined_term, None),
-                };
-                if let Some(undefined) = &undefined {
-                    accumulated.contradicted_total = contradicted.or_else(|| {
-                        total_step.as_ref().map(|step| {
-                            let contradicted = ContradictedTotal::new(
-                                step.application.clone(),
-                                &step.rule,
-                                undefined.clone(),
-                            );
-                            // Observed here, whatever becomes of this lineage's result: the
-                            // paths whose decisions rest on it carry the record
-                            // (`crate::path_facts`).
-                            crate::path_facts::note_contradicted_total(
-                                &contradicted,
-                                assumptions.unconditional(),
-                                step.from,
-                            );
-                            contradicted
-                        })
-                    });
-                }
-                accumulated.undefined_term = undefined;
+            )? {
+                ControlFlow::Continue(next) => term = next,
+                ControlFlow::Break(end) => break 'rounds end,
             }
-            // `\bottom` found below this lineage's root, other than as an undefined term, is where
-            // the result of the last `total` step reached it, as an undefined term is above.
-            if accumulated.undefined_term.is_none()
-                && accumulated.bottom.is_none()
-                && let Some(found) = &children.bottom
-            {
-                accumulated.bottom = Some(found_bottom(found, total_step.as_ref(), assumptions));
-            }
-            if let (Some(step), Some(mut before)) = (unspecified, before_step.take()) {
-                // The step's own result carries no report, so the reports now are those of the
-                // state the step was taken from.
-                before.refresh_reports(&accumulated);
-                let rule = root_equation
-                    .clone()
-                    .expect("an Unspecified step applies an equation");
-                values.get_or_insert_with(UnspecifiedValues::open);
-                frames.push(UnspecifiedFrame {
-                    evaluation: step.evaluation,
-                    application: children.term.clone(),
-                    rule,
-                    history: step.history,
-                    before: LineageState {
-                        accumulated: before,
-                        total_step: total_step.clone(),
-                        remaining: *remaining,
-                        io: execution
-                            .as_deref()
-                            .map(ExecutionEvaluationContext::snapshot),
-                        diagnostics: step.diagnostics,
-                    },
-                });
-            }
-            // The root step's own `\bottom`, after the reports of the state it was taken from
-            // (an undone `Unspecified` step takes it back with the step).
-            if accumulated.undefined_term.is_none() && accumulated.bottom.is_none() {
-                if let Some(found) = &root.bottom {
-                    accumulated.bottom =
-                        Some(found_bottom(found, total_step.as_ref(), assumptions));
-                } else if root_bottom {
-                    accumulated.bottom = Some(found_root_bottom(
-                        &children.term,
-                        root_equation.as_deref(),
-                        before_root,
-                        total_step.as_ref(),
-                        assumptions,
-                    ));
-                }
-            }
-            if accumulated.undefined_term.is_none()
-                && let Some(rule) = root_equation
-                && is_total_application(&children.term)
-            {
-                total_step = Some(TotalStep {
-                    application: children.term.clone(),
-                    rule,
-                    from: before_root,
-                });
-            }
-            if root.term.ptr_eq(&children.term)
-                || root.term == children.term
-                || root.term.attributes().evaluated
-            {
-                break 'rounds root.term;
-            }
-            // A determined function step is the definition's own computation, not a rewrite the
-            // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
-            let charged = root_step != RootStep::DeterminedFunctionStep;
-            if charged && *remaining == 0 {
-                match options.budget {
-                    BudgetPolicy::Fail => {
-                        return Err(SimplificationError::IterationLimit {
-                            limit: options.max_iterations,
-                            term: root.term,
-                        }
-                        .into());
-                    }
-                    BudgetPolicy::KeepPartial => {
-                        accumulated.exhausted = Some(BudgetExhaustion {
-                            limit: options.max_iterations,
-                            subject: BudgetSubject::Term,
-                        });
-                        break 'rounds root.term;
-                    }
-                }
-            }
-            if accumulated.exhausted.is_some() {
-                break 'rounds root.term;
-            }
-            if charged {
-                *remaining -= 1;
-            }
-            term = root.term;
         };
-        // The lineage has its outcome; each of its `Unspecified` steps is decided on it, the
-        // latest first. A failed one is undone and its application tried again without it.
-        let Some(failed) = failed_unspecified_frame(&frames, &end, &accumulated) else {
-            if let Some(values) = &values
-                && let Some(first) = frames.first()
+        match lineage.end(
+            end,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution.as_deref_mut(),
+        ) {
+            ControlFlow::Break(simplification) => return Ok(simplification),
+            ControlFlow::Continue(application) => term = application,
+        }
+    }
+}
+
+/// What a lineage of [`simplify_on_stack`] keeps from round to round, besides its term.
+///
+/// A nested evaluation recurses through `simplify_on_stack` once per level, and only what is
+/// live across its children step is part of every frame of that recursion. The work of a round
+/// after that step ([`Lineage::root_step`]) and the end of the lineage ([`Lineage::end`]) run in
+/// functions of their own, not inlined, so that their temporaries are not.
+///
+/// The fields are declared in the reverse of the order in which the lineage creates them, so
+/// they are dropped in the order locals created in that order are: newest first. Dropping
+/// `values` and each frame's `evaluation` leaves thread-local stacks (`UnspecifiedValues`,
+/// `UnspecifiedEvaluation`).
+struct Lineage {
+    /// The values this lineage's nested lineages computed for `Unspecified` applications, open
+    /// from the first such step on (`UnspecifiedValues`).
+    values: Option<UnspecifiedValues>,
+    /// After an `Unspecified` step failed, the equations its application is retried without.
+    retry: Option<UnspecifiedRetry>,
+    /// The function-equation steps this lineage took on `Unspecified` applications, oldest first,
+    /// each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`).
+    frames: Vec<UnspecifiedFrame>,
+    /// Whether a contradicted claim found here would be noted, so that the work done only to
+    /// find one is worth doing (`claims_checked_in`).
+    checks: bool,
+    /// The last equation applied in this lineage to an application of a `total` symbol, before
+    /// any undefined term appeared: an undefined term reached afterwards lies in that equation's
+    /// result, whose arguments were defined when it fired (`ContradictedTotal`).
+    total_step: Option<TotalStep>,
+    accumulated: Accumulated,
+}
+
+impl Lineage {
+    /// The rest of a round once its children step gave `children`: the root step, and what the
+    /// lineage keeps of both. `Continue` holds the term of the next round, `Break` the lineage's
+    /// outcome.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(never)]
+    fn root_step(
+        &mut self,
+        definition: &BackendDefinition,
+        children: Simplification,
+        before_children: Option<Term>,
+        retried: Option<UnspecifiedRetry>,
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        remaining: &mut usize,
+        active_conditions: &BTreeSet<(String, Term)>,
+        solver: &dyn SmtSolver,
+        mut execution: Option<&mut ExecutionEvaluationContext>,
+    ) -> SimplifyResult<ControlFlow<Term, Term>> {
+        // Where the root step's work begins: a record of the claim of a `total` application
+        // the step applies an equation to asks what the work from here on depended on
+        // (`crate::path_facts::note_contradicted_total`).
+        let before_root = if self.checks {
+            crate::path_facts::marker()
+        } else {
+            crate::path_facts::Marker::default()
+        };
+        let (root, root_step, root_equation, unspecified) = simplify_root(
+            definition,
+            &children.term,
+            before_children.as_ref(),
+            assumptions,
+            options,
+            active_conditions,
+            solver,
+            execution.as_deref_mut(),
+            retried,
+        )?;
+        let children = self.accumulated.absorb(children);
+        let mut before_step = unspecified.as_ref().map(|_| self.accumulated.mark());
+        // The root step's own result conjoins `\bottom` and nothing says where: an applied
+        // equation's `#Bottom` right-hand side or refuted `ensures` (`FoundBottom`).
+        // Only the claim check reads where (`crate::path_facts::claims_checked`).
+        let root_bottom = root.undefined_term.is_none()
+            && root.bottom.is_none()
+            && self.checks
+            && root.conjoins_bottom();
+        let root = self.accumulated.absorb(root);
+        if self.accumulated.undefined_term.is_none() {
+            // A child's own report comes first: it names the innermost equation. Otherwise
+            // the undefined term arose in this lineage, after the last `total` step if there
+            // was one. The root step of this round is not that step's cause: an equation's
+            // result carries no undefined term, so a root report comes from a builtin or a
+            // repeated collection.
+            let (undefined, contradicted) = match children.undefined_term {
+                Some(term) => (Some(term), children.contradicted_total),
+                None => (root.undefined_term, None),
+            };
+            if let Some(undefined) = &undefined {
+                self.accumulated.contradicted_total = contradicted.or_else(|| {
+                    self.total_step.as_ref().map(|step| {
+                        let contradicted = ContradictedTotal::new(
+                            step.application.clone(),
+                            &step.rule,
+                            undefined.clone(),
+                        );
+                        // Observed here, whatever becomes of this lineage's result: the
+                        // paths whose decisions rest on it carry the record
+                        // (`crate::path_facts`).
+                        crate::path_facts::note_contradicted_total(
+                            &contradicted,
+                            assumptions.unconditional(),
+                            step.from,
+                        );
+                        contradicted
+                    })
+                });
+            }
+            self.accumulated.undefined_term = undefined;
+        }
+        // `\bottom` found below this lineage's root, other than as an undefined term, is where
+        // the result of the last `total` step reached it, as an undefined term is above.
+        if self.accumulated.undefined_term.is_none()
+            && self.accumulated.bottom.is_none()
+            && let Some(found) = &children.bottom
+        {
+            self.accumulated.bottom =
+                Some(found_bottom(found, self.total_step.as_ref(), assumptions));
+        }
+        if let (Some(step), Some(mut before)) = (unspecified, before_step.take()) {
+            // The step's own result carries no report, so the reports now are those of the
+            // state the step was taken from.
+            before.refresh_reports(&self.accumulated);
+            let rule = root_equation
+                .clone()
+                .expect("an Unspecified step applies an equation");
+            self.values.get_or_insert_with(UnspecifiedValues::open);
+            self.frames.push(UnspecifiedFrame {
+                evaluation: step.evaluation,
+                application: children.term.clone(),
+                rule,
+                history: step.history,
+                before: LineageState {
+                    accumulated: before,
+                    total_step: self.total_step.clone(),
+                    remaining: *remaining,
+                    io: execution
+                        .as_deref()
+                        .map(ExecutionEvaluationContext::snapshot),
+                    diagnostics: step.diagnostics,
+                },
+            });
+        }
+        // The root step's own `\bottom`, after the reports of the state it was taken from
+        // (an undone `Unspecified` step takes it back with the step).
+        if self.accumulated.undefined_term.is_none() && self.accumulated.bottom.is_none() {
+            if let Some(found) = &root.bottom {
+                self.accumulated.bottom =
+                    Some(found_bottom(found, self.total_step.as_ref(), assumptions));
+            } else if root_bottom {
+                self.accumulated.bottom = Some(found_root_bottom(
+                    &children.term,
+                    root_equation.as_deref(),
+                    before_root,
+                    self.total_step.as_ref(),
+                    assumptions,
+                ));
+            }
+        }
+        if self.accumulated.undefined_term.is_none()
+            && let Some(rule) = root_equation
+            && is_total_application(&children.term)
+        {
+            self.total_step = Some(TotalStep {
+                application: children.term.clone(),
+                rule,
+                from: before_root,
+            });
+        }
+        if root.term.ptr_eq(&children.term)
+            || root.term == children.term
+            || root.term.attributes().evaluated
+        {
+            return Ok(ControlFlow::Break(root.term));
+        }
+        // A determined function step is the definition's own computation, not a rewrite the
+        // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
+        let charged = root_step != RootStep::DeterminedFunctionStep;
+        if charged && *remaining == 0 {
+            match options.budget {
+                BudgetPolicy::Fail => {
+                    return Err(SimplificationError::IterationLimit {
+                        limit: options.max_iterations,
+                        term: root.term,
+                    }
+                    .into());
+                }
+                BudgetPolicy::KeepPartial => {
+                    self.accumulated.exhausted = Some(BudgetExhaustion {
+                        limit: options.max_iterations,
+                        subject: BudgetSubject::Term,
+                    });
+                    return Ok(ControlFlow::Break(root.term));
+                }
+            }
+        }
+        if self.accumulated.exhausted.is_some() {
+            return Ok(ControlFlow::Break(root.term));
+        }
+        if charged {
+            *remaining -= 1;
+        }
+        Ok(ControlFlow::Continue(root.term))
+    }
+
+    /// The end of the lineage, whose rounds ended on `end`: each of its `Unspecified` steps is
+    /// decided on it, the latest first. A failed one is undone, and `Continue` holds its
+    /// application, tried again without it; otherwise `Break` holds the lineage's result.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(never)]
+    fn end(
+        &mut self,
+        end: Term,
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        remaining: &mut usize,
+        active_conditions: &BTreeSet<(String, Term)>,
+        solver: &dyn SmtSolver,
+        execution: Option<&mut ExecutionEvaluationContext>,
+    ) -> ControlFlow<Simplification, Term> {
+        let Some(failed) = failed_unspecified_frame(&self.frames, &end, &self.accumulated) else {
+            if let Some(values) = &self.values
+                && let Some(first) = self.frames.first()
             {
                 values.record_in_enclosing(
                     first,
                     &end,
-                    &accumulated,
+                    &self.accumulated,
                     execution.as_deref(),
                     &EvaluationGiven {
                         assumptions,
@@ -4739,10 +5243,13 @@ fn simplify_on_stack(
                     },
                 );
             }
-            return Ok(accumulated.finish(end));
+            return ControlFlow::Break(std::mem::take(&mut self.accumulated).finish(end));
         };
-        frames.truncate(failed.index + 1);
-        let frame = frames.pop().expect("the failed frame is the last one kept");
+        self.frames.truncate(failed.index + 1);
+        let frame = self
+            .frames
+            .pop()
+            .expect("the failed frame is the last one kept");
         let UnspecifiedFrame {
             evaluation,
             application,
@@ -4753,19 +5260,19 @@ fn simplify_on_stack(
         // What the failed attempt reached and whether its lineage ran out of budget stay facts
         // of the application's evaluation after the attempt is undone.
         history.reads.merge(&evaluation.reads_below(), usize::MAX);
-        history.exhausted |= accumulated.exhausted.is_some();
+        history.exhausted |= self.accumulated.exhausted.is_some();
         drop(evaluation);
-        accumulated.rewind(&before.accumulated);
-        total_step = before.total_step;
+        self.accumulated.rewind(&before.accumulated);
+        self.total_step = before.total_step;
         *remaining = before.remaining;
-        if let (Some(execution), Some(io)) = (execution.as_deref_mut(), before.io) {
+        if let (Some(execution), Some(io)) = (execution, before.io) {
             execution.restore(io);
         }
         diagnostic::discard_since(before.diagnostics);
         history.excluded.push(rule);
         history.contingent = min_depth(history.contingent, failed.contingent);
-        retry = Some(history);
-        term = application;
+        self.retry = Some(history);
+        ControlFlow::Continue(application)
     }
 }
 
@@ -5166,8 +5673,188 @@ fn note_effect_order(hook: &str) {
     ));
 }
 
+/// The children step of a round of [`simplify_on_stack`]: each child simplified as a lineage of
+/// its own ([`simplify_child`]), and the term rebuilt from the results if any changed.
+///
+/// A nested evaluation recurses through this step once per level, nearly always through an
+/// application or an injection with no operand order of its own, so those take a small function
+/// of their own ([`simplify_plain_children`]) and the other shapes one that is not inlined
+/// ([`simplify_other_children`]): its arms' temporaries are then not part of every frame of that
+/// recursion.
 #[allow(clippy::too_many_arguments)]
 fn simplify_children(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    let plain = match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            ShortCircuit::of(term).is_none()
+                && !(arguments.len() == 2
+                    && matches!(
+                        symbol.attributes.hook.as_deref(),
+                        Some("BOOL.and" | "BOOL.or" | "BOOL.implies")
+                    ))
+        }
+        TermKind::Injection { .. } => true,
+        _ => false,
+    };
+    if plain {
+        simplify_plain_children(
+            definition,
+            term,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution,
+        )
+    } else {
+        simplify_other_children(
+            definition,
+            term,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution,
+        )
+    }
+}
+
+/// Simplify `term`, one child of a children step, as a lineage of its own, with a copy of the
+/// step's budget `remaining`, and fold its result's conditions and reports into the step's
+/// `accumulated`. `unchanged` is cleared if the child changed; `moved_console` says whether its
+/// simplification changed the console as a process observes it (for the effect order of
+/// `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
+#[allow(clippy::too_many_arguments)]
+fn simplify_child(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
+    accumulated: &mut Accumulated,
+    unchanged: &Cell<bool>,
+    moved_console: &Cell<bool>,
+) -> SimplifyResult<Term> {
+    moved_console.set(false);
+    if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
+        measure::bump(Counter::SimplifyNodesSkippedEvaluated);
+        return Ok(term.clone());
+    }
+    let console_before = execution
+        .as_deref()
+        .map(ExecutionEvaluationContext::observable_position);
+    // The iteration limit bounds one fixed-point lineage, not the total amount of productive
+    // work in an entire term. Siblings receive independent copies of the current budget, while
+    // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
+    // wide finite constructor trees without allowing an expanding equation to reset its cap.
+    let mut child_remaining = remaining;
+    let result = simplify_with_budget(
+        definition,
+        term,
+        assumptions,
+        options,
+        &mut child_remaining,
+        active_conditions,
+        solver,
+        execution.as_deref_mut(),
+    );
+    moved_console.set(
+        execution
+            .as_deref()
+            .map(ExecutionEvaluationContext::observable_position)
+            != console_before,
+    );
+    let result = accumulated.absorb(result?);
+    if accumulated.undefined_term.is_none() {
+        accumulated.undefined_term = result.undefined_term;
+        accumulated.contradicted_total = result.contradicted_total;
+    }
+    if accumulated.bottom.is_none() {
+        accumulated.bottom = result.bottom;
+    }
+    unchanged.set(unchanged.get() && term.ptr_eq(&result.term));
+    Ok(result.term)
+}
+
+/// [`simplify_children`] of an application with no short-circuit and no `BOOL` connective hook,
+/// or of an injection: the children in order, the first failure ending the step.
+#[allow(clippy::too_many_arguments)]
+fn simplify_plain_children(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    let mut accumulated = Accumulated::default();
+    let unchanged = Cell::new(true);
+    let moved_console = Cell::new(false);
+    let mut child = |child: &Term| {
+        simplify_child(
+            definition,
+            child,
+            assumptions,
+            options,
+            *remaining,
+            active_conditions,
+            solver,
+            execution.as_deref_mut(),
+            &mut accumulated,
+            &unchanged,
+            &moved_console,
+        )
+    };
+    let rebuilt = match term.kind() {
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } => {
+            let symbol = symbol.clone();
+            let sort_arguments = sort_arguments.clone();
+            let mut simplified = Vec::new();
+            for argument in arguments.iter() {
+                simplified.push(child(argument)?);
+            }
+            Term::application(symbol, sort_arguments, simplified)
+        }
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } => Term::injection(source.clone(), target.clone(), child(term)?),
+        _ => unreachable!("only an application or an injection has plain children"),
+    };
+    let term = if unchanged.get() {
+        term.clone()
+    } else {
+        rebuilt
+    };
+    Ok(accumulated.finish(term))
+}
+
+/// [`simplify_children`] of every shape but those of [`simplify_plain_children`].
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn simplify_other_children(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
@@ -5186,45 +5873,19 @@ fn simplify_children(
     // effect order of `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
     let child_moved_console = Cell::new(false);
     let mut child = |term: &Term| {
-        child_moved_console.set(false);
-        if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
-            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok::<_, Unwind<SimplificationError>>(term.clone());
-        }
-        let console_before = execution
-            .as_deref()
-            .map(ExecutionEvaluationContext::observable_position);
-        // The iteration limit bounds one fixed-point lineage, not the total amount of productive
-        // work in an entire term. Siblings receive independent copies of the current budget, while
-        // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
-        // wide finite constructor trees without allowing an expanding equation to reset its cap.
-        let mut child_remaining = *remaining;
-        let result = simplify_with_budget(
+        simplify_child(
             definition,
             term,
             assumptions,
             options,
-            &mut child_remaining,
+            *remaining,
             active_conditions,
             solver,
             execution.as_deref_mut(),
-        );
-        child_moved_console.set(
-            execution
-                .as_deref()
-                .map(ExecutionEvaluationContext::observable_position)
-                != console_before,
-        );
-        let result = accumulated.absorb(result?);
-        if accumulated.undefined_term.is_none() {
-            accumulated.undefined_term = result.undefined_term;
-            accumulated.contradicted_total = result.contradicted_total;
-        }
-        if accumulated.bottom.is_none() {
-            accumulated.bottom = result.bottom;
-        }
-        children_unchanged.set(children_unchanged.get() && term.ptr_eq(&result.term));
-        Ok::<_, Unwind<SimplificationError>>(result.term)
+            &mut accumulated,
+            &children_unchanged,
+            &child_moved_console,
+        )
     };
     let rebuilt = match term.kind() {
         TermKind::And(left, right) => {
@@ -5352,23 +6013,9 @@ fn simplify_children(
             let right = right?;
             Term::application(symbol.clone(), sort_arguments.clone(), vec![left, right])
         }
-        TermKind::Application {
-            symbol,
-            sort_arguments,
-            arguments,
-        } => Term::application(
-            symbol.clone(),
-            sort_arguments.clone(),
-            arguments
-                .iter()
-                .map(&mut child)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        TermKind::Injection {
-            source,
-            target,
-            term,
-        } => Term::injection(source.clone(), target.clone(), child(term)?),
+        TermKind::Application { .. } | TermKind::Injection { .. } => {
+            unreachable!("simplify_plain_children takes the other applications and injections")
+        }
         // Only the entries `child` may change are visited: the tree is entered where a subtree
         // holds an entry that is not evaluated or mentions a variable the path condition binds
         // (its summary), or everywhere when the path condition replaces terms, which no summary
@@ -7465,8 +8112,9 @@ fn decide_unused_instance<T, N>(
 pub(crate) enum EquationInstances {
     /// The left-hand side does not match the subject: no instance of the equation is the subject.
     NotMatched(MatchFailed),
-    /// Matching modulo the map and set axioms could not decide whether the left-hand side
-    /// matches the subject.
+    /// Matching could not decide whether the left-hand side matches the subject: matching modulo
+    /// the map and set axioms left it open, or the matcher met a question it does not answer
+    /// ([`MatchResult::Undecided`]).
     Undecided,
     /// The instances in the matcher's order; never empty. When matching modulo the map and set
     /// axioms decided some matchings but not every one, or some matching rests on a binding that
@@ -7574,6 +8222,10 @@ pub(crate) fn equation_instances<'r>(
                 .expect("a failed match states its refutation");
             return (rule, EquationInstances::NotMatched(failed));
         }
+        // A question matching does not answer, such as a sort question that depends on a
+        // sort-parametric equation's sort variable: some instance of the equation may match, so
+        // it is not refuted and lower-priority equations do not apply.
+        MatchResult::Undecided(_) => return (rule, EquationInstances::Undecided),
         MatchResult::Indeterminate {
             substitution,
             remainder,

@@ -147,7 +147,8 @@ pub fn checked_ordinal(index: usize, role: ProvenanceRole, span: Span) -> Result
 }
 
 pub(crate) fn validate_authored_binder(spelling: &str, span: Span) -> Result<(), SyntaxError> {
-    if spelling.contains(krs_ir::ir::RESERVED_MARKER) {
+    if spelling.contains(krs_ir::ir::RESERVED_MARKER) && !crate::rule::is_generated_binder(spelling)
+    {
         return Err(SyntaxError::new(SyntaxErrorKind::ReservedBinder, span));
     }
     Ok(())

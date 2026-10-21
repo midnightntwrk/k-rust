@@ -1,0 +1,10 @@
+# kink-flow mutation list for the divide fixture (flow F-13).
+
+[[mutation]]
+id = "guard-dropped"
+note = "the division rule loses its guard: 1 / 0 takes an undefined step"
+
+  [[mutation.edit]]
+  rule = "div"
+  find = " requires I2 =/=Int 0"
+  replace = ""

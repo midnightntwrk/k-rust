@@ -25,7 +25,7 @@ Those stages make the definition inspectable without pretending that symbolic KR
 | Command | What it establishes |
 | --- | --- |
 | `krs fmt --check` | Authored KRS files are at the formatter fixed point. |
-| `krs check` | Rust collection and KRS semantic checks succeed. |
+| `krs check` | Rust collection, KRS semantic checks, K emission, and every native route's checks succeed, as `krs emit-k`, `krs build`, and the run commands would require. |
 | `krs expand` | The readable surface lowers to deterministic explicit Rust. |
 | `krs emit-k` | The checked definition emits K source and source mappings. |
 | `krs build` | A selected backend accepts the definition and produces artifacts. |

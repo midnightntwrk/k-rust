@@ -1,0 +1,11 @@
+# kink-flow mutation list for the loop fixture (flow F-05).
+
+[[mutation]]
+id = "countdown-escapes"
+note = """countdown(I) steps to countdown(2I - 3): from 3 it stays at 3 forever (a timeout), \
+from 1 it reaches countdown(-1), which no rule rewrites (a different final configuration)"""
+
+  [[mutation.edit]]
+  rule = "countdown"
+  find = "countdown(I -Int 1)"
+  replace = "countdown(I *Int 2 -Int 3)"

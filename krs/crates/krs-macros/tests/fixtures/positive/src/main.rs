@@ -621,7 +621,20 @@ pub struct Secondary {
 }
 
 impl Secondary {
+    /// Documentation, lint levels, and `cfg` stay on the generated method.
     #[language_host::init]
+    #[cfg(not(test))]
+    #[deny(unused_variables)]
+    pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
+        Self {
+            k: language_host::configuration::KCell::new(k![program]),
+        }
+    }
+
+    /// `cfg` selects this initializer in test builds instead.
+    #[language_host::init]
+    #[cfg(test)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
         Self {
             k: language_host::configuration::KCell::new(k![program]),
@@ -2214,7 +2227,7 @@ mod tests {
                 .resolve(),
             std::any::TypeId::of::<readable_sorts::ReadableExpr>()
         );
-        let HostTerm::Application { reference, .. } = &eval_add.head.as_ref().unwrap().subject else {
+        let HostTerm::Application { reference, .. } = &eval_add.head.as_ref().unwrap().items[0] else {
             panic!("readable eval_add subject must be an enum application")
         };
         assert_eq!(
@@ -2244,7 +2257,7 @@ mod tests {
         let HostDescriptorPayload::HeadRule(and_false) = &and_false.payload else {
             panic!("readable and_false must be a head-anchored rule")
         };
-        let HostTerm::Application { arguments, .. } = &and_false.head.as_ref().unwrap().subject else {
+        let HostTerm::Application { arguments, .. } = &and_false.head.as_ref().unwrap().items[0] else {
             panic!("readable and_false subject must be an enum application")
         };
         assert_eq!(arguments.len(), 1, "record `..` stays a partial subject");
@@ -2293,7 +2306,7 @@ mod tests {
             let HostDescriptorPayload::HeadRule(rule) = &descriptor.payload else {
                 panic!("{name} must be a readable head rule")
             };
-            let HostTerm::Application { reference, .. } = &rule.head.as_ref().unwrap().subject else {
+            let HostTerm::Application { reference, .. } = &rule.head.as_ref().unwrap().items[0] else {
                 panic!("{name} must have an application head")
             };
             reference.target.resolve()
