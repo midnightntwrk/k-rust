@@ -226,13 +226,17 @@ bug — report it, don't guess.
   both reject, and one that matches a whole configuration cell name or cell
   property name at a `prec` at least as high as K's strongest token for it,
   which Java K's configuration parser then cannot read.
-  *Note (2026-10 follow-up, symbol collisions):* a production's emitted
-  symbol is its variant or struct name with a lowercase first letter. When
-  two enum variants of one definition would derive the same symbol, each of
-  them takes its enum's name as a prefix instead (`ExpSyntax::Dot` is
-  `expSyntaxDot`, `LValSyntax::Dot` is `lValSyntaxDot`); a variant with a
-  unique name keeps the short symbol, and a symbol that still collides is
-  rejected (`krs::analysis::symbol-name-collision`).
+  *Note (2026-10 follow-up, symbol collisions; superseded 2026-10-21):* a
+  production's emitted symbol depends only on its own declaration. A struct's
+  is its name with a lowercase first letter; an enum variant's is always its
+  enum's name with a lowercase first letter followed by the variant name
+  (`ExpSyntax::Dot` is `expSyntaxDot`, `Op::Add` is `opAdd`), and
+  `#[k::symbol]` on a struct or a variant pins another. The earlier rule
+  prefixed a variant only when another production shared its name, so adding
+  a declaration anywhere, even in a dependency, could rename an unrelated
+  symbol. A symbol that two productions derive, or that K generates itself
+  (`isExp`, `initKCell`), is rejected
+  (`krs::analysis::symbol-name-collision`); nothing is renamed.
 - **C11 — A function may be declared by a `fn`, and a function that is
   not program syntax may omit its template** (2026-10, SM83 feedback
   item 3). `#[k::function(..)]` on a `fn` is pure sugar for the struct

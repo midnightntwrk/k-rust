@@ -646,7 +646,7 @@ fn collect_enum_invocations(
         let anchors = declaration
             .variant_provenance(variant)
             .map_err(source_syntax)?;
-        output.push(with_visibility(
+        output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,
                 variant.name().to_string(),
@@ -654,8 +654,9 @@ fn collect_enum_invocations(
                 ParsedInvocationPayload::Declaration,
             )?,
             variant_visibility.clone(),
+            variant.explicit_symbol(),
         ));
-        output.push(with_visibility(
+        output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorDeclaration,
                 variant.name().to_string(),
@@ -663,6 +664,7 @@ fn collect_enum_invocations(
                 ParsedInvocationPayload::Declaration,
             )?,
             variant_visibility.clone(),
+            variant.explicit_symbol(),
         ));
     }
     if let Some(anchors) = declaration.precedence_provenance().map_err(source_syntax)? {

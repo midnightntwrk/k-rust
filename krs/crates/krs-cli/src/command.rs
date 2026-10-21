@@ -1586,6 +1586,7 @@ mod tests {
             value: "name".to_owned(),
             first: "first".to_owned(),
             second: "second".to_owned(),
+            first_origin: Box::new(krs_ir::OriginStack::authored(range.clone())),
             second_origin: krs_ir::OriginStack::authored(range.clone()),
         };
         let message = error.to_string();

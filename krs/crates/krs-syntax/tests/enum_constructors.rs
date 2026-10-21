@@ -433,7 +433,7 @@ fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
         (
             "#[k::constructors(sort = Expr, result = KResult)] enum Bad { #[k::precedence(middle)] #[k::syntax(\"x\")] X }",
             SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
-                reason: "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
+                reason: "enum constructor variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, `desugar`, and `symbol` KRS helpers; precedence belongs on the enum",
             },
         ),
         (
@@ -701,4 +701,65 @@ enum Single {
     assert!(declaration.precedence_chain_groups().is_none());
     assert!(declaration.precedence_descriptor().unwrap().is_none());
     assert!(declaration.precedence_provenance().unwrap().is_none());
+}
+
+#[test]
+fn variant_symbol_override_is_consumed_with_its_provenance() {
+    let declaration = EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Expr, result = KResult)]
+#[k::precedence((Add, Sub))]
+enum Op {
+    #[k::symbol("api::Plus")]
+    #[k::syntax("{lhs} + {rhs}")]
+    Add { lhs: Expr, rhs: Expr },
+    #[k::syntax("{lhs} - {rhs}")]
+    Sub { lhs: Expr, rhs: Expr },
+}"#,
+    )
+    .unwrap();
+    let [add, sub] = declaration.variants() else {
+        panic!("two variants");
+    };
+    assert_eq!(add.explicit_symbol().unwrap().value().as_str(), "api::Plus");
+    assert!(add.variant().attrs.is_empty());
+    assert!(
+        add.provenance()
+            .unwrap()
+            .iter()
+            .any(|anchor| anchor.role() == ProvenanceRole::StableSymbol)
+    );
+    assert!(sub.explicit_symbol().is_none());
+    assert!(
+        !sub.provenance()
+            .unwrap()
+            .iter()
+            .any(|anchor| anchor.role() == ProvenanceRole::StableSymbol)
+    );
+}
+
+#[test]
+fn variant_symbol_override_rejects_duplicates_and_bad_paths() {
+    for (variant, expected) in [
+        (
+            r#"#[k::symbol("a::X")] #[k::symbol("b::X")] #[k::syntax("x")] X()"#,
+            Some(SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "an enum constructor variant may carry only one `#[k::symbol]` helper",
+            }),
+        ),
+        (
+            r#"#[k::symbol] #[k::syntax("x")] X()"#,
+            Some(SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "`k::symbol` requires one parenthesized string literal, such as `#[k::symbol(\"api::Name\")]`",
+            }),
+        ),
+        (r#"#[k::symbol("a/b")] #[k::syntax("x")] X()"#, None),
+    ] {
+        let source = format!(
+            "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad {{ {variant} }}"
+        );
+        let error = EnumConstructorDeclaration::parse_source(&source).unwrap_err();
+        if let Some(expected) = expected {
+            assert_eq!(error.kind(), &expected, "{source}");
+        }
+    }
 }

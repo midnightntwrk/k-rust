@@ -8,7 +8,7 @@ use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant
 
 use crate::attribute::{
     ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, StaticMode,
-    StaticProductionAttribute, VariantSyntaxAttribute,
+    StaticProductionAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
@@ -80,9 +80,18 @@ pub struct EnumConstructorVariant {
     static_marker: Option<VariantStaticMarker>,
     precedence_group: Option<usize>,
     precedence_member_range: Option<TokenRange>,
+    explicit_symbol: Option<SymbolAttribute>,
 }
 
 impl EnumConstructorVariant {
+    /// Returns the variant's `#[k::symbol("path::Name")]` override: a pinned
+    /// public identity whose final component names the emitted symbol in
+    /// place of the default `lowerCamel(Enum)` + `Variant`.
+    #[must_use]
+    pub const fn explicit_symbol(&self) -> Option<&SymbolAttribute> {
+        self.explicit_symbol.as_ref()
+    }
+
     /// Returns the span-preserving Rust variant after KRS helper attributes
     /// have been consumed.
     #[must_use]
@@ -227,6 +236,9 @@ impl EnumConstructorVariant {
                 marker.range,
             ));
             anchors.extend(marker.attribute.provenance());
+        }
+        if let Some(symbol) = &self.explicit_symbol {
+            anchors.extend(symbol.provenance()?);
         }
         Ok(anchors)
     }
@@ -443,6 +455,7 @@ impl EnumConstructorDeclaration {
                 static_marker: helpers.static_marker,
                 precedence_group: None,
                 precedence_member_range: None,
+                explicit_symbol: helpers.symbol,
             });
         }
         if variants.is_empty() {
@@ -912,6 +925,7 @@ struct VariantHelpers {
     format: Option<LitStr>,
     strictness: Option<VariantStrictness>,
     static_marker: Option<VariantStaticMarker>,
+    symbol: Option<SymbolAttribute>,
 }
 
 /// A variant's `#[k::alias]` or `#[k::desugar]` marker (KF-028).
@@ -972,6 +986,8 @@ fn take_variant_helpers(
                 ));
             };
             helpers.syntax = Some(VariantSyntaxAttribute::parse_tokens(list.tokens.clone())?);
+        } else if is_helper_named(&attribute, "symbol") {
+            helpers.symbol = Some(variant_symbol(&attribute, helpers.symbol.is_some())?);
         } else if is_helper_named(&attribute, "format") {
             if helpers.format.is_some() {
                 return Err(unsupported_enum(
@@ -1037,7 +1053,7 @@ fn take_variant_helpers(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
+                "enum constructor variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, `desugar`, and `symbol` KRS helpers; precedence belongs on the enum",
                 attribute.span(),
             ));
         } else {
@@ -1046,6 +1062,24 @@ fn take_variant_helpers(
     }
     *attributes = retained;
     Ok(helpers)
+}
+
+/// A variant's `#[k::symbol("path::Name")]` helper; `duplicate` when the
+/// variant already carries one.
+fn variant_symbol(attribute: &Attribute, duplicate: bool) -> Result<SymbolAttribute, SyntaxError> {
+    if duplicate {
+        return Err(unsupported_enum(
+            "an enum constructor variant may carry only one `#[k::symbol]` helper",
+            attribute.span(),
+        ));
+    }
+    let Meta::List(list) = &attribute.meta else {
+        return Err(unsupported_enum(
+            "`k::symbol` requires one parenthesized string literal, such as `#[k::symbol(\"api::Name\")]`",
+            attribute.span(),
+        ));
+    };
+    SymbolAttribute::parse_tokens(list.tokens.clone())
 }
 
 fn marker_tokens(attribute: &Attribute) -> Result<TokenStream, SyntaxError> {

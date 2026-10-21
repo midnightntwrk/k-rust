@@ -89,7 +89,8 @@ It does not execute the object program: `krs run`, `krs search`, and `krs prove`
 ## Identity and diagnostics
 
 Rust paths and generated declaration identities remain distinct from emitted K symbols.
-`#[k::symbol]` can pin the public symbol of a sort or standalone constructor where external compatibility requires it; inferred identities are preferred elsewhere.
+A production's emitted symbol depends only on its own declaration (`Op::Add` is `opAdd`, a struct `Inc` is `inc`), so no other declaration can rename it.
+`#[k::symbol]` can pin the public symbol of a sort, a standalone constructor, or a family variant where external compatibility requires it; inferred identities are preferred elsewhere.
 
 Source maps preserve authored ranges through generated artifacts.
 A failure should be reported at the stage that discovered it: Rust expansion, KRS analysis, the K frontend, or the native definition checks.
