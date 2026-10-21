@@ -808,7 +808,9 @@ fn the_program_and_definition_files_are_never_modified() {
 #[test]
 fn the_crate_source_writes_no_file() {
     // The crate's library code (tests excluded) names no filesystem write: the program and the
-    // specification are never modified or copied (ARCHITECTURE 2.1).
+    // specification are never modified or copied (ARCHITECTURE 2.1). The `krust-fuzz`
+    // executable (`src/bin`) is not library code: it writes the report and witness files its
+    // user names, never the program or the campaign file.
     let forbidden = [
         "std::fs",
         "fs::",
@@ -825,7 +827,11 @@ fn the_crate_source_writes_no_file() {
         "/src"
     ))];
     let mut checked = 0;
+    let executable = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/bin"));
     while let Some(path) = pending.pop() {
+        if path == executable {
+            continue;
+        }
         if path.is_dir() {
             for entry in std::fs::read_dir(&path).expect("a source directory is listed") {
                 pending.push(entry.expect("an entry").path());
