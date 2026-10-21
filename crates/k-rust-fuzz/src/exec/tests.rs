@@ -935,11 +935,14 @@ fn a_leaf_of_an_initial_configuration_defined_only_under_obligations_is_undecide
         let leaf = only_leaf(&result);
         // Without a solver the step under the obligation is `indeterminate`; with Z3 it runs and
         // the leaf is the natural-looking end the review describes. Either way the path carries
-        // `undefined-initial-instances`.
-        #[cfg(feature = "z3")]
-        assert_eq!(leaf.halt, HaltReasonOutput::Stuck);
-        #[cfg(not(feature = "z3"))]
-        assert_eq!(leaf.halt, HaltReasonOutput::Indeterminate);
+        // `undefined-initial-instances`. Whether k-rust has a solver is its own feature, which a
+        // workspace build turns on even when this crate's `z3` feature is off.
+        let expected = if k_rust::Z3_INFERENCE {
+            HaltReasonOutput::Stuck
+        } else {
+            HaltReasonOutput::Indeterminate
+        };
+        assert_eq!(leaf.halt, expected);
         assert!(
             leaf.unclean.contains(&UncleanReason::Undecided),
             "{:?}",
