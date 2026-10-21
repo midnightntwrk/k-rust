@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 const PREAMBLE: &str = r#"
-use k::builtin::{Int, KSequence};
+use k::builtin::{Bool, Int, KSequence};
 use k::{KResult, Term};
 
 k::sorts! {
@@ -19,7 +19,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((FieldOf, AliasOf, PairOf, SpliceOf, CodeOf))]
+#[k::precedence((FieldOf, AliasOf, PairOf, SpliceOf, CodeOf, FlagOf))]
 pub enum ExpSyntax {
     #[k::syntax("fieldOf({n})")]
     FieldOf { n: Int },
@@ -31,6 +31,8 @@ pub enum ExpSyntax {
     SpliceOf { n: Int },
     #[k::syntax("codeOf({n})")]
     CodeOf { n: Int },
+    #[k::syntax("flagOf({b})")]
+    FlagOf { b: Bool },
 }
 
 #[k::configuration]
@@ -48,6 +50,9 @@ impl Machine {
 
 #[k::function(total, internal)]
 pub fn Code(value: Term<Int>) -> Term<Int>;
+
+#[k::function(total, internal)]
+pub fn Flag(value: Term<Bool>) -> Term<Int>;
 "#;
 
 /// Fields in the results of readable clauses, with and without `op @`, in a
@@ -175,4 +180,57 @@ fn readable_results_and_or_conditions_beside_templates_run() {
         ]
     "#]]
     .assert_debug_eq(&outcomes);
+}
+
+/// The `error[..]` headlines of `krs check` and the locations they point at.
+fn check_errors(target: &Path, manifest: &Path) -> Vec<String> {
+    let (success, _, stderr) = krs(target, manifest, "check", &[]);
+    assert!(!success, "krs check unexpectedly passed:\n{stderr}");
+    let directory = format!("{}/", manifest.parent().unwrap().display());
+    stderr
+        .lines()
+        .filter(|line| line.starts_with("error[") || line.trim_start().starts_with("--> "))
+        .map(|line| line.trim().replace(&directory, ""))
+        .collect()
+}
+
+#[test]
+fn a_template_at_a_position_of_another_sort_is_reported_at_the_template() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let errors = [
+        (
+            "row",
+            "k::equations! {\n    for Flag;\n    flag_row: k::bits!(\"1_\") => 1;\n    #[k::equation(owise)]\n    flag_other: b => 0;\n}\n",
+        ),
+        (
+            "function",
+            "#[k::equation]\nfn flag_fn(k::term![Flag(k::bits!(\"1_\"))]: Term<Int>) -> Term<Int> {\n    1\n}\n",
+        ),
+        (
+            "rule",
+            "k::rules! {\n    for Exp;\n    use ExpSyntax::*;\n    flag_of: FlagOf(k::bits!(\"1_\")) => 0;\n}\n",
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = package(temporary.path(), name, source);
+        check_errors(target.path(), &manifest)
+    });
+    expect_test::expect![[r#"
+        [
+            [
+                "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
+                "--> src/lib.rs:48:24",
+            ],
+            [
+                "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
+                "--> src/lib.rs:47:35",
+            ],
+            [
+                "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
+                "--> src/lib.rs:49:30",
+            ],
+        ]
+    "#]]
+    .assert_debug_eq(&errors);
 }

@@ -206,6 +206,7 @@ register_codes! {
         INVALID_FRESH_GENERATOR: "krs::analysis::invalid-fresh-generator" => "A `fresh_generator` function is not total, does not take exactly one Int argument, or does not return the sort it generates.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
+        BIT_TEMPLATE_SORT: "krs::analysis::bit-template-sort" => "A `k::bits!` template, which matches an `Int`, stands at a position whose sort is neither `Int` nor a sort above it.",
         TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",
         INCOMPATIBLE_BINDER: "krs::analysis::incompatible-binder" => "A typed binder's declared sort is not a subsort of the sort one of its occurrences needs.",
         INVALID_SPEC_MODULE: "krs::analysis::invalid-spec-module" => "An author spec module breaks a K proof-module rule: it holds something other than claims, simplification lemmas, and tokens for existing sorts, holds an `smt_lemma` lemma, nests, has an import cycle or an import that resolves to no module, does not import the definition, reuses a module name, or names an `Id` its grammar cannot lex.",

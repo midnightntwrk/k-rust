@@ -600,6 +600,7 @@ fn lower_initializer_term(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         declared_binders: BTreeMap::new(),
+        subject_keys: BTreeMap::new(),
     };
     builder.infer(term, expected_sort, false)?;
     builder.resolve_binding_sorts()?;

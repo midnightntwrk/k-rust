@@ -190,6 +190,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
+    /// A `k::bits!` template, which matches an `Int`, stands at a position
+    /// of a sort neither `Int` nor above it.
+    BitTemplateSort {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position's sort.
+        reason: String,
+        /// Sole exact authored range of the template.
+        range: Option<Box<SourceRange>>,
+    },
     /// A typed binder's declared sort is not below the sort one of its
     /// occurrences needs (KF-009).
     IncompatibleBinder {
@@ -561,6 +571,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidTokenSort { reason, .. }
             | Self::TokenCollision { reason, .. }
             | Self::InvalidSortTest { reason, .. }
+            | Self::BitTemplateSort { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
@@ -629,6 +640,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
             Self::TokenCollision { .. } => codes::analysis::TOKEN_COLLISION,
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
+            Self::BitTemplateSort { .. } => codes::analysis::BIT_TEMPLATE_SORT,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
@@ -685,6 +697,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidTokenSort { range, .. }
             | Self::TokenCollision { range, .. }
             | Self::InvalidSortTest { range, .. }
+            | Self::BitTemplateSort { range, .. }
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidPatternAs { range, .. }
             | Self::InvalidPatternOr { range, .. }

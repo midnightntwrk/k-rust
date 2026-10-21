@@ -306,6 +306,7 @@ pub(super) fn lower_head_rule_descriptor(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         declared_binders: BTreeMap::new(),
+        subject_keys: BTreeMap::new(),
     };
     let head_sort = rule
         .head_sort
@@ -1586,6 +1587,7 @@ pub(super) fn lower_structured_rule_descriptor(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         declared_binders,
+        subject_keys: BTreeMap::new(),
     };
     if rule.predicate {
         return lower_predicate_rule(descriptor, rule, builder, &binding_names_in_order(rule));
