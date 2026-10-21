@@ -111,6 +111,15 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the target path.
         range: Option<Box<SourceRange>>,
     },
+    /// A constructor family without a `#[k::precedence]` chain has a variant
+    /// that can sit directly at the edge of another of its variants, where a
+    /// chain decides how they parse.
+    MissingPrecedenceChain {
+        /// Complete reason naming the family and every such variant.
+        reason: String,
+        /// Sole exact authored range of the first such variant.
+        range: Option<Box<SourceRange>>,
+    },
     /// An author spec module breaks a K proof-module rule (KF-041).
     InvalidSpecModule {
         /// The spec module, or the item the diagnostic is about.
@@ -548,6 +557,7 @@ impl fmt::Display for DescriptorLoweringError {
                 rule.item_name()
             ),
             Self::InvalidSpecModule { reason, .. }
+            | Self::MissingPrecedenceChain { reason, .. }
             | Self::InvalidTokenSort { reason, .. }
             | Self::TokenCollision { reason, .. }
             | Self::InvalidSortTest { reason, .. }
@@ -609,6 +619,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
+            Self::MissingPrecedenceChain { .. } => codes::analysis::MISSING_PRECEDENCE_CHAIN,
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
             Self::InvalidSpecModule { .. } => codes::analysis::INVALID_SPEC_MODULE,
             Self::RuleChangesNoCell { .. } => codes::analysis::RULE_CHANGES_NO_CELL,
@@ -664,6 +675,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NondetGroup { range, .. }
             | Self::AmbiguousOrPattern { range, .. }
             | Self::InvalidOverload { range, .. }
+            | Self::MissingPrecedenceChain { range, .. }
             | Self::PrivateProductionInSpec { range, .. }
             | Self::InvalidSpecModule { range, .. }
             | Self::RuleChangesNoCell { range, .. }

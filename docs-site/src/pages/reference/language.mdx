@@ -43,6 +43,12 @@ The family form is preferred when a closed set of alternatives shares an open re
 
 `#[k::strict]` and `#[k::seqstrict]` add strict or left-to-right evaluation positions to constructor declarations.
 Enum helper `#[k::precedence(...)]` names intra-family tiers, using explicit `left`, `right`, or `non_assoc` and leaving bare groups unconstrained.
+A chain, when written, lists every variant exactly once (`krs::syntax::invalid-enum-precedence`).
+It is required exactly when it could change a parse: when some variant's template begins or ends with a field whose sort admits the family's sort, that is, the sort itself, one of its supersorts in the whole definition, or `KItem` or `K`.
+Such a field lets one of the family's productions sit directly at the edge of another, the only position its tiers constrain.
+Without a chain the variants belong to no production group; a family that needs one and has none is `krs::analysis::missing-precedence-chain`, an error in every command that lowers the definition (`check`, `emit-k`, `build`, `run`, `prove`).
+A variant's `group` comes from the chain, so it is rejected without one; a reference family names a `group` on every variant or on none.
+Declaration order never supplies precedence.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
 
 Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` and `prefer` syntax flags.

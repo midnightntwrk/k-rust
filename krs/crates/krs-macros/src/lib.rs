@@ -125,8 +125,13 @@ pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// Declares a Rust enum as a family of K constructors, each of which
 /// constructs `sort`; the enum itself is not a sort.
 ///
-/// Readable families (`sort = ..., result = ...`) require a following
-/// exhaustive enum-level precedence chain. `>` means “binds tighter than”;
+/// A readable family (`sort = ..., result = ...`) may carry an enum-level
+/// precedence chain, which lists every variant exactly once. The chain is
+/// required (`krs::analysis::missing-precedence-chain`) exactly when some
+/// variant's template begins or ends with a field whose sort admits the
+/// family's sort, so that one variant can sit at the edge of another; without
+/// a chain the variants belong to no production group. `>` means “binds
+/// tighter than”;
 /// `left`, `right`, and `non_assoc` prefix tiers with explicit associativity.
 /// A bare tier carries no associativity constraint; `non_assoc` lowers to K's
 /// explicit `syntax non-assoc` sentence. These three keywords are reserved in

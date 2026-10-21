@@ -203,6 +203,22 @@ bug — report it, don't guess.
   `k::precedence!` chain block survives as the names-only case for
   cross-family precedence. Positional tier markers are rejected (two
   rounds of review + ecosystem survey). [r9; 11]
+  *Amendment (2026-10, SM83 feedback, optional chain):* the chain is
+  required exactly when it could change a parse. Its relations restrict only
+  a direct child at the first or last item of a parent of the same family,
+  so it matters exactly when some variant's template begins or ends with a
+  field whose sort admits the family's sort: the sort itself, a supersort
+  in the assembled subsort order, or `KItem`/`K`, which admit every sort.
+  Otherwise it may be omitted; the variants then belong to no production
+  group, and the reference form names no `group` (a reference family groups
+  all its variants or none). Because the subsort order is a fact of the
+  whole definition, the requirement is the analysis error
+  `krs::analysis::missing-precedence-chain`, raised on every path that
+  lowers a definition (`check`, `emit-k`, `build`, `run`, `prove`). A
+  present chain stays exhaustive and fail-fast at expansion: once a chain
+  can matter, a variant left out of it could still decide an ambiguity at
+  its parent's edge, so no variant gets a default tier. Declaration order
+  never supplies the chain.
 - **C8 — Nullary constructors are zero-field tuple variants**
   (`EmptyBlock()`) so the same spelling is a legal Rust pattern and
   constructor everywhere. [r6a]
@@ -505,7 +521,8 @@ bug — report it, don't guess.
   (4) stable item identity (no span-derived nonces in anything authors
   reorder). [readability README §Method]
 - **F4 — Fail-fast expansion diagnostics** are part of every construct's
-  definition (precedence-chain totality C7, template↔field agreement C4,
+  definition (precedence-chain totality C7 once a chain is written,
+  template↔field agreement C4,
   reorder/rename producing compile errors not silent staleness). [r9;
   07 §1]
 - **F5 — Canonical `k::rules!` layout: deterministic collapse,

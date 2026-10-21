@@ -425,9 +425,9 @@ enum Family {
 fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
     for (source, expected_kind) in [
         (
-            "#[k::constructors(sort = Expr, result = KResult)] enum Missing { #[k::syntax(\"x\")] X }",
+            "#[k::constructors(sort = Expr, result = KResult)] enum Unchained { #[k::syntax(\"x\", group = \"atoms\")] X }",
             SyntaxErrorKind::InvalidEnumPrecedence {
-                reason: "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain".into(),
+                reason: "variant group `atoms` needs a chain: `Unchained` has no `#[k::precedence]`, and a readable variant's group comes from it (a one-tier chain `name (A, B)` names a group)".into(),
             },
         ),
         (
@@ -525,11 +525,13 @@ fn reference_family_rejects_partially_materialized_layer_one_forms() {
     let cases = [
         (
             r#"#[k::constructors(sort = Expr, reference)]
-enum MissingGroup {
-    #[k::syntax("x", format = "x")]
+enum MixedGroups {
+    #[k::syntax("x", group = "atom", format = "x")]
     X,
+    #[k::syntax("y", format = "y")]
+    Y,
 }"#,
-            "requires an explicit `group`",
+            "reference family `MixedGroups` gives `group` to some variants but not to `Y`",
         ),
         (
             r#"#[k::constructors(sort = Expr, reference)]
@@ -683,6 +685,49 @@ enum Family {
             "variant `Atom` materializes group `wrong` but the exhaustive chain assigns `family_tier0`"
         ),
         "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn a_readable_family_may_omit_its_chain_and_then_has_no_groups() {
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Instr, result = KResult)]
+enum Instruction {
+    #[k::syntax("nop")]
+    Nop,
+    #[k::syntax("{op} a, {src}")]
+    Alu8 { op: AluOp, src: Operand8 },
+}"#,
+    )
+    .unwrap();
+    assert_eq!(declaration.precedence_groups().count(), 0);
+    assert!(declaration.precedence_descriptor().unwrap().is_none());
+    assert!(declaration.associativity_provenance().unwrap().is_none());
+    assert!(
+        declaration
+            .variants()
+            .iter()
+            .all(|variant| variant.precedence_group().is_none())
+    );
+}
+
+#[test]
+fn a_reference_family_may_name_no_group_at_all() {
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Expr, reference)]
+enum Ungrouped {
+    #[k::syntax("x", format = "x")]
+    X,
+    #[k::syntax("y", format = "y")]
+    Y,
+}"#,
+    )
+    .unwrap();
+    assert!(
+        declaration
+            .variants()
+            .iter()
+            .all(|variant| variant.syntax().unwrap().group().is_none())
     );
 }
 

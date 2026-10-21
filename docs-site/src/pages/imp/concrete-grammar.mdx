@@ -31,6 +31,7 @@ Every field must be represented consistently, and placeholder names are checked 
 ## One exhaustive precedence chain
 
 The precedence attribute lists every variant exactly once.
+`Op` needs one, because `Add`'s template begins and ends with an `Expr` field, where another expression can sit directly; a family whose templates never begin or end with a field that admits the family's sort may omit the chain.
 Higher groups bind more tightly than groups below them, so multiplication binds more tightly than addition, which binds more tightly than comparisons and Boolean operators.
 
 `left` makes repeated members of a group left-associative.

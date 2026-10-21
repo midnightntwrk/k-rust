@@ -131,3 +131,69 @@ fn map_update_lookalike_is_rejected_after_type_identity_resolution() {
         "lookalike rejection did not retain the authored path and registry boundary: {stdout}"
     );
 }
+
+/// Runs an in-process collection fixture and returns its standard output.
+fn run_fixture(bin: &str) -> String {
+    let output = cargo_fixture(fixture("negative"))
+        .args(&["--quiet", "--bin", bin])
+        .run();
+    assert!(
+        output.status.success(),
+        "{bin} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+const CHAIN_HELP: &str = "so one `{family}` production can sit directly at the edge of another, where a chain decides how they parse; rank every variant, for example `#[k::precedence((A) > left (B, C))]`, or list them all in one bare tier to accept every nesting";
+
+fn missing_chain(family: &str, reasons: &str) -> String {
+    format!(
+        "`{family}` needs a `#[k::precedence(..)]` chain: {reasons}, {}\n",
+        CHAIN_HELP.replace("{family}", family)
+    )
+}
+
+#[test]
+fn a_chainless_family_whose_variant_nests_at_its_own_edge_is_rejected() {
+    assert_eq!(
+        run_fixture("precedence_chain_missing_own_sort"),
+        missing_chain(
+            "Op",
+            "`Add` begins with `lhs: Exp` (the family's own sort) and ends with `rhs: Exp` (the family's own sort)"
+        )
+    );
+}
+
+#[test]
+fn a_chainless_family_nesting_through_a_subsort_is_rejected() {
+    assert_eq!(
+        run_fixture("precedence_chain_missing_through_subsort"),
+        missing_chain(
+            "AtomSyntax",
+            "`Wrap` ends with `inner: Exp` (through the subsorts `Atom` < `Exp`)"
+        )
+    );
+}
+
+#[test]
+fn a_chainless_family_ending_with_a_k_item_field_is_rejected() {
+    assert_eq!(
+        run_fixture("precedence_chain_missing_through_k_item"),
+        missing_chain(
+            "Steps",
+            "`Then` ends with `next: KItem` (`KItem` admits every sort)"
+        )
+    );
+}
+
+#[test]
+fn a_family_that_cannot_nest_at_an_edge_omits_its_chain_and_emits_no_group() {
+    expect_test::expect![[r##"
+        syntax Instr ::= AluOp "a" "," Operand8 [symbol(instructionAlu8), format(%1 %2%3 %4)]
+        syntax Instr ::= "ld" Operand8 "," Operand8 [symbol(instructionLd8), format(%1 %2%3 %4)]
+        syntax Instr ::= "nop" [symbol(instructionNop), format(%1)]
+        syntax Instr ::= "#" "unimplemented" "(" Instr ")" [symbol(instructionUnimplemented), format(%1%2%3%4%5)]
+    "##]]
+    .assert_eq(&run_fixture("precedence_chain_omitted"));
+}

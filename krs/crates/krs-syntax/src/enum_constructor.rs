@@ -398,12 +398,6 @@ impl EnumConstructorDeclaration {
                         variant.ident.span(),
                     ));
                 }
-                if reference_family && syntax.group().is_none() {
-                    return Err(unsupported_enum(
-                        "a reference variant requires an explicit `group` in `syntax`",
-                        variant.ident.span(),
-                    ));
-                }
                 if reference_family && syntax.format().is_none() {
                     return Err(unsupported_enum(
                         "a reference variant requires an explicit `format` in `syntax`",
@@ -465,22 +459,28 @@ impl EnumConstructorDeclaration {
             ));
         }
 
+        // A chain is optional: without one the variants belong to no
+        // production group. Whether the family needs one depends on the
+        // assembled sort order, so `krs::analysis::missing-precedence-chain`
+        // checks it over the whole definition.
         let (precedence_groups, precedence_declaration_range, precedence_chain_range) =
-            if reference_family {
-                (None, None, None)
-            } else {
-                let precedence = precedence.ok_or_else(|| {
-                    invalid_enum_precedence(
-                        "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain",
-                        item.ident.span(),
+            match precedence {
+                Some(precedence) => {
+                    validate_precedence_members(&precedence, &item.ident, &mut variants)?;
+                    (
+                        EnumPrecedenceGroups::from_vec(precedence.groups),
+                        Some(precedence.declaration_range),
+                        Some(precedence.chain_range),
                     )
-                })?;
-                validate_precedence_members(&precedence, &item.ident, &mut variants)?;
-                (
-                    EnumPrecedenceGroups::from_vec(precedence.groups),
-                    Some(precedence.declaration_range),
-                    Some(precedence.chain_range),
-                )
+                }
+                None if reference_family => {
+                    validate_reference_groups(&item.ident, &variants)?;
+                    (None, None, None)
+                }
+                None => {
+                    validate_chainless_groups(&item.ident, &variants)?;
+                    (None, None, None)
+                }
             };
 
         Ok(Self {
@@ -526,7 +526,8 @@ impl EnumConstructorDeclaration {
         self.reference_family
     }
 
-    /// Returns exhaustive precedence groups in tightest-to-weakest order.
+    /// Returns exhaustive precedence groups in tightest-to-weakest order; none
+    /// when the family has no chain.
     pub fn precedence_groups(&self) -> impl Iterator<Item = &EnumPrecedenceGroup> {
         self.precedence_groups
             .iter()
@@ -805,6 +806,52 @@ fn take_enum_precedence(
     }
     *attributes = retained;
     Ok(precedence)
+}
+
+/// A readable variant's group comes from the chain, so a family without one
+/// names no group.
+fn validate_chainless_groups(
+    family: &Ident,
+    variants: &[EnumConstructorVariant],
+) -> Result<(), SyntaxError> {
+    if let Some(group) = variants
+        .iter()
+        .find_map(|variant| variant.syntax().and_then(VariantSyntaxAttribute::group))
+    {
+        return Err(invalid_enum_precedence(
+            format!(
+                "variant group `{}` needs a chain: `{family}` has no `#[k::precedence]`, and a readable variant's group comes from it (a one-tier chain `name (A, B)` names a group)",
+                group.value()
+            ),
+            group.span(),
+        ));
+    }
+    Ok(())
+}
+
+/// A reference family is the materialized form of a readable one, whose
+/// variants are either all grouped (a chain) or none (no chain).
+fn validate_reference_groups(
+    family: &Ident,
+    variants: &[EnumConstructorVariant],
+) -> Result<(), SyntaxError> {
+    let mut syntax = variants
+        .iter()
+        .filter_map(|variant| variant.syntax().map(|syntax| (variant, syntax)));
+    let Some((_, first)) = syntax.clone().next() else {
+        return Ok(());
+    };
+    let grouped = first.group().is_some();
+    if let Some((variant, _)) = syntax.find(|(_, syntax)| syntax.group().is_some() != grouped) {
+        return Err(invalid_enum_precedence(
+            format!(
+                "reference family `{family}` gives `group` to some variants but not to `{}`: either every variant with `syntax` names its group or none does",
+                variant.name()
+            ),
+            variant.name().span(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_precedence_members(

@@ -6,6 +6,7 @@ mod configuration;
 mod configuration_rules;
 mod error;
 mod evaluation;
+mod family_precedence;
 mod fresh;
 mod grammar;
 mod infer;
@@ -169,6 +170,7 @@ pub fn lower_descriptor_bundle(
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
+    family_precedence::check_chainless_families(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
     tokens::check_program_token_fields(&modules)?;
     token_collisions::check_token_collisions(&modules)?;

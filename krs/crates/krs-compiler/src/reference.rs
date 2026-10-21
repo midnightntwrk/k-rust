@@ -406,18 +406,17 @@ fn materialize_enum_productions(
         let Some(syntax) = variant.syntax() else {
             continue;
         };
-        let group_ordinal = variant.precedence_group().ok_or_else(|| {
-            ReferenceExpansionError::GeneratedRust(syn::Error::new(
-                output_variant.ident.span(),
-                "readable enum variant has no checked precedence group",
-            ))
-        })?;
-        let group = declaration
-            .precedence_groups()
-            .nth(group_ordinal)
-            .expect("enum precedence ordinal identifies a parsed group")
-            .emitted_name(declaration.enum_name(), group_ordinal);
-        let group = syn::LitStr::new(&group, Span::call_site());
+        // A family without a chain has no groups, and its reference form
+        // names none.
+        let group = variant.precedence_group().map(|group_ordinal| {
+            let group = declaration
+                .precedence_groups()
+                .nth(group_ordinal)
+                .expect("enum precedence ordinal identifies a parsed group")
+                .emitted_name(declaration.enum_name(), group_ordinal);
+            let group = syn::LitStr::new(&group, Span::call_site());
+            quote!(group = #group,)
+        });
         let template = syntax.syntax();
         let format = syntax.format().ok_or_else(|| {
             ReferenceExpansionError::GeneratedRust(syn::Error::new(
@@ -439,7 +438,7 @@ fn materialize_enum_productions(
             .map(|colors| quote!(colors = [#(#colors),*],));
         let materialized: syn::Attribute = syn::parse_quote!(#[k::syntax(
             #template,
-            group = #group,
+            #group
             #avoid
             #prefer
             #placement

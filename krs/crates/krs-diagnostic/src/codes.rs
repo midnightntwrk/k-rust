@@ -183,6 +183,7 @@ register_codes! {
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a production's symbol is one K generates.",
         NAME_COLLISION: "krs::analysis::name-collision" => "Two declarations have the same name in a lowering namespace.",
         INVALID_OVERLOAD: "krs::analysis::invalid-overload" => "An `overload` key does not name a constructor production that its member specialises.",
+        MISSING_PRECEDENCE_CHAIN: "krs::analysis::missing-precedence-chain" => "A constructor family without `#[k::precedence]` has a variant that can sit directly at the edge of another of its variants.",
         PRIVATE_PRODUCTION_IN_SPEC: "krs::analysis::private-production-in-spec" => "A claim or a spec-module sentence names a private production, which proof modules cannot see.",
         ALWAYS_ENABLED_RULE: "krs::analysis::always-enabled-rule" => "A rule without the computation cell matches every configuration, so execution never terminates.",
         RULE_CHANGES_NO_CELL: "krs::analysis::rule-changes-no-cell" => "A rule without the computation cell changes no cell.",
