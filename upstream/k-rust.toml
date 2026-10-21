@@ -49,16 +49,17 @@ updated = "2026-10-19"
 # ran in that gate (none is ignored). A fixed row whose status_basis names 927b9ce6 or an earlier pin keeps that
 # basis as the run that established it, and has an update_2026_10_17 where the new pin changed something about it.
 # Every open and partial row was re-screened at this pin on 2026-10-17.
-# RE-PIN to k-rust main 8f8ad57c5 (packets P-1, P-2 and L-1 of draft/tasks/repin-58720d2e): the commit, versions and
-# checkout below name the pin the workspace builds against (kink-native tests/pin.rs checks them); every row in this
-# file is still judged at 501f18b9 as described above. The round-D re-pin re-screens them.
-k_rust_commit = "8f8ad57c5f8c65d77014d2b89006055af3d8de7f"
-k_rust_version = "0.7.0"
+# RE-PIN to k-rust main 8f8ad57c5 (packets P-1, P-2 and L-1 of draft/tasks/repin-58720d2e), then to k-rust main
+# 0068938b1 (round D: k-rust 0.8.0, k-rust-backend 0.5.0; packet P-1 of draft/tasks/repin-0068938b): the commit,
+# versions and checkout below name the pin the workspace builds against (kink-native tests/pin.rs checks them); every
+# row in this file is still judged at 501f18b9 as described above.
+k_rust_commit = "0068938b1c6321c9bf0fed8562a6c9847114a8bb"
+k_rust_version = "0.8.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
-k_rust_backend_version = "0.4.0"
+k_rust_backend_version = "0.5.0"
 k_release = "7.1.337"
 # The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-8f8ad57c"
+checkout = "../k-rust-0068938b"
 live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 

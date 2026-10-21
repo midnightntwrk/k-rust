@@ -4,9 +4,10 @@ k-in-k2 provides execution pattern matching and semantic mutation testing for K 
 It is built on k-rust,
 which the workspace consumes as a path dependency.
 The intended source is the on-disk checkout at `../inspirations/midnightntwrk/k-rust`, tracking k-rust main.
-The workspace builds against a read-only export of k-rust main commit `8f8ad57c5f8c65d77014d2b89006055af3d8de7f` (k-rust 0.7.0, k-rust-backend 0.4.0) at `../k-rust-8f8ad57c`,
-exported with `git -C ../inspirations/midnightntwrk/k-rust archive 8f8ad57c5f8c65d77014d2b89006055af3d8de7f | tar -x -C ../k-rust-8f8ad57c`.
-The pin moved from k-rust `501f18b9` to this commit with re-pin packets P-1, P-2 and L-1 (draft/tasks/repin-58720d2e).
+The workspace builds against a read-only export of k-rust main commit `0068938b1c6321c9bf0fed8562a6c9847114a8bb` (k-rust 0.8.0, k-rust-backend 0.5.0) at `../k-rust-0068938b`,
+exported with `git -C ../inspirations/midnightntwrk/k-rust archive 0068938b1c6321c9bf0fed8562a6c9847114a8bb | tar -x -C ../k-rust-0068938b`.
+The pin moved from k-rust `501f18b9` to `8f8ad57c5` with re-pin packets P-1, P-2 and L-1 (draft/tasks/repin-58720d2e),
+and from `8f8ad57c5` to this commit, which carries k-rust's round D (the 0.8.0 version bumps, UNDEF/1-2, BIND/A8-A9, MLP/5 and MLP/10), its correctness sweep and later main commits, with re-pin packet P-1 (draft/tasks/repin-0068938b).
 It writes the new request fields with its earlier behaviour (`collect_offered: false`). Since re-pin adoption A-1 it reads every new run-level field of an execution result, fail-closed: the lists of open values read, contradicted claims, allowance refusals and unsupported hooks each exclude a run (below, "What a kill trusts"), and the count of undecided solver answers is reported only; no other feature added since `501f18b9` is adopted.
 Each expectation that moved is re-pinned with its k-rust cause at the assertion; two of the moves follow Sebastien's decisions of 2026-10-20 (the disjoint guards KINK-20/3 refutes admit a mutant; under Z3 a variable of a rule's condition alone is read existentially, BIND/A3).
 The rows of `upstream/k-rust.toml` are still judged at `501f18b9`.
