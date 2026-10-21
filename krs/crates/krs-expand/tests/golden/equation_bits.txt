@@ -1,9 +1,6 @@
 /// `x = 0, z = 4`: `INC r[y]`.
 fn decode_inc_r(__krs_symbolic_subject: Term<Instr>) -> Term<Instr> {
-    let _krs_binding_check = || {
-        let __krs_bits_0 = ();
-        let _ = &__krs_bits_0;
-    };
+    let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
