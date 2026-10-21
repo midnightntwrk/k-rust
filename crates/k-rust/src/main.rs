@@ -250,6 +250,94 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
             kore_match_disjunction_command(options).map(|()| ExitCode::SUCCESS)
         }
         Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
+        Command::Fuzz(options) => Ok(fuzz(options)),
+    }
+}
+
+/// `krust fuzz ARGS`: run the `krust-fuzz` executable with `ARGS`, as `cargo` runs `cargo-NAME`.
+///
+/// The fuzz engine is the `k-rust-fuzz` package, which depends on this one, so `krust` cannot
+/// link it. The executable is looked up beside krust first and then on `PATH`, skipping files
+/// that are not executable, as a shell does. It receives the arguments after `fuzz` exactly as
+/// given, a leading `--` included, and this build's identity in
+/// [`k_rust::native::FUZZ_PARENT_BUILD_ENV`]; it refuses to run when it was built from other
+/// k-rust sources, so a stale `krust-fuzz` on `PATH` cannot answer for this krust. On Unix krust
+/// replaces itself with it, so its exit status and signals are krust's.
+///
+/// When no executable is found or it cannot be started, krust exits with status 2, which
+/// `krust-fuzz` uses for errors; its status 1 means that no witness was found.
+fn fuzz(options: FuzzArgs) -> ExitCode {
+    const FUZZ_ERROR: u8 = 2;
+    let name = format!("krust-fuzz{}", env::consts::EXE_SUFFIX);
+    let beside = env::current_exe()
+        .ok()
+        .and_then(|krust| krust.parent().map(|directory| directory.join(&name)));
+    let on_path: Vec<PathBuf> = env::var_os("PATH")
+        .map(|path| {
+            env::split_paths(&path)
+                .map(|directory| directory.join(&name))
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(executable) = beside
+        .into_iter()
+        .chain(on_path)
+        .find(|path| is_executable(path))
+    else {
+        eprintln!(
+            "error: `krust fuzz` runs the `{name}` executable, which is neither beside krust nor \
+             on PATH; build it with `cargo build -p k-rust-fuzz --features cli --bin krust-fuzz`"
+        );
+        return ExitCode::from(FUZZ_ERROR);
+    };
+    // clap drops a leading `--` from the trailing arguments; the raw arguments keep it.
+    let mut raw = env::args_os();
+    let arguments: Vec<std::ffi::OsString> = match (raw.next(), raw.next()) {
+        (Some(_), Some(subcommand)) if subcommand == "fuzz" => raw.collect(),
+        _ => options.args,
+    };
+    let mut command = std::process::Command::new(&executable);
+    command.args(&arguments).env(
+        k_rust::native::FUZZ_PARENT_BUILD_ENV,
+        k_rust::build_identity(),
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        let error = command.exec();
+        eprintln!("error: could not run `{}`: {error}", executable.display());
+        ExitCode::from(FUZZ_ERROR)
+    }
+    #[cfg(not(unix))]
+    {
+        match command.status() {
+            Ok(status) => ExitCode::from(
+                status
+                    .code()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .unwrap_or(FUZZ_ERROR),
+            ),
+            Err(error) => {
+                eprintln!("error: could not run `{}`: {error}", executable.display());
+                ExitCode::from(FUZZ_ERROR)
+            }
+        }
+    }
+}
+
+/// Whether `path` is a file this process may execute (on Unix: some execute bit is set).
+fn is_executable(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
     }
 }
 
@@ -307,6 +395,21 @@ enum Command {
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
     Kprove(KproveArgs),
+    /// Craft input values that make a program reach a target, with the `krust-fuzz` executable
+    /// installed beside krust (`krust fuzz --help` shows its options).
+    #[command(disable_help_flag = true)]
+    Fuzz(FuzzArgs),
+}
+
+#[derive(Debug, Args)]
+struct FuzzArgs {
+    /// The arguments `krust-fuzz` receives, unchanged.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        value_name = "ARGS"
+    )]
+    args: Vec<std::ffi::OsString>,
 }
 
 #[derive(Clone, Debug, Args)]

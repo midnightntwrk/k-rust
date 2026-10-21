@@ -84,3 +84,81 @@ This build provides blind generation (`ProposerKind::Blind`) and the dictionary 
 A candidate hit becomes a witness only after a confirmation on a fresh backend agrees.
 Each run starts from fresh proposer state, so a second run reports exactly what a fresh campaign with the same spec and budget reports.
 The `FuzzReport` (`to_canonical_json` gives its canonical bytes) is a function of the definitions, program, holes, target, options, budget, seed, the k-rust revision and `ENGINE_VERSION`.
+
+## Command line
+
+The `krust-fuzz` executable runs the same campaign from a compiled directory, a program and a campaign file (ARCHITECTURE 9.4).
+It needs k-rust's `cli` feature, which loads compiled directories (and implies Z3), so it is built with this crate's `cli` feature: `cargo build -p k-rust-fuzz --features cli`.
+`krust fuzz ARGS` runs it, as `cargo` runs `cargo-NAME`.
+krust looks for an executable `krust-fuzz` beside itself, then on `PATH`, skipping files that are not executable.
+It passes the arguments after `fuzz` exactly as given (a leading `--` included) and its own k-rust build identity, and `krust-fuzz` refuses to run (exit status 2, "version skew") when it was built from other k-rust sources.
+When no `krust-fuzz` is found or it cannot be started, `krust fuzz` exits with status 2, never with `krust-fuzz`'s "no witness" status 1.
+Release archives ship only `krust`, so `krust fuzz` needs `krust-fuzz` built from source.
+
+```text
+krust fuzz --definition imp-kompiled --program transfer.imp --campaign holes.toml \
+  --reach-rule IMP.overflow --max-work 100000 --cases 5000 --seed 0x5eed --json
+krust fuzz --replay witness.json
+```
+
+A compiled directory is loaded as `krust krun --definition` loads it (`k_rust::native::load_runnable_artifact`, plus the directory's `syntaxDefinition.kore` and `macros.kore`, which printing and reading back data values need), and every backend is built on krun's route, with the compiler's rewrite order.
+The program's path as written names it, as `krust krun` names a program: span holes address that name, and the program's locations carry it.
+The start sort defaults to the sort of `$PGM`.
+
+The campaign file holds the `[[hole]]` declarations of [Hole declarations](#hole-declarations) and, optionally, everything else; paths in the file are relative to its directory.
+Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
+`--rule-mode` and `mode` are refused unless the target is a rule, `at` unless it is a pattern, and `--mutant` selects the differential target only when no other target is named (a mutant with a rule or pattern target is refused).
+
+```toml
+definition = "imp-kompiled"   # --definition; `mutant` (--mutant) names a mutant: the differential target
+program = "transfer.imp"      # --program; `sort` (--sort) and `config-vars = ["N=1"]` (-c) as krun takes them
+seed = "0x5eed"               # --seed; `cases` (--cases) or `work` (--work) is the budget, 1000 cases by default
+
+[target]                      # exactly one of rule, pattern, differential (OD-2)
+rule = "IMP.overflow"         # --reach-rule, by label; `mode` (--rule-mode) is fired, covered or condition-reached
+# pattern = '<k> .K </k> ...' # --pattern, in krun's --pattern syntax with `requires`; `at` is final
+# run-to-completion = true    # --run-to-completion; negated-property (--negated-property)
+
+[options]                     # paths = "all-paths" (--all-paths), max-depth, max-work, normal-end-pattern,
+safety-limit-seconds = 60     # shrink, smt-timeout-ms, smt-retry-limit; no-safety-limit = true (--no-safety-limit)
+
+[[hole]]
+name = "AMOUNT"
+sort = "Int"
+line = 4                      # `program` defaults to the program's name; `$NAME` addresses a binding's text
+find = "amount = 250;"        # defaults to `literal`
+literal = "250"
+range = { min = 0, max = 1000000 }   # also `length`, `elements = { element = "Int" }`, `choices = [1, 2]`
+
+[[hole]]
+name = "TX"
+sort = "Tx"
+config-var = "TX"             # a configuration variable's whole value
+```
+
+`[bounds]` (`int-bits`, `length`, `depth`) and `[proposers]` (`anchors-first`, `weights`, `explicit = [{ AMOUNT = 7 }]`) map onto `GenerationBounds` and `ProposerConfig`.
+A value is written as a TOML integer (an `Int`, or the unsigned value of an `MInt{N}` hole), boolean or string, or as a table in the library's JSON form, such as `{ int = "123456789012345678901234567890" }` or `{ list = [{ int = "1" }] }`.
+
+Every case has a wall-clock safety limit of 60 seconds unless `--safety-limit SECONDS` or `--no-safety-limit` says otherwise (D24): `max-work` counts steps, and a step whose ground function evaluation does not terminate would otherwise never end.
+A limit of 0 seconds, which would stop every case, is refused, and so is a campaign file that sets both `safety-limit-seconds` and `no-safety-limit`.
+A case the limit stops is `timeout` and outside the determinism contract; the report's options record the limit.
+The library sets no limit by default.
+The campaign runs on a thread with a 256 MiB stack, which the report records.
+The report's k-rust revision is always k-rust's build identity (`k_rust::build_identity`), which `krust-fuzz --version` also prints; no flag or campaign-file key can name another.
+The identity is the k-rust version followed by `+src.` and a digest of the sources k-rust is built from: k-rust's build script hashes the non-test Rust sources of `k-rust`, `k-rust-kore`, `k-rust-backend` and `k-rust-regex` and the files they embed (`crates/k-rust/build/source_digest.rs` gives the exact rule); crates.io dependency versions, features and the profile are not part of it.
+Builds whose k-rust sources differ, committed or not, have different identities, and `krust` and `krust-fuzz` built from one tree have the same one.
+Outside this workspace's layout the build script cannot read those sources, the identity is the version followed by `+unverified`, and the skew check and `--replay` say when they compare such identities.
+The identity covers k-rust, not this crate: two `krust-fuzz` builds that differ only in this crate's code record the same revision.
+
+The summary goes to standard output, or the canonical report with `--json`; `--report FILE` writes the report, and `--witness FILE` writes the witness file when a witness is found and removes an existing FILE when none is, so that the file never holds an older run's witness.
+Both paths are checked before the campaign runs (and must name different files), and the result is printed before they are written, so a failed write loses no result.
+The exit status is 0 when a witness was found and confirmed, 1 when not (including `equivalent`, `rejected-out` and `aborted`), and 2 on an error (including a failed write after the result was printed).
+
+A witness file (`schema: "krust-fuzz-witness"`, `version: 1`) holds the campaign as resolved (absolute paths, every option) and the report.
+`--replay FILE` loads the recorded definitions and program, rebuilds the specification and checks that its identity is the witness's.
+It compares every field of the report's identity except four that the replay sets itself: the proposers and the budget, `options.shrink`, and the engine version, which covers only the code that chooses cases.
+That includes the k-rust revision, each definition's modules, execution digest, route, rewrite order, frontend, execution-definition and syntax-and-macro digests and initial configuration, the program, overlay and target digests, the options, the bounds and the solver.
+On a mismatch it lists every difference by its path in the report (for example `definitions[0].syntax-definition-digest`) and refuses (exit status 2) unless `--force` is given.
+A forced replay prints each mismatch and a `forced: replayed despite N identity mismatches` line; its exit status still says whether the cases reproduced.
+It then runs the first and, when there is one, the shrunk witness case as the campaign's only explicit assignment, without shrinking, and a case reproduces when the replay confirms a hit whose witness case (hole values, class, initial and final configurations, reaching leaf and step count) equals the recorded one; the exit status is 0 when every case reproduced and 1 otherwise.
+`--definition`, `--mutant` and `--program` relocate the recorded inputs; the identity check still applies, and the replay's revision is always this build's.

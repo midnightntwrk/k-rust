@@ -1190,6 +1190,7 @@ dependencies = [
 name = "k-rust-fuzz"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "indoc",
  "k-rust",
  "krs-unparse",
@@ -1202,6 +1203,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "sha2 0.11.0",
+ "toml",
 ]
 
 [[package]]
