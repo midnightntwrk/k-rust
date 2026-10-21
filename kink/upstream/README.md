@@ -1,11 +1,13 @@
 # Upstream request ledgers
 
-This directory holds the requests K-in-K2 makes of the sibling projects it builds on.
+This directory holds the requests kink (formerly the repository K-in-K2) makes of the projects it builds on.
 Each file is the single place where a request, its status, and any local workaround are recorded.
+Since kink was merged into k-rust (`kink/`), `k-rust.toml` records kink's premises on the in-repo k-rust beside it:
+the requests kink made of k-rust, the k-rust behaviour each kink feature rests on, and the k-rust commit at which they were last judged.
 
 | File | Upstream | Status judged against |
 |---|---|---|
-| [`k-rust.toml`](k-rust.toml) | k-rust | `[reference_pin]`: the k-rust commit that the workspace was last built against (see its `checkout` field) |
+| [`k-rust.toml`](k-rust.toml) | k-rust, in-repo (`checkout = ".."`, relative to `kink/`) | `[reference_pin]`: the k-rust commit at which kink's premises were last judged |
 | [`krs.toml`](krs.toml) | KRS | `[reference_pin]`: the reviewed commit of `../krs` |
 
 The format follows KRS's `draft/upstream/README.md`.
@@ -34,8 +36,9 @@ Requests that KRS already tracks against k-rust are listed under `[[krs_owned]]`
 
 ## Moving the reference pin
 
-k-rust is consumed as an on-disk path dependency through a read-only `git archive` export of the pinned commit.
-Run `cargo test --workspace` against that export, then re-screen every `open` and `partial` request at the new commit and update `status_basis` and `[reference_pin]`.
+kink builds against the k-rust beside it in the same repository, so every k-rust commit is built and tested with kink's light tier, and kink's drift pins fail when a passage or source kink rests on moves.
+The reference pin moves when kink's premises are judged again at a later k-rust commit:
+run kink's gate (README, "Gate"), then re-screen every `open` and `partial` request at that commit and update `status_basis` and `[reference_pin]`.
 Record the former pin in `[retired_pins]` with the reason it was retired.
 A row whose status was replaced keeps its former value in git history; an `update_YYYY_MM_DD` field says what the move found.
 kink-native's `every_halt_variant_is_classified_exhaustively` maps the closed `HaltReasonOutput` enum to `HaltClass` and checks every variant. A new upstream variant requires an exhaustive Rust match update (`execution-leaf-completeness`).

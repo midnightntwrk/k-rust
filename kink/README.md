@@ -1,19 +1,16 @@
-# k-in-k2
+# kink (k-in-k2)
 
-k-in-k2 provides execution pattern matching and semantic mutation testing for K definitions.
-It is built on k-rust,
-which the workspace consumes as a path dependency.
-The intended source is the on-disk checkout at `../inspirations/midnightntwrk/k-rust`, tracking k-rust main.
-The workspace builds against a read-only export of k-rust main commit `0068938b1c6321c9bf0fed8562a6c9847114a8bb` (k-rust 0.8.0, k-rust-backend 0.5.0) at `../k-rust-0068938b`,
-exported with `git -C ../inspirations/midnightntwrk/k-rust archive 0068938b1c6321c9bf0fed8562a6c9847114a8bb | tar -x -C ../k-rust-0068938b`.
-The pin moved from k-rust `501f18b9` to `8f8ad57c5` with re-pin packets P-1, P-2 and L-1 (draft/tasks/repin-58720d2e),
-and from `8f8ad57c5` to this commit, which carries k-rust's round D (the 0.8.0 version bumps, UNDEF/1-2, BIND/A8-A9, MLP/5 and MLP/10), its correctness sweep and later main commits, with re-pin packet P-1 (draft/tasks/repin-0068938b).
-It writes the new request fields with its earlier behaviour (`collect_offered: false`). Since re-pin adoption A-1 it reads every new run-level field of an execution result, fail-closed: the lists of open values read, contradicted claims, allowance refusals and unsupported hooks each exclude a run (below, "What a kill trusts"), and the count of undecided solver answers is reported only; no other feature added since `501f18b9` is adopted.
+kink provides execution pattern matching and semantic mutation testing for K definitions.
+It is built on k-rust and is a part of k-rust's repository: its crates (`kink/crates/*`) are members of k-rust's workspace and build against the k-rust beside them (`crates/k-rust`, `crates/k-rust-backend`), at whatever commit the checkout is.
+kink was developed as the separate repository k-in-k2, against read-only snapshots of k-rust main, and merged into k-rust under `kink/` with its history (packet M-1 of k-in-k2 `draft/tasks/k-rust-merge`).
+Its last snapshot was k-rust main `0068938b1c6321c9bf0fed8562a6c9847114a8bb` (k-rust 0.8.0, k-rust-backend 0.5.0); the pin moved from k-rust `501f18b9` to `8f8ad57c5` with re-pin packets P-1, P-2 and L-1 (k-in-k2 draft/tasks/repin-58720d2e),
+and from `8f8ad57c5` to `0068938b1`, which carries k-rust's round D (the 0.8.0 version bumps, UNDEF/1-2, BIND/A8-A9, MLP/5 and MLP/10), its correctness sweep and later main commits, with re-pin packet P-1 (k-in-k2 draft/tasks/repin-0068938b).
+The k-rust passages and sources cited below with line numbers are cited at that commit; kink's drift pins (light-tier tests) pin the ones kink rests on, so a k-rust change that moves one fails a kink test in k-rust's own test run, to be judged then.
+The k-rust revision kink reports and keys on (`kink_native::K_RUST_REVISION`, the `k_rust_revision` and `k_rust.revision` fields of its documents) is the version of the in-repo k-rust package; every store honoured without re-deriving its verdicts also keys on the build itself (`kink_build`, below).
+kink writes the new request fields with its earlier behaviour (`collect_offered: false`). Since re-pin adoption A-1 it reads every new run-level field of an execution result, fail-closed: the lists of open values read, contradicted claims, allowance refusals and unsupported hooks each exclude a run (below, "What a kill trusts"), and the count of undecided solver answers is reported only; no other feature added since `501f18b9` is adopted.
 Each expectation that moved is re-pinned with its k-rust cause at the assertion; two of the moves follow Sebastien's decisions of 2026-10-20 (the disjoint guards KINK-20/3 refutes admit a mutant; under Z3 a variable of a rule's condition alone is read existentially, BIND/A3).
 The rows of `upstream/k-rust.toml` are still judged at `501f18b9`.
 That commit carries variable identity version 3 (verbatim name reading, injective printing and request-unique free mints) and KRUST-PROVENANCE version 8.
-Moving back to the live checkout means changing the two paths in `Cargo.toml` `[workspace.dependencies]` and adapting to the new k-rust.
-The work is intended to be merged into k-rust together with KRS.
 
 ## Crates
 
@@ -99,7 +96,7 @@ Replay re-derives instead (it regenerates the manifest, re-runs the campaign and
 kink-flow's killer hints carry neither: a hint decides no status.
 An unreadable executable gives no build identity, and every honouring store then recomputes or refuses.
 The rule for adding to the semantics identity: a constant whose change can change a verdict is a component (bump it whenever its algorithm changes what it decides); every other versioned constant (a `const` or `static` whose name ends in `_VERSION` or `_DOMAIN`, whose string value ends in `/v<N>`, `/v<N>.<M>` or `-v<N>`, or that names such a constant) is listed outside it with the path that checks it.
-kink-campaign `tests/identity.rs` parses every workspace member's sources and fails on a versioned constant in neither list.
+kink-campaign `tests/identity.rs` parses every kink member's sources and fails on a versioned constant in neither list.
 A forgotten bump, or verdict code with no version, no longer lets a store be reused: the build identity changes with any edit that changes the executable.
 
 Corpus resume: `kink-corpus run` resumes a definition whose completed campaign report is already in the store only when the index entry was written by this build (`kink_build`) with kink-corpus's run options (`run_options`, packet CACHE-ID-fix-1; every option is recorded, the one-sided rule's `one_sided` included, kink-campaign `RunOptions::value`, re-pin L1-2-land), and the report is checked against the manifest digest, the profile, the report and artifact digests, the report version and kink's semantics identity.
@@ -479,15 +476,15 @@ Replay assumes the same kink build and operator code, no time bound firing in ei
 
 ## Upstream requests
 
-Requests this project makes of k-rust and KRS are recorded in the ledgers under [`upstream/`](upstream/README.md).
+Requests kink makes of k-rust and KRS, and kink's premises on the in-repo k-rust, are recorded in the ledgers under [`upstream/`](upstream/README.md).
 
 ## Gate
 
-The tests of the kink crates are in three tiers (`.config/kink-tiers.toml`):
+The tests of the kink crates are in three tiers (`kink/.config/kink-tiers.toml`):
 
 | tier | marked | runs | budget |
 |---|---|---|---|
-| light | an ordinary `#[test]` | every change; every `cargo test` and `cargo nextest run` | 120 s wall, no test over 30 s in the tier run |
+| light | an ordinary `#[test]` | every change; every `cargo test` and `cargo nextest run` of k-rust's workspace, so every k-rust push | 120 s wall, no test over 30 s in the tier run |
 | kink | `#[ignore = "kink"]` inside a `kink_tier` module | a change to a kink crate, its test data or this gate | 600 s wall together with light |
 | heavy | `#[ignore = "heavy"]` inside a `heavy` module | nightly, before an integration merge, when a work package closes | 3,600 s wall |
 
@@ -497,41 +494,44 @@ the heavy tier holds the whole-fixture sweeps and the full option matrices, each
 A test that needs an outside checkout is `#[ignore = "external: ..."]` inside an `external` module, belongs to no tier,
 and only records a skip without `KINK_WORKSPACE`.
 
-`scripts/kink-tier.py` runs a tier with cargo-nextest (`.config/nextest.toml`), checks the run against the tier's budget from nextest's JUnit report,
-and lints the tier markings: an ignored test outside a tier module would run in no tier.
+`kink/scripts/kink-tier.py` runs a tier of the kink packages (`-p` each package of `kink/crates`) with cargo-nextest from the root of k-rust's workspace (profile `kink` of the root `.config/nextest.toml`, which holds kink's overrides),
+checks the run against the tier's budget from nextest's JUnit report (`target/nextest/kink/junit.xml` under the workspace root, where nextest writes it even when `CARGO_TARGET_DIR` moves cargo's build output),
+and lints the tier markings: an ignored test outside a tier module would run in no tier, and a kink override of `.config/nextest.toml` that matches no test would stop applying.
 Budgets are judged on a host whose load average is under half its CPUs, and only reported on a busier one.
 
-Every commit to a kink crate must pass the gate tier in both solver profiles:
+Every commit to a kink crate must pass the gate tier in both solver profiles. From the root of k-rust's checkout:
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-scripts/kink-tier.py lint
-scripts/kink-tier.py run gate
-with-z3-static-4.16.0 cargo clippy -p kink-native -p kink-campaign -p kink-corpus --all-targets --features z3 -- -D warnings
-with-z3-static-4.16.0 scripts/kink-tier.py run gate --z3
+KRUST_GATE_Z3=system with-z3-static-4.16.0 kink/scripts/kink-tier.py lint
+KRUST_GATE_Z3=system with-z3-static-4.16.0 kink/scripts/kink-tier.py run gate
+cargo clippy -p kink-native -p kink-campaign -p kink-corpus -p kink-patch -p kink-pattern -p kink-flow --all-targets --no-default-features -- -D warnings
+kink/scripts/kink-tier.py lint --portable
+kink/scripts/kink-tier.py run gate --portable
 ```
 
-The heavy gate adds `scripts/kink-tier.py run heavy` and `with-z3-static-4.16.0 scripts/kink-tier.py run heavy --z3`.
+The heavy gate adds `kink/scripts/kink-tier.py run heavy` in both profiles.
+`scripts/run-gates.sh kink` and `scripts/run-gates.sh kink-heavy` run the two tier pairs (`scripts/gates.toml`).
+The tier script acquires Z3 as k-rust's gates do (k-rust `docs/testing.md`): by default its Z3 runs add k-rust's `z3-inference-gh-release`, which downloads the Z3 4.16.0 release at build time,
+and `KRUST_GATE_Z3=system` links the Z3 the build environment provides instead, here the machine wrapper `with-z3-static-4.16.0`, which points the `z3-sys` build at a static Z3 4.16.0 library.
 `--and EXPR` narrows a tier to the tests matching a nextest filterset, for example `--and 'package(kink-flow)'`, without judging the budget.
-The Z3 profile runs every test of kink-native, kink-campaign and kink-corpus (`[z3]` of `.config/kink-tiers.toml` says why no binary is skipped).
-`cargo test --workspace` still runs the light tier, and `cargo test --workspace -- --include-ignored` every tier.
+The Z3 profile runs every test of every kink package (`[z3]` of `kink/.config/kink-tiers.toml` says why no binary is skipped).
+`cargo test --workspace` still runs the light tier, and `cargo test` of the kink packages with `-- --include-ignored` every tier.
 Run the two profiles one after the other, never at the same time in one target directory:
 each build replaces the other's `kink-corpus` and `kink-flow` executables, which the tests run and hash, under a running test.
 
-The workspace build is the no-Z3 solver profile.
+The default build is the Z3 solver profile, as k-rust's is.
 `kink-native` has a `z3` feature for the Z3 profile
-(it enables k-rust `z3-inference` and k-rust-backend `z3`).
-`kink-campaign` and `kink-corpus` forward that feature as `z3`,
-and `kink-campaign` requires its execution adapter's solver profile to match the build.
+(it enables k-rust `z3-inference`, which enables k-rust-backend `z3`), and `kink-campaign` and `kink-corpus` forward it as `z3`;
+the three enable it by default, and `--no-default-features` on the kink packages is the portable (no-Z3) profile.
+kink-native fails to compile when its `z3` feature and k-rust's `z3-inference` disagree (`src/execution.rs`), which Cargo's feature unification can cause when a build selects k-rust (or another package that turns Z3 on) beside kink packages without `kink-native` itself: select `kink-native` too.
+`kink-campaign` requires its execution adapter's solver profile to match the build.
 Their tests carry profile columns for outcomes that differ between no-Z3 and Z3.
-Z3 comes from the machine wrapper `with-z3-static-4.16.0`,
-which points the `z3-sys` build at a static Z3 4.16.0 library;
-without the wrapper a `z3` build fails to link (`-lz3` missing),
-and nothing is downloaded at build time.
+A build that selects only kink packages with their default features takes k-rust's `z3-inference` alone, which links the Z3 the build environment provides (without `with-z3-static-4.16.0` or another provider it fails to link, `-lz3` missing);
+a build that also selects k-rust with its default features (`cargo clippy --workspace`, `cargo nextest run --workspace`) takes k-rust's `z3-inference-gh-release`, which downloads the Z3 4.16.0 release into the build script's output directory once per target directory.
 
-The dev and test profiles are k-rust's (`Cargo.toml`): the workspace at `opt-level = 1` with line tables only, dependencies at `opt-level = 3`,
-and k-rust's own crates at the workspace's level, as they will be once these crates are members of k-rust's workspace;
+The dev and test profiles are k-rust's (the root `Cargo.toml`): the workspace at `opt-level = 1` with line tables only, dependencies at `opt-level = 3`;
 debug assertions and overflow checks stay on for every package.
 For a debugger session that shows local variables, use the `debugging` profile (`cargo test --profile debugging`).
 

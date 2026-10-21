@@ -114,6 +114,12 @@ krs = [
   '^krs/Krs\.lock$',
   '^docs-site/src/pages/',
 ]
+# kink (kink/README.md, "Gate"): its crates, test data, tier configuration and tier script, and
+# the nextest configuration that holds its overrides and its tier profile.
+kink = [
+  '^kink/',
+  '^\.config/nextest\.toml$',
+]
 
 [[gate]]
 name = "compile-light"
@@ -434,3 +440,23 @@ run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kwasm"
 paths = ["@krust", "@krs"]
+
+# kink's test tiers (kink/scripts/kink-tier.py, kink/.config/kink-tiers.toml), in both solver
+# profiles: the Z3 profile (the kink packages' default features; Z3 acquired as for the other
+# gates, `KRUST_GATE_Z3=system` linking the Z3 the build environment provides) and the portable
+# one (`--portable`).
+[[gate]]
+# kink's per-change tier: light and kink in one run, both solver profiles.
+name = "kink"
+run = "certification"
+command = "kink/scripts/kink-tier.py run gate && kink/scripts/kink-tier.py run gate --portable"
+paths = ["@kink"]
+
+[[gate]]
+# kink's heavy tier: whole-fixture sweeps and full option matrices, both solver profiles. A k-rust
+# change can break a sweep that only heavy runs (k-rust nondeterminism, a fixture that stops
+# compiling), so it also follows [path-set.krust].
+name = "kink-heavy"
+run = "heavy"
+command = "kink/scripts/kink-tier.py run heavy && kink/scripts/kink-tier.py run heavy --portable"
+paths = ["@kink", "@krust"]

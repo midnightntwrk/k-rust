@@ -55,7 +55,7 @@ Defaults:
 | `program.start_sort` | the sort of `$PGM` | |
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty. |
 
-The tool supplies everything else: the k-rust revision is the build's (`kink_native::K_RUST_REVISION`, printed in every output),
+The tool supplies everything else: the k-rust revision is the build's (`kink_native::K_RUST_REVISION`, the version of the in-repo k-rust kink is built with, printed in every output),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads.
 
 ## `kink-flow check FLOW.toml`

@@ -19,6 +19,14 @@ that lowers natively through these crates. Its crates are members of this worksp
 to `k-rust` builds, lints, and tests KRS with it, and updates KRS in the same commit when it
 affects KRS.
 
+[`kink/`](kink/README.md) holds kink, semantic mutation testing and execution pattern matching
+for K definitions, built on these crates (developed as the repository k-in-k2 and merged with its
+history). Its crates are members of this workspace, so `cargo nextest run --workspace` runs kink's
+light tier, whose drift pins fail when a k-rust passage or source kink rests on moves; its kink and
+heavy tiers run with `kink/scripts/kink-tier.py` (the `kink` and `kink-heavy` entries of
+`scripts/gates.toml`). [`kink/README.md`](kink/README.md) says what a kill trusts and how to run
+the tiers.
+
 ## Running examples
 
 Exercise Z3-backed parametric sort inference with the installed CLI:
@@ -830,7 +838,9 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 
 `k-rust` is licensed under either of the Apache License, Version 2.0
 ([`LICENSE-APACHE`](LICENSE-APACHE)) or the MIT license ([`LICENSE-MIT`](LICENSE-MIT)), at your
-option. KRS, everything under [`krs/`](krs/), is licensed the same way.
+option. KRS, everything under [`krs/`](krs/), is licensed the same way, and so is kink, under
+[`kink/`](kink/), except the K tutorial's IMP that `kink/examples/imp` copies, which keeps its
+BSD 3-Clause license (`kink/examples/imp/LICENSE-K.md`).
 
 The third-party material keeps its BSD 3-Clause license and copyright notices: the K Framework
 builtin sources and parser runtime copied into `crates/k-rust`, the K test data among its fixtures,
