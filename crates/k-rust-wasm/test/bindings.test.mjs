@@ -14,6 +14,7 @@ import {
   parseProgram,
   printKast,
   printKore,
+  runFuzzCampaign,
 } from '../dist/index.js'
 
 const bytes = readFileSync(new URL('../generated/bindings_bg.wasm', import.meta.url))
@@ -526,4 +527,77 @@ test('compileBackend compiles and creates a portable session', () => {
   assert.equal(backend.capabilities.smt, false)
   assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
   backend.free()
+})
+
+const readFixture = name =>
+  readFileSync(new URL(`../../k-rust-fuzz/tests/data/imp/${name}`, import.meta.url), 'utf8')
+const SOLVER = 'none'
+
+// The IMP campaign of the crate's own test (src/fuzz.rs): blind values for `x` and `y` of `le.imp`
+// until one falsifies the claim that `r` ends as 1, which any `x > y` does.
+const impCampaign = (campaign = {}) => ({
+  definition: readFixture('imp.k'),
+  moduleName: 'IMP',
+  sourceName: 'imp.k',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: readFixture('le.imp'), 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+    ...campaign,
+  },
+})
+
+test('runs one fuzz campaign on IMP to a confirmed witness', () => {
+  const { json, report } = runFuzzCampaign(impCampaign())
+  assert.equal(report.schema, 'krust-fuzz-report')
+  assert.equal(report.version, 1)
+  assert.equal(report.identity.solver, SOLVER)
+  assert.equal(report.identity.seed, '24301')
+  assert.deepEqual(report.identity.budget, { cases: '64' })
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  assert.equal(witness.label, 'property-failure')
+  const [x, y] = (witness.shrunk ?? witness.first).holes.map(hole => BigInt(hole.value.int))
+  assert.ok(x > y, `${x} > ${y}`)
+  assert.deepEqual(report['engine-defects'], [])
+  // The report is a function of the specification: a second call gives the same bytes.
+  assert.equal(runFuzzCampaign(impCampaign()).json, json)
+})
+
+test('throws for a malformed campaign specification', () => {
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ options: { 'max-dept': 3 } })),
+    /campaign\.options: unknown field `max-dept`/,
+  )
+  assert.throws(() => runFuzzCampaign(impCampaign({ seed: 7 })), /invalid type/)
+})
+
+test('refuses the safety limit and the solve proposer before compiling anything', () => {
+  const unparsable = options => ({ ...options, definition: 'not a definition' })
+  assert.throws(
+    () => runFuzzCampaign(unparsable(impCampaign({ options: { 'safety-limit-ms': 1000 } }))),
+    /^Error: campaign\.options\.safety-limit-ms: the per-case safety limit is not available in WebAssembly/,
+  )
+  assert.throws(
+    () => runFuzzCampaign(unparsable(impCampaign({ proposers: { weights: { blind: 1, solve: 1 } } }))),
+    /^Error: campaign\.proposers\.weights\.solve: the solve proposer is not available in WebAssembly/,
+  )
 })

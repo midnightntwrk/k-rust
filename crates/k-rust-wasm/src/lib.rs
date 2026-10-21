@@ -1,5 +1,7 @@
 //! WebAssembly bindings for the portable, host-independent `k-rust` frontend.
 
+mod fuzz;
+
 use std::{collections::BTreeMap, path::Path};
 
 use k_rust::{
@@ -455,6 +457,14 @@ fn print_kore(json: &str, width: Option<u32>) -> Result<String, String> {
 pub fn format_kore_definition_wasm(source: &str, width: Option<u32>) -> Result<String, JsError> {
     let definition = parse_definition(source).map_err(js_error)?;
     Ok(kore_printer(width).print_definition(&definition))
+}
+
+/// Run one `krust fuzz` campaign on in-memory definitions and return its report's canonical
+/// JSON. The safety limit and the solve proposer are refused: this build has no clock, threads or
+/// solver ([`fuzz`]).
+#[wasm_bindgen(js_name = runFuzzCampaignWasm)]
+pub fn run_fuzz_campaign_wasm(options: &str) -> Result<String, JsError> {
+    fuzz::run_fuzz_campaign(options).map_err(js_error)
 }
 
 fn kore_printer(width: Option<u32>) -> KorePrinter {

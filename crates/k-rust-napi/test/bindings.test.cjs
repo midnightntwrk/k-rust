@@ -12,6 +12,7 @@ const {
   parseProgram,
   printKast,
   printKore,
+  runFuzzCampaign,
 } = require('../dist/index.js')
 
 const backendDefinition = String.raw`[]
@@ -436,4 +437,65 @@ test('compileBackend compiles and creates a native session', () => {
   assert.equal(backend.capabilities.execution, true)
   assert.equal(backend.capabilities.smt, true)
   assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
+})
+
+const readFixture = name =>
+  fs.readFileSync(path.join(__dirname, '../../k-rust-fuzz/tests/data/imp', name), 'utf8')
+const SOLVER = 'z3'
+
+// The IMP campaign of the crate's own test (src/fuzz.rs): blind values for `x` and `y` of `le.imp`
+// until one falsifies the claim that `r` ends as 1, which any `x > y` does.
+const impCampaign = (campaign = {}) => ({
+  definition: readFixture('imp.k'),
+  moduleName: 'IMP',
+  sourceName: 'imp.k',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: readFixture('le.imp'), 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+    ...campaign,
+  },
+})
+
+test('runs one fuzz campaign on IMP to a confirmed witness', () => {
+  const { json, report } = runFuzzCampaign(impCampaign())
+  assert.equal(report.schema, 'krust-fuzz-report')
+  assert.equal(report.version, 1)
+  assert.equal(report.identity.solver, SOLVER)
+  assert.equal(report.identity.seed, '24301')
+  assert.deepEqual(report.identity.budget, { cases: '64' })
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  assert.equal(witness.label, 'property-failure')
+  const [x, y] = (witness.shrunk ?? witness.first).holes.map(hole => BigInt(hole.value.int))
+  assert.ok(x > y, `${x} > ${y}`)
+  assert.deepEqual(report['engine-defects'], [])
+  // The report is a function of the specification: a second call gives the same bytes.
+  assert.equal(runFuzzCampaign(impCampaign()).json, json)
+})
+
+test('throws for a malformed campaign specification', () => {
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ options: { 'max-dept': 3 } })),
+    /campaign\.options: unknown field `max-dept`/,
+  )
+  assert.throws(() => runFuzzCampaign(impCampaign({ seed: 7 })), /invalid type/)
 })

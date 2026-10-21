@@ -1,5 +1,7 @@
 //! Node-API bindings for the user-facing parts of the `k-rust` frontend.
 
+pub mod fuzz;
+
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 
 use k_rust::{

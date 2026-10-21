@@ -123,3 +123,64 @@ native `definition.kore`. While the prelude is included, a `requires` of a built
 `includePrelude` defaults to `false`, in which case every dependency comes from `sources`. User rules
 that need parametric sort inference, or whose ambiguity the portable decision does not settle, still
 return `Z3InferenceRequired`.
+
+## Fuzzing example
+
+`runFuzzCampaign` runs one `krust fuzz` campaign of the [`k-rust-fuzz`](../k-rust-fuzz/README.md)
+library in one call: it compiles the definition, crafts values for the program's holes until the
+budget is spent or a concrete re-run confirms a witness, and returns the report. The campaign
+specification is the library's JSON, with kebab-case fields; `json` is the report's canonical text
+(schema `krust-fuzz-report`, version 1), and `report` the same document parsed.
+
+```typescript
+import init, { runFuzzCampaign } from '@midnightntwrk/k-rust-wasm'
+
+await init()
+
+const { report } = runFuzzCampaign({
+  definition: impDefinition, // the IMP semantics, with module IMP-SYNTAX
+  moduleName: 'IMP',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: leProgram, 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'my-build' },
+    budget: { cases: '64' },
+  },
+})
+
+if (report.outcome.status === 'witness-found') {
+  console.log(report.outcome.witness.first.holes.map(hole => hole.value))
+}
+```
+
+`options`, `proposers` and `bounds` are partial: each field given replaces the library default, and
+an unknown field throws. The seed, the rejection cap and the budget's limit are canonical decimal
+strings. A `mutant` definition, with the same fields as the baseline's, is given exactly for a
+differential target. Observer targets are library-only. A campaign that runs returns its report
+whatever its outcome, and "no witness found" is never a proof that none exists; a malformed
+specification, a definition that does not compile, and a campaign the library refuses throw.
+
+The call is synchronous and holds the calling thread until the campaign ends. This build runs
+every proposer except `solve`, on one thread, without a per-case safety limit: the solve proposer
+needs Z3, and `wasm32-unknown-unknown` has no clock to read a deadline from and no thread to stop
+a case at it. A positive `solve` weight or a `safety-limit-ms` therefore throws before anything is
+compiled; bound every case with `max-work` or `max-depth`. Without a solver, a report's
+`identity.solver` is `"none"`, and conditions only a solver decides leave their cases
+`unsupported` rather than deciding them.

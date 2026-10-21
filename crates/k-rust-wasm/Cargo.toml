@@ -13,6 +13,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 k-rust = { path = "../k-rust", default-features = false }
+# `runFuzzCampaignWasm`: one campaign per call, on the portable build.
+k-rust-fuzz = { path = "../k-rust-fuzz" }
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true
