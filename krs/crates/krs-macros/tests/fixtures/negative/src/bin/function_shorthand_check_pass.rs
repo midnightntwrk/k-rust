@@ -52,6 +52,17 @@ k::equations! {
     r8_other: _ => Indirect;
 }
 
+/// A table keyed on unit variants: `A()` and `Register::B` name them.
+#[k::function(total, internal)]
+pub fn Index(register: k::Term<Reg8>) -> k::Term<Int>;
+
+k::equations! {
+    for Index;
+    use Register::*;
+    index_a: A() => 0;
+    index_b: Register::B => 1;
+}
+
 #[k::function(total, internal, sort = Int)]
 pub struct Pick {
     pub flag: k::Term<Bool>,

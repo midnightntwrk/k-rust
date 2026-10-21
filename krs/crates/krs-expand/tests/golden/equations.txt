@@ -549,6 +549,20 @@ const _: () = {
         let _: <R8 as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
     }
 };
+const _: () = {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Operand::*;
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Register::*;
+    #[allow(
+        unused_variables,
+        clippy::let_unit_value,
+        clippy::no_effect_underscore_binding
+    )]
+    fn __krs_row_binders() {
+        let n = ();
+    }
+};
 fn r8_other(__krs_symbolic_subject: R8) -> R8 {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;

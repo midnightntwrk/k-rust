@@ -441,19 +441,15 @@ fn canonical_integer(digits: &str) -> String {
     }
 }
 
-/// Whether every argument is `_` or a binder, each binder distinct.
+/// Whether every argument is certainly a wildcard. A bare identifier is not
+/// counted: syn reads a unit variant brought in by a `use` item, such as `A`,
+/// as an identifier pattern, and only rustc's name resolution tells it from a
+/// binder, so this fail-fast check would otherwise reject a table keyed on
+/// unit variants.
 fn is_catch_all(patterns: &[Pat]) -> bool {
-    let mut names = Vec::new();
-    patterns.iter().all(|pattern| match pattern {
-        Pat::Wild(_) => true,
-        Pat::Ident(binder) if binder.subpat.is_none() => {
-            let name = binder.ident.unraw().to_string();
-            let first = !names.contains(&name);
-            names.push(name);
-            first
-        }
-        _ => false,
-    })
+    patterns
+        .iter()
+        .all(|pattern| matches!(pattern, Pat::Wild(_)))
 }
 
 fn table_error(reason: &str, span: Span) -> SyntaxError {
@@ -523,7 +519,7 @@ mod tests {
             ("for R8; a: 0 => B; a: 1 => C;", "duplicate row label `a`"),
             ("for R8; a: 0 => B; b: 0 => C;", "two results"),
             ("for R8; a: 0 => B; b: 00 => B;", "same equation"),
-            ("for R8; a: 0 => B; b: x => C;", "mark the catch-all"),
+            ("for R8; a: 0 => B; b: _ => C;", "mark the catch-all"),
             ("for R8; a: => B;", "nullary function writes `()`"),
             ("#[k::rule] for R8;", "starts with `for Function;`"),
             ("for R8; #[k::rule] a: 0 => B;", "not `#[k::rule]`"),
@@ -532,6 +528,15 @@ mod tests {
             let error = parse(source).expect_err(source);
             assert!(error.to_string().contains(expected), "{source}: {error}");
         }
+    }
+
+    #[test]
+    fn rows_keyed_on_unit_variants_are_not_catch_alls() {
+        // syn reads `A` and `B` as identifier patterns; only rustc knows
+        // whether they name the variants the table's `use` brings in.
+        let table = parse("for Index; use Register::*; a: A => 0; b: B => 1;")
+            .expect("unit-variant rows are not certain catch-alls");
+        assert_eq!(table.rows().len(), 2);
     }
 
     #[test]

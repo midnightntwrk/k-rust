@@ -1466,7 +1466,9 @@ impl<'a> TermBuilder<'a> {
         let selector = rule_application_selector(&ident.ident);
         let authored_spelling = spelling(authored);
         let pattern = match arguments {
-            Some(TermArguments::Positional(values)) if values.is_empty() => quote!(#path(..)),
+            // `A { .. }` matches a unit, tuple, or record constructor alike, so
+            // `A()` names a unit variant as `Register::A()` does.
+            Some(TermArguments::Positional(values)) if values.is_empty() => quote!(#path { .. }),
             Some(TermArguments::Positional(_) | TermArguments::Named(_)) => quote!(#path { .. }),
             None => quote!(#path),
         };

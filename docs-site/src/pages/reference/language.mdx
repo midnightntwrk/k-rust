@@ -305,7 +305,8 @@ The table's `use` items are in scope for its rows only, and rustc resolves every
 Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
 Two consequences are checked at once.
 Two rows without `requires` at one priority whose arguments are the same literals would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
-A row whose arguments are all `_` or distinct binders matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
+A row whose arguments are all `_` matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
+A bare name in a row's pattern is a binder, as in every KRS pattern, so a unit variant is written `A()` or `Register::A`; where the table's `use` items or the module make a bare name a unit variant or a constant, which Rust would read as that constant, rustc rejects the row (``E0308 mismatched types`` at the name) instead of letting it bind everything.
 The header must name a function (rustc's ``E0277 `Seven` is not a non-parametric `#[k::function]` ``), and a row's argument count must be the function's (rustc's ``E0308 expected a tuple with 2 elements``).
 A table's index is always written, never taken from the order of an enum's variants: variant order is presentation, and reordering source must not change a definition.
 

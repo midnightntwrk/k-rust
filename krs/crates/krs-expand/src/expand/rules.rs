@@ -204,9 +204,30 @@ pub(crate) fn equation_row(
             }
         };
     };
+    // A bare identifier in a row pattern is a binder. With the table's `use`
+    // items in scope, rustc rejects one that names a unit variant or a
+    // constant (`let A = ();` is a refutable pattern of another type), where
+    // Rust would read the variant: write `A()` or `Register::A` for it.
+    let binders = row.rule().parameter().pattern.bindings();
+    let binder_check = (!binders.is_empty()).then(|| {
+        quote! {
+            #(#cfg)*
+            const _: () = {
+                #(
+                    #[allow(unused_imports, clippy::enum_glob_use)]
+                    #imports
+                )*
+                #[allow(unused_variables, clippy::let_unit_value, clippy::no_effect_underscore_binding)]
+                fn __krs_row_binders() {
+                    #(let #binders = ();)*
+                }
+            };
+        }
+    });
     Ok(quote! {
         #equation
         #arity
+        #binder_check
     })
 }
 
