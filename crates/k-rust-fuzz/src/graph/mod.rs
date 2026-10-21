@@ -226,23 +226,20 @@ impl<'d> Selection<'d> {
             return false;
         }
         target.rigid_sorts.iter().zip(sorts).all(|pair| match pair {
-            (Some(rigid), Some(sort)) => self.subsort(rigid, sort),
+            (Some(rigid), Some(sort)) => self.subsort(*rigid, *sort),
             _ => true,
         })
     }
 
     /// `sub` is a subsort of `sup`; an undecidable question (a sort variable) answers yes.
-    fn subsort(&mut self, sub: &Sort, sup: &Sort) -> bool {
+    fn subsort(&mut self, sub: Sort, sup: Sort) -> bool {
         let definition = self.definition;
-        *self
-            .subsorts
-            .entry((sub.clone(), sup.clone()))
-            .or_insert_with(|| {
-                definition
-                    .sort_graph()
-                    .check_subsort(sub, sup)
-                    .unwrap_or(true)
-            })
+        *self.subsorts.entry((sub, sup)).or_insert_with(|| {
+            definition
+                .sort_graph()
+                .check_subsort(&sub, &sup)
+                .unwrap_or(true)
+        })
     }
 }
 
