@@ -232,7 +232,7 @@ fn config_inputs(request: &Value) -> Result<ConfigInputs, Box<dyn Error>> {
             .iter()
             .map(|(name, text)| {
                 text.as_str()
-                    .map(|text| (name.clone(), text.to_owned()))
+                    .map(|text| (name.clone(), text.into()))
                     .ok_or_else(|| format!("variable `{name}` must be surface text"))
             })
             .collect::<Result<_, _>>()?,

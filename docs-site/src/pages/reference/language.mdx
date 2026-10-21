@@ -715,4 +715,34 @@ An `alias-rec` reverses repeatedly: with `nest(.Ints) => nil` and `nest(I, Is) =
 `krs parse --output program` prints a parsed program the same way, with its macros as written, as `kast --module MAIN --output program` does: KRS reverses the main module's aliases, while a bare `kast --output program` uses only the program-syntax module, which has no alias rules.
 A production without a printable format prints its term as KAST, with a `warning:` line naming it.
 
+### Values from Rust
+
+A Rust program that runs a definition through the `krs-exec` crate can give configuration variables as values and read results by KRS names, without writing K text or reading KORE.
+`Semantics::values()` returns the definition's `ValueIndex`, which names constructors and sorts by the Rust path of their declaration, in full or by any `::`-aligned suffix that is unique: `Register::A` or `sm83::machine::Register::A`, never the emitted symbol (`registerC`).
+
+```rust
+let index = semantics.values().clone();
+let a = index.ctor("Register::A", [])?;
+let read = index.ctor("Cycle::Read", [("addr", 1.into()), ("value", 2.into())])?;
+let state = semantics.configure(&ConfigInputs {
+    variables: vec![
+        ("REGS".into(), Value::map([(a.clone(), 7.into())]).into()),
+        ("BUS".into(), Value::list([read]).into()),
+        ("PC".into(), "256".into()), // text, parsed at the declared sort
+    ],
+    ..ConfigInputs::default()
+})?;
+let report = semantics.run(&state, RunOptions::default())?;
+let View::State(view) = semantics.view(&report.state)? else { panic!("the state is #Bottom") };
+let regs = view.value("cpu.regs")?;          // the cell `regs` of the group cell `cpu`
+assert_eq!(regs.as_map().unwrap()[&a], 7.into());
+```
+
+- A `Value` is a constructor application (`Ctor`: its declaration, the sort arguments of a parametric production, and its fields by name), an `Int` (a `BigInt`), a `Bool`, a `String`, `Bytes`, a `Float` (its canonical literal), a `Token` of a sort without a builtin hook, a K sequence (`Seq`, the content of a `k` cell), a `List`, a `Set`, a `Map`, or `Opaque`: the KORE pattern of anything else, such as a variable, an unevaluated function application, or a collection with a symbolic part.
+- Values carry no injections: `Register::A` is the same value as a map key, a field, or a cell content. Two ground values are equal exactly when they are the same term.
+- A configuration value is typed as its text would be, and must have at most the variable's declared sort. A value names its constructor, so it is never ambiguous: as text, a `Map` key is parsed at `KItem`, where a terminal two sorts share (`c`) has two readings.
+- A cell path is the chain of Rust field names below the configuration, joined by `.`, so a cell renamed with `#[k::cell(name = "eiPending")]` is still `ei_pending`. `StateView::value` reads a leaf cell, `at` a group cell as a sub-view, `present` whether an optional cell exists, and `instances` the instances of a repeated cell.
+- `Semantics::views` gives one view per disjunct of a search or proof state (`View::Bottom` for `#Bottom`), each with the predicates conjoined with its configuration as `constraints()`.
+- `Map<Reg, Int>`-style arguments of KRS collection types are Rust-side documentation: K's collections are not parametric, and a value is checked only against K's signature.
+
 For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).

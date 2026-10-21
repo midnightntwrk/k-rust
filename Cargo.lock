@@ -1271,6 +1271,7 @@ version = "0.1.0"
 dependencies = [
  "annotate-snippets",
  "expect-test",
+ "k-rust",
  "krs",
  "krs-collector",
  "krs-compiler",
@@ -1283,7 +1284,9 @@ dependencies = [
  "krs-syntax",
  "krs-test-support",
  "lexopt",
+ "num-bigint",
  "proc-macro2",
+ "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1350,6 +1353,7 @@ dependencies = [
  "krs-ir-levels",
  "krs-k-rust",
  "krs-unparse",
+ "num-bigint",
  "serde",
  "serde_json",
 ]
