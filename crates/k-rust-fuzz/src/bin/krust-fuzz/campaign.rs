@@ -54,8 +54,6 @@ pub struct CampaignFile {
     pub work: Option<u64>,
     /// Rejected cases after which the campaign ends with `rejected-out`.
     pub rejection_cap: Option<u64>,
-    /// The k-rust revision recorded in the report.
-    pub k_rust_revision: Option<String>,
     /// The target.
     pub target: Option<TargetFile>,
     /// The case options.
@@ -247,7 +245,6 @@ pub struct Overrides {
     pub shrink: Option<bool>,
     pub smt_timeout_ms: Option<u32>,
     pub smt_retry_limit: Option<u32>,
-    pub k_rust_revision: Option<String>,
 }
 
 /// The program as the resolved campaign records it.
@@ -366,7 +363,6 @@ pub fn parse_seed(text: &str) -> Result<u64, String> {
 pub fn resolve(
     file: Option<(&Path, CampaignFile)>,
     flags: Overrides,
-    default_revision: String,
 ) -> Result<LoadedCampaign, String> {
     let current = std::env::current_dir()
         .map_err(|error| format!("cannot read the working directory: {error}"))?;
@@ -456,10 +452,9 @@ pub fn resolve(
             .unwrap_or(DEFAULT_REJECTION_CAP),
         seed,
         budget,
-        k_rust_revision: flags
-            .k_rust_revision
-            .or(file.k_rust_revision)
-            .unwrap_or(default_revision),
+        // This build's identity, which nothing can replace: a hand-named revision could make
+        // two builds' reports and witnesses look alike.
+        k_rust_revision: k_rust::build_identity(),
     };
     Ok(LoadedCampaign {
         resolved,

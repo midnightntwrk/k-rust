@@ -174,10 +174,6 @@ struct Args {
     #[arg(long, value_name = "N")]
     smt_retry_limit: Option<u32>,
 
-    /// The k-rust revision the report records (defaults to this build's identity).
-    #[arg(long, value_name = "REVISION")]
-    k_rust_revision: Option<String>,
-
     /// Print the report as canonical JSON instead of a summary.
     #[arg(long)]
     json: bool,
@@ -192,8 +188,7 @@ struct Args {
     witness: Option<PathBuf>,
 
     /// Replay a witness file: check its identity and re-run its witness cases. --definition,
-    /// --mutant and --program then relocate the recorded inputs, and --k-rust-revision names
-    /// this build's revision.
+    /// --mutant and --program then relocate the recorded inputs.
     #[arg(
         long,
         value_name = "FILE",
@@ -236,7 +231,7 @@ impl From<RuleModeArg> for RuleMode {
 fn main() -> ExitCode {
     // Checked before the arguments, so that a krust-fuzz of another build does not even print
     // its help as this krust's.
-    let own = k_rust::native::build_identity();
+    let own = k_rust::build_identity();
     if let Some(parent) = std::env::var_os(k_rust::native::FUZZ_PARENT_BUILD_ENV) {
         let parent = parent.to_string_lossy();
         if parent != own.as_str() {
@@ -246,7 +241,7 @@ fn main() -> ExitCode {
             );
             return ExitCode::from(ERROR);
         }
-        if !k_rust::native::is_verified_build(&own) {
+        if !k_rust::is_verified_build(&own) {
             eprintln!(
                 "warning: krust and krust-fuzz are both unverified builds of k-rust {own}: \
                  their sources cannot be compared, only their versions"
@@ -316,14 +311,22 @@ fn run(args: Args) -> Result<u8, String> {
         shrink: switch(args.shrink, args.no_shrink),
         smt_timeout_ms: args.smt_timeout,
         smt_retry_limit: args.smt_retry_limit,
-        k_rust_revision: args.k_rust_revision,
     };
     // The output paths are checked before the campaign, so that a long campaign's result is not
     // lost to a path that cannot be written.
     for path in [&args.report, &args.witness].into_iter().flatten() {
         check_writable(path)?;
     }
-    let loaded = campaign::resolve(file, overrides, k_rust::native::build_identity())?;
+    if let (Some(report), Some(witness)) = (&args.report, &args.witness)
+        && same_file(report, witness)
+    {
+        return Err(format!(
+            "--report `{}` and --witness `{}` name the same file; give them different paths",
+            report.display(),
+            witness.display()
+        ));
+    }
+    let loaded = campaign::resolve(file, overrides)?;
     let spec = loaded.spec(
         loaded.resolved.proposers.clone(),
         loaded.resolved.options.clone(),
@@ -375,6 +378,24 @@ fn switch(on: bool, off: bool) -> Option<bool> {
     }
 }
 
+/// Whether `left` and `right` name one file: equal after resolving the directory part (the
+/// files need not exist yet).
+fn same_file(left: &Path, right: &Path) -> bool {
+    let resolve = |path: &Path| {
+        let directory = match path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        std::fs::canonicalize(directory)
+            .ok()
+            .zip(path.file_name().map(std::ffi::OsStr::to_os_string))
+    };
+    match (resolve(left), resolve(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => left == right,
+    }
+}
+
 /// Refuse an output path that cannot be written, without changing an existing file.
 fn check_writable(path: &Path) -> Result<(), String> {
     let existed = path.exists();
@@ -394,11 +415,8 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     let file = WitnessFile::read(path)?;
     let mut resolved = file.campaign.clone();
     // The replay's revision is this build's, which the identity check compares with the one
-    // that found the witness.
-    resolved.k_rust_revision = args
-        .k_rust_revision
-        .clone()
-        .unwrap_or_else(k_rust::native::build_identity);
+    // that found the witness; nothing can name another.
+    resolved.k_rust_revision = k_rust::build_identity();
     let current = std::env::current_dir()
         .map_err(|error| format!("cannot read the working directory: {error}"))?;
     let relocate = |path: &Path| current.join(path);
@@ -430,7 +448,7 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
         &loaded.resolved.k_rust_revision,
     ]
     .into_iter()
-    .filter(|revision| !k_rust::native::is_verified_build(revision))
+    .filter(|revision| !k_rust::is_verified_build(revision))
     .map(|revision| format!("`{revision}`"))
     .collect::<Vec<_>>();
     if !unverified.is_empty() {

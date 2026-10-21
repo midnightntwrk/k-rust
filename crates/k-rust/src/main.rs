@@ -299,7 +299,7 @@ fn fuzz(options: FuzzArgs) -> ExitCode {
     let mut command = std::process::Command::new(&executable);
     command.args(&arguments).env(
         k_rust::native::FUZZ_PARENT_BUILD_ENV,
-        k_rust::native::build_identity(),
+        k_rust::build_identity(),
     );
     #[cfg(unix)]
     {

@@ -144,14 +144,14 @@ A limit of 0 seconds, which would stop every case, is refused, and so is a campa
 A case the limit stops is `timeout` and outside the determinism contract; the report's options record the limit.
 The library sets no limit by default.
 The campaign runs on a thread with a 256 MiB stack, which the report records.
-The report's k-rust revision is k-rust's build identity, which `krust-fuzz --version` also prints, unless `--k-rust-revision` names one.
-The identity is the k-rust version followed by `+src.` and a digest of the sources k-rust is built from (k-rust's build script hashes the sources, embedded builtins and manifests of `k-rust`, `k-rust-kore`, `k-rust-backend` and `k-rust-regex`, and the workspace manifest and lockfile; tests and snapshots are left out).
+The report's k-rust revision is always k-rust's build identity (`k_rust::build_identity`), which `krust-fuzz --version` also prints; no flag or campaign-file key can name another.
+The identity is the k-rust version followed by `+src.` and a digest of the sources k-rust is built from: k-rust's build script hashes the non-test Rust sources of `k-rust`, `k-rust-kore`, `k-rust-backend` and `k-rust-regex` and the files they embed (`crates/k-rust/build/source_digest.rs` gives the exact rule); crates.io dependency versions, features and the profile are not part of it.
 Builds whose k-rust sources differ, committed or not, have different identities, and `krust` and `krust-fuzz` built from one tree have the same one.
 Outside this workspace's layout the build script cannot read those sources, the identity is the version followed by `+unverified`, and the skew check and `--replay` say when they compare such identities.
 The identity covers k-rust, not this crate: two `krust-fuzz` builds that differ only in this crate's code record the same revision.
 
 The summary goes to standard output, or the canonical report with `--json`; `--report FILE` writes the report, and `--witness FILE` writes the witness file when a witness is found and removes an existing FILE when none is, so that the file never holds an older run's witness.
-Both paths are checked before the campaign runs, and the result is printed before they are written, so a failed write loses no result.
+Both paths are checked before the campaign runs (and must name different files), and the result is printed before they are written, so a failed write loses no result.
 The exit status is 0 when a witness was found and confirmed, 1 when not (including `equivalent`, `rejected-out` and `aborted`), and 2 on an error (including a failed write after the result was printed).
 
 A witness file (`schema: "krust-fuzz-witness"`, `version: 1`) holds the campaign as resolved (absolute paths, every option) and the report.
@@ -161,4 +161,4 @@ That includes the k-rust revision, each definition's modules, execution digest, 
 On a mismatch it lists every difference by its path in the report (for example `definitions[0].syntax-definition-digest`) and refuses (exit status 2) unless `--force` is given.
 A forced replay prints each mismatch and a `forced: replayed despite N identity mismatches` line; its exit status still says whether the cases reproduced.
 It then runs the first and, when there is one, the shrunk witness case as the campaign's only explicit assignment, without shrinking, and a case reproduces when the replay confirms a hit whose witness case (hole values, class, initial and final configurations, reaching leaf and step count) equals the recorded one; the exit status is 0 when every case reproduced and 1 otherwise.
-`--definition`, `--mutant` and `--program` relocate the recorded inputs, and `--k-rust-revision` names the replaying build's revision; the identity check still applies.
+`--definition`, `--mutant` and `--program` relocate the recorded inputs; the identity check still applies, and the replay's revision is always this build's.

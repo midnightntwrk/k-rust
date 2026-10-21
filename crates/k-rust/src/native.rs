@@ -303,39 +303,9 @@ pub fn load_kore_companions(
     })
 }
 
-/// The environment variable in which `krust fuzz` passes [`build_identity`] to the
+/// The environment variable in which `krust fuzz` passes [`crate::build_identity`] to the
 /// `krust-fuzz` executable it runs.
 pub const FUZZ_PARENT_BUILD_ENV: &str = "KRUST_FUZZ_PARENT_BUILD";
-
-/// The suffix of a [`build_identity`] that names no source digest.
-pub const UNVERIFIED_BUILD: &str = "+unverified";
-
-/// This build of k-rust: its package version, then `+src.` and the digest of the sources it was
-/// built from (the build script's `K_RUST_SOURCE_DIGEST`: this crate's and its workspace
-/// dependencies' sources, embedded builtins, manifests and the lockfile). Builds whose sources
-/// differ, committed or not, have different identities.
-///
-/// Outside the workspace layout the build script cannot read those sources, and the identity
-/// is the version followed by [`UNVERIFIED_BUILD`]: two such builds of one version cannot be
-/// told apart, which [`is_verified_build`] lets a comparison say.
-///
-/// `krust fuzz` passes it to the `krust-fuzz` executable it runs, which refuses to run for a
-/// `krust` of another build, and `krust-fuzz` records it as the k-rust revision of its reports.
-#[must_use]
-pub fn build_identity() -> String {
-    let digest = env!("K_RUST_SOURCE_DIGEST");
-    if digest.is_empty() {
-        format!("{}{UNVERIFIED_BUILD}", env!("CARGO_PKG_VERSION"))
-    } else {
-        format!("{}+src.{digest}", env!("CARGO_PKG_VERSION"))
-    }
-}
-
-/// Whether `identity` (a [`build_identity`]) names a source digest.
-#[must_use]
-pub fn is_verified_build(identity: &str) -> bool {
-    !identity.ends_with(UNVERIFIED_BUILD)
-}
 
 fn payload_identity(file: &str, bytes: &[u8]) -> PayloadIdentity {
     PayloadIdentity {

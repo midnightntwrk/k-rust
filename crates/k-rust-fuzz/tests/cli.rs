@@ -237,11 +237,14 @@ fn an_identity_mismatch_is_refused_unless_forced() {
         "witness.json",
         "--no-shrink",
     ];
-    let output = krust_fuzz(
-        &directory,
-        &[&campaign[..], &["--k-rust-revision", "another-revision"]].concat(),
-    );
+    let output = krust_fuzz(&directory, &campaign);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    // A witness of another k-rust build: no flag can name a revision, so edit the record.
+    let path = directory.join("witness.json");
+    let mut recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    recorded["report"]["identity"]["k-rust-revision"] = "another-revision".into();
+    fs::write(&path, recorded.to_string()).unwrap();
 
     let refused = krust_fuzz(&directory, &["--replay", "witness.json"]);
     let stderr = text(&refused.stderr);
@@ -270,7 +273,7 @@ fn an_identity_mismatch_is_refused_unless_forced() {
         "a forced replay says so: {stdout}"
     );
 
-    // `--k-rust-revision` names the replaying build's revision.
+    // No flag lets a replay name its own revision and pass the check silently.
     let named = krust_fuzz(
         &directory,
         &[
@@ -280,14 +283,8 @@ fn an_identity_mismatch_is_refused_unless_forced() {
             "another-revision",
         ],
     );
-    let stdout = text(&named.stdout);
-    assert_eq!(
-        named.status.code(),
-        Some(0),
-        "{stdout}{}",
-        text(&named.stderr)
-    );
-    assert!(!stdout.contains("identity mismatch"), "{stdout}");
+    assert_eq!(named.status.code(), Some(2), "{}", text(&named.stderr));
+    assert!(text(&named.stdout).is_empty());
 
     // A program that changed since the witness was found is another program.
     let output = krust_fuzz(&directory, &campaign);
@@ -481,7 +478,7 @@ fn krust_fuzz_refuses_to_run_for_a_krust_of_another_build() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust-fuzz"))
         .arg("--version")
-        .env(FUZZ_PARENT_BUILD_ENV, k_rust::native::build_identity())
+        .env(FUZZ_PARENT_BUILD_ENV, k_rust::build_identity())
         .stdin(Stdio::null())
         .output()
         .expect("krust-fuzz runs");
@@ -549,7 +546,7 @@ fn a_replay_on_changed_macros_is_refused() {
 /// set at build time.
 #[test]
 fn the_k_rust_revision_names_the_source_tree() {
-    let identity = k_rust::native::build_identity();
+    let identity = k_rust::build_identity();
     assert!(identity.contains("+src."), "{identity}");
     let directory = le_workspace("revision");
     let (_, report) = json_run(
@@ -716,4 +713,47 @@ fn krust_fuzz_lookup_failures_are_errors_and_arguments_pass_unchanged() {
     );
     assert_eq!(found.status.code(), Some(7), "{}", text(&found.stderr));
     assert_eq!(text(&found.stdout), "--\n--x\na b\n");
+}
+
+/// Round 3, R3: a run records this build's identity; neither a flag nor the campaign file can
+/// name another revision.
+#[test]
+fn the_k_rust_revision_cannot_be_named_by_hand() {
+    let directory = le_workspace("named-revision");
+    let flag = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--k-rust-revision", "0.8.0+src.0"],
+    );
+    assert_eq!(flag.status.code(), Some(2), "{}", text(&flag.stderr));
+    fs::write(
+        directory.join("named.toml"),
+        format!("k-rust-revision = \"0.8.0+src.0\"\n{}", le_campaign()),
+    )
+    .unwrap();
+    let key = krust_fuzz(&directory, &["--campaign", "named.toml"]);
+    let stderr = text(&key.stderr);
+    assert_eq!(key.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("k-rust-revision"), "{stderr}");
+}
+
+/// Round 3: one path for the report and the witness would let a run without a witness remove
+/// the report it just wrote.
+#[test]
+fn the_report_and_the_witness_need_different_paths() {
+    let directory = le_workspace("same-path");
+    let output = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--report",
+            "out.json",
+            "--witness",
+            "./out.json",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("same file"), "{stderr}");
+    assert!(text(&output.stdout).is_empty(), "nothing ran");
 }
