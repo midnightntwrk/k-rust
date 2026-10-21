@@ -938,6 +938,85 @@ fn the_debug_check_of_passed_over_items_reads_what_an_edit_built() {
     }
 }
 
+/// The stored `may_be_rigid` attribute is false exactly when some node of the term is a variable,
+/// a conjunction, a collection, or an application of a symbol whose role is neither
+/// `FreeConstructor` nor `EquationHead` (checked against a walk over every node), and the
+/// shortcuts it gives `rigid_apart_skeleton_hash` and `has_key_header` return what their walks
+/// return, on the grouping keys and on the bridge's terms, which hold every kind of node at
+/// every depth.
+#[test]
+fn may_be_rigid_shortcuts_return_the_walks() {
+    use proptest::prelude::*;
+
+    use crate::term::{
+        has_key_header, key_header_walk, rigid_apart_skeleton_hash, rigid_apart_skeleton_walk,
+    };
+    fn every_node_may_be_rigid(term: &Term) -> bool {
+        let mut pending = vec![term];
+        while let Some(term) = pending.pop() {
+            match term.kind() {
+                TermKind::DomainValue { .. } => {}
+                TermKind::Injection { term, .. } => pending.push(term),
+                TermKind::Application {
+                    symbol, arguments, ..
+                } if matches!(
+                    symbol.attributes.head_role(),
+                    HeadRole::FreeConstructor | HeadRole::EquationHead
+                ) =>
+                {
+                    pending.extend(arguments);
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let keys = grouping_key();
+    let terms = term_with_ground_keys();
+    // Cases by (stored attribute, skeleton walk answers `Some`).
+    let mut classes = BTreeMap::<(bool, bool), usize>::new();
+    for case in 0..CASES {
+        let term = if case % 2 == 0 {
+            keys.new_tree(&mut runner).expect("a case").current()
+        } else {
+            terms.new_tree(&mut runner).expect("a case").current()
+        };
+        let stored = term.attributes().may_be_rigid();
+        assert_eq!(
+            stored,
+            every_node_may_be_rigid(&term),
+            "case {case}: {term:?}"
+        );
+        let mut pending = Vec::new();
+        let walked = rigid_apart_skeleton_walk(&term, &mut pending);
+        assert_eq!(
+            rigid_apart_skeleton_hash(&term, &mut pending),
+            walked,
+            "case {case}: {term:?}"
+        );
+        assert!(pending.is_empty());
+        assert_eq!(
+            has_key_header(&term),
+            key_header_walk(&term),
+            "case {case}: {term:?}"
+        );
+        *classes.entry((stored, walked.is_some())).or_default() += 1;
+    }
+    // Every term the walk finds rigid has the attribute; both answers occur among the terms that
+    // have it (an equation head without the certificate is not rigid), and many terms lack it.
+    assert_eq!(classes.get(&(false, true)), None);
+    for class in [(true, true), (true, false), (false, false)] {
+        assert!(
+            classes.get(&class).is_some_and(|&cases| cases >= 32),
+            "class {class:?} has too few cases: {classes:?}"
+        );
+    }
+}
+
 /// `grouping_key`'s keys that are not rigid include collections, as its doc states: a key holding
 /// a collection is not rigid (`rigid_apart_skeleton_hash` gives `None` at a
 /// `FixedRoot::Collection`), so the grouping must check it pairwise, and a grouping that read a

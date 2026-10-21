@@ -16,7 +16,7 @@
 //!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::map_of_items", "Term::set",
 //!     "Term::set_of_items", "Term::list", "Term::list_of_items", "order_collection",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
-//!     "has_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
+//!     "has_key_header", "fold_children", "k_cells", "may_be_rigid", "Term::eq", "Term::cmp",
 //!     "equal_nodes", "order_nodes"]
 //! invariant = """\
 //! Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is \
@@ -29,7 +29,10 @@
 //! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
 //! only the kind and the children's stored ceil_free, so the stored value of every Term is \
 //! ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the \
-//! children's stored values, are hasMacro and kCells of the Lean model. Only \
+//! children's stored values, are hasMacro and kCells of the Lean model. may_be_rigid, from the \
+//! kind and the children's stored values, is false exactly when some node is a variable, a \
+//! conjunction, a collection, or an application of a function, residual or uninterpreted symbol, \
+//! the nodes at which rigid_apart_skeleton_hash and has_key_header stop. Only \
 //! Term::map_of_items builds a Map kind: it unites entries in nondecreasing (key, value) order \
 //! with those of a same-definition rest, which keeps that order, retaining repeated keys and \
 //! bindings; Term::map orders its entries with order_collection first, and the other callers hand \
@@ -851,6 +854,8 @@ pub struct TermAttributes {
     has_macro_or_alias: bool,
     /// See [`TermAttributes::k_cells`]; set only by `Term::allocate`, from the kind.
     k_cells: u8,
+    /// See [`TermAttributes::may_be_rigid`]; set only by `Term::allocate`, from the kind.
+    may_be_rigid: bool,
     hash: u64,
 }
 
@@ -866,6 +871,7 @@ impl Default for TermAttributes {
             ceil_free: false,
             has_macro_or_alias: false,
             k_cells: 0,
+            may_be_rigid: false,
             hash: 0,
         }
     }
@@ -905,6 +911,15 @@ impl TermAttributes {
     /// 2. See `k_cells`, which `Term::allocate` stores here.
     pub fn k_cells(&self) -> u8 {
         self.k_cells
+    }
+
+    /// False when some node of this term is a variable, a conjunction, a map, list or set, or an
+    /// application of a symbol whose role is neither [`HeadRole::FreeConstructor`] nor
+    /// [`HeadRole::EquationHead`]: such a term is not rigid ([`rigid_apart_skeleton_hash`]
+    /// gives `None`) and has no key header (`has_key_header`). True says only that no node has
+    /// one of those kinds. See `may_be_rigid`, which `Term::allocate` stores here.
+    pub(crate) fn may_be_rigid(&self) -> bool {
+        self.may_be_rigid
     }
 }
 
@@ -2212,6 +2227,7 @@ fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
     attributes.ceil_free = ceil_free(kind);
     attributes.has_macro_or_alias = has_macro_or_alias(kind);
     attributes.k_cells = k_cells(kind);
+    attributes.may_be_rigid = may_be_rigid(kind);
     attributes.hash = calculate_hash(kind);
 }
 
@@ -2493,6 +2509,43 @@ fn has_macro_or_alias(kind: &TermKind) -> bool {
     })
 }
 
+/// The `may_be_rigid` attribute of a node with this kind: whether the node is a domain value, an
+/// injection, or an application of a symbol whose role is [`HeadRole::FreeConstructor`] or
+/// [`HeadRole::EquationHead`], and every child's stored attribute holds. By induction over the
+/// term, the stored attribute is false exactly when some node of the term has another kind or
+/// role: a variable, a conjunction, a collection, or an application of a function, residual or
+/// uninterpreted symbol.
+///
+/// Those are the nodes at which the walks of [`rigid_apart_skeleton_hash`] and `has_key_header`
+/// stop with `None` and `false`: the root classification (`head::classify`) gives a variable
+/// and a conjunction an open head, a collection the `Collection` root, which neither walk
+/// accepts, and an application of those roles an open or residual head; `has_key_header` accepts
+/// only domain values, injections and free-constructor applications. Both walks reach every node
+/// of a term before they answer `Some` or `true`, so they answer `None` and `false` on a term
+/// whose attribute is false, and may return at once there.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn may_be_rigid(kind: &TermKind) -> bool {
+    match kind {
+        TermKind::DomainValue { .. } => true,
+        TermKind::Injection { term, .. } => term.attributes().may_be_rigid,
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor | HeadRole::EquationHead
+            ) && arguments
+                .iter()
+                .all(|argument| argument.attributes().may_be_rigid)
+        }
+        TermKind::Variable(_)
+        | TermKind::And(..)
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => false,
+    }
+}
+
 /// The `k_cells` attribute of a node with this kind: 1 at a `<k>` cell whatever its arguments
 /// hold, because `rule::find_k_cells` does not descend below a `<k>` cell; otherwise the sum of
 /// the children's stored counts, saturated at 2. This is `kCells` of
@@ -2566,8 +2619,23 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
 /// `lean/KRust/TermAttributes.lean`.
 ///
 /// One walk over the term, with its pending nodes on `pending` (left empty), so that a key of any
-/// height takes a bounded native stack.
+/// height takes a bounded native stack; none when the stored `may_be_rigid` attribute is false,
+/// which says the walk would stop at some node.
 pub(crate) fn rigid_apart_skeleton_hash<'t>(
+    term: &'t Term,
+    pending: &mut Vec<&'t Term>,
+) -> Option<u64> {
+    pending.clear();
+    // A term with a node the walk stops at answers `None` without the walk (`may_be_rigid`).
+    if !term.attributes().may_be_rigid() {
+        return None;
+    }
+    rigid_apart_skeleton_walk(term, pending)
+}
+
+/// [`rigid_apart_skeleton_hash`] by its walk alone, whatever the stored `may_be_rigid`: the
+/// reference the shortcut is checked against (`tests::definedness`).
+pub(crate) fn rigid_apart_skeleton_walk<'t>(
     term: &'t Term,
     pending: &mut Vec<&'t Term>,
 ) -> Option<u64> {
@@ -2959,7 +3027,14 @@ pub(crate) enum InjectionComparison {
 /// work list, so that a key whose nodes have at most one argument each, such as a key cell
 /// `<id>(\dv{Int}("1"))`, is walked without allocating, and a key of any height takes a
 /// bounded native stack.
-fn has_key_header(key: &Term) -> bool {
+pub(crate) fn has_key_header(key: &Term) -> bool {
+    // A key with a node the walk stops at has no header, without the walk (`may_be_rigid`).
+    key.attributes().may_be_rigid() && key_header_walk(key)
+}
+
+/// [`has_key_header`] by its walk alone, whatever the stored `may_be_rigid`: the reference the
+/// shortcut is checked against (`tests::definedness`).
+pub(crate) fn key_header_walk(key: &Term) -> bool {
     let mut pending = Vec::new();
     let mut node = key;
     loop {
