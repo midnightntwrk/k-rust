@@ -655,7 +655,7 @@ mod tests {
             reaching: Reaching {
                 role: DefinitionRole::Baseline,
                 leaf: Some(0),
-                step: None,
+                step: Some(4),
             },
             kill: None,
             steps: Some(12),
@@ -833,7 +833,7 @@ mod tests {
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
             r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"]}],"#,
-            r#""reaching":{"role":"baseline","leaf":0},"steps":12}"#,
+            r#""reaching":{"role":"baseline","leaf":0,"step":4},"steps":12}"#,
         );
         let expected = expected
             .replace("ORDER", &digest_hex(b"rule-1\nrule-2"))
