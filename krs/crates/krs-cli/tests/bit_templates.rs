@@ -50,14 +50,19 @@ impl Machine {
 pub fn Code(value: Term<Int>) -> Term<Int>;
 "#;
 
-/// Templates beside an authored top-level `||` in a table row and in an
-/// `#[k::equation]` fn.
+/// Fields in the results of readable clauses, with and without `op @`, in a
+/// replacement and in a splice; and templates beside an authored top-level
+/// `||` in a table row and in an `#[k::equation]` fn.
 const POSITIVE: &str = r#"
 k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    code_of: CodeOf(n) => crate::Code(n);
+    field_of : FieldOf(k::bits!("0aaa"))                     => a;
+    alias_of : AliasOf(op @ k::bits!("1aaa"))                => a.add::<Int>(op);
+    pair_of  : PairOf(k::bits!("0a"), k::bits!("b1"))        => a.add::<Int>(b);
+    splice_of: SpliceOf(k::bits!("1 aa"))                     => k![a, a];
+    code_of  : CodeOf(n)                                      => crate::Code(n);
 }
 
 k::equations! {
@@ -138,13 +143,17 @@ fn run(target: &Path, manifest: &Path, program: &str) -> String {
 }
 
 #[test]
-fn or_conditions_beside_templates_run() {
+fn readable_results_and_or_conditions_beside_templates_run() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(temporary.path(), "positive", POSITIVE);
     let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
     assert!(success, "{stderr}");
     let outcomes = [
+        "fieldOf(5)",
+        "aliasOf(13)",
+        "pairOf(1, 3)",
+        "spliceOf(6)",
         "codeOf(8)",
         "codeOf(11)",
         "codeOf(9)",
@@ -154,6 +163,10 @@ fn or_conditions_beside_templates_run() {
     .map(|program| format!("{program} => {}", run(target.path(), &manifest, program)));
     expect_test::expect![[r#"
         [
+            "fieldOf(5) => 5",
+            "aliasOf(13) => 18",
+            "pairOf(1, 3) => 2",
+            "spliceOf(6) => 2 ~> 2",
             "codeOf(8) => 0",
             "codeOf(11) => 3",
             "codeOf(9) => 100",

@@ -437,6 +437,38 @@ pub(crate) fn desugar(
     ))
 }
 
+/// Writes the fields of the templates in a readable clause's `pattern` into
+/// its authored `result`, as [`desugar`] writes them into an item's result.
+///
+/// A readable clause is parsed as an item whose result may be a placeholder
+/// (a splice or an erasure is no term), so the clause keeps its own result
+/// and substitutes it here. The binders are those [`desugar`] gives the
+/// clause's item, which has `pattern` as its one parameter.
+///
+/// # Errors
+///
+/// A malformed template, an authored identifier spelled like a hidden
+/// binder, a field bound again, and a field in a macro body that is no list
+/// of terms.
+pub(crate) fn substitute_clause_result(
+    pattern: &Pat,
+    result: &mut Expr,
+) -> Result<(), SyntaxError> {
+    reject_hidden_spellings(&result.to_token_stream())?;
+    if !pattern_contains_template(pattern) {
+        return Ok(());
+    }
+    let mut occurrences = Vec::new();
+    rewrite_pattern(&mut pattern.clone(), &mut occurrences)?;
+    let fields = field_terms(&occurrences);
+    let mut substitution = Substitution {
+        fields: &fields,
+        error: None,
+    };
+    substitution.visit_expr_mut(result);
+    substitution.error.map_or(Ok(()), Err)
+}
+
 /// Puts the templates' guards into the item's `requires`, before the
 /// authored condition at attribute `requires`, if any.
 fn insert_guard(item: &mut ItemFn, occurrences: &[Occurrence], requires: Option<usize>) {
@@ -868,28 +900,61 @@ impl Substitution<'_> {
                 let trailing: Option<Token![,]> = input.parse()?;
                 Ok((subject, comma, pattern, trailing))
             };
-            if let Ok((mut subject, comma, pattern, trailing)) =
-                parser.parse2(invocation.tokens.clone())
-            {
-                self.visit_expr_mut(&mut subject);
-                let mut binders = Vec::new();
-                pattern_binders(&pattern, &mut binders);
-                for binder in &binders {
-                    self.rebound(binder);
+            match parser.parse2(invocation.tokens.clone()) {
+                Ok((mut subject, comma, pattern, trailing)) => {
+                    self.visit_expr_mut(&mut subject);
+                    let mut binders = Vec::new();
+                    pattern_binders(&pattern, &mut binders);
+                    for binder in &binders {
+                        self.rebound(binder);
+                    }
+                    invocation.tokens = quote::quote!(#subject #comma #pattern #trailing);
                 }
-                invocation.tokens = quote::quote!(#subject #comma #pattern #trailing);
+                Err(_) => self.unreachable_field(invocation),
             }
             return;
         }
-        if let Ok(mut arguments) =
-            Punctuated::<Expr, Token![,]>::parse_terminated.parse2(invocation.tokens.clone())
-        {
-            for argument in &mut arguments {
-                self.visit_expr_mut(argument);
+        match Punctuated::<Expr, Token![,]>::parse_terminated.parse2(invocation.tokens.clone()) {
+            Ok(mut arguments) => {
+                for argument in &mut arguments {
+                    self.visit_expr_mut(argument);
+                }
+                invocation.tokens = arguments.to_token_stream();
             }
-            invocation.tokens = arguments.to_token_stream();
+            Err(_) => self.unreachable_field(invocation),
         }
     }
+
+    /// Records an error at a field that occurs in a macro body that is no
+    /// list of terms, where the field cannot be replaced by its bit range.
+    /// A body that mentions no field needs no substitution.
+    fn unreachable_field(&mut self, invocation: &Macro) {
+        if self.error.is_some() {
+            return;
+        }
+        if let Some(field) = first_field(&invocation.tokens, self.fields) {
+            let name = invocation
+                .path
+                .segments
+                .last()
+                .map_or_else(String::new, |segment| segment.ident.to_string());
+            self.error = Some(position_error(
+                &format!(
+                    "`{field}` is a field of the sentence's bit template, but it occurs in the body of `{name}!`, which is not a list of terms, so it cannot be replaced by its bit range; bind the field's value outside the macro, or name the template's value (`op @ k::bits!(..)`) and write `op.bit_range::<Int>(offset, length)`"
+                ),
+                field.span(),
+            ));
+        }
+    }
+}
+
+/// The first identifier in `tokens` that names a field.
+fn first_field(tokens: &TokenStream, fields: &BTreeMap<String, FieldTerm>) -> Option<Ident> {
+    tokens.clone().into_iter().find_map(|token| match token {
+        TokenTree::Ident(ident) if fields.contains_key(&ident.to_string()) => Some(ident),
+        TokenTree::Group(group) => first_field(&group.stream(), fields),
+        _ => None,
+    })
 }
 
 impl VisitMut for Substitution<'_> {
@@ -1100,6 +1165,55 @@ mod tests {
         let (long, hidden) = desugar("fn f(F(x): Int) -> Int { x }");
         assert_eq!(hidden, None);
         assert_eq!(long, "fn f (F (x) : Int) -> Int { x }");
+    }
+
+    fn head_results(source: &str) -> Vec<String> {
+        let block =
+            <crate::RuleBlock as crate::KrsSyntax>::parse_tokens(source.parse().unwrap()).unwrap();
+        block
+            .clauses()
+            .iter()
+            .map(|clause| clause.head_result().unwrap().spelling())
+            .collect()
+    }
+
+    #[test]
+    fn a_readable_clause_substitutes_fields_in_its_own_result() {
+        assert_eq!(
+            head_results(
+                "for Exp; use ExpSyntax::*; \
+                 code_a: CodeOf(k::bits!(\"0aaa\")) => a; \
+                 code_op: CodeOf(op @ k::bits!(\"1aaa\")) => a.add::<Int>(op); \
+                 pair: PairOf(k::bits!(\"0a\"), k::bits!(\"b1\")) => k![a, b];"
+            ),
+            [
+                "__krs_bits_0 . bit_range :: < Int > (0 , 3)",
+                "op . bit_range :: < Int > (0 , 3) . add :: < Int > (op)",
+                "k![__krs_bits_0 . bit_range :: < Int > (0 , 1), __krs_bits_1 . bit_range :: < Int > (1 , 1)]",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_field_in_a_macro_body_that_is_no_term_list_is_an_error() {
+        let pattern: Pat = Pat::parse_single
+            .parse_str("CodeOf(k::bits!(\"0aaa\"))")
+            .unwrap();
+        let mut result: Expr = syn::parse_str("k::map! { a => 1 }").unwrap();
+        let error = substitute_clause_result(&pattern, &mut result).unwrap_err();
+        assert_eq!(
+            error.kind().code().as_str(),
+            "krs::syntax::bit-template-position"
+        );
+        assert!(error.to_string().contains("`a` is a field"), "{error}");
+        // A body without a field needs no substitution.
+        let mut result: Expr = syn::parse_str("k::map! { b => 1 }").unwrap();
+        substitute_clause_result(&pattern, &mut result).unwrap();
+        let mut item: ItemFn =
+            syn::parse_str("fn f(F(k::bits!(\"0aaa\")): Int) -> Int { k::cells! { k: a } }")
+                .unwrap();
+        let error = desugar_bit_templates(&mut item).unwrap_err();
+        assert!(error.to_string().contains("body of `cells!`"), "{error}");
     }
 
     fn desugar_error(source: &str) -> String {

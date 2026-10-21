@@ -1245,7 +1245,12 @@ impl RuleBlock {
                 crate::term::reject_pattern_alias(&tokens)?;
             }
             let result: Expr = result?;
-            let head_result = parse_head_result(result.clone())?;
+            // The clause's item below may hold a placeholder result, so the
+            // fields of the pattern's bit templates are written into the
+            // clause's own result here.
+            let mut substituted = result.clone();
+            super::bits::substitute_clause_result(&pattern, &mut substituted)?;
+            let head_result = parse_head_result(substituted)?;
             let mut layout = RuleClauseLayout {
                 label: TokenRange::for_tokens(&name)?,
                 pattern: TokenRange::for_tokens(&pattern)?,
