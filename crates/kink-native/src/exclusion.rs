@@ -25,11 +25,11 @@
 //!   the run or by the load of its definition (`observedIn: load`, decision D-6), ground or not
 //!   ([`RunFacts::contradicted_claims`]): the list holds what no leaf carries, a candidate a
 //!   defined sibling covered and a state a state-set merge absorbed (`docs/compatibility.md` at
-//!   8f8ad57c5, 1536), so a comparison of complete sets needs it empty; a load record is on every
+//!   0068938b1, 1659), so a comparison of complete sets needs it empty; a load record is on every
 //!   run's list, so it excludes every test of its definition. On a ground run any record excludes,
 //!   so `ground` is not read: a non-ground record there arises only from a mark, a refusal, an
-//!   unsupported hook or a non-ground record, each excluded on its own (compat 1538-1545). An
-//!   empty list says nothing about a symbolic run (compat 1538), whose tests stay on the
+//!   unsupported hook or a non-ground record, each excluded on its own (compat 1661-1668). An
+//!   empty list says nothing about a symbolic run (compat 1661), whose tests stay on the
 //!   trusted-baseline premise. Only a leaf's contradiction
 //!   ([`DefinitionExclusions::contradiction_on_a_leaf`]) is the per-test case for which admission
 //!   keeps a baseline (kink-campaign `admit`); a record on the list alone refuses a baseline as

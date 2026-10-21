@@ -209,22 +209,24 @@ fn every_adapted_run_carries_the_run_level_facts() {
 }
 
 /// The k-rust passages A-1's exclusions rest on (ADOPTION.md A-1 deliverable 7), by digest, at
-/// `8f8ad57c5` (`docs/compatibility.md`):
+/// `0068938b1` (`docs/compatibility.md`; re-pin P-1 of `draft/tasks/repin-0068938b`: the seven
+/// passages are byte-identical to 8f8ad57c5's, and every one but 92 moved down 6 to 124 lines,
+/// with round D's text and the correctness sweep's above them, so only the lines are re-pinned):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
-/// - 853: a result whose `allowanceRefusals` is empty is the result under every allowance of at
+/// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
 ///   least as many bytes, so a refusal-free record may be reused on any host (decision 5 stands);
-/// - 1530-1538: a record is a path fact; the load's records are on every run's list and on no
+/// - 1653-1661: a record is a path fact; the load's records are on every run's list and on no
 ///   leaf; the list holds those of work that ended on no reported leaf; it is complete for ground
 ///   contradictions and says nothing about a symbolic run;
-/// - 1778-1801: a mark is noted where the evaluator takes the value, kept through undone work and
+/// - 1901-1924: a mark is noted where the evaluator takes the value, kept through undone work and
 ///   memos; the run's list holds every mark, absorbed and vanished work included; the guarantee
 ///   for a run whose list is empty;
-/// - 2335: a run under another allowance is outside the determinism contract when a bounded
+/// - 2459: a run under another allowance is outside the determinism contract when a bounded
 ///   `Bytes` hook may refuse;
-/// - 2222-2225 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
+/// - 2346-2349 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
 ///   of every run with a larger budget, at the same position, which the one-sided kill rests on;
-/// - 2006-2011 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
+/// - 2129-2134 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
 ///   leaves were all merged into an earlier stuck leaf of their configuration is complete, which
 ///   README route 3 rests on.
 const A1_PASSAGES: [(usize, usize, &str); 7] = [
@@ -234,33 +236,33 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "72de04feec0bbb7c220d11713ecf4ce5c2acf01464c5a948448fdd73f7bdced8",
     ),
     (
-        853,
-        853,
+        859,
+        859,
         "8398220da3f64af5a820407732a493f31703b3c5821d1323aa8101011a864c52",
     ),
     (
-        1530,
-        1538,
+        1653,
+        1661,
         "61a132b02858ecd84dba10c1341bd64effab638b78bc5857102340a016d2edc0",
     ),
     (
-        1778,
-        1801,
+        1901,
+        1924,
         "309b843d88518f4bdec637057d724ba4726130237eedd1e63d228bba075c800c",
     ),
     (
-        2335,
-        2335,
+        2459,
+        2459,
         "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
     ),
     (
-        2222,
-        2225,
+        2346,
+        2349,
         "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
     ),
     (
-        2006,
-        2011,
+        2129,
+        2134,
         "b7ea1c2b5ca5d494cd4245286fafe9a068b0ad4f9f6f18cef4a5a505cb73795e",
     ),
 ];

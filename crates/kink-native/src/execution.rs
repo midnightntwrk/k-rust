@@ -293,8 +293,8 @@ impl RunCoverage {
 /// the lists and the count k-rust 58720d2e5 added to `ExecutionResult` (KINK-17/1, KINK-18/2,
 /// KINK-19/1), as k-rust answers them, for every run kink judges: a result run, the path set that
 /// replaces a state set, a stepped run and an unobserved run. Each list holds what the run's leaves
-/// carry and also what no leaf carries (k-rust `docs/compatibility.md` at 8f8ad57c5, lines 92,
-/// 1536 and 1790): work that ended on no reported leaf (a candidate a defined sibling covered, a
+/// carry and also what no leaf carries (k-rust `docs/compatibility.md` at 0068938b1, lines 92,
+/// 1659 and 1913): work that ended on no reported leaf (a candidate a defined sibling covered, a
 /// state a state-set merge absorbed), an attempt undone or an equation passed over, and the load of
 /// the definition (`observedIn: load`). kink reads the lists, not the leaves' marks, for every
 /// exclusion ([`crate::exclusion::DefinitionExclusions::run_exclusion`]). A timed-out run has none:

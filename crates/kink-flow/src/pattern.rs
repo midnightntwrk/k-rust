@@ -40,7 +40,7 @@
 //! baseline, from the program's admitted initial state: search type all (`=>*`, every reachable
 //! configuration, the initial one included), state set, `max_results` 1 (the search stops at the
 //! first match), the manifest's `max_depth` and simplifier iterations, under kink's watchdog of
-//! `budget.time_ms`. A search has no work budget at k-rust 8f8ad57c5 (KINK-24, drafted), so the
+//! `budget.time_ms`. A search has no work budget at k-rust 0068938b1 (KINK-24, drafted), so the
 //! clock is its only bound on a runaway program.
 //!
 //! **Answers** ([`judge`]):

@@ -143,32 +143,37 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 ///   `CheckScope::All` every candidate pair is classified (`counts().skipped == 0`), which pairs
 ///   are formed, and that `separated`, `refuted` and `joined` are sound.
 ///
+/// Re-pin P-1 (`draft/tasks/repin-0068938b`, k-rust 0068938b1): the four passages are
+/// byte-identical to 8f8ad57c5's and only moved, compatibility.md's down 8 lines (round D's text
+/// above them) and `definition.rs`'s down 32 (MLP/10's 7fec17247, FU-27, the sweep and the ks3
+/// engine work); only the line numbers are re-pinned.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
 const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
-        1061,
-        1063,
+        1069,
+        1071,
         "21492a8b0fca47bf5bdea146350c650c1043731afee4cb07711db09b4d7d35c8",
     ),
     (
         "docs/compatibility.md",
-        1086,
-        1092,
+        1094,
+        1100,
         "263edf4fe0dc7d38e545e15c1f70d869c36f421975fbd69204b2e35c35988a8f",
     ),
     (
         "docs/compatibility.md",
-        1108,
-        1121,
+        1116,
+        1129,
         "6a3b482248576ca08648f5e2bfd7c0211ad147f43d433245a4044507b4de472c",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2901,
-        2927,
+        2933,
+        2959,
         "231513b52fc26f915765b47abfb63789954e31ef4271986dd73f218f1ec9c8a0",
     ),
 ];
@@ -179,7 +184,19 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// Re-pin P-2 (KINK-20/1-3, merge 879fce1cc; the 2026-10-20 decision above): 783482c9 at
 /// 501f18b9 -> e84044b7 since 58720d2e5 (CheckScope::All pairs head-free definitions,
 /// `GroupCounts`/`group_counts`, the integer-bound refutation); unchanged by rounds 26-28.
-const CONFLUENCE_RS: &str = "e84044b7f748a7d3becbcda17e139b432183aa86e3dc80a9e8e7d85a0b2302b7";
+///
+/// Re-pin P-1 (`draft/tasks/repin-0068938b`, k-rust 0068938b1): e84044b7 -> b68ae7c7. One
+/// change, in `classify_inner`'s injected inner position: a subsort question that depends on a
+/// sort variable (`check_subsort` answers `Err`) was read as "no overlap" (`Classified::Fine`)
+/// and is now a pair not joined, `Unresolved(SortVariable)`; a decided `Ok(false)` is still fine
+/// and the `drop_injected_inner` switch still drops the pair. Cause: the correctness sweep's
+/// e988794ee, "Report an undecided match apart from a refutation" (CS-09-1; main fd3f80fe5,
+/// merged into k-rust's round 33 at c51305fd4; result change RC-115 of k-rust
+/// draft/k-in-k/answers-2026-10b.toml). It only turns a pair the check passed into one it
+/// reports not joined, which kink reads as `inconsistent-mutant`: it can refuse a mutant, never
+/// admit one, and closed sorts, the only ones kink's definitions have, never give the `Err`
+/// (the commit message). No test's verdict moved.
+const CONFLUENCE_RS: &str = "b68ae7c782911977c9a1cb253f4b9676000c7182047b8d784ec236a088b86173";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

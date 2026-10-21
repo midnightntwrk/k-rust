@@ -523,65 +523,84 @@ fn trusted_claims_are_pinned() {
 /// passages moved down 17 to 31 lines; module_to_kore.rs moved its two passages down 3 lines
 /// (MLP/4b, MLP/9). backend-port.md and k-rust-backend smt.rs did not change. Only the line
 /// numbers are re-pinned.
+///
+/// Re-pin P-1 (`draft/tasks/repin-0068938b`, k-rust 0068938b1): sixteen passages are
+/// byte-identical to 8f8ad57c5's and only moved. compatibility.md grew by round D's text and the
+/// correctness sweep's (UNDEF/1-2, MLP/10, FU-27; k-rust draft/k-in-k/answers-2026-10b.md), so
+/// its passages moved down 8 to 124 lines; smt.rs's second passage moved down 90 lines (the
+/// sweep's 7a9558e96, cbbc530ac and 0bfac13fa, and 4a34be746), and module_to_kore.rs's two up 27
+/// (the sweep's 27e0f03ae and 7355b8699, FU-27's 2f841146a, ks3's d0a7c8daf); backend-port.md
+/// and smt.rs 207 did not move. The `total` passage changed in one sentence (8f8ad57c5 line
+/// 1517, now 1638): a successor whose equation's own result is `#Bottom` or whose `ensures` is
+/// refuted was "a vacuous state rather than an undefined result", and is now a successor that
+/// "denotes no state, as an undefined result does, so the step is undefined there alike", whose
+/// halt still has no `contradictedTotal`, so only the record names the contradiction. Cause:
+/// UNDEF/1 (k-rust e3d260c4c, merge dec70ffd1; worker report
+/// draft/kink-handoff-2026-10-15/workers/UNDEF-1-report.md; result changes RC-73 to RC-76 of
+/// draft/k-in-k/answers-2026-10b.toml), reading R of FU-42: a `\bottom` successor is no
+/// successor on every route. The `total` attribute is still the author's claim, trusted and
+/// named by a record when evaluation observes it contradicted, which is all the `total` row
+/// cites; such a run carries the record on its `contradictedClaims` list, which excludes it
+/// since re-pin adoption A-1, whatever leaf it ends on, so the change moves no verdict.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     (
         "docs/compatibility.md",
-        1057,
-        1057,
+        1065,
+        1065,
         "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
     ),
     (
         "docs/compatibility.md",
-        1128,
-        1128,
+        1136,
+        1136,
         "44081fecb849b7cb88f057e47b16a7f46ad8e253196be4b9656aa55232470102",
     ),
     (
         "docs/compatibility.md",
-        1146,
-        1151,
+        1163,
+        1168,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1164,
-        1164,
+        1181,
+        1181,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1266,
-        1266,
+        1387,
+        1387,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1420,
-        1420,
+        1541,
+        1541,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1445,
-        1445,
+        1566,
+        1566,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1508,
-        1518,
-        "04c8456d46db653023ea2c0268d682360ddef73926ec1d529fe5587216fbef6e",
+        1629,
+        1639,
+        "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2143,
-        2143,
+        2267,
+        2267,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2653,
-        2654,
+        2777,
+        2778,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (
@@ -610,20 +629,20 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        1046,
-        1057,
+        1136,
+        1147,
         "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
     ),
     (
         "crates/k-rust/src/kompile/module_to_kore.rs",
-        1539,
-        1550,
+        1512,
+        1523,
         "57fb9f4beb1240e4987bfa6175dbfcc3b4ce218b3b8cd24147c85628b3ec740d",
     ),
     (
         "crates/k-rust/src/kompile/module_to_kore.rs",
-        1566,
-        1572,
+        1539,
+        1545,
         "f8374d89dd45e5237e10cba035a7513c592452cb734a31bac411d7fe4a1dda08",
     ),
 ];
