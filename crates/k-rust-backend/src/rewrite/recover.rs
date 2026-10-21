@@ -49,7 +49,7 @@ use crate::{
     stop::{Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute},
     term::{
-        HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        HeadRole, Sort, Sorts, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker},
     },
     unification::{
@@ -275,8 +275,7 @@ pub(super) fn solve_collection_remainders_with_narrowing(
 ) -> Option<Vec<CollectionSolution>> {
     let mut names_to_avoid = pattern_variable_names(pattern);
     let mut fresh_frame = |sort: &Sort| {
-        let seed =
-            Variable::new("Frame", sort.clone()).with_provenance(VariableProvenance::Existential);
+        let seed = Variable::new("Frame", *sort).with_provenance(VariableProvenance::Existential);
         let fresh = fresh_variable(&seed, &mut names_to_avoid, fresh_counter);
         let TermKind::Variable(variable) = fresh.kind() else {
             unreachable!("fresh terms are variables")
@@ -1041,7 +1040,7 @@ fn split_map_not_in_keys_pair(left: &Term, right: &Term) -> Option<MapNotInKeysS
     })
 }
 
-fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, Term)> {
+fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Sorts, Term, Term)> {
     let TermKind::Application {
         symbol,
         sort_arguments,
@@ -1056,12 +1055,7 @@ fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, T
     let [key, map] = arguments.as_slice() else {
         return None;
     };
-    Some((
-        symbol.clone(),
-        sort_arguments.clone(),
-        key.clone(),
-        map.clone(),
-    ))
+    Some((symbol.clone(), *sort_arguments, key.clone(), map.clone()))
 }
 
 /// Normalize unification of a hooked equality application with a Boolean domain value.
@@ -1410,7 +1404,7 @@ pub(super) fn recover_overload_symbolic_match(
         .enumerate()
         .map(|(index, sort)| {
             fresh_variable(
-                &Variable::new(format!("Overload{index}"), sort.clone())
+                &Variable::new(format!("Overload{index}"), *sort)
                     .with_provenance(VariableProvenance::Existential),
                 &mut names_to_avoid,
                 fresh_counter,
@@ -1422,19 +1416,15 @@ pub(super) fn recover_overload_symbolic_match(
         candidate_term.clone()
     } else {
         Term::injection(
-            candidate.result_sort.clone(),
-            configuration_variable.sort.clone(),
+            candidate.result_sort,
+            configuration_variable.sort,
             candidate_term.clone(),
         )
     };
     let lifted = if candidate.result_sort == *target {
         candidate_term
     } else {
-        Term::injection(
-            candidate.result_sort.clone(),
-            target.clone(),
-            candidate_term,
-        )
+        Term::injection(candidate.result_sort, *target, candidate_term)
     };
     let found = match match_terms_in_definition(MatchMode::Rewrite, definition, &rule_term, &lifted)
     {
@@ -1459,15 +1449,11 @@ mod tests {
     #[test]
     fn set_variables_are_not_functional_patterns() {
         let sort = Sort::simple("SortS");
-        let element = Term::variable(Variable::new("X", sort.clone()));
-        let set = Term::variable(Variable::set("Y", sort.clone()));
+        let element = Term::variable(Variable::new("X", sort));
+        let set = Term::variable(Variable::set("Y", sort));
         let pair = |left: Term, right: Term| {
             Term::application(
-                Arc::new(Symbol::constructor(
-                    "pair",
-                    vec![sort.clone(), sort.clone()],
-                    sort.clone(),
-                )),
+                Arc::new(Symbol::constructor("pair", vec![sort, sort], sort)),
                 Vec::new(),
                 vec![left, right],
             )

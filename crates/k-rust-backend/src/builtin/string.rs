@@ -490,7 +490,7 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
     match validate_text(kind, result_sort, &value) {
         Ok(()) => Ok(BuiltinResult::Value(Term::domain_value_of(
             kind,
-            result_sort.clone(),
+            *result_sort,
             value,
         ))),
         Err(TextRejection::NamesNoElement(_)) => names_no_element(),
@@ -942,7 +942,7 @@ mod tests {
             assert_eq!(
                 evaluate(
                     "STRING.token2string",
-                    vec![Term::raw_domain_value(id.clone(), text)]
+                    vec![Term::raw_domain_value(id, text)]
                 ),
                 BuiltinResult::Value(string_term(text)),
                 "Id2String({text:?})"

@@ -15,7 +15,7 @@ use k_rust::{
 use k_rust_backend::{
     builtin::{BuiltinResult, UnsupportedHookReason, evaluate_hook},
     definition::BackendDefinition,
-    term::{CollectionMetadata, CollectionSymbols, Sort, Symbol},
+    term::{CollectionMetadata, CollectionSymbols, Sort, SortNode, Symbol},
 };
 use kink_patch::Baseline;
 
@@ -289,10 +289,10 @@ fn inert_hook(hook: &str) -> bool {
 }
 
 fn sort_text(sort: &Sort) -> String {
-    match sort {
-        Sort::Variable(name) => name.to_string(),
-        Sort::Application { name, arguments } if arguments.is_empty() => name.to_string(),
-        Sort::Application { name, arguments } => format!(
+    match sort.node() {
+        SortNode::Variable(name) => name.to_string(),
+        SortNode::Application { name, arguments } if arguments.is_empty() => name.to_string(),
+        SortNode::Application { name, arguments } => format!(
             "{}{{{}}}",
             name,
             arguments
@@ -338,19 +338,19 @@ fn match_sort(
     variables: &[k_rust_backend::term::Name],
     bindings: &mut BTreeMap<String, Sort>,
 ) -> bool {
-    match (formal, actual) {
-        (Sort::Variable(name), _) if variables.contains(name) => {
+    match (formal.node(), actual.node()) {
+        (SortNode::Variable(name), _) if variables.contains(name) => {
             match bindings.get(name.as_ref()) {
                 Some(previous) => previous == actual,
                 None => {
-                    bindings.insert(name.to_string(), actual.clone());
+                    bindings.insert(name.to_string(), *actual);
                     true
                 }
             }
         }
         (
-            Sort::Application { name, arguments },
-            Sort::Application {
+            SortNode::Application { name, arguments },
+            SortNode::Application {
                 name: actual_name,
                 arguments: actual_arguments,
             },

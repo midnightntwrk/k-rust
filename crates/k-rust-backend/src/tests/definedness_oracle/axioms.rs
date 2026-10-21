@@ -565,7 +565,7 @@ fn candidates(
             found.extend(
                 terms
                     .iter()
-                    .map(|term| Term::injection(value_sort.clone(), sort.clone(), term.clone())),
+                    .map(|term| Term::injection(*value_sort, *sort, term.clone())),
             );
         }
     }
@@ -733,18 +733,14 @@ fn collapse(term: &Term) -> Option<Term> {
             arguments,
         } => Some(Term::application(
             symbol.clone(),
-            sort_arguments.clone(),
+            *sort_arguments,
             arguments.iter().map(collapse).collect::<Option<Vec<_>>>()?,
         )),
         TermKind::Injection {
             source,
             target,
             term,
-        } => Some(Term::injection(
-            source.clone(),
-            target.clone(),
-            collapse(term)?,
-        )),
+        } => Some(Term::injection(*source, *target, collapse(term)?)),
         _ => Some(term.clone()),
     }
 }
@@ -1330,14 +1326,11 @@ fn generalizations(
             continue;
         }
         for (position, sort) in symbol.argument_sorts.iter().enumerate().take(2) {
-            let variable = Variable::new(format!("VarGen{position}"), sort.clone());
+            let variable = Variable::new(format!("VarGen{position}"), *sort);
             let mut generalized_arguments = arguments.clone();
             generalized_arguments[position] = Term::variable(variable.clone());
-            let generalized = Term::application(
-                symbol.clone(),
-                sort_arguments.clone(),
-                generalized_arguments,
-            );
+            let generalized =
+                Term::application(symbol.clone(), *sort_arguments, generalized_arguments);
             if !seen.insert(generalized.clone()) {
                 continue;
             }
@@ -1434,7 +1427,7 @@ fn valued_instance_tokens(
         else {
             continue;
         };
-        let valued = Term::application(symbol.clone(), sort_arguments.clone(), values);
+        let valued = Term::application(symbol.clone(), *sort_arguments, values);
         if !seen.insert(valued.clone()) {
             continue;
         }

@@ -4497,13 +4497,10 @@ fn a_request_spelled_like_a_mint_is_not_minted() {
         term: internal_term(&definition, "d{}()"),
         constraints: vec![
             Predicate::Equals(
-                Term::variable(Variable::new("Ex-hX-b0", sort.clone())),
+                Term::variable(Variable::new("Ex-hX-b0", sort)),
                 internal_term(&definition, "c{}()"),
             ),
-            Predicate::Exists(
-                Variable::new("Ex-hX-b1", sort.clone()),
-                Arc::new(Predicate::True),
-            ),
+            Predicate::Exists(Variable::new("Ex-hX-b1", sort), Arc::new(Predicate::True)),
         ],
     };
     let mut counter = FreshCounter::for_request(&[&initial]);

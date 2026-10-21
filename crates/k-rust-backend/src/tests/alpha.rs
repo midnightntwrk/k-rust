@@ -1777,8 +1777,8 @@ impl AlphaComparable for OrderedCollections {
 
 fn ordered_collections(first: &str, second: &str) -> OrderedCollections {
     let sort = Sort::simple("SortS");
-    let first_variable = Variable::new(first, sort.clone());
-    let second_variable = Variable::new(second, sort.clone());
+    let first_variable = Variable::new(first, sort);
+    let second_variable = Variable::new(second, sort);
     let symbols = CollectionSymbols {
         unit: "unit".into(),
         element: "element".into(),
@@ -1795,7 +1795,7 @@ fn ordered_collections(first: &str, second: &str) -> OrderedCollections {
         element_sort: Sort::simple("SortS"),
         list_sort: "SortSet".into(),
     });
-    let value = |text: &str| Term::raw_domain_value(sort.clone(), text);
+    let value = |text: &str| Term::raw_domain_value(sort, text);
     OrderedCollections {
         map: Pattern {
             term: Term::map(
@@ -1869,8 +1869,8 @@ fn ambiguous_set_then_ordered(first: &str, second: &str, ordered: &str) -> Ambig
             term: Term::set(
                 set_definition,
                 vec![
-                    Term::variable(Variable::new(first, sort.clone())),
-                    Term::variable(Variable::new(second, sort.clone())),
+                    Term::variable(Variable::new(first, sort)),
+                    Term::variable(Variable::new(second, sort)),
                 ],
                 None,
             ),

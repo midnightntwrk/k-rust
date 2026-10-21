@@ -137,7 +137,7 @@ impl Inhabitation {
         let mut sorts = simple
             .iter()
             .filter(|(_, values)| *values)
-            .map(|(sort, _)| sort.clone())
+            .map(|(sort, _)| *sort)
             .collect::<BTreeSet<_>>();
         loop {
             let before = sorts.len();
@@ -148,7 +148,7 @@ impl Inhabitation {
                         .iter()
                         .all(|sort| sorts.contains(sort))
                 {
-                    sorts.insert(symbol.result_sort.clone());
+                    sorts.insert(symbol.result_sort);
                 }
             }
             for (sort, _) in &simple {
@@ -160,7 +160,7 @@ impl Inhabitation {
                             .unwrap_or(false)
                     })
                 {
-                    sorts.insert(sort.clone());
+                    sorts.insert(*sort);
                 }
             }
             if sorts.len() == before {
@@ -479,8 +479,8 @@ fn internal_domain_value_identity_safe(
     sort: &Sort,
     bytes: &[u8],
 ) -> bool {
-    match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => {
+    match sort.node() {
+        k_rust_backend::term::SortNode::Application { name, arguments } if arguments.is_empty() => {
             domain_bytes_identity_safe(definition, name, bytes)
         }
         _ => false,

@@ -79,7 +79,7 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::RewriteRule,
     term::{
-        Sort, Term, TermKind, Variable,
+        Sort, SortNode, Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, InheritedFromArguments, RootComparison, ScannedPatterns,
             classify_value, compare_roots,
@@ -466,9 +466,9 @@ fn sorts_differ(left: &Sort, right: &Sort) -> bool {
 }
 
 fn has_sort_variable(sort: &Sort) -> bool {
-    match sort {
-        Sort::Variable(_) => true,
-        Sort::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
+    match sort.node() {
+        SortNode::Variable(_) => true,
+        SortNode::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
     }
 }
 

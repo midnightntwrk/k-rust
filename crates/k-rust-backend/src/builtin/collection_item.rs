@@ -60,7 +60,7 @@ pub(super) fn read<'a>(
     if below(sorts, &item_sort, element_sort) {
         return Operand::Element(Cow::Owned(Term::injection(
             item_sort,
-            element_sort.clone(),
+            *element_sort,
             item.clone(),
         )));
     }
@@ -73,8 +73,8 @@ pub(super) fn read<'a>(
         }
         if below(sorts, source, element_sort) {
             return Operand::Element(Cow::Owned(Term::injection(
-                source.clone(),
-                element_sort.clone(),
+                *source,
+                *element_sort,
                 term.clone(),
             )));
         }
@@ -99,7 +99,7 @@ pub(super) fn absent_above<'e>(
         values_differ(
             sorts,
             item,
-            &Term::injection(element_sort.clone(), sort.clone(), element.clone()),
+            &Term::injection(*element_sort, *sort, element.clone()),
         )
     })
 }
