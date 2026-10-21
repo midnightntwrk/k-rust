@@ -234,3 +234,69 @@ fn a_template_at_a_position_of_another_sort_is_reported_at_the_template() {
     "#]]
     .assert_debug_eq(&errors);
 }
+
+#[test]
+fn expand_writes_an_equation_fn_template_condition_as_a_table_row_does() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "expanded", POSITIVE);
+    let (success, stdout, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    // From the table row's condition through the equation fn's body.
+    let row = stdout
+        .find("fn code_row(")
+        .expect("the table row is written");
+    let start = stdout[..row].rfind("#[k::requires(").unwrap();
+    let function = stdout
+        .find("fn code_fn(")
+        .expect("the equation fn is written");
+    let end = function + stdout[function..].find("\n}\n").unwrap() + 3;
+    expect_test::expect![[r"
+        #[k::requires(
+            k::builtin::bool::and_then(
+                k::builtin::bool::and_then(
+                    k::builtin::bool::and_then(
+                        k::builtin::int::ge(bits, 0),
+                        k::builtin::int::lt(bits, 16)
+                    ),
+                    k::builtin::int::eq(k::builtin::int::bit_range(bits, 2, 2), 2)
+                ),
+                k::builtin::bool::or_else(
+                    k::builtin::int::gt(k::builtin::int::bit_range(bits, 0, 2), 2),
+                    k::builtin::int::eq(k::builtin::int::bit_range(bits, 0, 2), 0)
+                )
+            )
+        )]
+        fn code_row(
+            k::term![crate ::Code(bits)]: k::Term<k::builtin::Int>,
+        ) -> k::Term<k::builtin::Int> {
+            k::builtin::int::bit_range(bits, 0, 2)
+        }
+        #[k::equation(owise)]
+        fn code_other(
+            k::term![crate ::Code(n)]: k::Term<k::builtin::Int>,
+        ) -> k::Term<k::builtin::Int> {
+            100
+        }
+        #[k::requires(
+            k::builtin::bool::and_then(
+                k::builtin::bool::and_then(
+                    k::builtin::bool::and_then(
+                        k::builtin::int::ge(bits, 0),
+                        k::builtin::int::lt(bits, 16)
+                    ),
+                    k::builtin::int::eq(k::builtin::int::bit_range(bits, 2, 2), 1)
+                ),
+                k::builtin::bool::or_else(
+                    k::builtin::int::eq(k::builtin::int::bit_range(bits, 0, 2), 1),
+                    k::builtin::int::eq(k::builtin::int::bit_range(bits, 0, 2), 2)
+                )
+            )
+        )]
+        #[k::equation]
+        fn code_fn(k::term![Code(bits)]: Term<Int>) -> Term<Int> {
+            bits.bit_range::<Int>(0, 2).add::<Int>(10)
+        }
+    "]]
+    .assert_eq(&stdout[start..end]);
+}
