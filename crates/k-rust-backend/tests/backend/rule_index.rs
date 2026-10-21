@@ -959,7 +959,11 @@ fn every_thread_of_a_ground_thread_map_keys_the_subject() {
         for stored in old_candidates(&definition, &term_index(&subject)) {
             let label = stored.attributes.label.as_deref().unwrap_or("?");
             if label == "on-b" {
-                assert_eq!(stored.index.covers(&key), has_b, "on-b for threads {heads:?}");
+                assert_eq!(
+                    stored.index.covers(&key),
+                    has_b,
+                    "on-b for threads {heads:?}"
+                );
             }
             if stored.index.covers(&key) {
                 continue;
@@ -1007,7 +1011,11 @@ fn a_ground_thread_map_steps_by_the_heads_of_its_threads() {
             other => panic!("unexpected step result {other:?} for threads {heads:?}"),
         };
         labels.dedup();
-        let expected = if heads.contains(&"b") { "on-b" } else { "fallback" };
+        let expected = if heads.contains(&"b") {
+            "on-b"
+        } else {
+            "fallback"
+        };
         assert_eq!(labels, [expected], "threads {heads:?}");
     }
 }
