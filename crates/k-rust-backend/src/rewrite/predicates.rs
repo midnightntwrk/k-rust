@@ -756,8 +756,8 @@ mod tests {
         let mut predicates = (0..20)
             .map(|index| {
                 Predicate::Equals(
-                    Term::variable(Variable::new(format!("X{index}"), sort.clone())),
-                    Term::raw_domain_value(sort.clone(), index.to_string()),
+                    Term::variable(Variable::new(format!("X{index}"), sort)),
+                    Term::raw_domain_value(sort, index.to_string()),
                 )
             })
             .collect::<Vec<_>>();

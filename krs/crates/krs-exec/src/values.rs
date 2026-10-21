@@ -617,9 +617,11 @@ impl BackendSymbols {
                 Collection::Set => BuiltinSort::Set,
                 Collection::Map => BuiltinSort::Map,
             };
-            let result = match &symbol.result_sort {
-                k_rust::k_rust_backend::term::Sort::Application { name, .. } => name.to_string(),
-                k_rust::k_rust_backend::term::Sort::Variable(_) => continue,
+            let result = match symbol.result_sort.node() {
+                k_rust::k_rust_backend::term::SortNode::Application { name, .. } => {
+                    name.to_string()
+                }
+                k_rust::k_rust_backend::term::SortNode::Variable(_) => continue,
             };
             if result == kore_sort_name(own_sort.k_name()) {
                 let slot = &mut builders[collection_slot(collection)];

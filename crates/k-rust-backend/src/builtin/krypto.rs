@@ -31,7 +31,7 @@ use super::{
     BuiltinResult, HookResult, UnsupportedHookReason, bool_term, bytes, expect_arity, read_int,
 };
 use crate::definition::BackendDefinition;
-use crate::term::{HeadRole, Name, Sort, Symbol, Term, TermKind};
+use crate::term::{HeadRole, Name, Sort, SortNode, Symbol, Term, TermKind};
 
 pub(super) fn evaluate(
     hook: &str,
@@ -95,7 +95,7 @@ impl PointSignature {
     fn matches(self, symbol: &Symbol) -> bool {
         symbol.attributes.head_role() == HeadRole::FreeConstructor
             && symbol.sort_variables.is_empty()
-            && matches!(&symbol.result_sort, Sort::Application { name, arguments }
+            && matches!(symbol.result_sort.node(), SortNode::Application { name, arguments }
                 if arguments.is_empty() && name.as_ref() == self.sort)
             && symbol.argument_sorts.len() == self.arity
             && symbol
@@ -874,7 +874,7 @@ mod tests {
     fn wrong_sort_and_non_domain_values_are_not_applicable() {
         let sort_bytes = Sort::simple("SortBytes");
         let non_domain = Term::application(
-            Arc::new(Symbol::constructor("bytes", vec![], sort_bytes.clone())),
+            Arc::new(Symbol::constructor("bytes", vec![], sort_bytes)),
             vec![],
             vec![],
         );

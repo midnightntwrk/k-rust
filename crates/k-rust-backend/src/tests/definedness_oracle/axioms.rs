@@ -565,7 +565,7 @@ fn candidates(
             found.extend(
                 terms
                     .iter()
-                    .map(|term| Term::injection(value_sort.clone(), sort.clone(), term.clone())),
+                    .map(|term| Term::injection(*value_sort, *sort, term.clone())),
             );
         }
     }
@@ -740,11 +740,7 @@ fn collapse(term: &Term) -> Option<Term> {
             source,
             target,
             term,
-        } => Some(Term::injection(
-            source.clone(),
-            target.clone(),
-            collapse(term)?,
-        )),
+        } => Some(Term::injection(*source, *target, collapse(term)?)),
         _ => Some(term.clone()),
     }
 }
@@ -1330,7 +1326,7 @@ fn generalizations(
             continue;
         }
         for (position, sort) in symbol.argument_sorts.iter().enumerate().take(2) {
-            let variable = Variable::new(format!("VarGen{position}"), sort.clone());
+            let variable = Variable::new(format!("VarGen{position}"), *sort);
             let mut generalized_arguments = arguments.clone();
             generalized_arguments[position] = Term::variable(variable.clone());
             let generalized = Term::application(

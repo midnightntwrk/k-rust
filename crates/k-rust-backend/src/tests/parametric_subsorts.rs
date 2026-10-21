@@ -139,7 +139,7 @@ fn d_overlap_requires_a_common_closed_subsort() {
 #[test]
 fn e_schematic_instances_report_variables_unless_every_instance_is_unrelated() {
     let definition = definition();
-    let schematic = Sort::application("SortMInt", vec![Sort::Variable("W".into())]);
+    let schematic = Sort::application("SortMInt", vec![Sort::variable("W")]);
     assert_eq!(
         definition
             .sort_graph()
@@ -344,7 +344,7 @@ fn j_total_builders_inhabit_closed_instances_and_their_supersorts() {
 }
 
 fn schematic_mint() -> Sort {
-    Sort::application("SortMInt", vec![Sort::Variable("W".into())])
+    Sort::application("SortMInt", vec![Sort::variable("W")])
 }
 
 /// A sort-parametric pattern stands for each of its closed instances: `inj{SortMInt{W},
@@ -355,7 +355,7 @@ fn schematic_mint() -> Sort {
 fn k_sort_variable_subsort_questions_leave_the_match_undecided() {
     let definition = definition();
     let schematic = schematic_mint();
-    let operand = Term::variable(Variable::new("X", schematic.clone()));
+    let operand = Term::variable(Variable::new("X", schematic));
     let injected = Term::injection(schematic, Sort::simple("SortKItem"), operand.clone());
     let subject = checked_term(
         &definition,
@@ -390,11 +390,10 @@ fn l_injection_equality_separates_only_established_incomparable_sources() {
         Sort::simple("SortB"),
         Sort::simple("SortC"),
     );
-    let constructor_like = Term::raw_domain_value(a.clone(), "a");
-    let x = Term::variable(Variable::new("X", b.clone()));
-    let y = Term::variable(Variable::new("Y", a.clone()));
-    let inject =
-        |source: &Sort, operand: &Term| Term::injection(source.clone(), c.clone(), operand.clone());
+    let constructor_like = Term::raw_domain_value(a, "a");
+    let x = Term::variable(Variable::new("X", b));
+    let y = Term::variable(Variable::new("Y", a));
+    let inject = |source: &Sort, operand: &Term| Term::injection(*source, c, operand.clone());
     let (left, symbolic_left, right) = (
         inject(&a, &constructor_like),
         inject(&a, &y),
@@ -423,7 +422,7 @@ fn l_injection_equality_separates_only_established_incomparable_sources() {
     assert_eq!(
         match_injection_equality(Some(&ordered), &left, &right),
         Some(InjectionEquality::Split(
-            Term::injection(a.clone(), b.clone(), constructor_like.clone()),
+            Term::injection(a, b, constructor_like.clone()),
             x.clone(),
         )),
     );
@@ -461,7 +460,7 @@ fn l_injection_equality_separates_only_established_incomparable_sources() {
     let definition = definition();
     let schematic = schematic_mint();
     let open = Term::injection(
-        schematic.clone(),
+        schematic,
         Sort::simple("SortKItem"),
         Term::variable(Variable::new("X", schematic)),
     );

@@ -217,7 +217,7 @@ impl Absence {
             .map(|counter| {
                 Variable::new(
                     with_fresh_marker("Value", FreshMarker::Binder, counter),
-                    map.value_sort.clone(),
+                    map.value_sort,
                 )
             })
             .find(|binder| !taken.contains(&encode_variable_name(&binder.name)))
@@ -1646,8 +1646,7 @@ impl<'a> VariableRenaming<'a> {
                 let right = live_constraints(right, &self.backward);
                 left.len() == right.len()
                     && left.iter().all(|((name, sort), kind)| {
-                        right.get(&(Name::from(self.forward[name.as_ref()]), sort.clone()))
-                            == Some(kind)
+                        right.get(&(Name::from(self.forward[name.as_ref()]), *sort)) == Some(kind)
                     })
             }
         }
@@ -4449,7 +4448,7 @@ fn unread_map_frames(
             )
             .1
             .into_owned();
-            constrained.contains_key(&(Name::from(unmarked), variable.sort.clone()))
+            constrained.contains_key(&(Name::from(unmarked), variable.sort))
         }
     };
     frames
@@ -4529,9 +4528,9 @@ fn rename_concreteness(
     };
     let mut renamed = BTreeMap::new();
     for (variable, fresh) in renaming {
-        let key = (Name::from(unmarked(variable)), variable.sort.clone());
+        let key = (Name::from(unmarked(variable)), variable.sort);
         if let Some(kind) = constrained.remove(&key) {
-            renamed.insert((Name::from(unmarked(fresh)), fresh.sort.clone()), kind);
+            renamed.insert((Name::from(unmarked(fresh)), fresh.sort), kind);
         }
     }
     constrained.extend(renamed);
@@ -5934,10 +5933,10 @@ mod tests {
             panic!("expected one term rule");
         };
         let sort = crate::term::Sort::simple("SortS");
-        let x = Variable::new("Eq#X", sort.clone());
-        let z = Variable::new("Eq#Z", sort.clone());
+        let x = Variable::new("Eq#X", sort);
+        let z = Variable::new("Eq#Z", sort);
         assert!(rule.lhs.attributes().variables.contains(&x));
-        let subject = BTreeSet::from([x.clone(), Variable::new("Eq#X!0", sort.clone())]);
+        let subject = BTreeSet::from([x.clone(), Variable::new("Eq#X!0", sort)]);
 
         let (renamed, renaming) =
             rename_apart(rule, &subject, &[]).expect("the rule shares Eq#X with the subject");
@@ -6013,7 +6012,7 @@ mod tests {
             panic!("expected one term rule");
         };
         let sort = crate::term::Sort::simple("SortS");
-        let y = Variable::new("Eq#Y", sort.clone());
+        let y = Variable::new("Eq#Y", sort);
         assert_eq!(
             rule.computed_attributes.unbound_variables,
             BTreeSet::from([y.clone()])
@@ -6043,9 +6042,9 @@ mod tests {
     #[test]
     fn predicate_rule_cached_variables_preserve_renaming() {
         let sort = crate::term::Sort::simple("SortS");
-        let x = Variable::new("Eq#X", sort.clone());
-        let y = Variable::new("Eq#Y", sort.clone());
-        let z = Variable::new("Eq#Z", sort.clone());
+        let x = Variable::new("Eq#X", sort);
+        let y = Variable::new("Eq#Y", sort);
+        let z = Variable::new("Eq#Z", sort);
         let lhs = Predicate::Equals(Term::variable(x.clone()), Term::variable(x.clone()));
         let rhs = vec![Predicate::Exists(
             z.clone(),

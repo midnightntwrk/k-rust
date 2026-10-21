@@ -72,7 +72,7 @@ fn sort(index: u8) -> Sort {
         0 => Sort::simple("SortA"),
         1 => Sort::simple("SortB"),
         2 => Sort::application("SortList", vec![Sort::simple("SortA")]),
-        3 => Sort::Variable(Arc::from("S")),
+        3 => Sort::variable(Arc::from("S")),
         _ => Sort::builtin(BuiltinSort::Int),
     }
 }
@@ -587,5 +587,172 @@ fn fixed_near_misses_agree_with_equality() {
     assert_ne!(
         x(VariableKind::Element).cmp(&x(VariableKind::Set)),
         Ordering::Equal
+    );
+}
+
+/// The derived enum `Sort` was before it became an interned handle: its derived `Eq`, `Ord`,
+/// `Hash` and `Debug` are the reference the handle must agree with.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum ReferenceSort {
+    Application {
+        name: Arc<str>,
+        arguments: Vec<ReferenceSort>,
+    },
+    Variable(Arc<str>),
+}
+
+impl ReferenceSort {
+    fn build(&self) -> Sort {
+        match self {
+            Self::Application { name, arguments } => {
+                Sort::application(name.clone(), arguments.iter().map(Self::build).collect())
+            }
+            Self::Variable(name) => Sort::variable(name.clone()),
+        }
+    }
+}
+
+/// A hasher that records the bytes written to it, so that two values hash alike under every
+/// hasher exactly when they record the same bytes.
+#[derive(Default)]
+struct Recorder(Vec<u8>);
+
+impl std::hash::Hasher for Recorder {
+    fn finish(&self) -> u64 {
+        0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+}
+
+fn recorded(value: &impl std::hash::Hash) -> Vec<u8> {
+    let mut recorder = Recorder::default();
+    value.hash(&mut recorder);
+    recorder.0
+}
+
+/// Sort names that share long prefixes, end at and around the 16-byte order key, hold NUL
+/// bytes (which the key's zero padding must not confuse with an ended name) and non-ASCII text.
+fn sort_name() -> impl Strategy<Value = Arc<str>> {
+    let fixed = prop::sample::select(vec![
+        "",
+        "\0",
+        "S",
+        "Sort",
+        "SortA",
+        "SortA\0",
+        "SortA\0\0",
+        "SortB",
+        "SortInt",
+        "SortVeryLongName",
+        "SortVeryLongNam\0",
+        "SortVeryLongName\0",
+        "SortVeryLongNameA",
+        "SortVeryLongNameB",
+        "SortVeryLongNameAB",
+        "SortVeryLongNameA\0",
+        "Sort\0\0\0\0\0\0\0\0\0\0\0\0",
+        "Sort\0\0\0\0\0\0\0\0\0\0\0\0\0",
+        "Sort\u{e9}",
+        "Sort\u{ff}",
+    ]);
+    let grown = (
+        prop::sample::select(vec![
+            "",
+            "Sort",
+            "SortVeryLong",
+            "SortVeryLongName",
+            "SortVeryLongNameAB",
+        ]),
+        "[\0Aa\u{e9}]{0,6}",
+    )
+        .prop_map(|(prefix, suffix)| format!("{prefix}{suffix}"));
+    prop_oneof![fixed.prop_map(String::from), grown].prop_map(Arc::from)
+}
+
+fn reference_sort() -> impl Strategy<Value = ReferenceSort> {
+    let leaf = prop_oneof![
+        3 => sort_name().prop_map(|name| ReferenceSort::Application { name, arguments: Vec::new() }),
+        1 => sort_name().prop_map(ReferenceSort::Variable),
+    ];
+    leaf.prop_recursive(3, 12, 3, |inner| {
+        (sort_name(), prop::collection::vec(inner, 0..4))
+            .prop_map(|(name, arguments)| ReferenceSort::Application { name, arguments })
+    })
+}
+
+/// Two sorts that are often equal or nearly equal: the second is the first, one of its
+/// arguments, the first with one argument replaced, or an independent sort.
+fn reference_sort_pair() -> impl Strategy<Value = (ReferenceSort, ReferenceSort)> {
+    (reference_sort(), reference_sort(), any::<u8>()).prop_map(|(first, other, choice)| {
+        let second = match (choice % 4, &first) {
+            (0, _) => first.clone(),
+            (1, ReferenceSort::Application { arguments, .. }) if !arguments.is_empty() => {
+                arguments[usize::from(choice) % arguments.len()].clone()
+            }
+            (2, ReferenceSort::Application { name, arguments }) if !arguments.is_empty() => {
+                let mut arguments = arguments.clone();
+                let position = usize::from(choice) % arguments.len();
+                arguments[position] = other;
+                ReferenceSort::Application {
+                    name: name.clone(),
+                    arguments,
+                }
+            }
+            _ => other,
+        };
+        (first, second)
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    /// The interned sort handle orders, compares and hashes as the derived enum it replaced:
+    /// `cmp` is the order on (variant, name bytes, arguments), `==` is structural equality,
+    /// the hash writes the same bytes and `Debug` prints the same text, so every stored term
+    /// hash, hash-table iteration order and collection order is unchanged.
+    #[test]
+    fn interned_sort_agrees_with_the_derived_enum((first, second) in reference_sort_pair()) {
+        let (left, right) = (first.build(), second.build());
+        prop_assert_eq!(left.cmp(&right), first.cmp(&second), "{:?} vs {:?}", first, second);
+        prop_assert_eq!(right.cmp(&left), second.cmp(&first));
+        prop_assert_eq!(left == right, first == second, "{:?} vs {:?}", first, second);
+        prop_assert_eq!(recorded(&left), recorded(&first));
+        prop_assert_eq!(recorded(&right), recorded(&second));
+        prop_assert_eq!(format!("{left:?}"), format!("{first:?}"));
+        prop_assert_eq!(format!("{left:#?}"), format!("{first:#?}"));
+        prop_assert_eq!(left, first.build(), "building a sort twice gives one handle");
+        let (left_arguments, first_arguments) = match (&first, left.node()) {
+            (ReferenceSort::Application { arguments, .. }, _) => (left.arguments(), arguments.clone()),
+            (ReferenceSort::Variable(_), _) => (left.arguments(), Vec::new()),
+        };
+        prop_assert_eq!(recorded(&left_arguments), recorded(&first_arguments));
+        prop_assert_eq!(format!("{left_arguments:?}"), format!("{first_arguments:?}"));
+    }
+}
+
+/// A builtin sort is the sort of its KORE name however it is built, and its order key does not
+/// confuse a NUL byte with the end of a name.
+#[test]
+fn interned_sort_fixed_cases() {
+    for builtin in BuiltinSort::ALL {
+        assert_eq!(Sort::builtin(builtin), Sort::simple(builtin.kore_name()));
+        assert!(Sort::simple(builtin.kore_name()).is_builtin(builtin));
+    }
+    let short = Sort::simple("SortA");
+    let padded = Sort::simple("SortA\0");
+    assert!(short < padded);
+    assert_ne!(short, padded);
+    let long = Sort::simple("SortVeryLongNameA");
+    let longer = Sort::simple("SortVeryLongNameA\0");
+    assert!(long < longer);
+    assert!(Sort::simple("SortVeryLongNameB") > longer);
+    assert!(Sort::simple("Sort") < Sort::variable("Sort"));
+    assert!(
+        Sort::application("SortList", vec![Sort::simple("SortA")])
+            < Sort::application("SortList", vec![Sort::simple("SortB")])
     );
 }

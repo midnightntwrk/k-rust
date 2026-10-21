@@ -14,7 +14,7 @@ use crate::{
 
 fn existential_equality(bound: &str, free: &str) -> Predicate {
     let sort = Sort::simple("SortS");
-    let bound = Variable::new(bound, sort.clone());
+    let bound = Variable::new(bound, sort);
     Predicate::Exists(
         bound.clone(),
         Arc::new(Predicate::Equals(

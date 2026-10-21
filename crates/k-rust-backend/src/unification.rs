@@ -780,8 +780,8 @@ mod tests {
     fn binds_a_supersort_variable_to_the_injected_subsort_term() {
         let sub = Sort::simple("SortSub");
         let sup = Sort::simple("SortSup");
-        let variable = Variable::new("Y", sup.clone());
-        let injected = Term::injection(sub.clone(), sup, Term::variable(Variable::new("X", sub)));
+        let variable = Variable::new("Y", sup);
+        let injected = Term::injection(sub, sup, Term::variable(Variable::new("X", sub)));
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -851,17 +851,17 @@ mod tests {
             .expect("overlapping subsort definition should internalize");
 
         let left = Term::injection(
-            left_sort.clone(),
-            item.clone(),
+            left_sort,
+            item,
             Term::variable(Variable::new("LEFT", left_sort)),
         );
         let right = Term::injection(
-            right_sort.clone(),
-            item.clone(),
+            right_sort,
+            item,
             Term::variable(Variable::new("RIGHT", right_sort)),
         );
         let separate = Term::injection(
-            disjoint_sort.clone(),
+            disjoint_sort,
             item,
             Term::variable(Variable::new("DISJOINT", disjoint_sort)),
         );

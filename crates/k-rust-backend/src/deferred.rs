@@ -621,9 +621,7 @@ fn fold(
             } => {
                 return Ok(match fold(definition, inner, values, definedness_only)? {
                     Folded::Term(folded) if folded.ptr_eq(inner) => Folded::Term(term.clone()),
-                    Folded::Term(folded) => {
-                        Folded::Term(Term::injection(source.clone(), target.clone(), folded))
-                    }
+                    Folded::Term(folded) => Folded::Term(Term::injection(*source, *target, folded)),
                     bottom @ Folded::Bottom(_) => bottom,
                 });
             }
@@ -1723,7 +1721,7 @@ impl EvaluatedOperands {
                 if replaced.ptr_eq(inner) {
                     term.clone()
                 } else {
-                    Term::injection(source.clone(), target.clone(), replaced)
+                    Term::injection(*source, *target, replaced)
                 }
             }
             TermKind::And(left, right) => {

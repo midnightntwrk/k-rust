@@ -148,7 +148,7 @@ fn read_mint(term: &Term) -> Option<Word> {
         return None;
     }
     Some(Word {
-        sort: sort.clone(),
+        sort: *sort,
         width,
         residue,
     })
@@ -174,7 +174,7 @@ fn read_pair(hook: &str, arguments: &[Term]) -> HookResult<Option<(Word, Word)>>
 
 /// The literal of `sort` whose residue is `residue`, in canonical text.
 fn word_term(sort: &Sort, residue: &BigUint) -> Term {
-    Term::mint_of_residue(sort.clone(), residue)
+    Term::mint_of_residue(*sort, residue)
 }
 
 /// The residue of `value` modulo `2^width` (no `width`: beyond `u64`), or `None` when computing
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn only_a_canonical_literal_is_read_as_a_machine_integer() {
         let sort = Sort::application(k_rust_kore::names::MINT_SORT, vec![Sort::simple("Sort8")]);
-        let literal = |text: &str| Term::raw_domain_value(sort.clone(), text);
+        let literal = |text: &str| Term::raw_domain_value(sort, text);
         for text in ["01p8", "00p8", "001p8"] {
             assert!(read_mint(&literal(text)).is_none(), "{text}");
         }

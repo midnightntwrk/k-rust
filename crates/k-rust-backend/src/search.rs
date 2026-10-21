@@ -6366,16 +6366,12 @@ mod tests {
     #[test]
     fn projects_solved_path_equalities_onto_search_variables() {
         let sort = Sort::simple("SortS");
-        let result_variable = Variable::new("Result", sort.clone());
-        let configuration_variable = Variable::new("Configuration", sort.clone());
-        let left = Variable::new("Left", sort.clone());
-        let right = Variable::new("Right", sort.clone());
+        let result_variable = Variable::new("Result", sort);
+        let configuration_variable = Variable::new("Configuration", sort);
+        let left = Variable::new("Left", sort);
+        let right = Variable::new("Right", sort);
         let value = Term::application(
-            Arc::new(Symbol::constructor(
-                "arrow",
-                vec![sort.clone(), sort.clone()],
-                sort,
-            )),
+            Arc::new(Symbol::constructor("arrow", vec![sort, sort], sort)),
             Vec::new(),
             vec![Term::variable(left), Term::variable(right)],
         );
@@ -6657,7 +6653,7 @@ mod tests {
     /// another) and the target `pair(A, B)`, which has no constraints.
     fn unsaturated_partial_subject(definition: &BackendDefinition) -> (Pattern, Pattern) {
         let int = Sort::simple("SortInt");
-        let variable = |name: &str| Term::variable(Variable::new(name, int.clone()));
+        let variable = |name: &str| Term::variable(Variable::new(name, int));
         let subject = Pattern {
             term: pattern(definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#).term,
             constraints: vec![
@@ -6686,8 +6682,8 @@ mod tests {
         let int = Sort::simple("SortInt");
         let expected = Substitution::from([
             (
-                Variable::new("A", int.clone()),
-                Term::variable(Variable::new("X", int.clone())),
+                Variable::new("A", int),
+                Term::variable(Variable::new("X", int)),
             ),
             (
                 Variable::new("B", int),
@@ -6749,7 +6745,7 @@ mod tests {
     ) -> (Pattern, Pattern) {
         let int = Sort::simple("SortInt");
         let mut constraints = vec![Predicate::Equals(
-            Term::variable(Variable::new("A", int.clone())),
+            Term::variable(Variable::new("A", int)),
             pattern(definition, r#"\dv{SortInt{}}("0")"#).term,
         )];
         if ceil_second {
@@ -6946,8 +6942,8 @@ mod tests {
         let int = Sort::simple("SortInt");
         let expected = Substitution::from([
             (
-                Variable::new("A", int.clone()),
-                Term::variable(Variable::new("X", int.clone())),
+                Variable::new("A", int),
+                Term::variable(Variable::new("X", int)),
             ),
             (
                 Variable::new("B", int),
@@ -6991,7 +6987,7 @@ mod tests {
         let int = Sort::simple("SortInt");
         let expected = Substitution::from([
             (
-                Variable::new("A", int.clone()),
+                Variable::new("A", int),
                 pattern(&definition, r#"\dv{SortInt{}}("1")"#).term,
             ),
             (

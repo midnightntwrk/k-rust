@@ -2521,7 +2521,7 @@ fn subject_collection_form(
         CollectionMetadata::Map(map) => {
             hooked(subject, "MAP.update")?;
             let map_sort = Sort::simple(map.map_sort.clone());
-            let remove = declared("MAP.remove", &[map_sort.clone(), map.key_sort.clone()])?;
+            let remove = declared("MAP.remove", &[map_sort, map.key_sort])?;
             let mut keys = Vec::new();
             let mut entries = Vec::new();
             let mut base = subject.clone();
@@ -2558,7 +2558,7 @@ fn subject_collection_form(
         CollectionMetadata::Set(set) => {
             hooked(subject, "SET.union")?;
             let set_sort = Sort::simple(set.list_sort.clone());
-            let difference = declared("SET.difference", &[set_sort.clone(), set_sort.clone()])?;
+            let difference = declared("SET.difference", &[set_sort, set_sort])?;
             // The items of a set of this definition, which are of its element sort.
             let items = |term: &Term| {
                 let TermKind::Set {

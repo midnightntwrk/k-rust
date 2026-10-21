@@ -49,7 +49,7 @@ use super::{BuiltinResult, HookResult, UnsupportedHookReason, expect_arity};
 use crate::{
     definition::BackendDefinition,
     matching::SortGraph,
-    term::{DomainKind, HeadRole, Name, Sort, SymbolType, Term, TermKind},
+    term::{DomainKind, HeadRole, Name, Sort, SortNode, SymbolType, Term, TermKind},
 };
 
 /// The sorts hooked `KVAR.KVar`, each with the kind the definition gives it (none for a sort
@@ -152,7 +152,7 @@ impl KVarSorts {
             {
                 continue;
             }
-            let Sort::Application { name: result, .. } = &symbol.result_sort else {
+            let SortNode::Application { name: result, .. } = symbol.result_sort.node() else {
                 // A constructor whose result is a sort variable may build a term of any sort.
                 return Self {
                     tokens,
@@ -160,8 +160,8 @@ impl KVarSorts {
                 };
             };
             for argument in &symbol.argument_sorts {
-                match argument {
-                    Sort::Application { name, arguments } if arguments.is_empty() => {
+                match argument.node() {
+                    SortNode::Application { name, arguments } if arguments.is_empty() => {
                         dependents
                             .entry(name.clone())
                             .or_default()
@@ -205,8 +205,8 @@ impl KVarSorts {
     }
 
     fn may_contain_kvar(&self, sort: &Sort) -> bool {
-        match sort {
-            Sort::Application { name, arguments } if arguments.is_empty() => {
+        match sort.node() {
+            SortNode::Application { name, arguments } if arguments.is_empty() => {
                 !self.kvar_free.contains(name)
             }
             _ => true,
@@ -543,7 +543,7 @@ fn substitute(
                 sort_graph,
                 fresh,
             ));
-            Term::injection(source.clone(), injection_target.clone(), inner)
+            Term::injection(*source, *injection_target, inner)
         }
         TermKind::Map {
             definition,
@@ -870,7 +870,7 @@ fn freshen_bound_kvar_identities_inner(
             else {
                 return Ok(None);
             };
-            Term::injection(source.clone(), target.clone(), inner)
+            Term::injection(*source, *target, inner)
         }
         TermKind::Map {
             definition,
@@ -1194,10 +1194,11 @@ fn collect_kvars(
 
 fn read_kvar(term: &Term, kvar_sorts: &KVarTokens) -> Option<Name> {
     match term.kind() {
-        TermKind::DomainValue {
-            sort: Sort::Application { name, arguments },
-            value,
-        } if arguments.is_empty() && kvar_sorts.contains_key(name) => {
+        TermKind::DomainValue { sort, value }
+            if sort.arguments().is_empty()
+                && sort.as_variable().is_none()
+                && kvar_sorts.contains_key(sort.name()) =>
+        {
             value.as_utf8().ok().map(Arc::<str>::from)
         }
         TermKind::Injection { term, .. } => read_kvar(term, kvar_sorts),
@@ -1209,20 +1210,19 @@ fn read_kvar(term: &Term, kvar_sorts: &KVarTokens) -> Option<Name> {
 /// the definition gives that sort.
 fn rename_kvar_token(term: &Term, new: &Name, kvar_sorts: &KVarTokens) -> Option<Term> {
     match term.kind() {
-        TermKind::DomainValue {
-            sort: sort @ Sort::Application { name, arguments },
-            ..
-        } if arguments.is_empty() => {
-            let kind = (*kvar_sorts.get(name)?)?;
-            Some(Term::domain_value_of(kind, sort.clone(), new.clone()))
+        TermKind::DomainValue { sort, .. }
+            if sort.arguments().is_empty() && sort.as_variable().is_none() =>
+        {
+            let kind = (*kvar_sorts.get(sort.name())?)?;
+            Some(Term::domain_value_of(kind, *sort, new.clone()))
         }
         TermKind::Injection {
             source,
             target,
             term,
         } => Some(Term::injection(
-            source.clone(),
-            target.clone(),
+            *source,
+            *target,
             rename_kvar_token(term, new, kvar_sorts)?,
         )),
         _ => None,
@@ -1840,7 +1840,7 @@ mod tests {
         ] {
             assert!(facts.may_contain_kvar(&Sort::simple(sort)), "{sort}");
         }
-        assert!(facts.may_contain_kvar(&Sort::Variable("S".into())));
+        assert!(facts.may_contain_kvar(&Sort::variable("S")));
         assert!(std::ptr::eq(facts, definition.kvar_sorts()));
     }
 

@@ -5840,7 +5840,7 @@ fn simplify_plain_children(
             source,
             target,
             term,
-        } => Term::injection(source.clone(), target.clone(), child(term)?),
+        } => Term::injection(*source, *target, child(term)?),
         _ => unreachable!("only an application or an injection has plain children"),
     };
     let term = if unchanged.get() {
@@ -8556,9 +8556,9 @@ mod tests {
     #[test]
     fn path_condition_replacements_preserve_unaffected_term_identity() {
         let int = Sort::builtin(BuiltinSort::Int);
-        let one = Term::raw_domain_value(int.clone(), "1");
-        let two = Term::raw_domain_value(int.clone(), "2");
-        let subject = Term::injection(int.clone(), Sort::simple("SortKItem"), one.clone());
+        let one = Term::raw_domain_value(int, "1");
+        let two = Term::raw_domain_value(int, "2");
+        let subject = Term::injection(int, Sort::simple("SortKItem"), one.clone());
 
         let empty = PathConditionReplacements {
             substitution: Substitution::new(),
@@ -8568,13 +8568,13 @@ mod tests {
 
         let unrelated = PathConditionReplacements {
             substitution: Substitution::new(),
-            replacements: vec![(two, Term::raw_domain_value(int.clone(), "3"))],
+            replacements: vec![(two, Term::raw_domain_value(int, "3"))],
         };
         assert!(unrelated.apply(&subject).ptr_eq(&subject));
 
         let substitution = PathConditionReplacements {
             substitution: Substitution::from([(
-                Variable::new("X", int.clone()),
+                Variable::new("X", int),
                 Term::raw_domain_value(int, "4"),
             )]),
             replacements: Vec::new(),
@@ -8585,8 +8585,8 @@ mod tests {
     #[test]
     fn path_condition_replacements_descend_through_injections_and_collections() {
         let int = Sort::builtin(BuiltinSort::Int);
-        let one = Term::raw_domain_value(int.clone(), "1");
-        let two = Term::raw_domain_value(int.clone(), "2");
+        let one = Term::raw_domain_value(int, "1");
+        let two = Term::raw_domain_value(int, "2");
         let key = Term::raw_domain_value(Sort::simple("SortKey"), "key");
         let map_definition = Arc::new(MapDefinition {
             symbols: collection_symbols("map"),
@@ -8605,7 +8605,7 @@ mod tests {
             list_sort: "SortSet".into(),
         });
         let composite = Term::and(
-            Term::injection(int.clone(), Sort::simple("SortKItem"), one.clone()),
+            Term::injection(int, Sort::simple("SortKItem"), one.clone()),
             Term::and(
                 Term::map(
                     map_definition.clone(),
@@ -10053,13 +10053,13 @@ mod tests {
     fn normalization_atom(index: usize) -> Predicate {
         let int = Sort::builtin(BuiltinSort::Int);
         let bool_sort = Sort::builtin(BuiltinSort::Bool);
-        let variable = |name: &str, sort: &Sort| Term::variable(Variable::new(name, sort.clone()));
-        let int_value = |value: &str| Term::raw_domain_value(int.clone(), value);
+        let variable = |name: &str, sort: &Sort| Term::variable(Variable::new(name, *sort));
+        let int_value = |value: &str| Term::raw_domain_value(int, value);
         match index {
             0 => Predicate::True,
             1 => Predicate::False,
-            2 => Predicate::Term(Term::raw_domain_value(bool_sort.clone(), "true")),
-            3 => Predicate::Term(Term::raw_domain_value(bool_sort.clone(), "false")),
+            2 => Predicate::Term(Term::raw_domain_value(bool_sort, "true")),
+            3 => Predicate::Term(Term::raw_domain_value(bool_sort, "false")),
             4 => Predicate::Term(variable("B", &bool_sort)),
             5 => Predicate::Equals(int_value("1"), int_value("1")),
             6 => Predicate::Equals(int_value("1"), int_value("2")),

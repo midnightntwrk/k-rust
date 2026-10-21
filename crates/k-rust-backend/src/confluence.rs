@@ -112,7 +112,7 @@ use crate::{
     stop::PollBudgetRecord,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Name, Sort, Symbol, Term, TermKind, Variable,
+        HeadRole, Name, SortNode, Symbol, Term, TermKind, Variable,
         names::{FreshMarker, with_fresh_marker},
     },
 };
@@ -1134,7 +1134,7 @@ fn with_children(term: &Term, mut new: Vec<Term>) -> Term {
             ..
         } => Term::application(symbol.clone(), sort_arguments.clone(), new),
         TermKind::Injection { source, target, .. } => {
-            Term::injection(source.clone(), target.clone(), new.remove(0))
+            Term::injection(*source, *target, new.remove(0))
         }
         TermKind::And(..) => {
             let right = new.remove(1);
@@ -1858,7 +1858,7 @@ impl Context<'_> {
                 second_rhs.map(|rhs| {
                     let marker = Variable::new(
                         with_fresh_marker("VarOverlapStep", FreshMarker::Unify, self.fresh),
-                        inner_sort.clone(),
+                        inner_sort,
                     );
                     self.fresh += 1;
                     let stepped = replace_at(
@@ -1868,7 +1868,7 @@ impl Context<'_> {
                     );
                     let mut reduct = substitute(&rhs, &unifier);
                     if injected {
-                        reduct = Term::injection(second_sort.clone(), inner_sort.clone(), reduct);
+                        reduct = Term::injection(second_sort, inner_sort, reduct);
                     }
                     let mut with_step = unifier.clone();
                     with_step.insert(marker, reduct);
@@ -1983,8 +1983,8 @@ impl Context<'_> {
     /// normal form.
     fn vacuous(&self, first: &RewriteRule, second: &RewriteRule, unifier: &Substitution) -> bool {
         // Only a declared sort without parameters is judged; any other is counted inhabited.
-        let uninhabited = |variable: &Variable| match &variable.sort {
-            Sort::Application { name, arguments } => {
+        let uninhabited = |variable: &Variable| match variable.sort.node() {
+            SortNode::Application { name, arguments } => {
                 arguments.is_empty()
                     && self
                         .definition
@@ -1993,7 +1993,7 @@ impl Context<'_> {
                         .is_some_and(|info| info.parameters.is_empty())
                     && !self.sorts.has_normal_form(&variable.sort)
             }
-            Sort::Variable(_) => false,
+            SortNode::Variable(_) => false,
         };
         first
             .lhs

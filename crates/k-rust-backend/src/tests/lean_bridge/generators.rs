@@ -26,7 +26,7 @@ fn sort() -> impl Strategy<Value = Sort> {
             "SortList",
             vec![Sort::simple("SortKItem")]
         )),
-        Just(Sort::Variable("S".into())),
+        Just(Sort::variable("S")),
     ]
 }
 
@@ -342,7 +342,7 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
             ));
             let mut changed = value.as_bytes().to_vec();
             changed.push(b'1');
-            edits.push((Edit::Value, Term::raw_domain_value(sort.clone(), changed)));
+            edits.push((Edit::Value, Term::raw_domain_value(*sort, changed)));
         }
         TermKind::Variable(variable) => {
             let mut changed = variable.clone();
@@ -359,11 +359,11 @@ fn root_edits(term: &Term) -> Vec<(Edit, Term)> {
         } => {
             edits.push((
                 Edit::Sort,
-                Term::injection(other_sort(source), target.clone(), term.clone()),
+                Term::injection(other_sort(source), *target, term.clone()),
             ));
             edits.push((
                 Edit::Sort,
-                Term::injection(source.clone(), other_sort(target), term.clone()),
+                Term::injection(*source, other_sort(target), term.clone()),
             ));
         }
         TermKind::Application {
@@ -420,9 +420,7 @@ pub(in crate::tests) fn one_edit_neighbours(term: &Term) -> Vec<(Edit, Term)> {
                 arguments[index] = child;
                 Term::application(symbol.clone(), sort_arguments.clone(), arguments)
             }
-            TermKind::Injection { source, target, .. } => {
-                Term::injection(source.clone(), target.clone(), child)
-            }
+            TermKind::Injection { source, target, .. } => Term::injection(*source, *target, child),
             TermKind::Map {
                 definition,
                 entries,

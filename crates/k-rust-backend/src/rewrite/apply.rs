@@ -2474,18 +2474,14 @@ mod tests {
     #[test]
     fn rule_diagnostics_omit_term_alias_binders() {
         let sort = Sort::simple("SortS");
-        let alias = Variable::new("Rule#Alias", sort.clone());
-        let ordinary = Variable::new("Rule#Ordinary", sort.clone());
+        let alias = Variable::new("Rule#Alias", sort);
+        let ordinary = Variable::new("Rule#Ordinary", sort);
         let lhs = Term::application(
-            std::sync::Arc::new(Symbol::constructor(
-                "pair",
-                vec![sort.clone(), sort.clone()],
-                sort.clone(),
-            )),
+            std::sync::Arc::new(Symbol::constructor("pair", vec![sort, sort], sort)),
             Vec::new(),
             vec![
                 Term::and(
-                    Term::raw_domain_value(sort.clone(), "value"),
+                    Term::raw_domain_value(sort, "value"),
                     Term::variable(alias.clone()),
                 ),
                 Term::variable(ordinary.clone()),

@@ -23,7 +23,8 @@
 //! shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else \
 //! reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to \
 //! calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) \
-//! is structural equality of the kind, and Ord for Term is the derived order on the kind; below \
+//! is structural equality of the kind, and Ord for Term is the derived order on the kind (a Sort \
+//! orders by variant, name bytes and arguments, representation.backend.sort); below \
 //! RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, \
 //! order_nodes) that makes the derived comparisons of each pair of nodes in field order. \
 //! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
@@ -100,111 +101,19 @@ pub(crate) mod domain;
 pub mod head;
 pub mod items;
 pub mod names;
+mod sort;
 pub mod variables;
 
 pub(crate) use items::Flag;
 pub use items::Items;
+pub use sort::{Sort, SortNode, Sorts};
 pub use variables::{VariableLookup, Variables};
 
 pub type Name = Arc<str>;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum Sort {
-    Application { name: Name, arguments: Vec<Sort> },
-    Variable(Name),
-}
-
-impl PartialOrd for Sort {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Sort {
-    /// The order of the variants, then of the names, then of the arguments; two handles of
-    /// one name allocation are equal names without reading them.
-    fn cmp(&self, other: &Self) -> Ordering {
-        let names = |left: &Name, right: &Name| {
-            if Arc::ptr_eq(left, right) {
-                Ordering::Equal
-            } else {
-                left.cmp(right)
-            }
-        };
-        match (self, other) {
-            (
-                Self::Application { name, arguments },
-                Self::Application {
-                    name: other_name,
-                    arguments: other_arguments,
-                },
-            ) => names(name, other_name).then_with(|| arguments.cmp(other_arguments)),
-            (Self::Variable(name), Self::Variable(other_name)) => names(name, other_name),
-            (Self::Application { .. }, Self::Variable(_)) => Ordering::Less,
-            (Self::Variable(_), Self::Application { .. }) => Ordering::Greater,
-        }
-    }
-}
-
-impl Sort {
-    pub fn application(name: impl Into<Name>, arguments: Vec<Self>) -> Self {
-        Self::Application {
-            name: name.into(),
-            arguments,
-        }
-    }
-
-    pub fn simple(name: impl Into<Name>) -> Self {
-        Self::application(name, Vec::new())
-    }
-
-    /// A builtin sort, sharing one `Name` allocation per variant for the life of the process.
-    pub fn builtin(sort: BuiltinSort) -> Self {
-        Self::Application {
-            name: builtin_name(sort),
-            arguments: Vec::new(),
-        }
-    }
-
-    /// True for the nullary application of the builtin's KORE name.
-    pub fn is_builtin(&self, sort: BuiltinSort) -> bool {
-        matches!(
-            self,
-            Self::Application { name, arguments }
-                if arguments.is_empty() && name.as_ref() == sort.kore_name()
-        )
-    }
-
-    /// The position in `BuiltinSort::ALL` of the builtin sort this sort is, when it is the
-    /// nullary application of that builtin's shared name allocation, as [`Self::builtin`] and
-    /// every sort a definition internalizes hold it; `None` for any other sort, a sort of a
-    /// builtin's name in an allocation of its own included.
-    pub(crate) fn shared_builtin_index(&self) -> Option<usize> {
-        let Self::Application { name, arguments } = self else {
-            return None;
-        };
-        if !arguments.is_empty() {
-            return None;
-        }
-        builtin_names()
-            .iter()
-            .position(|builtin| Arc::ptr_eq(builtin, name))
-    }
-
-    /// True when a sort variable occurs anywhere in the sort.
-    pub fn has_variable(&self) -> bool {
-        match self {
-            Self::Variable(_) => true,
-            Self::Application { arguments, .. } => arguments.iter().any(Self::has_variable),
-        }
-    }
-}
-
 /// The `Name` a definition's sort table keys the sort `name` with: the one [`Sort::builtin`]
-/// uses when `name` is a builtin sort's KORE name, a new one otherwise. Internalized sorts take
-/// their names from that table, so all sorts of one name, builtin ones included, share one
-/// allocation, and comparing them takes the pointer shortcut of `Ord for Sort` and of `Arc`'s
-/// equality instead of reading the text.
+/// holds when `name` is a builtin sort's KORE name, a new one otherwise, so that comparing a
+/// table name with a builtin sort's name takes the pointer shortcut of `Arc`'s equality.
 pub(crate) fn sort_name(name: &str) -> Name {
     BuiltinSort::ALL
         .iter()
@@ -293,7 +202,7 @@ impl Variable {
     pub fn with_name(&self, name: impl Into<Name>) -> Self {
         Self {
             kind: self.kind,
-            sort: self.sort.clone(),
+            sort: self.sort,
             name: name.into(),
         }
     }
@@ -1196,7 +1105,7 @@ impl Term {
             && let ([source, target], [argument]) =
                 (sort_arguments.as_slice(), arguments.as_slice())
         {
-            return Self::injection(source.clone(), target.clone(), argument.clone());
+            return Self::injection(*source, *target, argument.clone());
         }
 
         if let Some(collection) = &symbol.attributes.collection {
@@ -1473,7 +1382,7 @@ impl Term {
 
     /// The leaf a dropped handle is left on ([`DETACHED`]): no value of any sort.
     fn sentinel() -> Self {
-        Self::new_domain_value(Sort::Variable(Name::from("")), KoreString::from(""))
+        Self::new_domain_value(Sort::variable(Name::from("")), KoreString::from(""))
     }
 
     pub fn variable(variable: Variable) -> Self {
@@ -1488,7 +1397,7 @@ impl Term {
         } = term.kind()
             && &source == inner_target
         {
-            return Self::injection(inner_source.clone(), target, inner.clone());
+            return Self::injection(*inner_source, target, inner.clone());
         }
         Self::new(TermKind::Injection {
             source,
@@ -1868,7 +1777,7 @@ impl Term {
                 if term.ptr_eq(&new_term) {
                     return Ok(self.clone());
                 }
-                Self::injection(source.clone(), target.clone(), new_term)
+                Self::injection(*source, *target, new_term)
             }
             TermKind::Map {
                 definition,
@@ -2115,10 +2024,8 @@ impl Term {
                 sort_arguments,
                 ..
             } => instantiate_result_sort(symbol, sort_arguments),
-            TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
-                sort.clone()
-            }
-            TermKind::Injection { target, .. } => target.clone(),
+            TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => *sort,
+            TermKind::Injection { target, .. } => *target,
             TermKind::Map { definition, .. } => Sort::simple(definition.map_sort.clone()),
             TermKind::List { definition, .. } | TermKind::Set { definition, .. } => {
                 Sort::simple(definition.list_sort.clone())
@@ -3105,7 +3012,7 @@ impl DomainKind {
     /// entry refuses the application before any reader sees the argument
     /// (`crate::builtin::misread_by_name`).
     pub(crate) fn named(sort: &Sort) -> Option<Self> {
-        let Sort::Application { name, arguments } = sort else {
+        let SortNode::Application { name, arguments } = sort.node() else {
             return None;
         };
         if !arguments.is_empty() {
@@ -3131,7 +3038,7 @@ impl DomainKind {
 /// for any other closed `A` (a declared `MInt{Foo}`). `None` when `A` holds a sort variable,
 /// whose width is not fixed yet, and for every other sort.
 pub(crate) fn mint_width(sort: &Sort) -> Option<MIntWidth> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     let [argument] = arguments.as_slice() else {
@@ -3152,7 +3059,7 @@ pub(crate) fn mint_width(sort: &Sort) -> Option<MIntWidth> {
 /// The digits of the width argument of a machine-integer sort `SortMInt{Sort<digits>{}}`, as
 /// written in the sort's name.
 pub(crate) fn mint_width_digits(sort: &Sort) -> Option<&str> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     match arguments.as_slice() {
@@ -3163,7 +3070,7 @@ pub(crate) fn mint_width_digits(sort: &Sort) -> Option<&str> {
 
 /// The digits `d` of a nullary sort `Sort<d>{}`, the KORE declaration of a numeral.
 fn numeral_sort_digits(sort: &Sort) -> Option<&str> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     let digits = name.strip_prefix("Sort")?;
@@ -3454,32 +3361,31 @@ fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Items<Term>, Opti
 /// at its position stays; of two positions of one name (load refuses them), the last one with
 /// an argument counts.
 fn instantiate_result_sort(symbol: &Symbol, sort_arguments: &[Sort]) -> Sort {
-    fn instantiate(sort: &Sort, variables: &[Name], arguments: &[Sort]) -> Sort {
-        match sort {
-            Sort::Variable(name) => variables
+    fn instantiate(sort: Sort, variables: &[Name], arguments: &[Sort]) -> Sort {
+        match sort.node() {
+            SortNode::Variable(name) => variables
                 .iter()
                 .zip(arguments)
                 .rev()
-                .find_map(|(variable, argument)| (variable == name).then_some(argument))
-                .unwrap_or(sort)
-                .clone(),
-            Sort::Application {
+                .find_map(|(variable, argument)| (variable == name).then_some(*argument))
+                .unwrap_or(sort),
+            SortNode::Application {
                 name,
                 arguments: inner,
-            } if !inner.is_empty() => Sort::Application {
-                name: name.clone(),
-                arguments: inner
+            } if sort.has_variable() => Sort::application_of(
+                name.clone(),
+                inner
                     .iter()
-                    .map(|argument| instantiate(argument, variables, arguments))
+                    .map(|argument| instantiate(*argument, variables, arguments))
                     .collect(),
-            },
-            Sort::Application { .. } => sort.clone(),
+            ),
+            SortNode::Application { .. } => sort,
         }
     }
     if symbol.sort_variables.is_empty() {
-        return symbol.result_sort.clone();
+        return symbol.result_sort;
     }
-    instantiate(&symbol.result_sort, &symbol.sort_variables, sort_arguments)
+    instantiate(symbol.result_sort, &symbol.sort_variables, sort_arguments)
 }
 
 fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttributes {
@@ -4408,7 +4314,7 @@ impl Term {
     pub(crate) fn unshared_copy(&self) -> Self {
         let copy = |term: &Self| term.unshared_copy();
         if let TermKind::DomainValue { sort, value } = self.kind() {
-            return Self::new_domain_value(sort.clone(), value.clone());
+            return Self::new_domain_value(*sort, value.clone());
         }
         Self::new(match self.kind() {
             TermKind::And(left, right) => TermKind::And(copy(left), copy(right)),
@@ -4428,8 +4334,8 @@ impl Term {
                 target,
                 term,
             } => TermKind::Injection {
-                source: source.clone(),
-                target: target.clone(),
+                source: *source,
+                target: *target,
                 term: copy(term),
             },
             TermKind::Map {
@@ -4477,18 +4383,15 @@ mod tests {
 
     /// The substitution `Term::sort` applied before `instantiate_result_sort`, as the reference.
     fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
-        match sort {
-            Sort::Variable(name) => substitution
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| sort.clone()),
-            Sort::Application { name, arguments } => Sort::Application {
-                name: name.clone(),
-                arguments: arguments
+        match sort.node() {
+            SortNode::Variable(name) => substitution.get(name).copied().unwrap_or(*sort),
+            SortNode::Application { name, arguments } => Sort::application(
+                name.clone(),
+                arguments
                     .iter()
                     .map(|argument| substitute_sort(argument, substitution))
                     .collect(),
-            },
+            ),
         }
     }
 
@@ -4498,7 +4401,7 @@ mod tests {
     /// repeated names and argument lists of every length up to one more than the variables.
     #[test]
     fn instantiated_result_sort_is_the_substitution_of_the_sort_variables() {
-        let variable = |name: &str| Sort::Variable(Name::from(name));
+        let variable = |name: &str| Sort::variable(Name::from(name));
         let results = [
             Sort::simple("SortA"),
             variable("S"),
@@ -4522,7 +4425,7 @@ mod tests {
             for variables in variable_lists {
                 for count in 0..=variables.len() + 1 {
                     let arguments = pool[..count.min(pool.len())].to_vec();
-                    let mut symbol = Symbol::constructor("s", Vec::new(), result_sort.clone());
+                    let mut symbol = Symbol::constructor("s", Vec::new(), *result_sort);
                     symbol.sort_variables =
                         variables.iter().map(|name| Name::from(*name)).collect();
                     let substitution = symbol
@@ -4734,12 +4637,12 @@ mod tests {
             let int = Sort::builtin(BuiltinSort::Int);
             let leaf =
                 (any::<bool>(), any::<bool>(), 0..2u8).prop_map(move |(inject, kitem, value)| {
-                    let value = Term::raw_domain_value(int.clone(), value.to_string());
+                    let value = Term::raw_domain_value(int, value.to_string());
                     if inject {
                         let source = if kitem {
                             Sort::simple("SortKItem")
                         } else {
-                            int.clone()
+                            int
                         };
                         Term::injection(source, sort(), value)
                     } else {
@@ -5259,12 +5162,8 @@ mod tests {
         let a = Sort::simple("A");
         let b = Sort::simple("B");
         let c = Sort::simple("C");
-        let value = Term::raw_domain_value(a.clone(), "value");
-        let nested = Term::injection(
-            b.clone(),
-            c.clone(),
-            Term::injection(a.clone(), b, value.clone()),
-        );
+        let value = Term::raw_domain_value(a, "value");
+        let nested = Term::injection(b, c, Term::injection(a, b, value.clone()));
         assert_eq!(nested, Term::injection(a, c, value));
     }
 
@@ -5278,7 +5177,7 @@ mod tests {
     fn int_domain_values_are_canonical_at_construction() {
         let int_sort = Sort::simple("SortInt");
         for (source, expected) in [("+3", "3"), ("007", "7"), ("-0", "0"), ("-12", "-12")] {
-            let term = Term::domain_value_of(DomainKind::Int, int_sort.clone(), source);
+            let term = Term::domain_value_of(DomainKind::Int, int_sort, source);
             let TermKind::DomainValue { value, .. } = term.kind() else {
                 unreachable!()
             };
@@ -5286,14 +5185,13 @@ mod tests {
         }
 
         let canonical = KoreString::from("12");
-        let canonical_term =
-            Term::domain_value_of(DomainKind::Int, int_sort.clone(), canonical.clone());
+        let canonical_term = Term::domain_value_of(DomainKind::Int, int_sort, canonical.clone());
         let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
             unreachable!()
         };
         assert!(std::ptr::eq(value.as_bytes(), canonical.as_bytes()));
 
-        let signed = Term::domain_value_of(DomainKind::Int, int_sort.clone(), "+3");
+        let signed = Term::domain_value_of(DomainKind::Int, int_sort, "+3");
         let unsigned = Term::domain_value_of(DomainKind::Int, int_sort, "3");
         assert_eq!(signed, unsigned);
         assert_eq!(
@@ -5308,8 +5206,7 @@ mod tests {
     #[test]
     fn float_domain_values_are_canonical_at_construction() {
         let float_sort = Sort::builtin(BuiltinSort::Float);
-        let built =
-            |source: &str| Term::domain_value_of(DomainKind::Float, float_sort.clone(), source);
+        let built = |source: &str| Term::domain_value_of(DomainKind::Float, float_sort, source);
         let text = |term: &Term| match term.kind() {
             TermKind::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
             _ => unreachable!(),
@@ -5330,7 +5227,7 @@ mod tests {
 
         let canonical = KoreString::from("1e0p11x5");
         let canonical_term =
-            Term::domain_value_of(DomainKind::Float, float_sort.clone(), canonical.clone());
+            Term::domain_value_of(DomainKind::Float, float_sort, canonical.clone());
         let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
             unreachable!()
         };
@@ -5396,8 +5293,8 @@ mod tests {
     #[test]
     fn domain_value_equality_and_hash_preserve_raw_bytes() {
         let sort = Sort::builtin(BuiltinSort::String);
-        let raw = Term::raw_domain_value(sort.clone(), vec![0xff, 0x80]);
-        let same = Term::raw_domain_value(sort.clone(), vec![0xff, 0x80]);
+        let raw = Term::raw_domain_value(sort, vec![0xff, 0x80]);
+        let same = Term::raw_domain_value(sort, vec![0xff, 0x80]);
         let utf8 = Term::raw_domain_value(sort, "ÿ\u{80}");
 
         assert_eq!(raw, same);
@@ -5408,14 +5305,10 @@ mod tests {
     #[test]
     fn sequential_values_and_wrappers_have_distinct_hashes() {
         let sort = Sort::builtin(BuiltinSort::Int);
-        let wrapper = Arc::new(Symbol::constructor(
-            "hashWrapper",
-            vec![sort.clone()],
-            sort.clone(),
-        ));
+        let wrapper = Arc::new(Symbol::constructor("hashWrapper", vec![sort], sort));
         let mut hashes = std::collections::HashSet::new();
         for value in 0..10_000 {
-            let child = Term::raw_domain_value(sort.clone(), value.to_string());
+            let child = Term::raw_domain_value(sort, value.to_string());
             let wrapped = Term::application(wrapper.clone(), Vec::new(), vec![child.clone()]);
             assert!(hashes.insert(child.attributes().hash));
             assert!(hashes.insert(wrapped.attributes().hash));
@@ -5484,14 +5377,16 @@ mod tests {
             assert!(Sort::builtin(sort).is_builtin(sort), "{sort:?}");
             assert!(Sort::simple(sort.kore_name()).is_builtin(sort), "{sort:?}");
         }
-        let Sort::Application { name: first, .. } = Sort::builtin(BuiltinSort::Int) else {
+        let SortNode::Application { name: first, .. } = Sort::builtin(BuiltinSort::Int).node()
+        else {
             unreachable!()
         };
-        let Sort::Application { name: second, .. } = Sort::builtin(BuiltinSort::Int) else {
+        let SortNode::Application { name: second, .. } = Sort::builtin(BuiltinSort::Int).node()
+        else {
             unreachable!()
         };
         assert!(
-            Arc::ptr_eq(&first, &second),
+            Arc::ptr_eq(first, second),
             "builtin names share one allocation"
         );
     }
@@ -5503,7 +5398,7 @@ mod tests {
             vec![Sort::builtin(BuiltinSort::K)],
         );
         assert!(!parametric.is_builtin(BuiltinSort::Map));
-        assert!(!Sort::Variable("SortMap".into()).is_builtin(BuiltinSort::Map));
+        assert!(!Sort::variable("SortMap").is_builtin(BuiltinSort::Map));
         assert!(!Sort::builtin(BuiltinSort::Set).is_builtin(BuiltinSort::Map));
         let symbol = Symbol::constructor("inj", Vec::new(), Sort::builtin(BuiltinSort::K));
         assert!(symbol.is(WellKnownSymbol::Inj));

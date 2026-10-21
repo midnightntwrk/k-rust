@@ -10,7 +10,7 @@ use k_rust_backend::{
     simplify::SimplificationOptions,
     smt::{NoSolver, SmtSolver},
     substitution::{Substitution, substitute},
-    term::{Sort, Term, Variable},
+    term::{SortNode, Term, Variable},
 };
 use k_rust_kore::kore::parser::parse_definition;
 
@@ -74,7 +74,7 @@ fn options(max_depth: u64) -> ExecutionOptions {
 }
 
 fn ground_terms(definition: &BackendDefinition, variable: &Variable) -> Vec<Term> {
-    let Sort::Application { name, arguments } = &variable.sort else {
+    let SortNode::Application { name, arguments } = variable.sort.node() else {
         panic!("unexpected sort variable: {:?}", variable.sort);
     };
     assert!(arguments.is_empty());

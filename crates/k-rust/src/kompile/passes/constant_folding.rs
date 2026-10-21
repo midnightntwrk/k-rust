@@ -377,7 +377,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     fn argument(&self, token: &str, sort: &Sort, declared: Option<&Sort>) -> Option<BackendTerm> {
         let (backend, encoding) = emitted(sort);
         let payload = token_payload(token, self.facts.hook(sort), encoding).ok()?;
-        let value = BackendTerm::domain_value_in(self.facts, backend.clone(), payload)?;
+        let value = BackendTerm::domain_value_in(self.facts, backend, payload)?;
         let Some(declared) = declared
             .map(backend_sort)
             .filter(|declared| *declared != backend)

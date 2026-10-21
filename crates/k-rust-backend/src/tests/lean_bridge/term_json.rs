@@ -19,7 +19,7 @@
 use serde_json::{Value, json};
 
 use crate::term::{
-    FunctionType, Sort, Symbol, SymbolDeclaration, SymbolType, Term, TermKind, Variable,
+    FunctionType, Sort, SortNode, Symbol, SymbolDeclaration, SymbolType, Term, TermKind, Variable,
     VariableKind,
 };
 
@@ -28,9 +28,9 @@ fn quoted(name: &str) -> String {
 }
 
 pub(super) fn sort_text(sort: &Sort) -> String {
-    match sort {
-        Sort::Variable(name) => quoted(name),
-        Sort::Application { name, arguments } => format!(
+    match sort.node() {
+        SortNode::Variable(name) => quoted(name),
+        SortNode::Application { name, arguments } => format!(
             "{}{{{}}}",
             quoted(name),
             arguments

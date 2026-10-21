@@ -18,7 +18,7 @@
 
 use crate::{
     definition::BackendDefinition,
-    term::{DomainKind, Sort},
+    term::{DomainKind, Sort, SortNode},
 };
 
 /// The declarations of a definition that decide how its hooked applications evaluate: the kind
@@ -52,7 +52,7 @@ impl DeclarationFacts for BackendDefinition {
     }
 
     fn has_domain_values(&self, sort: &Sort) -> bool {
-        matches!(sort, Sort::Application { name, .. }
+        matches!(sort.node(), SortNode::Application { name, .. }
             if self.sorts().get(name).is_some_and(|info| info.has_domain_values))
     }
 

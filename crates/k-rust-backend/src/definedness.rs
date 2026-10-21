@@ -1731,7 +1731,7 @@ mod tests {
     #[test]
     fn definedness_deduplication_preserves_first_occurrence_order() {
         let sort = Sort::simple("SortS");
-        let x = Term::variable(crate::term::Variable::new("X", sort.clone()));
+        let x = Term::variable(crate::term::Variable::new("X", sort));
         let y = Term::variable(crate::term::Variable::new("Y", sort));
         let first = Predicate::Ceil(x);
         let second = Predicate::Ceil(y);
@@ -1760,12 +1760,8 @@ mod tests {
     #[test]
     fn deduplicate_absorbs_a_deduplicated_part() {
         let sort = Sort::simple("SortS");
-        let alphabet = ["X", "Y", "Z"].map(|name| {
-            Predicate::Ceil(Term::variable(crate::term::Variable::new(
-                name,
-                sort.clone(),
-            )))
-        });
+        let alphabet = ["X", "Y", "Z"]
+            .map(|name| Predicate::Ceil(Term::variable(crate::term::Variable::new(name, sort))));
         let alphabet = &alphabet;
         let lists = |length: usize| {
             (0..alphabet.len().pow(length as u32)).map(move |mut code| {

@@ -52,7 +52,7 @@ fn complete_schema_domain_keeps_the_non_g_branch_feasible() {
         },
         ConstructorHead::Symbol {
             name: "wrap".into(),
-            sort_arguments: vec![foo.clone()],
+            sort_arguments: vec![foo],
         },
     ]);
     let domain = definition

@@ -946,7 +946,7 @@ mod smt {
     fn positive(name: &str) -> Predicate {
         let int = Sort::simple("SortInt");
         Predicate::Equals(
-            Term::variable(Variable::new(name, int.clone())),
+            Term::variable(Variable::new(name, int)),
             Term::raw_domain_value(int, "1"),
         )
     }
