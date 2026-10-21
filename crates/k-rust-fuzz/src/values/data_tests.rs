@@ -1124,3 +1124,117 @@ fn hex_bytes_require_two_hex_digits() {
         Value::Bytes(vec![15, 15])
     );
 }
+
+// ------------------------------------------------------------------------------------------
+// FZ-G6+09 review N5: shrinking removes a map's entries whole.
+
+/// Drive `tree` as the engine's shrink loop does (`simplify` after an accepted candidate,
+/// `complicate` after a rejected one), rejecting the candidates whose step `reject` names, and
+/// call `each(accepted, candidate)` on every candidate.
+fn shrink_checked(
+    tree: &mut super::generator::ShrinkableValue,
+    reject: impl Fn(usize) -> bool,
+    mut each: impl FnMut(&Value, &Value),
+) {
+    let mut accepted = tree.current();
+    if !tree.simplify() {
+        return;
+    }
+    for step in 0..4000 {
+        let candidate = tree.current();
+        each(&accepted, &candidate);
+        let more = if reject(step) {
+            tree.complicate()
+        } else {
+            accepted = candidate;
+            tree.simplify()
+        };
+        if !more {
+            return;
+        }
+    }
+    panic!("shrinking did not end");
+}
+
+/// A candidate with fewer entries than the last accepted value holds only entries of that
+/// value: a removed key takes its value with it, and every other key keeps its own. A
+/// candidate with as many entries changes at most one of them. Checked for enumerated keys
+/// (a subsequence of the key universe) and for drawn keys (repeated keys replaced), and for
+/// the elements of a set of drawn elements.
+#[test]
+fn shrinking_a_map_removes_its_entries_whole() {
+    let definition = values();
+    let syntax = values_syntax();
+    let length = Some(LengthRange {
+        min: Some(1),
+        max: Some(12),
+    });
+    let map_constraints = Constraints {
+        length,
+        ..entries("Int", "Int")
+    };
+    let set_constraints = Constraints {
+        length,
+        ..elements("Int")
+    };
+    let map = resolve(definition, &syntax, "Map", &map_constraints);
+    let set = resolve(definition, &syntax, "Set", &set_constraints);
+    // `int_bits: 4` leaves 31 Ints, few enough to enumerate; the default window does not.
+    let enumerated = GenerationBounds {
+        int_bits: 4,
+        ..GenerationBounds::default()
+    };
+    let cases = [
+        ("enumerated map keys", &map, &map_constraints, enumerated),
+        (
+            "drawn map keys",
+            &map,
+            &map_constraints,
+            GenerationBounds::default(),
+        ),
+        (
+            "drawn set elements",
+            &set,
+            &set_constraints,
+            GenerationBounds::default(),
+        ),
+    ];
+    for (label, sort, constraints, bounds) in cases {
+        let generator = Generator::new(sort, constraints, &bounds).expect("generates");
+        let mut removals = 0;
+        for byte in 1..=40u8 {
+            let mut rng = ValueRng::from_seed([byte; 32]);
+            let mut tree = generator.generate(&mut rng);
+            shrink_checked(
+                &mut tree,
+                |step| step % 4 == 3,
+                |accepted, candidate| {
+                    let items = |value: &Value| match value {
+                        Value::Map(entries) => entries.clone(),
+                        Value::Set(items) => {
+                            items.iter().map(|item| (item.clone(), int(0))).collect()
+                        }
+                        other => panic!("{label}: {other:?}"),
+                    };
+                    let (before, after) = (items(accepted), items(candidate));
+                    assert!(
+                        after.windows(2).all(|pair| pair[0].0 < pair[1].0),
+                        "{label}: keys sorted and distinct: {after:?}"
+                    );
+                    assert!(!after.is_empty(), "{label}: the minimum length holds");
+                    let changed = after.iter().filter(|entry| !before.contains(entry)).count();
+                    if after.len() < before.len() {
+                        removals += 1;
+                        assert_eq!(
+                            changed, 0,
+                            "{label}: removing an entry changed another: {before:?} -> {after:?}"
+                        );
+                    } else {
+                        assert!(changed <= 1, "{label}: {before:?} -> {after:?}");
+                    }
+                },
+            );
+        }
+        assert!(removals > 0, "{label}: no candidate removed an entry");
+    }
+}
