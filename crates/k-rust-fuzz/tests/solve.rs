@@ -14,7 +14,9 @@
 mod maze;
 mod support;
 
-use std::{collections::BTreeMap, fmt::Write as _, thread};
+#[cfg(feature = "z3")]
+use std::fmt::Write as _;
+use std::{collections::BTreeMap, thread};
 
 use k_rust_fuzz::{Campaign, ProposerConfig, spec::ProposerKind};
 use maze::{CELLS, Configuration, MazeRun};
@@ -30,11 +32,14 @@ const TUNING_SEEDS: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const HELD_OUT_SEEDS: [u64; 10] = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
 /// The cells measured in isolation and on the whole maze: the blocked cells left after the
-/// dictionary and the climb, and the negative controls.
+/// dictionary and the climb, the negative controls, and on the whole maze the cells blind
+/// sampling passes in a few cases, where the solver's share is a cost.
 #[cfg(feature = "z3")]
 const ISOLATED_CELLS: [&str; 5] = ["c6", "c7", "s5", "u2", "u4"];
 #[cfg(feature = "z3")]
-const MAZE_CELLS: [&str; 8] = ["c5", "c6", "s5", "c7", "u1", "u2", "u3", "u4"];
+const MAZE_CELLS: [&str; 12] = [
+    "c1", "c2", "s1", "s2", "c5", "c6", "s5", "c7", "u1", "u2", "u3", "u4",
+];
 
 /// The CI seeds (tuning seeds: the pins are regression pins, not evidence) and budget.
 #[cfg(feature = "z3")]

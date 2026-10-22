@@ -232,10 +232,10 @@ pub(crate) fn model_values(substitution: &KorePattern) -> BTreeMap<usize, Value>
         match pattern {
             KorePattern::And { arguments, .. } => work.extend(arguments),
             KorePattern::Equals { left, right, .. } => {
-                let (variable, value) = match (left.as_ref(), right.as_ref()) {
-                    (KorePattern::Variable(variable), value)
-                    | (value, KorePattern::Variable(variable)) => (variable, value),
-                    _ => continue,
+                let ((KorePattern::Variable(variable), value)
+                | (value, KorePattern::Variable(variable))) = (left.as_ref(), right.as_ref())
+                else {
+                    continue;
                 };
                 if let (Some(hole), Some(value)) = (hole_of(&variable.name), domain_value(value)) {
                     found.insert(hole, value);

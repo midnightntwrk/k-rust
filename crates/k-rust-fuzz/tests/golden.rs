@@ -431,6 +431,28 @@ fn solve_campaigns() -> Vec<(CampaignSpec, Budget)> {
     vec![(spec, Budget::Cases(200))]
 }
 
+/// The solve campaign finds its witness through a model, inside the determinism contract, and
+/// its fingerprint is [`PINNED_SOLVE`].
+#[cfg(feature = "z3")]
+fn check_solve(reports: &[FuzzReport]) {
+    let solve = fingerprint(reports);
+    if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
+        eprintln!("solve fingerprint at engine version {ENGINE_VERSION}: {solve}");
+    }
+    for report in reports {
+        assert!(report.witness().is_some(), "{:?}", report.outcome);
+        let totals = report.totals.solve.as_ref().expect("solve totals");
+        assert!(totals.candidates >= 1, "{totals:?}");
+        assert_eq!(totals.outside_determinism, 0, "{totals:?}");
+    }
+    check_pin(
+        "solve",
+        PINNED_SOLVE,
+        &solve,
+        "its parameters, its trigger or its records",
+    );
+}
+
 fn render(reports: &[FuzzReport]) -> String {
     reports
         .iter()
@@ -574,24 +596,7 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..climbing]);
     let climb = fingerprint(&reports[climbing..solving]);
     #[cfg(feature = "z3")]
-    {
-        let solve = fingerprint(&reports[solving..]);
-        if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
-            eprintln!("solve fingerprint at engine version {ENGINE_VERSION}: {solve}");
-        }
-        // The solve campaign finds its witness through a model, inside the determinism contract.
-        let report = &reports[solving];
-        assert!(report.witness().is_some(), "{:?}", report.outcome);
-        let totals = report.totals.solve.as_ref().expect("solve totals");
-        assert!(totals.candidates >= 1, "{totals:?}");
-        assert_eq!(totals.outside_determinism, 0, "{totals:?}");
-        check_pin(
-            "solve",
-            PINNED_SOLVE,
-            &solve,
-            "its parameters, its trigger or its records",
-        );
-    }
+    check_solve(&reports[solving..]);
     if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
         eprintln!("golden fingerprint at engine version {ENGINE_VERSION}: {computed}");
         eprintln!("dictionary fingerprint at engine version {ENGINE_VERSION}: {dictionary}");

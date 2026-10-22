@@ -187,8 +187,12 @@ fn proposer(mut spec: CampaignSpec, constraints: Constraints) -> SolveProposer {
     SolveProposer::new(builder, options, bounds, None, None)
 }
 
-fn values(a: i64, c: i64, d: i64, h: i64, i: i64) -> Vec<Value> {
-    [a, c, d, h, i].into_iter().map(int).collect()
+/// The values of the holes `A`, `C`, `D`, `H` and `I`, in that order.
+fn values(a_c_d: (i64, i64, i64), h: i64, i: i64) -> Vec<Value> {
+    [a_c_d.0, a_c_d.1, a_c_d.2, h, i]
+        .into_iter()
+        .map(int)
+        .collect()
 }
 
 /// The condition records of `c7` name the bindings of `H` and `I`: run the configuration of
@@ -197,7 +201,7 @@ fn values(a: i64, c: i64, d: i64, h: i64, i: i64) -> Vec<Value> {
 fn the_records_of_c7_make_exactly_h_and_i_symbolic() {
     let spec = maze_spec(8, 9, "MAZE.c7");
     let builder = crate::engine::configuration_builder(spec).expect("the campaign builds");
-    let case = values(1, 7, 1050, 8, 9);
+    let case = values((1, 7, 1050), 8, 9);
     let configuration = builder
         .configuration(&case, &[])
         .expect("the case assembles");
@@ -258,9 +262,9 @@ fn query(rule: &str, case: Vec<Value>, symbolic: Vec<usize>) -> Query {
 fn a_query_solves_the_nonlinear_guard_of_c7() {
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), Constraints::default());
     let candidate = solve
-        .ask(&query("MAZE.c7", values(1, 7, 1050, 8, 9), vec![3, 4]))
+        .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
         .unwrap_or_else(|| panic!("a candidate: {:?}", solve.totals));
-    assert_eq!(candidate, values(1, 7, 1050, 1009, 2003));
+    assert_eq!(candidate, values((1, 7, 1050), 1009, 2003));
     assert_eq!(solve.totals.candidates, 1);
     // The run's work and one model query are charged.
     let work = solve.take_extra_work();
@@ -281,14 +285,14 @@ fn a_query_conjoins_the_holes_declared_constraints() {
     };
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(2, 1000));
     assert_eq!(
-        solve.ask(&query("MAZE.c7", values(1, 7, 1050, 8, 9), vec![3, 4])),
+        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4])),
         None
     );
     assert_eq!(solve.totals.candidates, 0, "{:?}", solve.totals);
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(1009, 1009));
     assert_eq!(
-        solve.ask(&query("MAZE.c7", values(1, 7, 1050, 1009, 9), vec![3, 4])),
-        Some(values(1, 7, 1050, 1009, 2003))
+        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 1009, 9), vec![3, 4])),
+        Some(values((1, 7, 1050), 1009, 2003))
     );
 }
 
@@ -298,13 +302,13 @@ fn a_query_conjoins_the_holes_declared_constraints() {
 fn a_query_finds_no_candidate_for_the_unreachable_cells() {
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u4"), Constraints::default());
     assert_eq!(
-        solve.ask(&query("MAZE.u4", values(1, 3, 1050, 8, 9), vec![1])),
+        solve.ask(&query("MAZE.u4", values((1, 3, 1050), 8, 9), vec![1])),
         None
     );
     assert_eq!(solve.totals.candidates, 0, "{:?}", solve.totals);
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u2"), Constraints::default());
     assert_eq!(
-        solve.ask(&query("MAZE.u2", values(1, 7, 1050, 8, 9), vec![2])),
+        solve.ask(&query("MAZE.u2", values((1, 7, 1050), 8, 9), vec![2])),
         None
     );
     assert_eq!(solve.totals.no_path, 1, "{:?}", solve.totals);
@@ -336,7 +340,7 @@ fn the_proposer_asks_after_a_stall_and_never_twice() {
             values: vec![int(8), int(9)],
         }),
     };
-    let proposal = Proposal::plain(Origin::Explicit, values(1, 7, 1050, 8, 9));
+    let proposal = Proposal::plain(Origin::Explicit, values((1, 7, 1050), 8, 9));
     let unscored = Observation {
         score: None,
         blocked: None,
@@ -356,12 +360,12 @@ fn the_proposer_asks_after_a_stall_and_never_twice() {
         .propose(&mut ProposalContext { rng: &mut rng })
         .expect("a candidate");
     assert_eq!(candidate.origin, Origin::Scheduled(ProposerKind::Solve));
-    assert_eq!(candidate.values, values(1, 7, 1050, 1009, 2003));
+    assert_eq!(candidate.values, values((1, 7, 1050), 1009, 2003));
     // The same blocked case asks the same question: not again.
     solve.observe_all(&proposal, &unscored);
     assert!(!solve.ready());
     // Another value of a concrete hole asks another.
-    let other = Proposal::plain(Origin::Explicit, values(2, 7, 1050, 8, 9));
+    let other = Proposal::plain(Origin::Explicit, values((2, 7, 1050), 8, 9));
     let better = Observation {
         score: Some(Score {
             level: Level::At(0),

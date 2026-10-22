@@ -183,12 +183,12 @@ fn observation(
         guards: &run.guards,
         progress: run.progress,
     };
-    let scorer = settings
+    let miss_scorer = settings
         .scorer
         .as_ref()
         .filter(|_| class == OutcomeClass::Miss);
-    let blocked = scorer.and_then(|scorer| scorer.blocked(signals));
-    let (score, reads) = scorer.map_or((None, Vec::new()), |scorer| {
+    let blocked = miss_scorer.and_then(|scorer| scorer.blocked(signals));
+    let (score, reads) = miss_scorer.map_or((None, Vec::new()), |scorer| {
         let scored = scorer.score(signals);
         (Some(scored.score), scored.reads)
     });
@@ -803,6 +803,25 @@ pub(crate) fn no_witness(
             text,
             " {} outside the determinism contract.",
             plural_were(totals.outside_determinism)
+        )
+        .expect("writing to a String");
+    }
+    if let Some(solve) = totals
+        .solve
+        .as_ref()
+        .filter(|solve| solve.outside_determinism > 0)
+    {
+        write!(
+            text,
+            " {} of the solve proposer's symbolic runs {} outside the determinism contract (an \
+             unknown solver answer, a stack stop or a stop by the clock), so a re-run may propose \
+             other cases.",
+            solve.outside_determinism,
+            if solve.outside_determinism == 1 {
+                "was"
+            } else {
+                "were"
+            }
         )
         .expect("writing to a String");
     }
