@@ -5,6 +5,8 @@
 //! - [`dictionary`]: guard harvesting (ARCHITECTURE 8.3; FZ-11).
 //! - [`climb`]: targeted hill climbing over typed holes (ARCHITECTURE 8.4; FZ-12).
 //! - [`corpus`]: coverage-guided mutation of kept cases (ARCHITECTURE 8.5; FZ-14).
+//! - [`runtime`]: run-time literals, changes of a case from the values its refuted guards
+//!   compared, which the climb and the corpus draw (ARCHITECTURE 8.3; FZ-16).
 //! - `solve`: symbolic execution to a blocked rule and a model query (ARCHITECTURE 8.6; FZ-15),
 //!   in builds with the `z3` feature.
 
