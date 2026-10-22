@@ -48,6 +48,7 @@ fn by_profile<T>(no_z3: T, z3: T) -> T {
 const BACKEND_OPTIONS: BackendOptions = BackendOptions {
     smt_timeout_ms: 4000,
     smt_retry_limit: 2,
+    smt_resource_limit: None,
 };
 
 fn backend(kore: &str, module: &str) -> Backend {

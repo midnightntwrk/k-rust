@@ -47,6 +47,17 @@ const CI_SEEDS: [u64; 5] = [1, 2, 3, 4, 5];
 #[cfg(feature = "z3")]
 const CI_BUDGET: u64 = 600;
 
+/// The cases to `c7` at [`CI_SEEDS`] with [`CI_BUDGET`]: isolated, with blind sampling, the
+/// dictionary, the climb and the solver; on the whole maze, with blind sampling and the solver.
+/// The solver's queries are clock-free (`identity.solve`'s unit budgets), so these are a
+/// function of the campaign and the Z3 version; they move whenever the solver's case sequence
+/// moves (its parameters, its trigger, the condition records it reads, the Z3 library), as
+/// `tests/golden.rs`'s solve fingerprint does.
+#[cfg(feature = "z3")]
+const PINNED_ISOLATED_C7: [Option<u64>; 5] = [Some(32), Some(12), Some(17), Some(17), Some(57)];
+#[cfg(feature = "z3")]
+const PINNED_MAZE_C7: [Option<u64>; 5] = [Some(64), Some(65), Some(66), Some(79), Some(65)];
+
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
     let measure = &measure;
@@ -204,6 +215,28 @@ fn measure_solve_held_out() {
     measure(&pairs(), &MAZE_CELLS, &HELD_OUT_SEEDS, false);
 }
 
+/// The canonical report digest of the `c7` campaigns at [`CI_SEEDS`], isolated and on the whole
+/// maze, one line each: run in several processes at once (`--ignored --nocapture
+/// probe_solve_digests`), equal lines show the solver's case sequence independent of the load.
+#[cfg(feature = "z3")]
+#[test]
+#[ignore = "probe: run several copies at once and compare the printed digests"]
+fn probe_solve_digests() {
+    let c7 = maze::cell_named("c7");
+    for seed in CI_SEEDS {
+        let (_, isolated) =
+            maze::run_isolated(c7, &maze::blind_dictionary_climb_solve(), seed, CI_BUDGET);
+        let (_, whole) = maze::run_cell(c7, &maze::blind_solve(), seed, CI_BUDGET);
+        for (mode, report) in [("isolated", isolated), ("whole", whole)] {
+            println!(
+                "digest seed={seed} {mode} cases={} {}",
+                report.totals.cases,
+                k_rust_fuzz::report::digest_hex(report.to_canonical_json().as_bytes())
+            );
+        }
+    }
+}
+
 /// The CI form of the claim: at every CI seed, `c7` is reached with the solver, isolated and on
 /// the whole maze, and not without it at the same budget; and its queries on the unreachable
 /// `u2` and `u4` find no path and no model.
@@ -226,14 +259,14 @@ fn the_solver_reaches_the_nonlinear_cell_and_no_unreachable_one() {
             .0
             .cases_to_hit
     });
-    // The cases are not pinned: the run toward `c7` meets feasibility queries the solver
-    // leaves undecided within the case options' timeout, and its model query is decided within
-    // its own timeout, so the cases rest on the clock (`totals.solve.outside-determinism`). A
-    // query whose answer was unknown is asked again (`SolveParameters::max_asks`). Seeds 1-5
-    // measured 32, 12, 17, 17, 57 (isolated) and 64, 65, 66, 79, 65 (whole maze).
     assert!(isolated.iter().all(Option::is_some), "{isolated:?}");
     assert!(whole.iter().all(Option::is_some), "{whole:?}");
     assert!(without.iter().all(Option::is_none), "{without:?}");
+    assert_eq!(
+        (isolated, whole),
+        (PINNED_ISOLATED_C7.to_vec(), PINNED_MAZE_C7.to_vec()),
+        "the solver's case sequence moved; re-pin"
+    );
     // `u2`'s isolation leaves `D` free: a query on `c4`, its keyed predecessor, gives a
     // candidate in `c4`'s window, and the query on `u2` itself then finds no path that applies
     // it under `c4`'s guard. `u4`'s query finds no model of `C * C == 2`.

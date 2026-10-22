@@ -46,6 +46,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use std::num::NonZeroU32;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::CStr,
@@ -145,10 +146,22 @@ fn load(solver: &Solver, script: &str) -> Result<(), RejectedScript> {
     Err(RejectedScript { message })
 }
 
+/// How long each Z3 check of a query may run, and how often an unknown answer is retried.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Z3Options {
+    /// The first attempt's wall-clock timeout, doubled on each retry; unused under
+    /// [`Self::resource_limit`].
     pub timeout_ms: u32,
+    /// The retries of an unknown answer.
     pub retry_limit: u32,
+    /// The clock-free mode: when set, each attempt is bounded by this many Z3 resource units
+    /// (`rlimit`), doubled on each retry, and by no wall-clock timeout. Z3 counts these units in
+    /// its own search, so an attempt's answer (sat, unsat or unknown) does not depend on the
+    /// machine's speed or load: it is a function of the query, the Z3 version and the solver
+    /// work done before it on the same thread (Z3's context is per thread). `None` (the default)
+    /// bounds attempts by [`Self::timeout_ms`], with a resource limit only as a backstop
+    /// ([`RESOURCE_UNITS_PER_MS`]).
+    pub resource_limit: Option<NonZeroU32>,
 }
 
 impl Default for Z3Options {
@@ -156,8 +169,16 @@ impl Default for Z3Options {
         Self {
             timeout_ms: 125,
             retry_limit: 3,
+            resource_limit: None,
         }
     }
+}
+
+/// The version of the Z3 library this build links, as Z3 reports it (`Z3_get_full_version`):
+/// the resource units of [`Z3Options::resource_limit`] are counted by this version's search.
+#[must_use]
+pub fn z3_version() -> &'static str {
+    z3::full_version()
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +200,10 @@ pub struct Z3Solver {
     /// cancellation Z3 has lost (see `RESOURCE_UNITS_PER_MS`).
     #[cfg(test)]
     without_clock: bool,
+    /// Every attempt's parameters, in order: its wall-clock timeout (`None`: no clock) and its
+    /// resource limit.
+    #[cfg(test)]
+    attempt_limits: Arc<Mutex<Vec<(Option<u32>, u32)>>>,
 }
 
 /// Z3 resource-limit units granted to an attempt per millisecond of its timeout.
@@ -316,6 +341,8 @@ impl Z3Solver {
             attempt_timeouts: Arc::new(Mutex::new(Vec::new())),
             #[cfg(test)]
             without_clock: false,
+            #[cfg(test)]
+            attempt_limits: Arc::new(Mutex::new(Vec::new())),
         };
         Ok(solver)
     }
@@ -336,18 +363,43 @@ impl Z3Solver {
         self
     }
 
-    /// The parameters of one attempt with the given timeout: the timeout and its resource limit.
-    fn attempt_parameters(&self, timeout: u32) -> Params {
+    /// The parameters of the attempt numbered `attempt` (0 first) with the given timeout: the
+    /// timeout and its resource limit, or under [`Z3Options::resource_limit`] that limit doubled
+    /// per retry and no timeout.
+    fn attempt_parameters(&self, timeout: u32, attempt: u32) -> Params {
         let mut parameters = Params::new();
-        parameters.set_u32("rlimit", resource_limit(timeout));
-        #[cfg(test)]
-        let clocked = !self.without_clock;
-        #[cfg(not(test))]
-        let clocked = true;
-        if clocked {
+        let (clock, units) = match self.options.resource_limit {
+            Some(units) => {
+                let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
+                (None, units.get().saturating_mul(scale))
+            }
+            None => {
+                #[cfg(test)]
+                let clocked = !self.without_clock;
+                #[cfg(not(test))]
+                let clocked = true;
+                (clocked.then_some(timeout), resource_limit(timeout))
+            }
+        };
+        parameters.set_u32("rlimit", units);
+        if let Some(timeout) = clock {
             parameters.set_u32("timeout", timeout);
         }
+        #[cfg(test)]
+        self.attempt_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push((clock, units));
         parameters
+    }
+
+    /// Every attempt's wall-clock timeout (`None`: no clock) and resource limit, in order.
+    #[cfg(test)]
+    pub(crate) fn attempt_limits(&self) -> Vec<(Option<u32>, u32)> {
+        self.attempt_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// The timeouts of the Z3 checks run so far, in order, one per attempt.
@@ -513,7 +565,7 @@ impl Z3Solver {
         for attempt in 0..=self.options.retry_limit {
             stop::check()?;
             let solver = Solver::new();
-            solver.set_params(&self.attempt_parameters(timeout));
+            solver.set_params(&self.attempt_parameters(timeout, attempt));
             #[cfg(test)]
             self.record_attempt(timeout);
             if let Err(rejected) = load(&solver, script) {
@@ -571,7 +623,7 @@ impl Z3Solver {
             stop::check()?;
             measure::bump(Counter::SmtSolverRuns);
             let solver = Solver::new();
-            solver.set_params(&self.attempt_parameters(timeout));
+            solver.set_params(&self.attempt_parameters(timeout, attempt));
             #[cfg(test)]
             self.record_attempt(timeout);
             if let Err(rejected) = load(&solver, query.base()) {

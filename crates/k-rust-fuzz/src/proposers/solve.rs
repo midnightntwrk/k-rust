@@ -15,17 +15,26 @@
 //! The proposer watches every case (`Proposer::observe_all`). It keeps the best score any case
 //! reached (`crate::score`) and counts the cases since the score last improved; a run of
 //! [`SOLVE_STALL_CASES`] cases without a better score is a stall (when the climb runs, a stall
-//! of the climb). It also keeps the blocked case nearest the target: a `miss` that entered and
-//! refuted the `requires` of a rule on the target's keyed chain, the target itself, its direct
-//! predecessors whose right-hand side keys the head of `<k>`, theirs, and so on up to
-//! [`SOLVE_CHAIN_RADIUS`](crate::report::SOLVE_CHAIN_RADIUS) edges (`crate::score::RuleScorer::with_chain`, `RuleScorer::blocked`;
-//! where a rule has no keyed predecessor, all its predecessors), ranked by the rule's distance
-//! to the target, then by the entry's guard distance. The cases of a solving campaign record
-//! the condition entries of every chain rule. When the search stalls and the blocked case gives
-//! a query not settled before ([`Query::key`]), the proposer is ready, and the schedule draws it
-//! by its weight within its share of the budget. A candidate that passes a chain rule's guard
-//! moves the blocked case one rule nearer the target, so on a corridor of guards the proposer
-//! solves them one by one.
+//! of the climb). A *blocked case* is a `miss` that entered and refuted the `requires` of a rule
+//! on the target's keyed chain: the target itself, its direct predecessors whose right-hand side
+//! keys the head of `<k>`, theirs, and so on up to
+//! [`SOLVE_CHAIN_RADIUS`](crate::report::SOLVE_CHAIN_RADIUS) edges (where a rule has no keyed
+//! predecessor, all its predecessors; `crate::score::RuleScorer::with_chain`). A case's blocked
+//! rule is its refuted chain entry of least (chain distance, guard distance)
+//! (`RuleScorer::blocked`), and the cases of a solving campaign record the condition entries of
+//! every chain rule.
+//!
+//! Every blocked case gives a query ([`Query::key`]: the rule, the symbolic holes, the other
+//! holes' values). The proposer keeps the unsettled queries, one per key, each with the rank of
+//! the best blocked case that asks it, at most [`SOLVE_PENDING_LIMIT`] (dropping the
+//! worst-ranked). On a stall it is ready with the pending query of least rank (the first
+//! observed of equal ones), and the schedule draws it by its weight within its share of the
+//! budget. An asked query is settled, whatever it answered, and leaves the pending set, so a
+//! query that found no candidate (no path, no model, a candidate that missed) gives way to the
+//! next one at the next draw, with the stall still running. Only a run a stop ended (a
+//! cancellation, the per-case safety limit) leaves its query pending. A candidate that passes a
+//! chain rule's guard gives a blocked case one rule nearer the target, so on a corridor of guards
+//! the proposer solves them one by one.
 //!
 //! # Which holes are symbolic
 //!
@@ -57,12 +66,15 @@
 //! `cancelled` leaf) carries the path condition and the rule's condition in its constraint. For
 //! each such leaf, up to [`SOLVE_MAX_MODEL_QUERIES`], `Backend::get_model` asks for a model of
 //! its constraint; the first satisfiable one gives the symbolic holes' values
-//! ([`model_values`]), and a hole the model leaves free keeps its value. The run's decisions use
-//! the case options' solver options (`smt-timeout-ms`, `smt-retry-limit`); the model queries run
-//! on a second fresh backend whose timeout is at least [`SOLVE_MODEL_TIMEOUT_MS`], since a model
-//! of a nonlinear guard is the work the proposer exists for (Z3 factors `c7`'s `2021027` in
-//! about 1.4 s). A query whose answer was unknown, or that a stop ended, may be asked again on a
-//! later stall, up to [`SOLVE_MAX_ASKS`] times; a decided query is never asked again.
+//! ([`model_values`]), and a hole the model leaves free keeps its value (a model that gives no
+//! symbolic hole a value is a failed run, not the blocked case again).
+//!
+//! Both backends use the clock-free solver mode (`BackendOptions::smt_resource_limit`, no
+//! retry): each decision of the run gets [`SOLVE_RUN_RESOURCE_UNITS`] Z3 resource units, and an
+//! undecided one leaves both sides open, as the backend does for any undecided answer; each
+//! model query gets [`SOLVE_MODEL_RESOURCE_UNITS`], and an undecided one gives no candidate.
+//! Z3 counts the units in its own search, so these answers do not depend on the machine's speed
+//! or load (the budgets and the Z3 version are in `identity.solve`).
 //!
 //! # Candidates
 //!
@@ -85,17 +97,20 @@
 //!
 //! # Determinism
 //!
-//! Each query runs on a thread of its own with a backend of its own, so no solver state is
+//! Each query runs on a thread of its own with backends of its own, so no solver state is
 //! shared with the cases, with the confirmations or with earlier queries: Z3's context is per
 //! thread in this build (finding Z3-THREAD-CONTEXT), and the backend's cache of decided answers
-//! is per backend. A query's answer is then a function of the query, except where the solver
-//! answers `unknown` (a timeout or its incompleteness): such a run gives no candidate, and since
-//! its occurrence can depend on the clock, it is counted outside the determinism contract
-//! (`SolveTotals::outside_determinism`), as are runs with a stack stop and runs a cancellation or
-//! the per-case safety limit stopped.
+//! is per backend. With the clock-free budgets every answer of a query, `unknown` included, is
+//! then a function of the query, the budgets and the Z3 version, so a solving campaign's report
+//! is a function of the same inputs as any campaign's plus the Z3 version (ARCHITECTURE 5.4).
+//! What stays outside: a run with a stack stop, and one a cancellation or the per-case safety
+//! limit stopped (`SolveTotals::outside_determinism`); and the cases themselves, which run
+//! under the case options' clocked solver as in every campaign, with their own `smtUnknowns`
+//! exclusion.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    num::NonZeroU32,
     thread,
     time::{Duration, Instant},
 };
@@ -120,7 +135,8 @@ use crate::{
         proposer::{Observation, Origin, Proposal, ProposalContext, Proposer},
     },
     report::{
-        SOLVE_BUDGET_SHARE, SOLVE_MAX_ASKS, SOLVE_MAX_MODEL_QUERIES, SOLVE_MODEL_TIMEOUT_MS,
+        SOLVE_BUDGET_SHARE, SOLVE_MAX_MODEL_QUERIES, SOLVE_MODEL_RESOURCE_UNITS,
+        SOLVE_MODEL_RETRIES, SOLVE_PENDING_LIMIT, SOLVE_RUN_RESOURCE_UNITS, SOLVE_RUN_RETRIES,
         SOLVE_STALL_CASES, SOLVE_WORK_FACTOR, SOLVE_WORK_SLACK, SolveTotals, Totals,
     },
     score::Score,
@@ -146,8 +162,11 @@ pub(crate) enum Symbolic {
 }
 
 impl Symbolic {
+    /// The symbolic sort of a hole of `sort`: `Int` and `Bool` themselves. A sort hooked to them
+    /// under another name (`ValueSort::Renamed`) has its domain values at its own KORE sort,
+    /// where a `SortInt` variable would be ill-sorted, so it is not made symbolic.
     fn of(sort: &ValueSort) -> Option<Self> {
-        match sort.generated() {
+        match sort {
             ValueSort::Int => Some(Self::Int),
             ValueSort::Bool => Some(Self::Bool),
             _ => None,
@@ -278,6 +297,21 @@ fn domain_value(pattern: &KorePattern) -> Option<Value> {
     }
 }
 
+/// The candidate `model` gives `query`: its values with each symbolic hole the model binds set
+/// to the model's value (a symbolic hole it leaves free keeps its value); `None` when the model
+/// binds no symbolic hole, which would only give the blocked case back.
+fn apply_model(query: &Query, model: &BTreeMap<usize, Value>) -> Option<Vec<Value>> {
+    let mut values = query.values.clone();
+    let mut bound = false;
+    for &hole in &query.symbolic {
+        if let Some(value) = model.get(&hole) {
+            values[hole] = value.clone();
+            bound = true;
+        }
+    }
+    bound.then_some(values)
+}
+
 /// The KORE text of `value`, of a symbolic sort.
 fn literal(value: &Value) -> Option<String> {
     match value {
@@ -365,14 +399,16 @@ impl Query {
     }
 }
 
-/// The blocked case nearest the target so far.
+/// The key of a query ([`Query::key`]).
+type Key = (String, Vec<usize>, Vec<Value>);
+
+/// An unsettled query and the rank of the blocked case it came from (smaller is nearer the
+/// target), with the observation order that breaks ties.
 #[derive(Clone, Debug)]
-struct Incumbent {
-    blocked: crate::score::Blocked,
-    rule: String,
-    values: Vec<Value>,
-    read: Vec<Value>,
-    work: u64,
+struct Pending {
+    rank: (u64, crate::score::Guard),
+    order: u64,
+    query: Query,
 }
 
 /// How a symbolic run ended.
@@ -459,8 +495,8 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
         Ok(result) => result,
         Err(error) => return failed(error.to_string(), error.stop_cause().is_some()),
     };
-    let mut outside_determinism = result.smt_unknowns > 0
-        || result.stack_stops > 0
+    // Unknown answers of the clock-free solver are a function of the query, so they do not count.
+    let outside_determinism = result.stack_stops > 0
         || result.leaves.iter().any(|leaf| {
             matches!(
                 leaf.reason,
@@ -481,21 +517,19 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
             outside_determinism,
         };
     }
-    // A model query is the solver's real work, so it gets a backend of its own with a longer
-    // timeout than the run's decisions ([`SOLVE_MODEL_TIMEOUT_MS`]).
+    // A model query is the solver's real work, so it gets a backend of its own with a larger
+    // unit budget than the run's decisions ([`SOLVE_MODEL_RESOURCE_UNITS`]).
     let mut backend = match input.source.backend(input.model_options) {
         Ok(backend) => backend,
         Err(message) => return failed(message, false),
     };
     let mut unknown = false;
+    let mut undecodable = false;
     for leaf in arrived {
         work += 1;
         let Ok(state) = codec::from_value(&leaf.state) else {
-            return Outcome {
-                answer: Answer::Failed("a leaf's state does not decode as KORE".into()),
-                work,
-                outside_determinism,
-            };
+            undecodable = true;
+            continue;
         };
         let model = match backend.get_model(PatternRequest::new(state)) {
             Ok(model) => model,
@@ -525,10 +559,11 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
             _ => unknown = true,
         }
     }
-    outside_determinism |= unknown;
     Outcome {
         answer: if unknown {
             Answer::Unknown
+        } else if undecodable {
+            Answer::Failed("a leaf's state does not decode as KORE".into())
         } else {
             Answer::Unsatisfiable
         },
@@ -606,13 +641,20 @@ pub(crate) struct SolveProposer {
     /// The best score of any case so far, and the cases observed since it last improved.
     best: Option<Score>,
     stalled: u64,
-    incumbent: Option<Incumbent>,
-    /// The keys of the queries asked ([`Query::key`]), with the times each was asked; a query
-    /// is asked again only after an undecided answer, up to [`SOLVE_MAX_ASKS`] times.
-    asked: BTreeMap<(String, Vec<usize>, Vec<Value>), u32>,
+    /// The unsettled queries, one per key, each from the best-ranked blocked case that asks it,
+    /// at most [`SOLVE_PENDING_LIMIT`] (module documentation, "When it runs").
+    pending: BTreeMap<Key, Pending>,
     /// The keys of the queries whose answer was decided.
-    settled: BTreeSet<(String, Vec<usize>, Vec<Value>)>,
+    settled: BTreeSet<Key>,
+    /// The observed cases, which orders the pending queries of equal rank.
+    observed: u64,
     ready: Option<Query>,
+    /// The unit budgets of a run's decisions and of a model query ([`SOLVE_RUN_RESOURCE_UNITS`],
+    /// [`SOLVE_MODEL_RESOURCE_UNITS`]); fields so that the measurements can vary them.
+    run_units: u32,
+    model_units: u32,
+    run_retries: u32,
+    model_retries: u32,
     extra_work: u64,
     totals: SolveTotals,
 }
@@ -647,34 +689,69 @@ impl SolveProposer {
             cancel,
             best: None,
             stalled: 0,
-            incumbent: None,
-            asked: BTreeMap::new(),
+            pending: BTreeMap::new(),
             settled: BTreeSet::new(),
+            observed: 0,
             ready: None,
+            run_units: SOLVE_RUN_RESOURCE_UNITS,
+            model_units: SOLVE_MODEL_RESOURCE_UNITS,
+            run_retries: SOLVE_RUN_RETRIES,
+            model_retries: SOLVE_MODEL_RETRIES,
             extra_work: 0,
             totals: SolveTotals::default(),
         }
     }
 
-    /// The query the incumbent asks, when the search stalls and it was not asked before.
+    /// The query to ask when the search stalls: the pending query of least rank, the first
+    /// observed of equal ones.
     fn next_query(&self) -> Option<Query> {
         if self.stalled < SOLVE_STALL_CASES {
             return None;
         }
-        let incumbent = self.incumbent.as_ref()?;
-        let symbolic = symbolic_holes(&self.holes, &incumbent.values, &incumbent.read);
+        self.pending
+            .values()
+            .min_by(|a, b| (&a.rank, a.order).cmp(&(&b.rank, b.order)))
+            .map(|pending| pending.query.clone())
+    }
+
+    /// Keep the query a blocked case asks, unless it is settled; a key already pending keeps the
+    /// better-ranked case. Beyond [`SOLVE_PENDING_LIMIT`] keys the worst-ranked (the last
+    /// observed of equal ones) is dropped.
+    fn keep(&mut self, blocked: &crate::score::Blocked, values: &[Value], work: u64) {
+        let symbolic = symbolic_holes(&self.holes, values, &blocked.values);
         if symbolic.is_empty() {
-            return None;
+            return;
         }
         let query = Query {
-            rule: incumbent.rule.clone(),
-            values: incumbent.values.clone(),
+            rule: blocked.rule.clone(),
+            values: values.to_vec(),
             symbolic,
-            work: incumbent.work,
+            work,
         };
         let key = query.key();
-        let asked = self.asked.get(&key).copied().unwrap_or(0);
-        (!self.settled.contains(&key) && asked < SOLVE_MAX_ASKS).then_some(query)
+        if self.settled.contains(&key) {
+            return;
+        }
+        let rank = (blocked.distance, blocked.guard.clone());
+        let order = self.observed;
+        match self.pending.get_mut(&key) {
+            Some(pending) if rank < pending.rank => {
+                *pending = Pending { rank, order, query };
+            }
+            Some(_) => {}
+            None => {
+                self.pending.insert(key, Pending { rank, order, query });
+            }
+        }
+        if u64::try_from(self.pending.len()).unwrap_or(u64::MAX) > SOLVE_PENDING_LIMIT
+            && let Some(worst) = self
+                .pending
+                .iter()
+                .max_by(|(_, a), (_, b)| (&a.rank, a.order).cmp(&(&b.rank, b.order)))
+                .map(|(key, _)| key.clone())
+        {
+            self.pending.remove(&worst);
+        }
     }
 
     /// The initial state of `query`: the blocked case's configuration with the symbolic holes'
@@ -721,11 +798,10 @@ impl SolveProposer {
     /// answer was decided (not an unknown solver answer or a stop, after which the query may be
     /// asked again).
     fn ask(&mut self, query: &Query) -> (Option<Vec<Value>>, bool) {
-        let settled = |answer: &Answer, outside: bool| match answer {
-            Answer::Unknown => false,
-            Answer::Failed(_) => !outside,
-            Answer::Model(_) | Answer::NoPath | Answer::Unsatisfiable => true,
-        };
+        // An answer is settled unless a stop (by the clock or a cancellation) ended the run: the
+        // clock-free solver answers the same query the same way again.
+        let settled =
+            |answer: &Answer, outside: bool| !(matches!(answer, Answer::Failed(_)) && outside);
         self.totals.attempts += 1;
         let state = match self.state(query) {
             Ok(state) => state,
@@ -752,14 +828,15 @@ impl SolveProposer {
             Some(definition) => BackendSource::Internalized(definition),
             None => BackendSource::Compiled(self.builder.definition()),
         };
-        let options = self.options.backend.options();
+        let clock_free = |units: u32, retries: u32| BackendOptions {
+            smt_retry_limit: retries,
+            smt_resource_limit: NonZeroU32::new(units),
+            ..self.options.backend.options()
+        };
         let input = RunInput {
             source,
-            options,
-            model_options: BackendOptions {
-                smt_timeout_ms: options.smt_timeout_ms.max(SOLVE_MODEL_TIMEOUT_MS),
-                ..options
-            },
+            options: clock_free(self.run_units, self.run_retries),
+            model_options: clock_free(self.model_units, self.model_retries),
             request,
         };
         let outcome = run_isolated(
@@ -776,29 +853,31 @@ impl SolveProposer {
         }
         let decided = settled(&outcome.answer, outcome.outside_determinism);
         let candidate = match outcome.answer {
-            Answer::Model(model) => {
-                let mut values = query.values.clone();
-                for (hole, value) in model {
-                    if query.symbolic.contains(&hole) {
-                        values[hole] = value;
-                    }
-                }
-                let admissible = query.symbolic.iter().all(|&hole| {
-                    values::admissible(
-                        &values[hole],
-                        &self.holes[hole].sort,
-                        &self.holes[hole].constraints,
-                        &self.bounds,
-                    )
-                });
-                if admissible {
-                    self.totals.candidates += 1;
-                    Some(values)
-                } else {
-                    self.totals.inadmissible += 1;
+            Answer::Model(model) => match apply_model(query, &model) {
+                None => {
+                    // A model that gives no symbolic hole a value would propose the blocked case
+                    // again.
+                    self.fail("the model gives no symbolic hole a value".into());
                     None
                 }
-            }
+                Some(values) => {
+                    let admissible = query.symbolic.iter().all(|&hole| {
+                        values::admissible(
+                            &values[hole],
+                            &self.holes[hole].sort,
+                            &self.holes[hole].constraints,
+                            &self.bounds,
+                        )
+                    });
+                    if admissible {
+                        self.totals.candidates += 1;
+                        Some(values)
+                    } else {
+                        self.totals.inadmissible += 1;
+                        None
+                    }
+                }
+            },
             Answer::NoPath => {
                 self.totals.no_path += 1;
                 None
@@ -848,9 +927,9 @@ impl Proposer for SolveProposer {
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
         let query = self.ready.take()?;
         let key = query.key();
-        *self.asked.entry(key.clone()).or_insert(0) += 1;
         let (values, decided) = self.ask(&query);
         if decided {
+            self.pending.remove(&key);
             self.settled.insert(key);
         }
         let values = values?;
@@ -870,20 +949,10 @@ impl Proposer for SolveProposer {
             }
             _ => self.stalled = self.stalled.saturating_add(1),
         }
-        if let Some(blocked) = &observation.blocked
-            && self
-                .incumbent
-                .as_ref()
-                .is_none_or(|incumbent| blocked.rank() < incumbent.blocked.rank())
-        {
-            self.incumbent = Some(Incumbent {
-                blocked: blocked.clone(),
-                rule: blocked.rule.clone(),
-                values: proposal.values.clone(),
-                read: blocked.values.clone(),
-                work: observation.work,
-            });
+        if let Some(blocked) = &observation.blocked {
+            self.keep(blocked, &proposal.values, observation.work);
         }
+        self.observed += 1;
         self.ready = self.next_query();
     }
 }

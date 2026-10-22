@@ -112,6 +112,7 @@ fn an_undecided_query_is_retried_with_doubled_timeouts_and_answers_unknown_uncac
         let options = Z3Options {
             timeout_ms: 1,
             retry_limit,
+            resource_limit: None,
         };
         let solver = Z3Solver::with_options(&definition, options).unwrap();
         for asked in 1..=2 {
@@ -148,6 +149,7 @@ fn an_attempt_the_clock_does_not_stop_ends_at_its_resource_limit() {
             Z3Options {
                 timeout_ms: 1,
                 retry_limit: 2,
+                resource_limit: None,
             },
         )
         .unwrap()
@@ -167,6 +169,57 @@ fn an_attempt_the_clock_does_not_stop_ends_at_its_resource_limit() {
     assert_eq!(timeouts, doubling(1, 2));
 }
 
+/// In the clock-free mode (`Z3Options::resource_limit`) no attempt carries Z3's timeout: each is
+/// bounded by its resource units alone, doubled on each retry, so an undecided query answers
+/// `Unknown` after the same work on any machine, and a decidable one is still decided (here a
+/// model of `X > 0` and `X·X > 3`, and the unsatisfiable `X > 0 ∧ 0 > X`).
+#[test]
+fn the_clock_free_mode_bounds_attempts_by_resource_units_alone() {
+    let definition = definition();
+    let options = Z3Options {
+        timeout_ms: 1,
+        retry_limit: 2,
+        resource_limit: std::num::NonZeroU32::new(50_000),
+    };
+    let solver = Z3Solver::with_options(&definition, options).unwrap();
+    let answer = solver.is_sat(&undecided(&definition), &Substitution::new());
+    assert!(
+        matches!(&answer, Ok(Ok(Satisfiability::Unknown(reason))) if !reason.is_empty()),
+        "{answer:?}"
+    );
+    assert_eq!(
+        solver.attempt_limits(),
+        vec![(None, 50_000), (None, 100_000), (None, 200_000)]
+    );
+    let positive = |text: &str| Predicate::Term(term(&definition, text));
+    let decided = Z3Solver::with_options(&definition, options).unwrap();
+    let model = decided.get_model(&ModelQuery::for_solver_tests(
+        &[
+            positive(r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#),
+            positive(r#"gtInt{}(mulInt{}(X:SortInt{}, X:SortInt{}), \dv{SortInt{}}("3"))"#),
+        ],
+        &Substitution::new(),
+    ));
+    assert!(matches!(&model, Ok(Ok(ModelResult::Sat(_)))), "{model:?}");
+    let refuted = decided.is_sat(
+        &[
+            positive(r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#),
+            positive(r#"gtInt{}(\dv{SortInt{}}("0"), X:SortInt{})"#),
+        ],
+        &Substitution::new(),
+    );
+    assert!(
+        matches!(&refuted, Ok(Ok(Satisfiability::Unsat))),
+        "{refuted:?}"
+    );
+    assert!(
+        decided
+            .attempt_limits()
+            .iter()
+            .all(|(clock, _)| clock.is_none())
+    );
+}
+
 /// A model query undecided by every attempt is retried like a satisfiability query and answers
 /// `ModelResult::Unknown`, not a model and not a failure.
 #[test]
@@ -178,6 +231,7 @@ fn an_undecided_model_query_is_retried_and_answers_unknown() {
         Z3Options {
             timeout_ms: 1,
             retry_limit: 2,
+            resource_limit: None,
         },
     )
     .unwrap();
@@ -203,6 +257,7 @@ fn an_undecided_prelude_is_a_failed_prelude_that_stops_every_later_query() {
     let options = Z3Options {
         timeout_ms: 1,
         retry_limit: 3,
+        resource_limit: None,
     };
     let solver =
         Z3Solver::with_options_and_prelude(&definition, options, Some(UNDECIDED_PRELUDE)).unwrap();
@@ -250,6 +305,7 @@ fn an_unsat_answer_under_an_undecided_prelude_stops_instead_of_answering() {
     let options = Z3Options {
         timeout_ms: 25,
         retry_limit: 1,
+        resource_limit: None,
     };
     let solver =
         Z3Solver::with_options_and_prelude(&definition, options, Some(UNDECIDED_PRELUDE)).unwrap();

@@ -70,6 +70,7 @@ const MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 const SOLVER_OPTIONS: BackendOptions = BackendOptions {
     smt_timeout_ms: 60_000,
     smt_retry_limit: 3,
+    smt_resource_limit: None,
 };
 
 /// The KORE of `source` and its configuration for `program` at sort `sort`.

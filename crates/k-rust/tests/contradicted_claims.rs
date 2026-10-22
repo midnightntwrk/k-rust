@@ -2324,6 +2324,7 @@ mod checks_off {
     const SOLVER_OPTIONS: BackendOptions = BackendOptions {
         smt_timeout_ms: 60_000,
         smt_retry_limit: 3,
+        smt_resource_limit: None,
     };
 
     /// The backend of `kore` with main module `main`, under [`SOLVER_OPTIONS`].

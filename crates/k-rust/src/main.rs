@@ -703,6 +703,7 @@ impl SmtArgs {
         Z3Options {
             timeout_ms: self.timeout.get(),
             retry_limit: self.retry_limit,
+            resource_limit: None,
         }
     }
 }
@@ -2748,6 +2749,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                 BackendOptions {
                     smt_timeout_ms: options.smt.timeout_ms,
                     smt_retry_limit: options.smt.retry_limit,
+                    smt_resource_limit: None,
                 },
             )?;
             let output = backend.run_cli(
@@ -2894,6 +2896,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
     let backend_options = BackendOptions {
         smt_timeout_ms: options.smt.options().timeout_ms,
         smt_retry_limit: options.smt.options().retry_limit,
+        smt_resource_limit: None,
     };
     let mut backend = Backend::from_definition(definition, construction_module, backend_options)?;
     for path in &options.added_modules {
@@ -2981,6 +2984,7 @@ fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.timeout.get(),
             smt_retry_limit: options.smt.retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     rpc::serve(backend, (options.host.as_str(), options.port))
@@ -3003,6 +3007,7 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.options().timeout_ms,
             smt_retry_limit: options.smt.options().retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
@@ -3027,6 +3032,7 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.options().timeout_ms,
             smt_retry_limit: options.smt.options().retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
@@ -3103,6 +3109,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.options().timeout_ms,
             smt_retry_limit: options.smt.options().retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
@@ -3726,6 +3733,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.timeout_ms,
             smt_retry_limit: options.smt.retry_limit,
+            smt_resource_limit: None,
         },
         smt_prelude,
     )
@@ -5971,6 +5979,7 @@ mod tests {
             Z3Options {
                 timeout_ms: 1,
                 retry_limit: 5,
+                resource_limit: None,
             }
         );
     }

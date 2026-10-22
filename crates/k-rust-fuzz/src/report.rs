@@ -209,11 +209,23 @@ pub struct SolveParameters {
     pub work_slack: u64,
     /// The most model queries per symbolic run, one per leaf whose path applied the blocked rule.
     pub max_model_queries: u32,
-    /// The least SMT timeout of a model query, in milliseconds; the case options' timeout when
-    /// it is longer. The run's own decisions use the case options' timeout.
-    pub model_timeout_ms: u32,
-    /// The most times one query is asked: again only after an unknown solver answer or a stop.
-    pub max_asks: u32,
+    /// The Z3 resource units (`BackendOptions::smt_resource_limit`, the clock-free mode, no
+    /// retry) of each solver decision of a symbolic run: a decision Z3 has not made within them
+    /// is undecided, and the run keeps both sides as the backend does for any undecided answer.
+    pub run_resource_units: u32,
+    /// The retries of an undecided decision of a run, each with twice the units.
+    pub run_retries: u32,
+    /// The Z3 resource units of each model query (clock-free, no retry): a query not decided
+    /// within them answers unknown, which gives no candidate.
+    pub model_resource_units: u32,
+    /// The retries of an undecided model query, each with twice the units.
+    pub model_retries: u32,
+    /// The Z3 library whose search counts those units (`k_rust::backend::z3_version`): a
+    /// different version may decide a query within other units.
+    pub z3_version: String,
+    /// The most unsettled queries kept, one per query key: the best-ranked blocked case of each;
+    /// beyond it the worst-ranked is dropped.
+    pub pending_limit: u64,
     /// The hole sorts that are made symbolic: `Int` and `Bool`, which translate exactly to SMT.
     pub symbolic_sorts: Vec<String>,
     /// Which rules' condition entries the cases record: `target-and-keyed-chain`, the target,
@@ -235,8 +247,12 @@ impl SolveParameters {
             work_factor: SOLVE_WORK_FACTOR,
             work_slack: SOLVE_WORK_SLACK,
             max_model_queries: SOLVE_MAX_MODEL_QUERIES,
-            model_timeout_ms: SOLVE_MODEL_TIMEOUT_MS,
-            max_asks: SOLVE_MAX_ASKS,
+            run_resource_units: SOLVE_RUN_RESOURCE_UNITS,
+            run_retries: SOLVE_RUN_RETRIES,
+            model_resource_units: SOLVE_MODEL_RESOURCE_UNITS,
+            model_retries: SOLVE_MODEL_RETRIES,
+            z3_version: k_rust::backend::z3_version().unwrap_or("none").to_owned(),
+            pending_limit: SOLVE_PENDING_LIMIT,
             symbolic_sorts: vec!["Int".into(), "Bool".into()],
             condition_rules: "target-and-keyed-chain".into(),
             chain_radius: SOLVE_CHAIN_RADIUS,
@@ -252,10 +268,16 @@ pub(crate) const SOLVE_STALL_CASES: u64 = 8;
 pub(crate) const SOLVE_WORK_FACTOR: u64 = 4;
 /// [`SolveParameters::work_slack`].
 pub(crate) const SOLVE_WORK_SLACK: u64 = 64;
-/// [`SolveParameters::model_timeout_ms`].
-pub(crate) const SOLVE_MODEL_TIMEOUT_MS: u32 = 1000;
-/// [`SolveParameters::max_asks`].
-pub(crate) const SOLVE_MAX_ASKS: u32 = 3;
+/// [`SolveParameters::run_resource_units`].
+pub(crate) const SOLVE_RUN_RESOURCE_UNITS: u32 = 250_000;
+/// [`SolveParameters::run_retries`].
+pub(crate) const SOLVE_RUN_RETRIES: u32 = 2;
+/// [`SolveParameters::model_retries`].
+pub(crate) const SOLVE_MODEL_RETRIES: u32 = 2;
+/// [`SolveParameters::model_resource_units`].
+pub(crate) const SOLVE_MODEL_RESOURCE_UNITS: u32 = 2_000_000;
+/// [`SolveParameters::pending_limit`].
+pub(crate) const SOLVE_PENDING_LIMIT: u64 = 64;
 /// [`SolveParameters::chain_radius`].
 pub(crate) const SOLVE_CHAIN_RADIUS: u64 = 8;
 /// [`SolveParameters::max_model_queries`].
@@ -283,9 +305,11 @@ pub struct SolveTotals {
     /// The work of the symbolic runs (states visited) and their model queries (1 each), which
     /// [`Totals::work`] includes.
     pub work: u64,
-    /// Runs outside the determinism contract (ARCHITECTURE 5.4): an unknown solver answer, a
-    /// stack stop or a stop by the clock or a cancellation, whose occurrence decides whether the
-    /// run gives a candidate, so the case sequence after it may differ in a re-run.
+    /// Runs outside the determinism contract (ARCHITECTURE 5.4): a stack stop, or a stop by the
+    /// per-case safety limit or a cancellation, whose occurrence decides whether the run gives a
+    /// candidate, so the case sequence after it may differ in a re-run. Unknown solver answers
+    /// do not count: the proposer's solver is clock-free, so they are a function of the query
+    /// and the Z3 version.
     pub outside_determinism: u64,
     /// The message of the first failed run, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]

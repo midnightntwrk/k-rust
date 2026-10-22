@@ -291,7 +291,14 @@ fn a_query_conjoins_the_holes_declared_constraints() {
             .0,
         None
     );
-    assert_eq!(solve.totals.candidates, 0, "{:?}", solve.totals);
+    // No branch applies `c7` under `H <= 1000`: the run finds no path (no candidate either way;
+    // the clock-free solver makes the answer the same on every run).
+    assert_eq!(
+        (solve.totals.no_path, solve.totals.candidates),
+        (1, 0),
+        "{:?}",
+        solve.totals
+    );
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(1009, 1009));
     assert_eq!(
         solve
@@ -301,7 +308,8 @@ fn a_query_conjoins_the_holes_declared_constraints() {
     );
 }
 
-/// The negative controls give no candidate: `u4`'s `C * C == 2` has no integer solution, and
+/// The negative controls give no candidate, deterministically: `u4`'s `C * C == 2` has no
+/// integer solution, and
 /// `u2`'s `D < 50` contradicts `c4`'s `1000 < D < 1100` on the path to its room.
 #[test]
 fn a_query_finds_no_candidate_for_the_unreachable_cells() {
@@ -312,7 +320,13 @@ fn a_query_finds_no_candidate_for_the_unreachable_cells() {
             .0,
         None
     );
-    assert_eq!(solve.totals.candidates, 0, "{:?}", solve.totals);
+    // No path applies `u4` (`C * C == 2`) within the run's budget.
+    assert_eq!(
+        (solve.totals.no_path, solve.totals.candidates),
+        (1, 0),
+        "{:?}",
+        solve.totals
+    );
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u2"), Constraints::default());
     assert_eq!(
         solve
@@ -323,9 +337,10 @@ fn a_query_finds_no_candidate_for_the_unreachable_cells() {
     assert_eq!(solve.totals.no_path, 1, "{:?}", solve.totals);
 }
 
-/// The proposer is ready only after a stall on a blocked case, and asks each query once.
+/// The proposer is ready only after a stall on a blocked case, asks each query once, and moves
+/// on to the next pending query when the best one is settled.
 #[test]
-fn the_proposer_asks_after_a_stall_and_never_twice() {
+fn the_proposer_asks_after_a_stall_never_twice_and_moves_on() {
     use crate::{
         exec::OutcomeClass,
         score::{Blocked, Distance, Guard, Level},
@@ -373,22 +388,70 @@ fn the_proposer_asks_after_a_stall_and_never_twice() {
     // The same blocked case asks the same question: not again.
     solve.observe_all(&proposal, &unscored);
     assert!(!solve.ready());
-    // Another value of a concrete hole asks another.
+    // A worse-ranked blocked case with another value of a concrete hole asks another query, at
+    // once while the stall runs: a settled query does not silence the proposer.
     let other = Proposal::plain(Origin::Explicit, values((2, 7, 1050), 8, 9));
+    let worse = Observation {
+        score: Some(Score {
+            level: Level::At(0),
+            guard: Guard::Defined(Distance::normalized(6u32.into())),
+        }),
+        blocked: Some(Blocked {
+            guard: Guard::Defined(Distance::normalized(6u32.into())),
+            ..blocked.blocked.clone().expect("blocked")
+        }),
+        ..blocked.clone()
+    };
+    solve.observe_all(&other, &worse);
+    assert!(solve.ready());
+    assert_eq!(
+        solve.ready.as_ref().map(|query| query.values.clone()),
+        Some(values((2, 7, 1050), 8, 9))
+    );
+    // A better score restarts the stall.
     let better = Observation {
         score: Some(Score {
             level: Level::At(0),
             guard: Guard::Defined(Distance::normalized(4u32.into())),
         }),
-        blocked: Some(Blocked {
-            guard: Guard::Defined(Distance::normalized(4u32.into())),
-            ..blocked.blocked.clone().expect("blocked")
-        }),
-        ..blocked.clone()
+        ..worse.clone()
     };
     solve.observe_all(&other, &better);
+    assert!(!solve.ready());
     for _ in 0..SOLVE_STALL_CASES {
         solve.observe_all(&proposal, &unscored);
     }
     assert!(solve.ready());
+}
+
+/// A model that binds no symbolic hole gives no candidate (it would only give the blocked case
+/// back); one that binds some keeps the free ones' values.
+#[test]
+fn a_model_that_binds_no_symbolic_hole_gives_no_candidate() {
+    let query = Query {
+        rule: "r".into(),
+        values: values((1, 7, 1050), 8, 9),
+        symbolic: vec![3, 4],
+        work: 9,
+    };
+    assert_eq!(apply_model(&query, &BTreeMap::new()), None);
+    // A binding of a hole that is not symbolic is no binding.
+    assert_eq!(apply_model(&query, &BTreeMap::from([(0, int(5))])), None);
+    assert_eq!(
+        apply_model(&query, &BTreeMap::from([(4, int(2003))])),
+        Some(values((1, 7, 1050), 8, 2003))
+    );
+}
+
+/// A sort hooked to `INT.Int` under its own name keeps its domain values at its own KORE sort,
+/// so a hole of it is never given a `SortInt` variable.
+#[test]
+fn a_renamed_int_sort_is_not_symbolic() {
+    let renamed = free(ValueSort::Renamed {
+        sort: "MyInt".into(),
+        kore_sort: "SortMyInt".into(),
+        base: Box::new(ValueSort::Int),
+    });
+    assert_eq!(renamed.symbolic(), None);
+    assert!(symbolic_holes(&[renamed], &[int(8)], &[int(8)]).is_empty());
 }
