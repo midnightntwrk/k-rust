@@ -637,11 +637,19 @@ fixture!(
     &[program!("guard/zero.pgm"), program!("guard/one.pgm")]
 );
 
+// The list-shaped stall benchmark (FZ-14); `tests/data/lock/harness.rs` holds its cells.
+fixture!(
+    LOCK,
+    "lock/lock.k",
+    "LOCK",
+    &[program!("lock/open.pgm", "KEYS" = "lock/open.keys")]
+);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 32] = [
+pub static ALL: [&Fixture; 33] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -674,4 +682,5 @@ pub static ALL: [&Fixture; 32] = [
     &MAZE,
     &DICT,
     &GUARD,
+    &LOCK,
 ];
