@@ -952,13 +952,19 @@ fn lookup_maybe_ty_unknown(
     k::term![MirTypeInfo::VoidType()]
 }
 
-#[k::function(total, sort = MetadataSize, syntax = "#metadataSizeOf({info})")]
+#[k::function(
+    total,
+    underspecified = "a trait object's pointer metadata is a vtable, which no MetadataSize describes",
+    sort = MetadataSize,
+    syntax = "#metadataSizeOf({info})"
+)]
 pub struct MetadataSizeOf {
     pub info: k::Term<TypeInfo>,
 }
 
 #[k::function(
     total,
+    underspecified = "every application starts at index 0 or 8 and each step adds 1, so the index is never negative",
     sort = Int,
     syntax = "#readTyConstInt({bytes}, {index}, {multiplier}, {result})"
 )]
@@ -3080,71 +3086,29 @@ fn metadata_size_of_void(
     k::term![MirMetadataSize::NoMetadataSize()]
 }
 
-#[k::function(total, sort = Bool, syntax = "#zeroSizedType({info})")]
-pub struct ZeroSizedType {
-    pub info: k::Term<TypeInfo>,
-}
-
-#[k::equation(priority = 40)]
-fn zero_sized_type_void(
-    k::term![ZeroSizedType {
-        info: MirTypeInfo::VoidType(),
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![true]
-}
-
+/// Enums, unions, tuples, and function items are sized, so a pointer to one
+/// carries no size metadata, as for the structs above.
 #[k::equation]
-fn zero_sized_type_primitive(
-    k::term![ZeroSizedType {
-        info: MirTypeInfo::PrimitiveType { primitive: _ },
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![false]
-}
-
-#[k::equation]
-fn zero_sized_type_array(
-    k::term![ZeroSizedType {
-        info: MirTypeInfo::ArrayType {
-            element: _,
-            size: _,
-        },
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![false]
-}
-
-#[k::equation]
-fn zero_sized_type_pointer(
-    k::term![ZeroSizedType {
-        info: MirTypeInfo::PointerType { pointee: _ },
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![false]
-}
-
-#[k::equation]
-fn zero_sized_type_reference(
-    k::term![ZeroSizedType {
-        info: MirTypeInfo::ReferenceType { pointee: _ },
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![false]
-}
-
-#[k::equation]
-fn zero_sized_type_struct(
-    k::term![ZeroSizedType {
-        info: MirTypeInfo::StructType {
+fn metadata_size_of_sized(
+    k::term![MetadataSizeOf {
+        info: MirTypeInfo::EnumType {
+            name: _,
+            adt_def: _,
+            discriminants: _,
+            fields: _,
+            layout: _,
+        } | MirTypeInfo::UnionType {
             name: _,
             adt_def: _,
             fields: _,
             layout: _,
-        },
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![false]
+        } | MirTypeInfo::TupleType {
+            fields: _,
+            layout: _
+        } | MirTypeInfo::FunType { name: _ },
+    }]: k::Term<MetadataSize>,
+) -> k::Term<MetadataSize> {
+    k::term![MirMetadataSize::NoMetadataSize()]
 }
 
 #[k::function(partial, sort = Bool, syntax = "#sameTypeInfo({first}, {second})")]
@@ -4826,16 +4790,6 @@ fn adjust_ref_aggregate(
 }
 
 #[k::equation]
-fn adjust_ref_union(
-    k::term![AdjustRef {
-        value: Value::Union { field, value },
-        offset: _,
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![Value::Union { field, value }]
-}
-
-#[k::equation]
 fn adjust_ref_range(
     k::term![AdjustRef {
         value: Value::Range { elements },
@@ -4850,42 +4804,23 @@ fn adjust_ref_range(
     }]
 }
 
+/// Integers, Booleans, the moved marker, and allocation references hold no
+/// frame height, so crossing a call boundary leaves them unchanged: an
+/// allocation reference names its allocation by `AllocId`, which does not
+/// depend on the call stack. A union is also left as it is; its active value
+/// is not traversed.
 #[k::equation]
-fn adjust_ref_integer(
+fn adjust_ref_unchanged(
     k::term![AdjustRef {
-        value: Value::Integer {
-            value,
-            width,
-            signed,
-        },
+        value: value @ (Value::Integer { value: _, width: _, signed: _ }
+            | Value::Boolean(_)
+            | Value::Union { field: _, value: _ }
+            | Value::AllocationReference { allocation: _, projections: _, metadata: _ }
+            | Value::Moved()),
         offset: _,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
-    k::term![Value::Integer {
-        value,
-        width,
-        signed,
-    }]
-}
-
-#[k::equation]
-fn adjust_ref_boolean(
-    k::term![AdjustRef {
-        value: Value::Boolean(value),
-        offset: _,
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![Value::Boolean(value)]
-}
-
-#[k::equation]
-fn adjust_ref_moved(
-    k::term![AdjustRef {
-        value: Value::Moved(),
-        offset: _,
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![Value::Moved()]
+    value
 }
 
 #[k::function(partial, sort = List, syntax = "#frameLocals({frame})")]

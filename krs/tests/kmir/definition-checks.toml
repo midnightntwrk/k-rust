@@ -198,7 +198,8 @@ required.terminals = ["readTyConstInt", "staticSize"]
 
 [[check]]
 message = "emitted KMIR definition omits zero-sized pointee classification"
-required.terminals = ["typeInfoVoidType", "zeroSizedType"]
+required.terminals = ["typeInfoVoidType"]
+required.rule_labels = ["resolve-ptr-cast-primitive-to-zst", "resolve-ptr-cast-zst-to-primitive"]
 
 [[check]]
 message = "emitted KMIR definition omits transparent struct metadata"
