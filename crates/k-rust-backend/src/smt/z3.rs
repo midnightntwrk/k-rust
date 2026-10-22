@@ -161,20 +161,43 @@ fn load(solver: &Solver, script: &str) -> Result<(), RejectedScript> {
 ///
 /// A query's attempts share the context: each retry starts from the state the attempts before it
 /// left, which sets it on another path than theirs. A larger budget alone does not end a path
-/// that never decides the query (the backend's `H *Int I ==Int 2021027` factoring check, from a
-/// fresh context, is undecided at 128,000,000 resource units, and decided by its third attempt
-/// at 1,000,000 after two at 250,000 and 500,000). The answer is then a function of the script,
+/// that never decides the query (with Z3 4.16.0, the backend's `H *Int I ==Int 2021027` factoring
+/// check, from a fresh context, is undecided at 128,000,000 resource units, and decided by its
+/// third attempt at 1,000,000 after two at 250,000 and 500,000). The answer is then a function of the script,
 /// the attempts' parameters and the Z3 library only, as it is for the first query a process
 /// asks on a thread.
 ///
 /// Every Z3 object the query makes belongs to that context (the `z3` crate creates objects on
 /// the thread's current context, which `with_z3_config` replaces for the call), and none can
 /// leave it: Z3 objects are neither `Send` nor `Sync`, which the bound on `R` requires. The crate
-/// puts the thread's default context back only when the call returns, so a panic inside leaves
-/// the thread on this context, which stays valid.
+/// puts the thread's previous context back only when the call returns, so a panic is caught
+/// inside the call and raised again after it: the thread's later Z3 users (checked sort
+/// inference after a caught panic, say) find their own context again.
+///
+/// Creating a context costs about 0.4 ms of mostly serial work in Z3: concurrent queries on many
+/// threads share that cost, so a process running many uncached queries at once pays more per
+/// query, and holds more memory at its peak, than one sharing a context per thread did
+/// (docs/compatibility.md, "Clock-free solver mode").
 fn on_own_context<R: Send + Sync>(query: impl FnOnce() -> R + Send + Sync) -> R {
-    z3::with_z3_config(&z3::Config::new(), query)
+    let outcome = z3::with_z3_config(&z3::Config::new(), || {
+        // The query's state is dropped by the unwind and nothing observes it afterwards: the
+        // panic is raised again as soon as the thread's context is back.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(query))
+            .map_err(|payload| Unwound(Mutex::new(payload)))
+    });
+    outcome.unwrap_or_else(|Unwound(payload)| {
+        std::panic::resume_unwind(
+            payload
+                .into_inner()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    })
 }
+
+/// A panic caught inside [`on_own_context`], carried out of the call that installs the query's
+/// context. The payload is `Send` but not `Sync`, and the call requires both of its result; a
+/// mutex provides `Sync`, though the payload is only ever moved.
+struct Unwound(Mutex<Box<dyn std::any::Any + Send>>);
 
 /// How long each Z3 check of a query may run, and how often an unknown answer is retried.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2841,9 +2864,11 @@ mod tests {
 (assert (and (= (* SMT-1 SMT-2) 2021027) (< 1 SMT-1) (< SMT-1 SMT-2)))"#;
 
     /// A query's retries run on the context its earlier attempts left, so a retry takes another
-    /// path than theirs: the factoring check is undecided by one attempt of 1,000,000 units on a
-    /// fresh context, and decided within three attempts of 250,000, 500,000 and 1,000,000. The
-    /// answer is still the query's own: equal on a fresh thread and after unrelated Z3 work.
+    /// path than theirs. The answer is still the query's own: equal on a fresh thread and after
+    /// unrelated Z3 work, on every Z3 version. Which answers those are depends on the version:
+    /// with Z3 4.16.0 the factoring check is undecided by one attempt of 1,000,000 units on a
+    /// fresh context, and decided within three attempts of 250,000, 500,000 and 1,000,000 (4.12.5
+    /// decides it within neither).
     #[test]
     fn a_retry_starts_from_the_querys_earlier_attempts() {
         let options = |resource_limit: u32, retry_limit: u32| Z3Options {
@@ -2862,8 +2887,41 @@ mod tests {
             .join()
             .unwrap()
         };
-        assert_eq!(run(options(1_000_000, 0), false), "?");
-        assert_eq!(run(options(250_000, 2), false), "S");
-        assert_eq!(run(options(250_000, 2), true), "S");
+        let single = run(options(1_000_000, 0), false);
+        let retried = run(options(250_000, 2), false);
+        assert_eq!(run(options(1_000_000, 0), true), single);
+        assert_eq!(run(options(250_000, 2), true), retried);
+        if z3_version().starts_with("Z3 4.16.0") {
+            assert_eq!((single.as_str(), retried.as_str()), ("?", "S"));
+        }
+    }
+
+    /// A panic inside a query reaches its caller, and leaves the thread on the Z3 context it was
+    /// on before the query, not on the query's own.
+    #[test]
+    fn a_panic_inside_a_query_restores_the_threads_context() {
+        std::thread::spawn(|| {
+            // The address of the thread's context, which the query must not hold.
+            let before = z3::Context::thread_local().get_z3_context().as_ptr() as usize;
+            let caught = std::panic::catch_unwind(|| {
+                on_own_context(|| {
+                    let solver = Solver::new();
+                    assert_ne!(
+                        solver.get_context().get_z3_context().as_ptr() as usize,
+                        before
+                    );
+                    panic!("a query panics");
+                })
+            });
+            let payload = caught.expect_err("the panic reaches the caller");
+            assert_eq!(payload.downcast_ref::<&str>(), Some(&"a query panics"));
+            assert_eq!(
+                z3::Context::thread_local().get_z3_context().as_ptr() as usize,
+                before
+            );
+            assert_eq!(thread_context_answers(PATH_SENSITIVE_QUERY, 1), "S");
+        })
+        .join()
+        .unwrap();
     }
 }
