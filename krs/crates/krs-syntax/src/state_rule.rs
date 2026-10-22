@@ -2296,12 +2296,27 @@ fn append_claim_special_anchors(
     ensures: Option<&ClaimEnsures>,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
+    append_claim_node_anchors(
+        claim_terms(rule, ensures)
+            .into_iter()
+            .map(TermExpression::nodes),
+        output,
+    )
+}
+
+/// Anchors the claim-only nodes (`k::id!`, `k::bytes!`, `k::anonymous!`,
+/// `k::or_bool!`) of a claim's terms, each kind numbered in one sequence in
+/// the order of `terms`, which is the order expansion visits them.
+pub(crate) fn append_claim_node_anchors<'a>(
+    terms: impl IntoIterator<Item = &'a [TermNode]>,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
     let mut id_ordinal = 0_u32;
     let mut bytes_ordinal = 0_u32;
     let mut anonymous_ordinal = 0_u32;
     let mut or_ordinal = 0_u32;
-    for term in claim_terms(rule, ensures) {
-        for node in term.nodes() {
+    for nodes in terms {
+        for node in nodes {
             match node {
                 TermNode::IdToken(literal) => {
                     output.push(ProvenanceAnchor::new(

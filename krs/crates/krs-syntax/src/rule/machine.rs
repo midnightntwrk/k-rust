@@ -1315,6 +1315,22 @@ fn readable_cell_pattern(
                 tree,
             )
         }
+        // A builtin literal (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`)
+        // or a claim's `k::anonymous!(..)` is a whole cell value, as an Int
+        // or String literal is.
+        Pat::Macro(literal) if crate::term::is_literal_macro(&literal.mac.path) => {
+            let term = TermExpression::parse_pattern_tokens(literal.to_token_stream())?;
+            let tree = term.tree().clone();
+            (
+                RulePattern::Native {
+                    pattern: Pat::Macro(literal),
+                    paths: Vec::new(),
+                    bindings: Vec::new(),
+                    nodes: term.nodes().to_vec(),
+                },
+                tree,
+            )
+        }
         pattern => parse_rule_pattern(pattern, true, true, signs)?,
     })
 }

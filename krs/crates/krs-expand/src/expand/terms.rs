@@ -231,6 +231,8 @@ pub(super) struct TermBuilder<'a> {
     claim: bool,
     pub(super) id_token_ordinal: u32,
     pub(super) bytes_token_ordinal: u32,
+    /// `k::anonymous!` ordinals of a readable claim's subject.
+    anonymous_ordinal: u32,
     pub(super) or_bool_ordinal: u32,
     /// Side-neutral: lexemes are numbered once across a whole sentence, so
     /// [`Self::reset_side`] keeps it and chained builders copy it forward.
@@ -310,6 +312,7 @@ impl<'a> TermBuilder<'a> {
             claim: false,
             id_token_ordinal: 0,
             bytes_token_ordinal: 0,
+            anonymous_ordinal: 0,
             or_bool_ordinal: 0,
             lexeme_ordinal: 0,
             sort_test_ordinal: 0,
@@ -871,6 +874,42 @@ impl<'a> TermBuilder<'a> {
                     key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
                     sort: BuiltinSort::Bytes,
                     value: bytes_token::encode(&literal.value()),
+                })
+            }
+            // A readable claim's subject may hold `k::anonymous!`, as a
+            // `cells!` claim's does.
+            TermTree::Anonymous {
+                sort,
+                spelling: display_literal,
+            } if self.claim && matches!(side, TermSide::Left) => {
+                let ordinal = self.anonymous_ordinal;
+                self.anonymous_ordinal += 1;
+                let path = call_site_path(sort)?;
+                let key_fn = format_ident!(
+                    "__krs_claim_anonymous_sort_{:016x}_{}",
+                    self.nonce,
+                    self.next_key,
+                );
+                self.next_key += 1;
+                let cfg = self.cfg;
+                self.key_functions.push(quote! {
+                    #(#cfg)*
+                    #[doc(hidden)]
+                    fn #key_fn() -> ::core::any::TypeId {
+                        ::core::any::TypeId::of::<#path>()
+                    }
+                });
+                let facade = self.facade;
+                Ok(WireTerm::Anonymous {
+                    key: wire_key(ProvenanceRole::ClaimAnonymous, ordinal),
+                    sort: WireSortReference {
+                        key: wire_key(ProvenanceRole::ClaimAnonymousSort, ordinal),
+                        target: WireTypeReference {
+                            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
+                            authored_path: spelling(sort),
+                        },
+                    },
+                    spelling: display_literal.value(),
                 })
             }
             TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(

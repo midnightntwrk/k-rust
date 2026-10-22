@@ -1988,6 +1988,21 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
 }
 
+/// Whether `path` names a compiler-owned literal macro: `k::bytes!`,
+/// `k::id!`, `k::lexeme!`, or `k::anonymous!`, each one token of a builtin
+/// or user sort.
+pub(crate) fn is_literal_macro(path: &Path) -> bool {
+    matches!(
+        special_macro_kind(path),
+        Some(
+            TermMacroKind::Bytes
+                | TermMacroKind::Id
+                | TermMacroKind::Lexeme
+                | TermMacroKind::Anonymous
+        )
+    )
+}
+
 fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
     let name = path.segments.last()?.ident.to_string();
     match name.as_str() {

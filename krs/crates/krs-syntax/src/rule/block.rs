@@ -21,7 +21,9 @@ use crate::parse::{
 };
 use crate::path::{is_plain_path, parametric_collection_error};
 use crate::term_sort::{TermSort, parse_readable_sort};
-use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TermTree, TokenRange};
+use crate::{
+    ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TermNode, TermTree, TokenRange,
+};
 
 enum TermTableExtra {
     Have(HaveMapExtra),
@@ -406,6 +408,80 @@ impl RuleClause {
         self.claim.as_ref()
     }
 
+    /// Anchors a claim's claim-only nodes (`k::id!`, `k::bytes!`,
+    /// `k::anonymous!`, `k::or_bool!`), each kind numbered in one sequence
+    /// across the clause in the order expansion visits the clause's terms:
+    /// the subject's terms, then the result's, then the `requires` and
+    /// `ensures` conditions.
+    fn append_claim_literal_anchors(
+        &self,
+        anchors: &mut Vec<ProvenanceAnchor>,
+    ) -> Result<(), SyntaxError> {
+        fn state_nodes<'a>(state: &'a crate::StateTerm, output: &mut Vec<&'a [TermNode]>) {
+            output.extend(state.terms().into_iter().map(TermExpression::nodes));
+            for nested in state.nested_states() {
+                state_nodes(nested, output);
+            }
+        }
+        let mut nodes: Vec<&[TermNode]> = Vec::new();
+        if let Some(head) = &self.head {
+            if head.subject {
+                nodes.push(self.rule.parameter().pattern.nodes());
+            }
+            nodes.extend(head.following.iter().map(|item| item.pattern.nodes()));
+        }
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::HaveMap { entries, .. } => {
+                    nodes.extend(entries.iter().map(|entry| entry.key.nodes()));
+                }
+                RuleExtra::RewriteCell { before, .. } => nodes.push(before.nodes()),
+                RuleExtra::RewriteState { before, .. } => state_nodes(before, &mut nodes),
+                RuleExtra::RewriteList { before, .. } => {
+                    nodes.extend(before.items.iter().map(|item| item.pattern.nodes()));
+                    if let RuleListRest::Named(rest) = &before.rest {
+                        nodes.push(rest.pattern.nodes());
+                    }
+                }
+                RuleExtra::UpdateMap { .. } => {}
+            }
+        }
+        match &self.head_result {
+            Some(RuleHeadResult::Replace(term)) => nodes.push(term.nodes()),
+            Some(RuleHeadResult::Splice { items, .. }) => {
+                nodes.extend(items.iter().map(TermExpression::nodes));
+            }
+            None | Some(RuleHeadResult::Erase(_)) => {}
+        }
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::RewriteState {
+                    after: Some(after), ..
+                } => state_nodes(after, &mut nodes),
+                RuleExtra::UpdateMap { update, .. } => nodes.push(update.term().nodes()),
+                RuleExtra::RewriteCell {
+                    after: Some(after), ..
+                } => nodes.push(after.nodes()),
+                RuleExtra::RewriteList {
+                    after: Some(after), ..
+                } => {
+                    nodes.extend(after.items.iter().map(TermExpression::nodes));
+                    if let RuleListRest::Named(rest) = &after.rest {
+                        nodes.push(rest.nodes());
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(requires) = self.rule.requires() {
+            nodes.push(requires.term().nodes());
+        }
+        if let Some(ensures) = self.rule.existentials().ensures() {
+            nodes.push(ensures.nodes());
+        }
+        crate::state_rule::append_claim_node_anchors(nodes, anchors)
+    }
+
     /// Returns the provenance of the clause's metadata attribute:
     /// `#[k::rule(..)]` for a rule, `#[k::claim(..)]` for a claim.
     ///
@@ -493,6 +569,9 @@ impl RuleClause {
     )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.rule.full_provenance()?;
+        if self.claim.is_some() {
+            self.append_claim_literal_anchors(&mut anchors)?;
+        }
         // A claim clause is a claim: its declaration has the claim role, and
         // its name, its label, is anchored by its `#[k::claim(..)]` (F7).
         if self.claim.is_some() {

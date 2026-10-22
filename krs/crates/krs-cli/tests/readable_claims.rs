@@ -878,3 +878,107 @@ fn a_claim_clause_rejects_rule_only_forms() {
         )
     "#]].assert_debug_eq(&(errors, missing_for));
 }
+
+/// A machine whose program is a Bytes cell, as KEVM's is.
+const BYTES_MACHINE: &str = r#"use k::builtin::{Bytes, Int, KSequence, bytes};
+use k::KResult;
+
+k::sorts! {
+    Exp: k::KItem;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Op {
+    #[k::syntax("load")]
+    Load(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub program: Bytes,
+    #[k::cell]
+    pub pc: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm], program: bytes::empty(), pc: 0 }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Op::*;
+
+    load: { k: [Load(), ..], program: p, pc: n } => { k: [..], pc: bytes::length(p) };
+}
+"#;
+
+/// A readable claim whose program cell holds a `k::bytes!(..)` literal.
+const BYTES_READABLE: &str = r#"k::claims! {
+    for Machine;
+    use Op::*;
+
+    #[k::claim(all_paths)]
+    loads: { k: [Load()], program: k::bytes!(b"\x60\x00"), pc: k::anonymous!(Int, "_Pc") } => {
+        k: [],
+        program: k::bytes!(b"\x60\x00"),
+        pc: 2,
+    };
+}
+"#;
+
+/// The same claim as a reference fn.
+const BYTES_REFERENCE: &str = r#"#[k::claim(all_paths, label = "loads")]
+fn loads(
+    k::cells! {
+        k: k::configuration::KCell(Op::Load()),
+        program: k::configuration::Cell(k::bytes!(b"\x60\x00")),
+        pc: k::configuration::Cell(k::anonymous!(Int, "_Pc")),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(.K),
+        pc: k::configuration::Cell(2),
+        ..state
+    }
+}
+"#;
+
+/// A readable claim's record holds the claim-only literals `k::bytes!(..)`
+/// and `k::anonymous!(..)` as whole cell values, as KEVM's claims' program
+/// cells need: the claim is the reference claim and proves.
+#[test]
+fn a_readable_claim_holds_a_bytes_literal() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = package(
+        temporary.path(),
+        "bytes-readable",
+        "ORG-KRS-BYTES",
+        &format!("{BYTES_MACHINE}{BYTES_READABLE}"),
+    );
+    let reference = package(
+        temporary.path(),
+        "bytes-reference",
+        "ORG-KRS-BYTES",
+        &format!("{BYTES_MACHINE}{BYTES_REFERENCE}"),
+    );
+    let spec = emitted_spec(target.path(), &readable);
+    assert_eq!(spec, emitted_spec(target.path(), &reference));
+    assert!(
+        spec.contains(r#"<program> b"\x60\x00" </program>"#),
+        "{spec}"
+    );
+    expect_test::expect![[r#"
+        [
+            "ORG-KRS-BYTES-SPEC.loads: proven",
+        ]
+    "#]]
+    .assert_debug_eq(&proved(target.path(), &readable, &[]));
+}
