@@ -2686,13 +2686,10 @@ fn decode_array_elements_done(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::gt(ElementSize { types, info }, 0),
-    int::eq(
-        int::rem_euclid(bytes::length(bytes), ElementSize { types, info }),
-        0,
-    ),
-))]
+#[k::requires(
+    int::gt(ElementSize { types, info }, 0)
+        && int::eq(int::rem_euclid(bytes::length(bytes), ElementSize { types, info }), 0)
+)]
 fn decode_slice_allocation(
     k::term![DecodeSliceAllocation { types, bytes, info }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4527,13 +4524,10 @@ fn truncate_signed_nonpositive(
     k::term![value]
 }
 
-#[k::requires(bool::and(
-    int::gt(width, 0),
-    int::lt(
-        TruncateUnsigned { value, width },
-        int::shift_left(1, int::sub(width, 1)),
-    ),
-))]
+#[k::requires(
+    int::gt(width, 0)
+        && int::lt(TruncateUnsigned { value, width }, int::shift_left(1, int::sub(width, 1)))
+)]
 #[k::equation]
 fn truncate_signed_nonnegative(
     k::term![TruncateSigned { value, width }]: k::Term<Int>,
@@ -4541,13 +4535,10 @@ fn truncate_signed_nonnegative(
     k::term![TruncateUnsigned { value, width }]
 }
 
-#[k::requires(bool::and(
-    int::gt(width, 0),
-    int::ge(
-        TruncateUnsigned { value, width },
-        int::shift_left(1, int::sub(width, 1)),
-    ),
-))]
+#[k::requires(
+    int::gt(width, 0)
+        && int::ge(TruncateUnsigned { value, width }, int::shift_left(1, int::sub(width, 1)))
+)]
 #[k::equation]
 fn truncate_signed_negative(
     k::term![TruncateSigned { value, width }]: k::Term<Int>,
@@ -7376,7 +7367,7 @@ k::rules! {
     }
     where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
 
-    #[k::requires(bool::and(int::ne(rhs, 0), int::eq(TruncateInteger { value: int::div(lhs, rhs), width, signed }, int::div(lhs, rhs))))]
+    #[k::requires(int::ne(rhs, 0) && int::eq(TruncateInteger { value: int::div(lhs, rhs), width, signed }, int::div(lhs, rhs)))]
     finish_div: {
         k: [Execution::Continue { value: Value::Integer { value: rhs, width, signed }, continuation: EvaluationContinuation::FinishBinary { place, checked: false, operation: MirBinaryOp::BinOpDiv(), lhs: Value::Integer { value: lhs, width, signed } } }, ..],
     } => {
@@ -7384,7 +7375,7 @@ k::rules! {
     }
     where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
 
-    #[k::requires(bool::and(int::ne(rhs, 0), int::eq(TruncateInteger { value: int::sub(lhs, int::mul(int::div(lhs, rhs), rhs)), width, signed }, int::sub(lhs, int::mul(int::div(lhs, rhs), rhs)))))]
+    #[k::requires(int::ne(rhs, 0) && int::eq(TruncateInteger { value: int::sub(lhs, int::mul(int::div(lhs, rhs), rhs)), width, signed }, int::sub(lhs, int::mul(int::div(lhs, rhs), rhs))))]
     finish_rem: {
         k: [Execution::Continue { value: Value::Integer { value: rhs, width, signed }, continuation: EvaluationContinuation::FinishBinary { place, checked: false, operation: MirBinaryOp::BinOpRem(), lhs: Value::Integer { value: lhs, width, signed } } }, ..],
     } => {
