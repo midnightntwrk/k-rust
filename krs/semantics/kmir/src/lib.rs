@@ -622,20 +622,16 @@ pub enum LocalValue {
     },
 }
 
-#[k::function(total, sort = Ty, syntax = "#localTy({entry})")]
-pub struct LocalTy {
-    pub entry: k::Term<TypedLocal>,
-}
+#[k::function(total, syntax = "#localTy({entry})")]
+pub fn LocalTy(entry: k::Term<TypedLocal>) -> k::Term<Ty>;
 
 k::equations! {
     for LocalTy;
     local_ty: LocalValue::NewLocal { ty, .. } | LocalValue::TypedValue { ty, .. } => ty;
 }
 
-#[k::function(total, sort = MaybeTy, syntax = "pointeeTy({info})")]
-pub struct PointeeTy {
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(total, syntax = "pointeeTy({info})")]
+pub fn PointeeTy(info: k::Term<TypeInfo>) -> k::Term<MaybeTy>;
 
 k::equations! {
     for PointeeTy;
@@ -645,10 +641,8 @@ k::equations! {
     pointee_ty_other: _ => MirMaybeTy::TyUnknown();
 }
 
-#[k::function(total, sort = MaybeTy, syntax = "elemTy({info})")]
-pub struct ElemTy {
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(total, syntax = "elemTy({info})")]
+pub fn ElemTy(info: k::Term<TypeInfo>) -> k::Term<MaybeTy>;
 
 k::equations! {
     for ElemTy;
@@ -657,16 +651,12 @@ k::equations! {
     elem_ty_other: _                                      => MirMaybeTy::TyUnknown();
 }
 
-#[k::function(
-    total,
-    sort = MaybeTy,
-    syntax = "getTyOf({types}, {ty}, {projections})"
-)]
-pub struct GetTyOf {
-    pub types: k::Term<Map>,
-    pub ty: k::Term<MaybeTy>,
-    pub projections: k::Term<ProjectionElems>,
-}
+#[k::function(total, syntax = "getTyOf({types}, {ty}, {projections})")]
+pub fn GetTyOf(
+    types: k::Term<Map>,
+    ty: k::Term<MaybeTy>,
+    projections: k::Term<ProjectionElems>,
+) -> k::Term<MaybeTy>;
 
 k::equations! {
     for GetTyOf;
@@ -691,11 +681,8 @@ k::equations! {
     get_ty_of_other  : (_, _, _)           => TyUnknown();
 }
 
-#[k::function(total, sort = TypeInfo, syntax = "#lookupMaybeTy({types}, {ty})")]
-pub struct LookupMaybeTy {
-    pub types: k::Term<Map>,
-    pub ty: k::Term<MaybeTy>,
-}
+#[k::function(total, syntax = "#lookupMaybeTy({types}, {ty})")]
+pub fn LookupMaybeTy(types: k::Term<Map>, ty: k::Term<MaybeTy>) -> k::Term<TypeInfo>;
 
 /// A known type is looked up in the type map. `ty` is declared `Ty`, not the
 /// field's `MaybeTy`: otherwise this equation would also match `TyUnknown`,
@@ -724,38 +711,33 @@ fn lookup_maybe_ty_unknown(
 #[k::function(
     total,
     underspecified = "a trait object's pointer metadata is a vtable, which no MetadataSize describes",
-    sort = MetadataSize,
     syntax = "#metadataSizeOf({info})"
 )]
-pub struct MetadataSizeOf {
-    pub info: k::Term<TypeInfo>,
-}
+pub fn MetadataSizeOf(info: k::Term<TypeInfo>) -> k::Term<MetadataSize>;
 
 #[k::function(
     total,
     underspecified = "every application starts at index 0 or 8 and each step adds 1, so the index is never negative",
-    sort = Int,
     syntax = "#readTyConstInt({bytes}, {index}, {multiplier}, {result})"
 )]
-pub struct ReadTyConstInt {
-    pub bytes: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub multiplier: k::Term<Int>,
-    pub result: k::Term<Int>,
-}
+pub fn ReadTyConstInt(
+    bytes: k::Term<Bytes>,
+    index: k::Term<Int>,
+    multiplier: k::Term<Int>,
+    result: k::Term<Int>,
+) -> k::Term<Int>;
 
 #[k::function(
     partial,
-    sort = MirValue,
     syntax = "#decodeAllocatedReference({allocation}, {bytes}, {stored}, {info}, {types})"
 )]
-pub struct DecodeAllocatedReference {
-    pub allocation: k::Term<AllocId>,
-    pub bytes: k::Term<Bytes>,
-    pub stored: k::Term<MirValue>,
-    pub info: k::Term<TypeInfo>,
-    pub types: k::Term<Map>,
-}
+pub fn DecodeAllocatedReference(
+    allocation: k::Term<AllocId>,
+    bytes: k::Term<Bytes>,
+    stored: k::Term<MirValue>,
+    info: k::Term<TypeInfo>,
+    types: k::Term<Map>,
+) -> k::Term<MirValue>;
 
 #[k::function(total, syntax = "#intWidth({kind})")]
 pub fn IntWidth(kind: k::Term<IntTy>) -> k::Term<Int>;
@@ -772,135 +754,94 @@ pub fn SizeOfTypeInfo(types: k::Term<Map>, info: k::Term<TypeInfo>) -> k::Term<I
 #[k::function(total, syntax = "#alignOf({types}, {info})")]
 pub fn AlignOfTypeInfo(types: k::Term<Map>, info: k::Term<TypeInfo>) -> k::Term<Int>;
 
-#[k::function(total, sort = Int, syntax = "#layoutSize({layout})")]
-pub struct LayoutSize {
-    pub layout: k::Term<MaybeLayoutShape>,
-}
+#[k::function(total, syntax = "#layoutSize({layout})")]
+pub fn LayoutSize(layout: k::Term<MaybeLayoutShape>) -> k::Term<Int>;
 
-#[k::function(total, sort = Int, syntax = "#layoutAlign({layout})")]
-pub struct LayoutAlign {
-    pub layout: k::Term<MaybeLayoutShape>,
-}
+#[k::function(total, syntax = "#layoutAlign({layout})")]
+pub fn LayoutAlign(layout: k::Term<MaybeLayoutShape>) -> k::Term<Int>;
 
-#[k::function(total, sort = Int, syntax = "#pointerWords({info})")]
-pub struct PointerWords {
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(total, syntax = "#pointerWords({info})")]
+pub fn PointerWords(info: k::Term<TypeInfo>) -> k::Term<Int>;
 
-#[k::function(total, sort = Bool, syntax = "#isVoidType({info})")]
-pub struct IsVoidType {
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(total, syntax = "#isVoidType({info})")]
+pub fn IsVoidType(info: k::Term<TypeInfo>) -> k::Term<Bool>;
 
-#[k::function(
-    partial,
-    sort = MirValue,
-    syntax = "#decodeAllocatedValue({types}, {bytes}, {info})"
-)]
-pub struct DecodeAllocatedValue {
-    pub types: k::Term<Map>,
-    pub bytes: k::Term<Bytes>,
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(partial, syntax = "#decodeAllocatedValue({types}, {bytes}, {info})")]
+pub fn DecodeAllocatedValue(
+    types: k::Term<Map>,
+    bytes: k::Term<Bytes>,
+    info: k::Term<TypeInfo>,
+) -> k::Term<MirValue>;
+
+#[k::function(partial, syntax = "#decodeZeroSizedConstant({info})")]
+pub fn DecodeZeroSizedConstant(info: k::Term<TypeInfo>) -> k::Term<MirValue>;
+
+#[k::function(partial, syntax = "#elementSize({types}, {info})")]
+pub fn ElementSize(types: k::Term<Map>, info: k::Term<TypeInfo>) -> k::Term<Int>;
+
+#[k::function(partial, syntax = "#maximum({first}, {second})")]
+pub fn Maximum(first: k::Term<Int>, second: k::Term<Int>) -> k::Term<Int>;
 
 #[k::function(
     partial,
-    sort = MirValue,
-    syntax = "#decodeZeroSizedConstant({info})"
-)]
-pub struct DecodeZeroSizedConstant {
-    pub info: k::Term<TypeInfo>,
-}
-
-#[k::function(partial, sort = Int, syntax = "#elementSize({types}, {info})")]
-pub struct ElementSize {
-    pub types: k::Term<Map>,
-    pub info: k::Term<TypeInfo>,
-}
-
-#[k::function(partial, sort = Int, syntax = "#maximum({first}, {second})")]
-pub struct Maximum {
-    pub first: k::Term<Int>,
-    pub second: k::Term<Int>,
-}
-
-#[k::function(
-    partial,
-    sort = Int,
     syntax = "#neededBytesForOffsets({types}, {fields}, {offsets})"
 )]
-pub struct NeededBytesForOffsets {
-    pub types: k::Term<Map>,
-    pub fields: k::Term<Tys>,
-    pub offsets: k::Term<MachineSizes>,
-}
+pub fn NeededBytesForOffsets(
+    types: k::Term<Map>,
+    fields: k::Term<Tys>,
+    offsets: k::Term<MachineSizes>,
+) -> k::Term<Int>;
 
 #[k::function(
     partial,
-    sort = List,
     syntax = "#decodeFieldsWithOffsets({types}, {bytes}, {fields}, {offsets})"
 )]
-pub struct DecodeFieldsWithOffsets {
-    pub types: k::Term<Map>,
-    pub bytes: k::Term<Bytes>,
-    pub fields: k::Term<Tys>,
-    pub offsets: k::Term<MachineSizes>,
-}
+pub fn DecodeFieldsWithOffsets(
+    types: k::Term<Map>,
+    bytes: k::Term<Bytes>,
+    fields: k::Term<Tys>,
+    offsets: k::Term<MachineSizes>,
+) -> k::Term<List>;
 
 #[k::function(
     partial,
-    sort = List,
     syntax = "#decodeArrayElements({types}, {bytes}, {info}, {remaining}, {accumulated})"
 )]
-pub struct DecodeArrayElements {
-    pub types: k::Term<Map>,
-    pub bytes: k::Term<Bytes>,
-    pub info: k::Term<TypeInfo>,
-    pub remaining: k::Term<Int>,
-    pub accumulated: k::Term<List>,
-}
+pub fn DecodeArrayElements(
+    types: k::Term<Map>,
+    bytes: k::Term<Bytes>,
+    info: k::Term<TypeInfo>,
+    remaining: k::Term<Int>,
+    accumulated: k::Term<List>,
+) -> k::Term<List>;
 
-#[k::function(total, sort = Bool, syntax = "#noFields({fields})")]
-pub struct NoFields {
-    pub fields: k::Term<Tyss>,
-}
+#[k::function(total, syntax = "#noFields({fields})")]
+pub fn NoFields(fields: k::Term<Tyss>) -> k::Term<Bool>;
 
 #[k::function(
     partial,
-    sort = Int,
     syntax = "#findVariantIdxAux({tag}, {discriminants}, {index})"
 )]
-pub struct FindVariantIndexAux {
-    pub tag: k::Term<Int>,
-    pub discriminants: k::Term<Discriminants>,
-    pub index: k::Term<Int>,
-}
+pub fn FindVariantIndexAux(
+    tag: k::Term<Int>,
+    discriminants: k::Term<Discriminants>,
+    index: k::Term<Int>,
+) -> k::Term<Int>;
 
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#lookupDiscriminant({discriminants}, {index})"
-)]
-pub struct LookupDiscriminant {
-    pub discriminants: k::Term<Discriminants>,
-    pub index: k::Term<Int>,
-}
+#[k::function(partial, syntax = "#lookupDiscriminant({discriminants}, {index})")]
+pub fn LookupDiscriminant(
+    discriminants: k::Term<Discriminants>,
+    index: k::Term<Int>,
+) -> k::Term<Int>;
 
-#[k::function(partial, sort = Tys, syntax = "#nthTys({fields}, {index})")]
-pub struct NthTys {
-    pub fields: k::Term<Tyss>,
-    pub index: k::Term<Int>,
-}
+#[k::function(partial, syntax = "#nthTys({fields}, {index})")]
+pub fn NthTys(fields: k::Term<Tyss>, index: k::Term<Int>) -> k::Term<Tys>;
 
-#[k::function(
-    partial,
-    sort = MachineSizes,
-    syntax = "#nthVariantOffsets({layouts}, {index})"
-)]
-pub struct NthVariantOffsets {
-    pub layouts: k::Term<LayoutShapes>,
-    pub index: k::Term<Int>,
-}
+#[k::function(partial, syntax = "#nthVariantOffsets({layouts}, {index})")]
+pub fn NthVariantOffsets(
+    layouts: k::Term<LayoutShapes>,
+    index: k::Term<Int>,
+) -> k::Term<MachineSizes>;
 
 #[k::function(total, syntax = "#byteLength({width})")]
 pub fn ByteLength(width: k::Term<IntegerLength>) -> k::Term<Int>;
@@ -1622,25 +1563,16 @@ k::equations! {
         } => StaticSize(ReadTyConstInt { bytes: value, index: 0, multiplier: 1, result: 0 });
 }
 
-#[k::function(partial, sort = Bool, syntax = "#sameTypeInfo({first}, {second})")]
-pub struct SameTypeInfo {
-    pub first: k::Term<TypeInfo>,
-    pub second: k::Term<TypeInfo>,
-}
+#[k::function(partial, syntax = "#sameTypeInfo({first}, {second})")]
+pub fn SameTypeInfo(first: k::Term<TypeInfo>, second: k::Term<TypeInfo>) -> k::Term<Bool>;
 
 k::equations! {
     for SameTypeInfo;
     same_type_info: (info, info) => true;
 }
 
-#[k::function(
-    partial,
-    sort = Bool,
-    syntax = "#zeroFieldOffset({layout})"
-)]
-pub struct ZeroFieldOffset {
-    pub layout: k::Term<MaybeLayoutShape>,
-}
+#[k::function(partial, syntax = "#zeroFieldOffset({layout})")]
+pub fn ZeroFieldOffset(layout: k::Term<MaybeLayoutShape>) -> k::Term<Bool>;
 
 k::equations! {
     for ZeroFieldOffset;
@@ -1657,11 +1589,11 @@ k::equations! {
         } => true;
 }
 
-#[k::function(total, sort = Metadata, syntax = "#convertPointerMetadata({metadata}, {target_size})")]
-pub struct ConvertPointerMetadata {
-    pub metadata: k::Term<Metadata>,
-    pub target_size: k::Term<MetadataSize>,
-}
+#[k::function(total, syntax = "#convertPointerMetadata({metadata}, {target_size})")]
+pub fn ConvertPointerMetadata(
+    metadata: k::Term<Metadata>,
+    target_size: k::Term<MetadataSize>,
+) -> k::Term<Metadata>;
 
 k::equations! {
     for ConvertPointerMetadata;
@@ -1735,14 +1667,8 @@ pub enum Projections {
     },
 }
 
-#[k::function(
-    total,
-    sort = ProjectionElems,
-    syntax = "removeIndexTail({projections})"
-)]
-pub struct RemoveIndexTail {
-    pub projections: k::Term<ProjectionElems>,
-}
+#[k::function(total, syntax = "removeIndexTail({projections})")]
+pub fn RemoveIndexTail(projections: k::Term<ProjectionElems>) -> k::Term<ProjectionElems>;
 
 k::equations! {
     for RemoveIndexTail;
@@ -1754,14 +1680,13 @@ k::equations! {
 
 #[k::function(
     partial,
-    sort = MetadataSize,
     syntax = "#projectionMetadataSize({ty}, {projections}, {types})"
 )]
-pub struct ProjectionMetadataSize {
-    pub ty: k::Term<Ty>,
-    pub projections: k::Term<ProjectionElems>,
-    pub types: k::Term<Map>,
-}
+pub fn ProjectionMetadataSize(
+    ty: k::Term<Ty>,
+    projections: k::Term<ProjectionElems>,
+    types: k::Term<Map>,
+) -> k::Term<MetadataSize>;
 
 k::equations! {
     for ProjectionMetadataSize;
@@ -1784,20 +1709,16 @@ k::equations! {
         };
 }
 
-#[k::function(partial, sort = Ty, syntax = "#arrayElementType({info})")]
-pub struct ArrayElementType {
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(partial, syntax = "#arrayElementType({info})")]
+pub fn ArrayElementType(info: k::Term<TypeInfo>) -> k::Term<Ty>;
 
 k::equations! {
     for ArrayElementType;
     array_element_type: MirTypeInfo::ArrayType { element, .. } => element;
 }
 
-#[k::function(partial, sort = Ty, syntax = "#referencePointeeType({info})")]
-pub struct ReferencePointeeType {
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(partial, syntax = "#referencePointeeType({info})")]
+pub fn ReferencePointeeType(info: k::Term<TypeInfo>) -> k::Term<Ty>;
 
 k::equations! {
     for ReferencePointeeType;
@@ -1805,11 +1726,11 @@ k::equations! {
         MirTypeInfo::ReferenceType { pointee } | MirTypeInfo::PointerType { pointee } => pointee;
 }
 
-#[k::function(total, sort = MetadataSize, syntax = "#maybeDynamicSize({size}, {value})")]
-pub struct MaybeDynamicSize {
-    pub size: k::Term<MetadataSize>,
-    pub value: k::Term<MirValue>,
-}
+#[k::function(total, syntax = "#maybeDynamicSize({size}, {value})")]
+pub fn MaybeDynamicSize(
+    size: k::Term<MetadataSize>,
+    value: k::Term<MirValue>,
+) -> k::Term<MetadataSize>;
 
 k::equations! {
     for MaybeDynamicSize;
@@ -1822,15 +1743,11 @@ k::equations! {
     maybe_dynamic_size_other    : (size, _)           => size;
 }
 
-#[k::function(
-    total,
-    sort = ProjectionElems,
-    syntax = "#projectionsFor({contexts}, {projections})"
-)]
-pub struct ProjectionsFor {
-    pub contexts: k::Term<ProjectionContexts>,
-    pub projections: k::Term<ProjectionElems>,
-}
+#[k::function(total, syntax = "#projectionsFor({contexts}, {projections})")]
+pub fn ProjectionsFor(
+    contexts: k::Term<ProjectionContexts>,
+    projections: k::Term<ProjectionElems>,
+) -> k::Term<ProjectionElems>;
 
 k::equations! {
     for ProjectionsFor;
@@ -1993,15 +1910,11 @@ pub enum Value {
     Moved(),
 }
 
-#[k::function(
-    partial,
-    sort = MirValue,
-    syntax = "#mkAggregate({kind}, {values})"
-)]
-pub struct MaterializeAggregate {
-    pub kind: k::Term<AggregateKind>,
-    pub values: k::Term<List>,
-}
+#[k::function(partial, syntax = "#mkAggregate({kind}, {values})")]
+pub fn MaterializeAggregate(
+    kind: k::Term<AggregateKind>,
+    values: k::Term<List>,
+) -> k::Term<MirValue>;
 
 k::equations! {
     for MaterializeAggregate;
@@ -2399,28 +2312,18 @@ pub enum ReturnValue {
     Returned { value: MirValue },
 }
 
-#[k::function(total, sort = Int, syntax = "#truncateUnsigned({value}, {width})")]
-pub struct TruncateUnsigned {
-    pub value: k::Term<Int>,
-    pub width: k::Term<Int>,
-}
+#[k::function(total, syntax = "#truncateUnsigned({value}, {width})")]
+pub fn TruncateUnsigned(value: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int>;
 
-#[k::function(total, sort = Int, syntax = "#truncateSigned({value}, {width})")]
-pub struct TruncateSigned {
-    pub value: k::Term<Int>,
-    pub width: k::Term<Int>,
-}
+#[k::function(total, syntax = "#truncateSigned({value}, {width})")]
+pub fn TruncateSigned(value: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int>;
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#truncateInteger({value}, {width}, {signed})"
-)]
-pub struct TruncateInteger {
-    pub value: k::Term<Int>,
-    pub width: k::Term<Int>,
-    pub signed: k::Term<Bool>,
-}
+#[k::function(total, syntax = "#truncateInteger({value}, {width}, {signed})")]
+pub fn TruncateInteger(
+    value: k::Term<Int>,
+    width: k::Term<Int>,
+    signed: k::Term<Bool>,
+) -> k::Term<Int>;
 
 k::equations! {
     for TruncateUnsigned;
@@ -2452,20 +2355,16 @@ k::equations! {
     truncate_integer_signed  : (value, width, true)  => TruncateSigned { value, width };
 }
 
-#[k::function(partial, sort = MirValue, syntax = "#localValue({entry})")]
-pub struct LocalValueOf {
-    pub entry: k::Term<TypedLocal>,
-}
+#[k::function(partial, syntax = "#localValue({entry})")]
+pub fn LocalValueOf(entry: k::Term<TypedLocal>) -> k::Term<MirValue>;
 
 k::equations! {
     for LocalValueOf;
     local_value_of: LocalValue::TypedValue { value, .. } => value;
 }
 
-#[k::function(partial, sort = TypedLocal, syntax = "#movedEntry({entry})")]
-pub struct MovedEntry {
-    pub entry: k::Term<TypedLocal>,
-}
+#[k::function(partial, syntax = "#movedEntry({entry})")]
+pub fn MovedEntry(entry: k::Term<TypedLocal>) -> k::Term<TypedLocal>;
 
 k::equations! {
     for MovedEntry;
@@ -2474,10 +2373,8 @@ k::equations! {
         => LocalValue::TypedValue { value: Value::Moved(), ty, mutability };
 }
 
-#[k::function(total, sort = List, syntax = "#reserveFor({locals})")]
-pub struct ReserveFor {
-    pub locals: k::Term<LocalDecls>,
-}
+#[k::function(total, syntax = "#reserveFor({locals})")]
+pub fn ReserveFor(locals: k::Term<LocalDecls>) -> k::Term<List>;
 
 k::equations! {
     for ReserveFor;
@@ -2489,10 +2386,8 @@ k::equations! {
         );
 }
 
-#[k::function(total, sort = List, syntax = "#functionBlocks({function})")]
-pub struct FunctionBlocks {
-    pub function: k::Term<Function>,
-}
+#[k::function(total, syntax = "#functionBlocks({function})")]
+pub fn FunctionBlocks(function: k::Term<Function>) -> k::Term<List>;
 
 k::equations! {
     for FunctionBlocks;
@@ -2500,10 +2395,8 @@ k::equations! {
         MirFunction::MonoItemFn { body: MirFunctionBody::Body { blocks, .. }, .. } => blocks;
 }
 
-#[k::function(total, sort = List, syntax = "#functionLocals({function})")]
-pub struct FunctionLocals {
-    pub function: k::Term<Function>,
-}
+#[k::function(total, syntax = "#functionLocals({function})")]
+pub fn FunctionLocals(function: k::Term<Function>) -> k::Term<List>;
 
 k::equations! {
     for FunctionLocals;
@@ -2512,17 +2405,11 @@ k::equations! {
         => ReserveFor { locals };
 }
 
-#[k::function(total, sort = MirValue, syntax = "#adjustRef({value}, {offset})")]
-pub struct AdjustRef {
-    pub value: k::Term<MirValue>,
-    pub offset: k::Term<Int>,
-}
+#[k::function(total, syntax = "#adjustRef({value}, {offset})")]
+pub fn AdjustRef(value: k::Term<MirValue>, offset: k::Term<Int>) -> k::Term<MirValue>;
 
-#[k::function(partial, sort = List, syntax = "#mapRefOffset({values}, {offset})")]
-pub struct MapRefOffset {
-    pub values: k::Term<List>,
-    pub offset: k::Term<Int>,
-}
+#[k::function(partial, syntax = "#mapRefOffset({values}, {offset})")]
+pub fn MapRefOffset(values: k::Term<List>, offset: k::Term<Int>) -> k::Term<List>;
 
 k::equations! {
     for MapRefOffset;
@@ -2563,22 +2450,20 @@ k::equations! {
         => value;
 }
 
-#[k::function(partial, sort = List, syntax = "#frameLocals({frame})")]
-pub struct FrameLocals {
-    pub frame: k::Term<StackFrame>,
-}
+#[k::function(partial, syntax = "#frameLocals({frame})")]
+pub fn FrameLocals(frame: k::Term<StackFrame>) -> k::Term<List>;
 
 k::equations! {
     for FrameLocals;
     frame_locals: MirStackFrame::StackFrame { locals, .. } => locals;
 }
 
-#[k::function(partial, sort = MirValue, syntax = "#localFromFrame({frame}, {local}, {offset})")]
-pub struct LocalFromFrame {
-    pub frame: k::Term<StackFrame>,
-    pub local: k::Term<Int>,
-    pub offset: k::Term<Int>,
-}
+#[k::function(partial, syntax = "#localFromFrame({frame}, {local}, {offset})")]
+pub fn LocalFromFrame(
+    frame: k::Term<StackFrame>,
+    local: k::Term<Int>,
+    offset: k::Term<Int>,
+) -> k::Term<MirValue>;
 
 k::equations! {
     for LocalFromFrame;
@@ -2589,15 +2474,14 @@ k::equations! {
 
 #[k::function(
     partial,
-    sort = TypedLocal,
     syntax = "#writeProjectedEntry({entry}, {projections}, {value}, {locals})"
 )]
-pub struct WriteProjectedEntry {
-    pub entry: k::Term<TypedLocal>,
-    pub projections: k::Term<ProjectionElems>,
-    pub value: k::Term<MirValue>,
-    pub locals: k::Term<List>,
-}
+pub fn WriteProjectedEntry(
+    entry: k::Term<TypedLocal>,
+    projections: k::Term<ProjectionElems>,
+    value: k::Term<MirValue>,
+    locals: k::Term<List>,
+) -> k::Term<TypedLocal>;
 
 k::equations! {
     for WriteProjectedEntry;
@@ -2612,16 +2496,15 @@ k::equations! {
 
 #[k::function(
     partial,
-    sort = StackFrame,
     syntax = "#updateProjectedStackLocal({frame}, {local}, {projections}, {value}, {locals})"
 )]
-pub struct UpdateProjectedStackLocal {
-    pub frame: k::Term<StackFrame>,
-    pub local: k::Term<Int>,
-    pub projections: k::Term<ProjectionElems>,
-    pub value: k::Term<MirValue>,
-    pub locals: k::Term<List>,
-}
+pub fn UpdateProjectedStackLocal(
+    frame: k::Term<StackFrame>,
+    local: k::Term<Int>,
+    projections: k::Term<ProjectionElems>,
+    value: k::Term<MirValue>,
+    locals: k::Term<List>,
+) -> k::Term<StackFrame>;
 
 k::equations! {
     for UpdateProjectedStackLocal;
@@ -2651,10 +2534,8 @@ k::equations! {
         };
 }
 
-#[k::function(partial, sort = Mutability, syntax = "#borrowMutability({kind})")]
-pub struct BorrowMutability {
-    pub kind: k::Term<BorrowKind>,
-}
+#[k::function(partial, syntax = "#borrowMutability({kind})")]
+pub fn BorrowMutability(kind: k::Term<BorrowKind>) -> k::Term<Mutability>;
 
 k::equations! {
     for BorrowMutability;
@@ -2662,15 +2543,11 @@ k::equations! {
     borrow_mutability_mutable: MirBorrowKind::MutableBorrow() => LocalMutability::Mutable();
 }
 
-#[k::function(
-    total,
-    sort = ProjectionElems,
-    syntax = "#appendProjections({first}, {second})"
-)]
-pub struct AppendProjections {
-    pub first: k::Term<ProjectionElems>,
-    pub second: k::Term<ProjectionElems>,
-}
+#[k::function(total, syntax = "#appendProjections({first}, {second})")]
+pub fn AppendProjections(
+    first: k::Term<ProjectionElems>,
+    second: k::Term<ProjectionElems>,
+) -> k::Term<ProjectionElems>;
 
 k::equations! {
     for AppendProjections;
@@ -2679,15 +2556,11 @@ k::equations! {
         ([head, tail @ ..], second) => [head, ..AppendProjections { first: tail, second }];
 }
 
-#[k::function(
-    total,
-    sort = ProjectionElems,
-    syntax = "#appendCastProjections({first}, {second})"
-)]
-pub struct AppendCastProjections {
-    pub first: k::Term<ProjectionElems>,
-    pub second: k::Term<ProjectionElems>,
-}
+#[k::function(total, syntax = "#appendCastProjections({first}, {second})")]
+pub fn AppendCastProjections(
+    first: k::Term<ProjectionElems>,
+    second: k::Term<ProjectionElems>,
+) -> k::Term<ProjectionElems>;
 
 k::equations! {
     for AppendCastProjections;
@@ -2716,10 +2589,8 @@ k::equations! {
         ([head, tail @ ..], second) => [head, ..AppendCastProjections { first: tail, second }];
 }
 
-#[k::function(total, sort = Int, syntax = "#originSize({size})")]
-pub struct OriginSize {
-    pub size: k::Term<MetadataSize>,
-}
+#[k::function(total, syntax = "#originSize({size})")]
+pub fn OriginSize(size: k::Term<MetadataSize>) -> k::Term<Int>;
 
 k::equations! {
     for OriginSize;
@@ -2730,16 +2601,15 @@ k::equations! {
 
 #[k::function(
     partial,
-    sort = ProjectionElems,
     syntax = "#derefProjectionPath({referenced}, {size}, {offset}, {origin_size}, {tail})"
 )]
-pub struct DerefProjectionPath {
-    pub referenced: k::Term<ProjectionElems>,
-    pub size: k::Term<MetadataSize>,
-    pub offset: k::Term<Int>,
-    pub origin_size: k::Term<MetadataSize>,
-    pub tail: k::Term<ProjectionElems>,
-}
+pub fn DerefProjectionPath(
+    referenced: k::Term<ProjectionElems>,
+    size: k::Term<MetadataSize>,
+    offset: k::Term<Int>,
+    origin_size: k::Term<MetadataSize>,
+    tail: k::Term<ProjectionElems>,
+) -> k::Term<ProjectionElems>;
 
 k::equations! {
     for DerefProjectionPath;
@@ -2760,15 +2630,11 @@ k::equations! {
         };
 }
 
-#[k::function(
-    partial,
-    sort = ProjectionElems,
-    syntax = "#freezeProjections({projections}, {locals})"
-)]
-pub struct FreezeProjections {
-    pub projections: k::Term<ProjectionElems>,
-    pub locals: k::Term<List>,
-}
+#[k::function(partial, syntax = "#freezeProjections({projections}, {locals})")]
+pub fn FreezeProjections(
+    projections: k::Term<ProjectionElems>,
+    locals: k::Term<List>,
+) -> k::Term<ProjectionElems>;
 
 k::equations! {
     for FreezeProjections;
@@ -2801,11 +2667,8 @@ k::equations! {
         ];
 }
 
-#[k::function(partial, sort = Place, syntax = "#freezePlace({place}, {locals})")]
-pub struct FreezePlace {
-    pub place: k::Term<Place>,
-    pub locals: k::Term<List>,
-}
+#[k::function(partial, syntax = "#freezePlace({place}, {locals})")]
+pub fn FreezePlace(place: k::Term<Place>, locals: k::Term<List>) -> k::Term<Place>;
 
 k::equations! {
     for FreezePlace;
@@ -2814,14 +2677,8 @@ k::equations! {
         => MirPlace::Place { local, projections: FreezeProjections { projections, locals } };
 }
 
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#expectUsize({entry})"
-)]
-pub struct ExpectUsize {
-    pub entry: k::Term<TypedLocal>,
-}
+#[k::function(partial, syntax = "#expectUsize({entry})")]
+pub fn ExpectUsize(entry: k::Term<TypedLocal>) -> k::Term<Int>;
 
 k::equations! {
     for ExpectUsize;
@@ -2830,10 +2687,8 @@ k::equations! {
         => value;
 }
 
-#[k::function(partial, sort = List, syntax = "#rangeElements({value})")]
-pub struct RangeElements {
-    pub value: k::Term<MirValue>,
-}
+#[k::function(partial, syntax = "#rangeElements({value})")]
+pub fn RangeElements(value: k::Term<MirValue>) -> k::Term<List>;
 
 k::equations! {
     for RangeElements;
@@ -2854,28 +2709,23 @@ pub fn ReplaceSubslice(
     list::update_all(elements, start, replacement)
 }
 
-#[k::function(
-    partial,
-    sort = MirValue,
-    syntax = "#readProjection({value}, {projections}, {locals})"
-)]
-pub struct ReadProjection {
-    pub value: k::Term<MirValue>,
-    pub projections: k::Term<ProjectionElems>,
-    pub locals: k::Term<List>,
-}
+#[k::function(partial, syntax = "#readProjection({value}, {projections}, {locals})")]
+pub fn ReadProjection(
+    value: k::Term<MirValue>,
+    projections: k::Term<ProjectionElems>,
+    locals: k::Term<List>,
+) -> k::Term<MirValue>;
 
 #[k::function(
     partial,
-    sort = MirValue,
     syntax = "#writeProjection({value}, {projections}, {replacement}, {locals})"
 )]
-pub struct WriteProjection {
-    pub value: k::Term<MirValue>,
-    pub projections: k::Term<ProjectionElems>,
-    pub replacement: k::Term<MirValue>,
-    pub locals: k::Term<List>,
-}
+pub fn WriteProjection(
+    value: k::Term<MirValue>,
+    projections: k::Term<ProjectionElems>,
+    replacement: k::Term<MirValue>,
+    locals: k::Term<List>,
+) -> k::Term<MirValue>;
 
 k::equations! {
     for ReadProjection;
@@ -3073,15 +2923,11 @@ k::equations! {
         };
 }
 
-#[k::function(
-    partial,
-    sort = MirValue,
-    syntax = "#buildProjectionUpdate({value}, {contexts})"
-)]
-pub struct BuildProjectionUpdate {
-    pub value: k::Term<MirValue>,
-    pub contexts: k::Term<ProjectionContexts>,
-}
+#[k::function(partial, syntax = "#buildProjectionUpdate({value}, {contexts})")]
+pub fn BuildProjectionUpdate(
+    value: k::Term<MirValue>,
+    contexts: k::Term<ProjectionContexts>,
+) -> k::Term<MirValue>;
 
 k::equations! {
     for BuildProjectionUpdate;
