@@ -33,9 +33,8 @@ fn expand_block(
     env: &dyn MacroEnvironment,
     block: &krs_syntax::RuleBlock,
 ) -> crate::Result<TokenStream> {
-    let enum_import_item = block.imports().first().map(krs_syntax::RuleImport::item);
-    let import_checks = block.imports().iter().map(|import| {
-        let item = import.item();
+    let imports = block.imports();
+    let import_checks = imports.iter().map(|item| {
         quote! {
             const _: () = {
                 #[allow(unused_imports)]
@@ -48,7 +47,7 @@ fn expand_block(
         clauses.push(expand_head_rule(
             env,
             clause,
-            enum_import_item,
+            imports,
             block.is_configuration(),
         )?);
     }
@@ -65,7 +64,7 @@ fn expand_block(
 fn expand_head_rule(
     env: &dyn MacroEnvironment,
     clause: &krs_syntax::RuleClause,
-    enum_import_item: Option<&syn::ItemUse>,
+    imports: &[syn::ItemUse],
     configuration_owned: bool,
 ) -> crate::Result<TokenStream> {
     let rule_left_cells_field_role = ProvenanceRole::RuleLeftCellsField;
@@ -99,8 +98,8 @@ fn expand_head_rule(
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
-        .with_enum_import_item(enum_import_item)
-        .with_lexical_rule_head(enum_import_item.is_none())
+        .with_lexical_imports((!imports.is_empty()).then_some(imports))
+        .with_lexical_rule_head(imports.is_empty())
         .with_readable_instances();
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
@@ -663,13 +662,7 @@ fn expand_head_rule(
     }
     .render();
 
-    let scoped_binders = super::rules::scoped_binder_check(
-        &cfg,
-        enum_import_item
-            .map(std::slice::from_ref)
-            .unwrap_or_default(),
-        clause.bindings(),
-    );
+    let scoped_binders = super::rules::scoped_binder_check(&cfg, imports, clause.bindings());
     Ok(quote! {
         #scoped_binders
 

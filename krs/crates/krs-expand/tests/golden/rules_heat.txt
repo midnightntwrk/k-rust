@@ -34,6 +34,8 @@ fn __krs_head_rule_sort_84fc04056855fe30() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_84fc04056855fe30_0() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Op::*;
     ::core::any::TypeId::of::<Freezer>()
 }
 #[doc(hidden)]
@@ -81,7 +83,11 @@ fn __krs_head_rule_descriptor_84fc04056855fe30() -> ::core::result::Result<
                         owner: ::k::HostTypeKey(
                             __krs_rule_application_84fc04056855fe30_0,
                         ),
-                        marker: ::k::HostTypeKey(Freezer::__krs_variant_type_id_AddRhs),
+                        marker: ::k::HostTypeKey({
+                            #[allow(unused_imports, clippy::enum_glob_use)]
+                            use Op::*;
+                            Freezer::__krs_variant_type_id_AddRhs
+                        }),
                     },
                 ],
             },

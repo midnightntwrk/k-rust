@@ -30,6 +30,8 @@ fn __krs_head_rule_sort_af94ef1853aebc59() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_af94ef1853aebc59_0() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Op::*;
     ::core::any::TypeId::of::<int::add>()
 }
 #[doc(hidden)]

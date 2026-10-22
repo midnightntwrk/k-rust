@@ -3,7 +3,7 @@ use quote::quote;
 use syn::ext::IdentExt;
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type, UseTree};
+use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type};
 
 use super::condition::{
     HaveMapExtra, MapUpdateExtra, RuleExtra, RuleMapEntry, condition_token_range, parse_have_extra,
@@ -1283,40 +1283,12 @@ fn append_readable_term_anchors(
     Ok(())
 }
 
-/// One block-local enum glob import consumed by `rules!` resolution.
-#[derive(Clone, Debug)]
-pub struct RuleImport {
-    item: ItemUse,
-    owner: Path,
-    variant: Option<Ident>,
-}
-
-impl RuleImport {
-    /// Returns the complete Rust `use Enum::*;` item.
-    #[must_use]
-    pub const fn item(&self) -> &ItemUse {
-        &self.item
-    }
-
-    /// Returns the enum the import names.
-    #[must_use]
-    pub const fn owner(&self) -> &Path {
-        &self.owner
-    }
-
-    /// Returns the one imported variant, or `None` for an enum glob.
-    #[must_use]
-    pub const fn variant(&self) -> Option<&Ident> {
-        self.variant.as_ref()
-    }
-}
-
 /// A readable family of independently named ordinary term rules.
 #[derive(Clone, Debug)]
 pub struct RuleBlock {
     sort: TermSort,
     configuration: bool,
-    imports: Vec<RuleImport>,
+    imports: Vec<ItemUse>,
     clauses: Vec<RuleClause>,
 }
 
@@ -1333,9 +1305,10 @@ impl RuleBlock {
         self.configuration
     }
 
-    /// Returns block-local enum imports in authored order.
+    /// Returns the block's `use` items in authored order. Every path of the
+    /// block resolves with them in scope, as the same items would in Rust.
     #[must_use]
-    pub fn imports(&self) -> &[RuleImport] {
+    pub fn imports(&self) -> &[ItemUse] {
         &self.imports
     }
 
@@ -1370,22 +1343,12 @@ impl RuleBlock {
         }
         input.parse::<Token![;]>()?;
 
+        // Any number of `use` items, which resolve the block's paths as
+        // Rust resolves a scope's paths: an explicit import shadows a glob,
+        // and a name two globs supply is ambiguous only where it is used.
         let mut imports = Vec::new();
         while input.peek(Token![use]) {
-            let item: ItemUse = input.parse()?;
-            let (owner, variant) = enum_glob_owner(&item)?;
-            if !imports.is_empty() {
-                return Err(syn::Error::new(
-                    item.span(),
-                    "a readable term-rule block accepts exactly one enum glob import",
-                )
-                .into());
-            }
-            imports.push(RuleImport {
-                item,
-                owner,
-                variant,
-            });
+            imports.push(input.parse::<ItemUse>()?);
         }
 
         let mut clauses = Vec::new();
@@ -1616,15 +1579,6 @@ impl RuleBlock {
                 .error("a readable rule block requires at least one clause")
                 .into());
         }
-        if !configuration.unwrap_or(false)
-            && imports.iter().any(|import| import.variant().is_some())
-        {
-            return Err(syn::Error::new(
-                imports[0].item().span(),
-                "a `for Sort` rule table accepts only `use Enum::*;` imports",
-            )
-            .into());
-        }
         Ok(Self {
             sort,
             configuration: configuration.unwrap_or(false),
@@ -1688,9 +1642,9 @@ impl ClaimBlock {
         self.block.sort()
     }
 
-    /// Returns block-local enum imports in authored order.
+    /// Returns the block's `use` items in authored order.
     #[must_use]
-    pub fn imports(&self) -> &[RuleImport] {
+    pub fn imports(&self) -> &[ItemUse] {
         self.block.imports()
     }
 
@@ -1843,29 +1797,6 @@ pub(super) fn take_claim_clause_attribute(
         )
     })?;
     Ok((claim, retained))
-}
-
-fn enum_glob_owner(item: &ItemUse) -> syn::Result<(Path, Option<Ident>)> {
-    fn visit(tree: &UseTree, segments: &mut Vec<Ident>) -> syn::Result<Option<Ident>> {
-        match tree {
-            UseTree::Path(path) => {
-                segments.push(path.ident.clone());
-                visit(&path.tree, segments)
-            }
-            UseTree::Glob(_) if !segments.is_empty() => Ok(None),
-            UseTree::Name(name) if !segments.is_empty() => Ok(Some(name.ident.clone())),
-            _ => Err(syn::Error::new(
-                tree.span(),
-                "readable rules accept only `use Enum::*;` or `use Enum::Variant;` imports",
-            )),
-        }
-    }
-
-    let mut segments = Vec::new();
-    let variant = visit(&item.tree, &mut segments)?;
-    let leading = item.leading_colon;
-    let owner = syn::parse2(quote!(#leading #(#segments)::*))?;
-    Ok((owner, variant))
 }
 
 #[cfg(test)]

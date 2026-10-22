@@ -427,6 +427,8 @@ fn __krs_let_sort_8bbc915b1758017d_0() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_8bbc915b1758017d_1() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use ExpSyntax::*;
     ::core::any::TypeId::of::<int::gt>()
 }
 #[doc(hidden)]

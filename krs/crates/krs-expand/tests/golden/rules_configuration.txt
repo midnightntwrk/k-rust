@@ -701,6 +701,8 @@ fn __krs_head_rule_refinement_a0220d7369180fb2_1() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_a0220d7369180fb2_0() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use StmtSyntax::Assign;
     ::core::any::TypeId::of::<StmtSyntax>()
 }
 #[doc(hidden)]
@@ -735,7 +737,11 @@ fn __krs_head_rule_descriptor_a0220d7369180fb2() -> ::core::result::Result<
                         owner: ::k::HostTypeKey(
                             __krs_rule_application_a0220d7369180fb2_0,
                         ),
-                        marker: ::k::HostTypeKey(StmtSyntax::__krs_variant_type_id_Swap),
+                        marker: ::k::HostTypeKey({
+                            #[allow(unused_imports, clippy::enum_glob_use)]
+                            use StmtSyntax::Assign;
+                            StmtSyntax::__krs_variant_type_id_Swap
+                        }),
                     },
                 ],
             },

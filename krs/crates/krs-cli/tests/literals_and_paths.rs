@@ -269,3 +269,95 @@ fn a_suffixed_literal_is_rejected_whatever_its_radix() {
     "#]]
     .assert_debug_eq(&check_errors(target.path(), &manifest));
 }
+
+/// A second constructor enum whose `Load` shares a name with `ExpSyntax`'s.
+const SECOND_ENUM: &str = r#"
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Boxed {
+    #[k::syntax("boxed({n})")]
+    Box { n: Int },
+    #[k::syntax("fetch({n})")]
+    Load { n: Int },
+}
+"#;
+
+/// A rule block importing from two enums, written once with `use` items and
+/// once with every head qualified.
+fn imports(imported: bool) -> String {
+    let block = if imported {
+        "k::rules! {
+    for Exp;
+    use ExpSyntax::*;
+    use Boxed::*;
+    use Boxed::Load;
+    use ExpSyntax::{Mask, Twice};
+
+    boxed: Box(n)  => Twice(n);
+    fetch: Load(n) => Mask(n);
+}
+"
+    } else {
+        "k::rules! {
+    for Exp;
+
+    boxed: Boxed::Box(n)  => ExpSyntax::Twice(n);
+    fetch: Boxed::Load(n) => ExpSyntax::Mask(n);
+}
+"
+    };
+    format!("{SECOND_ENUM}{block}")
+}
+
+/// A block may hold any number of `use` items, which resolve its paths as
+/// Rust resolves them: two globs supply every variant of both enums, the
+/// explicit `use Boxed::Load` shadows the glob's `ExpSyntax::Load`, and a
+/// grouped import names its variants, so the rules are the ones
+/// written with qualified heads.
+#[test]
+fn a_block_resolves_its_paths_through_every_use_item() {
+    let target = shared_fixture_target();
+    let imported = temp_dir();
+    let qualified = temp_dir();
+    let imported_manifest = package(imported.path(), &imports(true));
+    let qualified_manifest = package(qualified.path(), &imports(false));
+    let emitted = emitted_k(target.path(), &imported_manifest);
+    assert_eq!(emitted, emitted_k(target.path(), &qualified_manifest));
+    assert!(emitted.contains("rule [fetch]:"), "{emitted}");
+    assert!(emitted.contains("fetch ( N:Int )"), "{emitted}");
+}
+
+/// A name two glob imports supply is ambiguous only where a path uses it,
+/// and rustc's error names both imports.
+#[test]
+fn a_name_two_globs_supply_is_an_error_naming_both_imports() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        &format!(
+            "{SECOND_ENUM}k::rules! {{\n    for Exp;\n    use ExpSyntax::*;\n    use Boxed::*;\n    boxed: Box(n) => Twice(n);\n    fetch: Load(n) => n;\n}}\n"
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success, "krs check unexpectedly passed:\n{stderr}");
+    let directory = format!("{}/", manifest.parent().unwrap().display());
+    let lines = stderr
+        .lines()
+        .filter(|line| {
+            line.starts_with("error")
+                || line.trim_start().starts_with("--> ")
+                || line.trim_start().starts_with("= note")
+        })
+        .map(|line| line.trim().replace(&directory, ""))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "error[E0659]: `Load` is ambiguous",
+            "--> src/lib.rs:75:12",
+            "= note: ambiguous because of multiple glob imports of a name in the same module",
+            "= note: `Load` could refer to the variant imported here (src/lib.rs:72:9)",
+            "= note: `Load` could also refer to the variant imported here (src/lib.rs:73:9)",
+        ]
+    "#]]
+    .assert_debug_eq(&lines);
+}

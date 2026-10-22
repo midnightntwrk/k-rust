@@ -423,6 +423,8 @@ fn __krs_head_rule_sort_3b5c6a3778ee4efc() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_3b5c6a3778ee4efc_0() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use ExpSyntax::*;
     ::core::any::TypeId::of::<bool::not>()
 }
 #[doc(hidden)]

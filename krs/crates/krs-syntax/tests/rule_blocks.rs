@@ -52,7 +52,10 @@ fn imp_expression_table_reuses_the_structured_rule_grammar() {
 
     assert_eq!(block.sort().sort_token_text(), "Expr");
     assert_eq!(block.imports().len(), 1);
-    assert_eq!(block.imports()[0].owner().segments[0].ident, "Op");
+    assert_eq!(
+        block.imports()[0].to_token_stream().to_string(),
+        "use Op :: * ;"
+    );
     assert_eq!(block.clauses().len(), 18);
     assert_eq!(block.clauses()[10].narrowings().len(), 2);
     assert_eq!(block.clauses()[10].narrowings()[0].binding(), "lhs");
@@ -288,8 +291,10 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
 
     assert!(block.is_configuration());
     assert_eq!(block.sort().sort_token_text(), "Machine");
-    assert_eq!(block.imports()[0].owner().segments[0].ident, "StmtSyntax");
-    assert_eq!(block.imports()[0].variant().unwrap(), "Assign");
+    assert_eq!(
+        block.imports()[0].to_token_stream().to_string(),
+        "use StmtSyntax :: Assign ;"
+    );
     assert_eq!(
         block.clauses()[0].computation_cell().unwrap(),
         "computation"
@@ -451,10 +456,6 @@ fn malformed_blocks_fail_at_the_local_construct() {
     for (source, expected) in [
         ("for Expr;", "requires at least one clause"),
         ("for Expr in k; x: X => X;", "not implemented yet"),
-        (
-            "for Expr; use Op::Add; x: Add(a, b) => a;",
-            "only `use Enum::*;`",
-        ),
         (
             "for Expr; x: Add(a, b) => a where absent: Int;",
             "unbound subject binding",

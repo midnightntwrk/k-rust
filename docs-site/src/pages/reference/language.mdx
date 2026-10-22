@@ -36,8 +36,9 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::symbol("public::Name")]` | pinned public identity and K symbol for a sort, a standalone constructor, or a family variant; on a struct or trait place it immediately before that KRS declaration attribute, on a variant anywhere among its helpers | [Composition](/advanced/composition) |
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
-A `k::rules!` block's `use Enum::*;` (or `use Enum::Variant;`) is a Rust import in the block's scope: rustc resolves every unqualified path of the block through it and the enclosing module, so the import supplies the names the enum defines and nothing else.
-A crate function, a constructor the module imports, or a builtin operation the module renames (`use k::builtin::map::update as set;`) is written bare, without `crate::`, and a variant of the enum wins over a crate item of the same name, as an inner glob import shadows an outer item in Rust.
+The `use` items at the top of a `k::rules!` or `k::claims!` block (`use Instruction::*;`, `use Value::{Integer, Undefined};`, as many as it needs) are Rust imports in the block's scope: rustc resolves every path of the block through them and the enclosing module, so each import supplies the names it imports and nothing else.
+A crate function, a constructor the module imports, or a builtin operation the module renames (`use k::builtin::map::update as set;`) is written bare, without `crate::`, and an imported variant wins over a crate item of the same name, as an inner glob import shadows an outer item in Rust.
+The imports combine as Rust's do: an explicit `use Boxed::Load;` shadows the `Load` a glob brings in, and a name two globs both supply is ambiguous only where the block uses it, where rustc's error (`E0659`) names both imports.
 
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
 Constructor families put `#[k::constructors(sort = ..., result = ...)]` (readable) or `#[k::constructors(sort = ..., reference)]` on an enum and attach syntax to its variants; every variant constructs `sort` itself, and the enum is not a sort.

@@ -271,17 +271,15 @@ pub(super) struct TermBuilder<'a> {
     let_scopes: Vec<Vec<Ident>>,
     /// `ml::exists` closure ordinals, side-neutral (KF-039).
     pub(super) ml_binder_ordinal: u32,
-    /// The block's authored `use Enum::*;` (or `use Enum::Variant;`). Every
-    /// one-segment path in the block resolves through rustc with it in
-    /// scope, as the author's Rust would: the import supplies only the names
-    /// it imports, so `Frame { .. }` names a variant when the enum has one
-    /// and the `#[k::cell]` struct otherwise (KF-016, KF-023), and a crate
-    /// function the enum lacks resolves in the enclosing module.
-    enum_import_item: Option<&'a syn::ItemUse>,
     lexical_rule_head: bool,
-    /// The `use` items of a `k::equations!` table: rustc resolves every
-    /// one-segment application path through them, as the author's Rust
-    /// would with those items in scope.
+    /// The `use` items of a `k::equations!` table or a readable block: rustc
+    /// resolves every one-segment path through them, as the author's Rust
+    /// would with those items in scope. An import supplies only the names it
+    /// imports, so `Frame { .. }` names a variant when an imported enum has
+    /// one and the `#[k::cell]` struct otherwise (KF-016, KF-023), a crate
+    /// function no import supplies resolves in the enclosing module, an
+    /// explicit import shadows a glob, and a name two globs supply is
+    /// rustc's ambiguity error where it is used.
     lexical_imports: Option<&'a [syn::ItemUse]>,
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether `k::rewrite!` is admitted: the subject of a single-body rule
@@ -328,7 +326,6 @@ impl<'a> TermBuilder<'a> {
             let_pattern_binders: None,
             let_scopes: Vec::new(),
             ml_binder_ordinal: 0,
-            enum_import_item: None,
             lexical_rule_head: false,
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
@@ -425,8 +422,8 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
-    /// Resolves every one-segment application path through rustc with
-    /// `imports` in scope (a `k::equations!` table).
+    /// Resolves every one-segment path through rustc with `imports` in
+    /// scope (a `k::equations!` table or a readable block's `use` items).
     pub(super) const fn with_lexical_imports(
         mut self,
         imports: Option<&'a [syn::ItemUse]>,
@@ -437,13 +434,6 @@ impl<'a> TermBuilder<'a> {
 
     pub(super) fn with_lexical_rule_head(mut self, enabled: bool) -> Self {
         self.lexical_rule_head = enabled;
-        self
-    }
-
-    /// Records the block's authored enum import, through which rustc
-    /// resolves every one-segment path of the block.
-    pub(super) const fn with_enum_import_item(mut self, item: Option<&'a syn::ItemUse>) -> Self {
-        self.enum_import_item = item;
         self
     }
 
@@ -701,7 +691,7 @@ impl<'a> TermBuilder<'a> {
                 let application_ordinal = take_counter(&mut self.counters.application)?;
                 let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
                 let key = wire_key(side.role(TermRole::ApplicationHead), application_ordinal);
-                let lexical = if self.lexical_imports.is_some() || self.enum_import_item.is_some() {
+                let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
                         && application.head().segments.len() == 1
@@ -1420,7 +1410,7 @@ impl<'a> TermBuilder<'a> {
     }
 
     fn take_lexical_rule_head(&mut self, path: &Path) -> bool {
-        if self.lexical_imports.is_some() || self.enum_import_item.is_some() {
+        if self.lexical_imports.is_some() {
             return path.leading_colon.is_none() && path.segments.len() == 1;
         }
         let enabled = ::core::mem::take(&mut self.lexical_rule_head);
@@ -1442,16 +1432,11 @@ impl<'a> TermBuilder<'a> {
         // `A { .. }` makes rustc report the unresolved name.
         let pattern = quote!(#path { .. });
         let facade = self.facade;
-        // A path under the block's enum import repeats the import, so `Frame`
-        // names the variant when the enum has one and the item in scope
-        // otherwise, as in the author's Rust.
-        let import = self
-            .enum_import_item
-            .into_iter()
-            .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
+        // The path is resolved with the block's or table's `use` items in
+        // scope, so `Frame` names the variant when an imported enum has one
+        // and the item in scope otherwise, as in the author's Rust.
         let imports = self.lexical_import_items();
         quote! {{
-            #(#import)*
             #imports
             let __krs_rule_application_witness: ::core::option::Option<_> =
                 ::core::option::Option::None;
