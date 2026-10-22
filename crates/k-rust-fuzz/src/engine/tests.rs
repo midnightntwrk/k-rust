@@ -1891,6 +1891,118 @@ fn guided_proposers_together_spend_at_most_half_of_the_cases_and_work_over_every
     }
 }
 
+/// A guided proposer of share 1/4 that, like the solve proposer, spends work outside cases: every
+/// other call it charges `extra` work and answers no proposal (it may propose later), and the
+/// call after that proposes a case.
+struct Solving {
+    extra: u64,
+    pending: u64,
+    calls: u64,
+    charged: std::rc::Rc<std::cell::Cell<u64>>,
+}
+
+impl Proposer for Solving {
+    fn kind(&self) -> ProposerKind {
+        ProposerKind::Solve
+    }
+
+    fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
+        self.calls += 1;
+        if self.calls % 2 == 1 {
+            self.pending = self.extra;
+            None
+        } else {
+            Some(Proposal::plain(
+                Origin::Scheduled(ProposerKind::Solve),
+                vec![int(9)],
+            ))
+        }
+    }
+
+    fn observe(&mut self, _proposal: &Proposal, _observation: &Observation, _interesting: bool) {}
+
+    fn budget_share(&self) -> Option<(u32, u32)> {
+        Some((1, 4))
+    }
+
+    fn may_propose_later(&self) -> bool {
+        true
+    }
+
+    fn take_extra_work(&mut self) -> u64 {
+        let extra = std::mem::take(&mut self.pending);
+        self.charged.set(self.charged.get() + extra);
+        extra
+    }
+}
+
+#[test]
+fn the_joint_share_counts_the_solve_proposers_share_and_its_work_outside_cases() {
+    // Blind 1, climb 4, solve 4, the solve proposer's failed runs charging 40 work each. Over
+    // every prefix the guided proposers together stay within half of the cases and of the work,
+    // the solve proposer's runs included, also when the climb is drawn right after a run that
+    // gave no case; and the solve proposer within its own quarter.
+    let charged = std::rc::Rc::new(std::cell::Cell::new(0));
+    let mut schedule = Schedule::new(
+        21,
+        Vec::new(),
+        vec![
+            (1, Counter::boxed(ProposerKind::Blind, 0, 1)),
+            (
+                4,
+                Box::new(Sharing {
+                    kind: ProposerKind::Climb,
+                    share: Some((1, 2)),
+                    ready_after: 0,
+                    seen: std::rc::Rc::default(),
+                }),
+            ),
+            (
+                4,
+                Box::new(Solving {
+                    extra: 40,
+                    pending: 0,
+                    calls: 0,
+                    charged: std::rc::Rc::clone(&charged),
+                }),
+            ),
+        ],
+    );
+    let (mut cases, mut case_work) = (0u64, 0u64);
+    let (mut guided_cases, mut guided_case_work, mut solve_cases) = (0u64, 0u64, 0u64);
+    let mut kinds = std::collections::BTreeSet::new();
+    for _ in 0..600 {
+        let proposal = schedule.next().expect("blind never runs out");
+        // A call that proposes charges nothing, so every run charged so far preceded this draw.
+        let (work, guided_work) = (case_work + charged.get(), guided_case_work + charged.get());
+        let guided = proposal.origin != Origin::Scheduled(ProposerKind::Blind);
+        if guided {
+            kinds.insert(proposal.origin);
+            assert!(
+                2 * (guided_cases + 1) <= cases + 1,
+                "cases {guided_cases}/{cases}"
+            );
+            assert!(2 * guided_work <= work, "work {guided_work}/{work}");
+        }
+        if proposal.origin == Origin::Scheduled(ProposerKind::Solve) {
+            assert!(
+                4 * (solve_cases + 1) <= cases + 1,
+                "solve {solve_cases}/{cases}"
+            );
+            solve_cases += 1;
+        }
+        cases += 1;
+        case_work += 1;
+        if guided {
+            guided_cases += 1;
+            guided_case_work += 1;
+        }
+        schedule.observe(&proposal, &observed(1), false);
+    }
+    assert_eq!(kinds.len(), 2, "both guided proposers ran");
+    assert!(charged.get() > 0, "the solve proposer charged work");
+}
+
 #[test]
 fn a_proposer_that_is_not_ready_waits_without_leaving_the_schedule() {
     let seen = std::rc::Rc::default();
