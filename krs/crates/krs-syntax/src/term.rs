@@ -1453,6 +1453,11 @@ pub(crate) fn validate_pattern_as(
         range: TokenRange::for_tokens(identifier)?,
     });
     let pattern = validate(subpattern, nodes)?;
+    if let Some(last) = trailing_negative_literal_end(subpattern, &nodes[index + 1..])
+        && let TermNode::As { range, .. } = &mut nodes[index]
+    {
+        *range = TokenRange::new(range.first(), last);
+    }
     for node in &nodes[index + 1..] {
         let inner = match node {
             TermNode::Reference(path) => path.get_ident(),
@@ -1473,6 +1478,31 @@ pub(crate) fn validate_pattern_as(
     Ok(TermTree::As {
         binding: name.clone(),
         pattern: Box::new(pattern),
+    })
+}
+
+/// Where a pattern that ends with a negative literal ends: at the literal's
+/// digits. syn joins `-1` into one token whose span, in a compiler host,
+/// covers only the `-`, so the span of the pattern's last token ends early
+/// there; the literal's validated range carries the scanned digit span.
+fn trailing_negative_literal_end(pattern: &Pat, nodes: &[TermNode]) -> Option<Span> {
+    fn ends_negative(pattern: &Pat) -> bool {
+        match pattern {
+            Pat::Lit(literal) => literal.lit.to_token_stream().to_string().starts_with('-'),
+            Pat::Or(or) => or.cases.last().is_some_and(ends_negative),
+            Pat::Ident(identifier) => identifier
+                .subpat
+                .as_ref()
+                .is_some_and(|(_, subpattern)| ends_negative(subpattern)),
+            _ => false,
+        }
+    }
+    if !ends_negative(pattern) {
+        return None;
+    }
+    nodes.iter().rev().find_map(|node| match node {
+        TermNode::Literal(literal) => literal.range().ok().map(TokenRange::last),
+        _ => None,
     })
 }
 
@@ -1522,6 +1552,7 @@ pub(crate) fn validate_pattern_or(
 ) -> Result<(TermTree, Vec<syn::Ident>), SyntaxError> {
     reject_attributes(&or.attrs, or.span())?;
     let range = TokenRange::for_tokens(or)?;
+    let index = nodes.len();
     nodes.push(TermNode::Or(range));
     let mut trees = Vec::with_capacity(or.cases.len());
     let mut bound = Vec::with_capacity(or.cases.len());
@@ -1555,6 +1586,13 @@ pub(crate) fn validate_pattern_or(
             spellings.insert(spelling);
         }
         bound.push(spellings);
+    }
+    if let Some(last) = or
+        .cases
+        .last()
+        .and_then(|case| trailing_negative_literal_end(case, &nodes[index + 1..]))
+    {
+        nodes[index] = TermNode::Or(TokenRange::new(range.first(), last));
     }
     for name in &names {
         let spelling = syn::ext::IdentExt::unraw(name).to_string();
