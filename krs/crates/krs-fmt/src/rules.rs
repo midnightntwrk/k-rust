@@ -996,6 +996,31 @@ mod tests {
     }
 
     #[test]
+    fn radix_literals_keep_their_spelling_and_format_idempotently() {
+        let source = r"
+            for Expr;
+            use Op::*;
+
+            load_if:Load(0xFF0F)=>0b1010_0101;
+            negative: Sgn(-0x10) => 0o17;
+        ";
+        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Expr;
+                use Op::*;
+
+                load_if : Load(0xFF0F) => 0b1010_0101;
+                negative: Sgn(-0x10)   => 0o17;"]]
+        .assert_eq(&actual);
+        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(again, output);
+    }
+
+    #[test]
     #[expect(
         clippy::unicode_not_nfc,
         reason = "Decomposed labels exercise zero-width combining marks."

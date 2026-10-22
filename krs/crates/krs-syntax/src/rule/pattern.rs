@@ -784,7 +784,7 @@ pub(crate) fn validate_pattern_literal(
     }
     let literal = match &literal.lit {
         syn::Lit::Int(integer)
-            if crate::term::is_unsuffixed_decimal(integer)
+            if crate::term::is_unsuffixed_integer(integer)
                 && integer.base10_digits().starts_with('-')
                 && crate::term::is_zero(integer) =>
         {
@@ -795,7 +795,7 @@ pub(crate) fn validate_pattern_literal(
         }
         // syn reads a negative literal pattern such as `-1` as one signed token.
         syn::Lit::Int(integer)
-            if crate::term::is_unsuffixed_decimal(integer)
+            if crate::term::is_unsuffixed_integer(integer)
                 && integer.base10_digits().starts_with('-') =>
         {
             let (minus, digits) = signs
@@ -803,7 +803,7 @@ pub(crate) fn validate_pattern_literal(
                 .unwrap_or_else(|| (integer.span(), integer.span()));
             TermLiteral::Integer(IntegerLiteral::negative(integer.clone(), minus, digits))
         }
-        syn::Lit::Int(integer) if crate::term::is_unsuffixed_decimal(integer) => {
+        syn::Lit::Int(integer) if crate::term::is_unsuffixed_integer(integer) => {
             TermLiteral::Integer(IntegerLiteral::unsigned(integer.clone())?)
         }
         syn::Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
@@ -830,7 +830,7 @@ pub(crate) fn validate_pattern_literal(
         }
         syn::Lit::Int(_) => {
             return Err(unsupported_pattern(
-                "only unsuffixed decimal Int (optionally negative), Bool, and String literals are term patterns",
+                "only unsuffixed Int (decimal, 0x hex, 0o octal, or 0b binary; optionally negative), Bool, String, and Float literals are term patterns",
                 literal.span(),
             ));
         }

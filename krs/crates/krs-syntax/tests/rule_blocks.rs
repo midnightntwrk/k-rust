@@ -649,6 +649,63 @@ fn readable_patterns_and_results_accept_negative_int_literals() {
     assert_eq!(right.1 - right.0, 2);
 }
 
+fn integer_values(nodes: &[krs_syntax::TermNode]) -> Vec<String> {
+    nodes
+        .iter()
+        .filter_map(|node| match node {
+            krs_syntax::TermNode::Literal(krs_syntax::TermLiteral::Integer(literal)) => {
+                Some(literal.base10_digits().to_owned())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn readable_patterns_and_results_accept_int_literals_in_every_radix() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Expr;
+        use Op::*;
+
+        hex:    Load(0xFF0F)     => 0o17;
+        binary: Load(0b1010_0101) => -0x10;
+        wide:   Load(-0x1_0000_0000_0000_0000_0000_0000_0000_0000)
+                                 => 0x1_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+        ",
+    )
+    .unwrap();
+    let values = |index: usize| {
+        let rule = block.clauses()[index].rule();
+        let mut values = integer_values(rule.parameter().pattern.nodes());
+        values.extend(integer_values(rule.result().unwrap().nodes()));
+        values
+    };
+    assert_eq!(values(0), ["65295", "15"]);
+    assert_eq!(values(1), ["165", "-16"]);
+    assert_eq!(
+        values(2),
+        [
+            "-340282366920938463463374607431768211456",
+            "115792089237316195423570985008687907853269984665640564039457584007913129639936",
+        ]
+    );
+}
+
+#[test]
+fn readable_patterns_reject_suffixed_and_negative_zero_radix_literals() {
+    for (source, expected) in [
+        ("x: Load(0xFFu8) => 0;", "0x hex"),
+        ("x: Load(0) => 0b1i64;", "0x hex"),
+        ("x: Load(-0x0) => 0;", "write 0"),
+        ("x: Load(0) => -0b0;", "write 0"),
+    ] {
+        let source = format!("for Expr; use Op::*; {source}");
+        let error = krs_syntax::RuleBlock::parse_source(&source).unwrap_err();
+        assert!(error.to_string().contains(expected), "{source}: {error}");
+    }
+}
+
 #[test]
 fn readable_patterns_reject_negative_zero() {
     let error = krs_syntax::RuleBlock::parse_source(

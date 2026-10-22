@@ -857,16 +857,21 @@ The claim-only boundary is enforced during macro expansion rather than being a s
 
 | Rust literal | K token |
 | --- | --- |
-| unsuffixed decimal integer `N` (with `_` separators) | `Int` |
+| unsuffixed integer `N` in decimal, `0x` hex, `0o` octal, or `0b` binary (with `_` separators) | `Int` |
 | `-N` on an unsuffixed integer | signed `Int` |
 | `true`, `false` | `Bool` |
 | `"..."` and raw `r"..."` | `String` |
 | float literal, optionally suffixed `f32`, `f64`, or K's `pNxM`; `-` on it | `Float` |
 | `f32::`/`f64::` `NAN`, `INFINITY`, `NEG_INFINITY` | `Float` |
 
-The sign belongs to the literal: `-1` is one K `Int` token wherever a term may appear, in patterns as well as results, so `Sgn(-1)` and `Div { lhs, rhs: -1 }` match it.
+An integer literal denotes one integer whatever its radix, so the radix is spelling: `0xFF0F`, `0o177417`, `0b1111_1111_0000_1111`, and `65295` are the same `Int`, K receives it in decimal, and a table keyed by `0xFF0F` matches `65295`.
+K's integers are unbounded, so a literal wider than any Rust integer type, such as `0x1_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000` (2^256), is still one literal.
+A suffix names a Rust width, which K's `Int` does not have, so `0xFFu8` is rejected as `255u8` is.
+`k::bits!("..")` is not a radix: a [bit template](#bit-templates) has fields and wildcards, while `0b0100_1000` is one value.
+
+The sign belongs to the literal: `-1` is one K `Int` token wherever a term may appear, in patterns as well as results, so `Sgn(-1)` and `Div { lhs, rhs: -1 }` match it; `-0x10` is `-16`.
 A literal is a value; `int::sub(0, 3)` is a call and cannot be matched as `-3`.
-A minus on anything but a literal (`-x`, `-(1)`, `--1`) is the [negation operator](#operator-and-method-notation): K has no unary minus on `Int`, so on an `Int` it is `int::sub(0, x)`, and on a `Float` it is `float::neg(x)`; `-0` is rejected in favour of `0`.
+A minus on anything but a literal (`-x`, `-(1)`, `--1`) is the [negation operator](#operator-and-method-notation): K has no unary minus on `Int`, so on an `Int` it is `int::sub(0, x)`, and on a `Float` it is `float::neg(x)`; `-0` (or `-0x0`) is rejected in favour of `0`.
 Rules lex `-1` with K's signed `INT-SYNTAX` even in a package with `int-literals = "unsigned"`, where a program's `-1` is instead a unary minus applied to `1`.
 
 A string literal is a K `String` token, in patterns as well as results, so `Greet("world")` matches it.
