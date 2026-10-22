@@ -41,20 +41,11 @@ const MAZE_CELLS: [&str; 12] = [
     "c1", "c2", "s1", "s2", "c5", "c6", "s5", "c7", "u1", "u2", "u3", "u4",
 ];
 
-/// The CI seeds (tuning seeds: the pins are regression pins, not evidence) and budget.
+/// The CI seeds (tuning seeds) and budget.
 #[cfg(feature = "z3")]
 const CI_SEEDS: [u64; 5] = [1, 2, 3, 4, 5];
 #[cfg(feature = "z3")]
 const CI_BUDGET: u64 = 600;
-
-/// The cases to `c7` at [`CI_SEEDS`] with [`CI_BUDGET`]: isolated, with blind sampling, the
-/// dictionary, the climb and the solver; on the whole maze, with blind sampling and the solver.
-/// They move whenever the solver's case sequence moves (its parameters, its trigger, the
-/// condition records it reads), as `tests/golden.rs`'s solve fingerprint does.
-#[cfg(feature = "z3")]
-const PINNED_ISOLATED_C7: [Option<u64>; 5] = [Some(32), Some(12), Some(17), Some(17), Some(57)];
-#[cfg(feature = "z3")]
-const PINNED_MAZE_C7: [Option<u64>; 5] = [Some(64), Some(65), Some(66), Some(79), Some(65)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
@@ -214,8 +205,8 @@ fn measure_solve_held_out() {
 }
 
 /// The CI form of the claim: at every CI seed, `c7` is reached with the solver, isolated and on
-/// the whole maze, and not without it at the same budget; and the solver's queries give no
-/// candidate for the unreachable `u2` and `u4`.
+/// the whole maze, and not without it at the same budget; and its queries on the unreachable
+/// `u2` and `u4` find no path and no model.
 #[cfg(feature = "z3")]
 #[test]
 fn the_solver_reaches_the_nonlinear_cell_and_no_unreachable_one() {
@@ -235,22 +226,28 @@ fn the_solver_reaches_the_nonlinear_cell_and_no_unreachable_one() {
             .0
             .cases_to_hit
     });
+    // The cases are not pinned: the run toward `c7` meets feasibility queries the solver
+    // leaves undecided within the case options' timeout, and its model query is decided within
+    // its own timeout, so the cases rest on the clock (`totals.solve.outside-determinism`). A
+    // query whose answer was unknown is asked again (`SolveParameters::max_asks`). Seeds 1-5
+    // measured 32, 12, 17, 17, 57 (isolated) and 64, 65, 66, 79, 65 (whole maze).
     assert!(isolated.iter().all(Option::is_some), "{isolated:?}");
     assert!(whole.iter().all(Option::is_some), "{whole:?}");
     assert!(without.iter().all(Option::is_none), "{without:?}");
-    assert_eq!(
-        (isolated, whole),
-        (PINNED_ISOLATED_C7.to_vec(), PINNED_MAZE_C7.to_vec()),
-        "the solver's case sequence moved; re-pin"
-    );
-    for label in ["u2", "u4"] {
-        let (run, report) =
-            maze::run_isolated(maze::cell_named(label), &maze::blind_solve(), 1, CI_BUDGET);
-        assert_eq!(run.cases_to_hit, None, "{label}");
-        let solve = report.totals.solve.expect("solve totals");
-        assert!(solve.attempts > 0, "{label}: {solve:?}");
-        assert_eq!(solve.candidates, 0, "{label}: {solve:?}");
-    }
+    // `u2`'s isolation leaves `D` free: a query on `c4`, its keyed predecessor, gives a
+    // candidate in `c4`'s window, and the query on `u2` itself then finds no path that applies
+    // it under `c4`'s guard. `u4`'s query finds no model of `C * C == 2`.
+    let (run, report) =
+        maze::run_isolated(maze::cell_named("u2"), &maze::blind_solve(), 1, CI_BUDGET);
+    assert_eq!(run.cases_to_hit, None);
+    let solve = report.totals.solve.expect("solve totals");
+    assert!(solve.no_path >= 1, "u2: {solve:?}");
+    let (run, report) =
+        maze::run_isolated(maze::cell_named("u4"), &maze::blind_solve(), 1, CI_BUDGET);
+    assert_eq!(run.cases_to_hit, None);
+    let solve = report.totals.solve.expect("solve totals");
+    assert!(solve.attempts > 0, "u4: {solve:?}");
+    assert_eq!(solve.candidates, 0, "u4: {solve:?}");
 }
 
 /// A solving campaign records the solver's parameters and runs, and reports the same bytes

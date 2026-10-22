@@ -22,7 +22,7 @@
 //! where a rule has no keyed predecessor, all its predecessors), ranked by the rule's distance
 //! to the target, then by the entry's guard distance. The cases of a solving campaign record
 //! the condition entries of every chain rule. When the search stalls and the blocked case gives
-//! a query not asked before ([`Query::key`]), the proposer is ready, and the schedule draws it
+//! a query not settled before ([`Query::key`]), the proposer is ready, and the schedule draws it
 //! by its weight within its share of the budget. A candidate that passes a chain rule's guard
 //! moves the blocked case one rule nearer the target, so on a corridor of guards the proposer
 //! solves them one by one.
@@ -57,8 +57,12 @@
 //! `cancelled` leaf) carries the path condition and the rule's condition in its constraint. For
 //! each such leaf, up to [`SOLVE_MAX_MODEL_QUERIES`], `Backend::get_model` asks for a model of
 //! its constraint; the first satisfiable one gives the symbolic holes' values
-//! ([`model_values`]), and a hole the model leaves free keeps its value. The solver options are
-//! the case options' (`smt-timeout-ms`, `smt-retry-limit`).
+//! ([`model_values`]), and a hole the model leaves free keeps its value. The run's decisions use
+//! the case options' solver options (`smt-timeout-ms`, `smt-retry-limit`); the model queries run
+//! on a second fresh backend whose timeout is at least [`SOLVE_MODEL_TIMEOUT_MS`], since a model
+//! of a nonlinear guard is the work the proposer exists for (Z3 factors `c7`'s `2021027` in
+//! about 1.4 s). A query whose answer was unknown, or that a stop ended, may be asked again on a
+//! later stall, up to [`SOLVE_MAX_ASKS`] times; a decided query is never asked again.
 //!
 //! # Candidates
 //!
@@ -116,8 +120,8 @@ use crate::{
         proposer::{Observation, Origin, Proposal, ProposalContext, Proposer},
     },
     report::{
-        SOLVE_BUDGET_SHARE, SOLVE_MAX_MODEL_QUERIES, SOLVE_STALL_CASES, SOLVE_WORK_FACTOR,
-        SOLVE_WORK_SLACK, SolveTotals, Totals,
+        SOLVE_BUDGET_SHARE, SOLVE_MAX_ASKS, SOLVE_MAX_MODEL_QUERIES, SOLVE_MODEL_TIMEOUT_MS,
+        SOLVE_STALL_CASES, SOLVE_WORK_FACTOR, SOLVE_WORK_SLACK, SolveTotals, Totals,
     },
     score::Score,
     spec::{CaseOptions, ProposerKind},
@@ -401,7 +405,24 @@ enum BackendSource<'a> {
 struct RunInput<'a> {
     source: BackendSource<'a>,
     options: BackendOptions,
+    /// The options of the backend that answers the model queries.
+    model_options: BackendOptions,
     request: ExecuteRequest,
+}
+
+impl BackendSource<'_> {
+    /// A fresh backend over the source, with `options`.
+    fn backend(&self, options: BackendOptions) -> Result<Backend, String> {
+        match self {
+            BackendSource::Internalized(definition) => {
+                Backend::from_internalized(BackendDefinition::clone(definition), options)
+                    .map_err(|error| error.to_string())
+            }
+            BackendSource::Compiled(definition) => {
+                build_backend(definition, options).map_err(|error| error.to_string())
+            }
+        }
+    }
 }
 
 /// The unique ids of the rewrite steps on `leaf`'s path whose results exist: every `rewrite`
@@ -430,16 +451,7 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
         work: 0,
         outside_determinism,
     };
-    let backend = match input.source {
-        BackendSource::Internalized(definition) => {
-            Backend::from_internalized(BackendDefinition::clone(definition), input.options)
-                .map_err(|error| error.to_string())
-        }
-        BackendSource::Compiled(definition) => {
-            build_backend(definition, input.options).map_err(|error| error.to_string())
-        }
-    };
-    let mut backend = match backend {
+    let mut backend = match input.source.backend(input.options) {
         Ok(backend) => backend,
         Err(message) => return failed(message, false),
     };
@@ -469,6 +481,12 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
             outside_determinism,
         };
     }
+    // A model query is the solver's real work, so it gets a backend of its own with a longer
+    // timeout than the run's decisions ([`SOLVE_MODEL_TIMEOUT_MS`]).
+    let mut backend = match input.source.backend(input.model_options) {
+        Ok(backend) => backend,
+        Err(message) => return failed(message, false),
+    };
     let mut unknown = false;
     for leaf in arrived {
         work += 1;
@@ -589,8 +607,11 @@ pub(crate) struct SolveProposer {
     best: Option<Score>,
     stalled: u64,
     incumbent: Option<Incumbent>,
-    /// The keys of the queries asked ([`Query::key`]).
-    asked: BTreeSet<(String, Vec<usize>, Vec<Value>)>,
+    /// The keys of the queries asked ([`Query::key`]), with the times each was asked; a query
+    /// is asked again only after an undecided answer, up to [`SOLVE_MAX_ASKS`] times.
+    asked: BTreeMap<(String, Vec<usize>, Vec<Value>), u32>,
+    /// The keys of the queries whose answer was decided.
+    settled: BTreeSet<(String, Vec<usize>, Vec<Value>)>,
     ready: Option<Query>,
     extra_work: u64,
     totals: SolveTotals,
@@ -627,7 +648,8 @@ impl SolveProposer {
             best: None,
             stalled: 0,
             incumbent: None,
-            asked: BTreeSet::new(),
+            asked: BTreeMap::new(),
+            settled: BTreeSet::new(),
             ready: None,
             extra_work: 0,
             totals: SolveTotals::default(),
@@ -650,7 +672,9 @@ impl SolveProposer {
             symbolic,
             work: incumbent.work,
         };
-        (!self.asked.contains(&query.key())).then_some(query)
+        let key = query.key();
+        let asked = self.asked.get(&key).copied().unwrap_or(0);
+        (!self.settled.contains(&key) && asked < SOLVE_MAX_ASKS).then_some(query)
     }
 
     /// The initial state of `query`: the blocked case's configuration with the symbolic holes'
@@ -693,14 +717,21 @@ impl SolveProposer {
         self.totals.first_failure.get_or_insert(message);
     }
 
-    /// Ask `query`; the candidate values when its model gives admissible ones.
-    fn ask(&mut self, query: &Query) -> Option<Vec<Value>> {
+    /// Ask `query`; the candidate values when its model gives admissible ones, and whether the
+    /// answer was decided (not an unknown solver answer or a stop, after which the query may be
+    /// asked again).
+    fn ask(&mut self, query: &Query) -> (Option<Vec<Value>>, bool) {
+        let settled = |answer: &Answer, outside: bool| match answer {
+            Answer::Unknown => false,
+            Answer::Failed(_) => !outside,
+            Answer::Model(_) | Answer::NoPath | Answer::Unsatisfiable => true,
+        };
         self.totals.attempts += 1;
         let state = match self.state(query) {
             Ok(state) => state,
             Err(message) => {
                 self.fail(message);
-                return None;
+                return (None, true);
             }
         };
         let request = ExecuteRequest {
@@ -721,9 +752,14 @@ impl SolveProposer {
             Some(definition) => BackendSource::Internalized(definition),
             None => BackendSource::Compiled(self.builder.definition()),
         };
+        let options = self.options.backend.options();
         let input = RunInput {
             source,
-            options: self.options.backend.options(),
+            options,
+            model_options: BackendOptions {
+                smt_timeout_ms: options.smt_timeout_ms.max(SOLVE_MODEL_TIMEOUT_MS),
+                ..options
+            },
             request,
         };
         let outcome = run_isolated(
@@ -738,7 +774,8 @@ impl SolveProposer {
         if outcome.outside_determinism {
             self.totals.outside_determinism += 1;
         }
-        match outcome.answer {
+        let decided = settled(&outcome.answer, outcome.outside_determinism);
+        let candidate = match outcome.answer {
             Answer::Model(model) => {
                 let mut values = query.values.clone();
                 for (hole, value) in model {
@@ -778,7 +815,8 @@ impl SolveProposer {
                 self.fail(message);
                 None
             }
-        }
+        };
+        (candidate, decided)
     }
 }
 
@@ -809,8 +847,13 @@ impl Proposer for SolveProposer {
 
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
         let query = self.ready.take()?;
-        self.asked.insert(query.key());
-        let values = self.ask(&query)?;
+        let key = query.key();
+        *self.asked.entry(key.clone()).or_insert(0) += 1;
+        let (values, decided) = self.ask(&query);
+        if decided {
+            self.settled.insert(key);
+        }
+        let values = values?;
         Some(Proposal::plain(
             Origin::Scheduled(ProposerKind::Solve),
             values,

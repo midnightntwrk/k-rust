@@ -263,6 +263,7 @@ fn a_query_solves_the_nonlinear_guard_of_c7() {
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), Constraints::default());
     let candidate = solve
         .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
+        .0
         .unwrap_or_else(|| panic!("a candidate: {:?}", solve.totals));
     assert_eq!(candidate, values((1, 7, 1050), 1009, 2003));
     assert_eq!(solve.totals.candidates, 1);
@@ -285,13 +286,17 @@ fn a_query_conjoins_the_holes_declared_constraints() {
     };
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(2, 1000));
     assert_eq!(
-        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4])),
+        solve
+            .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
+            .0,
         None
     );
     assert_eq!(solve.totals.candidates, 0, "{:?}", solve.totals);
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(1009, 1009));
     assert_eq!(
-        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 1009, 9), vec![3, 4])),
+        solve
+            .ask(&query("MAZE.c7", values((1, 7, 1050), 1009, 9), vec![3, 4]))
+            .0,
         Some(values((1, 7, 1050), 1009, 2003))
     );
 }
@@ -302,13 +307,17 @@ fn a_query_conjoins_the_holes_declared_constraints() {
 fn a_query_finds_no_candidate_for_the_unreachable_cells() {
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u4"), Constraints::default());
     assert_eq!(
-        solve.ask(&query("MAZE.u4", values((1, 3, 1050), 8, 9), vec![1])),
+        solve
+            .ask(&query("MAZE.u4", values((1, 3, 1050), 8, 9), vec![1]))
+            .0,
         None
     );
     assert_eq!(solve.totals.candidates, 0, "{:?}", solve.totals);
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u2"), Constraints::default());
     assert_eq!(
-        solve.ask(&query("MAZE.u2", values((1, 7, 1050), 8, 9), vec![2])),
+        solve
+            .ask(&query("MAZE.u2", values((1, 7, 1050), 8, 9), vec![2]))
+            .0,
         None
     );
     assert_eq!(solve.totals.no_path, 1, "{:?}", solve.totals);

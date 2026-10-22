@@ -207,8 +207,13 @@ pub struct SolveParameters {
     pub work_factor: u64,
     /// See `work-factor`.
     pub work_slack: u64,
-    /// The most model queries per symbolic run, one per leaf that arrived by the blocked rule.
+    /// The most model queries per symbolic run, one per leaf whose path applied the blocked rule.
     pub max_model_queries: u32,
+    /// The least SMT timeout of a model query, in milliseconds; the case options' timeout when
+    /// it is longer. The run's own decisions use the case options' timeout.
+    pub model_timeout_ms: u32,
+    /// The most times one query is asked: again only after an unknown solver answer or a stop.
+    pub max_asks: u32,
     /// The hole sorts that are made symbolic: `Int` and `Bool`, which translate exactly to SMT.
     pub symbolic_sorts: Vec<String>,
     /// Which rules' condition entries the cases record: `target-and-keyed-chain`, the target,
@@ -230,6 +235,8 @@ impl SolveParameters {
             work_factor: SOLVE_WORK_FACTOR,
             work_slack: SOLVE_WORK_SLACK,
             max_model_queries: SOLVE_MAX_MODEL_QUERIES,
+            model_timeout_ms: SOLVE_MODEL_TIMEOUT_MS,
+            max_asks: SOLVE_MAX_ASKS,
             symbolic_sorts: vec!["Int".into(), "Bool".into()],
             condition_rules: "target-and-keyed-chain".into(),
             chain_radius: SOLVE_CHAIN_RADIUS,
@@ -245,6 +252,10 @@ pub(crate) const SOLVE_STALL_CASES: u64 = 8;
 pub(crate) const SOLVE_WORK_FACTOR: u64 = 4;
 /// [`SolveParameters::work_slack`].
 pub(crate) const SOLVE_WORK_SLACK: u64 = 64;
+/// [`SolveParameters::model_timeout_ms`].
+pub(crate) const SOLVE_MODEL_TIMEOUT_MS: u32 = 1000;
+/// [`SolveParameters::max_asks`].
+pub(crate) const SOLVE_MAX_ASKS: u32 = 3;
 /// [`SolveParameters::chain_radius`].
 pub(crate) const SOLVE_CHAIN_RADIUS: u64 = 8;
 /// [`SolveParameters::max_model_queries`].
@@ -258,7 +269,7 @@ pub struct SolveTotals {
     pub attempts: u64,
     /// Runs whose model gave admissible hole values, proposed as a case (counted in `cases`).
     pub candidates: u64,
-    /// Runs in which no leaf arrived by the blocked rule within the bounds.
+    /// Runs in which no leaf's path applied the blocked rule within the bounds.
     pub no_path: u64,
     /// Runs in which every leaf's model query answered unsatisfiable.
     pub unsatisfiable: u64,
