@@ -15,14 +15,18 @@
 //! so the proposer's work can exceed the share by the work of its last case, and no more. Since a draw that
 //! no slot limits draws exactly as before, a schedule without such a proposer is unchanged.
 //!
-//! The proposers that declare a share are the guided ones (the climb, the corpus), which work
-//! from cases others make. Together they are held to [`GUIDED_SHARE`] by the same rule, counting
-//! all their cases and work as one: a guided proposer is drawn only while the guided cases,
-//! counting the one it would add, are at most that share of all cases, and the guided work so
-//! far is at most that share of all work. So the unguided proposers (blind sampling, the
+//! The proposers that declare a share are the guided ones (the climb and the corpus, share 1/2;
+//! the solve proposer, share 1/4), which work from cases others make. Together they are held to
+//! [`GUIDED_SHARE`] by the same rule, counting all their cases and work as one: a guided proposer
+//! is drawn only while the guided cases, counting the one it would add, are at most that share
+//! of all cases, and the guided work so far is at most that share of all work. The guided work
+//! includes the work a proposer spends outside cases ([`Proposer::take_extra_work`]: the solve
+//! proposer's symbolic runs and model queries), charged to its slot and to all work when it is
+//! spent, before the case it leads to. So the unguided proposers (blind sampling, the
 //! dictionary) keep at least half of the cases over every prefix, however the weights are set.
-//! With one guided proposer whose own share is [`GUIDED_SHARE`] the joint bound is its own, so a
-//! campaign with only the climb (or only the corpus) draws exactly as without the joint bound.
+//! With one guided proposer, whose own share is at most [`GUIDED_SHARE`], the joint bound follows
+//! from its own, so a campaign with only the climb, only the corpus or only the solve proposer
+//! draws exactly as without the joint bound.
 
 use std::collections::VecDeque;
 
@@ -70,6 +74,8 @@ struct Slot {
     weight: u32,
     proposer: Box<dyn Proposer>,
     exhausted: bool,
+    /// The proposer answered no proposal but may propose later: it waits for the next case.
+    idle: bool,
     /// The cases this proposer proposed and their work, as observed.
     cases: u64,
     work: u64,
@@ -81,6 +87,7 @@ impl Slot {
     /// `guided` is the guided proposers' cases and work together.
     fn eligible(&self, cases: u64, work: u64, guided: (u64, u64)) -> bool {
         !self.exhausted
+            && !self.idle
             && self.proposer.ready()
             && self.proposer.budget_share().is_none_or(|share| {
                 within(share, self.cases, self.work, cases, work)
@@ -94,9 +101,12 @@ pub(crate) struct Schedule {
     explicit: VecDeque<Vec<Value>>,
     slots: Vec<Slot>,
     rng: ChaCha20Rng,
-    /// Every observed case and its work, explicit proposals included.
+    /// Every observed case and its work, explicit proposals included, and the proposers' work
+    /// outside cases.
     cases: u64,
     work: u64,
+    /// Work the proposers spent outside cases that the loop has not charged yet.
+    extra_work: u64,
 }
 
 impl Schedule {
@@ -118,6 +128,7 @@ impl Schedule {
                     weight,
                     proposer,
                     exhausted: false,
+                    idle: false,
                     cases: 0,
                     work: 0,
                 })
@@ -125,6 +136,7 @@ impl Schedule {
             rng: ChaCha20Rng::from_seed(derive_seed(seed, "schedule")),
             cases: 0,
             work: 0,
+            extra_work: 0,
         }
     }
 
@@ -135,15 +147,17 @@ impl Schedule {
         if let Some(values) = self.explicit.pop_front() {
             return Some(Proposal::plain(Origin::Explicit, values));
         }
-        let (cases, work) = (self.cases, self.work);
-        let guided = self
-            .slots
-            .iter()
-            .filter(|slot| slot.proposer.budget_share().is_some())
-            .fold((0u64, 0u64), |(cases, work), slot| {
-                (cases + slot.cases, work.saturating_add(slot.work))
-            });
         loop {
+            // Read afresh at every draw: a proposer that answered no proposal may have charged
+            // work outside cases (the solve proposer's runs) to its slot and to the campaign.
+            let (cases, work) = (self.cases, self.work);
+            let guided = self
+                .slots
+                .iter()
+                .filter(|slot| slot.proposer.budget_share().is_some())
+                .fold((0u64, 0u64), |(cases, work), slot| {
+                    (cases + slot.cases, work.saturating_add(slot.work))
+                });
             let total: u64 = self
                 .slots
                 .iter()
@@ -172,8 +186,14 @@ impl Schedule {
                 .expect("the draw is below the total weight of the eligible slots");
             let slot = &mut self.slots[index];
             let mut context = ProposalContext { rng: &mut self.rng };
-            match slot.proposer.propose(&mut context) {
+            let proposal = slot.proposer.propose(&mut context);
+            let extra = slot.proposer.take_extra_work();
+            slot.work = slot.work.saturating_add(extra);
+            self.work = self.work.saturating_add(extra);
+            self.extra_work = self.extra_work.saturating_add(extra);
+            match proposal {
                 Some(proposal) => return Some(proposal),
+                None if slot.proposer.may_propose_later() => slot.idle = true,
                 None => slot.exhausted = true,
             }
         }
@@ -202,7 +222,21 @@ impl Schedule {
             slot.proposer.observe(proposal, observation, interesting);
         }
         for slot in &mut self.slots {
+            slot.idle = false;
             slot.proposer.observe_all(proposal, observation);
+        }
+    }
+
+    /// The work the proposers spent outside cases since the last call, for the loop to charge
+    /// to the budget.
+    pub(crate) fn take_extra_work(&mut self) -> u64 {
+        std::mem::take(&mut self.extra_work)
+    }
+
+    /// Add every scheduled proposer's own counts to `totals` ([`Proposer::contribute`]).
+    pub(crate) fn contribute(&self, totals: &mut crate::report::Totals) {
+        for slot in &self.slots {
+            slot.proposer.contribute(totals);
         }
     }
 }

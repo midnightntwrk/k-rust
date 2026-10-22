@@ -219,11 +219,21 @@ pub use k_rust_backend::stop::{
 pub use k_rust_backend::term::names::VARIABLE_IDENTITY;
 pub use k_rust_backend::timeout::StepTimeoutMode;
 
+/// The solver options of a [`Backend`]: how long each Z3 check may run and how often an unknown
+/// answer is retried. A build without Z3 reads none of them.
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct BackendOptions {
+    /// The first attempt's wall-clock timeout in milliseconds, doubled on each retry; unused
+    /// when [`Self::smt_resource_limit`] is set.
     pub smt_timeout_ms: u32,
+    /// The retries of an unknown answer.
     pub smt_retry_limit: u32,
+    /// The clock-free mode (wire `smtResourceLimit`): each Z3 attempt is bounded by this many Z3
+    /// resource units, doubled on each retry, and by no clock, so whether a query is decided
+    /// does not depend on the machine's speed or load (docs/compatibility.md, "Determinism and
+    /// concurrency"). `None` (the default) bounds attempts by [`Self::smt_timeout_ms`].
+    pub smt_resource_limit: Option<std::num::NonZeroU32>,
 }
 
 impl Default for BackendOptions {
@@ -231,7 +241,22 @@ impl Default for BackendOptions {
         Self {
             smt_timeout_ms: 125,
             smt_retry_limit: 3,
+            smt_resource_limit: None,
         }
+    }
+}
+
+/// The version of the Z3 library this build links, as Z3 reports it, which counts the resource
+/// units of [`BackendOptions::smt_resource_limit`]; `None` in a build without Z3.
+#[must_use]
+pub fn z3_version() -> Option<&'static str> {
+    #[cfg(feature = "z3-inference")]
+    {
+        Some(k_rust_backend::smt::z3_version())
+    }
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        None
     }
 }
 
@@ -2547,6 +2572,7 @@ impl Backend {
             let options = Z3Options {
                 timeout_ms: self.options.smt_timeout_ms,
                 retry_limit: self.options.smt_retry_limit,
+                resource_limit: self.options.smt_resource_limit,
             };
             let solver = if let Some(prelude) = self.smt_prelude.as_deref() {
                 Z3Solver::with_options_and_prelude(&definition, options, Some(prelude))
@@ -2870,6 +2896,25 @@ mod tests {
     use super::*;
     use crate::kore::{parser::parse_pattern, printer::Printer};
     use std::collections::BTreeSet;
+
+    /// The clock-free mode is off by default and read from `smtResourceLimit`, a positive unit
+    /// count (0, Z3's "no limit", is refused rather than read as unbounded).
+    #[test]
+    fn the_clock_free_solver_mode_is_opt_in_and_positive() {
+        assert_eq!(BackendOptions::default().smt_resource_limit, None);
+        let options: BackendOptions =
+            serde_json::from_str(r#"{"smtResourceLimit": 250000}"#).unwrap();
+        assert_eq!(
+            options.smt_resource_limit,
+            std::num::NonZeroU32::new(250_000)
+        );
+        assert_eq!(
+            options.smt_timeout_ms,
+            BackendOptions::default().smt_timeout_ms
+        );
+        assert!(serde_json::from_str::<BackendOptions>(r#"{"smtResourceLimit": 0}"#).is_err());
+        assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
+    }
 
     /// The wire spellings of `all`, each read back as its value, as a set of distinct names.
     fn wire_names<T>(all: &[T]) -> BTreeSet<String>

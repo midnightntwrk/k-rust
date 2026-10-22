@@ -419,6 +419,60 @@ fn value_at(node: &KorePattern, value: &KorePattern) -> bool {
     node == value || injection(node).is_some_and(|(_, argument)| argument == value)
 }
 
+/// Replace the subterm of `pattern` at `path` (`kore::walk::children` indices, as
+/// [`RoundTripCheck::positions`] gives them) with `replacement`; `false`, leaving `pattern`
+/// unchanged, when no subterm is there.
+#[cfg_attr(
+    not(feature = "z3"),
+    expect(
+        dead_code,
+        reason = "only the solve proposer (`z3` feature) replaces subterms"
+    )
+)]
+pub(crate) fn replace_at(
+    pattern: &mut KorePattern,
+    path: &[usize],
+    replacement: KorePattern,
+) -> bool {
+    let mut cursor = pattern;
+    for &index in path {
+        let child = match cursor {
+            KorePattern::Application { arguments, .. }
+            | KorePattern::And { arguments, .. }
+            | KorePattern::Or { arguments, .. }
+            | KorePattern::AssociativeApplication { arguments, .. } => arguments.get_mut(index),
+            KorePattern::Not { argument, .. }
+            | KorePattern::Next { argument, .. }
+            | KorePattern::Ceil { argument, .. }
+            | KorePattern::Floor { argument, .. } => (index == 0).then_some(argument.as_mut()),
+            KorePattern::Implies { left, right, .. }
+            | KorePattern::Iff { left, right, .. }
+            | KorePattern::Rewrites { left, right, .. }
+            | KorePattern::Equals { left, right, .. }
+            | KorePattern::In { left, right, .. } => match index {
+                0 => Some(left.as_mut()),
+                1 => Some(right.as_mut()),
+                _ => None,
+            },
+            KorePattern::Exists { body, .. }
+            | KorePattern::Forall { body, .. }
+            | KorePattern::Mu { body, .. }
+            | KorePattern::Nu { body, .. } => (index == 0).then_some(body.as_mut()),
+            KorePattern::String(_)
+            | KorePattern::Variable(_)
+            | KorePattern::Top { .. }
+            | KorePattern::Bottom { .. }
+            | KorePattern::DomainValue { .. } => None,
+        };
+        let Some(child) = child else {
+            return false;
+        };
+        cursor = child;
+    }
+    *cursor = replacement;
+    true
+}
+
 fn at<'p>(pattern: &'p KorePattern, path: &[usize]) -> Option<&'p KorePattern> {
     path.iter().try_fold(pattern, |pattern, index| {
         walk::children(pattern).get(*index).copied()

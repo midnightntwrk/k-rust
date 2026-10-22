@@ -3353,6 +3353,7 @@ fn a_run_that_receives_an_undecided_answer_counts_it() {
         BackendOptions {
             smt_timeout_ms: 50,
             smt_retry_limit: 0,
+            smt_resource_limit: None,
         },
     )
     .unwrap();

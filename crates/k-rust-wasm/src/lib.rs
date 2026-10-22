@@ -269,6 +269,7 @@ pub fn create_backend_wasm(options: &str) -> Result<WasmBackend, JsError> {
         BackendOptions {
             smt_timeout_ms: options.smt_timeout_ms.unwrap_or(defaults.smt_timeout_ms),
             smt_retry_limit: options.smt_retry_limit.unwrap_or(defaults.smt_retry_limit),
+            smt_resource_limit: None,
         },
     )
     .map_err(js_error)?;

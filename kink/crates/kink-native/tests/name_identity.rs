@@ -143,6 +143,7 @@ fn decoded_leaf_and_step_names_round_trip() {
         BackendOptions {
             smt_timeout_ms: 4000,
             smt_retry_limit: 2,
+            smt_resource_limit: None,
         },
     )
     .expect("backend");

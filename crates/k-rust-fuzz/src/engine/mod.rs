@@ -14,6 +14,8 @@ use std::sync::{Arc, OnceLock};
 
 use k_rust::backend::CancellationToken;
 
+#[cfg(feature = "z3")]
+pub(crate) use self::live::ConfigurationBuilder;
 pub(crate) use self::schedule::derive_seed;
 use self::{
     campaign_loop::{Cuts, Ending, LoopSettings, no_witness, report_without_cases, run_loop},
@@ -33,8 +35,8 @@ use crate::{
     },
     report::{
         CampaignOutcome, ClimbParameters, CorpusParameters, DefinitionIdentity, DefinitionRole,
-        DictionaryParameters, FuzzReport, GenerationCaps, HitLabel, ReportIdentity, Totals,
-        digest_hex,
+        DictionaryParameters, FuzzReport, GenerationCaps, HitLabel, ReportIdentity,
+        SolveParameters, Totals, digest_hex,
     },
     score::{RuleScorer, Scorer},
     spec::{
@@ -287,7 +289,7 @@ impl Campaign {
                 Box::new(proposer),
             ));
         }
-        if self.settings.scorer.is_some() {
+        if self.settings.scorer.is_some() && weight(&self.spec.proposers, ProposerKind::Climb) > 0 {
             let generators =
                 self::generators(&cases, &self.spec).expect("Campaign::new built them");
             let holes = cases
@@ -309,6 +311,20 @@ impl Campaign {
             ));
         }
         proposers.extend(self.corpus_proposer(&cases));
+        #[cfg(feature = "z3")]
+        if weight(&self.spec.proposers, ProposerKind::Solve) > 0 {
+            let proposer = crate::proposers::solve::SolveProposer::new(
+                cases.configuration_builder(),
+                self.spec.options.clone(),
+                self.spec.bounds,
+                self.spec.identity.thread_stack_size,
+                cancel.clone(),
+            );
+            proposers.push((
+                weight(&self.spec.proposers, ProposerKind::Solve),
+                Box::new(proposer),
+            ));
+        }
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
         // One assembler per side for the whole run, so that every case reuses its parsers.
         let parts = cases.assembly_parts();
@@ -411,8 +427,17 @@ fn climb_scorer(
     cases: &LiveCases,
     graph: Option<&GraphCheck>,
 ) -> Result<Option<Scorer>, CampaignError> {
-    if weight(&spec.proposers, ProposerKind::Climb) == 0 {
+    let climb = weight(&spec.proposers, ProposerKind::Climb) > 0;
+    let solve = weight(&spec.proposers, ProposerKind::Solve) > 0;
+    if !climb && !solve {
         return Ok(None);
+    }
+    if solve && !matches!(spec.target.kind, TargetKind::Rule(_)) {
+        return Err(CampaignError::InvalidOptions {
+            message: "the solve proposer solves for a rule's blocked condition, so it needs a \
+                      rule target"
+                .into(),
+        });
     }
     if let TargetKind::Observer(_) = spec.target.kind {
         return Ok(Some(Scorer::Observer));
@@ -424,10 +449,18 @@ fn climb_scorer(
                 .into(),
         });
     };
+    let scorer = |graph: &RuleGraph| {
+        let scorer = RuleScorer::new(graph, target);
+        if solve {
+            scorer.with_chain(graph, crate::report::SOLVE_CHAIN_RADIUS)
+        } else {
+            scorer
+        }
+    };
     Ok(Some(Scorer::Rule(
         match (graph, cases.baseline_internalized()) {
-            (Some(check), _) => RuleScorer::new(check.graph(), target),
-            (None, Some(definition)) => RuleScorer::new(&RuleGraph::new(definition), target),
+            (Some(check), _) => scorer(check.graph()),
+            (None, Some(definition)) => scorer(&RuleGraph::new(definition)),
             (None, None) => {
                 let mut backend =
                     build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
@@ -436,7 +469,7 @@ fn climb_scorer(
                         message: format!("the rule graph is not available: {error}"),
                     }
                 })?;
-                RuleScorer::new(&graph, target)
+                scorer(&graph)
             }
         },
     )))
@@ -453,14 +486,14 @@ fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
 }
 
 /// Every proposer with a positive weight is one this build provides: blind sampling, the
-/// dictionary, the climb and the corpus (ARCHITECTURE 8, 11); and the climb and the corpus,
-/// which work from cases other proposers make and spend at most half of the budget, come with
-/// blind sampling or the dictionary.
+/// dictionary, the climb, the corpus and, with the `z3` feature, the solve proposer
+/// (ARCHITECTURE 8, 11); and the guided ones (the climb, the corpus and the solve proposer),
+/// which work from cases other proposers make and together spend at most half of the budget,
+/// come with blind sampling or the dictionary.
 fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
-    if weight(config, ProposerKind::Corpus) > 0
-        && weight(config, ProposerKind::Blind) == 0
-        && weight(config, ProposerKind::Dictionary) == 0
-    {
+    let generating =
+        weight(config, ProposerKind::Blind) > 0 || weight(config, ProposerKind::Dictionary) > 0;
+    if weight(config, ProposerKind::Corpus) > 0 && !generating {
         return Err(CampaignError::InvalidOptions {
             message: "the corpus proposer mutates the cases of blind sampling or the \
                       dictionary and spends at most half of the budget: give one of them a \
@@ -468,16 +501,30 @@ fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
                 .into(),
         });
     }
-    if weight(config, ProposerKind::Climb) > 0
-        && weight(config, ProposerKind::Blind) == 0
-        && weight(config, ProposerKind::Dictionary) == 0
-    {
+    if weight(config, ProposerKind::Climb) > 0 && !generating {
         return Err(CampaignError::InvalidOptions {
             message: "the climb proposer climbs from the cases of blind sampling or the \
                       dictionary and spends at most half of the budget: give one of them a \
                       positive weight"
                 .into(),
         });
+    }
+    if weight(config, ProposerKind::Solve) > 0 {
+        if !cfg!(feature = "z3") {
+            return Err(CampaignError::InvalidOptions {
+                message: "the solve proposer asks Z3 for hole values and is available only in a \
+                          native build of k-rust-fuzz with its `z3` feature; this build has none"
+                    .into(),
+            });
+        }
+        if !generating {
+            return Err(CampaignError::InvalidOptions {
+                message: "the solve proposer solves from the cases of blind sampling or the \
+                          dictionary and spends at most a quarter of the budget: give one of \
+                          them a positive weight"
+                    .into(),
+            });
+        }
     }
     for (kind, weight) in &config.weights {
         if *weight > 0
@@ -487,6 +534,7 @@ fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
                     | ProposerKind::Dictionary
                     | ProposerKind::Climb
                     | ProposerKind::Corpus
+                    | ProposerKind::Solve
             )
         {
             let name = serde_json::to_value(kind)
@@ -499,6 +547,14 @@ fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
         }
     }
     Ok(())
+}
+
+/// The baseline's [`ConfigurationBuilder`] of `spec`, for the solve proposer's unit tests.
+#[cfg(all(test, feature = "z3"))]
+pub(crate) fn configuration_builder(
+    spec: CampaignSpec,
+) -> Result<ConfigurationBuilder, CampaignError> {
+    Ok(LiveCases::build(Arc::new(spec))?.configuration_builder())
 }
 
 /// The weight of `kind` in `config`, 0 when it has none.
@@ -599,6 +655,7 @@ fn identity(
         climb: (weight(&spec.proposers, ProposerKind::Climb) > 0)
             .then(|| ClimbParameters::for_target(&spec.target.kind)),
         corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0).then(CorpusParameters::current),
+        solve: (weight(&spec.proposers, ProposerKind::Solve) > 0).then(SolveParameters::current),
     })
 }
 

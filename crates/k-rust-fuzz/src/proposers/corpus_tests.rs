@@ -82,6 +82,7 @@ fn observation(class: OutcomeClass, applied: &[&str], score: Option<Score>) -> O
         work: 1,
         score,
         reads: Vec::new(),
+        blocked: None,
     }
 }
 

@@ -33,6 +33,8 @@
 //! variable's declared sort or a subsort of it.
 
 mod position;
+#[cfg(feature = "z3")]
+pub(crate) use position::replace_at;
 mod sorts;
 mod span;
 

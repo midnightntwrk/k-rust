@@ -55,6 +55,7 @@ fn observation(score: Option<Score>) -> Observation {
         work: 1,
         score,
         reads: Vec::new(),
+        blocked: None,
     }
 }
 

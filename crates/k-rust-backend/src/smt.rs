@@ -30,7 +30,7 @@ mod z3;
 use query::TranslatedQuery;
 
 #[cfg(feature = "z3")]
-pub use z3::{Z3Options, Z3Solver};
+pub use z3::{Z3Options, Z3Solver, z3_version};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SmtType {

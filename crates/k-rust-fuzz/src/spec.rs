@@ -306,6 +306,7 @@ impl BackendSettings {
         BackendOptions {
             smt_timeout_ms: self.smt_timeout_ms,
             smt_retry_limit: self.smt_retry_limit,
+            smt_resource_limit: None,
         }
     }
 }

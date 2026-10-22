@@ -70,16 +70,32 @@ const PINNED_CORPUS: Option<(u32, &str)> = Some((
     "1e9597915ba51098bf768737d4e1b87bfd3dc862e8501fa1a45dc346f2a58181",
 ));
 
+/// The pinned fingerprint of the solve campaign's case sequence (FZ-15), in builds with the `z3`
+/// feature. The solve proposer is new in this version, so pinning it moved no other fingerprint
+/// and `ENGINE_VERSION` stays 2. A change of its parameters (`report::SolveParameters`), of its
+/// trigger or of the condition records it reads moves it: bump `ENGINE_VERSION` and re-pin every
+/// fingerprint.
+#[cfg(feature = "z3")]
+const PINNED_SOLVE: Option<(u32, &str)> = Some((
+    2,
+    "1db20f24905eefd79e9ec7b3cc4b7ce634c12838eb34d27810e6a1071d76e29e",
+));
+
+/// How many of [`golden_reports`], at the end, enable the solve proposer: one in builds with the
+/// `z3` feature, none otherwise.
+const SOLVE_CAMPAIGNS: usize = if cfg!(feature = "z3") { 1 } else { 0 };
+
 /// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the
 /// dictionary campaigns follow, fingerprinted by [`PINNED_DICTIONARY`], then the climb campaigns
-/// ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`], and the corpus campaigns last
-/// ([`CORPUS_CAMPAIGNS`]), fingerprinted by [`PINNED_CORPUS`].
+/// ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`], then the corpus campaigns
+/// ([`CORPUS_CAMPAIGNS`]), fingerprinted by [`PINNED_CORPUS`], and the solve campaigns last
+/// ([`SOLVE_CAMPAIGNS`], in builds with the `z3` feature), checked by `check_solve`.
 const BLIND_CAMPAIGNS: usize = 5;
 
 /// How many of [`golden_reports`], before the corpus campaigns, enable the climb.
 const CLIMB_CAMPAIGNS: usize = 1;
 
-/// How many of [`golden_reports`], at the end, enable the corpus.
+/// How many of [`golden_reports`], before the solve campaigns, enable the corpus.
 const CORPUS_CAMPAIGNS: usize = 1;
 
 /// The index of the map campaign in [`golden_reports`].
@@ -238,6 +254,7 @@ fn golden_reports() -> Vec<FuzzReport> {
     .chain(dictionary_campaigns(&coin_spec))
     .chain([(climb_campaign(), Budget::Cases(200))])
     .chain([(corpus_campaign(), Budget::Cases(1500))])
+    .chain(solve_campaigns())
     .map(|(spec, budget)| {
         Campaign::new(spec)
             .expect("the golden campaign is valid")
@@ -432,6 +449,65 @@ fn corpus_campaign() -> CampaignSpec {
     spec
 }
 
+/// The maze with every hole but `F` and `G` fixed in the program text, at values that pass the
+/// guards before room `r5`, and the target `c6` (`3 F == G + 1000001`, `G > 5000`), a linear
+/// guard whose symbolic run the solver decides without an unknown answer, with blind sampling and
+/// the solve proposer at equal weights; in builds with the `z3` feature only.
+fn solve_campaigns() -> Vec<(CampaignSpec, Budget)> {
+    if !cfg!(feature = "z3") {
+        return Vec::new();
+    }
+    let mut spec = climb_campaign();
+    let program = "maze/solve.pgm";
+    spec.seed = 0x5017_e001;
+    spec.program = ProgramInput::Source(ProgramSource {
+        program: Some(ProgramText {
+            name: program.into(),
+            text: "walk(1, 2, 7, 1050, 31337, 5, 6, 8, 9)\n".into(),
+            start_sort: "Pgm".into(),
+        }),
+        config_vars: Vec::new(),
+    });
+    spec.holes = vec![
+        int_hole("F", program, " 5,", "5"),
+        int_hole("G", program, " 6,", "6"),
+    ];
+    spec.target = Target {
+        kind: TargetKind::Rule(RuleTarget {
+            rule: RuleRef::Label("MAZE.c6".into()),
+            mode: RuleMode::Fired,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+    };
+    spec.proposers.weights = [(ProposerKind::Blind, 1), (ProposerKind::Solve, 1)]
+        .into_iter()
+        .collect();
+    vec![(spec, Budget::Cases(200))]
+}
+
+/// The solve campaign finds its witness through a model, inside the determinism contract, and
+/// its fingerprint is [`PINNED_SOLVE`].
+#[cfg(feature = "z3")]
+fn check_solve(reports: &[FuzzReport]) {
+    let solve = fingerprint(reports);
+    if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
+        eprintln!("solve fingerprint at engine version {ENGINE_VERSION}: {solve}");
+    }
+    for report in reports {
+        assert!(report.witness().is_some(), "{:?}", report.outcome);
+        let totals = report.totals.solve.as_ref().expect("solve totals");
+        assert!(totals.candidates >= 1, "{totals:?}");
+        assert_eq!(totals.outside_determinism, 0, "{totals:?}");
+    }
+    check_pin(
+        "solve",
+        PINNED_SOLVE,
+        &solve,
+        "its parameters, its trigger or its records",
+    );
+}
+
 fn render(reports: &[FuzzReport]) -> String {
     reports
         .iter()
@@ -569,12 +645,15 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     assert!(entries(&map.first) > 3, "{:?}", map.first.holes[0].value);
     assert_eq!(entries(shrunk), 3, "{:?}", shrunk.holes[0].value);
 
-    let corpus_start = reports.len() - CORPUS_CAMPAIGNS;
+    let solving = reports.len() - SOLVE_CAMPAIGNS;
+    let corpus_start = solving - CORPUS_CAMPAIGNS;
     let climbing = corpus_start - CLIMB_CAMPAIGNS;
     let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
     let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..climbing]);
     let climb = fingerprint(&reports[climbing..corpus_start]);
-    let corpus = fingerprint(&reports[corpus_start..]);
+    let corpus = fingerprint(&reports[corpus_start..solving]);
+    #[cfg(feature = "z3")]
+    check_solve(&reports[solving..]);
     if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
         eprintln!("golden fingerprint at engine version {ENGINE_VERSION}: {computed}");
         eprintln!("dictionary fingerprint at engine version {ENGINE_VERSION}: {dictionary}");
