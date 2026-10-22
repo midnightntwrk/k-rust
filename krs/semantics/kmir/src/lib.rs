@@ -5399,23 +5399,20 @@ k::rules! {
         current_body: program,
     } => {
         k: [Execution::ExecBlockIdx(0), ..],
-    }
-    where program: List;
+    };
 
     lookup_block: {
         k: [Execution::ExecBlockIdx(index), ..],
         current_body: program,
     } => {
         k: [Execution::ExecBlock(list::get(program, index)), ..],
-    }
-    where index: Int, program: List;
+    };
 
     exec_block: {
         k: [Execution::ExecBlock(BlockSyntax::Block { statements, terminator }), ..],
     } => {
         k: [Execution::ExecStmts(statements), Execution::ExecTerminator(terminator), ..],
-    }
-    where statements: Statements, terminator: Terminator;
+    };
 
     statements_done: {
         k: [Execution::ExecStmts(StatementList::StatementsEmpty()), ..],
@@ -5427,15 +5424,13 @@ k::rules! {
         k: [Execution::ExecStmts(StatementList::StatementsCons { head, tail }), ..],
     } => {
         k: [Execution::ExecStmt(head), Execution::ExecStmts(tail), ..],
-    }
-    where head: Statement, tail: Statements;
+    };
 
     assign: {
         k: [Execution::ExecStmt(MirStatement::Assign { place, value }), ..],
     } => {
         k: [Execution::EvalRvalue { value, place }, ..],
-    }
-    where place: Place, value: Rvalue;
+    };
 }
 
 k::rules! {
@@ -5451,8 +5446,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where operand: Operand, place: Place;
+    };
 
     eval_cast: {
         k: [
@@ -5477,8 +5471,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where operand: Operand, place: Place;
+    };
 
     eval_ptr_cast: {
         k: [
@@ -5514,15 +5507,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        operand: Operand,
-        local: Int,
-        projections: ProjectionElems,
-        target: Ty,
-        place: Place,
-        locals: List,
-        types: Map;
+    };
 
     eval_transmute: {
         k: [
@@ -5558,15 +5543,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        operand: Operand,
-        local: Int,
-        projections: ProjectionElems,
-        target: Ty,
-        place: Place,
-        locals: List,
-        types: Map;
+    };
 
     eval_ref: {
         k: [
@@ -5606,14 +5583,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        kind: BorrowKind,
-        local: Int,
-        projections: ProjectionElems,
-        place: Place,
-        locals: List,
-        types: Map;
+    };
 
     eval_address_of: {
         k: [
@@ -5637,13 +5607,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        mutability: Mutability,
-        local: Int,
-        projections: ProjectionElems,
-        destination: Place,
-        locals: List;
+    };
 
     address_of_reference_deref: {
         k: [
@@ -5673,13 +5637,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        referenced: Place,
-        metadata: Metadata,
-        mutability: Mutability,
-        destination: Place;
+    };
 
     #[k::rule(owise)]
     address_of_local: {
@@ -5710,8 +5668,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where mutability: Mutability, referenced: Place, destination: Place, locals: List;
+    };
 
     eval_unary: {
         k: [Execution::EvalRvalue { value: MirRvalue::Unary { operation, operand }, place }, ..],
@@ -5723,8 +5680,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where operation: UnaryOp, operand: Operand, place: Place;
+    };
 
     eval_ub_checks: {
         k: [
@@ -5736,8 +5692,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(false) }, ..],
-    }
-    where place: Place;
+    };
 
     #[k::requires(bool::not(IsVoidType { info: map::get(types, ty) }))]
     eval_size_of: {
@@ -5761,8 +5716,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where ty: Ty, place: Place, types: Map;
+    };
 
     #[k::requires(bool::not(IsVoidType { info: map::get(types, ty) }))]
     eval_align_of: {
@@ -5786,8 +5740,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where ty: Ty, place: Place, types: Map;
+    };
 
     eval_binary: {
         k: [Execution::EvalRvalue { value: MirRvalue::Binary { operation, lhs, rhs }, place }, ..],
@@ -5804,8 +5757,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where operation: BinaryOp, lhs: Operand, rhs: Operand, place: Place;
+    };
 
     eval_checked_binary: {
         k: [
@@ -5828,8 +5780,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where operation: BinaryOp, lhs: Operand, rhs: Operand, place: Place;
+    };
 
     eval_aggregate_empty: {
         k: [
@@ -5847,8 +5798,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where kind: AggregateKind, place: Place;
+    };
 
     eval_aggregate_cons: {
         k: [
@@ -5871,8 +5821,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where kind: AggregateKind, head: Operand, tail: Operands, place: Place;
+    };
 
     eval_repeat: {
         k: [
@@ -5907,8 +5856,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where element: Operand, place: Place, bytes: Bytes;
+    };
 
     eval_len: {
         k: [Execution::EvalRvalue { value: MirRvalue::Len { place: source }, place }, ..],
@@ -5920,8 +5868,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where source: Place, place: Place;
+    };
 
     eval_copy_for_deref: {
         k: [Execution::EvalRvalue { value: MirRvalue::CopyForDeref { place: source }, place }, ..],
@@ -5933,8 +5880,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where source: Place, place: Place;
+    };
 
     eval_discriminant: {
         k: [
@@ -5966,15 +5912,13 @@ k::rules! {
             },
             ..
         ],
-    }
-    where local: Int, projections: ProjectionElems, place: Place, locals: List, types: Map;
+    };
 
     eval_constant: {
         k: [Execution::EvalOperand { operand: MirOperand::Constant(value), continuation }, ..],
     } => {
         k: [Execution::Continue { value, continuation }, ..],
-    }
-    where value: MirValue, continuation: Continuation;
+    };
 
     eval_allocated_reference_constant: {
         k: [
@@ -6013,14 +5957,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        allocation: AllocId,
-        bytes: Bytes,
-        ty: Ty,
-        continuation: Continuation,
-        types: Map,
-        memory: Map;
+    };
 
     eval_allocated_value_constant: {
         k: [
@@ -6049,8 +5986,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where bytes: Bytes, ty: Ty, continuation: Continuation, types: Map;
+    };
 
     eval_zero_sized_constant: {
         k: [
@@ -6069,8 +6005,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where ty: Ty, continuation: Continuation, types: Map;
+    };
 
     eval_copy: {
         k: [
@@ -6093,8 +6028,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where local: Int, continuation: Continuation, locals: List;
+    };
 
     eval_copy_field: {
         k: [
@@ -6120,13 +6054,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        local: Int,
-        head: ProjectionElem,
-        tail: ProjectionElems,
-        continuation: Continuation,
-        locals: List;
+    };
 
     eval_move: {
         k: [
@@ -6149,8 +6077,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where local: Int, continuation: Continuation, locals: List;
+    };
 
     eval_move_projected: {
         k: [
@@ -6176,13 +6103,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        local: Int,
-        head: ProjectionElem,
-        tail: ProjectionElems,
-        continuation: Continuation,
-        locals: List;
+    };
 
     read_local_copy: {
         k: [
@@ -6196,8 +6117,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::Continue { value, continuation }, ..],
-    }
-    where value: MirValue, continuation: Continuation;
+    };
 
     read_local_move: {
         k: [
@@ -6217,14 +6137,7 @@ k::rules! {
             index,
             LocalValue::TypedValue { value: Value::Moved(), ty, mutability }
         ),
-    }
-    where
-        value: MirValue,
-        ty: Ty,
-        mutability: Mutability,
-        index: Int,
-        continuation: Continuation,
-        locals: List;
+    };
 
     read_projected_local: {
         k: [
@@ -6249,13 +6162,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        value: MirValue,
-        local: Int,
-        projections: ProjectionElems,
-        continuation: Continuation,
-        locals: List;
+    };
 
     read_moved_projected_local: {
         k: [
@@ -6280,13 +6187,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        value: MirValue,
-        local: Int,
-        projections: ProjectionElems,
-        continuation: Continuation,
-        locals: List;
+    };
 
     traverse_projection_read_done: {
         k: [
@@ -6302,8 +6203,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::Continue { value, continuation }, ..],
-    }
-    where value: MirValue, continuation: Continuation;
+    };
 
     traverse_projection_reference_local_done: {
         k: [
@@ -6344,16 +6244,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        local: Int,
-        value: MirValue,
-        contexts: ProjectionContexts,
-        place: Place,
-        mutability: Mutability,
-        size: MetadataSize,
-        offset: Int,
-        origin_size: MetadataSize;
+    };
 
     traverse_projection_reference_stack_done: {
         k: [
@@ -6394,17 +6285,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        local: Int,
-        value: MirValue,
-        contexts: ProjectionContexts,
-        place: Place,
-        mutability: Mutability,
-        size: MetadataSize,
-        offset: Int,
-        origin_size: MetadataSize;
+    };
 
     traverse_projection_reference_allocation_done: {
         k: [
@@ -6441,15 +6322,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        allocation: AllocId,
-        value: MirValue,
-        contexts: ProjectionContexts,
-        place: Place,
-        size: MetadataSize,
-        offset: Int,
-        origin_size: MetadataSize;
+    };
 
     traverse_projection_write_local_done: {
         k: [
@@ -6471,8 +6344,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where local: Int, contexts: ProjectionContexts, replacement: MirValue;
+    };
 
     traverse_projection_write_stack_done: {
         k: [
@@ -6503,14 +6375,7 @@ k::rules! {
                 locals
             }
         ),
-    }
-    where
-        height: Int,
-        local: Int,
-        contexts: ProjectionContexts,
-        locals: List,
-        replacement: MirValue,
-        stack: List;
+    };
 
     traverse_projection_move_local_done: {
         k: [
@@ -6533,8 +6398,7 @@ k::rules! {
             Execution::Continue { value, continuation },
             ..
         ],
-    }
-    where value: MirValue, local: Int, contexts: ProjectionContexts, continuation: Continuation;
+    };
 
     traverse_projection_move_stack_done: {
         k: [
@@ -6565,15 +6429,7 @@ k::rules! {
                 locals
             }
         ),
-    }
-    where
-        height: Int,
-        local: Int,
-        value: MirValue,
-        contexts: ProjectionContexts,
-        locals: List,
-        continuation: Continuation,
-        stack: List;
+    };
 
     traverse_projection_field: {
         k: [
@@ -6605,17 +6461,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        variant: Int,
-        fields: List,
-        field: Int,
-        ty: Ty,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     traverse_projection_union_field: {
         k: [
@@ -6647,16 +6493,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        field: Int,
-        value: MirValue,
-        ty: Ty,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     traverse_projection_wrap_struct: {
         k: [
@@ -6688,14 +6525,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        value: MirValue,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     traverse_projection_downcast: {
         k: [
@@ -6724,15 +6554,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        variant: Int,
-        fields: List,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     traverse_projection_index: {
         k: [
@@ -6767,15 +6589,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        local: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(bool::and(int::ge(offset, 0), int::lt(offset, list::size(elements))))]
     traverse_projection_constant_index_front: {
@@ -6808,15 +6622,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        offset: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(
         bool::and(
@@ -6857,16 +6663,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        offset: Int,
-        min_length: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(
         bool::and(
@@ -6916,16 +6713,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        from: Int,
-        to: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(
         bool::and(
@@ -6973,16 +6761,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        from: Int,
-        to: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(bool::and(int::ge(offset, 0), int::le(offset, list::size(elements))))]
     traverse_projection_pointer_offset: {
@@ -7019,16 +6798,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        offset: Int,
-        origin_size: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(bool::and(int::ge(size, 0), int::le(size, list::size(elements))))]
     traverse_projection_truncate_size: {
@@ -7062,15 +6832,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        size: Int,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     traverse_projection_truncate_array_head: {
         k: [
@@ -7099,14 +6861,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        elements: List,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::rule(owise)]
     traverse_projection_truncate_non_range: {
@@ -7136,14 +6891,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        target: ProjectionTarget,
-        value: MirValue,
-        tail: ProjectionElems,
-        contexts: ProjectionContexts,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::rule(owise)]
     traverse_projection_current_deref: {
@@ -7181,16 +6929,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        local: Int,
-        referenced: ProjectionElems,
-        size: MetadataSize,
-        offset: Int,
-        origin_size: MetadataSize,
-        tail: ProjectionElems,
-        locals: List,
-        action: ProjectionAction;
+    };
 
     #[k::requires(int::gt(height, 0))]
     traverse_projection_stack_deref: {
@@ -7233,18 +6972,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        local: Int,
-        referenced: ProjectionElems,
-        size: MetadataSize,
-        offset: Int,
-        origin_size: MetadataSize,
-        tail: ProjectionElems,
-        locals: List,
-        action: ProjectionAction,
-        stack: List;
+    };
 
     traverse_projection_allocation_reference_read: {
         k: [
@@ -7281,15 +7009,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        allocation: AllocId,
-        referenced: ProjectionElems,
-        size: MetadataSize,
-        tail: ProjectionElems,
-        locals: List,
-        continuation: Continuation,
-        memory: Map;
+    };
 
     traverse_projection_allocation_reference_reborrow: {
         k: [
@@ -7326,17 +7046,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        allocation: AllocId,
-        referenced: ProjectionElems,
-        size: MetadataSize,
-        tail: ProjectionElems,
-        locals: List,
-        place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        memory: Map;
+    };
 
     continue_store: {
         k: [
@@ -7345,8 +7055,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value }, ..],
-    }
-    where value: MirValue, place: Place;
+    };
 
     continue_aggregate_done: {
         k: [
@@ -7372,8 +7081,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where value: MirValue, place: Place, kind: AggregateKind, values: List;
+    };
 
     continue_aggregate_next: {
         k: [
@@ -7401,14 +7109,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        value: MirValue,
-        place: Place,
-        kind: AggregateKind,
-        values: List,
-        head: Operand,
-        tail: Operands;
+    };
 
     #[k::requires(int::ge(count, 0))]
     finish_repeat: {
@@ -7427,8 +7128,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where value: MirValue, place: Place, count: Int;
+    };
 
     finish_len: {
         k: [
@@ -7446,8 +7146,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where elements: List, place: Place;
+    };
 
     finish_discriminant: {
         k: [
@@ -7478,8 +7177,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where variant: Int, place: Place, discriminants: Discriminants;
+    };
 
     finish_pointer_unsize: {
         k: [
@@ -7518,15 +7216,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        size: Int,
-        offset: Int,
-        origin_size: MetadataSize,
-        place: Place;
+    };
 
     finish_reference_unsize: {
         k: [
@@ -7565,15 +7255,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        referenced: Place,
-        mutability: Mutability,
-        size: Int,
-        offset: Int,
-        origin_size: MetadataSize,
-        place: Place;
+    };
 
     finish_allocation_reference_unsize: {
         k: [
@@ -7610,14 +7292,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        allocation: AllocId,
-        projections: ProjectionElems,
-        size: Int,
-        offset: Int,
-        origin_size: MetadataSize,
-        place: Place;
+    };
 
     finish_transmute_identity: {
         k: [
@@ -7635,8 +7310,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value }, ..],
-    }
-    where value: MirValue, place: Place, info: TypeInfo;
+    };
 
     finish_same_pointee_ptr_cast: {
         k: [
@@ -7654,8 +7328,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value }, ..],
-    }
-    where value: MirValue, pointee: Ty, place: Place;
+    };
 
     #[k::rule(owise)]
     begin_projected_ptr_cast: {
@@ -7689,16 +7362,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        source: Ty,
-        target: Ty,
-        types: Map;
+    };
 
     resolve_ptr_cast_done: {
         k: [
@@ -7735,17 +7399,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        local: Int,
-        pointer_projections: ProjectionElems,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        info: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize;
+    };
 
     resolve_ptr_cast_to_zst: {
         k: [
@@ -7787,15 +7441,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        projections: ProjectionElems,
-        target_size: MetadataSize;
+    };
 
     resolve_ptr_cast_from_zst: {
         k: [
@@ -7837,16 +7483,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize;
+    };
 
     // `str` is laid out as `[u8]` and its pointers carry the same length, so a
     // cast between a byte-slice pointer and a `str` pointer
@@ -7893,18 +7530,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        element: Ty,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     #[k::requires(
         SameTypeInfo {
@@ -7950,18 +7576,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        element: Ty,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     #[k::requires(bool::and(
     ZeroFieldOffset { layout },
@@ -8014,22 +7629,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        source_element: Ty,
-        source_size: MaybeTyConst,
-        name: String,
-        adt_def: AdtDef,
-        field: Ty,
-        layout: MaybeLayoutShape,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     #[k::rule(owise)]
     resolve_ptr_cast_compare_different: {
@@ -8064,17 +7664,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        source: TypeInfo,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize;
+    };
 
     #[k::requires(ZeroFieldOffset { layout })]
     resolve_ptr_cast_source_struct: {
@@ -8121,21 +7711,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        name: String,
-        adt_def: AdtDef,
-        field: Ty,
-        layout: MaybeLayoutShape,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     resolve_ptr_cast_source_array: {
         k: [
@@ -8180,18 +7756,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        element: Ty,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     // A `str` pointer's first element is its first byte, as for `[u8]`
     // (`str::as_ptr` casts `*const str` to `*const u8`).
@@ -8239,16 +7804,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize;
+    };
 
     #[k::rule(owise)]
     resolve_ptr_cast_source_done: {
@@ -8283,17 +7839,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        source: TypeInfo,
-        target: TypeInfo,
-        projections: ProjectionElems,
-        target_size: MetadataSize;
+    };
 
     resolve_ptr_cast_target_array: {
         k: [
@@ -8334,18 +7880,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        source: TypeInfo,
-        element: Ty,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     #[k::requires(ZeroFieldOffset { layout })]
     resolve_ptr_cast_target_struct: {
@@ -8392,21 +7927,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        destination: Place,
-        source: TypeInfo,
-        name: String,
-        adt_def: AdtDef,
-        field: Ty,
-        layout: MaybeLayoutShape,
-        projections: ProjectionElems,
-        target_size: MetadataSize,
-        types: Map;
+    };
 
     finish_neg: {
         k: [
@@ -8431,8 +7952,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where value: Int, width: Int, place: Place;
+    };
 
     finish_bool_not: {
         k: [
@@ -8447,8 +7967,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::not(value)) }, ..],
-    }
-    where value: Bool, place: Place;
+    };
 
     finish_int_not: {
         k: [
@@ -8477,8 +7996,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where value: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_ptr_metadata: {
         k: [
@@ -8527,8 +8045,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where size: Int, place: Place;
+    };
 
     continue_binary_right: {
         k: [
@@ -8551,8 +8068,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: MirValue, operation: BinaryOp, place: Place, rhs: Operand, checked: Bool;
+    };
 
     #[k::requires(
         int::eq(TruncateInteger { value: int::add(lhs, rhs), width, signed }, int::add(lhs, rhs))
@@ -8582,8 +8098,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::eq(TruncateInteger { value: int::add(lhs, rhs), width, signed }, int::add(lhs, rhs))
@@ -8613,8 +8128,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_checked_add: {
         k: [
@@ -8663,8 +8177,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::eq(TruncateInteger { value: int::sub(lhs, rhs), width, signed }, int::sub(lhs, rhs))
@@ -8694,8 +8207,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::eq(TruncateInteger { value: int::sub(lhs, rhs), width, signed }, int::sub(lhs, rhs))
@@ -8725,8 +8237,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_checked_sub: {
         k: [
@@ -8775,8 +8286,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::eq(TruncateInteger { value: int::mul(lhs, rhs), width, signed }, int::mul(lhs, rhs))
@@ -8806,8 +8316,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::eq(TruncateInteger { value: int::mul(lhs, rhs), width, signed }, int::mul(lhs, rhs))
@@ -8837,8 +8346,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_checked_mul: {
         k: [
@@ -8887,8 +8395,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::ne(rhs, 0)
@@ -8922,8 +8429,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(
         int::ne(rhs, 0)
@@ -8965,8 +8471,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_int_bit_xor: {
         k: [
@@ -8989,8 +8494,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_int_bit_and: {
         k: [
@@ -9013,8 +8517,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_int_bit_or: {
         k: [
@@ -9037,8 +8540,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_shl: {
         k: [
@@ -9065,8 +8567,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(int::lt(rhs, width))]
     finish_shl_unchecked: {
@@ -9094,8 +8595,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_shr: {
         k: [
@@ -9122,8 +8622,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     #[k::requires(int::lt(rhs, width))]
     finish_shr_unchecked: {
@@ -9151,8 +8650,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_bool_bit_xor: {
         k: [
@@ -9169,8 +8667,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::ne(lhs, rhs)) }, ..],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_bit_and: {
         k: [
@@ -9187,8 +8684,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::and(lhs, rhs)) }, ..],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_bit_or: {
         k: [
@@ -9205,8 +8701,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::or(lhs, rhs)) }, ..],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     #[k::requires(int::eq(offset, 0))]
     finish_pointer_offset_zero: {
@@ -9230,14 +8725,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        offset: Int,
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        metadata: Metadata,
-        place: Place;
+    };
 
     #[k::requires(bool::and(
     int::ge(offset, 0),
@@ -9283,16 +8771,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        offset: Int,
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        size: MetadataSize,
-        current_offset: Int,
-        origin_size: Int,
-        place: Place;
+    };
 
     #[k::requires(bool::and(
     int::ge(offset, 0),
@@ -9338,16 +8817,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        offset: Int,
-        height: Int,
-        pointer_place: Place,
-        mutability: Mutability,
-        size: MetadataSize,
-        current_offset: Int,
-        origin_size: Int,
-        place: Place;
+    };
 
     finish_pointer_eq_same: {
         k: [
@@ -9364,8 +8834,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(true) }, ..],
-    }
-    where height: Int, pointer_place: Place, metadata: Metadata, place: Place;
+    };
 
     #[k::rule(owise)]
     finish_pointer_eq_different: {
@@ -9383,8 +8852,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(false) }, ..],
-    }
-    where place: Place;
+    };
 
     finish_pointer_ne_same: {
         k: [
@@ -9401,8 +8869,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(false) }, ..],
-    }
-    where height: Int, pointer_place: Place, metadata: Metadata, place: Place;
+    };
 
     #[k::rule(owise)]
     finish_pointer_ne_different: {
@@ -9420,8 +8887,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(true) }, ..],
-    }
-    where place: Place;
+    };
 
     finish_eq: {
         k: [
@@ -9438,8 +8904,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(int::eq(lhs, rhs)) }, ..],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_lt: {
         k: [
@@ -9456,8 +8921,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(int::lt(lhs, rhs)) }, ..],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_le: {
         k: [
@@ -9474,8 +8938,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(int::le(lhs, rhs)) }, ..],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_ne: {
         k: [
@@ -9492,8 +8955,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(int::ne(lhs, rhs)) }, ..],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_ge: {
         k: [
@@ -9510,8 +8972,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(int::ge(lhs, rhs)) }, ..],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_gt: {
         k: [
@@ -9528,8 +8989,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(int::gt(lhs, rhs)) }, ..],
-    }
-    where lhs: Int, rhs: Int, width: Int, signed: Bool, place: Place;
+    };
 
     finish_bool_eq: {
         k: [
@@ -9546,8 +9006,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::eq(lhs, rhs)) }, ..],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_lt: {
         k: [
@@ -9570,8 +9029,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_le: {
         k: [
@@ -9594,8 +9052,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_ne: {
         k: [
@@ -9612,8 +9069,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::ne(lhs, rhs)) }, ..],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_ge: {
         k: [
@@ -9636,8 +9092,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     finish_bool_gt: {
         k: [
@@ -9660,8 +9115,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where lhs: Bool, rhs: Bool, place: Place;
+    };
 
     set_local_value: {
         k: [
@@ -9674,8 +9128,7 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::WriteLocal { entry: list::get(locals, local), index: local, value }, ..],
-    }
-    where value: MirValue, local: Int, locals: List;
+    };
 
     set_projected_local_value: {
         k: [
@@ -9699,8 +9152,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where value: MirValue, local: Int, head: ProjectionElem, tail: ProjectionElems, locals: List;
+    };
 
     write_projected_local: {
         k: [
@@ -9725,13 +9177,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        original: MirValue,
-        local: Int,
-        projections: ProjectionElems,
-        value: MirValue,
-        locals: List;
+    };
 
     write_initialized_local: {
         k: [
@@ -9746,8 +9192,7 @@ k::rules! {
     } => {
         k: [..],
         locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
-    }
-    where value: MirValue, ty: Ty, mutability: Mutability, index: Int, locals: List;
+    };
 
     write_new_local: {
         k: [
@@ -9758,8 +9203,7 @@ k::rules! {
     } => {
         k: [..],
         locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
-    }
-    where value: MirValue, ty: Ty, mutability: Mutability, index: Int, locals: List;
+    };
 }
 
 k::rules! {
@@ -9769,8 +9213,7 @@ k::rules! {
         k: [Execution::ExecTerminator(MirTerminator::Goto(target)), ..],
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
-    }
-    where target: Int;
+    };
 
     switch_int: {
         k: [Execution::ExecTerminator(MirTerminator::SwitchInt { discr, targets }), ..],
@@ -9782,8 +9225,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where discr: Operand, targets: SwitchTargets;
+    };
 
     call_function: {
         k: [
@@ -9829,23 +9271,7 @@ k::rules! {
             ),
             stack
         ),
-    }
-    where
-        span: Int,
-        callee: Ty,
-        args: Operands,
-        destination: Place,
-        target: Int,
-        unwind: UnwindAction,
-        current_func: Ty,
-        current_body: List,
-        old_caller: Ty,
-        old_dest: Place,
-        old_target: MaybeBasicBlockIdx,
-        old_unwind: UnwindAction,
-        caller_locals: List,
-        stack: List,
-        functions: Map;
+    };
 
     set_args_done: {
         k: [Execution::SetArgsFromStack { index: _, args: Operands::Nil() }, ..],
@@ -9861,8 +9287,7 @@ k::rules! {
             Execution::SetArgsFromStack { index: int::add(index, 1), args: tail },
             ..
         ],
-    }
-    where index: Int, head: Operand, tail: Operands;
+    };
 
     set_constant_arg: {
         k: [Execution::SetArgFromStack { index, operand: MirOperand::Constant(value) }, ..],
@@ -9877,8 +9302,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where index: Int, value: MirValue;
+    };
 
     set_copied_arg: {
         k: [
@@ -9917,17 +9341,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where
-        index: Int,
-        local: Int,
-        caller: Ty,
-        dest: Place,
-        target: MaybeBasicBlockIdx,
-        unwind: UnwindAction,
-        caller_locals: List,
-        span: Int,
-        rest: List;
+    };
 
     set_moved_arg: {
         k: [
@@ -9983,17 +9397,7 @@ k::rules! {
             ),
             rest
         ),
-    }
-    where
-        index: Int,
-        local: Int,
-        caller: Ty,
-        dest: Place,
-        target: MaybeBasicBlockIdx,
-        unwind: UnwindAction,
-        caller_locals: List,
-        span: Int,
-        rest: List;
+    };
 
     assert: {
         k: [
@@ -10008,15 +9412,13 @@ k::rules! {
             Execution::ExecBlockIdx(target),
             ..
         ],
-    }
-    where condition: Operand, expected: Bool, message: AssertMessage, target: Int;
+    };
 
     drop: {
         k: [Execution::ExecTerminator(MirTerminator::Drop { place: _, target, unwind: _ }), ..],
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
-    }
-    where target: Int;
+    };
 
     unreachable: {
         k: [Execution::ExecTerminator(MirTerminator::Unreachable()), ..],
@@ -10034,8 +9436,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where condition: Operand, expected: Bool, message: AssertMessage;
+    };
 
     #[k::requires(bool::eq(condition, expected))]
     assert_succeeds: {
@@ -10048,8 +9449,7 @@ k::rules! {
         ],
     } => {
         k: [..],
-    }
-    where condition: Bool, expected: Bool;
+    };
 
     #[k::requires(bool::ne(condition, expected))]
     #[k::rule(owise)]
@@ -10063,8 +9463,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::ProgramError { error: MirExecutionError::AssertError { message } }, ..],
-    }
-    where condition: Bool, expected: Bool, message: AssertMessage;
+    };
 
     select_otherwise: {
         k: [
@@ -10081,8 +9480,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::ExecBlockIdx(otherwise), ..],
-    }
-    where otherwise: Int;
+    };
 
     select_true: {
         k: [
@@ -10102,8 +9500,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
-    }
-    where target: Int;
+    };
 
     #[k::requires(int::ne(branch_value, 1))]
     #[k::rule(owise)]
@@ -10133,8 +9530,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where branch_value: Int, tail: Branches, otherwise: Int;
+    };
 
     select_false: {
         k: [
@@ -10154,8 +9550,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
-    }
-    where target: Int;
+    };
 
     #[k::requires(int::ne(branch_value, 0))]
     #[k::rule(owise)]
@@ -10185,8 +9580,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where branch_value: Int, tail: Branches, otherwise: Int;
+    };
 
     #[k::requires(int::eq(branch_value, TruncateUnsigned { value, width }))]
     select_integer: {
@@ -10207,8 +9601,7 @@ k::rules! {
         ],
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
-    }
-    where value: Int, width: Int, branch_value: Int, target: Int;
+    };
 
     #[k::requires(int::ne(branch_value, TruncateUnsigned { value, width }))]
     #[k::rule(owise)]
@@ -10238,8 +9631,7 @@ k::rules! {
             },
             ..
         ],
-    }
-    where value: Int, width: Int, signed: Bool, branch_value: Int, tail: Branches, otherwise: Int;
+    };
 
     return_to_caller: {
         k: [Execution::ExecTerminator(MirTerminator::Return()), ..],
@@ -10287,26 +9679,7 @@ k::rules! {
         unwind: new_unwind,
         locals: new_locals,
         stack: remaining_stack,
-    }
-    where
-        callee: Ty,
-        callee_body: List,
-        caller: Ty,
-        destination: Place,
-        target: Int,
-        callee_unwind: UnwindAction,
-        value: MirValue,
-        return_ty: Ty,
-        return_mutability: Mutability,
-        callee_locals_tail: List,
-        new_caller: Ty,
-        new_dest: Place,
-        new_target: MaybeBasicBlockIdx,
-        new_unwind: UnwindAction,
-        new_locals: List,
-        return_span: Int,
-        remaining_stack: List,
-        functions: Map;
+    };
 
     return_unit_to_caller: {
         k: [Execution::ExecTerminator(MirTerminator::Return()), ..],
@@ -10345,25 +9718,7 @@ k::rules! {
         unwind: new_unwind,
         locals: new_locals,
         stack: remaining_stack,
-    }
-    where
-        callee: Ty,
-        callee_body: List,
-        caller: Ty,
-        destination: Place,
-        target: Int,
-        callee_unwind: UnwindAction,
-        return_ty: Ty,
-        return_mutability: Mutability,
-        callee_locals_tail: List,
-        new_caller: Ty,
-        new_dest: Place,
-        new_target: MaybeBasicBlockIdx,
-        new_unwind: UnwindAction,
-        new_locals: List,
-        return_span: Int,
-        remaining_stack: List,
-        functions: Map;
+    };
 
     top_level_return: {
         k: [Execution::ExecTerminator(MirTerminator::Return()), ..],
@@ -10372,8 +9727,7 @@ k::rules! {
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [Execution::ReturnLocal { entry: list::get(locals, 0) }, ..],
-    }
-    where locals: List;
+    };
 
     return_local: {
         k: [
@@ -10386,8 +9740,7 @@ k::rules! {
     } => {
         k: [Execution::EndProgram(), ..],
         ret_val: ReturnValue::Returned(value),
-    }
-    where value: MirValue;
+    };
 
     end_program: {
         k: [Execution::EndProgram(), ..],
