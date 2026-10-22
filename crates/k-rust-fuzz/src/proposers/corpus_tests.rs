@@ -79,6 +79,7 @@ fn observation(class: OutcomeClass, applied: &[&str], score: Option<Score>) -> O
         class,
         applied: applied.iter().map(|rule| (*rule).to_owned()).collect(),
         matched: Vec::new(),
+        applied_counts: BTreeMap::new(),
         work: 1,
         score,
         reads: Vec::new(),
@@ -133,6 +134,62 @@ fn the_corpus_keeps_new_coverage_and_strictly_better_scores_of_miss_cases() {
     assert_eq!(
         kept,
         vec![&[int(2)][..], &[int(4)][..], &[int(5)][..], &[int(8)][..]]
+    );
+}
+
+/// A ledger's one rule applies every transaction, so a case that applies one more reaches no
+/// new rule (CORPUS-LEDGER-STALL); it applies the rule more often. A `miss` case whose applied
+/// count of a rule falls in a bucket (each count below 16, then 16-31, 32-63, ...) no earlier
+/// `miss` case's did enters the corpus; a count in a known bucket does not.
+#[test]
+fn the_corpus_keeps_a_case_that_applies_a_rule_in_a_new_count_bucket() {
+    let mut corpus = CorpusProposer::new(
+        vec![hole(ValueSort::Int, Constraints::default())],
+        &harvest(&[]),
+        bounds(),
+        1,
+    );
+    let case = |value| Proposal::plain(Origin::Explicit, vec![int(value)]);
+    let counted = |class, counts: &[(&str, u64)]| Observation {
+        applied_counts: counts
+            .iter()
+            .map(|(rule, count)| ((*rule).to_owned(), *count))
+            .collect(),
+        ..observation(
+            class,
+            &counts.iter().map(|(rule, _)| *rule).collect::<Vec<_>>(),
+            None,
+        )
+    };
+    let miss = |count| counted(OutcomeClass::Miss, &[("begin", 1), ("pay", count)]);
+    // Every count below 16 is new once (the second 2 is not); 16 opens 16-31, so 31 does not.
+    for (value, count) in [(1, 1), (2, 2), (3, 2), (4, 3), (5, 15), (6, 16), (7, 31)] {
+        corpus.observe_all(&case(value), &miss(count));
+    }
+    // A count in a new bucket, but not a miss: not kept, and its bucket stays new.
+    corpus.observe_all(
+        &case(8),
+        &counted(OutcomeClass::Stuck, &[("begin", 1), ("pay", 40)]),
+    );
+    corpus.observe_all(&case(9), &miss(40));
+    // A known count again: not kept; another rule's count in a new bucket: kept.
+    corpus.observe_all(&case(10), &miss(63));
+    corpus.observe_all(
+        &case(11),
+        &counted(OutcomeClass::Miss, &[("begin", 2), ("pay", 1)]),
+    );
+    let kept: Vec<&[Value]> = corpus.entries();
+    assert_eq!(
+        kept,
+        vec![
+            &[int(1)][..],
+            &[int(2)][..],
+            &[int(4)][..],
+            &[int(5)][..],
+            &[int(6)][..],
+            &[int(9)][..],
+            &[int(11)][..],
+        ]
     );
 }
 

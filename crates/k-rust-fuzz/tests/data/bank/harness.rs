@@ -8,7 +8,11 @@
 
 use std::fmt::Write as _;
 
-use k_rust_fuzz::{CampaignSpec, Value, report::FuzzReport};
+use k_rust_fuzz::{
+    CampaignSpec, TargetKind, Value,
+    report::FuzzReport,
+    target::{PatternAt, PatternTarget},
+};
 
 use super::maze::Configuration;
 
@@ -110,6 +114,51 @@ pub fn run_line(
             cell.reachable() || hit.is_none(),
             "{line}: the unreachable cell {label} was reached"
         );
+        match hit {
+            Some(hit) => write!(line, " {label}={hit}"),
+            None => write!(line, " {label}=-"),
+        }
+        .expect("writing to a String");
+        cases.push(hit);
+    }
+    (line, cases)
+}
+
+/// The loop-depth cells (FZ-17): a list of which at least `depth` transactions applied, the
+/// final configuration's nonce being the number applied. They measure the progress one more
+/// applied transaction makes, apart from the exact, state-relative amounts `double` and `rich`
+/// also need; `pay` is depth 1.
+pub const DEPTHS: [u64; 4] = [3, 5, 8, 12];
+
+/// The campaign that measures depth `depth`: [`spec`]'s, with the target the pattern
+/// `<k> .K </k> <nonce> M </nonce> requires M >=Int depth` on the final configuration. The
+/// climb refuses pattern targets, so only configurations without it measure these cells.
+pub fn depth_spec(depth: u64, configuration: &Configuration, seed: u64) -> CampaignSpec {
+    let mut spec = spec(cell_named("pay"), configuration, seed);
+    spec.target.kind = TargetKind::Pattern(PatternTarget {
+        pattern: format!("<k> .K </k> <nonce> M:Int </nonce> requires M >=Int {depth}"),
+        at: PatternAt::Final,
+    });
+    spec
+}
+
+/// The cases to each depth of [`DEPTHS`] as one line, in `run_line`'s format with the cells
+/// named `d3`, `d5`, ...
+///
+/// # Panics
+///
+/// As `lock::run_spec`.
+pub fn depth_line(
+    configuration: &Configuration,
+    seed: u64,
+    budget: u64,
+) -> (String, Vec<Option<u64>>) {
+    let mut line = format!("{} seed={seed} budget={budget}:", configuration.name);
+    let mut cases = Vec::new();
+    for depth in DEPTHS {
+        let label = format!("d{depth}");
+        let (hit, _) =
+            super::lock::run_spec(&label, depth_spec(depth, configuration, seed), budget);
         match hit {
             Some(hit) => write!(line, " {label}={hit}"),
             None => write!(line, " {label}=-"),

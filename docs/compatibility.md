@@ -2281,6 +2281,7 @@ An execute request that sets `collectCoverage` (`ExecuteRequest::collect_coverag
 `BackendCapabilities::coverage` advertises it; a server without it rejects `collectCoverage`, since the request rejects unknown fields.
 A request that also sets `collectOffered` (`ExecuteRequest::collect_offered`; off by default) receives a third sorted list, `offered`; `collectOffered` without `collectCoverage` is a request error, `BackendCapabilities::coverage_offered` advertises the option, and a server without it rejects `collectOffered` as an unknown field.
 Without `collectOffered` the `coverage` object has no `offered` key.
+A request that also sets `collectCounts` (`ExecuteRequest::collect_counts`; off by default) receives `appliedCounts`, an object from each id of `applied` to the number of times the run applied it ([Applied counts](#applied-counts)); `collectCounts` without `collectCoverage` is a request error, `BackendCapabilities::coverage_counts` advertises the option, a server without it rejects `collectCounts` as an unknown field, and without it the `coverage` object has no `appliedCounts` key.
 The changes are additive and optional, so the backend schema version stays 1.
 
 - `applied` holds every axiom an instance of which the run used:
@@ -2353,6 +2354,21 @@ For example, on the IMP fixture of the fuzz crate (`crates/k-rust-fuzz/tests/dat
 
 The leaf `trace` is a diagnostic, not a coverage surface: it holds the rewrite steps of one path and the equations that normalized its states, misses the equations applied inside conditions, right-hand sides and the definedness analysis, and a `state-set` merge keeps the trace of one merged path only.
 `crates/k-rust/tests/run_coverage.rs` and [coverage.rs](../crates/k-rust-backend/src/tests/coverage.rs) pin the lists.
+
+#### Applied counts
+
+`appliedCounts` maps each id of `applied`, and only those, to a count of at least 1: the number of times the run reached a recording site of `applied` for that axiom, so the set `applied` is the support of the counts and every statement above about `applied` holds of the keys.
+A rewrite rule counts once for each successor its steps built (one per right-hand-side alternative) and once for each undefined-step entry (a `trivial` leaf or entry), so a step that builds a successor and a carried undefined entry counts twice; an equation counts once for each instance that gave a result where the run computed one; an entry into a rewrite rule's `requires` counts each equation of the rule's load-time definedness discharge once.
+Unlike the lists, the counts depend on multiplicity:
+
+- they grow with the states the run explored, so a `state-set` run that skips the subtree of a state equal to one it expanded counts less than the `path-set` run of the same request, where its lists are equal;
+- an application inside an attempt the backend later undid counts as often as the attempt ran;
+- an evaluation the run is served from one of its own memos (of a pure hook's result, of an `Unspecified` evaluation) reports nothing again, so an equation's count is the number of evaluations the backend computed, not the number of occurrences of its left-hand side in the run's terms.
+
+They are a deterministic function of the definition, the request, the solver profile and the k-rust version, and do not depend on earlier requests to the backend, as the lists; they are equal for `execute` and `executeObserved`; a cache of them must be keyed on the k-rust version, since a change of the backend's memoization or trial order moves them.
+Collecting them costs nothing beyond the lists': the collection counts every report to `applied` at the cost of the set's own lookup, and only the result's map is added when asked.
+The sets cannot tell a loop that ran three times from one that ran five; the counts can (`crates/k-rust/tests/run_coverage.rs`, `counts`), which is what a coverage-guided search needs to see one more iteration of a loop as progress.
+The Rust structs `ExecuteRequest`, `RunCoverageOutput` and `BackendCapabilities` of the facade, and `k_rust_backend::rewrite::ExecutionOptions` and `k_rust_backend::coverage::RunCoverage` (the latter `non_exhaustive`), gain a public field (`collect_counts`, `applied_counts`, `coverage_counts`): code that builds the first four with a struct literal and no `..` must add it, which is a breaking change of the Rust API, accepted because no client of k-rust is in production; the wire and the TypeScript declarations change additively.
 
 ### Work budget
 

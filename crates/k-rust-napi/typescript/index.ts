@@ -208,6 +208,8 @@ export interface BackendCapabilities {
   coverage: boolean
   /** `execute` and `executeObserved` accept `collectOffered` beside `collectCoverage`. */
   coverageOffered: boolean
+  /** `execute` and `executeObserved` accept `collectCounts` beside `collectCoverage`. */
+  coverageCounts: boolean
   /** `execute` and `executeObserved` accept `collectConditions` beside `collectCoverage`. */
   coverageConditions: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
@@ -265,6 +267,13 @@ export interface ExecuteOptions {
    * "Run coverage").
    */
   collectOffered?: boolean
+  /**
+   * With `collectCoverage`, also report `RunCoverage.appliedCounts`: how many times the run
+   * applied each rule and equation of `applied`. A request that sets it without
+   * `collectCoverage` is refused; asking changes no other field (docs/compatibility.md, "Run
+   * coverage").
+   */
+  collectCounts?: boolean
   /**
    * With `collectCoverage`, also report `RunCoverage.conditions`: for each rewrite rule named
    * (by id or label) whose `requires` the run began to decide, the bindings of the variables the
@@ -531,6 +540,12 @@ export interface RunCoverage {
    * whose `requires` the run began to decide, by rule id.
    */
   conditions?: RuleConditions[]
+  /**
+   * Present exactly when the request set `collectCounts`: each id of `applied` with the number
+   * of times the run applied it (at least 1): for a rewrite rule, the successors and
+   * undefined-step entries its steps built; for an equation, the instances that gave a result.
+   */
+  appliedCounts?: Record<string, number>
 }
 
 /** Which rules' condition entries an execute request records (`collectConditions`). */
@@ -1350,6 +1365,8 @@ export interface FuzzCorpusParameters {
   'nudge-exponents': number
   'max-entries': number
   'max-attempts': number
+  /** Applied counts below it are buckets of their own; above, one bucket per power of two. */
+  'count-exact-below': number
   /** The harvest its literals come from (its draw probability does not apply). */
   harvest: FuzzDictionaryParameters
 }

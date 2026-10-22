@@ -454,6 +454,17 @@ impl LiveCases {
         self.baseline.shape = self.baseline.shape.with_conditions(rules);
     }
 
+    /// Ask every case of every side to count how many times its run applied each rule
+    /// (`collectCounts`), which the corpus's keep rule reads (`crate::proposers::corpus`).
+    /// Asking changes no other field of a result, so the class, the coverage sets and the
+    /// witness are unchanged.
+    pub(crate) fn request_counts(&mut self) {
+        self.baseline.shape = self.baseline.shape.with_counts();
+        if let Judge::Differential(mutant) = &mut self.judge {
+            mutant.shape = mutant.shape.with_counts();
+        }
+    }
+
     /// What the solve proposer builds the baseline's configurations from
     /// ([`ConfigurationBuilder`]).
     #[cfg(feature = "z3")]
@@ -749,12 +760,17 @@ impl LiveCases {
 /// The run-level parts of a [`CaseRun`]: coverage from `covered`, work and determinism and load
 /// records from every side.
 fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
-    let (applied, matched) = covered
-        .coverage
-        .as_ref()
-        .map_or_else(Default::default, |coverage| {
-            (coverage.applied.clone(), coverage.matched.clone())
-        });
+    let (applied, matched, applied_counts) =
+        covered
+            .coverage
+            .as_ref()
+            .map_or_else(Default::default, |coverage| {
+                (
+                    coverage.applied.clone(),
+                    coverage.matched.clone(),
+                    coverage.applied_counts.clone().unwrap_or_default(),
+                )
+            });
     let guards = covered
         .coverage
         .as_ref()
@@ -773,6 +789,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
             .fold(0, u64::saturating_add),
         applied,
         matched,
+        applied_counts,
         blocked: false,
         guards,
         progress: None,

@@ -11,8 +11,8 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use crate::{
     coverage::{
         ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, RecordedValue,
-        RuleConditions, RunCoverage, Truth, Verdict, collect, collect_offering, note_applied,
-        note_matched, note_offered, offer, replay, suspend,
+        RuleConditions, RunCoverage, Truth, Verdict, collect, collect_offering, collect_recording,
+        note_applied, note_matched, note_offered, offer, replay, suspend,
     },
     definition::BackendDefinition,
     rewrite::{
@@ -913,6 +913,103 @@ fn a_replayed_coverage_feeds_each_set_it_holds() {
     assert_eq!(replayed, stored);
     assert_eq!(replayed.applied, ids(&["used"]));
     assert_eq!(replayed.matched, ids(&["tried", "used"]));
+}
+
+/// A counting collection reports, beside the sets, how many times each id was reported to
+/// `applied`: its keys are `applied`; reports under `suspend` and in an unwound collection
+/// count nothing, a nested collection's counts are added when it closes, and a replay counts
+/// one report of each id it replays. A collection that does not count has the same sets and no
+/// counts.
+#[test]
+fn a_counting_collection_counts_each_report_to_applied() {
+    let action = || {
+        note_applied("a");
+        note_applied("a");
+        note_applied("b");
+        note_matched("m");
+        note_matched("m");
+        suspend(|| note_applied("a"));
+        let ((), inner) = collect(|| {
+            note_applied("a");
+            note_applied("c");
+            note_applied("c");
+        });
+        assert_eq!(inner.applied_counts, None);
+        let unwound = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            collect(|| {
+                note_applied("a");
+                panic!("unwinds");
+            })
+        }));
+        assert!(unwound.is_err());
+        replay(&inner);
+    };
+    let ((), counted) = collect_recording(false, true, None, action);
+    assert_eq!(counted.applied, ids(&["a", "b", "c"]));
+    assert_eq!(counted.matched, ids(&["a", "b", "c", "m"]));
+    assert_eq!(
+        counted.applied_counts,
+        Some(
+            [("a", 4), ("b", 1), ("c", 3)]
+                .into_iter()
+                .map(|(id, count)| (id.to_owned(), count))
+                .collect()
+        )
+    );
+    let ((), plain) = collect(action);
+    assert_eq!(plain.applied_counts, None);
+    assert_eq!(
+        plain,
+        RunCoverage {
+            applied_counts: None,
+            ..counted
+        }
+    );
+}
+
+/// An execution that asks for counts receives them keyed by `applied`, and asking changes
+/// nothing else in the result; without `collect_counts` it receives none.
+#[test]
+fn an_execution_reports_counts_only_when_asked_and_asking_changes_nothing_else() {
+    let definition = definition();
+    let program = format!("rhsp{{}}({})", int(1));
+    let initial = ground(&definition, &program);
+    let mut counted = execute(
+        &definition,
+        initial.clone(),
+        ExecutionOptions {
+            collect_counts: true,
+            ..collecting()
+        },
+    );
+    let mut plain = execute(&definition, initial, collecting());
+    let counted_coverage = counted
+        .coverage
+        .take()
+        .expect("the run collected its coverage");
+    let plain_coverage = plain
+        .coverage
+        .take()
+        .expect("the run collected its coverage");
+    assert_eq!(counted, plain, "asking for counts changed the result");
+    assert_eq!(plain_coverage.applied_counts, None);
+    let counts = counted_coverage
+        .applied_counts
+        .clone()
+        .expect("the run counted");
+    assert_eq!(
+        counts.keys().cloned().collect::<BTreeSet<_>>(),
+        counted_coverage.applied
+    );
+    assert!(counts.values().all(|count| *count >= 1));
+    assert_eq!(counts["rhsp"], 1);
+    assert_eq!(
+        RunCoverage {
+            applied_counts: None,
+            ..counted_coverage
+        },
+        plain_coverage
+    );
 }
 
 /// The offered level is collected only by a collection that offers: `note_offered` reports

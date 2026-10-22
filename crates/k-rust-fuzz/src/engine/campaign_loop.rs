@@ -197,6 +197,7 @@ fn observation(
         class,
         applied: run.applied,
         matched: run.matched,
+        applied_counts: run.applied_counts,
         work: run.work,
         score,
         reads,

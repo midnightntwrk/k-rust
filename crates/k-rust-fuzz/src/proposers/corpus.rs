@@ -18,13 +18,22 @@
 //!
 //! The proposer observes every case, whichever proposer made it. A `miss` case enters the
 //! corpus when its coverage holds a rule, in `applied` or `matched`, that no earlier `miss`
-//! case's did (the engine's coverage feedback, ARCHITECTURE 6.2), or, in a campaign that
-//! scores its cases (one with the climb or the solve proposer), when its score is strictly
+//! case's did (the engine's coverage feedback, ARCHITECTURE 6.2), or a rule applied a number of
+//! times in a bucket ([`EXACT_COUNTS`]) no earlier `miss` case applied it in, or, in a campaign
+//! that scores its cases (one with the climb or the solve proposer), when its score is strictly
 //! better than every earlier case's. Only `miss` cases count, as for the score: a bounded or unclean case's coverage
 //! stops early (R-18). The corpus holds at most [`MAX_ENTRIES`] cases; beyond that a new entry
 //! replaces the oldest one that entered for its score alone, or the oldest when every entry
 //! entered for coverage. Until the corpus has an entry the proposer is not drawn
 //! ([`Proposer::ready`]); the anchor case is usually the first entry.
+//!
+//! The counts are what makes a loop's progress visible: a ledger whose one rule applies each
+//! transaction of a list reaches no new rule when one more transaction applies, but it applies
+//! that rule once more. Each count below [`EXACT_COUNTS`] is a bucket of its own, so every one of
+//! the first fifteen iterations of a loop is progress; from there the counts of one power of two
+//! share a bucket, so a loop whose length a hole sets (a counter) enters at most about sixty
+//! cases more per rule, not one per length. The campaign asks the backend for the counts
+//! (`collectCounts`) only when it weighs the corpus.
 //!
 //! # Mutations
 //!
@@ -79,7 +88,10 @@
 //! shift another proposer's streams. The parameters are recorded in the report
 //! ([`crate::report::CorpusParameters`]).
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use num_bigint::BigInt;
 use num_traits::Zero as _;
@@ -125,6 +137,25 @@ pub(crate) const MAX_ENTRIES: usize = 256;
 /// The most draws of a mutation before it is given up.
 pub(crate) const MAX_ATTEMPTS: u32 = 64;
 
+/// Applied counts below this bound are buckets of their own; from it on, the counts of one
+/// power of two (16-31, 32-63, ...) share a bucket.
+pub(crate) const EXACT_COUNTS: u64 = 16;
+
+// A count's bucket is a bit of a `u128`: `EXACT_COUNTS` exact buckets plus one per power of two
+// from `EXACT_COUNTS` to `u64::MAX`, the highest at index `EXACT_COUNTS + 63 - log2(EXACT_COUNTS)`,
+// which stays below 128 (121 at most) for every bound up to 64.
+const _: () = assert!(EXACT_COUNTS > 0 && EXACT_COUNTS <= 64);
+
+/// The bucket of an applied count `count` ([`EXACT_COUNTS`]), as a bit of a rule's buckets.
+fn count_bucket(count: u64) -> u128 {
+    let index = if count < EXACT_COUNTS {
+        count
+    } else {
+        EXACT_COUNTS + u64::from(count.ilog2() - EXACT_COUNTS.ilog2())
+    };
+    1 << index
+}
+
 /// The corpus's parameters as the report records them ([`CorpusParameters`]).
 pub(crate) fn parameters() -> CorpusParameters {
     CorpusParameters {
@@ -136,6 +167,7 @@ pub(crate) fn parameters() -> CorpusParameters {
         nudge_exponents: NUDGE_EXPONENTS,
         max_entries: u32::try_from(MAX_ENTRIES).unwrap_or(u32::MAX),
         max_attempts: MAX_ATTEMPTS,
+        count_exact_below: EXACT_COUNTS,
         harvest: crate::proposers::dictionary::parameters(),
     }
 }
@@ -233,6 +265,9 @@ pub(crate) struct CorpusProposer {
     entries: Vec<Entry>,
     applied: BTreeSet<String>,
     matched: BTreeSet<String>,
+    /// For each rule an observed `miss` case applied, the buckets of its applied counts
+    /// so far, one bit per bucket ([`count_bucket`]).
+    counted: BTreeMap<String, u128>,
     best: Option<Score>,
 }
 
@@ -288,6 +323,7 @@ impl CorpusProposer {
             entries: Vec::new(),
             applied: BTreeSet::new(),
             matched: BTreeSet::new(),
+            counted: BTreeMap::new(),
             best: None,
         }
     }
@@ -805,6 +841,16 @@ impl Proposer for CorpusProposer {
         }
         for rule in &observation.matched {
             new |= self.matched.insert(rule.clone());
+        }
+        for (rule, count) in &observation.applied_counts {
+            let bucket = count_bucket(*count);
+            if let Some(buckets) = self.counted.get_mut(rule) {
+                new |= *buckets & bucket == 0;
+                *buckets |= bucket;
+            } else {
+                self.counted.insert(rule.clone(), bucket);
+                new = true;
+            }
         }
         let better = observation
             .score

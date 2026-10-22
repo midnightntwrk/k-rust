@@ -386,6 +386,7 @@ test('searches and observes the persistent native backend graph', () => {
   )
   assert.equal(backend.capabilities.coverage, true)
   assert.equal(backend.capabilities.coverageOffered, true)
+  assert.equal(backend.capabilities.coverageCounts, true)
   assert.equal(backend.capabilities.coverageConditions, true)
   assert.equal(backend.capabilities.stackStops, true)
   assert.equal(backend.capabilities.smtUnknowns, true)
@@ -418,6 +419,18 @@ test('searches and observes the persistent native backend graph', () => {
   assert.throws(
     () => backend.execute({ state: a, collectOffered: true }),
     /collectOffered requires collectCoverage/,
+  )
+  assert.deepEqual(
+    backend.execute({ state: a, collectCoverage: true, collectCounts: true }).coverage,
+    {
+      applied: ['a-to-b', 'b-to-c'],
+      matched: ['a-to-b', 'b-to-c'],
+      appliedCounts: { 'a-to-b': 1, 'b-to-c': 1 },
+    },
+  )
+  assert.throws(
+    () => backend.execute({ state: a, collectCounts: true }),
+    /collectCounts requires collectCoverage/,
   )
   assert.throws(
     () => backend.execute({ state: a, collectConditions: { rules: ['a-to-b'] } }),

@@ -12,6 +12,8 @@ mod lock;
 #[path = "data/maze/harness.rs"]
 mod maze;
 mod support;
+#[path = "data/tally/harness.rs"]
+mod tally;
 
 use std::{collections::BTreeMap, fmt::Write as _, thread};
 
@@ -211,6 +213,35 @@ fn every_reachable_bank_cell_has_a_witness_and_broke_none() {
     // The anchor `ListItem(tx(7, 1))` has the wrong nonce and reaches no cell.
     let (hit, report) = bank::run_cell(bank::cell_named("pay"), &maze::blind(), 1, 1);
     assert_eq!((hit, report.totals.cases), (None, 1));
+}
+
+/// The bank's loop-depth cells (`bank::DEPTHS`, FZ-17) fire exactly on a list of which at
+/// least that many transactions apply: `n` valid transactions (nonces 0 to n-1, amount 1)
+/// followed by one with a wrong nonce.
+#[test]
+fn every_bank_depth_cell_fires_on_exactly_the_lists_that_deep() {
+    for depth in bank::DEPTHS {
+        for applied in [depth - 1, depth, depth + 1] {
+            let mut txs: Vec<(i64, i64)> =
+                (0..applied).map(|nonce| (nonce.cast_signed(), 1)).collect();
+            txs.push((99, 1));
+            let configuration = Configuration {
+                name: "witness",
+                proposers: ProposerConfig {
+                    anchors_first: false,
+                    explicit: vec![BTreeMap::from([("TXS".to_owned(), bank::txs(&txs))])],
+                    weights: BTreeMap::new(),
+                },
+                target_blind: true,
+            };
+            let (hit, _) = lock::run_spec(
+                &format!("d{depth}"),
+                bank::depth_spec(depth, &configuration, 1),
+                1,
+            );
+            assert_eq!(hit.is_some(), applied >= depth, "d{depth} under {applied}");
+        }
+    }
 }
 
 #[test]
@@ -455,4 +486,183 @@ fn measure_bank_tuning() {
 #[ignore = "measurement mode: run with --ignored --nocapture measure_"]
 fn measure_bank_held_out() {
     measure_bank(&bank_configurations(), &HELD_OUT_SEEDS);
+}
+
+/// The configurations FZ-17 measures (the corpus's keep rule with applied counts): every one
+/// that weighs the corpus. The others' cases do not ask for counts and are unchanged.
+fn hitcount_configurations() -> Vec<Configuration> {
+    vec![
+        blind_corpus(),
+        blind_dictionary_corpus(),
+        blind_dictionary_climb_corpus(),
+    ]
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_bank_tuning() {
+    measure_bank(&hitcount_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_bank_held_out() {
+    measure_bank(&hitcount_configurations(), &HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_maze_tuning() {
+    measure_maze(&round2_configurations(false), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_maze_held_out() {
+    measure_maze(&round2_configurations(false), &HELD_OUT_SEEDS);
+}
+
+/// The loop-depth cells of the bank (`bank::DEPTHS`) under the corpus configurations the climb
+/// does not refuse (it refuses pattern targets): one more applied transaction is the progress
+/// FZ-17's applied counts make visible.
+fn measure_bank_depth(seeds: &[u64]) {
+    let labels: Vec<String> = bank::DEPTHS
+        .iter()
+        .map(|depth| format!("d{depth}"))
+        .collect();
+    let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+    measure_list(
+        "bank-depth",
+        &labels,
+        &[blind_corpus(), blind_dictionary_corpus()],
+        seeds,
+        |configuration, _, seed, budget| bank::depth_line(configuration, seed, budget),
+    );
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_bank_depth_tuning() {
+    measure_bank_depth(&TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_bank_depth_held_out() {
+    measure_bank_depth(&HELD_OUT_SEEDS);
+}
+
+/// The tally's depth cells (`tally::DEPTHS`, FZ-17) fire exactly on a list of which at least
+/// that many keys apply, on every variant: `n` keys in the window followed by three outside it
+/// (which the noise and drain variants consume after the loop).
+#[test]
+fn every_tally_depth_cell_fires_on_exactly_the_lists_that_deep() {
+    let variants = [
+        tally::Variant::Clean,
+        tally::Variant::Noise,
+        tally::Variant::Drain,
+    ];
+    for (variant, depth) in variants
+        .into_iter()
+        .flat_map(|variant| tally::DEPTHS.map(|depth| (variant, depth)))
+    {
+        for applied in [depth - 1, depth, depth + 1] {
+            let mut keys = vec![1050; usize::try_from(applied).unwrap()];
+            keys.extend([7, 8, 9]);
+            let configuration = Configuration {
+                name: "witness",
+                proposers: ProposerConfig {
+                    anchors_first: false,
+                    explicit: vec![BTreeMap::from([("KEYS".to_owned(), tally::keys(&keys))])],
+                    weights: BTreeMap::new(),
+                },
+                target_blind: true,
+            };
+            let (hit, _) = lock::run_spec(
+                &format!("d{depth}"),
+                tally::variant_spec(variant, depth, &configuration, 1),
+                1,
+            );
+            assert_eq!(
+                hit.is_some(),
+                applied >= depth,
+                "{} d{depth} under {applied}",
+                variant.name()
+            );
+        }
+    }
+    // The anchor `ListItem(0)` applies no key.
+    for variant in variants {
+        let (hit, report) =
+            lock::run_spec("d4", tally::variant_spec(variant, 4, &maze::blind(), 1), 1);
+        assert_eq!((hit, report.totals.cases), (None, 1), "{}", variant.name());
+    }
+}
+
+/// blind+corpus's cases to the tally's depth 8 at [`CI_SEEDS`] within 5000 cases: regression
+/// pins of the keep rule on applied counts (FZ-17), on tuning seeds. Without the counts the
+/// corpus reaches no depth of the tally at any of seeds 1-20 (`research/stall-benchmark.md`,
+/// FZ-17): one more applied key is no new rule.
+const PINNED_TALLY_D8: [Option<u64>; 5] = [Some(645), Some(378), Some(1855), Some(445), Some(518)];
+
+/// The corpus keeps a case that applies `eat` once more than any before, so it reaches depth
+/// 8 of the tally, a loop over a list whose every step is the same rule.
+#[test]
+fn the_corpus_follows_a_loop_one_more_application_at_a_time() {
+    let cases = per_seed(&CI_SEEDS, |seed| {
+        lock::run_spec(
+            "d8",
+            tally::depth_spec(8, &blind_corpus(), seed),
+            MEASURE_BUDGET,
+        )
+        .0
+    });
+    assert_eq!(cases, PINNED_TALLY_D8);
+}
+
+/// The tally's depth cells under the corpus configurations the climb does not refuse.
+fn measure_tally(seeds: &[u64]) {
+    measure_tally_variant(tally::Variant::Clean, seeds);
+}
+
+/// [`measure_tally`] on `variant`.
+fn measure_tally_variant(variant: tally::Variant, seeds: &[u64]) {
+    let labels: Vec<String> = tally::DEPTHS
+        .iter()
+        .map(|depth| format!("d{depth}"))
+        .collect();
+    let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+    measure_list(
+        variant.name(),
+        &labels,
+        &[blind_corpus(), blind_dictionary_corpus()],
+        seeds,
+        |configuration, _, seed, budget| tally::variant_line(variant, configuration, seed, budget),
+    );
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_tally_tuning() {
+    measure_tally(&TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_tally_held_out() {
+    measure_tally(&HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_noise_tuning() {
+    measure_tally_variant(tally::Variant::Noise, &TUNING_SEEDS);
+    measure_tally_variant(tally::Variant::Drain, &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_noise_held_out() {
+    measure_tally_variant(tally::Variant::Noise, &HELD_OUT_SEEDS);
+    measure_tally_variant(tally::Variant::Drain, &HELD_OUT_SEEDS);
 }

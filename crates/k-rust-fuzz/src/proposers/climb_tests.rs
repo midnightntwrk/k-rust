@@ -52,6 +52,7 @@ fn observation(score: Option<Score>) -> Observation {
         },
         applied: Vec::new(),
         matched: Vec::new(),
+        applied_counts: std::collections::BTreeMap::new(),
         work: 1,
         score,
         reads: Vec::new(),

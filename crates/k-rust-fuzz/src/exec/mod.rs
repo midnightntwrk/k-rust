@@ -523,6 +523,14 @@ impl CaseRequestShape {
         shape
     }
 
+    /// This shape, with the request also counting how many times the run applied each rule
+    /// (`collectCounts`); `collect_coverage` is already set.
+    pub(crate) fn with_counts(&self) -> Self {
+        let mut shape = self.clone();
+        shape.request.collect_counts = true;
+        shape
+    }
+
     /// The request for one initial configuration.
     pub(crate) fn request(&self, state: KorePattern) -> ExecuteRequest {
         ExecuteRequest {

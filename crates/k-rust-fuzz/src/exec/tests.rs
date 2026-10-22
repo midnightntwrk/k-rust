@@ -135,6 +135,9 @@ fn the_request_follows_the_options_and_the_target_needs() {
     assert_eq!(request.max_breadth, None);
     assert!(request.collect_coverage);
     assert!(!request.collect_offered);
+    assert!(!request.collect_counts);
+    let counting = shape.with_counts();
+    assert!(counting.request.collect_counts && counting.request.collect_coverage);
     assert!(!request.trace);
     assert!(request.terminal_rules.is_empty());
     assert!(!request.stop_at_branch);

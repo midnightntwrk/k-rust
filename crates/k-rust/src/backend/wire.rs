@@ -2059,6 +2059,7 @@ fn run_coverage_output<K: WireKore>(
             .conditions
             .map(|rules| rules.into_iter().map(rule_conditions_output).collect())
             .transpose()?,
+        applied_counts: coverage.applied_counts,
     })
 }
 

@@ -24,6 +24,11 @@
 //! run and nothing of another thread. With no collection open, a report reads one thread-local
 //! flag and returns.
 //!
+//! An execution that also asks for counts (`rewrite::ExecutionOptions::collect_counts`) receives,
+//! beside the sets, the number of reports of each applied id ([`RunCoverage::applied_counts`]).
+//! The collection counts them in any case, at the cost of the set's own lookup, and only closing
+//! it reads whether they are asked for.
+//!
 //! An execution that also asks for the offered level (`rewrite::ExecutionOptions::collect_offered`)
 //! opens an offering collection. The backend reports to it, besides, where a site that selected
 //! candidates for a subject by priority group (a rewrite step, an equation scan of a term or a
@@ -45,12 +50,12 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
 use k_rust_kore::measure::{self, Counter};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 mod conditions;
 
@@ -163,6 +168,19 @@ pub(crate) use conditions::{record as record_condition, verdict as condition_ver
 /// multiplicity; unlike the sets they are kept in the order the run first made them, up to the
 /// collection's limit per rule, which the backend's trial order and exploration order fix.
 ///
+/// `applied_counts`, present exactly when the collection counted (`collect_recording`), maps
+/// each id of `applied` to the number of reports of it to `applied` while the collection was
+/// open: its keys are `applied`, and every count is at least 1. A report is one recording site
+/// of `applied` reached once, so the count of a rewrite rule is the number of successors (one
+/// per right-hand-side alternative) and undefined-step entries its steps built, and that of an
+/// equation the number of instances that gave a result where the backend computed one; an
+/// entry into a rule's `requires` phase reports each `applied` id of its `discharged_by` once.
+/// Unlike the sets, the counts depend on multiplicity: on how many states the run explored (so
+/// a `state-set` run that skips a twin subtree counts less than the `path-set` run), on attempts
+/// later rewound or discarded, which count as often as they ran, and on the backend's
+/// memoization, since an evaluation the run is served from a memo reports nothing again. They
+/// are a deterministic function of the same inputs as the sets.
+///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -171,41 +189,62 @@ pub struct RunCoverage {
     pub matched: BTreeSet<String>,
     pub offered: Option<BTreeSet<String>>,
     pub conditions: Option<Vec<RuleConditions>>,
+    pub applied_counts: Option<BTreeMap<String, u64>>,
 }
 
-/// The ids reported to the open collection, inserted once each.
+/// The ids reported to the open collection, inserted once each; `applied` also counts its
+/// reports, which costs what a set's lookup does, so a collection counts whether or not its
+/// caller reads the counts.
 #[derive(Default)]
 struct Sink {
-    applied: FxHashSet<String>,
+    applied: FxHashMap<String, u64>,
     matched: FxHashSet<String>,
     offered: FxHashSet<String>,
 }
 
 impl Sink {
     fn absorb(&mut self, inner: &Sink) {
-        self.applied.extend(inner.applied.iter().cloned());
+        for (id, count) in &inner.applied {
+            add(&mut self.applied, id, *count);
+        }
         self.matched.extend(inner.matched.iter().cloned());
         self.offered.extend(inner.offered.iter().cloned());
     }
 
     fn holds(&self, id: &str) -> bool {
-        self.offered.contains(id) || self.matched.contains(id) || self.applied.contains(id)
+        self.offered.contains(id) || self.matched.contains(id) || self.applied.contains_key(id)
     }
 
-    fn into_coverage(self, offering: bool) -> RunCoverage {
+    fn into_coverage(self, offering: bool, counting: bool) -> RunCoverage {
         let mut matched = self.matched;
-        matched.extend(self.applied.iter().cloned());
+        matched.extend(self.applied.keys().cloned());
         let offered = offering.then(|| {
             let mut offered = self.offered;
             offered.extend(matched.iter().cloned());
             offered.into_iter().collect()
         });
+        let applied_counts = counting.then(|| {
+            self.applied
+                .iter()
+                .map(|(id, n)| (id.clone(), *n))
+                .collect()
+        });
         RunCoverage {
-            applied: self.applied.into_iter().collect(),
+            applied: self.applied.into_keys().collect(),
             matched: matched.into_iter().collect(),
             offered,
             conditions: None,
+            applied_counts,
         }
+    }
+}
+
+/// Add `count` reports of `id` to `counts`.
+fn add(counts: &mut FxHashMap<String, u64>, id: &str, count: u64) {
+    if let Some(reports) = counts.get_mut(id) {
+        *reports = reports.saturating_add(count);
+    } else {
+        counts.insert(id.to_owned(), count);
     }
 }
 
@@ -231,14 +270,17 @@ pub(crate) fn collect<T>(action: impl FnOnce() -> T) -> (T, RunCoverage) {
 /// ([`RunCoverage::offered`]). A collection opened inside does not offer unless it asks, and its
 /// offered ids feed this one when it closes.
 pub(crate) fn collect_offering<T>(offering: bool, action: impl FnOnce() -> T) -> (T, RunCoverage) {
-    collect_recording(offering, None, action)
+    collect_recording(offering, false, None, action)
 }
 
-/// [`collect_offering`], with the condition entries of the rules `conditions` names recorded
-/// when it is given ([`RunCoverage::conditions`]). A collection opened inside records no
-/// conditions unless it asks, and its records stay its own.
+/// [`collect_offering`], with the reports to `applied` counted when `counting` holds
+/// ([`RunCoverage::applied_counts`]), and the condition entries of the rules `conditions` names
+/// recorded when it is given ([`RunCoverage::conditions`]). A collection opened inside records no
+/// conditions unless it asks, and its records stay its own; its counts are added to this one's
+/// when it closes.
 pub(crate) fn collect_recording<T>(
     offering: bool,
+    counting: bool,
     conditions: Option<ConditionCollection>,
     action: impl FnOnce() -> T,
 ) -> (T, RunCoverage) {
@@ -282,20 +324,22 @@ pub(crate) fn collect_recording<T>(
     };
     let result = action();
     let (inner, inner_conditions) = restore.close();
-    let mut coverage = inner.into_coverage(offering);
+    let mut coverage = inner.into_coverage(offering, counting);
     coverage.conditions = inner_conditions.map(conditions::Sink::finish);
     (result, coverage)
 }
 
 /// Report every set of `coverage`, a coverage collected earlier and stored (such as a rule's
 /// load-time discharge, `ComputedRuleAttributes::discharged_by`), to the open collection, each
-/// id to the set it was collected in.
+/// id to the set it was collected in, once: a replay counts one report of each `applied` id,
+/// whatever its stored count.
 pub(crate) fn replay(coverage: &RunCoverage) {
     let RunCoverage {
         applied,
         matched,
         offered,
         conditions: _,
+        applied_counts: _,
     } = coverage;
     for id in applied {
         note_applied(id);
@@ -322,11 +366,12 @@ pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
-/// Report that an instance of the axiom `id` was used ([`RunCoverage::applied`]).
+/// Report that an instance of the axiom `id` was used ([`RunCoverage::applied`]), once more
+/// ([`RunCoverage::applied_counts`]).
 #[inline]
 pub(crate) fn note_applied(id: &str) {
     if OPEN.get() {
-        SINK.with_borrow_mut(|sink| insert(&mut sink.applied, id));
+        SINK.with_borrow_mut(|sink| add(&mut sink.applied, id, 1));
     }
 }
 

@@ -270,6 +270,11 @@ impl Campaign {
                 cases.request_conditions(rules);
             }
         }
+        // The corpus keeps a case whose counted coverage gains a (rule, count bucket); only a
+        // campaign that weighs it asks for counts, so no other campaign's requests change.
+        if self.corpus.is_some() {
+            cases.request_counts();
+        }
         let generators = generators(&cases, &self.spec).expect("Campaign::new built them");
         // Campaign::new refused every other weighted proposer; the schedule takes them in
         // ProposerKind order when there are several.
