@@ -6576,7 +6576,7 @@ k::rules! {
     use Operation::*;
 
     stack_underflow_no_words_arithmetic: {
-        k: [(Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend()), ..],
+        k: [Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6586,7 +6586,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_no_words_comparison_bitwise: {
-        k: [(LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | IsZero() | BitAnd() | BitOr() | BitXor() | BitNot() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight()), ..],
+        k: [LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | IsZero() | BitAnd() | BitOr() | BitXor() | BitNot() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6596,7 +6596,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_no_words_environment: {
-        k: [(AccountBalance() | ExternalCodeSize() | ExternalCodeHash() | ExternalCodeCopy() | CallDataLoad() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | BlockHash()), ..],
+        k: [AccountBalance() | ExternalCodeSize() | ExternalCodeHash() | ExternalCodeCopy() | CallDataLoad() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | BlockHash(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6606,7 +6606,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_no_words_memory_storage_control: {
-        k: [(MemoryLoad() | MemoryStore() | MemoryStore8() | Sha3() | StorageLoad() | StorageStore() | Jump() | JumpIf() | Return() | Revert()), ..],
+        k: [MemoryLoad() | MemoryStore() | MemoryStore8() | Sha3() | StorageLoad() | StorageStore() | Jump() | JumpIf() | Return() | Revert(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6616,7 +6616,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_one_word_arithmetic: {
-        k: [(Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend()), ..],
+        k: [Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend(), ..],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -6626,7 +6626,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_one_word_comparison_bitwise: {
-        k: [(LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | BitAnd() | BitOr() | BitXor() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight()), ..],
+        k: [LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | BitAnd() | BitOr() | BitXor() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight(), ..],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -6636,7 +6636,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_one_word_environment_memory_control: {
-        k: [(ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | MemoryStore() | MemoryStore8() | Sha3() | StorageStore() | JumpIf() | Return() | Revert()), ..],
+        k: [ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | MemoryStore() | MemoryStore8() | Sha3() | StorageStore() | JumpIf() | Return() | Revert(), ..],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -6646,7 +6646,7 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_two_words: {
-        k: [(ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | AddMod() | MulMod()), ..],
+        k: [ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | AddMod() | MulMod(), ..],
         word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty())),
         status_code: status,
     } => {
