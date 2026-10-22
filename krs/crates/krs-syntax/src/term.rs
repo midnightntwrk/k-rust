@@ -396,6 +396,8 @@ pub struct TermApplication {
     pub(crate) notation: bool,
     /// The base `t` of a record update `Ctor { f: e, ..t }`, a reference.
     pub(crate) update: Option<Box<TermTree>>,
+    /// Whether a record pattern ends in `..`, `Ctor { f: p, .. }`.
+    pub(crate) open: bool,
 }
 
 /// One compiler-owned complete parent-cell term.
@@ -480,6 +482,14 @@ impl TermApplication {
     #[must_use]
     pub fn update(&self) -> Option<&TermTree> {
         self.update.as_deref()
+    }
+
+    /// Whether the application is a record pattern ending in `..`,
+    /// `Ctor { f: p, .. }`, whose unnamed fields are unconstrained; it may
+    /// name no field, `Ctor { .. }`.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open
     }
 }
 
@@ -1705,6 +1715,7 @@ fn validate_pattern(
                 instance: Vec::new(),
                 notation: true,
                 update: None,
+                open: false,
             }))
         }
         Pat::Struct(record) => validate_struct_pattern(record, signs, symbols, nodes),
@@ -1783,6 +1794,7 @@ fn validate_tuple_struct_pattern(
         instance,
         notation: false,
         update: None,
+        open: false,
     }))
 }
 
@@ -1803,6 +1815,7 @@ fn validate_struct_pattern(
     if let Some(rest) = &record.rest {
         reject_attributes(&rest.attrs, rest.span())?;
     }
+    let open = record.rest.is_some();
     symbols.push(TermSymbol {
         path: record.path.clone(),
         kind: TermSymbolKind::ApplicationHead,
@@ -1821,6 +1834,7 @@ fn validate_struct_pattern(
         instance,
         notation: false,
         update: None,
+        open,
     }))
 }
 
@@ -3298,6 +3312,7 @@ fn validate_call(
         instance,
         notation,
         update: None,
+        open: false,
     }))
 }
 
@@ -3433,6 +3448,7 @@ fn validate_record(
         instance,
         notation: false,
         update,
+        open: false,
     }))
 }
 

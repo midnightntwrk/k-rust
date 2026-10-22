@@ -2337,6 +2337,7 @@ fn render_term(
             head_class,
             arguments,
             instance,
+            open,
             ..
         } => {
             let head = match &reference.application {
@@ -2398,18 +2399,21 @@ fn render_term(
             {
                 return Ok(head);
             }
-            if arguments.is_empty() {
+            // A pattern `Ctor { .. }` names no field: every field is `_`.
+            let fieldless = *open && pattern;
+            if arguments.is_empty() && !fieldless {
                 return Ok(quote!(#head()));
             }
             let arguments = match arguments {
-                krs_ir::Arguments::Positional(values) => {
+                krs_ir::Arguments::Positional(values) if !fieldless => {
                     let values = values
                         .iter()
                         .map(|value| render_term(value, pattern, package, bundle))
                         .collect::<Result<Vec<_>, _>>()?;
                     return Ok(quote!(#head(#(#values),*)));
                 }
-                krs_ir::Arguments::Named(values) => values,
+                krs_ir::Arguments::Positional(_) => Vec::new(),
+                krs_ir::Arguments::Named(values) => values.iter().collect(),
             };
             let DescriptorApplicationRef::Declared(id) = &reference.application else {
                 return Err(ReferenceExpansionError::NamedBuiltinApplication);
@@ -3566,6 +3570,7 @@ mod tests {
                 Box::new(variable("index", 1)),
             ]),
             update: None,
+            open: false,
         };
         let rendered = render_term(
             &lookup,

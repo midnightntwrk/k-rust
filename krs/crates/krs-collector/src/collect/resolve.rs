@@ -654,6 +654,7 @@ fn readable_group_term(
         reference,
         arguments,
         instance,
+        open,
         ..
     } = &term
     else {
@@ -662,8 +663,10 @@ fn readable_group_term(
     let HostApplicationTarget::Nominal(target) = &reference.target else {
         return term;
     };
+    // A record, `Frame { pc: p }`, or a pattern naming no child, `Frame { .. }`.
+    let record = matches!(arguments, Arguments::Named(_)) || (*open && arguments.is_empty());
     if !instance.is_empty()
-        || !matches!(arguments, Arguments::Named(_))
+        || !record
         || !matches!(
             groups
                 .declarations
@@ -676,7 +679,7 @@ fn readable_group_term(
     let children = groups.children.get(&target.key.resolve()).copied();
     let Term::Application {
         reference,
-        arguments: Arguments::Named(arguments),
+        arguments,
         update,
         ..
     } = term
@@ -686,12 +689,13 @@ fn readable_group_term(
     let HostApplicationTarget::Nominal(declaration) = reference.target else {
         unreachable!("the record head was matched above");
     };
-    let fields = arguments
+    let fields = Vec::from(arguments)
         .into_iter()
-        .map(|argument| krs_ir::CellTermField {
-            key: argument.key,
-            field: argument.field,
-            value: argument.value,
+        .filter_map(|argument| match argument {
+            krs_ir::TermArgument::Named { key, field, value } => {
+                Some(krs_ir::CellTermField { key, field, value })
+            }
+            krs_ir::TermArgument::Positional { .. } => None,
         })
         .collect::<Vec<_>>();
     Term::Cell {
@@ -1983,6 +1987,7 @@ mod tests {
             }]),
             instance: Vec::new(),
             update: None,
+            open: false,
         };
         // The struct has two children, so a subject record naming one leaves
         // the other unconstrained.

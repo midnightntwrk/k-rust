@@ -610,6 +610,7 @@ fn validate_native_pattern(
                 instance: Vec::new(),
                 notation: false,
                 update: None,
+                open: false,
             }))
         }
         // `[p1, .., pn, rest @ ..]` is a cons-list constructor (F6).
@@ -635,6 +636,7 @@ fn validate_native_pattern(
                 instance: Vec::new(),
                 notation: true,
                 update: None,
+                open: false,
             }))
         }
         Pat::Struct(record) => {
@@ -685,6 +687,7 @@ fn validate_native_pattern(
                 instance: Vec::new(),
                 notation: false,
                 update: None,
+                open: record.rest.is_some(),
             }))
         }
         Pat::Paren(paren) => validate_native_pattern(

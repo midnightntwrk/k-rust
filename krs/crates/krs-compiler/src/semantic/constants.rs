@@ -268,6 +268,7 @@ impl Substitution<'_> {
                     arguments,
                     instance: instance.clone(),
                     update: None,
+                    open: false,
                 }
             }
             _ => {

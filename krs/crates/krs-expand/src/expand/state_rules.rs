@@ -943,6 +943,7 @@ impl<'a> StateRuleBuilder<'a> {
                     path_key: key,
                     arguments,
                     update: None,
+                    open: application.is_open(),
                 })
             }
             TermTree::Reference(path) => {
@@ -967,6 +968,7 @@ impl<'a> StateRuleBuilder<'a> {
                         path_key: key,
                         arguments: krs_ir::Arguments::default(),
                         update: None,
+                        open: false,
                     })
                 }
             }

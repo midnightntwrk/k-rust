@@ -419,3 +419,127 @@ fn check_errors(target: &Path, manifest: &Path) -> Vec<String> {
         .map(|line| line.trim().replace(&directory, ""))
         .collect()
 }
+
+/// Records that name no field, `Ctor { .. }`, in a readable rule, an alias
+/// a record update reads, a group, an equation table, and an equation fn;
+/// with `explicit`, the same patterns with every field written `_`.
+fn fieldless(explicit: bool) -> String {
+    let [pair, wrap, frame] = if explicit {
+        [
+            "Pair { x: _, y: _ }",
+            "Wrap { a: _, b: _ }",
+            "Frame { pc: _, fuel: _, depth: _ }",
+        ]
+    } else {
+        ["Pair { .. }", "Wrap { .. }", "Frame { .. }"]
+    };
+    format!(
+        r"
+k::rules! {{
+    for Machine;
+    use Cmd::*;
+
+    step: {{ k: [Step {{ e: {pair} }}, ..] }} => {{ k: [Peek(), ..] }};
+    swapped: {{ k: [Swapped {{ e: p @ {pair} }}, ..] }} => {{ k: [Pair {{ x: Jump(), ..p }}, ..] }};
+    save: {{ k: [Save(), ..], gas: _, frame: {frame} }} => {{ k: [..], gas: 0 }};
+}}
+
+k::equations! {{
+    for Bump;
+    use Cmd::*;
+    bump_wrap: {wrap} => Jump();
+    #[k::equation(owise)]
+    bump_other: e => e;
+}}
+
+#[k::equation]
+fn swap_pair(k::term![Swap(Cmd::{pair})]: Term<Exp>) -> Term<Exp> {{
+    Cmd::Cycle()
+}}
+
+#[k::equation(owise)]
+fn swap_other(k::term![Swap(e)]: Term<Exp>) -> Term<Exp> {{
+    e
+}}
+"
+    )
+}
+
+/// `Ctor { .. }` names no field and leaves every one unconstrained, as in
+/// Rust: it emits the K of the pattern that writes each field `_`, and
+/// `krs expand` writes it that way where it restates a clause. `Ctor()` and `Ctor {}` still name every
+/// field.
+#[test]
+fn a_record_pattern_may_name_no_field() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = |name: &str, explicit: bool| {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &format!("{PREAMBLE}{}", fieldless(explicit)),
+        );
+        let output = manifest.with_file_name("emitted");
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{stderr}");
+        let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+        assert!(success, "{stderr}");
+        (
+            fs::read_to_string(output.join("definition.k")).unwrap(),
+            expanded,
+        )
+    };
+    let (fieldless_k, expanded) = emitted("fieldless", false);
+    let (explicit_k, _) = emitted("explicit", true);
+    assert_eq!(fieldless_k, explicit_k);
+    let rule = |label: &str| {
+        let start = fieldless_k.find(&format!("[{label}]")).unwrap();
+        let end = start + fieldless_k[start..].find('\n').unwrap();
+        let next = end + fieldless_k[end + 1..].find('\n').unwrap() + 1;
+        fieldless_k[end..next].trim().to_owned()
+    };
+    expect_test::expect![[r#"
+        [
+            "<k> step ( pair ( _ , _ ) ) => peek ... </k>",
+            "<k> swapped ( pair ( _ , Krs_UpdatePY:Exp ) ) => pair ( jump , Krs_UpdatePY:Exp ) ... </k>",
+        ]
+    "#]]
+    .assert_debug_eq(&[rule("step"), rule("swapped")]);
+    assert!(
+        expanded.contains("k::term![crate ::Bump(crate ::Cmd::Wrap(_, _))]"),
+        "{expanded}"
+    );
+    assert!(
+        expanded.contains("KCell(crate ::Cmd::Step(crate ::Cmd::Pair(_, _)), tail @"),
+        "{expanded}"
+    );
+
+    let errors = ["Pair()", "Pair {}"].map(|pattern| {
+        let manifest = package(
+            temporary.path(),
+            if pattern == "Pair()" { "call" } else { "braces" },
+            &format!(
+                "{PREAMBLE}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    step: {{ k: [Step {{ e: {pattern} }}, ..] }} => {{ k: [Peek(), ..] }};\n}}\n"
+            ),
+        );
+        check_errors(target.path(), &manifest)
+    });
+    expect_test::expect![[r#"
+        [
+            [
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-UPDATES::step (rule): application expects 2 arguments but received 0",
+                "--> src/lib.rs:78:27",
+            ],
+            [
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-UPDATES::step (rule): application expects 2 arguments but received 0",
+                "--> src/lib.rs:78:27",
+            ],
+        ]
+    "#]]
+    .assert_debug_eq(&errors);
+}

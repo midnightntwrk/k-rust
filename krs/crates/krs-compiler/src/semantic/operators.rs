@@ -138,7 +138,7 @@ impl StructuredTermBuilder<'_> {
                 arguments,
                 &[],
                 expected_sort,
-                super::infer::Partial::new(subject, None),
+                super::infer::Partial::new(subject, None, false),
             ),
             OperatorReading::IntNegation => {
                 self.check_operator_result(BuiltinSort::Int, expected_sort)?;
@@ -178,6 +178,7 @@ impl StructuredTermBuilder<'_> {
                     alias: None,
                     update: None,
                     subject,
+                    open: false,
                 },
                 head,
             ),

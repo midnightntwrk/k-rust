@@ -1581,6 +1581,7 @@ impl Sample for DescriptorTerm {
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<DescriptorTermArgument>>().try_into().unwrap(),
                     update: Some(Box::new(sample::<DescriptorTerm>())),
+                    open: true,
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -2881,6 +2882,7 @@ impl Sample for WireTerm {
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<WireTermArgument>>().try_into().unwrap(),
                     update: Some(Box::new(sample::<WireTerm>())),
+                    open: true,
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),

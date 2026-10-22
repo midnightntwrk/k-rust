@@ -790,6 +790,7 @@ mod tests {
             path_key: key(ProvenanceRole::RuleLeftPath, 0),
             arguments: arguments.try_into().unwrap(),
             update: None,
+            open: false,
         }
     }
 

@@ -2119,6 +2119,7 @@ mod tests {
             path_key: key(ProvenanceRole::RuleLeftReference),
             arguments: args,
             update: None,
+            open: false,
         };
         let config = item("machine", "Machine", ItemKind::Configuration);
         descriptor.id = item("rules", "eval_add", ItemKind::Rule);

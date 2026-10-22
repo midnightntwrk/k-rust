@@ -156,6 +156,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         arguments: crate::Arguments::default(),
         update: None,
+        open: false,
     };
     let host: Term<HostStage> = Term::Application {
         instance: Vec::new(),
@@ -167,6 +168,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         arguments: crate::Arguments::default(),
         update: None,
+        open: false,
     };
     assert_eq!(
         check_term(&descriptor),
@@ -215,6 +217,7 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
         .try_into()
         .unwrap(),
         update: None,
+        open: false,
     };
     assert_eq!(
         check_term(&term),

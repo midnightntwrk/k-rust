@@ -1482,6 +1482,11 @@ stage_shape! {
             /// application.
             #[serde(default, skip_serializing_if = "Option::is_none")]
             update: Option<Box<Term<S>>> => [option box nested],
+            /// Whether a record pattern ends in `..`, `Ctor { f: p, .. }`:
+            /// the fields it does not name are unconstrained, all of them
+            /// for `Ctor { .. }`, whose arguments are empty.
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            open: bool => [keep],
         },
         /// Exact Int/Bool literal.
         Literal {
@@ -4817,6 +4822,7 @@ mod traversal_tests {
                     .try_into()
                     .unwrap(),
                     update: None,
+                    open: false,
                 },
                 Term::Literal {
                     key: key(4),

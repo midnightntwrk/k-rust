@@ -267,6 +267,7 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             arguments,
             instance,
             update,
+            open: _,
         } => {
             context.application(*head_class, reference, path_key, arguments)?;
             for sort in instance {

@@ -721,6 +721,10 @@ fn configuration_rule_protocol_rejects_alias_and_simplification_at_the_boundary(
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One literal requires term and its exact provenance checks."
+)]
 fn configuration_requires_is_exact_and_term_binding_only() {
     let (_, mut rule) = var_configuration_rule();
     rule.requires = Some(DescriptorRuleCondition {
@@ -751,6 +755,7 @@ fn configuration_requires_is_exact_and_term_binding_only() {
             .try_into()
             .unwrap(),
             update: None,
+            open: false,
         },
     });
 

@@ -746,6 +746,7 @@ impl<'a> TermBuilder<'a> {
                     path_key,
                     arguments,
                     update,
+                    open: application.is_open(),
                 })
             }
             TermTree::Reference(path) => {
@@ -787,6 +788,7 @@ impl<'a> TermBuilder<'a> {
                         path_key,
                         arguments: krs_ir::Arguments::default(),
                         update: None,
+                        open: false,
                     })
                 }
             }

@@ -610,6 +610,7 @@ impl<'a> InitializerBuilder<'a> {
                     path_key: key,
                     arguments: krs_ir::Arguments::Positional(arguments),
                     update: None,
+                    open: false,
                 })
             }
             TermTree::Reference(path) => {
@@ -638,6 +639,7 @@ impl<'a> InitializerBuilder<'a> {
                         path_key: key,
                         arguments: krs_ir::Arguments::default(),
                         update: None,
+                        open: false,
                     })
                 }
             }

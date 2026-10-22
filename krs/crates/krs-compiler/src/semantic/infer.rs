@@ -83,11 +83,18 @@ pub(super) struct LocalBinders {
 pub(super) struct Partial<'a> {
     pub(super) subject: bool,
     pub(super) update: Option<&'a DescriptorTerm>,
+    /// Whether the record is a pattern ending in `..`, which may name no
+    /// field at all, `Ctor { .. }`.
+    pub(super) open: bool,
 }
 
 impl<'a> Partial<'a> {
-    pub(super) const fn new(subject: bool, update: Option<&'a DescriptorTerm>) -> Self {
-        Self { subject, update }
+    pub(super) const fn new(subject: bool, update: Option<&'a DescriptorTerm>, open: bool) -> Self {
+        Self {
+            subject,
+            update,
+            open,
+        }
     }
 
     /// The record's arguments in field order, a field it leaves out `None`.
@@ -100,7 +107,7 @@ impl<'a> Partial<'a> {
             arguments,
             fields,
             self.subject || self.update.is_some(),
-            self.update.is_some(),
+            self.update.is_some() || (self.subject && self.open),
         )
     }
 }
@@ -112,6 +119,8 @@ pub(super) struct RecordContext<'a> {
     pub(super) alias: Option<String>,
     pub(super) update: Option<&'a DescriptorTerm>,
     pub(super) subject: bool,
+    /// Whether the record is a pattern ending in `..` ([`Partial::open`]).
+    pub(super) open: bool,
 }
 
 impl RecordContext<'_> {
@@ -125,7 +134,7 @@ impl RecordContext<'_> {
             arguments,
             fields,
             self.subject || self.update.is_some(),
-            self.update.is_some(),
+            self.update.is_some() || (self.subject && self.open),
         )
     }
 }
@@ -213,13 +222,14 @@ impl StructuredTermBuilder<'_> {
                 arguments,
                 instance,
                 update,
+                open,
                 ..
             } => self.infer_application(
                 reference,
                 arguments,
                 instance,
                 expected_sort,
-                Partial::new(subject, update.as_deref()),
+                Partial::new(subject, update.as_deref(), *open),
             )?,
             DescriptorTerm::BuiltinToken { sort, .. } => {
                 let sort = SemanticSortRef::Builtin(*sort);
@@ -1538,6 +1548,7 @@ impl StructuredTermBuilder<'_> {
                 arguments,
                 instance,
                 update,
+                open,
                 ..
             } => {
                 let head = std::mem::take(&mut self.head_pending);
@@ -1545,6 +1556,7 @@ impl StructuredTermBuilder<'_> {
                     alias: self.record_updates.alias.take(),
                     update: update.as_deref(),
                     subject,
+                    open: *open,
                 };
                 self.lower_application(reference, arguments, instance, expected_sort, &record, head)
             }
@@ -1596,6 +1608,7 @@ impl StructuredTermBuilder<'_> {
                     alias: self.record_updates.alias.take(),
                     update: update.as_deref(),
                     subject,
+                    open: *open,
                 };
                 self.lower_cell_term(key, declaration, fields, *open, expected_sort, &record)
             }
@@ -3045,16 +3058,17 @@ fn collection_operand_sort(sort: CollectionOperandSort) -> Option<SemanticSortRe
     }
 }
 
-/// [`order_structured_arguments`] for a record that may be an update: an
-/// update that lists no field, `Ctor { ..t }`, takes every field from its
-/// base (F5).
+/// [`order_structured_arguments`] for a record that may name no field: an
+/// update that lists none, `Ctor { ..t }`, takes every field from its base
+/// (F5), and a pattern `Ctor { .. }` leaves every field unconstrained, as
+/// in Rust. `Ctor()` and `Ctor {}` still name all of them.
 fn order_record_arguments<'a>(
     arguments: &'a krs_ir::Arguments<krs_ir::DescriptorStage>,
     fields: &[(ProductionFieldId, SemanticSortRef)],
     allow_missing_named: bool,
-    update: bool,
+    fieldless: bool,
 ) -> Result<Vec<Option<&'a DescriptorTerm>>, String> {
-    if update && arguments.is_empty() {
+    if fieldless && arguments.is_empty() {
         return Ok(vec![None; fields.len()]);
     }
     order_structured_arguments(arguments, fields, allow_missing_named)

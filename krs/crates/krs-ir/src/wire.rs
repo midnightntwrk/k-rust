@@ -316,6 +316,7 @@ mod tests {
             path_key: ProvenanceKey::new(ProvenanceRole::RuleLeftPath, 4),
             arguments: vec![].try_into().unwrap(),
             update: None,
+            open: false,
         };
         let json = serde_json::to_string(&term).unwrap();
         assert_eq!(
