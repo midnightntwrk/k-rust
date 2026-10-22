@@ -774,6 +774,15 @@ fn needs_space(before: Option<&Atom>, previous: &Atom, current: &Atom) -> bool {
     {
         return false;
     }
+    // A record's rest `..base` (F5) hugs its base, as Rust's struct update
+    // does; `..` after an operand is a range.
+    if matches!(&previous.kind, AtomKind::Punctuation(value) if value == "..")
+        && matches!(current.kind, AtomKind::Word)
+    {
+        return before.is_some_and(|before| {
+            !matches!(&before.kind, AtomKind::Punctuation(value) if value == "," || value == "@")
+        });
+    }
     // A macro's `!` follows its name; a unary `!` after an operator does not.
     if matches!(&current.kind, AtomKind::Punctuation(value) if value == "!") {
         return matches!(previous.kind, AtomKind::Punctuation(_));
@@ -1011,6 +1020,31 @@ mod tests {
                 div_by_minus_one: Div { lhs, rhs: -1 } => int::sub(0, lhs);
                 sign            : Sgn(-1)              => -1;"]]
         .assert_eq(&actual);
+        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(again, output);
+    }
+
+    /// A record update's `..base` (F5) hugs its base, as Rust spells it.
+    #[test]
+    fn record_rests_hug_their_base_and_format_idempotently() {
+        let source = r"
+            for Machine;
+
+            enter: { frame: saved @ Frame { pc: p, .. } } => { frame: Frame { pc: int::add(p, 1), .. saved } };
+            reset: { k: [t @ Ctor { f: _, .. }, ..] } => { k: [Ctor { .. t }, ..] };
+        ";
+        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        assert!(
+            output.contains("frame: Frame { pc: int::add(p, 1), ..saved }"),
+            "{output}"
+        );
+        assert!(
+            output.contains("frame: saved @ Frame { pc: p, .. }"),
+            "{output}"
+        );
+        assert!(output.contains("k: [Ctor { ..t }, ..]"), "{output}");
         let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
             .expect("format formatted body");
         assert_eq!(again, output);

@@ -93,7 +93,7 @@ k::rules! {
         obj: { o @ Obj { oid: n, hits: h }, .. },
     } => {
         k: [..],
-        obj: { Obj { hits: int::add(h, 1), .. o }, .. },
+        obj: { Obj { hits: int::add(h, 1), ..o }, .. },
     };
 
     /// Remove object `n`.
@@ -119,6 +119,6 @@ k::rules! {
         obj: { o @ Obj { oid: n, .. } },
     } => {
         k: [n, ..],
-        obj: { Obj { .. o } },
+        obj: { Obj { ..o } },
     };
 }
