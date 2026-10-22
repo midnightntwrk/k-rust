@@ -23,7 +23,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::configuration]`, `#[k::cell]`, `#[k::init]` | configuration schema, cells, and declarative initialization | [Configuration and state](/imp/configuration-and-state) |
 | `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
-| `#[k::function]` on a `fn` | a function declared by its signature, and with a body its one equation | [Functions declared by a fn](#functions-declared-by-a-fn) |
+| `#[k::function]` on a `fn` | a function declared by its signature, and with a body its equations: one, or one per branch of an `if` or `match` | [Functions declared by a fn](#functions-declared-by-a-fn) |
 | `k::equations!` | a table of labelled equations of one function | [Equation tables](#equation-tables) |
 | `#[k::alias]`, `#[k::context_alias]` | reversible static aliases and named evaluation contexts | [Static semantics](/semantics/static-semantics) |
 | `#[k::context]` | an evaluation context, K's `context`: where evaluation may happen; K turns it into a heat rule and a cool rule | [Contexts](#contexts) |
@@ -315,7 +315,7 @@ A warned function takes more equations, an `#[k::equation(owise)]` equation, `pa
 
 ### Functions declared by a fn
 
-`#[k::function(..)]` on a `fn` declares the function symbol from its signature, and a body declares its one equation:
+`#[k::function(..)]` on a `fn` declares the function symbol from its signature, and a body declares its equation:
 
 ```rust
 /// The low 8 bits of an integer.
@@ -327,8 +327,71 @@ pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
 
 It is the struct `pub struct Byte { pub value: k::Term<Int> }` with `#[k::function(total, internal, sort = Int, syntax = "byte({value})")]`, plus the equation `#[k::equation] fn byte(k::term![Byte(value)]: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(value, 256) }`, and `krs expand` prints exactly that pair.
 The fn is named as its applications are written, `Byte(x)`, in UpperCamelCase, so the name a rule uses is the name the declaration spells; the equation takes the snake-case name, `byte` (`FieldX` gives `field_x`, `R8` gives `r8`).
-The return type is the sort, so a `sort` key is rejected; every parameter is a plain name typed `k::Term<S>`, because one equation over variables is the definition of the function, and cases belong to a table or to `#[k::equation]` fns.
+The return type is the sort, so a `sort` key is rejected; every parameter is a plain name typed `k::Term<S>`, because Rust parameters are irrefutable: cases are written as [branches](#branching-bodies) of the body, rows of a table, or `#[k::equation]` fns.
 `#[k::requires(..)]` on the fn guards the equation, `total` and `partial` mean what they mean on the struct, and a generic fn, a pattern parameter, `#[k::equation(..)]`, and `hook` with a body are rejected (`krs::syntax::invalid-function-shorthand`).
+
+#### Branching bodies
+
+A body that is an `if` chain or a `match` defines one equation per branch:
+
+```rust
+#[k::function(total, internal)]
+pub fn StorageValue(storage: k::Term<Map>, index: k::Term<Int>) -> k::Term<Int> {
+    if map::in_keys(index, storage) { map::get(storage, index) } else { 0 }
+}
+
+#[k::function(total, internal)]
+pub fn SignedLess(left: k::Term<Int>, right: k::Term<Int>) -> k::Term<Int> {
+    match (Sign(left), Sign(right)) {
+        (1, 1) => BoolToWord(int::lt(left, right)),
+        (1, -1) => BoolToWord(false),
+        (-1, 1) => BoolToWord(true),
+        (-1, -1) => BoolToWord(int::lt(Magnitude(right), Magnitude(left))),
+    }
+}
+
+#[k::function(total, internal)]
+pub fn Describe(value: k::Term<Val>) -> k::Term<Int> {
+    match value {
+        Value::Integer { ty: 32, value } if int::lt(value, 0) => 0,
+        Value::Integer { value, .. } if int::ge(value, 0) => value,
+        _ => -1,
+    }
+}
+```
+
+A branch is a case of the function's definition, and K states cases as equations, so each branch is an equation whose `requires` is the condition under which Rust reaches the branch.
+`StorageValue` is `storage_value_1`, under `map::in_keys(index, storage)`, and `storage_value_2`, under `map::in_keys(index, storage).not::<Bool>()`.
+
+- Branch `i` of `if c1 { .. } else if c2 { .. } else { .. }` is guarded by the negation of each earlier condition, then its own, conjoined with `&&` in source order: the third branch above is guarded by `c1.not::<Bool>() && c2.not::<Bool>()`. Each condition is evaluated only where the earlier ones are false, as in Rust, and the branches are disjoint by construction. An `if` without `else` is an error: it has no value in Rust, and a function that leaves the other arguments without a value is `partial`, guarded by `#[k::requires(..)]`. `if let` is an error too; match on the value instead.
+- The scrutinee of a `match` is a parameter, a tuple of parameters and other terms, or another term, such as `Sign(left)`. An arm's pattern for a parameter becomes that argument's pattern in the equation's head, with the whole pattern grammar of an equation (constructors, literals, `_`, `|`, `@`, record rest `..`), and its names are bound in the guard and the result. An arm's pattern for any other term is tested in the guard: a literal as an equality (`Sign(left).eq::<Int>(1)`; `true` is the term itself and `false` its negation), alternatives of literals as a disjunction of equalities, and any other pattern as `k::matches!(term, pattern)`, K's `:=K`. Such a pattern binds no names, because the binders of `:=K` are local to the test. A tuple arm lists one pattern per component, and `..` stands for the components it leaves out.
+- `pattern if guard => ..` adds the guard after the pattern's tests, and the fn's `#[k::requires(..)]` comes before every branch's guard.
+- A branch whose result is itself an `if` or a `match` branches further, and the conditions conjoin. An `if` or `match` anywhere else, as an argument of a call or after a `let`, is an error that suggests a helper function, because an equation can only branch at its root.
+- A parameter that a branch's guard or result still reads after an arm refined it is kept with `@`, as `width @ 0`; a parameter a branch never reads is `_` in its head.
+
+Rust tries a `match`'s arms in order, and K's equations are unordered.
+The two readings agree when no two arms apply to one argument, because then every argument reaches the same arm under both, so the arms of a branching body must not overlap; one priority per arm would instead make reordering arms change the definition, and would make each equation carry the negation of every earlier arm.
+The one exception is a last arm that matches everything, one without a guard whose every pattern is `_` or, for a parameter, a plain name: in the body's own `match` it is the `owise` equation, since "no other equation applies" is "every earlier arm failed" there.
+A catch-all arm that is not last is an error, since the arms after it could never apply.
+In a `match` nested in a branch, a catch-all arm cannot be `owise`, which is one priority for the whole function: there it is guarded by the negation of each earlier arm's test, `k::matches!(op, Op::Add(_, _)).not::<Bool>() && ..`, which needs each earlier arm's guard to read no name its pattern binds; when one does, move the nested `match` into a helper function, where its catch-all is `owise`.
+
+The [overlap check of equations](#overlapping-equations) checks the arms.
+Two arms it proves to apply to one argument with different results are `krs::analysis::overlapping-match-arms`, at the later arm, which Rust would not reach for that argument:
+
+```text
+error[krs::analysis::overlapping-match-arms]: branches `small_1` and `small_2` of `Small` both apply to `Small(0)` and give it different results, `1` and `2`; Rust would take the earlier arm, but each branch is an equation and equations are unordered, so the arms of a branching body must not overlap. ..
+```
+
+The check reports an overlap only when it can exhibit an argument, so arms whose patterns or guards it cannot decide, such as guards that call a function like `Sign`, pass unchecked; the common shapes, distinct constructors, distinct literals, and Int comparisons on one binder, are decided.
+An arm that overlaps an earlier one with the same result is not reported, since both readings then give the argument one value.
+
+Each equation is named after the function and its branch's position, from 1, and a branch inside a branch appends its own: `signed_less_2` for the second arm, `nested_2_1` for the first branch of the second arm's `match`.
+Adding a branch at the end keeps every other name.
+`#[k::label(name)]` on an arm, which Rust allows on a match arm, names its equation instead, and the branches inside it take `name_1`, `name_2`; give an arm a label wherever its identity matters, such as a proof hint, because reordering arms renumbers the others.
+`krs expand` prints each branch as its `#[k::equation]` fn.
+
+A branching body is not K's `#if c #then a #else b #fi`: that is one function application, undefined wherever either branch is, so `#if map::in_keys(i, s) #then map::get(s, i) #else 0 #fi` would be undefined where the key is absent.
+Separate equations keep each branch's definedness to itself.
 
 A fn that ends with `;` declares the symbol only, for a [table](#equation-tables) or `#[k::equation]` fns to define: `#[k::function(total, internal)] pub fn R8(index: k::Term<Int>) -> k::Term<Operand>;`.
 
@@ -362,6 +425,7 @@ That includes the first segment of a qualified path: under `use Register as Reg;
 `krs expand` prints each row as its `#[k::equation]` fn with qualified paths, and `krs fmt` lays a table out as it lays out `k::rules!`.
 
 Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
+A function whose cases read better as Rust, with guards, or tests of computed terms such as `Sign(left)`, can be written as a [branching body](#branching-bodies) instead.
 Two consequences are checked at once.
 Two rows without `requires` at one priority whose arguments are the same literals, or literals and [bit templates](#bit-templates) that share a value, would state that one application equals two results, or repeat one equation (`krs::syntax::duplicate-equation-row`).
 A row whose arguments are all `_` matches every application, so beside other rows at its priority it needs `#[k::equation(owise)]` (`krs::syntax::catch-all-equation-row`).
@@ -484,6 +548,7 @@ The pair check finds the overlap of a binder at a field's wider sort, as in this
 error[krs::analysis::overlapping-equations]: equations `lookup_known` and `lookup_unknown` of `Lookup` both apply to `Lookup(_, Maybe::TyUnknown)` at the same priority and give it different results, `map::get(_, Maybe::TyUnknown)` and `TypeInfo::Void`; ..
 ```
 
+Two arms of one [branching body](#branching-bodies) that overlap are `krs::analysis::overlapping-match-arms` instead, at the later arm.
 Identical results agree, so equations that overlap with them are no error.
 A pair is not reported when a pattern is one the check does not decompose (a collection pattern), when a `requires` calls a function or a partial operation the guard reading does not read, or when the integer values it finds do not make both `requires` evaluate to `true`; templates over more than 16 bits are compared pair by pair, and the table check above still compares unguarded rows' templates of any width.
 
