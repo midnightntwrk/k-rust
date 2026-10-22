@@ -450,8 +450,14 @@ impl LiveCases {
         // also walks its observer over the observed run (FZ-10).
         let judged =
             target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
-        let (result, hit_step, judged) = (judged.result, judged.hit_step, judged.judgement);
+        let (result, hit_step, progress, judged) = (
+            judged.result,
+            judged.hit_step,
+            judged.progress,
+            judged.judgement,
+        );
         let mut run = run_of(&result, &[&result]);
+        run.progress = progress;
         run.cut = cut_of(&result);
         match judged {
             Ok(judgement) => {
@@ -640,6 +646,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         matched,
         blocked: false,
         guards,
+        progress: None,
         outside_determinism: sides
             .iter()
             .any(|side| !side.determinism_breaks().is_empty()),

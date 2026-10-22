@@ -45,6 +45,7 @@ pub(crate) fn guards(conditions: &[RuleConditionsOutput]) -> Guards {
                 .filter(|record| record.verdict != Some(VerdictOutput::Reentered))
                 .map(|record| GuardEntry {
                     distance: record_distance(record),
+                    refuted: record.verdict == Some(VerdictOutput::Refuted) && !record.chosen,
                     reads: record
                         .bindings
                         .iter()
@@ -67,8 +68,14 @@ fn record_distance(record: &ConditionRecordOutput) -> Option<Distance> {
     }
     match record.verdict? {
         VerdictOutput::Held => Some(Distance::zero()),
-        VerdictOutput::Refuted => distance(&Cond::And(record.condition.iter().map(node).collect()))
-            .filter(|distance| !distance.is_zero()),
+        VerdictOutput::Refuted => distance(&Cond::And(
+            record
+                .condition
+                .iter()
+                .map(|conjunct| node(conjunct).0)
+                .collect(),
+        ))
+        .filter(|distance| !distance.is_zero()),
         VerdictOutput::Undecided | VerdictOutput::Stopped | VerdictOutput::Reentered => None,
     }
 }
@@ -81,31 +88,53 @@ fn truth(value: TruthOutput) -> Truth {
     }
 }
 
-fn node(node: &ConditionNodeOutput) -> Cond {
+/// The algebra's form of `node`, and whether its subtree meets an undefined value (a node or
+/// an operand). A node whose subtree meets one is read as undecided whatever truth it carries:
+/// a matching-logic predicate is two-valued, so `\not \equals(b, true)` over an undefined `b`
+/// is true, and a distance of 0 from it would reward a move that made `b` undefined.
+fn node(node: &ConditionNodeOutput) -> (Cond, bool) {
+    let decided = |value: TruthOutput, undefined: bool, cond: Cond| {
+        let undefined = undefined || value == TruthOutput::Undefined;
+        let truth = if undefined {
+            Truth::Unknown
+        } else {
+            truth(value)
+        };
+        (Cond::Decided(truth, Box::new(cond)), undefined)
+    };
     match node {
         ConditionNodeOutput::Connective {
             connective,
             children,
             value,
         } => {
-            let children: Vec<Cond> = children.iter().map(self::node).collect();
-            Cond::Decided(truth(*value), Box::new(connect(*connective, children)))
+            let (children, undefined): (Vec<Cond>, Vec<bool>) =
+                children.iter().map(self::node).unzip();
+            decided(
+                *value,
+                undefined.contains(&true),
+                connect(*connective, children),
+            )
         }
         ConditionNodeOutput::Equals {
             literal,
             child,
             value,
         } => {
-            let child = self::node(child);
+            let (child, undefined) = self::node(child);
             let cond = if *literal {
                 child
             } else {
                 Cond::Not(Box::new(child))
             };
-            Cond::Decided(truth(*value), Box::new(cond))
+            decided(*value, undefined, cond)
         }
         ConditionNodeOutput::Atom(atom) => {
-            Cond::Decided(truth(atom.value), Box::new(self::atom(atom)))
+            let undefined = atom
+                .operands
+                .iter()
+                .any(|operand| matches!(operand, RecordedValueOutput::Undefined));
+            decided(atom.value, undefined, self::atom(atom))
         }
     }
 }
@@ -422,6 +451,48 @@ mod tests {
                 Some(Distance::normalized(1u32.into()))
             );
         }
+    }
+
+    #[test]
+    fn an_undefined_value_never_gives_a_distance_of_zero() {
+        // `notBool pb(X)` with every operand a value, and `pb(X)` undefined: no distance under
+        // the K negation.
+        let undefined_bool = || atom("LblPb", vec![int(0)], Undefined);
+        let not_bool = vec![requires(connective(
+            ConnectiveOutput::NotBool,
+            vec![undefined_bool()],
+            Undefined,
+        ))];
+        assert_eq!(one(not_bool, Refuted), None);
+        // Under the matching-logic negation, `\not \equals(pb(X), true)` is true where `pb(X)`
+        // is undefined, and the record says so; the measure still gives no distance, and a
+        // record whose other conjunct fails gives none either.
+        let ml_not = || {
+            connective(
+                ConnectiveOutput::Not,
+                vec![requires(undefined_bool())],
+                True,
+            )
+        };
+        assert_eq!(one(vec![ml_not()], Held), Some(Distance::zero()));
+        let failing = vec![
+            ml_not(),
+            requires(atom("INT.eq", vec![int(1), int(2)], False)),
+        ];
+        assert_eq!(one(failing, Refuted), None);
+        // A predicate over an undefined operand (`\ceil(⊥)`, two-valued false) under `\not`.
+        let ceil = ConditionNodeOutput::Atom(ConditionAtomOutput {
+            head: Some("\\ceil".into()),
+            hook: None,
+            operands: vec![RecordedValueOutput::Undefined],
+            reads: Vec::new(),
+            value: False,
+        });
+        let not_ceil = vec![
+            connective(ConnectiveOutput::Not, vec![ceil], True),
+            requires(atom("INT.eq", vec![int(1), int(2)], False)),
+        ];
+        assert_eq!(one(not_ceil, Refuted), None);
     }
 
     #[test]

@@ -34,7 +34,7 @@ use crate::{
         CampaignOutcome, ClimbParameters, DefinitionIdentity, DefinitionRole, DictionaryParameters,
         FuzzReport, GenerationCaps, HitLabel, ReportIdentity, Totals, digest_hex,
     },
-    score::RuleScorer,
+    score::{RuleScorer, Scorer},
     spec::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
         ProposerConfig, ProposerKind,
@@ -260,7 +260,10 @@ impl Campaign {
         // The climb's score reads the condition entries of the target and its predecessors;
         // only a climbing campaign asks for them, so no other campaign's cases change.
         if let Some(scorer) = &self.settings.scorer {
-            cases.request_conditions(scorer.condition_rules());
+            let rules = scorer.condition_rules();
+            if !rules.is_empty() {
+                cases.request_conditions(rules);
+            }
         }
         let generators = generators(&cases, &self.spec).expect("Campaign::new built them");
         // Campaign::new refused every other weighted proposer; the schedule takes them in
@@ -341,44 +344,50 @@ fn dictionary_pools(
 }
 
 /// The scorer of a climbing campaign's target (ARCHITECTURE 6.4; `crate::score`), or `None`
-/// when the climb has no weight. It is built over the
-/// campaign's rule graph `graph`, or a graph of the campaign's one internalization when there is
-/// no graph check, or, on the `from-definition` route without one, a graph of a backend of its
-/// own.
+/// when the climb has no weight: an observer target's progress, or a rule target's scorer over
+/// the campaign's rule graph `graph`, or a graph of the campaign's one internalization when
+/// there is no graph check, or, on the `from-definition` route without one, a graph of a
+/// backend of its own.
 ///
 /// # Errors
 ///
-/// [`CampaignError::InvalidOptions`] for a target that is not a rule: the signals a pattern,
-/// differential or observer score needs are not reported yet (FZ-12 report); and
-/// [`CampaignError::Definition`] when the rule graph cannot be built.
+/// [`CampaignError::InvalidOptions`] for a pattern or differential target: the signals their
+/// scores need are not reported yet (FZ-12 report); and [`CampaignError::Definition`] when the
+/// rule graph cannot be built.
 fn climb_scorer(
     spec: &CampaignSpec,
     cases: &LiveCases,
     graph: Option<&GraphCheck>,
-) -> Result<Option<RuleScorer>, CampaignError> {
+) -> Result<Option<Scorer>, CampaignError> {
     if weight(&spec.proposers, ProposerKind::Climb) == 0 {
         return Ok(None);
     }
+    if let TargetKind::Observer(_) = spec.target.kind {
+        return Ok(Some(Scorer::Observer));
+    }
     let (TargetKind::Rule(_), Some(target)) = (&spec.target.kind, cases.target_rule_id()) else {
         return Err(CampaignError::InvalidOptions {
-            message: "the climb proposer scores rule targets only in this milestone: a pattern, \
-                      differential or observer target gives it no score"
+            message: "the climb proposer scores rule and observer targets only in this \
+                      milestone: a pattern or differential target gives it no score"
                 .into(),
         });
     };
-    Ok(Some(match (graph, cases.baseline_internalized()) {
-        (Some(check), _) => RuleScorer::new(check.graph(), target),
-        (None, Some(definition)) => RuleScorer::new(&RuleGraph::new(definition), target),
-        (None, None) => {
-            let mut backend =
-                build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
-            let graph =
-                RuleGraph::of_backend(&mut backend).map_err(|error| CampaignError::Definition {
-                    message: format!("the rule graph is not available: {error}"),
+    Ok(Some(Scorer::Rule(
+        match (graph, cases.baseline_internalized()) {
+            (Some(check), _) => RuleScorer::new(check.graph(), target),
+            (None, Some(definition)) => RuleScorer::new(&RuleGraph::new(definition), target),
+            (None, None) => {
+                let mut backend =
+                    build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
+                let graph = RuleGraph::of_backend(&mut backend).map_err(|error| {
+                    CampaignError::Definition {
+                        message: format!("the rule graph is not available: {error}"),
+                    }
                 })?;
-            RuleScorer::new(&graph, target)
-        }
-    }))
+                RuleScorer::new(&graph, target)
+            }
+        },
+    )))
 }
 
 /// A mutant is given exactly when the target is differential.

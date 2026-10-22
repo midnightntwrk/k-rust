@@ -16,6 +16,7 @@
 //! requires; the K-text syntax (`text.rs`) shares its parsers through `std::sync` and prints
 //! with krs-unparse, which also does no I/O and builds for WebAssembly.
 
+mod admit;
 mod data;
 #[cfg(test)]
 mod data_tests;
@@ -40,6 +41,7 @@ use k_rust::{
 use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Serialize};
 
+pub(crate) use admit::admissible;
 pub(crate) use generator::{Generator, ShrinkableValue, ValueRng};
 pub use text::TextSyntax;
 

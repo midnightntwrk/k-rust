@@ -152,6 +152,18 @@ fn foreign_cases_replace_the_incumbent_only_when_strictly_better_own_when_not_wo
     let unscored = Proposal::plain(Origin::Scheduled(ProposerKind::Climb), vec![int(41)]);
     climb.observe(&unscored, &observation(None), false);
     assert_eq!(climb.incumbent().expect("best").values, vec![int(31)]);
+    // A move that leaves the guard without a distance (an undefined guard at the target: the
+    // score's guard `Unknown`) scores worse than any defined miss at the same level, so it is
+    // never accepted, from the climb or another proposer.
+    let undefined = Score {
+        level: Level::At(0),
+        guard: Guard::Unknown,
+    };
+    let own = Proposal::plain(Origin::Scheduled(ProposerKind::Climb), vec![int(0)]);
+    climb.observe(&own, &observation(Some(undefined.clone())), false);
+    let foreign = Proposal::plain(Origin::Scheduled(ProposerKind::Blind), vec![int(0)]);
+    climb.observe_all(&foreign, &observation(Some(undefined)));
+    assert_eq!(climb.incumbent().expect("best").values, vec![int(31)]);
 }
 
 #[test]
@@ -222,7 +234,7 @@ fn every_move_is_admissible_and_changes_the_value() {
         for (index, value) in proposal.values.iter().enumerate() {
             let (sort, constraints) = &checks[index];
             assert!(
-                admissible(value, sort, constraints, &bounds()),
+                values::admissible(value, sort, constraints, &bounds()),
                 "hole {index}: {value:?}"
             );
             moved[index] |= *value != starts[index];
@@ -295,7 +307,7 @@ fn collection_moves_keep_sets_and_maps_sorted_and_distinct() {
         let proposal = propose(&mut climb);
         for (index, value) in proposal.values.iter().enumerate() {
             assert!(
-                admissible(value, &sorts[index], &Constraints::default(), &bounds()),
+                values::admissible(value, &sorts[index], &Constraints::default(), &bounds()),
                 "{value:?}"
             );
             let length = match value {
@@ -353,25 +365,25 @@ fn values_beyond_the_generator_bounds_are_not_admissible() {
         depth: 1,
     };
     let unconstrained = Constraints::default();
-    assert!(admissible(
+    assert!(values::admissible(
         &int(255),
         &ValueSort::Int,
         &unconstrained,
         &small
     ));
-    assert!(!admissible(
+    assert!(!values::admissible(
         &int(256),
         &ValueSort::Int,
         &unconstrained,
         &small
     ));
-    assert!(!admissible(
+    assert!(!values::admissible(
         &Value::String("abc".into()),
         &ValueSort::String,
         &unconstrained,
         &small
     ));
-    assert!(admissible(
+    assert!(values::admissible(
         &Value::String("ab".into()),
         &ValueSort::String,
         &unconstrained,

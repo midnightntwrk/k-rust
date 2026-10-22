@@ -109,8 +109,8 @@ pub enum ObserverVerdict {
     /// The path has reached the target.
     Hit,
     /// The path is closer to acceptance (larger is closer, for example the number of monitor
-    /// events matched); a signal for directed proposers (ARCHITECTURE 6.2, 6.4), which do not
-    /// read it yet.
+    /// events matched); a signal for directed proposers (ARCHITECTURE 6.2, 6.4): the climb's
+    /// score of a `miss` case is the greatest progress any step of its run answered.
     Progress(u32),
     /// Nothing to report.
     Nothing,
@@ -365,6 +365,10 @@ pub(crate) struct JudgedRun {
     /// leaf's depth. A function of the leaf's path, so the same under the execution contract
     /// whichever run computes it. `None` for every other judgement and target.
     pub(crate) hit_step: Option<u64>,
+    /// For an observer target, the greatest [`ObserverVerdict::Progress`] the observer answered
+    /// on any path of the run before a hit; `None` when it answered none, and for every other
+    /// target. The climb's score of an observer target (ARCHITECTURE 6.4).
+    pub(crate) progress: Option<u32>,
 }
 
 impl ResolvedTarget {
@@ -415,14 +419,16 @@ impl ResolvedTarget {
                     cancel,
                     rules.clone(),
                 )?;
-                let (judgement, hit_step) = match self.judge_observed(&result, &leaves, cancel) {
-                    Ok((judgement, hit_step)) => (Ok(judgement), hit_step),
-                    Err(defect) => (Err(defect), None),
-                };
+                let (judgement, hit_step, progress) =
+                    match self.judge_observed(&result, &leaves, cancel) {
+                        Ok((judgement, hit_step, progress)) => (Ok(judgement), hit_step, progress),
+                        Err(defect) => (Err(defect), None, None),
+                    };
                 Ok(JudgedRun {
                     result,
                     judgement,
                     hit_step,
+                    progress,
                 })
             }
             Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
@@ -432,6 +438,7 @@ impl ResolvedTarget {
                     result,
                     judgement,
                     hit_step: None,
+                    progress: None,
                 })
             }
         }
@@ -444,19 +451,20 @@ impl ResolvedTarget {
         result: &CaseResult,
         leaves: &[ExecutionLeaf],
         cancel: Option<&CancellationToken>,
-    ) -> Result<(Judgement, Option<u64>), EngineDefect> {
+    ) -> Result<(Judgement, Option<u64>, Option<u32>), EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         if result.failure.is_some() {
             // A failed run is classed by its failure alone.
             return exec::classify(result, &[], run_to_completion)
-                .map(|class| (plain(class), None));
+                .map(|class| (plain(class), None, None));
         }
         let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
         let breaks = result.determinism_breaks();
         if result.safety_limit_hit || !breaks.is_empty() || cancelled {
             let clock =
                 result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled;
-            return unobserved(result, run_to_completion, clock).map(|judgement| (judgement, None));
+            return unobserved(result, run_to_completion, clock)
+                .map(|judgement| (judgement, None, None));
         }
         let super::TargetKind::Observer(target) = &self.target.kind else {
             return Err(defect("an observer resolution of another target kind"));
@@ -477,7 +485,7 @@ impl ResolvedTarget {
         if class != OutcomeClass::Hit && paths.unobservable {
             // A configuration the observer could not be shown may lead to the target: never a
             // `miss`.
-            return Ok((plain(OutcomeClass::Unsupported), None));
+            return Ok((plain(OutcomeClass::Unsupported), None, None));
         }
         let (hit_site, hit_step) = if class == OutcomeClass::Hit {
             let leaf = result
@@ -503,6 +511,7 @@ impl ResolvedTarget {
                 blocked: false,
             },
             hit_step,
+            paths.progress,
         ))
     }
 }
@@ -550,6 +559,8 @@ struct ObservedPaths {
     /// Some configuration on a path, before any hit, could not be shown to the observer: no
     /// complete observation of a path through it, or it does not decode.
     unobservable: bool,
+    /// The greatest [`ObserverVerdict::Progress`] any step answered.
+    progress: Option<u32>,
 }
 
 #[cfg(test)]
@@ -662,6 +673,7 @@ fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
 fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> ObservedPaths {
     let mut hit_steps = vec![None; leaves.len()];
     let mut unobservable = false;
+    let mut progress: Option<u32> = None;
     let nodes = path_tree(leaves);
     let mut work = vec![Frame {
         node: 0,
@@ -698,10 +710,14 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
                 continue;
             };
             let post = Rc::new(ConfigurationView::new(pattern));
-            if let (Some(pre), Some(state)) = (&pre, state.as_deref_mut())
-                && observer.step(state, pre, &post) == ObserverVerdict::Hit
-            {
-                hit = Some(depth);
+            if let (Some(pre), Some(state)) = (&pre, state.as_deref_mut()) {
+                match observer.step(state, pre, &post) {
+                    ObserverVerdict::Hit => hit = Some(depth),
+                    ObserverVerdict::Progress(made) => {
+                        progress = Some(progress.map_or(made, |best| best.max(made)));
+                    }
+                    ObserverVerdict::Nothing => {}
+                }
             }
             view = Some(post);
         }
@@ -744,5 +760,6 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
     ObservedPaths {
         hit_steps,
         unobservable,
+        progress,
     }
 }

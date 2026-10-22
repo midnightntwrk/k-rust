@@ -629,11 +629,19 @@ fixture!(
     &[program!("dict/run.pgm"), program!("dict/probe.pgm")]
 );
 
+// The climb's score fixture (FZ-12): a guard that is undefined for some inputs.
+fixture!(
+    GUARD,
+    "guard/guard.k",
+    "GUARD",
+    &[program!("guard/zero.pgm"), program!("guard/one.pgm")]
+);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 31] = [
+pub static ALL: [&Fixture; 32] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -665,4 +673,5 @@ pub static ALL: [&Fixture; 31] = [
     &LOCATED,
     &MAZE,
     &DICT,
+    &GUARD,
 ];

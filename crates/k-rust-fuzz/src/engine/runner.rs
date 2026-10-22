@@ -30,6 +30,9 @@ pub(crate) struct CaseRun {
     /// Per rule whose condition entries the run recorded (only when the climb asks for them),
     /// the guard distance of each entry (`crate::score`); empty otherwise.
     pub(crate) guards: Guards,
+    /// For an observer target, the greatest progress the observer answered on the run
+    /// (`target::JudgedRun::progress`); `None` otherwise.
+    pub(crate) progress: Option<u32>,
     /// The case is outside the determinism contract (ARCHITECTURE 5.4).
     pub(crate) outside_determinism: bool,
     /// Why the case was rejected; `Some` exactly when `class` is `rejected`.
@@ -73,6 +76,7 @@ impl CaseRun {
             matched: Vec::new(),
             blocked: false,
             guards: Guards::new(),
+            progress: None,
             outside_determinism: false,
             rejection: Some(reason),
             load_records: Vec::new(),

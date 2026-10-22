@@ -182,7 +182,8 @@ pub(crate) trait Proposer {
 
     /// The most share of the campaign's cases and work this proposer may spend, as
     /// (numerator, denominator); `None` for no limit. The schedule draws it only while its
-    /// cases, counting the one it would add, and its work stay within the share.
+    /// cases, counting the one it would add, stay within the share, and its work so far does;
+    /// its work may then exceed the share by its last case's work (`engine::schedule`).
     fn budget_share(&self) -> Option<(u32, u32)> {
         None
     }

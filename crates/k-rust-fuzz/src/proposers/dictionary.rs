@@ -105,10 +105,7 @@ use crate::{
     report::DictionaryParameters,
     spec::{CampaignSpec, ProposerKind},
     target::{TargetKind, resolve_rule},
-    values::{
-        self, Constraints, GenerationBounds, Generator, MAX_GENERATED_LENGTH, Value, ValueRng,
-        ValueSort,
-    },
+    values::{self, Constraints, GenerationBounds, Generator, Value, ValueRng, ValueSort},
 };
 
 /// The harvest radius: rules at most this many rule-graph edges before the target
@@ -676,7 +673,7 @@ impl HolePool {
                 .and_modify(|known| *known = (*known).max(weight))
                 .or_insert(weight);
         }
-        let admits = |value: &Value| admissible(value, sort, constraints, bounds);
+        let admits = |value: &Value| values::admissible(value, sort, constraints, bounds);
         let mut bases = Vec::new();
         for (value, weight) in weights {
             let variants: Vec<Value> = variants(&value)
@@ -862,58 +859,6 @@ fn variants(value: &Value) -> Vec<Value> {
         Value::Bool(flag) => vec![Value::Bool(!flag)],
         _ => Vec::new(),
     }
-}
-
-/// Whether a hole of `sort` under `constraints` and `bounds` admits `value`: it is a value of
-/// the sort that satisfies the constraints ([`values::check_constraints`]) and the generator's
-/// size rules ([`GenerationBounds`]): an integer without a range lies within `int_bits` bits of
-/// zero, and with one bounded end within `int_bits` bits of the admissible value nearest zero;
-/// a string or byte string is at most the generator's longest; a data term is within the depth
-/// bound. Those rules keep every value within [`values::MAX_VALUE_SIZE`].
-fn admissible(
-    value: &Value,
-    sort: &ValueSort,
-    constraints: &Constraints,
-    bounds: &GenerationBounds,
-) -> bool {
-    if values::check_constraints(value, sort, constraints).is_err() {
-        return false;
-    }
-    match value {
-        Value::Int(number) => {
-            let (min, max) = constraints.range.as_ref().map_or((None, None), |range| {
-                (range.min.as_ref(), range.max.as_ref())
-            });
-            if min.is_some() && max.is_some() {
-                return true;
-            }
-            let zero = BigInt::from(0u8);
-            let nearest = match (min, max) {
-                (Some(min), _) if *min > zero => min.clone(),
-                (_, Some(max)) if *max < zero => max.clone(),
-                _ => zero,
-            };
-            (number - nearest).abs().bits() <= u64::from(bounds.int_bits)
-        }
-        Value::String(text) => length_admitted(text.chars().count(), constraints, bounds),
-        Value::Bytes(bytes) => length_admitted(bytes.len(), constraints, bounds),
-        Value::Apply { arguments, .. } => arguments.is_empty() && bounds.depth >= 1,
-        _ => true,
-    }
-}
-
-/// Whether a string or byte string of `length` is within the generator's longest: the length
-/// range's maximum, or the larger of its minimum and the default bound, at most
-/// [`MAX_GENERATED_LENGTH`].
-fn length_admitted(length: usize, constraints: &Constraints, bounds: &GenerationBounds) -> bool {
-    let range = constraints.length.unwrap_or_default();
-    let min = range.min.unwrap_or(0);
-    let max = range
-        .max
-        .unwrap_or_else(|| min.max(bounds.length))
-        .min(MAX_GENERATED_LENGTH)
-        .max(min);
-    u64::try_from(length).is_ok_and(|length| length <= max)
 }
 
 /// The dictionary proposer (ARCHITECTURE 8.3; module documentation, "Drawing"). It never runs

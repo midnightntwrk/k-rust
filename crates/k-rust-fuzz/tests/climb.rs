@@ -17,11 +17,14 @@ mod support;
 
 use std::{collections::BTreeMap, fmt::Write as _, thread};
 
+use k_rust::kore::ast::Pattern as KorePattern;
 use k_rust_fuzz::{
-    Campaign, ProposerConfig, Target, TargetKind,
+    Budget, Campaign, ProgramInput, ProgramSource, ProposerConfig, Target, TargetKind, Value,
     report::ClimbParameters,
-    spec::ProposerKind,
-    target::{PatternAt, PatternTarget},
+    spec::{ProgramText, ProposerKind},
+    target::{
+        ConfigurationView, Observer, ObserverTarget, ObserverVerdict, PatternAt, PatternTarget,
+    },
 };
 use maze::{CELLS, Configuration, MazeRun};
 
@@ -224,20 +227,117 @@ fn the_climb_needs_another_generating_proposer_and_a_rule_target() {
         negated_property: false,
     };
     let refusal = Campaign::new(pattern).err().expect("refused").to_string();
-    assert!(refusal.contains("rule targets only"), "{refusal}");
+    assert!(
+        refusal.contains("rule and observer targets only"),
+        "{refusal}"
+    );
 }
 
 #[test]
-fn the_climb_spends_at_most_half_of_the_cases() {
-    // `u1` is never reached, so the campaign spends its whole budget.
+fn a_climbing_campaign_runs_to_its_budget() {
+    // `u1` is never reached, so the campaign spends its whole budget. The report has no
+    // per-proposer count: the climb's share of the cases and of the work is checked with the
+    // climb proposer itself in the engine's unit tests
+    // (`the_climb_spends_at_most_half_of_the_cases_and_of_the_work`).
     let cell = maze::cell_named("u1");
     let (_, report) = maze::run_isolated(cell, &maze::blind_climb(), 3, 120);
     assert_eq!(report.totals.cases, 120);
-    // Every climb case repeats the best case's values but one or two holes; the anchors and the
-    // blind cases make the rest. The report has no per-proposer count, so the share is checked
-    // by the engine's unit tests; here the campaign must still run to its budget.
     assert!(report.no_witness().is_some());
 }
+
+/// Accepts the step after which the maze's `<d>` cell holds `goal`, and reports as progress how
+/// near `<d>` is to it otherwise (`u32::MAX` minus the gap).
+struct DNear {
+    goal: i64,
+}
+
+impl Observer for DNear {
+    type State = ();
+
+    fn start(&self) {}
+
+    fn branch(&self, (): &()) {}
+
+    fn step(
+        &self,
+        (): &mut (),
+        _pre: &ConfigurationView,
+        post: &ConfigurationView,
+    ) -> ObserverVerdict {
+        let mut value = None;
+        let mut work: Vec<&KorePattern> = post.cell("d").into_iter().collect();
+        while let Some(next) = work.pop() {
+            if let KorePattern::DomainValue { value: text, .. } = next {
+                value = text
+                    .as_utf8()
+                    .ok()
+                    .and_then(|text| text.parse::<i64>().ok());
+            }
+            work.extend(k_rust::kore::walk::children(next));
+        }
+        match value {
+            Some(d) if d == self.goal => ObserverVerdict::Hit,
+            Some(d) => {
+                let gap = u32::try_from(d.abs_diff(self.goal)).unwrap_or(u32::MAX);
+                ObserverVerdict::Progress(u32::MAX - gap)
+            }
+            None => ObserverVerdict::Nothing,
+        }
+    }
+}
+
+/// An observer target climbs on the observer's progress (ARCHITECTURE 6.4): the maze's `D`
+/// equal to 4242, which only the observer states, is found by blind sampling and the climb,
+/// and not by blind sampling alone in the same budget.
+#[test]
+fn an_observer_target_climbs_on_the_observers_progress() {
+    let text = "walk(1, 2, 7, -3, 4, 5, 6, 8, 9)\n";
+    let program = maze::Program {
+        file: "maze/observer.pgm".into(),
+        text: text.into(),
+    };
+    let campaign = |configuration: &Configuration, seed| {
+        let mut spec = maze::spec(maze::cell_named("c4"), configuration, seed);
+        spec.program = ProgramInput::Source(ProgramSource {
+            program: Some(ProgramText {
+                name: program.file.clone(),
+                text: text.into(),
+                start_sort: "Pgm".into(),
+            }),
+            config_vars: Vec::new(),
+        });
+        spec.holes = maze::holes(&program);
+        spec.target = Target {
+            kind: TargetKind::Observer(ObserverTarget::new("d-near", DNear { goal: 4242 })),
+            run_to_completion: false,
+            negated_property: false,
+        };
+        Campaign::new(spec)
+            .expect("an observer campaign with the climb is valid")
+            .run(Budget::Cases(OBSERVER_BUDGET), None)
+    };
+    for seed in [1, 2, 3] {
+        let report = campaign(&maze::blind_climb(), seed);
+        let witness = report
+            .witness()
+            .unwrap_or_else(|| panic!("seed {seed}: {:?}", report.totals));
+        let d = witness
+            .first
+            .holes
+            .iter()
+            .find(|hole| hole.name == "D")
+            .expect("the hole D");
+        assert_eq!(d.value, Value::Int(4242.into()), "seed {seed}");
+        assert_eq!(report.identity.climb, Some(ClimbParameters::current()));
+        println!("seed {seed}: {} cases", report.totals.cases);
+    }
+    let blind = campaign(&maze::blind(), 1);
+    assert!(blind.no_witness().is_some(), "blind found 4242");
+}
+
+/// The observer campaign's budget: enough for the climb at seeds 1-3 (it reaches 4242 in a few
+/// hundred cases), far below what blind sampling needs to draw one exact 64-bit value.
+const OBSERVER_BUDGET: u64 = 3000;
 
 /// Measure `configurations` beside blind on `labels` at `seeds`, and print each run's line, the
 /// summary, and the per-seed pairwise tally against blind.

@@ -51,6 +51,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         matched: Vec::new(),
         blocked: false,
         guards: std::collections::BTreeMap::new(),
+        progress: None,
         outside_determinism: false,
         rejection: None,
         load_records: Vec::new(),
@@ -1866,7 +1867,7 @@ fn a_proposer_that_is_not_ready_waits_without_leaving_the_schedule() {
 
 #[test]
 fn only_miss_cases_are_scored() {
-    use crate::score::{Guard, Level, RuleScorer};
+    use crate::score::{Guard, Level, RuleScorer, Scorer};
     let classes = [
         OutcomeClass::Miss,
         OutcomeClass::Stuck,
@@ -1905,7 +1906,7 @@ fn only_miss_cases_are_scored() {
         )],
     );
     let mut settings = settings(1);
-    settings.scorer = Some(RuleScorer::from_parts("t", &[("t", 0)], &[]));
+    settings.scorer = Some(Scorer::Rule(RuleScorer::from_parts("t", &[("t", 0)], &[])));
     let report = run_loop(
         &mut runner,
         &mut schedule,
@@ -1950,4 +1951,124 @@ fn only_miss_cases_are_scored() {
         None,
     );
     assert!(seen.borrow().iter().all(|(_, score)| score.is_none()));
+}
+
+/// A proposer that delegates to `inner` and counts the cases and work of its own proposals.
+struct Counted {
+    inner: Box<dyn Proposer>,
+    tally: std::rc::Rc<std::cell::Cell<(u64, u64)>>,
+}
+
+impl Proposer for Counted {
+    fn kind(&self) -> ProposerKind {
+        self.inner.kind()
+    }
+
+    fn propose(&mut self, context: &mut ProposalContext<'_>) -> Option<Proposal> {
+        self.inner.propose(context)
+    }
+
+    fn observe(&mut self, proposal: &Proposal, observation: &Observation, interesting: bool) {
+        let (cases, work) = self.tally.get();
+        self.tally.set((cases + 1, work + observation.work.max(1)));
+        self.inner.observe(proposal, observation, interesting);
+    }
+
+    fn observe_all(&mut self, proposal: &Proposal, observation: &Observation) {
+        self.inner.observe_all(proposal, observation);
+    }
+
+    fn ready(&self) -> bool {
+        self.inner.ready()
+    }
+
+    fn budget_share(&self) -> Option<(u32, u32)> {
+        self.inner.budget_share()
+    }
+}
+
+/// The climb proposer itself, weighted far above blind sampling and climbing a scripted score,
+/// spends at most half of the cases over the campaign, and at most half of the work plus its
+/// last case's work, whatever the cases cost (cheap blind cases, expensive climb cases).
+#[test]
+fn the_climb_spends_at_most_half_of_the_cases_and_of_the_work() {
+    use crate::{
+        proposers::climb::{ClimbHole, ClimbProposer},
+        score::{Distance, GuardEntry, RuleScorer, Scorer},
+        values::{Generator, ValueSort},
+    };
+    let bounds = GenerationBounds {
+        int_bits: 16,
+        length: 4,
+        depth: 2,
+    };
+    for (climb_cost, budget) in [(1u64, 400u64), (9, 400), (40, 120)] {
+        let hole = ClimbHole {
+            sort: ValueSort::Int,
+            constraints: Constraints::default(),
+            generator: Generator::new(&ValueSort::Int, &Constraints::default(), &bounds)
+                .expect("a generator"),
+        };
+        let tally = std::rc::Rc::new(std::cell::Cell::new((0, 0)));
+        let climb = Counted {
+            inner: Box::new(ClimbProposer::new(vec![hole], bounds, 7)),
+            tally: std::rc::Rc::clone(&tally),
+        };
+        // The Counter proposes 0, 1, 2, ...; the climb moves from the best of them. A value
+        // the counter never proposes (negative, or far) is a climb case: it costs more.
+        let mut runner = Scripted::new(
+            move |values| {
+                let x = as_int(&values[0]);
+                let mut guards = crate::score::Guards::new();
+                guards.insert(
+                    "t".to_owned(),
+                    vec![GuardEntry {
+                        distance: Some(Distance::normalized(
+                            u32::try_from((x - 30_000).unsigned_abs())
+                                .unwrap_or(u32::MAX)
+                                .into(),
+                        )),
+                        refuted: true,
+                        reads: Vec::new(),
+                    }],
+                );
+                let work = if (0..=10_000).contains(&x) {
+                    1
+                } else {
+                    climb_cost
+                };
+                CaseRun {
+                    matched: vec!["t".to_owned()],
+                    guards,
+                    ..run(OutcomeClass::Miss, work)
+                }
+            },
+            |_| unreachable!(),
+        );
+        let mut schedule = Schedule::new(
+            4,
+            vec![vec![int(5)]],
+            vec![
+                (1, Counter::boxed(ProposerKind::Blind, 0, 1)),
+                (50, Box::new(climb)),
+            ],
+        );
+        let mut settings = settings(1);
+        settings.scorer = Some(Scorer::Rule(RuleScorer::from_parts("t", &[("t", 0)], &[])));
+        let report = run_loop(
+            &mut runner,
+            &mut schedule,
+            &settings,
+            Budget::Cases(budget),
+            None,
+        );
+        let (climb_cases, climb_work) = tally.get();
+        let (cases, work) = (report.totals.cases, report.totals.work);
+        assert!(climb_cases > 0, "the climb ran");
+        assert!(2 * climb_cases <= cases, "cases {climb_cases}/{cases}");
+        assert!(
+            2 * climb_work <= work + climb_cost,
+            "work {climb_work}/{work} (cost {climb_cost})"
+        );
+    }
 }

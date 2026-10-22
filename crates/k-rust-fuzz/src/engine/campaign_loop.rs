@@ -18,7 +18,7 @@ use crate::{
         REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride, Totals,
         Witness, WitnessCase, digest_hex,
     },
-    score::{RuleScorer, Signals},
+    score::{Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
     values::{Constraints, Value},
 };
@@ -47,7 +47,7 @@ pub(crate) struct LoopSettings {
     /// report starts with.
     pub(crate) warnings: Vec<String>,
     /// The scorer of the campaign's target, when a proposer climbs a score (ARCHITECTURE 6.4).
-    pub(crate) scorer: Option<RuleScorer>,
+    pub(crate) scorer: Option<Scorer>,
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -179,6 +179,7 @@ fn observation(
                 applied: &run.applied,
                 matched: &run.matched,
                 guards: &run.guards,
+                progress: run.progress,
             })
         });
     let (score, reads) = scored.map_or((None, Vec::new()), |scored| {

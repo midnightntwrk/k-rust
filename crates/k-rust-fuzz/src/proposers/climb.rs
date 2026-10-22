@@ -47,7 +47,8 @@
 //!   value afresh from the hole's generator.
 //! - a hole with a choice set: another member.
 //!
-//! Every candidate value must be admissible before it is proposed ([`admissible`]): a value of
+//! Every candidate value must be admissible before it is proposed (`values::admissible`, the
+//! rule the dictionary also uses): a value of
 //! the hole's sort that satisfies its constraints (`values::check_constraints`) and the
 //! generator's size rules (the integer bit bound, the length bound, the data depth bound, the
 //! value-size budget). A move that gives an inadmissible value is drawn again, up to
@@ -56,9 +57,13 @@
 //!
 //! # Budget
 //!
-//! The climb spends at most [`BUDGET_SHARE`] of the campaign's cases and of its work: the
-//! schedule draws it only while its share of both, counting the case it would add, stays
-//! within the share ([`Proposer::budget_share`], `engine::schedule`). A campaign that enables
+//! The climb spends at most [`BUDGET_SHARE`] of the campaign's cases, over every prefix of the
+//! campaign: the schedule draws it only while its cases, counting the one it would add, stay
+//! within the share. Its work is held to the same share before each climb case: the schedule
+//! draws it only while the work it has spent is at most half of all work so far. A case's work
+//! is known only after it runs, so the climb's work can exceed half by the work of its last case
+//! (at most the case's `max_work`), and no more ([`Proposer::budget_share`],
+//! `engine::schedule`). A campaign that enables
 //! the climb must also give blind sampling or the dictionary a weight, which make the cases it
 //! climbs from and spend the rest.
 //!
@@ -68,7 +73,7 @@
 //! ([`crate::report::ClimbParameters`]).
 
 use num_bigint::BigInt;
-use num_traits::{Signed as _, Zero as _};
+use num_traits::Zero as _;
 use rand::{Rng as _, SeedableRng as _};
 use rand_chacha::ChaCha20Rng;
 
@@ -79,7 +84,7 @@ use crate::{
     spec::ProposerKind,
     values::{
         self, ArgumentSort, Constraints, DataAlternative, DataSorts, GenerationBounds, Generator,
-        MAX_GENERATED_LENGTH, MAX_VALUE_SIZE, Value, ValueRng, ValueSort,
+        Value, ValueRng, ValueSort,
     },
 };
 
@@ -292,7 +297,7 @@ impl ClimbProposer {
             let (candidate, step) = self.draw_move(hole, value);
             if let Some(candidate) = candidate
                 && candidate != *value
-                && admissible(
+                && values::admissible(
                     &candidate,
                     &self.holes[hole].sort,
                     &self.holes[hole].constraints,
@@ -394,13 +399,28 @@ impl ClimbProposer {
                 }
                 sorted_distinct(items).map(Value::Set)
             }
-            (Value::Map(entries), ValueSort::Map { value: sort, .. }) if !entries.is_empty() => {
+            (
+                Value::Map(entries),
+                ValueSort::Map {
+                    key, value: sort, ..
+                },
+            ) if !entries.is_empty() => {
                 let mut entries = entries.clone();
                 let index = self.rng.random_range(0..entries.len());
-                if self.rng.random() {
-                    entries.remove(index);
-                } else {
-                    entries[index].1 = self.move_value(&entries[index].1, sort)?;
+                match self.rng.random_range(0..3) {
+                    0 => {
+                        entries.remove(index);
+                    }
+                    1 => entries[index].1 = self.move_value(&entries[index].1, sort)?,
+                    _ => {
+                        // A moved key must stay distinct from the others.
+                        let moved = self.move_value(&entries[index].0, key)?;
+                        if entries.iter().any(|(other, _)| *other == moved) {
+                            return None;
+                        }
+                        entries[index].0 = moved;
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    }
                 }
                 Some(Value::Map(entries))
             }
@@ -580,10 +600,23 @@ impl Proposer for ClimbProposer {
             holes.extend(self.pick_hole(Some(first)));
         }
         self.pending.clear();
+        let mut moved = false;
         for hole in holes {
             if let Some((value, step)) = self.move_hole(hole, &values[hole]) {
                 values[hole] = value;
                 self.pending.extend(step);
+                moved = true;
+            }
+        }
+        // No admissible move of the picked holes: try every movable hole in order rather than
+        // spend a case on the incumbent's own values.
+        if !moved {
+            for hole in self.movable.clone() {
+                if let Some((value, step)) = self.move_hole(hole, &values[hole]) {
+                    values[hole] = value;
+                    self.pending.extend(step);
+                    break;
+                }
             }
         }
         Some(Proposal::plain(
@@ -673,113 +706,6 @@ fn sorted_distinct(mut items: Vec<Value>) -> Option<Vec<Value>> {
         .windows(2)
         .all(|pair| pair[0] != pair[1])
         .then_some(items)
-}
-
-/// Whether a hole of `sort` under `constraints` and `bounds` admits `value` (module
-/// documentation, "Moves"): `values::check_constraints`, then the generator's size rules.
-pub(crate) fn admissible(
-    value: &Value,
-    sort: &ValueSort,
-    constraints: &Constraints,
-    bounds: &GenerationBounds,
-) -> bool {
-    values::check_constraints(value, sort, constraints).is_ok()
-        && within_bounds(value, Some(constraints), bounds)
-        && size(value) <= MAX_VALUE_SIZE
-}
-
-/// The generator's size rules for `value`: `constraints` are the hole's at the top and `None`
-/// for nested values, which the generators draw without constraints.
-fn within_bounds(
-    value: &Value,
-    constraints: Option<&Constraints>,
-    bounds: &GenerationBounds,
-) -> bool {
-    let default = Constraints::default();
-    let constraints = constraints.unwrap_or(&default);
-    match value {
-        Value::Int(number) => {
-            let (min, max) = constraints.range.as_ref().map_or((None, None), |range| {
-                (range.min.as_ref(), range.max.as_ref())
-            });
-            if min.is_some() && max.is_some() {
-                return true;
-            }
-            let zero = BigInt::zero();
-            let nearest = match (min, max) {
-                (Some(min), _) if *min > zero => min.clone(),
-                (_, Some(max)) if *max < zero => max.clone(),
-                _ => zero,
-            };
-            (number - nearest).abs().bits() <= u64::from(bounds.int_bits)
-        }
-        Value::String(text) => length_within(text.chars().count(), constraints, bounds),
-        Value::Bytes(bytes) => length_within(bytes.len(), constraints, bounds),
-        Value::List(items) | Value::Set(items) => {
-            length_within(items.len(), constraints, bounds)
-                && items.iter().all(|item| within_bounds(item, None, bounds))
-        }
-        Value::Map(entries) => {
-            length_within(entries.len(), constraints, bounds)
-                && entries.iter().all(|(key, value)| {
-                    within_bounds(key, None, bounds) && within_bounds(value, None, bounds)
-                })
-        }
-        Value::Apply { .. } => data_depth(value) <= bounds.depth && data_within(value, bounds),
-        Value::Bool(_) | Value::MInt { .. } | Value::Token { .. } => true,
-    }
-}
-
-/// The size rules of a data value's builtin and collection leaves.
-fn data_within(value: &Value, bounds: &GenerationBounds) -> bool {
-    match value {
-        Value::Apply { arguments, .. } => arguments
-            .iter()
-            .all(|argument| data_within(argument, bounds)),
-        other => within_bounds(other, None, bounds),
-    }
-}
-
-/// The most constructor applications on a path from `value`'s root.
-fn data_depth(value: &Value) -> u32 {
-    match value {
-        Value::Apply { arguments, .. } => 1 + arguments.iter().map(data_depth).max().unwrap_or(0),
-        _ => 0,
-    }
-}
-
-/// Whether a length is within the generator's longest: the length range's maximum, or the
-/// larger of its minimum and the default bound, at most [`MAX_GENERATED_LENGTH`].
-fn length_within(length: usize, constraints: &Constraints, bounds: &GenerationBounds) -> bool {
-    let range = constraints.length.unwrap_or_default();
-    let min = range.min.unwrap_or(0);
-    let max = range
-        .max
-        .unwrap_or_else(|| min.max(bounds.length))
-        .min(MAX_GENERATED_LENGTH)
-        .max(min);
-    u64::try_from(length).is_ok_and(|length| length <= max)
-}
-
-/// The size of `value` in the units of [`MAX_VALUE_SIZE`]: one per constructor application or
-/// leaf, plus one per 64 bits of an integer and one per character or byte of a string.
-fn size(value: &Value) -> u128 {
-    let words = |bits: u64| 1 + u128::from(bits / 64);
-    match value {
-        Value::Int(number) => words(number.bits()),
-        Value::MInt { value, .. } => words(value.bits()),
-        Value::String(text) => 1 + text.chars().count() as u128,
-        Value::Bytes(bytes) => 1 + bytes.len() as u128,
-        Value::Bool(_) | Value::Token { .. } => 1,
-        Value::List(items) | Value::Set(items) => {
-            items.iter().map(size).fold(1, u128::saturating_add)
-        }
-        Value::Map(entries) => entries
-            .iter()
-            .map(|(key, value)| size(key).saturating_add(size(value)))
-            .fold(1, u128::saturating_add),
-        Value::Apply { arguments, .. } => arguments.iter().map(size).fold(1, u128::saturating_add),
-    }
 }
 
 #[cfg(test)]

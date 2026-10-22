@@ -8,9 +8,11 @@
 //!
 //! Only the proposers that may propose now take part in a draw: a proposer that is not ready
 //! ([`Proposer::ready`]) and one whose budget share is spent ([`Proposer::budget_share`]) wait
-//! for a later case. The share is kept over every prefix of the campaign: the proposer is drawn
-//! only while its cases, counting the one it would add, are at most the share of all cases so
-//! far counting that one, and its work at most the share of all work so far. Since a draw that
+//! for a later case. The case share is kept over every prefix of the campaign: the proposer is
+//! drawn only while its cases, counting the one it would add, are at most the share of all
+//! cases so far counting that one. The work share is checked before each case it would add
+//! (its work at most the share of all work so far): a case's work is known only after it runs,
+//! so the proposer's work can exceed the share by the work of its last case, and no more. Since a draw that
 //! no slot limits draws exactly as before, a schedule without such a proposer is unchanged.
 
 use std::collections::VecDeque;
@@ -154,7 +156,9 @@ impl Schedule {
         interesting: bool,
     ) {
         self.cases += 1;
-        self.work = self.work.saturating_add(observation.work);
+        // As the budget charges them: every case at least 1 (`Budget::Work`).
+        let work = observation.work.max(1);
+        self.work = self.work.saturating_add(work);
         if let Origin::Scheduled(kind) = proposal.origin
             && let Some(slot) = self
                 .slots
@@ -162,7 +166,7 @@ impl Schedule {
                 .find(|slot| slot.proposer.kind() == kind)
         {
             slot.cases += 1;
-            slot.work = slot.work.saturating_add(observation.work);
+            slot.work = slot.work.saturating_add(work);
             slot.proposer.observe(proposal, observation, interesting);
         }
         for slot in &mut self.slots {
