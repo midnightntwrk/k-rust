@@ -164,23 +164,7 @@ impl Campaign {
             None => false,
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
-        let harvest = (weight(&spec.proposers, ProposerKind::Dictionary) > 0
-            || weight(&spec.proposers, ProposerKind::Corpus) > 0)
-            .then(|| campaign_harvest(&spec, &cases, graph.as_deref()))
-            .transpose()?;
-        let dictionary = harvest
-            .as_ref()
-            .filter(|_| weight(&spec.proposers, ProposerKind::Dictionary) > 0)
-            .map(|harvest| {
-                Arc::new(dictionary::pools(
-                    harvest,
-                    &spec,
-                    &cases.baseline.holes.holes,
-                ))
-            });
-        let corpus = harvest
-            .filter(|_| weight(&spec.proposers, ProposerKind::Corpus) > 0)
-            .map(Arc::new);
+        let (dictionary, corpus) = harvests(&spec, &cases, graph.as_deref())?;
         let scorer = climb_scorer(&spec, &cases, graph.as_deref())?;
         let settings = LoopSettings {
             identity: identity(&spec, &initial)?,
@@ -324,27 +308,7 @@ impl Campaign {
                 Box::new(proposer),
             ));
         }
-        if let Some(harvest) = &self.corpus {
-            let generators =
-                self::generators(&cases, &self.spec).expect("Campaign::new built them");
-            let holes = cases
-                .baseline
-                .holes
-                .holes
-                .iter()
-                .zip(generators)
-                .map(|(hole, generator)| CorpusHole {
-                    sort: hole.sort.clone(),
-                    constraints: hole.decl.constraints.clone(),
-                    generator,
-                })
-                .collect();
-            let proposer = CorpusProposer::new(holes, harvest, self.spec.bounds, self.spec.seed);
-            proposers.push((
-                weight(&self.spec.proposers, ProposerKind::Corpus),
-                Box::new(proposer),
-            ));
-        }
+        proposers.extend(self.corpus_proposer(&cases));
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
         // One assembler per side for the whole run, so that every case reuses its parsers.
         let parts = cases.assembly_parts();
@@ -362,6 +326,56 @@ impl Campaign {
             cancel.as_ref(),
         )
     }
+}
+
+impl Campaign {
+    /// The corpus proposer of a run on `cases` with its weight, when the corpus has a positive
+    /// weight (ARCHITECTURE 8.5).
+    fn corpus_proposer(&self, cases: &LiveCases) -> Option<(u32, Box<dyn Proposer>)> {
+        let harvest = self.corpus.as_ref()?;
+        let generators = generators(cases, &self.spec).expect("Campaign::new built them");
+        let holes = cases
+            .baseline
+            .holes
+            .holes
+            .iter()
+            .zip(generators)
+            .map(|(hole, generator)| CorpusHole {
+                sort: hole.sort.clone(),
+                constraints: hole.decl.constraints.clone(),
+                generator,
+            })
+            .collect();
+        let proposer = CorpusProposer::new(holes, harvest, self.spec.bounds, self.spec.seed);
+        Some((
+            weight(&self.spec.proposers, ProposerKind::Corpus),
+            Box::new(proposer),
+        ))
+    }
+}
+
+/// The dictionary's pool of each hole and the corpus's harvest, each when its proposer has a
+/// positive weight: one harvest serves both ([`campaign_harvest`]).
+type Harvests = (Option<Arc<Vec<HolePool>>>, Option<Arc<Harvest>>);
+
+fn harvests(
+    spec: &CampaignSpec,
+    cases: &LiveCases,
+    graph: Option<&GraphCheck>,
+) -> Result<Harvests, CampaignError> {
+    let dictionary = weight(&spec.proposers, ProposerKind::Dictionary) > 0;
+    let corpus = weight(&spec.proposers, ProposerKind::Corpus) > 0;
+    let harvest = (dictionary || corpus)
+        .then(|| campaign_harvest(spec, cases, graph))
+        .transpose()?;
+    let pools = harvest.as_ref().filter(|_| dictionary).map(|harvest| {
+        Arc::new(dictionary::pools(
+            harvest,
+            spec,
+            &cases.baseline.holes.holes,
+        ))
+    });
+    Ok((pools, harvest.filter(|_| corpus).map(Arc::new)))
 }
 
 /// The harvest of the dictionary and the corpus (ARCHITECTURE 8.3, 8.5), from the campaign's

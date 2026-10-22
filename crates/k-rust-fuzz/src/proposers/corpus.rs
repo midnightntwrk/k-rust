@@ -361,9 +361,7 @@ impl CorpusProposer {
         current: Option<&Value>,
         entry: usize,
     ) -> Option<Value> {
-        let Some(source) = self.source(hole, place) else {
-            return None;
-        };
+        let source = self.source(hole, place)?;
         let sort = source.sort.clone();
         let nudgeable = current.is_some()
             && matches!(

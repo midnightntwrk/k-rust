@@ -11,7 +11,7 @@ mod lock;
 mod maze;
 mod support;
 
-use std::{collections::BTreeMap, thread};
+use std::{collections::BTreeMap, fmt::Write as _, thread};
 
 use k_rust_fuzz::{
     Campaign, CampaignError, ProposerConfig, report::CorpusParameters, spec::ProposerKind,
@@ -243,10 +243,8 @@ fn measure_lock(configurations: &[Configuration], seeds: &[u64]) {
         let mut table = format!("lock {}:", configuration.name);
         for (index, label) in LOCK_CELLS.iter().enumerate() {
             let cases: Vec<Option<u64>> = runs.iter().map(|(_, cases)| cases[index]).collect();
-            table.push_str(&format!(
-                " {label} {};",
-                lock::summary(&cases, MEASURE_BUDGET)
-            ));
+            write!(table, " {label} {};", lock::summary(&cases, MEASURE_BUDGET))
+                .expect("writing to a String");
         }
         println!("{table}");
     }

@@ -610,37 +610,16 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
         &climb,
         "its parameters, its moves or its score",
     );
-    match PINNED_DICTIONARY {
-        Some((version, pinned)) => {
-            assert_eq!(
-                version, ENGINE_VERSION,
-                "ENGINE_VERSION changed: re-pin the dictionary fingerprint for the new version"
-            );
-            assert_eq!(
-                dictionary, pinned,
-                "the dictionary's case sequence changed (its parameters or its harvest) \
-                 without an ENGINE_VERSION bump"
-            );
-        }
-        None => panic!(
-            "no dictionary fingerprint is pinned for engine version {ENGINE_VERSION}; pin \
-             Some(({ENGINE_VERSION}, \"{dictionary}\")) in tests/golden.rs"
-        ),
-    }
-    match PINNED {
-        Some((version, pinned)) => {
-            assert_eq!(
-                version, ENGINE_VERSION,
-                "ENGINE_VERSION changed: re-pin the fingerprint for the new version"
-            );
-            assert_eq!(
-                computed, pinned,
-                "the case sequence changed without an ENGINE_VERSION bump"
-            );
-        }
-        None => panic!(
-            "no fingerprint is pinned for engine version {ENGINE_VERSION}; pin \
-             Some(({ENGINE_VERSION}, \"{computed}\")) in tests/golden.rs"
-        ),
-    }
+    check_pin(
+        "dictionary",
+        PINNED_DICTIONARY,
+        &dictionary,
+        "its parameters or its harvest",
+    );
+    check_pin(
+        "golden",
+        PINNED,
+        &computed,
+        "the blind proposers, the schedule or the generators",
+    );
 }
