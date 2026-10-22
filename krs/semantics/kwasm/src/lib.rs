@@ -86,20 +86,28 @@ pub fn IntBinOp(
 
 k::equations! {
     for Chop;
-    chop_i32: (IntegerType::I32, value) => Value::Integer(IntegerType::I32, int::rem_euclid(value, 4_294_967_296));
-    chop_i64: (IntegerType::I64, value) => Value::Integer(IntegerType::I64, int::rem_euclid(value, 18_446_744_073_709_551_616));
+    chop_i32:
+        (IntegerType::I32, value)
+        => Value::Integer(IntegerType::I32, int::rem_euclid(value, 4_294_967_296));
+    chop_i64:
+        (IntegerType::I64, value)
+        => Value::Integer(IntegerType::I64, int::rem_euclid(value, 18_446_744_073_709_551_616));
 }
 
 k::equations! {
     for IntBinOp;
-    add       : (ty, IntegerBinOp::Add, lhs, rhs)               => Chop(ty, int::add(lhs, rhs));
-    sub_i32   : (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs) => Chop(IntegerType::I32, int::sub(int::add(lhs, 4_294_967_296), rhs));
-    sub_i64   : (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs) => Chop(IntegerType::I64, int::sub(int::add(lhs, 18_446_744_073_709_551_616), rhs));
-    mul       : (ty, IntegerBinOp::Mul, lhs, rhs)               => Chop(ty, int::mul(lhs, rhs));
+    add       : (ty, IntegerBinOp::Add, lhs, rhs)  => Chop(ty, int::add(lhs, rhs));
+    sub_i32:
+        (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)
+        => Chop(IntegerType::I32, int::sub(int::add(lhs, 4_294_967_296), rhs));
+    sub_i64:
+        (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)
+        => Chop(IntegerType::I64, int::sub(int::add(lhs, 18_446_744_073_709_551_616), rhs));
+    mul       : (ty, IntegerBinOp::Mul, lhs, rhs)  => Chop(ty, int::mul(lhs, rhs));
     #[k::requires(int::ne(rhs, 0))]
-    div_u     : (ty, IntegerBinOp::DivU, lhs, rhs)              => Value::Integer(ty, int::div(lhs, rhs));
+    div_u     : (ty, IntegerBinOp::DivU, lhs, rhs) => Value::Integer(ty, int::div(lhs, rhs));
     #[k::requires(int::eq(rhs, 0))]
-    div_u_zero: (_, IntegerBinOp::DivU, _, rhs)                 => Value::Undefined();
+    div_u_zero: (_, IntegerBinOp::DivU, _, rhs)    => Value::Undefined();
 }
 
 /// The two operational cells selected from `KWasm`'s `<wasm>` configuration.

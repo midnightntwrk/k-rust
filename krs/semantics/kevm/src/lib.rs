@@ -1606,33 +1606,35 @@ k::equations! {
     use GasResult::*;
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_ecrec    : (gas, cost, 1) => EnoughEcrecPrecompileGas(int::sub(gas, cost));
+    charge_static_call_ecrec   : (gas, cost, 1) => EnoughEcrecPrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_sha256   : (gas, cost, 2) => EnoughSha256PrecompileGas(int::sub(gas, cost));
+    charge_static_call_sha256  : (gas, cost, 2) => EnoughSha256PrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_ripemd160: (gas, cost, 3) => EnoughRipemd160PrecompileGas(int::sub(gas, cost));
+    charge_static_call_ripemd160:
+        (gas, cost, 3) => EnoughRipemd160PrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_identity : (gas, cost, 4) => EnoughIdentityPrecompileGas(int::sub(gas, cost));
+    charge_static_call_identity: (gas, cost, 4) => EnoughIdentityPrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_modexp   : (gas, cost, 5) => EnoughModExpPrecompileGas(int::sub(gas, cost));
+    charge_static_call_modexp  : (gas, cost, 5) => EnoughModExpPrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_ecadd    : (gas, cost, 6) => EnoughEcAddPrecompileGas(int::sub(gas, cost));
+    charge_static_call_ecadd   : (gas, cost, 6) => EnoughEcAddPrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_ecmul    : (gas, cost, 7) => EnoughEcMulPrecompileGas(int::sub(gas, cost));
+    charge_static_call_ecmul   : (gas, cost, 7) => EnoughEcMulPrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 40)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call_ecpairing: (gas, cost, 8) => EnoughEcPairingPrecompileGas(int::sub(gas, cost));
+    charge_static_call_ecpairing:
+        (gas, cost, 8) => EnoughEcPairingPrecompileGas(int::sub(gas, cost));
     #[k::equation(priority = 50)]
     #[k::requires(int::ge(gas, cost))]
-    charge_static_call          : (gas, cost, _) => EnoughGas(Operation::StaticCall, int::sub(gas, cost));
+    charge_static_call: (gas, cost, _) => EnoughGas(Operation::StaticCall, int::sub(gas, cost));
     #[k::requires(int::lt(gas, cost))]
-    charge_static_call_fails    : (gas, cost, _) => InsufficientGas();
+    charge_static_call_fails   : (gas, cost, _) => InsufficientGas();
 }
 
 #[k::function(total, sort = OpCode, syntax = "#kevmLookup({program}, {pc})")]
@@ -2067,81 +2069,83 @@ fn lookup_after_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k:
 k::equations! {
     for Decode;
     use Operation::*;
-    decode_stop               : (0, _, _)                            => Stop();
-    decode_add                : (1, _, _)                            => Add();
-    decode_mul                : (2, _, _)                            => Mul();
-    decode_sub                : (3, _, _)                            => Sub();
-    decode_div                : (4, _, _)                            => Div();
-    decode_signed_div         : (5, _, _)                            => SignedDiv();
-    decode_mod                : (6, _, _)                            => Mod();
-    decode_signed_mod         : (7, _, _)                            => SignedMod();
-    decode_add_mod            : (8, _, _)                            => AddMod();
-    decode_mul_mod            : (9, _, _)                            => MulMod();
-    decode_exponent           : (10, _, _)                           => Exponent();
-    decode_sign_extend        : (11, _, _)                           => SignExtend();
-    decode_less_than          : (16, _, _)                           => LessThan();
-    decode_greater_than       : (17, _, _)                           => GreaterThan();
-    decode_signed_less_than   : (18, _, _)                           => SignedLessThan();
-    decode_signed_greater_than: (19, _, _)                           => SignedGreaterThan();
-    decode_equal              : (20, _, _)                           => Equal();
-    decode_is_zero            : (21, _, _)                           => IsZero();
-    decode_bit_and            : (22, _, _)                           => BitAnd();
-    decode_bit_or             : (23, _, _)                           => BitOr();
-    decode_bit_xor            : (24, _, _)                           => BitXor();
-    decode_bit_not            : (25, _, _)                           => BitNot();
-    decode_byte               : (26, _, _)                           => Byte();
-    decode_shift_left         : (27, _, _)                           => ShiftLeft();
-    decode_shift_right        : (28, _, _)                           => ShiftRight();
-    decode_signed_shift_right : (29, _, _)                           => SignedShiftRight();
-    decode_sha3               : (32, _, _)                           => Sha3();
-    decode_address            : (48, _, _)                           => Address();
-    decode_balance            : (49, _, _)                           => AccountBalance();
-    decode_origin             : (50, _, _)                           => TxOrigin();
-    decode_caller             : (51, _, _)                           => MsgCaller();
-    decode_call_value         : (52, _, _)                           => MsgCallValue();
-    decode_call_data_load     : (53, _, _)                           => CallDataLoad();
-    decode_call_data_size     : (54, _, _)                           => CallDataSize();
-    decode_call_data_copy     : (55, _, _)                           => CallDataCopy();
-    decode_code_size          : (56, _, _)                           => CodeSize();
-    decode_code_copy          : (57, _, _)                           => CodeCopy();
-    decode_gas_price          : (58, _, _)                           => TxGasPrice();
-    decode_external_code_size : (59, _, _)                           => ExternalCodeSize();
-    decode_external_code_copy : (60, _, _)                           => ExternalCodeCopy();
-    decode_return_data_size   : (61, _, _)                           => ReturnDataSize();
-    decode_return_data_copy   : (62, _, _)                           => ReturnDataCopy();
-    decode_external_code_hash : (63, _, _)                           => ExternalCodeHash();
-    decode_block_hash         : (64, _, _)                           => BlockHash();
-    decode_coinbase           : (65, _, _)                           => BlockCoinbase();
-    decode_timestamp          : (66, _, _)                           => BlockTimestamp();
-    decode_number             : (67, _, _)                           => BlockNumber();
-    decode_prev_randao        : (68, _, _)                           => PrevRandao();
-    decode_gas_limit          : (69, _, _)                           => BlockGasLimit();
-    decode_chain_id           : (70, _, _)                           => NetworkChainId();
-    decode_self_balance       : (71, _, _)                           => SelfBalance();
-    decode_base_fee           : (72, _, _)                           => BlockBaseFee();
-    decode_pop                : (80, _, _)                           => Pop();
-    decode_memory_load        : (81, _, _)                           => MemoryLoad();
-    decode_memory_store       : (82, _, _)                           => MemoryStore();
-    decode_memory_store8      : (83, _, _)                           => MemoryStore8();
-    decode_storage_load       : (84, _, _)                           => StorageLoad();
-    decode_storage_store      : (85, _, _)                           => StorageStore();
-    decode_jump               : (86, _, _)                           => Jump();
-    decode_jump_if            : (87, _, _)                           => JumpIf();
-    decode_pc                 : (88, _, _)                           => ProgramCounter();
-    decode_memory_size        : (89, _, _)                           => MemorySize();
-    decode_gas_remaining      : (90, _, _)                           => GasRemaining();
-    decode_jump_dest          : (91, _, _)                           => JumpDest();
-    decode_push_zero          : (95, _, _)                           => PushZero();
-    decode_push               : (k::bits!("011 nnnnn"), program, pc) => Push(int::add(n, 1), crate::ReadImmediate(program, int::add(pc, 1), int::add(n, 1), 0));
-    decode_duplicate          : (k::bits!("1000 dddd"), _, _)        => Duplicate(int::add(d, 1));
-    decode_swap               : (k::bits!("1001 dddd"), _, _)        => Swap(int::add(d, 1));
+    decode_stop               : (0, _, _)                     => Stop();
+    decode_add                : (1, _, _)                     => Add();
+    decode_mul                : (2, _, _)                     => Mul();
+    decode_sub                : (3, _, _)                     => Sub();
+    decode_div                : (4, _, _)                     => Div();
+    decode_signed_div         : (5, _, _)                     => SignedDiv();
+    decode_mod                : (6, _, _)                     => Mod();
+    decode_signed_mod         : (7, _, _)                     => SignedMod();
+    decode_add_mod            : (8, _, _)                     => AddMod();
+    decode_mul_mod            : (9, _, _)                     => MulMod();
+    decode_exponent           : (10, _, _)                    => Exponent();
+    decode_sign_extend        : (11, _, _)                    => SignExtend();
+    decode_less_than          : (16, _, _)                    => LessThan();
+    decode_greater_than       : (17, _, _)                    => GreaterThan();
+    decode_signed_less_than   : (18, _, _)                    => SignedLessThan();
+    decode_signed_greater_than: (19, _, _)                    => SignedGreaterThan();
+    decode_equal              : (20, _, _)                    => Equal();
+    decode_is_zero            : (21, _, _)                    => IsZero();
+    decode_bit_and            : (22, _, _)                    => BitAnd();
+    decode_bit_or             : (23, _, _)                    => BitOr();
+    decode_bit_xor            : (24, _, _)                    => BitXor();
+    decode_bit_not            : (25, _, _)                    => BitNot();
+    decode_byte               : (26, _, _)                    => Byte();
+    decode_shift_left         : (27, _, _)                    => ShiftLeft();
+    decode_shift_right        : (28, _, _)                    => ShiftRight();
+    decode_signed_shift_right : (29, _, _)                    => SignedShiftRight();
+    decode_sha3               : (32, _, _)                    => Sha3();
+    decode_address            : (48, _, _)                    => Address();
+    decode_balance            : (49, _, _)                    => AccountBalance();
+    decode_origin             : (50, _, _)                    => TxOrigin();
+    decode_caller             : (51, _, _)                    => MsgCaller();
+    decode_call_value         : (52, _, _)                    => MsgCallValue();
+    decode_call_data_load     : (53, _, _)                    => CallDataLoad();
+    decode_call_data_size     : (54, _, _)                    => CallDataSize();
+    decode_call_data_copy     : (55, _, _)                    => CallDataCopy();
+    decode_code_size          : (56, _, _)                    => CodeSize();
+    decode_code_copy          : (57, _, _)                    => CodeCopy();
+    decode_gas_price          : (58, _, _)                    => TxGasPrice();
+    decode_external_code_size : (59, _, _)                    => ExternalCodeSize();
+    decode_external_code_copy : (60, _, _)                    => ExternalCodeCopy();
+    decode_return_data_size   : (61, _, _)                    => ReturnDataSize();
+    decode_return_data_copy   : (62, _, _)                    => ReturnDataCopy();
+    decode_external_code_hash : (63, _, _)                    => ExternalCodeHash();
+    decode_block_hash         : (64, _, _)                    => BlockHash();
+    decode_coinbase           : (65, _, _)                    => BlockCoinbase();
+    decode_timestamp          : (66, _, _)                    => BlockTimestamp();
+    decode_number             : (67, _, _)                    => BlockNumber();
+    decode_prev_randao        : (68, _, _)                    => PrevRandao();
+    decode_gas_limit          : (69, _, _)                    => BlockGasLimit();
+    decode_chain_id           : (70, _, _)                    => NetworkChainId();
+    decode_self_balance       : (71, _, _)                    => SelfBalance();
+    decode_base_fee           : (72, _, _)                    => BlockBaseFee();
+    decode_pop                : (80, _, _)                    => Pop();
+    decode_memory_load        : (81, _, _)                    => MemoryLoad();
+    decode_memory_store       : (82, _, _)                    => MemoryStore();
+    decode_memory_store8      : (83, _, _)                    => MemoryStore8();
+    decode_storage_load       : (84, _, _)                    => StorageLoad();
+    decode_storage_store      : (85, _, _)                    => StorageStore();
+    decode_jump               : (86, _, _)                    => Jump();
+    decode_jump_if            : (87, _, _)                    => JumpIf();
+    decode_pc                 : (88, _, _)                    => ProgramCounter();
+    decode_memory_size        : (89, _, _)                    => MemorySize();
+    decode_gas_remaining      : (90, _, _)                    => GasRemaining();
+    decode_jump_dest          : (91, _, _)                    => JumpDest();
+    decode_push_zero          : (95, _, _)                    => PushZero();
+    decode_push:
+        (k::bits!("011 nnnnn"), program, pc)
+        => Push(int::add(n, 1), crate::ReadImmediate(program, int::add(pc, 1), int::add(n, 1), 0));
+    decode_duplicate          : (k::bits!("1000 dddd"), _, _) => Duplicate(int::add(d, 1));
+    decode_swap               : (k::bits!("1001 dddd"), _, _) => Swap(int::add(d, 1));
     #[k::requires(t.le::<Int>(4))]
-    decode_log                : (k::bits!("10100 ttt"), _, _)        => LogOpcode(t);
-    decode_return             : (243, _, _)                          => Return();
-    decode_static_call        : (250, _, _)                          => StaticCall();
-    decode_revert             : (253, _, _)                          => Revert();
+    decode_log                : (k::bits!("10100 ttt"), _, _) => LogOpcode(t);
+    decode_return             : (243, _, _)                   => Return();
+    decode_static_call        : (250, _, _)                   => StaticCall();
+    decode_revert             : (253, _, _)                   => Revert();
     #[k::equation(owise)]
-    decode_invalid            : (_, _, _)                            => Invalid();
+    decode_invalid            : (_, _, _)                     => Invalid();
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -4406,14 +4410,41 @@ k::rules! {
 
     begin_external_code_copy: {
         k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(account, Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest)))),
+        word_stack: Stack::StackCons(
+            account,
+            Stack::StackCons(
+                destination,
+                Stack::StackCons(source_index, Stack::StackCons(width, rest))
+            )
+        ),
         memory_used: used,
         accessed_accounts: accessed,
         gas: gas,
     } => {
-        k: [crate::ChargeFixed { op: Operation::ExternalCodeCopy, gas, cost: crate::ExternalCopyGasCost { accessed, account, used, start: destination, width } }, ..],
+        k: [
+            crate::ChargeFixed {
+                op: Operation::ExternalCodeCopy,
+                gas,
+                cost: crate::ExternalCopyGasCost {
+                    accessed,
+                    account,
+                    used,
+                    start: destination,
+                    width
+                }
+            },
+            ..
+        ],
     }
-    where account: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, accessed: Set, gas: Int;
+    where
+        account: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        used: Int,
+        accessed: Set,
+        gas: Int;
 
     begin_block_hash: {
         k: [Operation::BlockHash, ..],
@@ -4439,7 +4470,14 @@ k::rules! {
         memory_used: used,
         gas: gas,
     } => {
-        k: [crate::ChargeFixed { op: Operation::MemoryLoad, gas, cost: int::add(3, crate::MemoryExpansionCost { used, start: index, width: 32 }) }, ..],
+        k: [
+            crate::ChargeFixed {
+                op: Operation::MemoryLoad,
+                gas,
+                cost: int::add(3, crate::MemoryExpansionCost { used, start: index, width: 32 })
+            },
+            ..
+        ],
     }
     where index: Int, rest: WordStack, used: Int, gas: Int;
 
@@ -4449,7 +4487,14 @@ k::rules! {
         memory_used: used,
         gas: gas,
     } => {
-        k: [crate::ChargeFixed { op: Operation::MemoryStore, gas, cost: int::add(3, crate::MemoryExpansionCost { used, start: index, width: 32 }) }, ..],
+        k: [
+            crate::ChargeFixed {
+                op: Operation::MemoryStore,
+                gas,
+                cost: int::add(3, crate::MemoryExpansionCost { used, start: index, width: 32 })
+            },
+            ..
+        ],
     }
     where index: Int, value: Int, rest: WordStack, used: Int, gas: Int;
 
@@ -4459,7 +4504,14 @@ k::rules! {
         memory_used: used,
         gas: gas,
     } => {
-        k: [crate::ChargeFixed { op: Operation::MemoryStore8, gas, cost: int::add(3, crate::MemoryExpansionCost { used, start: index, width: 1 }) }, ..],
+        k: [
+            crate::ChargeFixed {
+                op: Operation::MemoryStore8,
+                gas,
+                cost: int::add(3, crate::MemoryExpansionCost { used, start: index, width: 1 })
+            },
+            ..
+        ],
     }
     where index: Int, value: Int, rest: WordStack, used: Int, gas: Int;
 
@@ -4469,7 +4521,17 @@ k::rules! {
         memory_used: used,
         gas: gas,
     } => {
-        k: [crate::ChargeFixed { op: Operation::Sha3, gas, cost: int::add(crate::MemoryExpansionCost { used, start, width }, int::add(30, int::mul(6, int::div(int::add(width, 31), 32)))) }, ..],
+        k: [
+            crate::ChargeFixed {
+                op: Operation::Sha3,
+                gas,
+                cost: int::add(
+                    crate::MemoryExpansionCost { used, start, width },
+                    int::add(30, int::mul(6, int::div(int::add(width, 31), 32)))
+                )
+            },
+            ..
+        ],
     }
     where start: Int, width: Int, rest: WordStack, used: Int, gas: Int;
 
@@ -4483,9 +4545,25 @@ k::rules! {
         word_stack: Stack::StackCons(index, rest),
         gas: gas,
     } => {
-        k: [crate::ChargeFixed { op: Operation::StorageLoad, gas, cost: crate::StorageLoadCost { warm: crate::StorageWarm { accessed, account: current_account, index } } }, ..],
+        k: [
+            crate::ChargeFixed {
+                op: Operation::StorageLoad,
+                gas,
+                cost: crate::StorageLoadCost {
+                    warm: crate::StorageWarm { accessed, account: current_account, index }
+                }
+            },
+            ..
+        ],
     }
-    where current_account: Int, account_id: Int, storage: Map, accessed: Map, index: Int, rest: WordStack, gas: Int;
+    where
+        current_account: Int,
+        account_id: Int,
+        storage: Map,
+        accessed: Map,
+        index: Int,
+        rest: WordStack,
+        gas: Int;
 
     #[k::requires(int::eq(current_account, account_id))]
     begin_storage_store: {
@@ -4499,9 +4577,29 @@ k::rules! {
         word_stack: Stack::StackCons(index, Stack::StackCons(new, rest)),
         gas: gas,
     } => {
-        k: [crate::PrepareStorageStore { gas, original: crate::StorageValue { storage: original_storage, index }, current: crate::StorageValue { storage, index }, new, warm: crate::StorageWarm { accessed, account: current_account, index }, static_mode }, ..],
+        k: [
+            crate::PrepareStorageStore {
+                gas,
+                original: crate::StorageValue { storage: original_storage, index },
+                current: crate::StorageValue { storage, index },
+                new,
+                warm: crate::StorageWarm { accessed, account: current_account, index },
+                static_mode
+            },
+            ..
+        ],
     }
-    where current_account: Int, account_id: Int, storage: Map, original_storage: Map, accessed: Map, static_mode: Bool, index: Int, new: Int, rest: WordStack, gas: Int;
+    where
+        current_account: Int,
+        account_id: Int,
+        storage: Map,
+        original_storage: Map,
+        accessed: Map,
+        static_mode: Bool,
+        index: Int,
+        new: Int,
+        rest: WordStack,
+        gas: Int;
 
     begin_log: {
         k: [Operation::LogOpcode { topics }, ..],
@@ -4565,7 +4663,21 @@ k::rules! {
 
     /// Opcodes that push one word of the call, transaction, or machine state for the base cost of 2 gas.
     begin_push_base_cost_execution: {
-        k: [op @ (Operation::PushZero | Operation::Address | Operation::TxOrigin | Operation::MsgCaller | Operation::MsgCallValue | Operation::CallDataSize | Operation::CodeSize | Operation::TxGasPrice | Operation::ReturnDataSize | Operation::MemorySize | Operation::GasRemaining | Operation::ProgramCounter), ..],
+        k: [
+            op @ (Operation::PushZero
+            | Operation::Address
+            | Operation::TxOrigin
+            | Operation::MsgCaller
+            | Operation::MsgCallValue
+            | Operation::CallDataSize
+            | Operation::CodeSize
+            | Operation::TxGasPrice
+            | Operation::ReturnDataSize
+            | Operation::MemorySize
+            | Operation::GasRemaining
+            | Operation::ProgramCounter),
+            ..
+        ],
         word_stack: stack,
         gas: gas,
     } => {
@@ -4575,7 +4687,16 @@ k::rules! {
 
     /// Opcodes that push one word of the block header for the base cost of 2 gas.
     begin_push_base_cost_block: {
-        k: [op @ (Operation::BlockCoinbase | Operation::BlockTimestamp | Operation::BlockNumber | Operation::PrevRandao | Operation::BlockGasLimit | Operation::NetworkChainId | Operation::BlockBaseFee), ..],
+        k: [
+            op @ (Operation::BlockCoinbase
+            | Operation::BlockTimestamp
+            | Operation::BlockNumber
+            | Operation::PrevRandao
+            | Operation::BlockGasLimit
+            | Operation::NetworkChainId
+            | Operation::BlockBaseFee),
+            ..
+        ],
         word_stack: stack,
         gas: gas,
     } => {
@@ -4595,7 +4716,23 @@ k::rules! {
 
     /// Two-operand opcodes that cost 3 gas.
     begin_binary_very_low: {
-        k: [op @ (Operation::Add | Operation::Sub | Operation::LessThan | Operation::GreaterThan | Operation::SignedLessThan | Operation::SignedGreaterThan | Operation::Equal | Operation::BitAnd | Operation::BitOr | Operation::BitXor | Operation::Byte | Operation::ShiftLeft | Operation::ShiftRight | Operation::SignedShiftRight), ..],
+        k: [
+            op @ (Operation::Add
+            | Operation::Sub
+            | Operation::LessThan
+            | Operation::GreaterThan
+            | Operation::SignedLessThan
+            | Operation::SignedGreaterThan
+            | Operation::Equal
+            | Operation::BitAnd
+            | Operation::BitOr
+            | Operation::BitXor
+            | Operation::Byte
+            | Operation::ShiftLeft
+            | Operation::ShiftRight
+            | Operation::SignedShiftRight),
+            ..
+        ],
         word_stack: Stack::StackCons(_, Stack::StackCons(_, _)),
         gas: gas,
     } => {
@@ -4605,7 +4742,15 @@ k::rules! {
 
     /// Two-operand opcodes that cost 5 gas.
     begin_binary_low: {
-        k: [op @ (Operation::Mul | Operation::Div | Operation::SignedDiv | Operation::Mod | Operation::SignedMod | Operation::SignExtend), ..],
+        k: [
+            op @ (Operation::Mul
+            | Operation::Div
+            | Operation::SignedDiv
+            | Operation::Mod
+            | Operation::SignedMod
+            | Operation::SignExtend),
+            ..
+        ],
         word_stack: Stack::StackCons(_, Stack::StackCons(_, _)),
         gas: gas,
     } => {
@@ -4635,7 +4780,12 @@ k::rules! {
 
     /// One-operand account queries charged the warm or cold account-access cost.
     begin_account_access: {
-        k: [op @ (Operation::AccountBalance | Operation::ExternalCodeSize | Operation::ExternalCodeHash), ..],
+        k: [
+            op @ (Operation::AccountBalance
+            | Operation::ExternalCodeSize
+            | Operation::ExternalCodeHash),
+            ..
+        ],
         word_stack: Stack::StackCons(account, _),
         accessed_accounts: accessed,
         gas: gas,
@@ -4728,7 +4878,10 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(crate::StackAt { stack: tail, index: int::sub(depth, 1) }, crate::StackSet { stack: tail, index: int::sub(depth, 1), value: head },),
+        word_stack: Stack::StackCons(
+            crate::StackAt { stack: tail, index: int::sub(depth, 1) },
+            crate::StackSet { stack: tail, index: int::sub(depth, 1), value: head },
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -4832,7 +4985,10 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(crate::WordMod { dividend: int::add(w0, w1), divisor: w2 }, rest),
+        word_stack: Stack::StackCons(
+            crate::WordMod { dividend: int::add(w0, w1), divisor: w2 },
+            rest
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -4845,7 +5001,10 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(crate::WordMod { dividend: int::mul(w0, w1), divisor: w2 }, rest),
+        word_stack: Stack::StackCons(
+            crate::WordMod { dividend: int::mul(w0, w1), divisor: w2 },
+            rest
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -4858,7 +5017,14 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(int::pow_mod(w0, w1, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,), rest,),
+        word_stack: Stack::StackCons(
+            int::pow_mod(
+                w0,
+                w1,
+                115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
+            ),
+            rest,
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -5001,7 +5167,16 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, 1,),), rest,),
+        word_stack: Stack::StackCons(
+            int::bit_xor(
+                w0,
+                int::sub(
+                    115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
+                    1,
+                ),
+            ),
+            rest,
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -5090,7 +5265,15 @@ k::rules! {
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, present_account: Int, balance: Int, accessed: Set, account: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        present_account: Int,
+        balance: Int,
+        accessed: Set,
+        account: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::rule(owise, label = "balance-false")]
     exec_balance_absent: {
@@ -5158,7 +5341,10 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(crate::ReadMemoryWord { memory: call_data, index, remaining: 32, value: 0 }, rest),
+        word_stack: Stack::StackCons(
+            crate::ReadMemoryWord { memory: call_data, index, remaining: 32, value: 0 },
+            rest
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -5183,18 +5369,37 @@ k::rules! {
         call_data: call_data,
         local_mem: memory,
         memory_used: used,
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
+        word_stack: Stack::StackCons(
+            destination,
+            Stack::StackCons(source_index, Stack::StackCons(width, rest))
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory, used, start: destination, width }, destination, source: call_data, source_index, remaining: width },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory { memory, used, start: destination, width },
+            destination,
+            source: call_data,
+            source_index,
+            remaining: width
+        },
         memory_used: crate::MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, call_data: Bytes, memory: Bytes, used: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        call_data: Bytes,
+        memory: Bytes,
+        used: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_code_size: {
         k: [GasResult::EnoughGas(Operation::CodeSize, remaining), ..],
@@ -5215,18 +5420,37 @@ k::rules! {
         program: program,
         local_mem: memory,
         memory_used: used,
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
+        word_stack: Stack::StackCons(
+            destination,
+            Stack::StackCons(source_index, Stack::StackCons(width, rest))
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory, used, start: destination, width }, destination, source: program, source_index, remaining: width },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory { memory, used, start: destination, width },
+            destination,
+            source: program,
+            source_index,
+            remaining: width
+        },
         memory_used: crate::MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, program: Bytes, memory: Bytes, used: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        program: Bytes,
+        memory: Bytes,
+        used: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_gas_price: {
         k: [GasResult::EnoughGas(Operation::TxGasPrice, remaining), ..],
@@ -5259,7 +5483,15 @@ k::rules! {
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, present_account: Int, code: Bytes, accessed: Set, account: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        present_account: Int,
+        code: Bytes,
+        accessed: Set,
+        account: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::rule(owise, label = "extcodesize-false")]
     exec_external_code_size_absent: {
@@ -5286,19 +5518,44 @@ k::rules! {
         accessed_accounts: accessed,
         local_mem: memory,
         memory_used: used,
-        word_stack: Stack::StackCons(account, Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest)))),
+        word_stack: Stack::StackCons(
+            account,
+            Stack::StackCons(
+                destination,
+                Stack::StackCons(source_index, Stack::StackCons(width, rest))
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory, used, start: destination, width }, destination, source: code, source_index, remaining: width },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory { memory, used, start: destination, width },
+            destination,
+            source: code,
+            source_index,
+            remaining: width
+        },
         memory_used: crate::MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, present_account: Int, code: Bytes, accessed: Set, account: Int, memory: Bytes, used: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        present_account: Int,
+        code: Bytes,
+        accessed: Set,
+        account: Int,
+        memory: Bytes,
+        used: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::rule(owise, label = "extcodecopy-false")]
     exec_external_code_copy_absent: {
@@ -5306,19 +5563,42 @@ k::rules! {
         accessed_accounts: accessed,
         local_mem: memory,
         memory_used: used,
-        word_stack: Stack::StackCons(account, Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest)))),
+        word_stack: Stack::StackCons(
+            account,
+            Stack::StackCons(
+                destination,
+                Stack::StackCons(source_index, Stack::StackCons(width, rest))
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory, used, start: destination, width }, destination, source: bytes::empty(), source_index, remaining: width },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory { memory, used, start: destination, width },
+            destination,
+            source: bytes::empty(),
+            source_index,
+            remaining: width
+        },
         memory_used: crate::MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, account: Int, accessed: Set, memory: Bytes, used: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        account: Int,
+        accessed: Set,
+        memory: Bytes,
+        used: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::requires(bool::and(
     int::eq(account, present_account),
@@ -5342,7 +5622,17 @@ k::rules! {
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, present_account: Int, balance: Int, code: Bytes, nonce: Int, accessed: Set, account: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        present_account: Int,
+        balance: Int,
+        code: Bytes,
+        nonce: Int,
+        accessed: Set,
+        account: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::rule(owise, label = "extcodehash-false")]
     exec_external_code_hash_empty_or_absent: {
@@ -5377,34 +5667,65 @@ k::rules! {
     inspect_return_data_copy: {
         k: [GasResult::EnoughGas(Operation::ReturnDataCopy, remaining), ..],
         output: output,
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
+        word_stack: Stack::StackCons(
+            destination,
+            Stack::StackCons(source_index, Stack::StackCons(width, rest))
+        ),
     } => {
         k: [crate::ResolveReturnDataCopy { output, source_index, width, remaining }, ..],
     }
-    where remaining: Int, output: Bytes, destination: Int, source_index: Int, width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        output: Bytes,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack;
 
     exec_return_data_copy_valid: {
         k: [CopyResult::ReturnDataCopyValid { remaining }, ..],
         output: output,
         local_mem: memory,
         memory_used: used,
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
+        word_stack: Stack::StackCons(
+            destination,
+            Stack::StackCons(source_index, Stack::StackCons(width, rest))
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory, used, start: destination, width }, destination, source: output, source_index, remaining: width },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory { memory, used, start: destination, width },
+            destination,
+            source: output,
+            source_index,
+            remaining: width
+        },
         memory_used: crate::MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, output: Bytes, memory: Bytes, used: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        output: Bytes,
+        memory: Bytes,
+        used: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_return_data_copy_invalid: {
         k: [CopyResult::ReturnDataCopyInvalid { remaining }, ..],
         memory_used: used,
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
+        word_stack: Stack::StackCons(
+            destination,
+            Stack::StackCons(source_index, Stack::StackCons(width, rest))
+        ),
         gas: gas,
         status_code: status,
     } => {
@@ -5414,7 +5735,15 @@ k::rules! {
         gas: remaining,
         status_code: Status::InvalidMemoryAccess(),
     }
-    where remaining: Int, used: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, gas: Int, status: StatusCode;
+    where
+        remaining: Int,
+        used: Int,
+        destination: Int,
+        source_index: Int,
+        width: Int,
+        rest: WordStack,
+        gas: Int,
+        status: StatusCode;
 
     exec_block_hash: {
         k: [GasResult::EnoughGas(Operation::BlockHash, remaining), ..],
@@ -5425,11 +5754,21 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(crate::BlockHashLookup { hashes, requested, highest: int::sub(number, 1), age: 0, }, rest),
+        word_stack: Stack::StackCons(
+            crate::BlockHashLookup { hashes, requested, highest: int::sub(number, 1), age: 0, },
+            rest
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, hashes: List, number: Int, requested: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        hashes: List,
+        number: Int,
+        requested: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_coinbase: {
         k: [GasResult::EnoughGas(Operation::BlockCoinbase, remaining), ..],
@@ -5530,7 +5869,14 @@ k::rules! {
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, account: Int, present_account: Int, balance: Int, stack: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        account: Int,
+        present_account: Int,
+        balance: Int,
+        stack: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_base_fee: {
         k: [GasResult::EnoughGas(Operation::BlockBaseFee, remaining), ..],
@@ -5556,7 +5902,10 @@ k::rules! {
     } => {
         k: [ExecutionCommand::Run(), ..],
         memory_used: crate::MemoryUsageUpdate { used, start: index, width: 32 },
-        word_stack: Stack::StackCons(crate::ReadMemoryWord { memory, index, remaining: 32, value: 0 }, rest),
+        word_stack: Stack::StackCons(
+            crate::ReadMemoryWord { memory, index, remaining: 32, value: 0 },
+            rest
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -5571,13 +5920,30 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        local_mem: crate::WriteMemoryWord { memory: bytes::pad_right(memory, int::mul(crate::MemoryUsageUpdate { used, start: index, width: 32 }, 32), 0), index, remaining: 32, value: crate::Chop(value) },
+        local_mem: crate::WriteMemoryWord {
+            memory: bytes::pad_right(
+                memory,
+                int::mul(crate::MemoryUsageUpdate { used, start: index, width: 32 }, 32),
+                0
+            ),
+            index,
+            remaining: 32,
+            value: crate::Chop(value)
+        },
         memory_used: crate::MemoryUsageUpdate { used, start: index, width: 32 },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, memory: Bytes, used: Int, index: Int, value: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        memory: Bytes,
+        used: Int,
+        index: Int,
+        value: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_memory_store8: {
         k: [GasResult::EnoughGas(Operation::MemoryStore8, remaining), ..],
@@ -5588,13 +5954,29 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        local_mem: bytes::update(bytes::pad_right(memory, int::mul(crate::MemoryUsageUpdate { used, start: index, width: 1 }, 32), 0), index, int::rem_euclid(value, 256)),
+        local_mem: bytes::update(
+            bytes::pad_right(
+                memory,
+                int::mul(crate::MemoryUsageUpdate { used, start: index, width: 1 }, 32),
+                0
+            ),
+            index,
+            int::rem_euclid(value, 256)
+        ),
         memory_used: crate::MemoryUsageUpdate { used, start: index, width: 1 },
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, memory: Bytes, used: Int, index: Int, value: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        memory: Bytes,
+        used: Int,
+        index: Int,
+        value: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_sha3: {
         k: [GasResult::EnoughGas(Operation::Sha3, remaining), ..],
@@ -5606,11 +5988,22 @@ k::rules! {
     } => {
         k: [ExecutionCommand::Run(), ..],
         memory_used: crate::MemoryUsageUpdate { used, start, width },
-        word_stack: Stack::StackCons(crate::Keccak(crate::ReturnBytes { memory, start, width }), rest),
+        word_stack: Stack::StackCons(
+            crate::Keccak(crate::ReturnBytes { memory, start, width }),
+            rest
+        ),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, memory: Bytes, used: Int, start: Int, width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        memory: Bytes,
+        used: Int,
+        start: Int,
+        width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::requires(int::eq(current_account, account_id))]
     exec_storage_load: {
@@ -5629,7 +6022,16 @@ k::rules! {
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, current_account: Int, account_id: Int, storage: Map, accessed: Map, index: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        current_account: Int,
+        account_id: Int,
+        storage: Map,
+        accessed: Map,
+        index: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::requires(int::eq(current_account, account_id))]
     exec_storage_store: {
@@ -5647,12 +6049,31 @@ k::rules! {
         k: [ExecutionCommand::Run(), ..],
         storage: map::update(storage, index, new),
         accessed_storage: crate::MarkStorageAccess { accessed, account: current_account, index },
-        refund: int::add(refund, crate::StorageRefundDelta { original: crate::StorageValue { storage: original_storage, index }, current: crate::StorageValue { storage, index }, new }),
+        refund: int::add(
+            refund,
+            crate::StorageRefundDelta {
+                original: crate::StorageValue { storage: original_storage, index },
+                current: crate::StorageValue { storage, index },
+                new
+            }
+        ),
         word_stack: rest,
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, current_account: Int, account_id: Int, storage: Map, original_storage: Map, accessed: Map, refund: Int, index: Int, new: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        current_account: Int,
+        account_id: Int,
+        storage: Map,
+        original_storage: Map,
+        accessed: Map,
+        refund: Int,
+        index: Int,
+        new: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_log: {
         k: [GasResult::EnoughGas(Operation::LogOpcode { topics }, remaining), ..],
@@ -5665,13 +6086,33 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        logs: list::concat(logs, list::item(LogRecord::Entry { address, topics: crate::StackTakeList { stack: topic_stack, remaining: topics }, data: crate::ReturnBytes { memory, start, width }, }),),
+        logs: list::concat(
+            logs,
+            list::item(
+                LogRecord::Entry {
+                    address,
+                    topics: crate::StackTakeList { stack: topic_stack, remaining: topics },
+                    data: crate::ReturnBytes { memory, start, width },
+                }
+            ),
+        ),
         memory_used: crate::MemoryUsageUpdate { used, start, width },
         word_stack: crate::StackDrop { stack: topic_stack, remaining: topics },
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, topics: Int, address: Int, logs: List, memory: Bytes, used: Int, start: Int, width: Int, topic_stack: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        topics: Int,
+        address: Int,
+        logs: List,
+        memory: Bytes,
+        used: Int,
+        start: Int,
+        width: Int,
+        topic_stack: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_memory_size: {
         k: [GasResult::EnoughGas(Operation::MemorySize, remaining), ..],
@@ -5735,7 +6176,13 @@ k::rules! {
         word_stack: rest,
         gas: remaining,
     }
-    where remaining: Int, program: Bytes, destination: Int, condition: Int, rest: WordStack, gas: Int;
+    where
+        remaining: Int,
+        program: Bytes,
+        destination: Int,
+        condition: Int,
+        rest: WordStack,
+        gas: Int;
 
     exec_valid_jump: {
         k: [JumpResult::JumpValid { destination }, ..],
@@ -5791,7 +6238,16 @@ k::rules! {
         gas: remaining,
         status_code: Status::Success(),
     }
-    where remaining: Int, output: Bytes, memory: Bytes, used: Int, start: Int, width: Int, rest: WordStack, gas: Int, status: StatusCode;
+    where
+        remaining: Int,
+        output: Bytes,
+        memory: Bytes,
+        used: Int,
+        start: Int,
+        width: Int,
+        rest: WordStack,
+        gas: Int,
+        status: StatusCode;
 
     exec_revert: {
         k: [GasResult::EnoughGas(Operation::Revert, remaining), ..],
@@ -5809,15 +6265,43 @@ k::rules! {
         gas: remaining,
         status_code: Status::Reverted(),
     }
-    where remaining: Int, output: Bytes, memory: Bytes, used: Int, start: Int, width: Int, rest: WordStack, gas: Int, status: StatusCode;
+    where
+        remaining: Int,
+        output: Bytes,
+        memory: Bytes,
+        used: Int,
+        start: Int,
+        width: Int,
+        rest: WordStack,
+        gas: Int,
+        status: StatusCode;
 
     begin_static_call_ecrec: {
         k: [GasResult::EnoughEcrecPrecompileGas { remaining }, ..],
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(1, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                1,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
         k: [crate::ResolveEcrecPrecompile { requested: gas_cap, available: remaining, }, ..],
     }
-    where remaining: Int, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_ecrec_success: {
         k: [PrecompileResult::EcrecPrecompileSuccess { remaining }, ..],
@@ -5827,21 +6311,92 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(1, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                1,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(1)),
-        output: crate::EcrecPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcrecPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: bytes::length(crate::EcrecPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }) }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(1)
+        ),
+        output: crate::EcrecPrecompileOutput {
+            data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::EcrecPrecompileOutput {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: crate::Minimum {
+                left: return_width,
+                right: bytes::length(
+                    crate::EcrecPrecompileOutput {
+                        data: crate::ReturnBytes {
+                            memory,
+                            start: argument_start,
+                            width: argument_width
+                        }
+                    }
+                )
+            },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 1 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_ecrec_exception: {
         k: [PrecompileResult::EcrecPrecompileFailure { remaining }, ..],
@@ -5851,30 +6406,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(1, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                1,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(1)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(1)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 1 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_sha256: {
         k: [GasResult::EnoughSha256PrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(2, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                2,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveSha256Precompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveSha256Precompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_sha256_success: {
         k: [PrecompileResult::Sha256PrecompileSuccess { remaining }, ..],
@@ -5884,21 +6512,81 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(2, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                2,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(2)),
-        output: crate::Sha256Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::Sha256Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 32 }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(2)
+        ),
+        output: crate::Sha256Digest {
+            value: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::Sha256Digest {
+                value: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: 32 },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 2 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_sha256_exception: {
         k: [PrecompileResult::Sha256PrecompileFailure { remaining }, ..],
@@ -5908,30 +6596,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(2, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                2,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(2)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(2)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 2 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_ripemd160: {
         k: [GasResult::EnoughRipemd160PrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(3, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                3,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveRipemd160Precompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveRipemd160Precompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_ripemd160_success: {
         k: [PrecompileResult::Ripemd160PrecompileSuccess { remaining }, ..],
@@ -5941,21 +6702,97 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(3, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                3,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(3)),
-        output: crate::CopyBytes { memory: bytes::pad_right(bytes::empty(), 32, 0), destination: 12, source: crate::Ripemd160Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: 20 },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::CopyBytes { memory: bytes::pad_right(bytes::empty(), 32, 0), destination: 12, source: crate::Ripemd160Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: 20 }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 32 }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(3)
+        ),
+        output: crate::CopyBytes {
+            memory: bytes::pad_right(bytes::empty(), 32, 0),
+            destination: 12,
+            source: crate::Ripemd160Digest {
+                value: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: 20
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::CopyBytes {
+                memory: bytes::pad_right(bytes::empty(), 32, 0),
+                destination: 12,
+                source: crate::Ripemd160Digest {
+                    value: crate::ReturnBytes {
+                        memory,
+                        start: argument_start,
+                        width: argument_width
+                    }
+                },
+                source_index: 0,
+                remaining: 20
+            },
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: 32 },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 3 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_ripemd160_exception: {
         k: [PrecompileResult::Ripemd160PrecompileFailure { remaining }, ..],
@@ -5965,30 +6802,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(3, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                3,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(3)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(3)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 3 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_identity: {
         k: [GasResult::EnoughIdentityPrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(4, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                4,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveIdentityPrecompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveIdentityPrecompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_identity_success: {
         k: [PrecompileResult::IdentityPrecompileSuccess { remaining }, ..],
@@ -5998,21 +6908,77 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(4, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                4,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(4)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(4)
+        ),
         output: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, source_index: 0, remaining: crate::Minimum { left: return_width, right: argument_width }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: argument_width },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 4 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_identity_exception: {
         k: [PrecompileResult::IdentityPrecompileFailure { remaining }, ..],
@@ -6022,30 +6988,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(4, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                4,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(4)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(4)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 4 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_modexp: {
         k: [GasResult::EnoughModExpPrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(5, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                5,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveModExpPrecompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveModExpPrecompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_modexp_success: {
         k: [PrecompileResult::ModExpPrecompileSuccess { remaining }, ..],
@@ -6055,21 +7094,92 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(5, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                5,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(5)),
-        output: crate::ModExpPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::ModExpPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: bytes::length(crate::ModExpPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }) }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(5)
+        ),
+        output: crate::ModExpPrecompileOutput {
+            data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::ModExpPrecompileOutput {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: crate::Minimum {
+                left: return_width,
+                right: bytes::length(
+                    crate::ModExpPrecompileOutput {
+                        data: crate::ReturnBytes {
+                            memory,
+                            start: argument_start,
+                            width: argument_width
+                        }
+                    }
+                )
+            },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 5 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_modexp_exception: {
         k: [PrecompileResult::ModExpPrecompileFailure { remaining }, ..],
@@ -6079,30 +7189,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(5, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                5,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(5)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(5)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 5 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_ecadd: {
         k: [GasResult::EnoughEcAddPrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(6, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                6,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveEcAddPrecompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveEcAddPrecompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_ecadd_success: {
         k: [PrecompileResult::EcAddPrecompileSuccess { remaining }, ..],
@@ -6112,21 +7295,81 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(6, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                6,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(6)),
-        output: crate::EcAddPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcAddPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 64 }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(6)
+        ),
+        output: crate::EcAddPrecompileOutput {
+            data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::EcAddPrecompileOutput {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: 64 },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 6 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_ecadd_exception: {
         k: [PrecompileResult::EcAddPrecompileFailure { remaining }, ..],
@@ -6136,30 +7379,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(6, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                6,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(6)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(6)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 6 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_ecmul: {
         k: [GasResult::EnoughEcMulPrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(7, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                7,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveEcMulPrecompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveEcMulPrecompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_ecmul_success: {
         k: [PrecompileResult::EcMulPrecompileSuccess { remaining }, ..],
@@ -6169,21 +7485,81 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(7, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                7,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(7)),
-        output: crate::EcMulPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcMulPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 64 }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(7)
+        ),
+        output: crate::EcMulPrecompileOutput {
+            data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::EcMulPrecompileOutput {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: 64 },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 7 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_ecmul_exception: {
         k: [PrecompileResult::EcMulPrecompileFailure { remaining }, ..],
@@ -6193,30 +7569,103 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(7, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                7,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(7)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(7)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 7 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     begin_static_call_ecpairing: {
         k: [GasResult::EnoughEcPairingPrecompileGas { remaining }, ..],
         local_mem: memory,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(8, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                8,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
     } => {
-        k: [crate::ResolveEcPairingPrecompile { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, requested: gas_cap, available: remaining, }, ..],
+        k: [
+            crate::ResolveEcPairingPrecompile {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
+                requested: gas_cap,
+                available: remaining,
+            },
+            ..
+        ],
     }
-    where remaining: Int, memory: Bytes, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack;
+    where
+        remaining: Int,
+        memory: Bytes,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack;
 
     exec_static_call_ecpairing_success: {
         k: [PrecompileResult::EcPairingPrecompileSuccess { remaining }, ..],
@@ -6226,21 +7675,81 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(8, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                8,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(8)),
-        output: crate::EcPairingPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
-        local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcPairingPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 32 }, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(8)
+        ),
+        output: crate::EcPairingPrecompileOutput {
+            data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+        },
+        local_mem: crate::CopyBytes {
+            memory: crate::PrepareCopyMemory {
+                memory: crate::PrepareCopyMemory {
+                    memory,
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                used: crate::MemoryUsageUpdate {
+                    used,
+                    start: argument_start,
+                    width: argument_width
+                },
+                start: return_start,
+                width: return_width,
+            },
+            destination: return_start,
+            source: crate::EcPairingPrecompileOutput {
+                data: crate::ReturnBytes { memory, start: argument_start, width: argument_width }
+            },
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: 32 },
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 8 },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_static_call_ecpairing_exception: {
         k: [PrecompileResult::EcPairingPrecompileFailure { remaining }, ..],
@@ -6250,21 +7759,67 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(8, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                8,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(8)),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(8)
+        ),
         output: bytes::empty(),
-        local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        local_mem: crate::PrepareCopyMemory {
+            memory: crate::PrepareCopyMemory {
+                memory,
+                used,
+                start: argument_start,
+                width: argument_width
+            },
+            used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+            start: return_start,
+            width: return_width,
+        },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account: 8 },
         word_stack: Stack::StackCons(0, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, touched_accounts: Set, output: Bytes, address: Int, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        touched_accounts: Set,
+        output: Bytes,
+        address: Int,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     #[k::requires(bool::and(
     int::gt(account, 9),
@@ -6300,7 +7855,19 @@ k::rules! {
         accessed_accounts: accessed,
         accessed_storage: accessed_storage,
         created_accounts: created_accounts,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(account, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                account,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
         call_gas: old_call_gas,
@@ -6308,10 +7875,81 @@ k::rules! {
         call_depth: call_depth,
         code_address: code_address,
     } => {
-        k: [ExecutionCommand::Run(), ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        call_stack: list::concat(list::item(k::fragment![CallState { program: program, jump_dests: jump_dests, address: address, caller: caller, call_data: call_data, call_value: call_value, word_stack: rest, local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, pc: int::add(pc, 1), gas: int::sub(remaining, crate::StaticCallGas { requested: gas_cap, available: remaining }), memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width }, call_gas: crate::StaticCallGas { requested: gas_cap, available: remaining }, static_mode: static_mode, call_depth: call_depth, code_address: code_address, }]), call_stack,),
-        interim_states: list::concat(list::item(SavedWorldState::Snapshot { account_id: present_account, balance: balance, code: code, nonce: nonce, storage: storage, original_storage: original_storage, self_destruct: self_destruct, logs: logs, refund: refund, accessed_accounts: crate::MarkAccountAccess { accessed, account }, accessed_storage: accessed_storage, created_accounts: created_accounts, }), interim_states,),
-        touched_accounts: set::union(set::union(touched_accounts, set::item(address)), set::item(account)),
+        k: [
+            ExecutionCommand::Run(),
+            ExecutionCommand::FinishStaticCall { return_start, return_width },
+            ..
+        ],
+        call_stack: list::concat(
+            list::item(
+                k::fragment![
+                    CallState {
+                        program: program,
+                        jump_dests: jump_dests,
+                        address: address,
+                        caller: caller,
+                        call_data: call_data,
+                        call_value: call_value,
+                        word_stack: rest,
+                        local_mem: crate::PrepareCopyMemory {
+                            memory: crate::PrepareCopyMemory {
+                                memory,
+                                used,
+                                start: argument_start,
+                                width: argument_width
+                            },
+                            used: crate::MemoryUsageUpdate {
+                                used,
+                                start: argument_start,
+                                width: argument_width
+                            },
+                            start: return_start,
+                            width: return_width,
+                        },
+                        pc: int::add(pc, 1),
+                        gas: int::sub(
+                            remaining,
+                            crate::StaticCallGas { requested: gas_cap, available: remaining }
+                        ),
+                        memory_used: crate::CallMemoryUsage {
+                            used,
+                            argument_start,
+                            argument_width,
+                            return_start,
+                            return_width
+                        },
+                        call_gas: crate::StaticCallGas { requested: gas_cap, available: remaining },
+                        static_mode: static_mode,
+                        call_depth: call_depth,
+                        code_address: code_address,
+                    }
+                ]
+            ),
+            call_stack,
+        ),
+        interim_states: list::concat(
+            list::item(
+                SavedWorldState::Snapshot {
+                    account_id: present_account,
+                    balance: balance,
+                    code: code,
+                    nonce: nonce,
+                    storage: storage,
+                    original_storage: original_storage,
+                    self_destruct: self_destruct,
+                    logs: logs,
+                    refund: refund,
+                    accessed_accounts: crate::MarkAccountAccess { accessed, account },
+                    accessed_storage: accessed_storage,
+                    created_accounts: created_accounts,
+                }
+            ),
+            interim_states,
+        ),
+        touched_accounts: set::union(
+            set::union(touched_accounts, set::item(address)),
+            set::item(account)
+        ),
         output: bytes::empty(),
         status_code: Status::Running(),
         program: code,
@@ -6331,12 +7969,78 @@ k::rules! {
         call_depth: int::add(call_depth, 1),
         code_address: account,
     }
-    where remaining: Int, call_stack: List, interim_states: List, touched_accounts: Set, present_account: Int, balance: Int, code: Bytes, nonce: Int, storage: Map, original_storage: Map, output: Bytes, status: StatusCode, program: Bytes, jump_dests: Bytes, address: Int, caller: Int, call_data: Bytes, call_value: Int, memory: Bytes, used: Int, self_destruct: Set, logs: List, refund: Int, accessed: Set, accessed_storage: Map, created_accounts: Set, gas_cap: Int, account: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int, old_call_gas: Int, static_mode: Bool, call_depth: Int, code_address: Int;
+    where
+        remaining: Int,
+        call_stack: List,
+        interim_states: List,
+        touched_accounts: Set,
+        present_account: Int,
+        balance: Int,
+        code: Bytes,
+        nonce: Int,
+        storage: Map,
+        original_storage: Map,
+        output: Bytes,
+        status: StatusCode,
+        program: Bytes,
+        jump_dests: Bytes,
+        address: Int,
+        caller: Int,
+        call_data: Bytes,
+        call_value: Int,
+        memory: Bytes,
+        used: Int,
+        self_destruct: Set,
+        logs: List,
+        refund: Int,
+        accessed: Set,
+        accessed_storage: Map,
+        created_accounts: Set,
+        gas_cap: Int,
+        account: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int,
+        old_call_gas: Int,
+        static_mode: Bool,
+        call_depth: Int,
+        code_address: Int;
 
     finish_static_call_success: {
         k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        call_stack: k::term![list::concat(list::item(k::fragment![CallState { program: caller_program, jump_dests: caller_jump_dests, address: caller_address, caller: caller_caller, call_data: caller_call_data, call_value: caller_call_value, word_stack: caller_stack, local_mem: caller_memory, pc: caller_pc, gas: caller_gas, memory_used: caller_memory_used, call_gas: caller_call_gas, static_mode: caller_static_mode, call_depth: caller_call_depth, code_address: caller_code_address, }]), remaining_call_stack,)],
-        interim_states: k::term![list::concat(list::item(saved_world_state), remaining_interim_states)],
+        call_stack: k::term![
+            list::concat(
+                list::item(
+                    k::fragment![
+                        CallState {
+                            program: caller_program,
+                            jump_dests: caller_jump_dests,
+                            address: caller_address,
+                            caller: caller_caller,
+                            call_data: caller_call_data,
+                            call_value: caller_call_value,
+                            word_stack: caller_stack,
+                            local_mem: caller_memory,
+                            pc: caller_pc,
+                            gas: caller_gas,
+                            memory_used: caller_memory_used,
+                            call_gas: caller_call_gas,
+                            static_mode: caller_static_mode,
+                            call_depth: caller_call_depth,
+                            code_address: caller_code_address,
+                        }
+                    ]
+                ),
+                remaining_call_stack,
+            )
+        ],
+        interim_states: k::term![
+            list::concat(list::item(saved_world_state), remaining_interim_states)
+        ],
         output: child_output,
         status_code: Status::Success(),
         program: child_program,
@@ -6366,7 +8070,13 @@ k::rules! {
         call_data: caller_call_data,
         call_value: caller_call_value,
         word_stack: Stack::StackCons(1, caller_stack),
-        local_mem: crate::CopyBytes { memory: caller_memory, destination: return_start, source: child_output, source_index: 0, remaining: crate::Minimum { left: return_width, right: bytes::length(child_output) }, },
+        local_mem: crate::CopyBytes {
+            memory: caller_memory,
+            destination: return_start,
+            source: child_output,
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: bytes::length(child_output) },
+        },
         pc: caller_pc,
         gas: int::add(caller_gas, child_gas),
         memory_used: caller_memory_used,
@@ -6375,12 +8085,93 @@ k::rules! {
         call_depth: caller_call_depth,
         code_address: caller_code_address,
     }
-    where return_start: Int, return_width: Int, remaining_call_stack: List, saved_world_state: WorldState, remaining_interim_states: List, child_output: Bytes, child_program: Bytes, child_jump_dests: Bytes, child_address: Int, child_caller: Int, child_call_data: Bytes, child_call_value: Int, child_stack: WordStack, child_memory: Bytes, child_pc: Int, child_gas: Int, child_memory_used: Int, child_call_gas: Int, child_static_mode: Bool, child_call_depth: Int, child_code_address: Int, caller_program: Bytes, caller_jump_dests: Bytes, caller_address: Int, caller_caller: Int, caller_call_data: Bytes, caller_call_value: Int, caller_stack: WordStack, caller_memory: Bytes, caller_pc: Int, caller_gas: Int, caller_memory_used: Int, caller_call_gas: Int, caller_static_mode: Bool, caller_call_depth: Int, caller_code_address: Int;
+    where
+        return_start: Int,
+        return_width: Int,
+        remaining_call_stack: List,
+        saved_world_state: WorldState,
+        remaining_interim_states: List,
+        child_output: Bytes,
+        child_program: Bytes,
+        child_jump_dests: Bytes,
+        child_address: Int,
+        child_caller: Int,
+        child_call_data: Bytes,
+        child_call_value: Int,
+        child_stack: WordStack,
+        child_memory: Bytes,
+        child_pc: Int,
+        child_gas: Int,
+        child_memory_used: Int,
+        child_call_gas: Int,
+        child_static_mode: Bool,
+        child_call_depth: Int,
+        child_code_address: Int,
+        caller_program: Bytes,
+        caller_jump_dests: Bytes,
+        caller_address: Int,
+        caller_caller: Int,
+        caller_call_data: Bytes,
+        caller_call_value: Int,
+        caller_stack: WordStack,
+        caller_memory: Bytes,
+        caller_pc: Int,
+        caller_gas: Int,
+        caller_memory_used: Int,
+        caller_call_gas: Int,
+        caller_static_mode: Bool,
+        caller_call_depth: Int,
+        caller_code_address: Int;
 
     finish_static_call_revert: {
         k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        call_stack: k::term![list::concat(list::item(k::fragment![CallState { program: caller_program, jump_dests: caller_jump_dests, address: caller_address, caller: caller_caller, call_data: caller_call_data, call_value: caller_call_value, word_stack: caller_stack, local_mem: caller_memory, pc: caller_pc, gas: caller_gas, memory_used: caller_memory_used, call_gas: caller_call_gas, static_mode: caller_static_mode, call_depth: caller_call_depth, code_address: caller_code_address, }]), remaining_call_stack,)],
-        interim_states: k::term![list::concat(list::item(SavedWorldState::Snapshot { account_id: saved_account_id, balance: saved_balance, code: saved_code, nonce: saved_nonce, storage: saved_storage, original_storage: saved_original_storage, self_destruct: saved_self_destruct, logs: saved_logs, refund: saved_refund, accessed_accounts: saved_accessed_accounts, accessed_storage: saved_accessed_storage, created_accounts: saved_created_accounts, }), remaining_interim_states,)],
+        call_stack: k::term![
+            list::concat(
+                list::item(
+                    k::fragment![
+                        CallState {
+                            program: caller_program,
+                            jump_dests: caller_jump_dests,
+                            address: caller_address,
+                            caller: caller_caller,
+                            call_data: caller_call_data,
+                            call_value: caller_call_value,
+                            word_stack: caller_stack,
+                            local_mem: caller_memory,
+                            pc: caller_pc,
+                            gas: caller_gas,
+                            memory_used: caller_memory_used,
+                            call_gas: caller_call_gas,
+                            static_mode: caller_static_mode,
+                            call_depth: caller_call_depth,
+                            code_address: caller_code_address,
+                        }
+                    ]
+                ),
+                remaining_call_stack,
+            )
+        ],
+        interim_states: k::term![
+            list::concat(
+                list::item(
+                    SavedWorldState::Snapshot {
+                        account_id: saved_account_id,
+                        balance: saved_balance,
+                        code: saved_code,
+                        nonce: saved_nonce,
+                        storage: saved_storage,
+                        original_storage: saved_original_storage,
+                        self_destruct: saved_self_destruct,
+                        logs: saved_logs,
+                        refund: saved_refund,
+                        accessed_accounts: saved_accessed_accounts,
+                        accessed_storage: saved_accessed_storage,
+                        created_accounts: saved_created_accounts,
+                    }
+                ),
+                remaining_interim_states,
+            )
+        ],
         account_id: child_account_id,
         balance: child_balance,
         code: child_code,
@@ -6434,7 +8225,13 @@ k::rules! {
         call_data: caller_call_data,
         call_value: caller_call_value,
         word_stack: Stack::StackCons(0, caller_stack),
-        local_mem: crate::CopyBytes { memory: caller_memory, destination: return_start, source: child_output, source_index: 0, remaining: crate::Minimum { left: return_width, right: bytes::length(child_output) }, },
+        local_mem: crate::CopyBytes {
+            memory: caller_memory,
+            destination: return_start,
+            source: child_output,
+            source_index: 0,
+            remaining: crate::Minimum { left: return_width, right: bytes::length(child_output) },
+        },
         pc: caller_pc,
         gas: int::add(caller_gas, child_gas),
         memory_used: caller_memory_used,
@@ -6443,11 +8240,76 @@ k::rules! {
         call_depth: caller_call_depth,
         code_address: caller_code_address,
     }
-    where return_start: Int, return_width: Int, remaining_call_stack: List, remaining_interim_states: List, saved_account_id: Int, saved_balance: Int, saved_code: Bytes, saved_nonce: Int, saved_storage: Map, saved_original_storage: Map, saved_self_destruct: Set, saved_logs: List, saved_refund: Int, saved_accessed_accounts: Set, saved_accessed_storage: Map, saved_created_accounts: Set, child_account_id: Int, child_balance: Int, child_code: Bytes, child_nonce: Int, child_storage: Map, child_original_storage: Map, child_self_destruct: Set, child_logs: List, child_refund: Int, child_accessed_accounts: Set, child_accessed_storage: Map, child_created_accounts: Set, child_output: Bytes, child_program: Bytes, child_jump_dests: Bytes, child_address: Int, child_caller: Int, child_call_data: Bytes, child_call_value: Int, child_stack: WordStack, child_memory: Bytes, child_pc: Int, child_gas: Int, child_memory_used: Int, child_call_gas: Int, child_static_mode: Bool, child_call_depth: Int, child_code_address: Int, caller_program: Bytes, caller_jump_dests: Bytes, caller_address: Int, caller_caller: Int, caller_call_data: Bytes, caller_call_value: Int, caller_stack: WordStack, caller_memory: Bytes, caller_pc: Int, caller_gas: Int, caller_memory_used: Int, caller_call_gas: Int, caller_static_mode: Bool, caller_call_depth: Int, caller_code_address: Int;
+    where
+        return_start: Int,
+        return_width: Int,
+        remaining_call_stack: List,
+        remaining_interim_states: List,
+        saved_account_id: Int,
+        saved_balance: Int,
+        saved_code: Bytes,
+        saved_nonce: Int,
+        saved_storage: Map,
+        saved_original_storage: Map,
+        saved_self_destruct: Set,
+        saved_logs: List,
+        saved_refund: Int,
+        saved_accessed_accounts: Set,
+        saved_accessed_storage: Map,
+        saved_created_accounts: Set,
+        child_account_id: Int,
+        child_balance: Int,
+        child_code: Bytes,
+        child_nonce: Int,
+        child_storage: Map,
+        child_original_storage: Map,
+        child_self_destruct: Set,
+        child_logs: List,
+        child_refund: Int,
+        child_accessed_accounts: Set,
+        child_accessed_storage: Map,
+        child_created_accounts: Set,
+        child_output: Bytes,
+        child_program: Bytes,
+        child_jump_dests: Bytes,
+        child_address: Int,
+        child_caller: Int,
+        child_call_data: Bytes,
+        child_call_value: Int,
+        child_stack: WordStack,
+        child_memory: Bytes,
+        child_pc: Int,
+        child_gas: Int,
+        child_memory_used: Int,
+        child_call_gas: Int,
+        child_static_mode: Bool,
+        child_call_depth: Int,
+        child_code_address: Int,
+        caller_program: Bytes,
+        caller_jump_dests: Bytes,
+        caller_address: Int,
+        caller_caller: Int,
+        caller_call_data: Bytes,
+        caller_call_value: Int,
+        caller_stack: WordStack,
+        caller_memory: Bytes,
+        caller_pc: Int,
+        caller_gas: Int,
+        caller_memory_used: Int,
+        caller_call_gas: Int,
+        caller_static_mode: Bool,
+        caller_call_depth: Int,
+        caller_code_address: Int;
 
     finish_static_call_exceptional_halt: {
         k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StackUnderflow() | Status::StackOverflow() | Status::OutOfGas() | Status::BadJumpDestination() | Status::InvalidMemoryAccess() | Status::InvalidInstruction() | Status::StaticModeViolation(),
+        status_code: Status::StackUnderflow()
+        | Status::StackOverflow()
+        | Status::OutOfGas()
+        | Status::BadJumpDestination()
+        | Status::InvalidMemoryAccess()
+        | Status::InvalidInstruction()
+        | Status::StaticModeViolation(),
     } => {
         k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
     }
@@ -6455,8 +8317,53 @@ k::rules! {
 
     finish_static_call_exception: {
         k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-        call_stack: k::term![list::concat(list::item(k::fragment![CallState { program: caller_program, jump_dests: caller_jump_dests, address: caller_address, caller: caller_caller, call_data: caller_call_data, call_value: caller_call_value, word_stack: caller_stack, local_mem: caller_memory, pc: caller_pc, gas: caller_gas, memory_used: caller_memory_used, call_gas: caller_call_gas, static_mode: caller_static_mode, call_depth: caller_call_depth, code_address: caller_code_address, }]), remaining_call_stack,)],
-        interim_states: k::term![list::concat(list::item(SavedWorldState::Snapshot { account_id: saved_account_id, balance: saved_balance, code: saved_code, nonce: saved_nonce, storage: saved_storage, original_storage: saved_original_storage, self_destruct: saved_self_destruct, logs: saved_logs, refund: saved_refund, accessed_accounts: saved_accessed_accounts, accessed_storage: saved_accessed_storage, created_accounts: saved_created_accounts, }), remaining_interim_states,)],
+        call_stack: k::term![
+            list::concat(
+                list::item(
+                    k::fragment![
+                        CallState {
+                            program: caller_program,
+                            jump_dests: caller_jump_dests,
+                            address: caller_address,
+                            caller: caller_caller,
+                            call_data: caller_call_data,
+                            call_value: caller_call_value,
+                            word_stack: caller_stack,
+                            local_mem: caller_memory,
+                            pc: caller_pc,
+                            gas: caller_gas,
+                            memory_used: caller_memory_used,
+                            call_gas: caller_call_gas,
+                            static_mode: caller_static_mode,
+                            call_depth: caller_call_depth,
+                            code_address: caller_code_address,
+                        }
+                    ]
+                ),
+                remaining_call_stack,
+            )
+        ],
+        interim_states: k::term![
+            list::concat(
+                list::item(
+                    SavedWorldState::Snapshot {
+                        account_id: saved_account_id,
+                        balance: saved_balance,
+                        code: saved_code,
+                        nonce: saved_nonce,
+                        storage: saved_storage,
+                        original_storage: saved_original_storage,
+                        self_destruct: saved_self_destruct,
+                        logs: saved_logs,
+                        refund: saved_refund,
+                        accessed_accounts: saved_accessed_accounts,
+                        accessed_storage: saved_accessed_storage,
+                        created_accounts: saved_created_accounts,
+                    }
+                ),
+                remaining_interim_states,
+            )
+        ],
         account_id: child_account_id,
         balance: child_balance,
         code: child_code,
@@ -6520,7 +8427,67 @@ k::rules! {
         call_depth: caller_call_depth,
         code_address: caller_code_address,
     }
-    where return_start: Int, return_width: Int, remaining_call_stack: List, remaining_interim_states: List, saved_account_id: Int, saved_balance: Int, saved_code: Bytes, saved_nonce: Int, saved_storage: Map, saved_original_storage: Map, saved_self_destruct: Set, saved_logs: List, saved_refund: Int, saved_accessed_accounts: Set, saved_accessed_storage: Map, saved_created_accounts: Set, child_account_id: Int, child_balance: Int, child_code: Bytes, child_nonce: Int, child_storage: Map, child_original_storage: Map, child_self_destruct: Set, child_logs: List, child_refund: Int, child_accessed_accounts: Set, child_accessed_storage: Map, child_created_accounts: Set, child_output: Bytes, child_status: StatusCode, child_program: Bytes, child_jump_dests: Bytes, child_address: Int, child_caller: Int, child_call_data: Bytes, child_call_value: Int, child_stack: WordStack, child_memory: Bytes, child_pc: Int, child_gas: Int, child_memory_used: Int, child_call_gas: Int, child_static_mode: Bool, child_call_depth: Int, child_code_address: Int, caller_program: Bytes, caller_jump_dests: Bytes, caller_address: Int, caller_caller: Int, caller_call_data: Bytes, caller_call_value: Int, caller_stack: WordStack, caller_memory: Bytes, caller_pc: Int, caller_gas: Int, caller_memory_used: Int, caller_call_gas: Int, caller_static_mode: Bool, caller_call_depth: Int, caller_code_address: Int;
+    where
+        return_start: Int,
+        return_width: Int,
+        remaining_call_stack: List,
+        remaining_interim_states: List,
+        saved_account_id: Int,
+        saved_balance: Int,
+        saved_code: Bytes,
+        saved_nonce: Int,
+        saved_storage: Map,
+        saved_original_storage: Map,
+        saved_self_destruct: Set,
+        saved_logs: List,
+        saved_refund: Int,
+        saved_accessed_accounts: Set,
+        saved_accessed_storage: Map,
+        saved_created_accounts: Set,
+        child_account_id: Int,
+        child_balance: Int,
+        child_code: Bytes,
+        child_nonce: Int,
+        child_storage: Map,
+        child_original_storage: Map,
+        child_self_destruct: Set,
+        child_logs: List,
+        child_refund: Int,
+        child_accessed_accounts: Set,
+        child_accessed_storage: Map,
+        child_created_accounts: Set,
+        child_output: Bytes,
+        child_status: StatusCode,
+        child_program: Bytes,
+        child_jump_dests: Bytes,
+        child_address: Int,
+        child_caller: Int,
+        child_call_data: Bytes,
+        child_call_value: Int,
+        child_stack: WordStack,
+        child_memory: Bytes,
+        child_pc: Int,
+        child_gas: Int,
+        child_memory_used: Int,
+        child_call_gas: Int,
+        child_static_mode: Bool,
+        child_call_depth: Int,
+        child_code_address: Int,
+        caller_program: Bytes,
+        caller_jump_dests: Bytes,
+        caller_address: Int,
+        caller_caller: Int,
+        caller_call_data: Bytes,
+        caller_call_value: Int,
+        caller_stack: WordStack,
+        caller_memory: Bytes,
+        caller_pc: Int,
+        caller_gas: Int,
+        caller_memory_used: Int,
+        caller_call_gas: Int,
+        caller_static_mode: Bool,
+        caller_call_depth: Int,
+        caller_code_address: Int;
 
     #[k::requires(bool::and(
     int::gt(account, 9),
@@ -6543,19 +8510,55 @@ k::rules! {
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
-        word_stack: Stack::StackCons(gas_cap, Stack::StackCons(account, Stack::StackCons(argument_start, Stack::StackCons(argument_width, Stack::StackCons(return_start, Stack::StackCons(return_width, rest)))))),
+        word_stack: Stack::StackCons(
+            gas_cap,
+            Stack::StackCons(
+                account,
+                Stack::StackCons(
+                    argument_start,
+                    Stack::StackCons(
+                        argument_width,
+                        Stack::StackCons(return_start, Stack::StackCons(return_width, rest))
+                    )
+                )
+            )
+        ),
         pc: pc,
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
         output: bytes::empty(),
-        memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width },
+        memory_used: crate::CallMemoryUsage {
+            used,
+            argument_start,
+            argument_width,
+            return_start,
+            return_width
+        },
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
         word_stack: Stack::StackCons(1, rest),
         pc: int::add(pc, 1),
         gas: remaining,
     }
-    where remaining: Int, present_account: Int, balance: Int, code: Bytes, nonce: Int, output: Bytes, memory: Bytes, used: Int, accessed: Set, gas_cap: Int, account: Int, argument_start: Int, argument_width: Int, return_start: Int, return_width: Int, rest: WordStack, pc: Int, gas: Int;
+    where
+        remaining: Int,
+        present_account: Int,
+        balance: Int,
+        code: Bytes,
+        nonce: Int,
+        output: Bytes,
+        memory: Bytes,
+        used: Int,
+        accessed: Set,
+        gas_cap: Int,
+        account: Int,
+        argument_start: Int,
+        argument_width: Int,
+        return_start: Int,
+        return_width: Int,
+        rest: WordStack,
+        pc: Int,
+        gas: Int;
 
     exec_stop: {
         k: [GasResult::EnoughGas(Operation::Stop, remaining), ..],
@@ -6576,7 +8579,20 @@ k::rules! {
     use Operation::*;
 
     stack_underflow_no_words_arithmetic: {
-        k: [Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend(), ..],
+        k: [
+            Add()
+            | Mul()
+            | Sub()
+            | Div()
+            | SignedDiv()
+            | Mod()
+            | SignedMod()
+            | AddMod()
+            | MulMod()
+            | Exponent()
+            | SignExtend(),
+            ..
+        ],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6586,7 +8602,23 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_no_words_comparison_bitwise: {
-        k: [LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | IsZero() | BitAnd() | BitOr() | BitXor() | BitNot() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight(), ..],
+        k: [
+            LessThan()
+            | GreaterThan()
+            | SignedLessThan()
+            | SignedGreaterThan()
+            | Equal()
+            | IsZero()
+            | BitAnd()
+            | BitOr()
+            | BitXor()
+            | BitNot()
+            | Byte()
+            | ShiftLeft()
+            | ShiftRight()
+            | SignedShiftRight(),
+            ..
+        ],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6596,7 +8628,18 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_no_words_environment: {
-        k: [AccountBalance() | ExternalCodeSize() | ExternalCodeHash() | ExternalCodeCopy() | CallDataLoad() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | BlockHash(), ..],
+        k: [
+            AccountBalance()
+            | ExternalCodeSize()
+            | ExternalCodeHash()
+            | ExternalCodeCopy()
+            | CallDataLoad()
+            | CallDataCopy()
+            | CodeCopy()
+            | ReturnDataCopy()
+            | BlockHash(),
+            ..
+        ],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6606,7 +8649,19 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_no_words_memory_storage_control: {
-        k: [MemoryLoad() | MemoryStore() | MemoryStore8() | Sha3() | StorageLoad() | StorageStore() | Jump() | JumpIf() | Return() | Revert(), ..],
+        k: [
+            MemoryLoad()
+            | MemoryStore()
+            | MemoryStore8()
+            | Sha3()
+            | StorageLoad()
+            | StorageStore()
+            | Jump()
+            | JumpIf()
+            | Return()
+            | Revert(),
+            ..
+        ],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -6616,7 +8671,20 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_one_word_arithmetic: {
-        k: [Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend(), ..],
+        k: [
+            Add()
+            | Mul()
+            | Sub()
+            | Div()
+            | SignedDiv()
+            | Mod()
+            | SignedMod()
+            | AddMod()
+            | MulMod()
+            | Exponent()
+            | SignExtend(),
+            ..
+        ],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -6626,7 +8694,21 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_one_word_comparison_bitwise: {
-        k: [LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | BitAnd() | BitOr() | BitXor() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight(), ..],
+        k: [
+            LessThan()
+            | GreaterThan()
+            | SignedLessThan()
+            | SignedGreaterThan()
+            | Equal()
+            | BitAnd()
+            | BitOr()
+            | BitXor()
+            | Byte()
+            | ShiftLeft()
+            | ShiftRight()
+            | SignedShiftRight(),
+            ..
+        ],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -6636,7 +8718,20 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_one_word_environment_memory_control: {
-        k: [ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | MemoryStore() | MemoryStore8() | Sha3() | StorageStore() | JumpIf() | Return() | Revert(), ..],
+        k: [
+            ExternalCodeCopy()
+            | CallDataCopy()
+            | CodeCopy()
+            | ReturnDataCopy()
+            | MemoryStore()
+            | MemoryStore8()
+            | Sha3()
+            | StorageStore()
+            | JumpIf()
+            | Return()
+            | Revert(),
+            ..
+        ],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
         status_code: status,
     } => {
@@ -6646,7 +8741,15 @@ k::rules! {
     where status: StatusCode;
 
     stack_underflow_two_words: {
-        k: [ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | AddMod() | MulMod(), ..],
+        k: [
+            ExternalCodeCopy()
+            | CallDataCopy()
+            | CodeCopy()
+            | ReturnDataCopy()
+            | AddMod()
+            | MulMod(),
+            ..
+        ],
         word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty())),
         status_code: status,
     } => {
@@ -6657,7 +8760,10 @@ k::rules! {
 
     stack_underflow_three_words: {
         k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty()))),
+        word_stack: Stack::StackCons(
+            _,
+            Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty()))
+        ),
         status_code: status,
     } => {
         k: [..],
