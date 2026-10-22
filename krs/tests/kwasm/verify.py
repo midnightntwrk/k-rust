@@ -14,13 +14,13 @@ from kwasm import native  # noqa: E402
 PROBES = (
     (
         "ordinary cell constructor",
-        "valstack: [Value::Integer(ty, rhs)",
+        "valstack: [Integer(ty, rhs)",
         "Integer",
         "    Integer { ty: IValType, value: Int },",
     ),
     (
         "ordinary cell result constructor",
-        "valstack: [Value::Integer(ty, value), ..stack]",
+        "valstack: [Integer(ty, value), ..stack]",
         "Integer",
         "    Integer { ty: IValType, value: Int },",
     ),
@@ -40,7 +40,7 @@ PROBES = (
         "binding reference",
         "instrs: [IntBinOp(ty, op, lhs, rhs), ..]",
         "rhs",
-        "valstack: [Value::Integer(ty, rhs)",
+        "valstack: [Integer(ty, rhs)",
     ),
     (
         "trap constructor",

@@ -95,28 +95,27 @@ pub fn IntBinOp(
 
 k::equations! {
     for Chop;
-    chop_i32:
-        (IntegerType::I32, value)
-        => Value::Integer(IntegerType::I32, int::rem_euclid(value, POW32));
-    chop_i64:
-        (IntegerType::I64, value)
-        => Value::Integer(IntegerType::I64, int::rem_euclid(value, POW64));
+    use IntegerType::*;
+    use Value::*;
+
+    chop_i32: (I32, value) => Integer(I32, int::rem_euclid(value, POW32));
+    chop_i64: (I64, value) => Integer(I64, int::rem_euclid(value, POW64));
 }
 
 k::equations! {
     for IntBinOp;
-    add       : (ty, IntegerBinOp::Add, lhs, rhs)  => Chop(ty, lhs + rhs);
-    sub_i32:
-        (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I32, lhs + POW32 - rhs);
-    sub_i64:
-        (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I64, lhs + POW64 - rhs);
-    mul       : (ty, IntegerBinOp::Mul, lhs, rhs)  => Chop(ty, lhs * rhs);
+    use IntegerBinOp::*;
+    use IntegerType::*;
+    use Value::*;
+
+    add       : (ty, Add(), lhs, rhs)  => Chop(ty, lhs + rhs);
+    sub_i32   : (I32, Sub(), lhs, rhs) => Chop(I32, lhs + POW32 - rhs);
+    sub_i64   : (I64, Sub(), lhs, rhs) => Chop(I64, lhs + POW64 - rhs);
+    mul       : (ty, Mul(), lhs, rhs)  => Chop(ty, lhs * rhs);
     #[k::requires(rhs != 0)]
-    div_u     : (ty, IntegerBinOp::DivU, lhs, rhs) => Value::Integer(ty, lhs / rhs);
+    div_u     : (ty, DivU(), lhs, rhs) => Integer(ty, lhs / rhs);
     #[k::requires(rhs == 0)]
-    div_u_zero: (_, IntegerBinOp::DivU, _, rhs)    => Value::Undefined();
+    div_u_zero: (_, DivU(), _, rhs)    => Undefined();
 }
 
 /// The two operational cells selected from `KWasm`'s `<wasm>` configuration.
@@ -161,58 +160,58 @@ k::rules! {
 k::rules! {
     for Machine;
     use Instruction::*;
+    use IntegerType::*;
+    use Value::*;
 
     constant_i32: {
-        instrs: [Const(IntegerType::I32, value), ..],
+        instrs: [Const(I32, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I32, value + POW32), ..],
+        instrs: [Chop(I32, value + POW32), ..],
     };
 
     constant_i64: {
-        instrs: [Const(IntegerType::I64, value), ..],
+        instrs: [Const(I64, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I64, value + POW64), ..],
+        instrs: [Chop(I64, value + POW64), ..],
     };
 
     undefined_traps: {
-        instrs: [Value::Undefined(), ..],
+        instrs: [Undefined(), ..],
     } => {
         instrs: [Trap(), ..],
     };
 
     load_binary: {
         instrs: [Binary(ty, op), ..],
-        valstack: [Value::Integer(ty, rhs), Value::Integer(ty, lhs), rest @ ..],
+        valstack: [Integer(ty, rhs), Integer(ty, lhs), rest @ ..],
     } => {
         instrs: [IntBinOp(ty, op, lhs, rhs), ..],
         valstack: rest,
     };
 
     push_value: {
-        instrs: [Value::Integer(ty, value), ..],
+        instrs: [Integer(ty, value), ..],
         valstack: stack,
     } => {
         instrs: [..],
-        valstack: [Value::Integer(ty, value), ..stack],
+        valstack: [Integer(ty, value), ..stack],
     };
 }
 
 k::claims! {
     for Machine;
     use Instruction::*;
+    use IntegerType::*;
+    use Value::*;
 
     /// Executable all-path claim corresponding to `KWasm`'s simple-addition claim shape.
     #[k::claim(all_paths)]
     simple_addition: {
-        instrs: [
-            Const(IntegerType::I32, 3),
-            Const(IntegerType::I32, 4),
-            Binary(IntegerType::I32, IntegerBinOp::Add),
-        ],
+        instrs: [Const(I32, 3), Const(I32, 4), Binary(I32, IntegerBinOp::Add)],
         valstack: [],
     } => {
         instrs: [],
-        valstack: [Value::Integer(IntegerType::I32, 7)],
+        valstack: [Integer(I32, 7)],
     };
 }
 
