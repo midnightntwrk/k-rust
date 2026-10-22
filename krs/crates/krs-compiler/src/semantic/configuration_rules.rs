@@ -127,36 +127,34 @@ impl StateRuleTerms<'_> {
         match state {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent
-            | ProtocolRuleStateTerm::Instances(_) => Err(DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id().clone()),
-                detail: "an optional or collection entry occurs where a cell's content belongs"
-                    .into(),
-            }),
+            | ProtocolRuleStateTerm::Instances(_) => Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                "an optional or collection entry occurs where a cell's content belongs",
+            )),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "a nested cell entry is a binder, `_`, or fragment!, without a `Cell(..)` wrapper".into(),
-                    });
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "a nested cell entry is a binder, `_`, or fragment!, without a `Cell(..)` wrapper",
+                    ));
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::Group(term) => {
                 if !matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "a leaf cell entry needs its `Cell(..)` or `KCell(..)` wrapper"
-                            .into(),
-                    });
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "a leaf cell entry needs its `Cell(..)` or `KCell(..)` wrapper",
+                    ));
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {
                 if *declared_sort != SemanticSortRef::k_sequence() {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "K sequence occurs in a non-KSequence rule cell".into(),
-                    });
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "K sequence occurs in a non-KSequence rule cell",
+                    ));
                 }
                 let items = sequence
                     .items
@@ -178,10 +176,10 @@ impl StateRuleTerms<'_> {
             }
             ProtocolRuleStateTerm::Map(map) => {
                 if *declared_sort != SemanticSortRef::map() {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "map occurs in a non-Map rule cell".into(),
-                    });
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "map occurs in a non-Map rule cell",
+                    ));
                 }
                 let key = map.payload_key.as_ref().unwrap_or(fallback_key);
                 let operands = match &map.body {
@@ -195,10 +193,10 @@ impl StateRuleTerms<'_> {
                             });
                         }
                         MapOperands::items(entries).map_err(|error| {
-                            DescriptorLoweringError::InvalidTerm {
-                                id: Box::new(descriptor.id().clone()),
-                                detail: error.to_string(),
-                            }
+                            DescriptorLoweringError::invalid_term(
+                                descriptor.id(),
+                                error.to_string(),
+                            )
                         })?
                     }
                     ProtocolRuleMapBody::Update {
@@ -695,13 +693,13 @@ fn lower_configuration_rule_clause(
         );
     };
     if subject.wrapper.is_none() || result.is_some_and(|result| result.wrapper.is_none()) {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: format!(
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
                 "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
                 subject.field.cell.field
             ),
-        });
+        ));
     }
     if subject.wrapper != Some(*wrapper)
         || result.is_some_and(|result| result.wrapper != Some(*wrapper))
@@ -772,13 +770,13 @@ fn lower_configuration_group_clause(
         cell.wrapper.is_none() && matches!(cell.value, ProtocolRuleStateTerm::Group(_))
     };
     if !group_entry(subject) || result.is_some_and(|result| !group_entry(result)) {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: format!(
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
                 "the nested cell entry `{}` is a binder, `_`, or fragment!, without a `Cell(..)` wrapper",
                 subject.field.cell.field
             ),
-        });
+        ));
     }
     let sort = SemanticSortRef::Cell(declaration.clone());
     let before = terms.state_term(
@@ -1146,13 +1144,13 @@ fn lower_function_context_cell(
         ));
     }
     if pattern.wrapper.is_none() {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: format!(
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
                 "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
                 pattern.field.cell.field
             ),
-        });
+        ));
     }
     if pattern.wrapper != Some(*wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {

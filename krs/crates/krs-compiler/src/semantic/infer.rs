@@ -78,11 +78,24 @@ const LET_IN_PATTERN: &str =
     "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern";
 
 impl StructuredTermBuilder<'_> {
+    /// Infers the sorts of `term`'s binders against `expected_sort`
+    /// ([`Self::infer_term`]), locating an invalid-term error at the
+    /// innermost term with an authored range.
+    pub(super) fn infer(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        self.infer_term(term, expected_sort, subject)
+            .map_err(|error| self.locate(error, term))
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive inference over the closed descriptor term sum."
     )]
-    pub(super) fn infer(
+    fn infer_term(
         &mut self,
         term: &DescriptorTerm,
         expected_sort: Option<&SemanticSortRef>,
@@ -119,23 +132,22 @@ impl StructuredTermBuilder<'_> {
                 }
             }
             DescriptorTerm::Literal { literal, .. } => {
-                let sort = match literal {
-                    krs_ir::DescriptorLiteral::Int(_) => SemanticSortRef::Builtin(BuiltinSort::Int),
-                    krs_ir::DescriptorLiteral::Bool(_) => {
-                        SemanticSortRef::Builtin(BuiltinSort::Bool)
+                let (sort, spelling) = match literal {
+                    krs_ir::DescriptorLiteral::Int(value) => (BuiltinSort::Int, value.clone()),
+                    krs_ir::DescriptorLiteral::Bool(value) => {
+                        (BuiltinSort::Bool, value.to_string())
                     }
-                    krs_ir::DescriptorLiteral::String(_) => {
-                        SemanticSortRef::Builtin(BuiltinSort::String)
+                    krs_ir::DescriptorLiteral::String(value) => {
+                        (BuiltinSort::String, format!("{value:?}"))
                     }
-                    krs_ir::DescriptorLiteral::Float(_) => {
-                        SemanticSortRef::Builtin(BuiltinSort::Float)
-                    }
+                    krs_ir::DescriptorLiteral::Float(token) => (BuiltinSort::Float, token.clone()),
                 };
+                let sort = SemanticSortRef::Builtin(sort);
                 if let Some(expected) = expected_sort
                     && !semantic_is_subsort(&sort, expected, self.sort_parents)
                 {
                     return Err(self.invalid_term(format!(
-                        "literal of sort {sort} is not admissible at sort {expected}"
+                        "literal `{spelling}` of sort {sort} is not admissible at sort {expected}"
                     )));
                 }
             }
@@ -1303,11 +1315,23 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
+    /// Lowers `term` at `expected_sort` ([`Self::lower_term`]), locating an
+    /// invalid-term error at the innermost term with an authored range.
+    pub(super) fn lower(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.lower_term(term, expected_sort, subject)
+            .map_err(|error| self.locate(error, term))
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive lowering over the closed descriptor term sum."
     )]
-    pub(super) fn lower(
+    fn lower_term(
         &mut self,
         term: &DescriptorTerm,
         expected_sort: Option<&SemanticSortRef>,
@@ -2411,11 +2435,26 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
+    /// An invalid-term error, which [`Self::infer`] and [`Self::lower`]
+    /// locate at the term they were given.
     fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
-        DescriptorLoweringError::InvalidTerm {
-            id: Box::new(self.descriptor.id().clone()),
-            detail: detail.into(),
+        DescriptorLoweringError::invalid_term(self.descriptor.id(), detail)
+    }
+
+    /// `error`, an invalid-term error not yet located, located at `term`.
+    fn locate(
+        &self,
+        mut error: DescriptorLoweringError,
+        term: &DescriptorTerm,
+    ) -> DescriptorLoweringError {
+        if let DescriptorLoweringError::InvalidTerm {
+            range: range @ None,
+            ..
+        } = &mut error
+        {
+            *range = self.authored_range(Self::term_key(term));
         }
+        error
     }
 }
 

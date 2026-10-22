@@ -512,10 +512,10 @@ fn lower_initializer_state(
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             if *declared_sort != SemanticSortRef::k_sequence() {
-                return Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id().clone()),
-                    detail: "K sequence initializes a non-KSequence cell".into(),
-                });
+                return Err(DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    "K sequence initializes a non-KSequence cell",
+                ));
             }
             let items = sequence
                 .items
@@ -536,10 +536,10 @@ fn lower_initializer_state(
         }
         ProtocolInitializerStateTerm::Map(map) => {
             if *declared_sort != SemanticSortRef::map() {
-                return Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id().clone()),
-                    detail: "map initializes a non-Map cell".into(),
-                });
+                return Err(DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    "map initializes a non-Map cell",
+                ));
             }
             let key = map.payload_key.as_ref().unwrap_or(fallback_key);
             let operands = match &map.body {
@@ -553,10 +553,7 @@ fn lower_initializer_state(
                         });
                     }
                     MapOperands::items(entries).map_err(|error| {
-                        DescriptorLoweringError::InvalidTerm {
-                            id: Box::new(descriptor.id().clone()),
-                            detail: error.to_string(),
-                        }
+                        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
                     })?
                 }
                 ProtocolMapBody::Update {
