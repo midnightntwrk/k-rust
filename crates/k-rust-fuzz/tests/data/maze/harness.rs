@@ -358,6 +358,38 @@ pub fn blind() -> Configuration {
     }
 }
 
+/// Blind sampling and the climb at equal weights (FZ-12): the anchors, then blind cases, and
+/// from the first scored `miss` on the climb's moves of the best case, on at most half of the
+/// cases. Target-directed: the climb climbs the target's score.
+pub fn blind_climb() -> Configuration {
+    Configuration {
+        name: "blind+climb",
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: Vec::new(),
+            weights: BTreeMap::from([(ProposerKind::Blind, 1), (ProposerKind::Climb, 1)]),
+        },
+        target_blind: false,
+    }
+}
+
+/// Blind sampling, the dictionary and the climb at equal weights (FZ-11, FZ-12).
+pub fn blind_dictionary_climb() -> Configuration {
+    Configuration {
+        name: "blind+dictionary+climb",
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: Vec::new(),
+            weights: BTreeMap::from([
+                (ProposerKind::Blind, 1),
+                (ProposerKind::Dictionary, 1),
+                (ProposerKind::Climb, 1),
+            ]),
+        },
+        target_blind: false,
+    }
+}
+
 /// Only `cell`'s witness, without the anchors and without generation: the positive control
 /// that the cell is reachable and its target is judged as a hit.
 ///

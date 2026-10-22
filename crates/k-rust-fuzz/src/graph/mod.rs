@@ -311,7 +311,7 @@ impl RuleGraph {
     not(test),
     expect(
         dead_code,
-        reason = "the parts of the guidance API only the climb proposer (ARCHITECTURE 8.4) reads, which this build does not provide; the graph tests use them"
+        reason = "the parts of the guidance API no proposer of this build reads (edges, successors, single distances); the graph tests use them"
     )
 )]
 impl RuleGraph {

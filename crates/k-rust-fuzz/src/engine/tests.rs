@@ -50,6 +50,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         applied: Vec::new(),
         matched: Vec::new(),
         blocked: false,
+        guards: std::collections::BTreeMap::new(),
         outside_determinism: false,
         rejection: None,
         load_records: Vec::new(),
@@ -237,6 +238,7 @@ fn identity() -> ReportIdentity {
         thread_stack_size: None,
         solver: "none".into(),
         dictionary: None,
+        climb: None,
     }
 }
 
@@ -253,6 +255,7 @@ fn settings(holes: usize) -> LoopSettings {
         constraints: vec![Constraints::default(); holes],
         sort_overrides: Vec::new(),
         warnings: Vec::new(),
+        scorer: None,
     }
 }
 
@@ -1276,6 +1279,7 @@ fn the_coverage_feedback_finds_new_rules_only_in_misses() {
         matched: Vec::new(),
         work: 1,
         score: None,
+        reads: Vec::new(),
     };
     let mut feedback = CoverageFeedback::default();
     assert!(!feedback.is_interesting(&observation(OutcomeClass::DepthBound, &["a"])));
@@ -1719,4 +1723,231 @@ fn a_state_the_backend_refuses_is_recognized_on_either_side() {
     };
     assert!(super::live::refused(&result(FailureCause::StateRefused)));
     assert!(!super::live::refused(&result(FailureCause::Other)));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scores and the climb's share of the budget (FZ-12)
+
+/// Every observation's class and score, as a [`Sharing`] proposer records them.
+type Seen = std::rc::Rc<std::cell::RefCell<Vec<(OutcomeClass, Option<crate::score::Score>)>>>;
+
+/// A proposer of one hole that is ready only from its `ready_after`-th observed case on, spends
+/// at most `share` of the budget, and records every observation's class and score.
+struct Sharing {
+    kind: ProposerKind,
+    share: Option<(u32, u32)>,
+    ready_after: u64,
+    seen: Seen,
+}
+
+impl Proposer for Sharing {
+    fn kind(&self) -> ProposerKind {
+        self.kind
+    }
+
+    fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
+        Some(Proposal::plain(Origin::Scheduled(self.kind), vec![int(7)]))
+    }
+
+    fn observe(&mut self, _proposal: &Proposal, _observation: &Observation, _interesting: bool) {}
+
+    fn observe_all(&mut self, _proposal: &Proposal, observation: &Observation) {
+        self.seen
+            .borrow_mut()
+            .push((observation.class, observation.score.clone()));
+    }
+
+    fn ready(&self) -> bool {
+        u64::try_from(self.seen.borrow().len()).expect("a count") >= self.ready_after
+    }
+
+    fn budget_share(&self) -> Option<(u32, u32)> {
+        self.share
+    }
+}
+
+/// The observation of a `miss` case of `work`.
+fn observed(work: u64) -> Observation {
+    Observation {
+        case: 0,
+        class: OutcomeClass::Miss,
+        applied: Vec::new(),
+        matched: Vec::new(),
+        work,
+        score: None,
+        reads: Vec::new(),
+    }
+}
+
+#[test]
+fn a_shared_proposer_spends_at_most_its_share_of_cases_and_work_over_every_prefix() {
+    for (climb_work, blind_work) in [(1, 1), (10, 1), (1, 10)] {
+        let seen = std::rc::Rc::default();
+        let mut schedule = Schedule::new(
+            11,
+            vec![vec![int(0)]],
+            vec![
+                (1, Counter::boxed(ProposerKind::Blind, 0, 1)),
+                (
+                    50,
+                    Box::new(Sharing {
+                        kind: ProposerKind::Climb,
+                        share: Some((1, 2)),
+                        ready_after: 0,
+                        seen: std::rc::Rc::clone(&seen),
+                    }),
+                ),
+            ],
+        );
+        let (mut cases, mut work, mut climb_cases, mut climb_work_total) = (0u64, 0u64, 0u64, 0u64);
+        for _ in 0..300 {
+            let proposal = schedule.next().expect("blind never runs out");
+            let climbing = proposal.origin == Origin::Scheduled(ProposerKind::Climb);
+            // The climb is drawn only while its share, counting this case, holds.
+            if climbing {
+                assert!(
+                    2 * (climb_cases + 1) <= cases + 1,
+                    "cases {climb_cases}/{cases}"
+                );
+                assert!(
+                    2 * climb_work_total <= work,
+                    "work {climb_work_total}/{work}"
+                );
+            }
+            let case_work = if climbing { climb_work } else { blind_work };
+            cases += 1;
+            work += case_work;
+            if climbing {
+                climb_cases += 1;
+                climb_work_total += case_work;
+            }
+            schedule.observe(&proposal, &observed(case_work), false);
+        }
+        // At weight 50:1 the share, not the weight, bounds the climb: it takes about half of the
+        // cases (or of the work when its cases cost more).
+        assert!(climb_cases > 0);
+        assert!(2 * climb_cases <= cases);
+        assert!(2 * climb_work_total <= work + climb_work);
+        if climb_work == blind_work {
+            assert!(climb_cases >= 140, "{climb_cases} of {cases}");
+        }
+    }
+}
+
+#[test]
+fn a_proposer_that_is_not_ready_waits_without_leaving_the_schedule() {
+    let seen = std::rc::Rc::default();
+    let mut schedule = Schedule::new(
+        5,
+        Vec::new(),
+        vec![
+            (1, Counter::boxed(ProposerKind::Blind, 0, 1)),
+            (
+                1000,
+                Box::new(Sharing {
+                    kind: ProposerKind::Climb,
+                    share: None,
+                    ready_after: 3,
+                    seen: std::rc::Rc::clone(&seen),
+                }),
+            ),
+        ],
+    );
+    let mut origins = Vec::new();
+    for _ in 0..6 {
+        let proposal = schedule.next().expect("a proposal");
+        origins.push(proposal.origin);
+        schedule.observe(&proposal, &observed(1), false);
+    }
+    let blind = Origin::Scheduled(ProposerKind::Blind);
+    assert_eq!(origins[..3], [blind, blind, blind]);
+    assert!(origins[3..].contains(&Origin::Scheduled(ProposerKind::Climb)));
+}
+
+#[test]
+fn only_miss_cases_are_scored() {
+    use crate::score::{Guard, Level, RuleScorer};
+    let classes = [
+        OutcomeClass::Miss,
+        OutcomeClass::Stuck,
+        OutcomeClass::DepthBound,
+        OutcomeClass::Unsupported,
+        OutcomeClass::Rejected,
+        OutcomeClass::Miss,
+    ];
+    let mut index = 0;
+    let mut runner = Scripted::new(
+        move |_| {
+            let class = classes[index % classes.len()];
+            index += 1;
+            CaseRun {
+                // Every case reports the target's condition entered, so any scored case has a
+                // score at level 0: the loop alone decides which are scored.
+                matched: vec!["t".to_owned()],
+                rejection: (class == OutcomeClass::Rejected).then_some(RejectionReason::Constraint),
+                ..run(class, 1)
+            }
+        },
+        |_| unreachable!(),
+    );
+    let seen = std::rc::Rc::default();
+    let mut schedule = Schedule::new(
+        2,
+        Vec::new(),
+        vec![(
+            1,
+            Box::new(Sharing {
+                kind: ProposerKind::Blind,
+                share: None,
+                ready_after: 0,
+                seen: std::rc::Rc::clone(&seen),
+            }) as Box<dyn Proposer>,
+        )],
+    );
+    let mut settings = settings(1);
+    settings.scorer = Some(RuleScorer::from_parts("t", &[("t", 0)], &[]));
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings,
+        Budget::Cases(6),
+        None,
+    );
+    assert_eq!(report.totals.cases, 6);
+    let seen = seen.borrow();
+    assert_eq!(seen.len(), 6);
+    for (class, score) in seen.iter() {
+        if *class == OutcomeClass::Miss {
+            assert_eq!(
+                score.as_ref().map(|score| (&score.level, &score.guard)),
+                Some((&Level::At(0), &Guard::Unknown)),
+            );
+        } else {
+            assert_eq!(*score, None, "{class:?}");
+        }
+    }
+    // Without a scorer nothing is scored.
+    let mut runner = Scripted::new(|_| run(OutcomeClass::Miss, 1), |_| unreachable!());
+    let seen = std::rc::Rc::default();
+    let mut schedule = Schedule::new(
+        2,
+        Vec::new(),
+        vec![(
+            1,
+            Box::new(Sharing {
+                kind: ProposerKind::Blind,
+                share: None,
+                ready_after: 0,
+                seen: std::rc::Rc::clone(&seen),
+            }) as Box<dyn Proposer>,
+        )],
+    );
+    run_loop(
+        &mut runner,
+        &mut schedule,
+        &self::settings(1),
+        Budget::Cases(3),
+        None,
+    );
+    assert!(seen.borrow().iter().all(|(_, score)| score.is_none()));
 }

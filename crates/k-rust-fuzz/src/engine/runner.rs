@@ -10,6 +10,7 @@ use k_rust::backend::CancellationToken;
 use crate::{
     exec::{Abort, OutcomeClass},
     report::{HoleValue, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide},
+    score::Guards,
     values::Value,
 };
 
@@ -26,6 +27,9 @@ pub(crate) struct CaseRun {
     pub(crate) matched: Vec<String>,
     /// The target rule was blocked (ARCHITECTURE 6.2).
     pub(crate) blocked: bool,
+    /// Per rule whose condition entries the run recorded (only when the climb asks for them),
+    /// the guard distance of each entry (`crate::score`); empty otherwise.
+    pub(crate) guards: Guards,
     /// The case is outside the determinism contract (ARCHITECTURE 5.4).
     pub(crate) outside_determinism: bool,
     /// Why the case was rejected; `Some` exactly when `class` is `rejected`.
@@ -68,6 +72,7 @@ impl CaseRun {
             applied: Vec::new(),
             matched: Vec::new(),
             blocked: false,
+            guards: Guards::new(),
             outside_determinism: false,
             rejection: Some(reason),
             load_records: Vec::new(),

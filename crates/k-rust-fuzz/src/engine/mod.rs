@@ -22,14 +22,19 @@ use self::{
     schedule::Schedule,
 };
 use crate::{
+    assemble::build_backend,
     error::CampaignError,
     graph::RuleGraph,
     holes::ResolvedHole,
-    proposers::dictionary::{self, DictionaryProposer, HolePool},
-    report::{
-        CampaignOutcome, DefinitionIdentity, DefinitionRole, DictionaryParameters, FuzzReport,
-        GenerationCaps, HitLabel, ReportIdentity, Totals, digest_hex,
+    proposers::{
+        climb::{ClimbHole, ClimbProposer},
+        dictionary::{self, DictionaryProposer, HolePool},
     },
+    report::{
+        CampaignOutcome, ClimbParameters, DefinitionIdentity, DefinitionRole, DictionaryParameters,
+        FuzzReport, GenerationCaps, HitLabel, ReportIdentity, Totals, digest_hex,
+    },
+    score::RuleScorer,
     spec::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
         ProposerConfig, ProposerKind,
@@ -154,11 +159,11 @@ impl Campaign {
             None => false,
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
-        let dictionary = if weight(&spec.proposers, ProposerKind::Dictionary) > 0 {
-            Some(Arc::new(dictionary_pools(&spec, &cases, graph.as_deref())?))
-        } else {
-            None
-        };
+        let dictionary = (weight(&spec.proposers, ProposerKind::Dictionary) > 0)
+            .then(|| dictionary_pools(&spec, &cases, graph.as_deref()))
+            .transpose()?
+            .map(Arc::new);
+        let scorer = climb_scorer(&spec, &cases, graph.as_deref())?;
         let settings = LoopSettings {
             identity: identity(&spec, &initial)?,
             rejection_cap: spec.rejection_cap,
@@ -181,6 +186,7 @@ impl Campaign {
                 .as_ref()
                 .map(|graph| graph.warnings().to_vec())
                 .unwrap_or_default(),
+            scorer,
         };
         Ok(Campaign {
             spec,
@@ -227,7 +233,7 @@ impl Campaign {
         if self.equivalent {
             return report_without_cases(&self.settings, budget, CampaignOutcome::Equivalent);
         }
-        let cases = match self.cases.take() {
+        let mut cases = match self.cases.take() {
             Some(cases) => cases,
             None => match LiveCases::build(Arc::clone(&self.spec)) {
                 Ok(cases) => cases,
@@ -251,6 +257,11 @@ impl Campaign {
                 }
             },
         };
+        // The climb's score reads the condition entries of the target and its predecessors;
+        // only a climbing campaign asks for them, so no other campaign's cases change.
+        if let Some(scorer) = &self.settings.scorer {
+            cases.request_conditions(scorer.condition_rules());
+        }
         let generators = generators(&cases, &self.spec).expect("Campaign::new built them");
         // Campaign::new refused every other weighted proposer; the schedule takes them in
         // ProposerKind order when there are several.
@@ -267,6 +278,27 @@ impl Campaign {
             let proposer = DictionaryProposer::new(Arc::clone(pools), generators, self.spec.seed);
             proposers.push((
                 weight(&self.spec.proposers, ProposerKind::Dictionary),
+                Box::new(proposer),
+            ));
+        }
+        if self.settings.scorer.is_some() {
+            let generators =
+                self::generators(&cases, &self.spec).expect("Campaign::new built them");
+            let holes = cases
+                .baseline
+                .holes
+                .holes
+                .iter()
+                .zip(generators)
+                .map(|(hole, generator)| ClimbHole {
+                    sort: hole.sort.clone(),
+                    constraints: hole.decl.constraints.clone(),
+                    generator,
+                })
+                .collect();
+            let proposer = ClimbProposer::new(holes, self.spec.bounds, self.spec.seed);
+            proposers.push((
+                weight(&self.spec.proposers, ProposerKind::Climb),
                 Box::new(proposer),
             ));
         }
@@ -308,6 +340,47 @@ fn dictionary_pools(
     Ok(dictionary::pools(&harvest, spec, holes))
 }
 
+/// The scorer of a climbing campaign's target (ARCHITECTURE 6.4; `crate::score`), or `None`
+/// when the climb has no weight. It is built over the
+/// campaign's rule graph `graph`, or a graph of the campaign's one internalization when there is
+/// no graph check, or, on the `from-definition` route without one, a graph of a backend of its
+/// own.
+///
+/// # Errors
+///
+/// [`CampaignError::InvalidOptions`] for a target that is not a rule: the signals a pattern,
+/// differential or observer score needs are not reported yet (FZ-12 report); and
+/// [`CampaignError::Definition`] when the rule graph cannot be built.
+fn climb_scorer(
+    spec: &CampaignSpec,
+    cases: &LiveCases,
+    graph: Option<&GraphCheck>,
+) -> Result<Option<RuleScorer>, CampaignError> {
+    if weight(&spec.proposers, ProposerKind::Climb) == 0 {
+        return Ok(None);
+    }
+    let (TargetKind::Rule(_), Some(target)) = (&spec.target.kind, cases.target_rule_id()) else {
+        return Err(CampaignError::InvalidOptions {
+            message: "the climb proposer scores rule targets only in this milestone: a pattern, \
+                      differential or observer target gives it no score"
+                .into(),
+        });
+    };
+    Ok(Some(match (graph, cases.baseline_internalized()) {
+        (Some(check), _) => RuleScorer::new(check.graph(), target),
+        (None, Some(definition)) => RuleScorer::new(&RuleGraph::new(definition), target),
+        (None, None) => {
+            let mut backend =
+                build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
+            let graph =
+                RuleGraph::of_backend(&mut backend).map_err(|error| CampaignError::Definition {
+                    message: format!("the rule graph is not available: {error}"),
+                })?;
+            RuleScorer::new(&graph, target)
+        }
+    }))
+}
+
 /// A mutant is given exactly when the target is differential.
 fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
     let differential = matches!(spec.target.kind, TargetKind::Differential(_));
@@ -318,11 +391,29 @@ fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
     }
 }
 
-/// Every proposer with a positive weight is one this build provides: blind sampling and the
-/// dictionary (ARCHITECTURE 8, 11).
+/// Every proposer with a positive weight is one this build provides: blind sampling, the
+/// dictionary and the climb (ARCHITECTURE 8, 11); and the climb, which climbs from cases other
+/// proposers make and spends at most half of the budget, comes with blind sampling or the
+/// dictionary.
 fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
+    if weight(config, ProposerKind::Climb) > 0
+        && weight(config, ProposerKind::Blind) == 0
+        && weight(config, ProposerKind::Dictionary) == 0
+    {
+        return Err(CampaignError::InvalidOptions {
+            message: "the climb proposer climbs from the cases of blind sampling or the \
+                      dictionary and spends at most half of the budget: give one of them a \
+                      positive weight"
+                .into(),
+        });
+    }
     for (kind, weight) in &config.weights {
-        if *weight > 0 && !matches!(kind, ProposerKind::Blind | ProposerKind::Dictionary) {
+        if *weight > 0
+            && !matches!(
+                kind,
+                ProposerKind::Blind | ProposerKind::Dictionary | ProposerKind::Climb
+            )
+        {
             let name = serde_json::to_value(kind)
                 .ok()
                 .and_then(|name| name.as_str().map(str::to_owned))
@@ -430,6 +521,7 @@ fn identity(
         solver: if k_rust::Z3_INFERENCE { "z3" } else { "none" }.into(),
         dictionary: (weight(&spec.proposers, ProposerKind::Dictionary) > 0)
             .then(DictionaryParameters::current),
+        climb: (weight(&spec.proposers, ProposerKind::Climb) > 0).then(ClimbParameters::current),
     })
 }
 

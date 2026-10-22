@@ -24,6 +24,7 @@ use crate::{
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
+    score,
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
     target::{HitSite, ResolvedTarget, TargetKind, differential},
     values::{self, Value, print},
@@ -332,6 +333,13 @@ impl LiveCases {
         }
     }
 
+    /// Ask every case of the baseline to record the condition entries of `rules`
+    /// (`collectConditions`), which the climb's score reads (`crate::score`). Asking changes no
+    /// other field of a result, so the class, the coverage and the witness are unchanged.
+    pub(crate) fn request_conditions(&mut self, rules: Vec<String>) {
+        self.baseline.shape = self.baseline.shape.with_conditions(rules);
+    }
+
     /// What a run's [`RunAssemblers`] borrow: each side's program assembly and definition.
     pub(crate) fn assembly_parts(&self) -> AssemblyParts {
         let part = |side: &Side| (Arc::clone(&side.assembly), Arc::clone(&side.definition));
@@ -612,6 +620,12 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         .map_or_else(Default::default, |coverage| {
             (coverage.applied.clone(), coverage.matched.clone())
         });
+    let guards = covered
+        .coverage
+        .as_ref()
+        .and_then(|coverage| coverage.conditions.as_deref())
+        .map(score::records::guards)
+        .unwrap_or_default();
     let mut load_records = Vec::new();
     for side in sides {
         load_records.extend(side.load_records.iter().cloned());
@@ -625,6 +639,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         applied,
         matched,
         blocked: false,
+        guards,
         outside_determinism: sides
             .iter()
             .any(|side| !side.determinism_breaks().is_empty()),

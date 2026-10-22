@@ -179,6 +179,55 @@ pub struct ReportIdentity {
     /// dictionary has a positive weight; absent from the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dictionary: Option<DictionaryParameters>,
+    /// The climb proposer's parameters (ARCHITECTURE 8.4), present exactly when the climb has
+    /// a positive weight; absent from the JSON otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub climb: Option<ClimbParameters>,
+}
+
+/// The fixed parameters of the climb proposer (ARCHITECTURE 8.4), which with the definitions,
+/// the target and the other proposers' cases decide its moves. They are constants of this
+/// build; a change of any of them changes the case sequence of a climbing campaign.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ClimbParameters {
+    /// The most share of the campaign's cases and of its work the climb spends, as
+    /// `[numerator, denominator]`.
+    pub budget_share: [u32; 2],
+    /// The exponent `e` of a hole's first integer move `v ± 2^e`; it grows by one after an
+    /// improving move of the hole and shrinks by one after a rejected one.
+    pub initial_exponent: u32,
+    /// The probability, as `[numerator, denominator]`, that an integer move draws its exponent
+    /// uniformly up to the hole's bit bound instead.
+    pub jump_probability: [u32; 2],
+    /// The probability, as `[numerator, denominator]`, that an integer move goes in the
+    /// direction of the hole's last improvement.
+    pub keep_direction_probability: [u32; 2],
+    /// The probability, as `[numerator, denominator]`, that a proposal changes a second hole.
+    pub second_hole_probability: [u32; 2],
+    /// The probability, as `[numerator, denominator]`, that a move picks a hole whose value the
+    /// best case's scored guard read, when there is one.
+    pub read_probability: [u32; 2],
+    /// Whether a climb case that scores equal to the best case replaces it (a case of another
+    /// proposer replaces it only when strictly better).
+    pub accept_equal: bool,
+    /// The most draws of a move per changed hole before an inadmissible move is given up.
+    pub max_attempts: u32,
+    /// Which rules' condition entries the cases record for the score: `target-and-predecessors`
+    /// (the target and its direct predecessors in the rule graph).
+    pub condition_rules: String,
+    /// The most condition entries recorded per rule and run.
+    pub condition_limit: u64,
+    /// The largest recorded value, in term nodes; a larger one gives no signal.
+    pub condition_value_size: u64,
+}
+
+impl ClimbParameters {
+    /// The parameters of this build.
+    #[must_use]
+    pub fn current() -> Self {
+        crate::proposers::climb::parameters()
+    }
 }
 
 /// The fixed parameters of the dictionary proposer (ARCHITECTURE 8.3), which with the
@@ -739,6 +788,7 @@ mod tests {
                 thread_stack_size: Some(64 << 20),
                 solver: "none".into(),
                 dictionary: None,
+                climb: None,
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {

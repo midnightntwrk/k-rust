@@ -19,8 +19,8 @@ mod watchdog;
 
 use k_rust::{
     backend::{
-        CancelledResultOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
-        ResultModalityOutput, RunCoverageOutput, StopCause,
+        CancelledResultOutput, ConditionCollection, ExecuteRequest, ExecutionStrategy,
+        HaltReasonOutput, ResultModalityOutput, RunCoverageOutput, StopCause,
     },
     kore::ast::Pattern as KorePattern,
 };
@@ -513,6 +513,14 @@ impl CaseRequestShape {
             request,
             constructor_only: needs.constructor_only,
         }
+    }
+
+    /// This shape, with the request also recording the condition entries of `rules`
+    /// (`collectConditions` with the default caps); `collect_coverage` is already set.
+    pub(crate) fn with_conditions(&self, rules: Vec<String>) -> Self {
+        let mut shape = self.clone();
+        shape.request.collect_conditions = Some(ConditionCollection::new(rules));
+        shape
     }
 
     /// The request for one initial configuration.

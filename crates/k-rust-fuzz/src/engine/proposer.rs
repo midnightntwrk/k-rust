@@ -20,9 +20,7 @@ use crate::{
     values::{Generator, ShrinkableValue, Value, ValueRng},
 };
 
-/// A score: compared lexicographically, smaller being better (ARCHITECTURE 6.4).
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) struct Score(pub(crate) Vec<u64>);
+pub(crate) use crate::score::Score;
 
 /// Which proposer made a proposal.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -88,13 +86,12 @@ impl Proposal {
 
 /// What the engine observed of one case (the `LibAFL` *observer* output; ARCHITECTURE 6.1).
 ///
-/// The M1 feedback reads the class and the coverage; the case number, the work and the score
-/// are for the corpus and climb proposers (ARCHITECTURE 6.4, 8.4, 8.5).
+/// The feedback reads the class and the coverage, the climb proposer the score; the case
+/// number and the work are for the corpus proposer (ARCHITECTURE 6.4, 8.4, 8.5).
 #[derive(Clone, Debug)]
 #[expect(
     dead_code,
-    reason = "`case`, `work` and `score` are read by the guidance proposers, which M1 does not \
-              provide"
+    reason = "`case` and `work` are read by the corpus proposer, which this build does not provide"
 )]
 pub(crate) struct Observation {
     /// The case number.
@@ -107,8 +104,12 @@ pub(crate) struct Observation {
     pub(crate) matched: Vec<String>,
     /// The case's work.
     pub(crate) work: u64,
-    /// The case's score, when the target kind scores (M4).
+    /// The case's score: only a `miss` case of a campaign whose target kind scores has one
+    /// (ARCHITECTURE 6.1, 6.4).
     pub(crate) score: Option<Score>,
+    /// The values the scored guard read (`crate::score::Scored::reads`); empty without a
+    /// score's guard distance.
+    pub(crate) reads: Vec<crate::score::Operand>,
 }
 
 /// Decides whether an observation is interesting (the `LibAFL` *feedback*): new coverage or a
@@ -168,6 +169,23 @@ pub(crate) trait Proposer {
     /// Learn from the observation of a case this proposer proposed; `interesting` is the
     /// feedback's verdict.
     fn observe(&mut self, proposal: &Proposal, observation: &Observation, interesting: bool);
+
+    /// Learn from the observation of any case, whichever proposer made it (the explicit
+    /// proposals included); called for every case after [`Self::observe`]. Nothing by default.
+    fn observe_all(&mut self, _proposal: &Proposal, _observation: &Observation) {}
+
+    /// Whether the proposer has something to propose now. A proposer that is not ready is not
+    /// drawn, and stays in the schedule (unlike one whose [`Self::propose`] answered `None`).
+    fn ready(&self) -> bool {
+        true
+    }
+
+    /// The most share of the campaign's cases and work this proposer may spend, as
+    /// (numerator, denominator); `None` for no limit. The schedule draws it only while its
+    /// cases, counting the one it would add, and its work stay within the share.
+    fn budget_share(&self) -> Option<(u32, u32)> {
+        None
+    }
 }
 
 /// Blind sampling (ARCHITECTURE 8.2): one draw from every hole's generator, in hole order, from

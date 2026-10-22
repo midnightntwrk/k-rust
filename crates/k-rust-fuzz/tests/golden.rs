@@ -26,7 +26,7 @@ use k_rust_fuzz::{
     values::{Constraints, ElementSorts, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, DICT, IMP, UNSIGNED, VALUES};
+use support::{COIN, COIN_KILL, DICT, IMP, MAZE, UNSIGNED, VALUES};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -52,9 +52,22 @@ const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
     "174abe2bf3fcf2720866374ed6cbffa3c3141ab8cc3c2adb3d9f3e58ad71bd18",
 ));
 
-/// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the rest
-/// enable the dictionary and are fingerprinted by [`PINNED_DICTIONARY`].
+/// The pinned fingerprint of the climb campaign's case sequence (FZ-12). The climb is new in
+/// this version, so pinning it moved no other fingerprint and `ENGINE_VERSION` stays 2. A
+/// change of the climb's parameters (`report::ClimbParameters`), of its moves or of the scores
+/// it climbs moves it: bump `ENGINE_VERSION` and re-pin every fingerprint.
+const PINNED_CLIMB: Option<(u32, &str)> = Some((
+    2,
+    "3c303ba31b916d33bbbc0b21039aafc2dfbd0d0432376466e8bf7e8adfe10f28",
+));
+
+/// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the
+/// dictionary campaigns follow, fingerprinted by [`PINNED_DICTIONARY`], and the climb campaigns
+/// last ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`].
 const BLIND_CAMPAIGNS: usize = 5;
+
+/// How many of [`golden_reports`], at the end, enable the climb.
+const CLIMB_CAMPAIGNS: usize = 1;
 
 /// The index of the map campaign in [`golden_reports`].
 const MAP_CAMPAIGN: usize = 4;
@@ -136,7 +149,9 @@ fn violation(pattern: &str) -> Target {
 ///   moves;
 /// - DICT's `probe` under a pattern target, with the dictionary alone: the pattern's own
 ///   constant;
-/// - COIN against COIN-KILL with the dictionary: the rules that differ come first.
+/// - COIN against COIN-KILL with the dictionary: the rules that differ come first;
+/// - the maze's window cell `c4` with blind sampling and the climb: a witness the climb walks
+///   into the window `1000 < D < 1100`, shrunk by moves.
 fn golden_reports() -> Vec<FuzzReport> {
     let le = spec(
         "imp/le.imp",
@@ -206,6 +221,7 @@ fn golden_reports() -> Vec<FuzzReport> {
     ]
     .into_iter()
     .chain(dictionary_campaigns(&coin_spec))
+    .chain([(climb_campaign(), Budget::Cases(200))])
     .map(|(spec, budget)| {
         Campaign::new(spec)
             .expect("the golden campaign is valid")
@@ -325,6 +341,43 @@ fn dictionary_campaigns(coin: &CampaignSpec) -> Vec<(CampaignSpec, Budget)> {
     ]
 }
 
+/// The maze with every hole but `D` and `G` fixed in the program text, at values that pass the
+/// guards before room `r3`, and the target `c4` (`1000 < D < 1100`), with blind sampling and the
+/// climb at equal weights.
+fn climb_campaign() -> CampaignSpec {
+    let compiled = MAZE.compiled();
+    let program = "maze/climb.pgm";
+    let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0c11_3b01);
+    spec.definitions = Definitions {
+        baseline: Arc::new(compiled.definition()),
+        mutant: None,
+    };
+    spec.program = ProgramInput::Source(ProgramSource {
+        program: Some(ProgramText {
+            name: program.into(),
+            text: "walk(1, 2, 7, -3, 4, 5, 6, 8, 9)\n".into(),
+            start_sort: "Pgm".into(),
+        }),
+        config_vars: Vec::new(),
+    });
+    spec.holes = vec![
+        int_hole("D", program, " -3,", "-3"),
+        int_hole("G", program, " 6,", "6"),
+    ];
+    spec.target = Target {
+        kind: TargetKind::Rule(RuleTarget {
+            rule: RuleRef::Label("MAZE.c4".into()),
+            mode: RuleMode::Fired,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+    };
+    spec.proposers.weights = [(ProposerKind::Blind, 1), (ProposerKind::Climb, 1)]
+        .into_iter()
+        .collect();
+    spec
+}
+
 fn render(reports: &[FuzzReport]) -> String {
     reports
         .iter()
@@ -360,6 +413,27 @@ fn fingerprint(reports: &[FuzzReport]) -> String {
         })
         .collect();
     digest_hex(parts.join("\n").as_bytes())
+}
+
+/// Check the fingerprint `computed` of the `name` campaigns against `pinned`; `moves` says what
+/// moves it.
+fn check_pin(name: &str, pinned: Option<(u32, &str)>, computed: &str, moves: &str) {
+    match pinned {
+        Some((version, pinned)) => {
+            assert_eq!(
+                version, ENGINE_VERSION,
+                "ENGINE_VERSION changed: re-pin the {name} fingerprint for the new version"
+            );
+            assert_eq!(
+                computed, pinned,
+                "the {name} case sequence changed ({moves}) without an ENGINE_VERSION bump"
+            );
+        }
+        None => panic!(
+            "no {name} fingerprint is pinned for engine version {ENGINE_VERSION}; pin \
+             Some(({ENGINE_VERSION}, \"{computed}\")) in tests/golden.rs"
+        ),
+    }
 }
 
 /// Runs the golden campaigns and prints their reports, only when [`CHILD`] is set; otherwise it
@@ -441,12 +515,27 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     assert!(entries(&map.first) > 3, "{:?}", map.first.holes[0].value);
     assert_eq!(entries(shrunk), 3, "{:?}", shrunk.holes[0].value);
 
+    let climbing = reports.len() - CLIMB_CAMPAIGNS;
     let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
-    let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..]);
+    let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..climbing]);
+    let climb = fingerprint(&reports[climbing..]);
     if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
         eprintln!("golden fingerprint at engine version {ENGINE_VERSION}: {computed}");
         eprintln!("dictionary fingerprint at engine version {ENGINE_VERSION}: {dictionary}");
+        eprintln!("climb fingerprint at engine version {ENGINE_VERSION}: {climb}");
     }
+    // The climb campaign finds its witness within its budget.
+    assert!(
+        reports[climbing].witness().is_some(),
+        "{:?}",
+        reports[climbing].outcome
+    );
+    check_pin(
+        "climb",
+        PINNED_CLIMB,
+        &climb,
+        "its parameters, its moves or its score",
+    );
     match PINNED_DICTIONARY {
         Some((version, pinned)) => {
             assert_eq!(

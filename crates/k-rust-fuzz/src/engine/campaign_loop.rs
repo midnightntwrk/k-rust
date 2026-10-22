@@ -18,6 +18,7 @@ use crate::{
         REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride, Totals,
         Witness, WitnessCase, digest_hex,
     },
+    score::{RuleScorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
     values::{Constraints, Value},
 };
@@ -45,6 +46,8 @@ pub(crate) struct LoopSettings {
     /// Campaign-level warnings known before the first case (the rule graph's), which every
     /// report starts with.
     pub(crate) warnings: Vec<String>,
+    /// The scorer of the campaign's target, when a proposer climbs a score (ARCHITECTURE 6.4).
+    pub(crate) scorer: Option<RuleScorer>,
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -134,14 +137,7 @@ pub(crate) fn run_loop(
         if is_cancelled(cancel) {
             break Ending::Cancelled;
         }
-        let observation = Observation {
-            case,
-            class,
-            applied: run.applied,
-            matched: run.matched,
-            work: run.work,
-            score: None,
-        };
+        let observation = observation(settings, case, class, run);
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
     };
@@ -163,6 +159,40 @@ pub(crate) fn run_loop(
         },
     };
     state.report(settings, budget, outcome)
+}
+
+/// The observation of case `case` of `class` with `run`'s signals. Only `miss` cases are scored
+/// (ARCHITECTURE 6.1, R-18): a bounded or unclean case's coverage stops early, and a rejected
+/// case ran nothing.
+fn observation(
+    settings: &LoopSettings,
+    case: u64,
+    class: OutcomeClass,
+    run: CaseRun,
+) -> Observation {
+    let scored = settings
+        .scorer
+        .as_ref()
+        .filter(|_| class == OutcomeClass::Miss)
+        .map(|scorer| {
+            scorer.score(Signals {
+                applied: &run.applied,
+                matched: &run.matched,
+                guards: &run.guards,
+            })
+        });
+    let (score, reads) = scored.map_or((None, Vec::new()), |scored| {
+        (Some(scored.score), scored.reads)
+    });
+    Observation {
+        case,
+        class,
+        applied: run.applied,
+        matched: run.matched,
+        work: run.work,
+        score,
+        reads,
+    }
 }
 
 /// Run `proposal` as a case, or, when no complete assignment was drawn (a generator failed),

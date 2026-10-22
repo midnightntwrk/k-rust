@@ -40,6 +40,7 @@ mod graph;
 pub mod holes;
 mod proposers;
 pub mod report;
+mod score;
 pub mod spec;
 pub mod target;
 pub mod values;
