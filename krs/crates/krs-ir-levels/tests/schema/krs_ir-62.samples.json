@@ -1049,6 +1049,45 @@
     "equation",
     "claim"
   ],
+  "ConstantDescriptor": [
+    {
+      "sort": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "sort": {
+          "sort": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          },
+          "sort_source": "declared"
+        }
+      },
+      "value": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
+      }
+    }
+  ],
   "ConstructorDescriptor": [
     {
       "fields": [
@@ -10417,6 +10456,46 @@
         }
       },
       "descriptor_kind": "context_alias"
+    },
+    {
+      "descriptor": {
+        "sort": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "sort": {
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "sort_source": "declared"
+          }
+        },
+        "value": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "path_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "term_kind": "variable"
+        }
+      },
+      "descriptor_kind": "constant"
     }
   ],
   "DescriptorPrecedenceChain": [
@@ -21308,7 +21387,11 @@
     "rule_left_cells_instances_rest",
     "rule_right_cells_instance",
     "rule_right_cells_instance_field",
-    "rule_right_cells_instances_rest"
+    "rule_right_cells_instances_rest",
+    "constant_declaration",
+    "constant_type",
+    "constant_value",
+    "inlined_constant"
   ],
   "RawSentence": [
     {
@@ -30229,6 +30312,32 @@
           "ordinal": 0,
           "role": "sort_declaration"
         }
+      }
+    }
+  ],
+  "WireConstant": [
+    {
+      "sort": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "target": {
+          "authored_path": "sample",
+          "slot": 1
+        }
+      },
+      "value": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
       }
     }
   ],
