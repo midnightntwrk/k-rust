@@ -928,8 +928,15 @@ pub struct LookupMaybeTy {
     pub ty: k::Term<MaybeTy>,
 }
 
+/// A known type is looked up in the type map. `ty` is declared `Ty`, not the
+/// field's `MaybeTy`: otherwise this equation would also match `TyUnknown`,
+/// which is never a key of the map, and would state that the lookup there
+/// equals both an undefined map lookup and `lookup_maybe_ty_unknown`'s
+/// `typeInfoVoidType`.
 #[k::equation]
 fn lookup_maybe_ty_known(
+    types: k::Term<Map>,
+    ty: k::Term<Ty>,
     k::term![LookupMaybeTy { types, ty }]: k::Term<TypeInfo>,
 ) -> k::Term<TypeInfo> {
     k::term![map::get(types, ty)]
