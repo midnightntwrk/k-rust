@@ -1211,12 +1211,6 @@ pub struct PrepareStaticCall {
     pub gas: k::Term<Int>,
 }
 
-#[k::function(total, sort = GasStep, syntax = "#kevmCharge({op}, {gas})")]
-pub struct Charge {
-    pub op: k::Term<OpCode>,
-    pub gas: k::Term<Int>,
-}
-
 #[k::function(
     total,
     sort = GasStep,
@@ -4522,271 +4516,6 @@ fn charge_static_call_fails(
     k::term![GasResult::InsufficientGas()]
 }
 
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_add(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Add,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_add_fails(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_sub(k::term![Charge(Operation::Sub, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Sub,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_sub_fails(k::term![Charge(Operation::Sub, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_mul(k::term![Charge(Operation::Mul, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Mul,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_mul_fails(k::term![Charge(Operation::Mul, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_div(k::term![Charge(Operation::Div, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Div,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_div_fails(k::term![Charge(Operation::Div, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_signed_div(
-    k::term![Charge(Operation::SignedDiv, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedDiv,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_signed_div_fails(
-    k::term![Charge(Operation::SignedDiv, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_mod(k::term![Charge(Operation::Mod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Mod,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_mod_fails(k::term![Charge(Operation::Mod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_signed_mod(
-    k::term![Charge(Operation::SignedMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedMod,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_signed_mod_fails(
-    k::term![Charge(Operation::SignedMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 8))]
-#[k::equation]
-fn charge_add_mod(k::term![Charge(Operation::AddMod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::AddMod,
-        remaining: int::sub(gas, 8)
-    }]
-}
-
-#[k::requires(int::lt(gas, 8))]
-#[k::equation]
-fn charge_add_mod_fails(
-    k::term![Charge(Operation::AddMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 8))]
-#[k::equation]
-fn charge_mul_mod(k::term![Charge(Operation::MulMod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::MulMod,
-        remaining: int::sub(gas, 8)
-    }]
-}
-
-#[k::requires(int::lt(gas, 8))]
-#[k::equation]
-fn charge_mul_mod_fails(
-    k::term![Charge(Operation::MulMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_less_than(
-    k::term![Charge(Operation::LessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::LessThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_less_than_fails(
-    k::term![Charge(Operation::LessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_greater_than(
-    k::term![Charge(Operation::GreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::GreaterThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_greater_than_fails(
-    k::term![Charge(Operation::GreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_signed_less_than(
-    k::term![Charge(Operation::SignedLessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedLessThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_signed_less_than_fails(
-    k::term![Charge(Operation::SignedLessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_signed_greater_than(
-    k::term![Charge(Operation::SignedGreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedGreaterThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_signed_greater_than_fails(
-    k::term![Charge(Operation::SignedGreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_equal(k::term![Charge(Operation::Equal, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Equal,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_equal_fails(
-    k::term![Charge(Operation::Equal, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_is_zero(k::term![Charge(Operation::IsZero, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::IsZero,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_is_zero_fails(
-    k::term![Charge(Operation::IsZero, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::equation]
-fn charge_stop(k::term![Charge(Operation::Stop, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Stop,
-        remaining: gas
-    }]
-}
-
 #[k::cell]
 pub struct CallState {
     #[k::cell(name = "program")]
@@ -5065,7 +4794,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Add, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Add, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5074,7 +4803,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Mul, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Mul, gas, cost: 5 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5083,7 +4812,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Sub, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Sub, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5092,7 +4821,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Div, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Div, gas, cost: 5 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5101,7 +4830,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::SignedDiv, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::SignedDiv, gas, cost: 5 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5110,7 +4839,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Mod, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Mod, gas, cost: 5 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5119,7 +4848,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::SignedMod, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::SignedMod, gas, cost: 5 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5128,7 +4857,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::AddMod, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::AddMod, gas, cost: 8 }, ..],
     }
     where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
 
@@ -5137,7 +4866,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::MulMod, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::MulMod, gas, cost: 8 }, ..],
     }
     where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
 
@@ -5164,7 +4893,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::LessThan, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::LessThan, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5173,7 +4902,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::GreaterThan, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::GreaterThan, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5182,7 +4911,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::SignedLessThan, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::SignedLessThan, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5191,7 +4920,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::SignedGreaterThan, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::SignedGreaterThan, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5200,7 +4929,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Equal, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Equal, gas, cost: 3 }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
 
@@ -5209,7 +4938,7 @@ k::rules! {
         word_stack: Stack::StackCons(w0, rest),
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::IsZero, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::IsZero, gas, cost: 3 }, ..],
     }
     where w0: Int, rest: WordStack, gas: Int;
 
@@ -5687,7 +5416,7 @@ k::rules! {
         k: [Operation::Stop, ..],
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Stop, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Stop, gas, cost: 0 }, ..],
     }
     where gas: Int;
 }
