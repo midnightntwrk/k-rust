@@ -1661,14 +1661,22 @@ pub fn PrepareStack(
             if StackSize(stack) == 0 {
                 GasResult::StackUnderflowResult()
             } else {
-                ChargeFixed(Operation::Pop, gas, 2)
+                ChargeFixed {
+                    op: Operation::Pop,
+                    gas,
+                    cost: 2,
+                }
             }
         }
         Operation::Duplicate { depth } => {
             if StackSize(stack) < depth {
                 GasResult::StackUnderflowResult()
             } else if StackSize(stack) < 1024 {
-                ChargeFixed(Operation::Duplicate { depth }, gas, 3)
+                ChargeFixed {
+                    op: Operation::Duplicate { depth },
+                    gas,
+                    cost: 3,
+                }
             } else {
                 GasResult::StackOverflowResult()
             }
@@ -1677,7 +1685,11 @@ pub fn PrepareStack(
             if StackSize(stack) < depth + 1 {
                 GasResult::StackUnderflowResult()
             } else {
-                ChargeFixed(Operation::Swap { depth }, gas, 3)
+                ChargeFixed {
+                    op: Operation::Swap { depth },
+                    gas,
+                    cost: 3,
+                }
             }
         }
     }
@@ -2462,7 +2474,7 @@ k::rules! {
         word_stack: stack,
         gas,
     } => {
-        k: [PreparePush(op, stack, gas, 2), ..],
+        k: [PreparePush { op, stack, gas, cost: 2 }, ..],
     };
 
     /// Opcodes that push one word of the block header for the base cost of 2 gas.
@@ -2480,7 +2492,7 @@ k::rules! {
         word_stack: stack,
         gas,
     } => {
-        k: [PreparePush(op, stack, gas, 2), ..],
+        k: [PreparePush { op, stack, gas, cost: 2 }, ..],
     };
 
     /// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
@@ -2489,7 +2501,7 @@ k::rules! {
         word_stack: stack,
         gas,
     } => {
-        k: [PrepareStack(op, stack, gas), ..],
+        k: [PrepareStack { op, stack, gas }, ..],
     };
 
     /// Two-operand opcodes that cost 3 gas.
@@ -2514,7 +2526,7 @@ k::rules! {
         word_stack: [_, _, ..],
         gas,
     } => {
-        k: [ChargeFixed(op, gas, 3), ..],
+        k: [ChargeFixed { op, gas, cost: 3 }, ..],
     };
 
     /// Two-operand opcodes that cost 5 gas.
@@ -2523,7 +2535,7 @@ k::rules! {
         word_stack: [_, _, ..],
         gas,
     } => {
-        k: [ChargeFixed(op, gas, 5), ..],
+        k: [ChargeFixed { op, gas, cost: 5 }, ..],
     };
 
     /// Three-operand modular opcodes that cost 8 gas.
@@ -2532,7 +2544,7 @@ k::rules! {
         word_stack: [_, _, _, ..],
         gas,
     } => {
-        k: [ChargeFixed(op, gas, 8), ..],
+        k: [ChargeFixed { op, gas, cost: 8 }, ..],
     };
 
     /// One-operand opcodes that cost 3 gas.
@@ -2541,7 +2553,7 @@ k::rules! {
         word_stack: [_, ..],
         gas,
     } => {
-        k: [ChargeFixed(op, gas, 3), ..],
+        k: [ChargeFixed { op, gas, cost: 3 }, ..],
     };
 
     /// One-operand account queries charged the warm or cold account-access cost.
@@ -2551,7 +2563,7 @@ k::rules! {
         accessed_accounts: accessed,
         gas,
     } => {
-        k: [ChargeFixed(op, gas, AccountAccessCost(accessed, account)), ..],
+        k: [ChargeFixed { op, gas, cost: AccountAccessCost(accessed, account) }, ..],
     };
 
     /// Copies from call data, code, or return data into memory, charged by width and memory expansion.
@@ -2561,7 +2573,7 @@ k::rules! {
         memory_used: used,
         gas,
     } => {
-        k: [ChargeFixed(op, gas, CopyGasCost(used, destination, width)), ..],
+        k: [ChargeFixed { op, gas, cost: CopyGasCost(used, destination, width) }, ..],
     };
 
     /// RETURN and REVERT, charged the memory expansion of their output range.
@@ -2571,7 +2583,7 @@ k::rules! {
         memory_used: used,
         gas,
     } => {
-        k: [ChargeFixed(op, gas, MemoryExpansionCost(used, start, width)), ..],
+        k: [ChargeFixed { op, gas, cost: MemoryExpansionCost(used, start, width) }, ..],
     };
 }
 
