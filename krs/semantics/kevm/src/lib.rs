@@ -1910,7 +1910,7 @@ fn storage_refund_restore_cleared_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::sub(0, 2000)
+    -2000
 }
 
 #[k::requires(bool::and(
@@ -1931,7 +1931,7 @@ fn storage_refund_rewrite_cleared_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::sub(0, 4800)
+    -4800
 }
 
 #[k::requires(bool::and(
@@ -2652,7 +2652,7 @@ fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k:
 ))]
 #[k::equation]
 fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    int::sub(0, 1)
+    -1
 }
 
 #[k::requires(bool::and(
@@ -2708,7 +2708,7 @@ fn signed_word_div_same_sign(
     }
 }
 
-#[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), int::sub(0, 1),))]
+#[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), -1,))]
 #[k::equation]
 fn signed_word_div_different_sign(
     k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
@@ -2733,7 +2733,7 @@ fn signed_word_mod_nonnegative(
     }
 }
 
-#[k::requires(int::eq(Sign(dividend), int::sub(0, 1)))]
+#[k::requires(int::eq(Sign(dividend), -1))]
 #[k::equation]
 fn signed_word_mod_negative(
     k::term![SignedWordMod { dividend, divisor }]: k::Term<Int>,
@@ -2753,7 +2753,7 @@ fn signed_less_nonnegative(k::term![SignedLess { left, right }]: k::Term<Int>) -
     BoolToWord(int::lt(left, right))
 }
 
-#[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), int::sub(0, 1)),))]
+#[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), -1),))]
 #[k::equation]
 fn signed_less_positive_negative(
     k::term![SignedLess { left, right }]: k::Term<Int>,
@@ -2761,7 +2761,7 @@ fn signed_less_positive_negative(
     BoolToWord(false)
 }
 
-#[k::requires(bool::and(int::eq(Sign(left), int::sub(0, 1)), int::eq(Sign(right), 1),))]
+#[k::requires(bool::and(int::eq(Sign(left), -1), int::eq(Sign(right), 1),))]
 #[k::equation]
 fn signed_less_negative_positive(
     k::term![SignedLess { left, right }]: k::Term<Int>,
@@ -2770,8 +2770,8 @@ fn signed_less_negative_positive(
 }
 
 #[k::requires(bool::and(
-    int::eq(Sign(left), int::sub(0, 1)),
-    int::eq(Sign(right), int::sub(0, 1)),
+    int::eq(Sign(left), -1),
+    int::eq(Sign(right), -1),
 ))]
 #[k::equation]
 fn signed_less_negative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
@@ -2832,7 +2832,7 @@ fn signed_shift_right_word(
 
 #[k::requires(bool::and(
     bool::and(int::ge(value, 0), int::ge(shift, 256)),
-    int::eq(Sign(value), int::sub(0, 1)),
+    int::eq(Sign(value), -1),
 ))]
 #[k::equation]
 fn signed_shift_right_large_negative(
@@ -2846,7 +2846,7 @@ fn signed_shift_right_large_negative(
 
 #[k::requires(bool::and(
     bool::and(int::ge(value, 0), int::ge(shift, 256)),
-    int::ne(Sign(value), int::sub(0, 1)),
+    int::ne(Sign(value), -1),
 ))]
 #[k::equation]
 fn signed_shift_right_large_nonnegative(
