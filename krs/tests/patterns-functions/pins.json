@@ -406,7 +406,7 @@
       "error[krs::syntax::invalid-let]: a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern"
     ],
     "let-scope": [
-      "error[E0599]: no variant, associated function, or constant named `__krs_variant_type_id_x` found for enum `ExpSyntax` in the current scope"
+      "error[E0422]: cannot find struct, variant or union type `x` in this scope"
     ],
     "let-sort": [
       "error[krs::analysis::invalid-let]: the pattern has sort `Bool` and the value has sort `Exp`, which share no subsort, so this `let` is always undefined"
