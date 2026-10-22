@@ -22,7 +22,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((PushZero, Push, Pop, Duplicate, Swap, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, Sha3, Address, AccountBalance, TxOrigin, MsgCaller, MsgCallValue, CallDataLoad, CallDataSize, CallDataCopy, CodeSize, CodeCopy, TxGasPrice, ExternalCodeSize, ExternalCodeCopy, ReturnDataSize, ReturnDataCopy, ExternalCodeHash, BlockHash, BlockCoinbase, BlockTimestamp, BlockNumber, PrevRandao, BlockGasLimit, NetworkChainId, SelfBalance, BlockBaseFee, MemoryLoad, MemoryStore, MemoryStore8, StorageLoad, StorageStore, LogOpcode, MemorySize, GasRemaining, ProgramCounter, Jump, JumpIf, JumpDest, Return, Revert, StaticCall, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSHZERO")]
     PushZero,
@@ -184,7 +183,6 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = LogEntry, result = k::KResult)]
-#[k::precedence((Entry))]
 pub enum LogRecord {
     #[k::syntax("logEntry({address}, {topics}, {data})")]
     Entry {
@@ -195,14 +193,12 @@ pub enum LogRecord {
 }
 
 #[k::constructors(sort = G1Point, result = k::KResult)]
-#[k::precedence((Point))]
 pub enum Bn128Point {
     #[k::syntax("({x}, {y})")]
     Point { x: Int, y: Int },
 }
 
 #[k::constructors(sort = G2Point, result = k::KResult)]
-#[k::precedence((G2))]
 pub enum Bn128G2Point {
     #[k::syntax("({x_real} x {x_imaginary}, {y_real} x {y_imaginary})")]
     G2 {
@@ -214,7 +210,6 @@ pub enum Bn128G2Point {
 }
 
 #[k::constructors(sort = StatusCode, result = k::KResult)]
-#[k::precedence((Running, Success, Reverted, StackUnderflow, StackOverflow, OutOfGas, BadJumpDestination, InvalidMemoryAccess, InvalidInstruction, StaticModeViolation))]
 pub enum Status {
     #[k::syntax(".StatusCode")]
     Running(),
@@ -239,7 +234,6 @@ pub enum Status {
 }
 
 #[k::constructors(sort = GasStep, result = k::KResult)]
-#[k::precedence((EnoughGas, EnoughEcrecPrecompileGas, EnoughSha256PrecompileGas, EnoughRipemd160PrecompileGas, EnoughIdentityPrecompileGas, EnoughModExpPrecompileGas, EnoughEcAddPrecompileGas, EnoughEcMulPrecompileGas, EnoughEcPairingPrecompileGas, InsufficientGas, StackUnderflowResult, StackOverflowResult, StaticViolationResult))]
 pub enum GasResult {
     #[k::syntax("#enoughGas({op}, {remaining})")]
     EnoughGas { op: OpCode, remaining: Int },
@@ -270,7 +264,6 @@ pub enum GasResult {
 }
 
 #[k::constructors(sort = PrecompileStep, result = k::KResult)]
-#[k::precedence((EcrecPrecompileSuccess, EcrecPrecompileFailure, Sha256PrecompileSuccess, Sha256PrecompileFailure, Ripemd160PrecompileSuccess, Ripemd160PrecompileFailure, IdentityPrecompileSuccess, IdentityPrecompileFailure, ModExpPrecompileSuccess, ModExpPrecompileFailure, EcAddPrecompileSuccess, EcAddPrecompileFailure, EcMulPrecompileSuccess, EcMulPrecompileFailure, EcPairingPrecompileSuccess, EcPairingPrecompileFailure))]
 pub enum PrecompileResult {
     #[k::syntax("#ecrecPrecompileSuccess({remaining})")]
     EcrecPrecompileSuccess { remaining: Int },
@@ -307,7 +300,6 @@ pub enum PrecompileResult {
 }
 
 #[k::constructors(sort = CopyStep, result = k::KResult)]
-#[k::precedence((ReturnDataCopyValid, ReturnDataCopyInvalid))]
 pub enum CopyResult {
     #[k::syntax("#returnDataCopyValid({remaining})")]
     ReturnDataCopyValid { remaining: Int },
@@ -316,7 +308,6 @@ pub enum CopyResult {
 }
 
 #[k::constructors(sort = JumpStep, result = k::KResult)]
-#[k::precedence((JumpValid, JumpInvalid, JumpFallthrough))]
 pub enum JumpResult {
     #[k::syntax("#jumpValid({destination})")]
     JumpValid { destination: Int },
@@ -327,7 +318,6 @@ pub enum JumpResult {
 }
 
 #[k::constructors(sort = Command, result = k::KResult)]
-#[k::precedence((Run, FinishStaticCall, FinishStaticCallExceptional))]
 pub enum ExecutionCommand {
     #[k::syntax("run")]
     Run(),
@@ -344,7 +334,6 @@ pub enum ExecutionCommand {
 }
 
 #[k::constructors(sort = WorldState, result = k::KResult)]
-#[k::precedence((Snapshot))]
 pub enum SavedWorldState {
     #[k::syntax(
         "{{ {account_id}, {balance}, {code}, {nonce}, {storage}, {original_storage} | {self_destruct}, {logs}, {refund}, {accessed_accounts}, {accessed_storage}, {created_accounts} }}"
