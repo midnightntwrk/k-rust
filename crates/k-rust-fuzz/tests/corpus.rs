@@ -50,7 +50,8 @@ const GATE_LOCK_L2: [Option<u64>; 5] = [None, None, None, None, None];
 /// mutations or its harvest), as `tests/golden.rs`'s corpus fingerprint does.
 /// Before the run-time literals (FZ-16) they were 1094, 3452, 2546, 1310 and 1987: a key a
 /// guard compared with a constant now takes the passing value from the comparison (118, 107,
-/// 72, 62, 75 before FZ-16's fix round).
+/// 72, 62, 75 before FZ-16's fix round). The corpus's count buckets (FZ-17) leave them: every
+/// lock rule applies at most once per run, so no case is kept for its counts alone.
 const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(55), Some(216), Some(75), Some(54), Some(80)];
 
 /// Run `measure` at every seed, one thread per seed.
@@ -639,7 +640,8 @@ fn every_tally_depth_cell_fires_on_exactly_the_lists_that_deep() {
 /// blind+corpus's cases to the tally's depth 8 at [`CI_SEEDS`] within 5000 cases: regression
 /// pins of the keep rule on applied counts (FZ-17), on tuning seeds. Without the counts the
 /// corpus reaches no depth of the tally at any of seeds 1-20 (`research/stall-benchmark.md`,
-/// FZ-17): one more applied key is no new rule.
+/// FZ-17): one more applied key is no new rule. The run-time literals (FZ-16) leave them: the
+/// depth cells are pattern targets, whose campaigns record no condition entries for the pools.
 const PINNED_TALLY_D8: [Option<u64>; 5] = [Some(645), Some(378), Some(1855), Some(445), Some(518)];
 
 /// The corpus keeps a case that applies `eat` once more than any before, so it reaches depth

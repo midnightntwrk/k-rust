@@ -36,7 +36,13 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// `identity.solve`, and the solve proposer's `totals.solve`, each present exactly when its
 /// proposer has a positive weight; a version-2 reader refuses them as unknown fields. The
 /// climb's `identity.climb` came in under version 2 without a bump.
-pub const REPORT_VERSION: u32 = 3;
+///
+/// Version 4 adds the run-time literals' parameters (FZ-16), `runtime-probability`,
+/// `max-comparisons`, `runtime-condition-rules` and `runtime-guard-radius` to `identity.climb`
+/// and `runtime-probability`, `follow-probability`, `follow-depth`, `max-comparisons` and
+/// `runtime-condition-rules` to `identity.corpus`, and the corpus's count buckets (FZ-17),
+/// `count-exact-below` in `identity.corpus`; a version-3 reader refuses them as unknown fields.
+pub const REPORT_VERSION: u32 = 4;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1106,7 +1112,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":3,"identity":{"engine-version":2,"#,
+            r#"{"schema":"krust-fuzz-report","version":4,"identity":{"engine-version":3,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,

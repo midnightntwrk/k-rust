@@ -76,7 +76,14 @@ pub use values::{Constraints, Value};
 /// climbing campaign. A climbing campaign's sequence also depends on the condition records the
 /// k-rust revision reports. The corpus proposer (FZ-14) was added within version 2 on the same
 /// grounds; its parameters join the case sequence's inputs of a campaign that weighs it.
-pub const ENGINE_VERSION: u32 = 2;
+///
+/// Version 3: the climb and the corpus propose run-time literals from the comparisons of the
+/// guards a case refuted (FZ-16), and their campaigns record the condition entries of the
+/// dictionary's guard rules; the corpus also keeps a `miss` case that applied a rule a number of
+/// times in a bucket no earlier `miss` case did (FZ-17, k-rust's applied counts). Both move the
+/// case sequence of every campaign that weighs the climb or the corpus; blind, dictionary-only
+/// and solve-only campaigns keep theirs.
+pub const ENGINE_VERSION: u32 = 3;
 
 #[cfg(test)]
 mod release_tests {
