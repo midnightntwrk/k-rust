@@ -45,6 +45,7 @@ pub enum Value {
 }
 
 #[k::constructors(sort = ValStack, result = KResult)]
+#[k::cons_list]
 #[k::precedence((Empty, Cons))]
 pub enum Stack {
     #[k::syntax(".ValStack")]
@@ -181,7 +182,7 @@ k::rules! {
 
     load_binary: {
         instrs: [Binary(ty, op), ..],
-        valstack: Stack::Cons(Value::Integer(ty, rhs), Stack::Cons(Value::Integer(ty, lhs), rest)),
+        valstack: [Value::Integer(ty, rhs), Value::Integer(ty, lhs), rest @ ..],
     } => {
         instrs: [IntBinOp(ty, op, lhs, rhs), ..],
         valstack: rest,
@@ -192,7 +193,7 @@ k::rules! {
         valstack: stack,
     } => {
         instrs: [..],
-        valstack: Stack::Cons(Value::Integer(ty, value), stack),
+        valstack: [Value::Integer(ty, value), ..stack],
     };
 }
 
