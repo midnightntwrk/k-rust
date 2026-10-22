@@ -5,8 +5,6 @@
 
 use k::KResult;
 use k::builtin::{Bool, Bytes, Int, KSequence, List, Map, String, bool, bytes, int, list, map};
-#[allow(unused_imports)]
-use k::map;
 
 k::sorts! {
     MirValue: KResult;
@@ -7028,204 +7026,109 @@ k::rules! {
     };
 }
 
-/// All-path claim spanning builtin-list block lookup, local dataflow, graph control, and return.
-#[k::claim(all_paths, label = "list-add-switch-return")]
-fn list_add_switch_return(
-    k::cells! {
-        k: k::configuration::KCell(Execution::Run()),
-        current_func: k::configuration::Cell(MirTy::TyId(-1)),
-        CurrentFrame::current_body: k::configuration::Cell(list::concat(
-            list::item(BlockSyntax::Block(
-                [
-                    MirStatement::Assign(
-                        MirPlace::Place(1, []),
-                        MirRvalue::Use(MirOperand::Constant(Value::Integer(20, 64, false))),
-                    ),
-                    MirStatement::Assign(
-                        MirPlace::Place(2, []),
-                        MirRvalue::Use(MirOperand::Constant(Value::Integer(22, 64, false))),
-                    ),
-                    MirStatement::Assign(
-                        MirPlace::Place(3, []),
-                        MirRvalue::Binary(
-                            MirBinaryOp::BinOpAdd(),
-                            MirOperand::Copy(MirPlace::Place(1, [])),
-                            MirOperand::Copy(MirPlace::Place(2, [])),
+k::claims! {
+    for Machine;
+    use BlockSyntax::*;
+    use LocalMutability::*;
+    use LocalValue::*;
+    use MirOperand::*;
+    use MirPlace::*;
+    use MirRvalue::*;
+    use MirStatement::*;
+    use MirTerminator::*;
+    use MirTy::*;
+    use Value::*;
+
+    /// All-path claim spanning builtin-list block lookup, local dataflow, graph control, and return.
+    #[k::claim(all_paths)]
+    list_add_switch_return: {
+        k: [Execution::Run()],
+        current_func: TyId(-1),
+        current_body: list::concat(
+            list::item(
+                Block(
+                    [
+                        Assign(Place(1, []), Use(Constant(Integer(20, 64, false)))),
+                        Assign(Place(2, []), Use(Constant(Integer(22, 64, false)))),
+                        Assign(
+                            Place(3, []),
+                            Binary(
+                                MirBinaryOp::BinOpAdd(),
+                                Copy(Place(1, [])),
+                                Copy(Place(2, [])),
+                            ),
+                        ),
+                        Assign(Place(4, []), Use(Constant(Boolean(true)))),
+                    ],
+                    Goto(1),
+                ),
+            ),
+            list::concat(
+                list::item(
+                    Block(
+                        [],
+                        SwitchInt(
+                            Copy(Place(4, [])),
+                            MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
                         ),
                     ),
-                    MirStatement::Assign(
-                        MirPlace::Place(4, []),
-                        MirRvalue::Use(MirOperand::Constant(Value::Boolean(true))),
-                    ),
-                ],
-                MirTerminator::Goto(1),
-            )),
-            list::concat(
-                list::item(BlockSyntax::Block(
-                    [],
-                    MirTerminator::SwitchInt(
-                        MirOperand::Copy(MirPlace::Place(4, [])),
-                        MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
-                    ),
-                )),
+                ),
                 list::concat(
-                    list::item(BlockSyntax::Block(
-                        [MirStatement::Assign(
-                            MirPlace::Place(0, []),
-                            MirRvalue::Use(MirOperand::Copy(MirPlace::Place(3, []))),
-                        )],
-                        MirTerminator::Return(),
-                    )),
+                    list::item(Block([Assign(Place(0, []), Use(Copy(Place(3, []))))], Return())),
                     list::concat(
-                        list::item(BlockSyntax::Block(
-                            [MirStatement::Assign(
-                                MirPlace::Place(0, []),
-                                MirRvalue::Use(MirOperand::Constant(Value::Integer(0, 64, false))),
-                            )],
-                            MirTerminator::Return(),
-                        )),
+                        list::item(
+                            Block(
+                                [Assign(Place(0, []), Use(Constant(Integer(0, 64, false))))],
+                                Return(),
+                            ),
+                        ),
                         list::empty(),
                     ),
                 ),
             ),
-        )),
-        CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(-1)),
-        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, [])),
-        CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
-        CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
-        CurrentFrame::locals: k::configuration::Cell(list::concat(
-            list::item(LocalValue::NewLocal(MirTy::TyId(0), LocalMutability::Mutable())),
+        ),
+        caller: TyId(-1),
+        dest: Place(-1, []),
+        target: MirMaybeBasicBlockIdx::NoBasicBlockIdx(),
+        unwind: MirUnwindAction::UnwindContinue(),
+        locals: list::concat(
+            list::item(NewLocal(TyId(0), Mutable())),
             list::concat(
-                list::item(LocalValue::NewLocal(MirTy::TyId(1), LocalMutability::Mutable())),
+                list::item(NewLocal(TyId(1), Mutable())),
                 list::concat(
-                    list::item(LocalValue::NewLocal(MirTy::TyId(2), LocalMutability::Mutable())),
+                    list::item(NewLocal(TyId(2), Mutable())),
                     list::concat(
-                        list::item(LocalValue::NewLocal(
-                            MirTy::TyId(3),
-                            LocalMutability::Mutable(),
-                        )),
+                        list::item(NewLocal(TyId(3), Mutable())),
+                        list::concat(list::item(NewLocal(TyId(4), Mutable())), list::empty()),
+                    ),
+                ),
+            ),
+        ),
+        stack: [],
+        functions: map::empty(),
+        types: map::empty(),
+        memory: map::empty(),
+        ret_val: ReturnValue::NoReturn(),
+    } => {
+        k: [],
+        locals: list::concat(
+            list::item(TypedValue(Integer(42, 64, false), TyId(0), Mutable())),
+            list::concat(
+                list::item(TypedValue(Integer(20, 64, false), TyId(1), Mutable())),
+                list::concat(
+                    list::item(TypedValue(Integer(22, 64, false), TyId(2), Mutable())),
+                    list::concat(
+                        list::item(TypedValue(Integer(42, 64, false), TyId(3), Mutable())),
                         list::concat(
-                            list::item(LocalValue::NewLocal(
-                                MirTy::TyId(4),
-                                LocalMutability::Mutable(),
-                            )),
+                            list::item(TypedValue(Boolean(true), TyId(4), Mutable())),
                             list::empty(),
                         ),
                     ),
                 ),
             ),
-        )),
-        stack: k::configuration::Cell(list::empty()),
-        functions: k::configuration::Cell(map![.Map]),
-        types: k::configuration::Cell(map![.Map]),
-        memory: k::configuration::Cell(map![.Map]),
-        ret_val: k::configuration::Cell(ReturnValue::NoReturn()),
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        current_func: k::configuration::Cell(MirTy::TyId(-1)),
-        CurrentFrame::current_body: k::configuration::Cell(list::concat(
-            list::item(BlockSyntax::Block(
-                [
-                    MirStatement::Assign(
-                        MirPlace::Place(1, []),
-                        MirRvalue::Use(MirOperand::Constant(Value::Integer(20, 64, false))),
-                    ),
-                    MirStatement::Assign(
-                        MirPlace::Place(2, []),
-                        MirRvalue::Use(MirOperand::Constant(Value::Integer(22, 64, false))),
-                    ),
-                    MirStatement::Assign(
-                        MirPlace::Place(3, []),
-                        MirRvalue::Binary(
-                            MirBinaryOp::BinOpAdd(),
-                            MirOperand::Copy(MirPlace::Place(1, [])),
-                            MirOperand::Copy(MirPlace::Place(2, [])),
-                        ),
-                    ),
-                    MirStatement::Assign(
-                        MirPlace::Place(4, []),
-                        MirRvalue::Use(MirOperand::Constant(Value::Boolean(true))),
-                    ),
-                ],
-                MirTerminator::Goto(1),
-            )),
-            list::concat(
-                list::item(BlockSyntax::Block(
-                    [],
-                    MirTerminator::SwitchInt(
-                        MirOperand::Copy(MirPlace::Place(4, [])),
-                        MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
-                    ),
-                )),
-                list::concat(
-                    list::item(BlockSyntax::Block(
-                        [MirStatement::Assign(
-                            MirPlace::Place(0, []),
-                            MirRvalue::Use(MirOperand::Copy(MirPlace::Place(3, []))),
-                        )],
-                        MirTerminator::Return(),
-                    )),
-                    list::concat(
-                        list::item(BlockSyntax::Block(
-                            [MirStatement::Assign(
-                                MirPlace::Place(0, []),
-                                MirRvalue::Use(MirOperand::Constant(Value::Integer(0, 64, false))),
-                            )],
-                            MirTerminator::Return(),
-                        )),
-                        list::empty(),
-                    ),
-                ),
-            ),
-        )),
-        CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(-1)),
-        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, [])),
-        CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
-        CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
-        CurrentFrame::locals: k::configuration::Cell(list::concat(
-            list::item(LocalValue::TypedValue(
-                Value::Integer(42, 64, false),
-                MirTy::TyId(0),
-                LocalMutability::Mutable(),
-            )),
-            list::concat(
-                list::item(LocalValue::TypedValue(
-                    Value::Integer(20, 64, false),
-                    MirTy::TyId(1),
-                    LocalMutability::Mutable(),
-                )),
-                list::concat(
-                    list::item(LocalValue::TypedValue(
-                        Value::Integer(22, 64, false),
-                        MirTy::TyId(2),
-                        LocalMutability::Mutable(),
-                    )),
-                    list::concat(
-                        list::item(LocalValue::TypedValue(
-                            Value::Integer(42, 64, false),
-                            MirTy::TyId(3),
-                            LocalMutability::Mutable(),
-                        )),
-                        list::concat(
-                            list::item(LocalValue::TypedValue(
-                                Value::Boolean(true),
-                                MirTy::TyId(4),
-                                LocalMutability::Mutable(),
-                            )),
-                            list::empty(),
-                        ),
-                    ),
-                ),
-            ),
-        )),
-        stack: k::configuration::Cell(list::empty()),
-        functions: k::configuration::Cell(map![.Map]),
-        types: k::configuration::Cell(map![.Map]),
-        memory: k::configuration::Cell(map![.Map]),
-        ret_val: k::configuration::Cell(ReturnValue::Returned(Value::Integer(42, 64, false))),
-    }
+        ),
+        ret_val: ReturnValue::Returned(Integer(42, 64, false)),
+    };
 }
 
 #[cfg(test)]
