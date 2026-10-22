@@ -2897,6 +2897,25 @@ mod tests {
     use crate::kore::{parser::parse_pattern, printer::Printer};
     use std::collections::BTreeSet;
 
+    /// The clock-free mode is off by default and read from `smtResourceLimit`, a positive unit
+    /// count (0, Z3's "no limit", is refused rather than read as unbounded).
+    #[test]
+    fn the_clock_free_solver_mode_is_opt_in_and_positive() {
+        assert_eq!(BackendOptions::default().smt_resource_limit, None);
+        let options: BackendOptions =
+            serde_json::from_str(r#"{"smtResourceLimit": 250000}"#).unwrap();
+        assert_eq!(
+            options.smt_resource_limit,
+            std::num::NonZeroU32::new(250_000)
+        );
+        assert_eq!(
+            options.smt_timeout_ms,
+            BackendOptions::default().smt_timeout_ms
+        );
+        assert!(serde_json::from_str::<BackendOptions>(r#"{"smtResourceLimit": 0}"#).is_err());
+        assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
+    }
+
     /// The wire spellings of `all`, each read back as its value, as a set of distinct names.
     fn wire_names<T>(all: &[T]) -> BTreeSet<String>
     where

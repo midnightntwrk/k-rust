@@ -69,10 +69,16 @@
 //! ([`model_values`]), and a hole the model leaves free keeps its value (a model that gives no
 //! symbolic hole a value is a failed run, not the blocked case again).
 //!
-//! Both backends use the clock-free solver mode (`BackendOptions::smt_resource_limit`, no
-//! retry): each decision of the run gets [`SOLVE_RUN_RESOURCE_UNITS`] Z3 resource units, and an
-//! undecided one leaves both sides open, as the backend does for any undecided answer; each
-//! model query gets [`SOLVE_MODEL_RESOURCE_UNITS`], and an undecided one gives no candidate.
+//! Both backends use the clock-free solver mode (`BackendOptions::smt_resource_limit`): each
+//! decision of the run gets [`SOLVE_RUN_RESOURCE_UNITS`] Z3 resource units with
+//! [`SOLVE_RUN_RETRIES`] retries at doubled units, and an undecided one is handled as the backend
+//! handles any undecided answer (an indeterminate step, or both sides kept); each model query
+//! gets [`SOLVE_MODEL_RESOURCE_UNITS`] with [`SOLVE_MODEL_RETRIES`] retries, and an undecided one
+//! gives no candidate. The budgets were measured on the maze's `c7`: with this Z3 both its rule
+//! condition and its model are decided only at a third attempt on the thread, whatever the
+//! units of the first two (a single attempt of 100,000,000 units leaves them undecided; three
+//! of 100,000, 200,000 and 400,000 decide the condition), so two retries at small units cost
+//! least; a decision that stays undecided costs 1,750,000 units in the run, about 0.1 s.
 //! Z3 counts the units in its own search, so these answers do not depend on the machine's speed
 //! or load (the budgets and the Z3 version are in `identity.solve`).
 //!

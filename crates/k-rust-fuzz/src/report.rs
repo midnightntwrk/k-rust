@@ -211,7 +211,7 @@ pub struct SolveParameters {
     pub max_model_queries: u32,
     /// The Z3 resource units (`BackendOptions::smt_resource_limit`, the clock-free mode, no
     /// retry) of each solver decision of a symbolic run: a decision Z3 has not made within them
-    /// is undecided, and the run keeps both sides as the backend does for any undecided answer.
+    /// is undecided, and the run handles it as the backend handles any undecided answer.
     pub run_resource_units: u32,
     /// The retries of an undecided decision of a run, each with twice the units.
     pub run_retries: u32,
