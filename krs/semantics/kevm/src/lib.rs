@@ -455,7 +455,13 @@ pub struct WordSignExtend {
     pub value: k::Term<Int>,
 }
 
-#[k::function(total, syntax = "#kevmSignExtendByte({index}, {value})")]
+/// Byte `index` of `value`, counting from the least significant byte.
+#[k::requires(int::ge(index, 0))]
+#[k::function(
+    total,
+    underspecified = "a byte position is never negative: WordSignExtend reads it only for 0 <= index < 32",
+    syntax = "#kevmSignExtendByte({index}, {value})"
+)]
 pub fn SignExtendByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     int::rem_euclid(int::shift_right(value, int::mul(8, index)), 256)
 }
@@ -2860,10 +2866,10 @@ fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) 
     k::term![value]
 }
 
-#[k::requires(bool::and(
-    bool::and(int::ge(index, 0), int::lt(index, 32)),
-    int::lt(SignExtendByte { index, value }, 128),
-))]
+#[k::requires(
+    bool::and(int::ge(index, 0), int::lt(index, 32))
+        && int::lt(SignExtendByte { index, value }, 128)
+)]
 #[k::equation]
 fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     k::term![Chop(int::bit_and(
@@ -2872,10 +2878,10 @@ fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>)
     ))]
 }
 
-#[k::requires(bool::and(
-    bool::and(int::ge(index, 0), int::lt(index, 32)),
-    int::ge(SignExtendByte { index, value }, 128),
-))]
+#[k::requires(
+    bool::and(int::ge(index, 0), int::lt(index, 32))
+        && int::ge(SignExtendByte { index, value }, 128)
+)]
 #[k::equation]
 fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     k::term![Chop(int::bit_or(
@@ -2918,7 +2924,7 @@ fn block_hash_too_old(
 
 #[k::requires(bool::and(
     bool::and(int::le(requested, highest), int::lt(age, 256)),
-    bool::and(int::lt(age, list::size(hashes)), int::eq(list::get(hashes, age), 0)),
+    int::lt(age, list::size(hashes)) && int::eq(list::get(hashes, age), 0),
 ))]
 #[k::equation]
 fn block_hash_zero_sentinel(
@@ -2934,7 +2940,7 @@ fn block_hash_zero_sentinel(
 
 #[k::requires(bool::and(
     bool::and(int::eq(requested, highest), int::lt(age, 256)),
-    bool::and(int::lt(age, list::size(hashes)), int::ne(list::get(hashes, age), 0)),
+    int::lt(age, list::size(hashes)) && int::ne(list::get(hashes, age), 0),
 ))]
 #[k::equation]
 fn block_hash_found(
@@ -2950,7 +2956,7 @@ fn block_hash_found(
 
 #[k::requires(bool::and(
     bool::and(int::lt(requested, highest), int::lt(age, 256)),
-    bool::and(int::lt(age, list::size(hashes)), int::ne(list::get(hashes, age), 0)),
+    int::lt(age, list::size(hashes)) && int::ne(list::get(hashes, age), 0),
 ))]
 #[k::equation]
 fn block_hash_continue(
