@@ -1128,12 +1128,15 @@ fn layout_align_unknown(
     k::term![1]
 }
 
+/// A pointer to a slice or to `str` carries its length beside the address.
 #[k::equation]
-fn pointer_words_dynamic_array(
+fn pointer_words_unsized(
     k::term![PointerWords {
         info: MirTypeInfo::ArrayType {
             element: _,
             size: MirMaybeTyConst::NoTyConst(),
+        } | MirTypeInfo::PrimitiveType {
+            primitive: MirPrimitiveType::Str(),
         },
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1182,7 +1185,7 @@ k::equations! {
     align_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))                                                                                                  => int::div(IntWidth(kind), 8);
     align_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))                                                                                                => int::div(UintWidth(kind), 8);
     align_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))                                                                                                          => int::div(FloatWidth(kind), 8);
-    align_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                                                                                                                => 4;
+    align_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                                                                                                                => 1;
     align_of_aggregate       : (_, MirTypeInfo::EnumType(_, _, _, _, layout) | MirTypeInfo::StructType(_, _, _, layout) | MirTypeInfo::UnionType(_, _, _, layout) | MirTypeInfo::TupleType(_, layout)) => LayoutAlign(layout);
     align_of_array           : (types, MirTypeInfo::ArrayType(element, _))                                                                                                                             => AlignOfTypeInfo(types, map::get(types, element));
     align_of_pointer         : (types, MirTypeInfo::PointerType(_) | MirTypeInfo::ReferenceType(_))                                                                                                    => AlignOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize())));
@@ -2279,8 +2282,13 @@ fn decode_allocated_reference_fat(
 #[k::equation]
 fn metadata_size_of_thin(
     k::term![MetadataSizeOf {
-        info: MirTypeInfo::PrimitiveType { primitive: _ }
-            | MirTypeInfo::PointerType { pointee: _ }
+        info: MirTypeInfo::PrimitiveType {
+            primitive: MirPrimitiveType::Bool()
+                | MirPrimitiveType::Char()
+                | MirPrimitiveType::SignedInteger { kind: _ }
+                | MirPrimitiveType::UnsignedInteger { kind: _ }
+                | MirPrimitiveType::Float { kind: _ },
+        } | MirTypeInfo::PointerType { pointee: _ }
             | MirTypeInfo::ReferenceType { pointee: _ }
             | MirTypeInfo::StructType {
                 name: _,
@@ -2361,12 +2369,16 @@ fn zero_field_offset(
     k::term![true]
 }
 
+/// `str` is a sequence of UTF-8 bytes laid out as `[u8]`, so a pointer to
+/// either carries the number of elements, which for `str` is its byte length.
 #[k::equation]
-fn metadata_size_of_dynamic_array(
+fn metadata_size_of_unsized(
     k::term![MetadataSizeOf {
         info: MirTypeInfo::ArrayType {
             element: _,
             size: MirMaybeTyConst::NoTyConst(),
+        } | MirTypeInfo::PrimitiveType {
+            primitive: MirPrimitiveType::Str(),
         },
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -5924,6 +5936,28 @@ k::rules! {
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize;
 
+    // `str` is laid out as `[u8]` and its pointers carry the same length, so a
+    // cast between a byte-slice pointer and a `str` pointer
+    // (`bytes as *const [u8] as *const str`) keeps the place and the
+    // metadata: the two pointees compare equal.
+    #[k::requires(SameTypeInfo { first: map::get(types, element), second: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() } } })]
+    resolve_ptr_cast_bytes_to_str: {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::ArrayType { element, size: MirMaybeTyConst::NoTyConst() }, target: target @ MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() }, projections, target_size }, ..],
+        types: types,
+    } => {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: target, target, projections, target_size }, ..],
+    }
+    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, element: Ty, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize, types: Map;
+
+    #[k::requires(SameTypeInfo { first: map::get(types, element), second: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() } } })]
+    resolve_ptr_cast_str_to_bytes: {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() }, target: target @ MirTypeInfo::ArrayType { element, size: MirMaybeTyConst::NoTyConst() }, projections, target_size }, ..],
+        types: types,
+    } => {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: target, target, projections, target_size }, ..],
+    }
+    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, element: Ty, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize, types: Map;
+
     #[k::requires(bool::and(
     ZeroFieldOffset { layout },
     SameTypeInfo {
@@ -5963,6 +5997,15 @@ k::rules! {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, element), target, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }, tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, element: Ty, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize, types: Map;
+
+    // A `str` pointer's first element is its first byte, as for `[u8]`
+    // (`str::as_ptr` casts `*const str` to `*const u8`).
+    resolve_ptr_cast_source_str: {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Source(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() }, target, projections, target_size }, ..],
+    } => {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() } }, target, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }, tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
+    }
+    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize;
 
     #[k::rule(owise)]
     resolve_ptr_cast_source_done: {

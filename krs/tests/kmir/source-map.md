@@ -68,7 +68,7 @@ The first slice follows KMIR's `#execBlockIdx` / `#execBlock` / `#execStmts` / `
 30. raw-pointer equality and inequality over frame height, projected place, and metadata while ignoring mutability;
 31. `unOpPtrMetadata` extraction for dynamic pointer/reference sizes and bounded `binOpOffset` arithmetic over static or dynamic origin sizes;
 32. the concrete builtin `<types>` map with pointer `TypeInfo` entries and same-pointee `PtrToPtr` copy/move casts;
-33. source-shaped fixed-array `TyConst` allocation bytes and metadata conversion among slice pointers and fixed-array pointers of equal or differing lengths;
+33. source-shaped fixed-array `TyConst` allocation bytes and metadata conversion among slice pointers and fixed-array pointers of equal or differing lengths, plus `str` pointers, which share `[u8]`'s layout and byte-length metadata;
 34. `typeInfoVoidType` zero-sized pointees with `projectionElemToZST` / `projectionElemFromZST` cast markers and inverse cancellation;
 35. singleton transparent `typeInfoStructType` pointees with zero-offset layouts, `projectionElemField` / `projectionElemWrapStruct` cast paths, dereference traversal, and persistent write reconstruction;
 36. source-shaped `AllocId` identities and `AllocRef` values backed by a concrete allocation-memory map, with retained allocation projections, metadata-truncated read-only dereference traversal, static-to-dynamic unsizing, and dynamic pointer-metadata extraction;
@@ -268,6 +268,7 @@ The result is `Integer(DISCRIMINANT, 0, false)`, preserving pinned KMIR's flexib
 
 The projection-type tranche preserves pinned KMIR's direct `Ty` subsort of `MaybeTy` and its fail-closed `TyUnknown` result without a wrapper adapter.
 The total concrete `getTyOf` equations traverse retained dereference, field, dynamic-index, constant-index, subslice, and downcast projections.
+`str` is a sequence of UTF-8 bytes laid out as `[u8]`: a pointer to it is two words carrying the byte length, its alignment is 1, a `PtrToPtr` cast between `*const [u8]` and `*const str` keeps the place and the length in either direction, and a cast from `*const str` to `*const u8` selects the first byte as it does for a byte slice.
 Projected `PtrToPtr`, `Transmute`, and `Discriminant` evaluation reuse that single type boundary; unsupported internal or not-yet-retained projection shapes resolve to `TyUnknown` and remain undefined at the consuming operation.
 
 The nullary-operation tranche retains source-shaped `nullOpSizeOf`, `nullOpAlignOf`, and `nullOpUbChecks` constructors without a synthesized type query.
@@ -323,7 +324,8 @@ It also covers source-shaped fat and thin raw-pointer aggregate construction, tr
 It also covers source-shaped array repetition with allocated, copied, and moved elements; allocation-backed zero, two, and three-element lengths; copy preservation; move invalidation; and exact whole-local or projected range lengths.
 It also covers projected `CopyForDeref` without source mutation and whole-local enum discriminants at the first and third variants, including the nonconsecutive user discriminant `9090`.
 It also covers projected discriminants through downcast and field, dynamic index, reference dereference, and subslice plus constant-index chains, as well as projected pointer casts and projected transmute moves with enclosing aggregate reconstruction.
-It also covers disabled UB checks; primitive integer, float, Boolean, character, and string size/alignment constants; aggregate layout size and alignment including absent layouts; fixed and dynamic array size/alignment; and thin/fat raw-pointer and reference size/alignment.
+It also covers disabled UB checks; primitive integer, float, Boolean, character, and string size/alignment constants; aggregate layout size and alignment including absent layouts; fixed and dynamic array size/alignment; and thin/fat raw-pointer and reference size/alignment, including `&str` and `*const str`.
+It also covers `str` pointer casts to and from byte-slice pointers with the length kept, `unOpPtrMetadata` on a `str` pointer, and a `str`-to-byte pointer cast followed by a read of the first byte.
 The structured behavior SHA-256 is `e4bae64f34415d319cf2ac153f2972a8788cfefee66a7ece17e2e84b28ad36f9`.
 
 The concrete all-path claim spans four builtin-list block lookups, ordered statements, constant and copied operands, integer addition, `Goto`, true `SwitchInt`, local `_0`, and top-level return.
