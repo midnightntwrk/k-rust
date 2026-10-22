@@ -220,6 +220,7 @@ pub enum MirGenericArg {
 }
 
 #[k::constructors(sort = GenericArgs, result = KResult)]
+#[k::cons_list]
 #[k::precedence((GenericArgsEmpty, GenericArgsCons))]
 pub enum MirGenericArgs {
     #[k::syntax(".GenericArgs")]
@@ -268,6 +269,7 @@ pub enum MirAggregateKind {
 }
 
 #[k::constructors(sort = Tys, result = KResult)]
+#[k::cons_list]
 #[k::precedence((TysEmpty, TysCons))]
 pub enum MirTys {
     #[k::syntax(".Tys")]
@@ -277,6 +279,7 @@ pub enum MirTys {
 }
 
 #[k::constructors(sort = Tyss, result = KResult)]
+#[k::cons_list]
 #[k::precedence((TyssEmpty, TyssCons))]
 pub enum MirTyss {
     #[k::syntax(".Tyss")]
@@ -292,6 +295,7 @@ pub enum MirDiscriminant {
 }
 
 #[k::constructors(sort = Discriminants, result = KResult)]
+#[k::cons_list]
 #[k::precedence((DiscriminantsEmpty, DiscriminantsCons))]
 pub enum MirDiscriminants {
     #[k::syntax(".Discriminants")]
@@ -310,6 +314,7 @@ pub enum MirMachineSize {
 }
 
 #[k::constructors(sort = MachineSizes, result = KResult)]
+#[k::cons_list]
 #[k::precedence((MachineSizesEmpty, MachineSizesCons))]
 pub enum MirMachineSizes {
     #[k::syntax(".MachineSizes")]
@@ -340,6 +345,7 @@ pub enum MirVariantsShapeSingle {
 }
 
 #[k::constructors(sort = LayoutShapes, result = KResult)]
+#[k::cons_list]
 #[k::precedence((LayoutShapesEmpty, LayoutShapesCons))]
 pub enum MirLayoutShapes {
     #[k::syntax(".LayoutShapes")]
@@ -693,7 +699,7 @@ fn get_ty_of_unknown(
 fn get_ty_of_done(
     k::term![GetTyOf {
         ty,
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         ..
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
@@ -705,10 +711,7 @@ fn get_ty_of_deref(
     k::term![GetTyOf {
         types,
         ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Deref(),
-            tail,
-        },
+        projections: [Projection::Deref(), tail @ ..],
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     GetTyOf {
@@ -724,10 +727,7 @@ fn get_ty_of_deref(
 fn get_ty_of_field(
     k::term![GetTyOf {
         types,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Field { ty, .. },
-            tail,
-        },
+        projections: [Projection::Field { ty, .. }, tail @ ..],
         ..
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
@@ -743,10 +743,7 @@ fn get_ty_of_element(
     k::term![GetTyOf {
         types,
         ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Index(_) | Projection::ConstantIndex(_, _, _),
-            tail,
-        },
+        projections: [Projection::Index(_) | Projection::ConstantIndex(_, _, _), tail @ ..],
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     GetTyOf {
@@ -764,10 +761,7 @@ fn get_ty_of_same_type(
     k::term![GetTyOf {
         types,
         ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice(_, _, _) | Projection::Downcast(_),
-            tail,
-        },
+        projections: [Projection::Subslice(_, _, _) | Projection::Downcast(_), tail @ ..],
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     GetTyOf {
@@ -1303,21 +1297,14 @@ fn decode_allocated_unsigned_integer(
 }
 
 #[k::equation]
-fn no_fields_empty(
-    k::term![NoFields {
-        fields: MirTyss::TyssEmpty(),
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
+fn no_fields_empty(k::term![NoFields { fields: [] }]: k::Term<Bool>) -> k::Term<Bool> {
     true
 }
 
 #[k::equation]
 fn no_fields_empty_variant(
     k::term![NoFields {
-        fields: MirTyss::TyssCons {
-            head: MirTys::TysEmpty(),
-            tail,
-        },
+        fields: [[], tail @ ..],
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
     NoFields { fields: tail }
@@ -1326,10 +1313,7 @@ fn no_fields_empty_variant(
 #[k::equation]
 fn no_fields_nonempty_variant(
     k::term![NoFields {
-        fields: MirTyss::TyssCons {
-            head: MirTys::TysCons(_, _),
-            ..
-        },
+        fields: [[_, ..], ..],
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
     false
@@ -1349,12 +1333,12 @@ pub fn FindVariantIndex(tag: k::Term<Int>, discriminants: k::Term<Discriminants>
 fn find_variant_index_match(
     k::term![FindVariantIndexAux {
         tag,
-        discriminants: MirDiscriminants::DiscriminantsCons {
-            head: MirDiscriminant::Discriminant {
-                value: discriminant,
+        discriminants: [
+            MirDiscriminant::Discriminant {
+                value: discriminant
             },
             ..
-        },
+        ],
         index,
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1366,12 +1350,7 @@ fn find_variant_index_match(
 fn find_variant_index_continue(
     k::term![FindVariantIndexAux {
         tag,
-        discriminants: MirDiscriminants::DiscriminantsCons {
-            head: MirDiscriminant::Discriminant {
-                value: discriminant,
-            },
-            tail,
-        },
+        discriminants: [MirDiscriminant::Discriminant { value: discriminant }, tail @ ..],
         index,
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1386,10 +1365,7 @@ fn find_variant_index_continue(
 #[k::requires(index == 0)]
 fn lookup_discriminant_head(
     k::term![LookupDiscriminant {
-        discriminants: MirDiscriminants::DiscriminantsCons {
-            head: MirDiscriminant::Discriminant { value },
-            ..
-        },
+        discriminants: [MirDiscriminant::Discriminant { value }, ..],
         index,
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1400,7 +1376,7 @@ fn lookup_discriminant_head(
 #[k::requires(index > 0)]
 fn lookup_discriminant_tail(
     k::term![LookupDiscriminant {
-        discriminants: MirDiscriminants::DiscriminantsCons { tail, .. },
+        discriminants: [_, tail @ ..],
         index,
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1464,31 +1440,16 @@ fn decode_allocated_niche_pointer_none(
     k::term![DecodeAllocatedValue {
         bytes,
         info: MirTypeInfo::EnumType {
-            discriminants: MirDiscriminants::DiscriminantsCons {
-                head: MirDiscriminant::Discriminant { value: 0 },
-                tail: MirDiscriminants::DiscriminantsCons {
-                    head: MirDiscriminant::Discriminant { value: 1 },
-                    tail: MirDiscriminants::DiscriminantsEmpty(),
-                },
-            },
-            fields: MirTyss::TyssCons {
-                head: MirTys::TysEmpty(),
-                tail: MirTyss::TyssCons {
-                    head: MirTys::TysCons {
-                        tail: MirTys::TysEmpty(),
-                        ..
-                    },
-                    tail: MirTyss::TyssEmpty(),
-                },
-            },
+            discriminants: [
+                MirDiscriminant::Discriminant { value: 0 },
+                MirDiscriminant::Discriminant { value: 1 }
+            ],
+            fields: [[], [_]],
             layout: MirMaybeLayoutShape::SomeLayoutShape {
                 layout: MirLayoutShape::LayoutShape {
                     fields: MirFieldsShape::FieldsShapeArbitrary {
                         fields: MirFieldsShapeArbitrary::ArbitraryFields {
-                            offsets: MirMachineSizes::MachineSizesCons {
-                                head: MirMachineSize::MachineSize { bits: 0 },
-                                tail: MirMachineSizes::MachineSizesEmpty(),
-                            },
+                            offsets: [MirMachineSize::MachineSize { bits: 0 }],
                         },
                     },
                     variants: MirVariantsShape::VariantsShapeMultiple {
@@ -1558,7 +1519,7 @@ pub fn DecodeEnumDirectTag(bytes: k::Term<Bytes>, width: k::Term<IntegerLength>)
 #[k::equation]
 fn nth_tys_first(
     k::term![NthTys {
-        fields: MirTyss::TyssCons { head, .. },
+        fields: [head, ..],
         index: 0,
     }]: k::Term<Tys>,
 ) -> k::Term<Tys> {
@@ -1569,7 +1530,7 @@ fn nth_tys_first(
 #[k::requires(index > 0)]
 fn nth_tys_next(
     k::term![NthTys {
-        fields: MirTyss::TyssCons { tail, .. },
+        fields: [_, tail @ ..],
         index,
     }]: k::Term<Tys>,
 ) -> k::Term<Tys> {
@@ -1582,15 +1543,15 @@ fn nth_tys_next(
 #[k::equation]
 fn nth_variant_offsets_first(
     k::term![NthVariantOffsets {
-        layouts: MirLayoutShapes::LayoutShapesCons {
-            head: MirLayoutShape::LayoutShape {
+        layouts: [
+            MirLayoutShape::LayoutShape {
                 fields: MirFieldsShape::FieldsShapeArbitrary {
-                    fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets },
+                    fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets }
                 },
                 ..
             },
             ..
-        },
+        ],
         index: 0,
     }]: k::Term<MachineSizes>,
 ) -> k::Term<MachineSizes> {
@@ -1601,7 +1562,7 @@ fn nth_variant_offsets_first(
 #[k::requires(index > 0)]
 fn nth_variant_offsets_next(
     k::term![NthVariantOffsets {
-        layouts: MirLayoutShapes::LayoutShapesCons { tail, .. },
+        layouts: [_, tail @ ..],
         index,
     }]: k::Term<MachineSizes>,
 ) -> k::Term<MachineSizes> {
@@ -1696,7 +1657,7 @@ fn element_size_tuple_layout(
 fn element_size_empty_tuple(
     k::term![ElementSize {
         info: MirTypeInfo::TupleType {
-            fields: MirTys::TysEmpty(),
+            fields: [],
             layout: MirMaybeLayoutShape::NoLayoutShape(),
         },
         ..
@@ -1749,8 +1710,8 @@ fn maximum_second(k::term![Maximum { first, second }]: k::Term<Int>) -> k::Term<
 #[k::equation]
 fn needed_bytes_for_offsets_done(
     k::term![NeededBytesForOffsets {
-        fields: MirTys::TysEmpty(),
-        offsets: MirMachineSizes::MachineSizesEmpty(),
+        fields: [],
+        offsets: [],
         ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1761,14 +1722,8 @@ fn needed_bytes_for_offsets_done(
 fn needed_bytes_for_offsets_cons(
     k::term![NeededBytesForOffsets {
         types,
-        fields: MirTys::TysCons {
-            head: field,
-            tail: fields,
-        },
-        offsets: MirMachineSizes::MachineSizesCons {
-            head: MirMachineSize::MachineSize { bits },
-            tail: offsets,
-        },
+        fields: [field, fields @ ..],
+        offsets: [MirMachineSize::MachineSize { bits }, offsets @ ..],
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     Maximum {
@@ -1788,8 +1743,8 @@ fn needed_bytes_for_offsets_cons(
 #[k::equation]
 fn decode_fields_with_offsets_done(
     k::term![DecodeFieldsWithOffsets {
-        fields: MirTys::TysEmpty(),
-        offsets: MirMachineSizes::MachineSizesEmpty(),
+        fields: [],
+        offsets: [],
         ..
     }]: k::Term<List>,
 ) -> k::Term<List> {
@@ -1804,14 +1759,8 @@ fn decode_fields_with_offsets_cons(
     k::term![DecodeFieldsWithOffsets {
         types,
         bytes,
-        fields: MirTys::TysCons {
-            head: field,
-            tail: fields,
-        },
-        offsets: MirMachineSizes::MachineSizesCons {
-            head: MirMachineSize::MachineSize { bits },
-            tail: offsets,
-        },
+        fields: [field, fields @ ..],
+        offsets: [MirMachineSize::MachineSize { bits }, offsets @ ..],
     }]: k::Term<List>,
 ) -> k::Term<List> {
     list::concat(
@@ -2011,10 +1960,7 @@ fn decode_allocated_struct(
 fn decode_allocated_empty_tuple(
     k::term![DecodeAllocatedValue {
         bytes,
-        info: MirTypeInfo::TupleType {
-            fields: MirTys::TysEmpty(),
-            ..
-        },
+        info: MirTypeInfo::TupleType { fields: [], .. },
         ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -2026,18 +1972,15 @@ fn decode_allocated_empty_tuple(
 
 #[k::equation]
 #[k::requires(
-    NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets } >= 0
-        && bytes::length(bytes) >= NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets }
+    NeededBytesForOffsets { types, fields: [first, ..remaining], offsets } >= 0
+        && bytes::length(bytes) >= NeededBytesForOffsets { types, fields: [first, ..remaining], offsets }
 )]
 fn decode_allocated_tuple(
     k::term![DecodeAllocatedValue {
         types,
         bytes,
         info: MirTypeInfo::TupleType {
-            fields: MirTys::TysCons {
-                head: first,
-                tail: remaining,
-            },
+            fields: [first, remaining @ ..],
             layout: MirMaybeLayoutShape::SomeLayoutShape {
                 layout: MirLayoutShape::LayoutShape {
                     fields: MirFieldsShape::FieldsShapeArbitrary {
@@ -2054,10 +1997,7 @@ fn decode_allocated_tuple(
         fields: DecodeFieldsWithOffsets {
             types,
             bytes,
-            fields: MirTys::TysCons {
-                head: first,
-                tail: remaining,
-            },
+            fields: [first, ..remaining],
             offsets,
         },
     }
@@ -2128,7 +2068,7 @@ fn decode_allocated_reference_thin(
 ) -> k::Term<MirValue> {
     Value::AllocationReference {
         allocation,
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         metadata: MirMetadata::Metadata {
             size: MetadataSizeOf {
                 info: map::get(types, pointee),
@@ -2153,7 +2093,7 @@ fn decode_allocated_reference_fat(
 ) -> k::Term<MirValue> {
     Value::AllocationReference {
         allocation,
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         metadata: MirMetadata::Metadata {
             size: MirMetadataSize::DynamicSize(ReadTyConstInt {
                 bytes,
@@ -2227,10 +2167,7 @@ fn zero_field_offset(
             layout: MirLayoutShape::LayoutShape {
                 fields: MirFieldsShape::FieldsShapeArbitrary {
                     fields: MirFieldsShapeArbitrary::ArbitraryFields {
-                        offsets: MirMachineSizes::MachineSizesCons {
-                            head: MirMachineSize::MachineSize { bits: 0 },
-                            tail: MirMachineSizes::MachineSizesEmpty(),
-                        },
+                        offsets: [MirMachineSize::MachineSize { bits: 0 }],
                     },
                 },
                 ..
@@ -2425,6 +2362,7 @@ pub enum Projection {
 }
 
 #[k::constructors(sort = ProjectionElems, result = KResult)]
+#[k::cons_list]
 #[k::precedence((ProjectionsEmpty, ProjectionsCons))]
 pub enum Projections {
     #[k::syntax(".ProjectionElems")]
@@ -2447,35 +2385,27 @@ pub struct RemoveIndexTail {
 
 #[k::equation]
 fn remove_index_tail_empty(
-    k::term![RemoveIndexTail {
-        projections: Projections::ProjectionsEmpty(),
-    }]: k::Term<ProjectionElems>,
+    k::term![RemoveIndexTail { projections: [] }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsEmpty()
+    []
 }
 
 #[k::equation(priority = 40)]
 fn remove_index_tail_zero(
     k::term![RemoveIndexTail {
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex { offset: 0, .. },
-            tail: Projections::ProjectionsEmpty(),
-        },
+        projections: [Projection::ConstantIndex { offset: 0, .. }],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsEmpty()
+    []
 }
 
 #[k::equation]
 fn remove_index_tail_cons(
     k::term![RemoveIndexTail {
-        projections: Projections::ProjectionsCons { head, tail },
+        projections: [head, tail @ ..],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsCons {
-        head,
-        tail: RemoveIndexTail { projections: tail },
-    }
+    [head, ..RemoveIndexTail { projections: tail }]
 }
 
 #[k::function(
@@ -2493,7 +2423,7 @@ pub struct ProjectionMetadataSize {
 fn projection_metadata_size_done(
     k::term![ProjectionMetadataSize {
         ty,
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         types,
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -2505,10 +2435,7 @@ fn projection_metadata_size_done(
 #[k::equation]
 fn projection_metadata_size_field(
     k::term![ProjectionMetadataSize {
-        projections: Projections::ProjectionsCons {
-            head: Projection::Field { ty, .. },
-            tail,
-        },
+        projections: [Projection::Field { ty, .. }, tail @ ..],
         types,
         ..
     }]: k::Term<MetadataSize>,
@@ -2524,10 +2451,7 @@ fn projection_metadata_size_field(
 fn projection_metadata_size_element(
     k::term![ProjectionMetadataSize {
         ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Index(_) | Projection::ConstantIndex(_, _, _),
-            tail,
-        },
+        projections: [Projection::Index(_) | Projection::ConstantIndex(_, _, _), tail @ ..],
         types,
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -2544,10 +2468,7 @@ fn projection_metadata_size_element(
 fn projection_metadata_size_reference_deref(
     k::term![ProjectionMetadataSize {
         ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Deref(),
-            tail,
-        },
+        projections: [Projection::Deref(), tail @ ..],
         types,
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -2634,7 +2555,7 @@ pub struct ProjectionsFor {
 #[k::equation]
 fn projections_for_done(
     k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsEmpty(),
+        contexts: [],
         projections,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
@@ -2644,115 +2565,85 @@ fn projections_for_done(
 #[k::equation]
 fn projections_for_field(
     k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::FieldContext { field, ty, .. }
-                | MirProjectionContext::UnionFieldContext { field, ty, .. },
-            tail,
-        },
+        contexts: [MirProjectionContext::FieldContext { field, ty, .. } | MirProjectionContext::UnionFieldContext { field, ty, .. }, tail @ ..],
         projections,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     ProjectionsFor {
         contexts: tail,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, ty },
-            tail: projections,
-        },
+        projections: [Projection::Field { field, ty }, ..projections],
     }
 }
 
 #[k::equation]
 fn projections_for_index(
     k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::IndexContext { index, .. },
-            tail,
-        },
+        contexts: [MirProjectionContext::IndexContext { index, .. }, tail @ ..],
         projections,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     ProjectionsFor {
         contexts: tail,
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
+        projections: [
+            Projection::ConstantIndex {
                 offset: index,
                 min_length: 0,
                 from_end: false,
             },
-            tail: projections,
-        },
+            ..projections,
+        ],
     }
 }
 
 #[k::equation]
 fn projections_for_subslice(
     k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::SubsliceContext {
-                start,
-                from_back,
-                ..
-            },
-            tail,
-        },
+        contexts: [MirProjectionContext::SubsliceContext { start, from_back, .. }, tail @ ..],
         projections,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     ProjectionsFor {
         contexts: tail,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice {
+        projections: [
+            Projection::Subslice {
                 from: start,
                 to: from_back,
                 from_end: false,
             },
-            tail: projections,
-        },
+            ..projections,
+        ],
     }
 }
 
 #[k::equation]
 fn projections_for_pointer_offset(
     k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::PointerOffsetContext {
-                offset,
-                origin_size,
-                ..
-            },
-            tail,
-        },
+        contexts: [MirProjectionContext::PointerOffsetContext { offset, origin_size, .. }, tail @ ..],
         projections,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     ProjectionsFor {
         contexts: tail,
-        projections: Projections::ProjectionsCons {
-            head: Projection::PointerOffset {
+        projections: [
+            Projection::PointerOffset {
                 offset,
                 origin_size,
             },
-            tail: projections,
-        },
+            ..projections,
+        ],
     }
 }
 
 #[k::equation]
 fn projections_for_wrap_struct(
     k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::WrapStructContext(),
-            tail,
-        },
+        contexts: [MirProjectionContext::WrapStructContext(), tail @ ..],
         projections,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     ProjectionsFor {
         contexts: tail,
-        projections: Projections::ProjectionsCons {
-            head: Projection::WrapStruct(),
-            tail: projections,
-        },
+        projections: [Projection::WrapStruct(), ..projections],
     }
 }
 
@@ -2796,6 +2687,7 @@ pub enum MirProjectionContext {
 }
 
 #[k::constructors(sort = ProjectionContexts, result = KResult)]
+#[k::cons_list]
 #[k::precedence((ContextsEmpty, ContextsCons))]
 pub enum MirProjectionContexts {
     #[k::syntax(".ProjectionContexts")]
@@ -3176,6 +3068,7 @@ pub enum MirStatement {
 }
 
 #[k::constructors(sort = Statements, result = KResult)]
+#[k::cons_list]
 #[k::precedence((StatementsEmpty, StatementsCons))]
 pub enum StatementList {
     #[k::syntax(".Statements")]
@@ -3191,6 +3084,7 @@ pub enum MirBranch {
 }
 
 #[k::constructors(sort = Branches, result = KResult)]
+#[k::cons_list]
 #[k::precedence((BranchesEmpty, BranchesCons))]
 pub enum BranchList {
     #[k::syntax(".Branches")]
@@ -3234,6 +3128,7 @@ pub enum MirLocalDecl {
 }
 
 #[k::constructors(sort = LocalDecls, result = KResult)]
+#[k::cons_list]
 #[k::precedence((LocalDeclsEmpty, LocalDeclsCons))]
 pub enum MirLocalDecls {
     #[k::syntax(".LocalDecls")]
@@ -3488,21 +3383,14 @@ pub struct ReserveFor {
 }
 
 #[k::equation]
-fn reserve_for_done(
-    k::term![ReserveFor {
-        locals: MirLocalDecls::LocalDeclsEmpty(),
-    }]: k::Term<List>,
-) -> k::Term<List> {
+fn reserve_for_done(k::term![ReserveFor { locals: [] }]: k::Term<List>) -> k::Term<List> {
     list::empty()
 }
 
 #[k::equation]
 fn reserve_for_cons(
     k::term![ReserveFor {
-        locals: MirLocalDecls::LocalDeclsCons {
-            head: MirLocalDecl::LocalDecl { ty, mutability, .. },
-            tail,
-        },
+        locals: [MirLocalDecl::LocalDecl { ty, mutability, .. }, tail @ ..],
     }]: k::Term<List>,
 ) -> k::Term<List> {
     list::concat(
@@ -3845,10 +3733,7 @@ pub struct AppendProjections {
 
 #[k::equation]
 fn append_projections_done(
-    k::term![AppendProjections {
-        first: Projections::ProjectionsEmpty(),
-        second,
-    }]: k::Term<ProjectionElems>,
+    k::term![AppendProjections { first: [], second }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     second
 }
@@ -3856,17 +3741,17 @@ fn append_projections_done(
 #[k::equation]
 fn append_projections_cons(
     k::term![AppendProjections {
-        first: Projections::ProjectionsCons { head, tail },
+        first: [head, tail @ ..],
         second,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsCons {
+    [
         head,
-        tail: AppendProjections {
+        ..AppendProjections {
             first: tail,
             second,
         },
-    }
+    ]
 }
 
 #[k::function(
@@ -3881,10 +3766,7 @@ pub struct AppendCastProjections {
 
 #[k::equation]
 fn append_cast_projections_done(
-    k::term![AppendCastProjections {
-        first: Projections::ProjectionsEmpty(),
-        second,
-    }]: k::Term<ProjectionElems>,
+    k::term![AppendCastProjections { first: [], second }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     second
 }
@@ -3892,18 +3774,8 @@ fn append_cast_projections_done(
 #[k::equation(priority = 40)]
 fn append_cast_projections_cancel_singleton(
     k::term![AppendCastProjections {
-        first: Projections::ProjectionsCons {
-            head: Projection::SingletonArray(),
-            tail: Projections::ProjectionsEmpty(),
-        },
-        second: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset: 0,
-                min_length: 0,
-                from_end: false,
-            },
-            tail,
-        },
+        first: [Projection::SingletonArray()],
+        second: [Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }, tail @ ..],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     tail
@@ -3912,18 +3784,8 @@ fn append_cast_projections_cancel_singleton(
 #[k::equation(priority = 40)]
 fn append_cast_projections_cancel_element(
     k::term![AppendCastProjections {
-        first: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset: 0,
-                min_length: 0,
-                from_end: false,
-            },
-            tail: Projections::ProjectionsEmpty(),
-        },
-        second: Projections::ProjectionsCons {
-            head: Projection::SingletonArray(),
-            tail,
-        },
+        first: [Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }],
+        second: [Projection::SingletonArray(), tail @ ..],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     tail
@@ -3932,14 +3794,8 @@ fn append_cast_projections_cancel_element(
 #[k::equation(priority = 40)]
 fn append_cast_projections_cancel_wrapped_field(
     k::term![AppendCastProjections {
-        first: Projections::ProjectionsCons {
-            head: Projection::WrapStruct(),
-            tail: Projections::ProjectionsEmpty(),
-        },
-        second: Projections::ProjectionsCons {
-            head: Projection::Field { field: 0, .. },
-            tail,
-        },
+        first: [Projection::WrapStruct()],
+        second: [Projection::Field { field: 0, .. }, tail @ ..],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     tail
@@ -3948,14 +3804,8 @@ fn append_cast_projections_cancel_wrapped_field(
 #[k::equation(priority = 40)]
 fn append_cast_projections_cancel_to_zst(
     k::term![AppendCastProjections {
-        first: Projections::ProjectionsCons {
-            head: Projection::ToZst(),
-            tail: Projections::ProjectionsEmpty(),
-        },
-        second: Projections::ProjectionsCons {
-            head: Projection::FromZst(),
-            tail,
-        },
+        first: [Projection::ToZst()],
+        second: [Projection::FromZst(), tail @ ..],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     tail
@@ -3964,14 +3814,8 @@ fn append_cast_projections_cancel_to_zst(
 #[k::equation(priority = 40)]
 fn append_cast_projections_cancel_from_zst(
     k::term![AppendCastProjections {
-        first: Projections::ProjectionsCons {
-            head: Projection::FromZst(),
-            tail: Projections::ProjectionsEmpty(),
-        },
-        second: Projections::ProjectionsCons {
-            head: Projection::ToZst(),
-            tail,
-        },
+        first: [Projection::FromZst()],
+        second: [Projection::ToZst(), tail @ ..],
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     tail
@@ -3980,17 +3824,17 @@ fn append_cast_projections_cancel_from_zst(
 #[k::equation]
 fn append_cast_projections_cons(
     k::term![AppendCastProjections {
-        first: Projections::ProjectionsCons { head, tail },
+        first: [head, tail @ ..],
         second,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsCons {
+    [
         head,
-        tail: AppendCastProjections {
+        ..AppendCastProjections {
             first: tail,
             second,
         },
-    }
+    ]
 }
 
 #[k::function(total, sort = Int, syntax = "#originSize({size})")]
@@ -4042,10 +3886,7 @@ fn deref_projection_path_zero_offset(
 ) -> k::Term<ProjectionElems> {
     AppendProjections {
         first: referenced,
-        second: Projections::ProjectionsCons {
-            head: Projection::DerefTruncate { size },
-            tail,
-        },
+        second: [Projection::DerefTruncate { size }, ..tail],
     }
 }
 
@@ -4062,16 +3903,14 @@ fn deref_projection_path_positive_offset(
 ) -> k::Term<ProjectionElems> {
     AppendProjections {
         first: referenced,
-        second: Projections::ProjectionsCons {
-            head: Projection::PointerOffset {
+        second: [
+            Projection::PointerOffset {
                 offset,
                 origin_size: OriginSize { size: origin_size },
             },
-            tail: Projections::ProjectionsCons {
-                head: Projection::DerefTruncate { size },
-                tail,
-            },
-        },
+            Projection::DerefTruncate { size },
+            ..tail,
+        ],
     }
 }
 
@@ -4088,11 +3927,11 @@ pub struct FreezeProjections {
 #[k::equation]
 fn freeze_projections_done(
     k::term![FreezeProjections {
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         ..
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsEmpty()
+    []
 }
 
 /// These projections already name a fixed place, so freezing keeps them;
@@ -4101,50 +3940,39 @@ fn freeze_projections_done(
 #[k::equation]
 fn freeze_projections_fixed(
     k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: head @ (Projection::Field(_, _)
-                | Projection::WrapStruct()
-                | Projection::ConstantIndex(_, _, _)
-                | Projection::Subslice(_, _, _)
-                | Projection::Downcast(_)
-                | Projection::PointerOffset(_, _)),
-            tail,
-        },
+        projections: [head @ (Projection::Field(_, _) | Projection::WrapStruct() | Projection::ConstantIndex(_, _, _) | Projection::Subslice(_, _, _) | Projection::Downcast(_) | Projection::PointerOffset(_, _)), tail @ ..],
         locals,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsCons {
+    [
         head,
-        tail: FreezeProjections {
+        ..FreezeProjections {
             projections: tail,
             locals,
         },
-    }
+    ]
 }
 
 #[k::equation]
 fn freeze_projections_index(
     k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: Projection::Index { local },
-            tail,
-        },
+        projections: [Projection::Index { local }, tail @ ..],
         locals,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
-    Projections::ProjectionsCons {
-        head: Projection::ConstantIndex {
+    [
+        Projection::ConstantIndex {
             offset: ExpectUsize {
                 entry: list::get(locals, local),
             },
             min_length: 0,
             from_end: false,
         },
-        tail: FreezeProjections {
+        ..FreezeProjections {
             projections: tail,
             locals,
         },
-    }
+    ]
 }
 
 #[k::function(partial, sort = Place, syntax = "#freezePlace({place}, {locals})")]
@@ -4249,7 +4077,7 @@ pub struct WriteProjection {
 fn read_projection_done(
     k::term![ReadProjection {
         value,
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4260,10 +4088,7 @@ fn read_projection_done(
 fn read_projection_field(
     k::term![ReadProjection {
         value: Value::Aggregate { fields, .. },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, .. },
-            tail,
-        },
+        projections: [Projection::Field { field, .. }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4278,10 +4103,7 @@ fn read_projection_field(
 fn read_projection_downcast(
     k::term![ReadProjection {
         value: Value::Aggregate { fields, .. },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Downcast { variant },
-            tail,
-        },
+        projections: [Projection::Downcast { variant }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4296,10 +4118,7 @@ fn read_projection_downcast(
 fn read_projection_index(
     k::term![ReadProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Index { local },
-            tail,
-        },
+        projections: [Projection::Index { local }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4333,10 +4152,7 @@ fn read_projection_deref(
             },
             ..
         },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Deref(),
-            tail,
-        },
+        projections: [Projection::Deref(), tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4357,14 +4173,7 @@ fn read_projection_deref(
 fn read_projection_constant_index_front(
     k::term![ReadProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset,
-                from_end: false,
-                ..
-            },
-            tail,
-        },
+        projections: [Projection::ConstantIndex { offset, from_end: false, .. }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4380,14 +4189,7 @@ fn read_projection_constant_index_front(
 fn read_projection_constant_index_end(
     k::term![ReadProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset,
-                min_length,
-                from_end: true,
-            },
-            tail,
-        },
+        projections: [Projection::ConstantIndex { offset, min_length, from_end: true }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4405,14 +4207,7 @@ fn read_projection_constant_index_end(
 fn read_projection_subslice_front(
     k::term![ReadProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice {
-                from,
-                to,
-                from_end: false,
-            },
-            tail,
-        },
+        projections: [Projection::Subslice { from, to, from_end: false }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4432,14 +4227,7 @@ fn read_projection_subslice_front(
 fn read_projection_subslice_end(
     k::term![ReadProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice {
-                from,
-                to,
-                from_end: true,
-            },
-            tail,
-        },
+        projections: [Projection::Subslice { from, to, from_end: true }, tail @ ..],
         locals,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4455,7 +4243,7 @@ fn read_projection_subslice_end(
 #[k::equation]
 fn write_projection_done(
     k::term![WriteProjection {
-        projections: Projections::ProjectionsEmpty(),
+        projections: [],
         replacement,
         ..
     }]: k::Term<MirValue>,
@@ -4467,10 +4255,7 @@ fn write_projection_done(
 fn write_projection_field(
     k::term![WriteProjection {
         value: Value::Aggregate { variant, fields },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, .. },
-            tail,
-        },
+        projections: [Projection::Field { field, .. }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4494,10 +4279,7 @@ fn write_projection_field(
 fn write_projection_downcast(
     k::term![WriteProjection {
         value: Value::Aggregate { fields, .. },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Downcast { variant },
-            tail,
-        },
+        projections: [Projection::Downcast { variant }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4514,10 +4296,7 @@ fn write_projection_downcast(
 fn write_projection_index(
     k::term![WriteProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Index { local },
-            tail,
-        },
+        projections: [Projection::Index { local }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4548,14 +4327,7 @@ fn write_projection_index(
 fn write_projection_constant_index_front(
     k::term![WriteProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset,
-                from_end: false,
-                ..
-            },
-            tail,
-        },
+        projections: [Projection::ConstantIndex { offset, from_end: false, .. }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4579,14 +4351,7 @@ fn write_projection_constant_index_front(
 fn write_projection_constant_index_end(
     k::term![WriteProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset,
-                min_length,
-                from_end: true,
-            },
-            tail,
-        },
+        projections: [Projection::ConstantIndex { offset, min_length, from_end: true }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4612,14 +4377,7 @@ fn write_projection_constant_index_end(
 fn write_projection_subslice_front(
     k::term![WriteProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice {
-                from,
-                to,
-                from_end: false,
-            },
-            tail,
-        },
+        projections: [Projection::Subslice { from, to, from_end: false }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4650,14 +4408,7 @@ fn write_projection_subslice_front(
 fn write_projection_subslice_end(
     k::term![WriteProjection {
         value: Value::Range { elements },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice {
-                from,
-                to,
-                from_end: true,
-            },
-            tail,
-        },
+        projections: [Projection::Subslice { from, to, from_end: true }, tail @ ..],
         replacement,
         locals,
     }]: k::Term<MirValue>,
@@ -4695,7 +4446,7 @@ pub struct BuildProjectionUpdate {
 fn build_projection_update_done(
     k::term![BuildProjectionUpdate {
         value,
-        contexts: MirProjectionContexts::ContextsEmpty(),
+        contexts: [],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     value
@@ -4705,15 +4456,7 @@ fn build_projection_update_done(
 fn build_projection_update_field(
     k::term![BuildProjectionUpdate {
         value,
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::FieldContext {
-                variant,
-                fields,
-                field,
-                ..
-            },
-            tail,
-        },
+        contexts: [MirProjectionContext::FieldContext { variant, fields, field, .. }, tail @ ..],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     BuildProjectionUpdate {
@@ -4729,10 +4472,7 @@ fn build_projection_update_field(
 fn build_projection_update_union_field(
     k::term![BuildProjectionUpdate {
         value,
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::UnionFieldContext { field, .. },
-            tail,
-        },
+        contexts: [MirProjectionContext::UnionFieldContext { field, .. }, tail @ ..],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     BuildProjectionUpdate {
@@ -4748,10 +4488,7 @@ fn build_projection_update_wrap_struct(
             variant: 0,
             fields: list::concat(list::item(value), list::empty()),
         },
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::WrapStructContext(),
-            tail,
-        },
+        contexts: [MirProjectionContext::WrapStructContext(), tail @ ..],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     BuildProjectionUpdate {
@@ -4764,10 +4501,7 @@ fn build_projection_update_wrap_struct(
 fn build_projection_update_index(
     k::term![BuildProjectionUpdate {
         value,
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::IndexContext { elements, index },
-            tail,
-        },
+        contexts: [MirProjectionContext::IndexContext { elements, index }, tail @ ..],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     BuildProjectionUpdate {
@@ -4784,14 +4518,7 @@ fn build_projection_update_subslice(
         value: Value::Range {
             elements: replacement,
         },
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::SubsliceContext {
-                elements,
-                start,
-                from_back,
-            },
-            tail,
-        },
+        contexts: [MirProjectionContext::SubsliceContext { elements, start, from_back }, tail @ ..],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     BuildProjectionUpdate {
@@ -4813,14 +4540,7 @@ fn build_projection_update_pointer_offset(
         value: Value::Range {
             elements: replacement,
         },
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::PointerOffsetContext {
-                elements,
-                offset,
-                ..
-            },
-            tail,
-        },
+        contexts: [MirProjectionContext::PointerOffsetContext { elements, offset, .. }, tail @ ..],
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     BuildProjectionUpdate {
@@ -5104,13 +4824,13 @@ k::rules! {
     };
 
     statements_done: {
-        k: [Execution::ExecStmts(StatementList::StatementsEmpty()), ..],
+        k: [Execution::ExecStmts([]), ..],
     } => {
         k: [..],
     };
 
     statements_cons: {
-        k: [Execution::ExecStmts(StatementList::StatementsCons { head, tail }), ..],
+        k: [Execution::ExecStmts([head, tail @ ..]), ..],
     } => {
         k: [Execution::ExecStmt(head), Execution::ExecStmts(tail), ..],
     };
@@ -5250,7 +4970,7 @@ k::rules! {
                 target: MirProjectionTarget::ToLocal(local),
                 value: LocalValueOf { entry: list::get(locals, local) },
                 projections,
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action: MirProjectionAction::ReferenceAction {
                     place,
@@ -5302,13 +5022,7 @@ k::rules! {
                     ..
                 },
                 mutability,
-                referenced: MirPlace::Place {
-                    projections: Projections::ProjectionsCons {
-                        head: Projection::Deref(),
-                        tail: Projections::ProjectionsEmpty()
-                    },
-                    ..
-                },
+                referenced: MirPlace::Place { projections: [Projection::Deref()], .. },
                 destination
             },
             ..
@@ -5469,7 +5183,7 @@ k::rules! {
     eval_aggregate_empty: {
         k: [
             Execution::EvalRvalue {
-                value: MirRvalue::AggregateRvalue { kind, operands: Operands::Nil() },
+                value: MirRvalue::AggregateRvalue { kind, operands: [] },
                 place
             },
             ..
@@ -5487,7 +5201,7 @@ k::rules! {
     eval_aggregate_cons: {
         k: [
             Execution::EvalRvalue {
-                value: MirRvalue::AggregateRvalue { kind, operands: Operands::Cons { head, tail } },
+                value: MirRvalue::AggregateRvalue { kind, operands: [head, tail @ ..] },
                 place
             },
             ..
@@ -5685,9 +5399,7 @@ k::rules! {
     eval_copy: {
         k: [
             Execution::EvalOperand {
-                operand: MirOperand::Copy(
-                    MirPlace::Place { local, projections: Projections::ProjectionsEmpty() }
-                ),
+                operand: MirOperand::Copy(MirPlace::Place { local, projections: [] }),
                 continuation
             },
             ..
@@ -5709,10 +5421,7 @@ k::rules! {
         k: [
             Execution::EvalOperand {
                 operand: MirOperand::Copy(
-                    MirPlace::Place {
-                        local,
-                        projections: Projections::ProjectionsCons { head, tail }
-                    }
+                    MirPlace::Place { local, projections: [head, tail @ ..] }
                 ),
                 continuation
             },
@@ -5724,7 +5433,7 @@ k::rules! {
             Execution::ReadProjectedLocal {
                 entry: list::get(locals, local),
                 local,
-                projections: Projections::ProjectionsCons { head, tail },
+                projections: [head, ..tail],
                 continuation
             },
             ..
@@ -5734,9 +5443,7 @@ k::rules! {
     eval_move: {
         k: [
             Execution::EvalOperand {
-                operand: MirOperand::Move(
-                    MirPlace::Place { local, projections: Projections::ProjectionsEmpty() }
-                ),
+                operand: MirOperand::Move(MirPlace::Place { local, projections: [] }),
                 continuation
             },
             ..
@@ -5758,10 +5465,7 @@ k::rules! {
         k: [
             Execution::EvalOperand {
                 operand: MirOperand::Move(
-                    MirPlace::Place {
-                        local,
-                        projections: Projections::ProjectionsCons { head, tail }
-                    }
+                    MirPlace::Place { local, projections: [head, tail @ ..] }
                 ),
                 continuation
             },
@@ -5773,7 +5477,7 @@ k::rules! {
             Execution::ReadMovedProjectedLocal {
                 entry: list::get(locals, local),
                 local,
-                projections: Projections::ProjectionsCons { head, tail },
+                projections: [head, ..tail],
                 continuation
             },
             ..
@@ -5831,7 +5535,7 @@ k::rules! {
                 target: MirProjectionTarget::ToLocal(local),
                 value,
                 projections,
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action: MirProjectionAction::ReadAction(continuation)
             },
@@ -5856,7 +5560,7 @@ k::rules! {
                 target: MirProjectionTarget::ToLocal(local),
                 value,
                 projections,
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action: MirProjectionAction::MoveAction(continuation)
             },
@@ -5868,7 +5572,7 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 value,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 action: MirProjectionAction::ReadAction(continuation),
                 ..
             },
@@ -5883,7 +5587,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToLocal(local),
                 value,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 action: MirProjectionAction::ReferenceAction {
                     place,
@@ -5902,10 +5606,7 @@ k::rules! {
                     height: 0,
                     place: MirPlace::Place {
                         local,
-                        projections: ProjectionsFor {
-                            contexts,
-                            projections: Projections::ProjectionsEmpty()
-                        }
+                        projections: ProjectionsFor { contexts, projections: [] }
                     },
                     mutability,
                     metadata: MirMetadata::Metadata {
@@ -5924,7 +5625,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToStack { height, local },
                 value,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 action: MirProjectionAction::ReferenceAction {
                     place,
@@ -5943,10 +5644,7 @@ k::rules! {
                     height,
                     place: MirPlace::Place {
                         local,
-                        projections: ProjectionsFor {
-                            contexts,
-                            projections: Projections::ProjectionsEmpty()
-                        }
+                        projections: ProjectionsFor { contexts, projections: [] }
                     },
                     mutability,
                     metadata: MirMetadata::Metadata {
@@ -5965,7 +5663,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToAllocation(allocation),
                 value,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 action: MirProjectionAction::ReferenceAction {
                     place,
@@ -5982,10 +5680,7 @@ k::rules! {
                 place,
                 value: Value::AllocationReference {
                     allocation,
-                    projections: ProjectionsFor {
-                        contexts,
-                        projections: Projections::ProjectionsEmpty()
-                    },
+                    projections: ProjectionsFor { contexts, projections: [] },
                     metadata: MirMetadata::Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
@@ -6001,7 +5696,7 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToLocal(local),
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 action: MirProjectionAction::WriteAction(replacement),
                 ..
@@ -6011,7 +5706,7 @@ k::rules! {
     } => {
         k: [
             Execution::SetLocalValue {
-                place: MirPlace::Place { local, projections: Projections::ProjectionsEmpty() },
+                place: MirPlace::Place { local, projections: [] },
                 value: BuildProjectionUpdate { value: replacement, contexts }
             },
             ..
@@ -6022,7 +5717,7 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToStack { height, local },
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 locals,
                 action: MirProjectionAction::WriteAction(replacement),
@@ -6039,7 +5734,7 @@ k::rules! {
             UpdateProjectedStackLocal {
                 frame: list::get(stack, height - 1),
                 local,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 value: AdjustRef {
                     value: BuildProjectionUpdate { value: replacement, contexts },
                     offset: -height
@@ -6054,7 +5749,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToLocal(local),
                 value,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 action: MirProjectionAction::MoveAction(continuation),
                 ..
@@ -6064,7 +5759,7 @@ k::rules! {
     } => {
         k: [
             Execution::SetLocalValue {
-                place: MirPlace::Place { local, projections: Projections::ProjectionsEmpty() },
+                place: MirPlace::Place { local, projections: [] },
                 value: BuildProjectionUpdate { value: Value::Moved(), contexts }
             },
             Execution::Continue { value, continuation },
@@ -6077,7 +5772,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToStack { height, local },
                 value,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 contexts,
                 locals,
                 action: MirProjectionAction::MoveAction(continuation)
@@ -6093,7 +5788,7 @@ k::rules! {
             UpdateProjectedStackLocal {
                 frame: list::get(stack, height - 1),
                 local,
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 value: AdjustRef {
                     value: BuildProjectionUpdate { value: Value::Moved(), contexts },
                     offset: -height
@@ -6107,10 +5802,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Aggregate { variant, fields },
-                projections: Projections::ProjectionsCons {
-                    head: Projection::Field { field, ty },
-                    tail
-                },
+                projections: [Projection::Field { field, ty }, tail @ ..],
                 contexts,
                 ..
             },
@@ -6121,10 +5813,10 @@ k::rules! {
             Execution::TraverseProjection {
                 value: list::get(fields, field),
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::FieldContext { variant, fields, field, ty },
-                    tail: contexts
-                },
+                contexts: [
+                    MirProjectionContext::FieldContext { variant, fields, field, ty },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6135,10 +5827,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Union { field, value },
-                projections: Projections::ProjectionsCons {
-                    head: Projection::Field { field, ty },
-                    tail
-                },
+                projections: [Projection::Field { field, ty }, tail @ ..],
                 contexts,
                 ..
             },
@@ -6149,10 +5838,10 @@ k::rules! {
             Execution::TraverseProjection {
                 value,
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::UnionFieldContext { field, value, ty },
-                    tail: contexts
-                },
+                contexts: [
+                    MirProjectionContext::UnionFieldContext { field, value, ty },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6163,7 +5852,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value,
-                projections: Projections::ProjectionsCons { head: Projection::WrapStruct(), tail },
+                projections: [Projection::WrapStruct(), tail @ ..],
                 contexts,
                 ..
             },
@@ -6177,10 +5866,7 @@ k::rules! {
                     fields: list::concat(list::item(value), list::empty())
                 },
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::WrapStructContext(),
-                    tail: contexts
-                },
+                contexts: [MirProjectionContext::WrapStructContext(), ..contexts],
                 ..traversal
             },
             ..
@@ -6191,10 +5877,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Aggregate { fields, .. },
-                projections: Projections::ProjectionsCons {
-                    head: Projection::Downcast { variant },
-                    tail
-                },
+                projections: [Projection::Downcast { variant }, tail @ ..],
                 ..
             },
             ..
@@ -6214,10 +5897,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::Index { local },
-                    tail
-                },
+                projections: [Projection::Index { local }, tail @ ..],
                 contexts,
                 locals,
                 ..
@@ -6229,13 +5909,13 @@ k::rules! {
             Execution::TraverseProjection {
                 value: list::get(elements, ExpectUsize { entry: list::get(locals, local) }),
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::IndexContext {
+                contexts: [
+                    MirProjectionContext::IndexContext {
                         elements,
                         index: ExpectUsize { entry: list::get(locals, local) }
                     },
-                    tail: contexts
-                },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6247,10 +5927,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::ConstantIndex { offset, from_end: false, .. },
-                    tail
-                },
+                projections: [Projection::ConstantIndex { offset, from_end: false, .. }, tail @ ..],
                 contexts,
                 ..
             },
@@ -6261,10 +5938,10 @@ k::rules! {
             Execution::TraverseProjection {
                 value: list::get(elements, offset),
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::IndexContext { elements, index: offset },
-                    tail: contexts
-                },
+                contexts: [
+                    MirProjectionContext::IndexContext { elements, index: offset },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6278,10 +5955,10 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::ConstantIndex { offset, min_length, from_end: true },
-                    tail
-                },
+                projections: [
+                    Projection::ConstantIndex { offset, min_length, from_end: true },
+                    tail @ ..
+                ],
                 contexts,
                 ..
             },
@@ -6292,13 +5969,10 @@ k::rules! {
             Execution::TraverseProjection {
                 value: list::get(elements, min_length - offset),
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::IndexContext {
-                        elements,
-                        index: min_length - offset
-                    },
-                    tail: contexts
-                },
+                contexts: [
+                    MirProjectionContext::IndexContext { elements, index: min_length - offset },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6316,10 +5990,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::Subslice { from, to, from_end: false },
-                    tail
-                },
+                projections: [Projection::Subslice { from, to, from_end: false }, tail @ ..],
                 contexts,
                 ..
             },
@@ -6332,14 +6003,14 @@ k::rules! {
                     elements: list::range(elements, from, list::size(elements) - to)
                 },
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::SubsliceContext {
+                contexts: [
+                    MirProjectionContext::SubsliceContext {
                         elements,
                         start: from,
                         from_back: list::size(elements) - to
                     },
-                    tail: contexts
-                },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6353,10 +6024,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::Subslice { from, to, from_end: true },
-                    tail
-                },
+                projections: [Projection::Subslice { from, to, from_end: true }, tail @ ..],
                 contexts,
                 ..
             },
@@ -6367,14 +6035,10 @@ k::rules! {
             Execution::TraverseProjection {
                 value: Value::Range { elements: list::range(elements, from, to) },
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::SubsliceContext {
-                        elements,
-                        start: from,
-                        from_back: to
-                    },
-                    tail: contexts
-                },
+                contexts: [
+                    MirProjectionContext::SubsliceContext { elements, start: from, from_back: to },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6386,10 +6050,7 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::PointerOffset { offset, origin_size },
-                    tail
-                },
+                projections: [Projection::PointerOffset { offset, origin_size }, tail @ ..],
                 contexts,
                 ..
             },
@@ -6400,14 +6061,10 @@ k::rules! {
             Execution::TraverseProjection {
                 value: Value::Range { elements: list::range(elements, offset, 0) },
                 projections: tail,
-                contexts: MirProjectionContexts::ContextsCons {
-                    head: MirProjectionContext::PointerOffsetContext {
-                        elements,
-                        offset,
-                        origin_size
-                    },
-                    tail: contexts
-                },
+                contexts: [
+                    MirProjectionContext::PointerOffsetContext { elements, offset, origin_size },
+                    ..contexts
+                ],
                 ..traversal
             },
             ..
@@ -6419,12 +6076,12 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::DerefTruncate {
+                projections: [
+                    Projection::DerefTruncate {
                         size: MirMetadataSize::StaticSize(size) | MirMetadataSize::DynamicSize(size)
                     },
-                    tail
-                },
+                    tail @ ..
+                ],
                 ..
             },
             ..
@@ -6446,10 +6103,10 @@ k::rules! {
         k: [
             traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
-                projections: Projections::ProjectionsCons {
-                    head: Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
-                    tail
-                },
+                projections: [
+                    Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
+                    tail @ ..
+                ],
                 ..
             },
             ..
@@ -6469,10 +6126,10 @@ k::rules! {
     traverse_projection_truncate_non_range: {
         k: [
             traversal @ Execution::TraverseProjection {
-                projections: Projections::ProjectionsCons {
-                    head: Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
-                    tail
-                },
+                projections: [
+                    Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
+                    tail @ ..
+                ],
                 ..
             },
             ..
@@ -6497,7 +6154,7 @@ k::rules! {
                     metadata: MirMetadata::Metadata { size, offset, origin_size },
                     ..
                 },
-                projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
+                projections: [Projection::Deref(), tail @ ..],
                 locals,
                 action,
                 ..
@@ -6510,7 +6167,7 @@ k::rules! {
                 target: MirProjectionTarget::ToLocal(local),
                 value: LocalValueOf { entry: list::get(locals, local) },
                 projections: DerefProjectionPath { referenced, size, offset, origin_size, tail },
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action
             },
@@ -6534,7 +6191,7 @@ k::rules! {
                     metadata: MirMetadata::Metadata { size, offset, origin_size },
                     ..
                 },
-                projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
+                projections: [Projection::Deref(), tail @ ..],
                 locals,
                 action,
                 ..
@@ -6552,7 +6209,7 @@ k::rules! {
                     offset: height
                 },
                 projections: DerefProjectionPath { referenced, size, offset, origin_size, tail },
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action
             },
@@ -6568,7 +6225,7 @@ k::rules! {
                     projections: referenced,
                     metadata: MirMetadata::Metadata { size, .. }
                 },
-                projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
+                projections: [Projection::Deref(), tail @ ..],
                 locals,
                 action: MirProjectionAction::ReadAction(continuation),
                 ..
@@ -6588,7 +6245,7 @@ k::rules! {
                     origin_size: MirMetadataSize::NoMetadataSize(),
                     tail
                 },
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action: MirProjectionAction::ReadAction(continuation)
             },
@@ -6604,7 +6261,7 @@ k::rules! {
                     projections: referenced,
                     metadata: MirMetadata::Metadata { size, .. }
                 },
-                projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
+                projections: [Projection::Deref(), tail @ ..],
                 locals,
                 action: MirProjectionAction::ReferenceAction { place, mutability, metadata },
                 ..
@@ -6624,7 +6281,7 @@ k::rules! {
                     origin_size: MirMetadataSize::NoMetadataSize(),
                     tail
                 },
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action: MirProjectionAction::ReferenceAction { place, mutability, metadata }
             },
@@ -6649,7 +6306,7 @@ k::rules! {
                     place,
                     kind,
                     values,
-                    remaining: Operands::Nil()
+                    remaining: []
                 }
             },
             ..
@@ -6675,7 +6332,7 @@ k::rules! {
                     place,
                     kind,
                     values,
-                    remaining: Operands::Cons { head, tail }
+                    remaining: [head, tail @ ..]
                 }
             },
             ..
@@ -6935,7 +6592,7 @@ k::rules! {
                 destination,
                 source: map::get(types, source),
                 target: map::get(types, target),
-                projections: Projections::ProjectionsEmpty(),
+                projections: [],
                 target_size: MetadataSizeOf { info: map::get(types, target) }
             },
             ..
@@ -7001,10 +6658,7 @@ k::rules! {
                 source: MirTypeInfo::VoidType(),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::ToZst(),
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [Projection::ToZst()]
                 },
                 target_size,
                 ..cast
@@ -7036,10 +6690,7 @@ k::rules! {
                 target,
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::FromZst(),
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [Projection::FromZst()]
                 },
                 target_size,
                 ..cast
@@ -7139,12 +6790,7 @@ k::rules! {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
                 source: MirTypeInfo::ArrayType { element: source_element, size: source_size },
-                target: MirTypeInfo::StructType {
-                    name,
-                    adt_def,
-                    fields: MirTys::TysCons { head: field, tail: MirTys::TysEmpty() },
-                    layout
-                },
+                target: MirTypeInfo::StructType { name, adt_def, fields: [field], layout },
                 projections,
                 target_size,
                 ..
@@ -7160,10 +6806,7 @@ k::rules! {
                 target: map::get(types, field),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::WrapStruct(),
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [Projection::WrapStruct()]
                 },
                 target_size,
                 ..cast
@@ -7201,12 +6844,7 @@ k::rules! {
             cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
                 pointer_place,
-                source: MirTypeInfo::StructType {
-                    name,
-                    adt_def,
-                    fields: MirTys::TysCons { head: field, tail: MirTys::TysEmpty() },
-                    layout
-                },
+                source: MirTypeInfo::StructType { name, adt_def, fields: [field], layout },
                 projections,
                 target_size,
                 ..
@@ -7222,10 +6860,7 @@ k::rules! {
                 source: map::get(types, field),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::Field { field: 0, ty: field },
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [Projection::Field { field: 0, ty: field }]
                 },
                 target_size,
                 ..cast
@@ -7255,14 +6890,9 @@ k::rules! {
                 source: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::ConstantIndex {
-                            offset: 0,
-                            min_length: 0,
-                            from_end: false
-                        },
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [
+                        Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }
+                    ]
                 },
                 target_size,
                 ..cast
@@ -7295,14 +6925,9 @@ k::rules! {
                 },
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::ConstantIndex {
-                            offset: 0,
-                            min_length: 0,
-                            from_end: false
-                        },
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [
+                        Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }
+                    ]
                 },
                 target_size,
                 ..cast
@@ -7355,10 +6980,7 @@ k::rules! {
                 target: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::SingletonArray(),
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [Projection::SingletonArray()]
                 },
                 target_size,
                 ..cast
@@ -7373,12 +6995,7 @@ k::rules! {
             cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::TargetPhase(),
                 pointer_place,
-                target: MirTypeInfo::StructType {
-                    name,
-                    adt_def,
-                    fields: MirTys::TysCons { head: field, tail: MirTys::TysEmpty() },
-                    layout
-                },
+                target: MirTypeInfo::StructType { name, adt_def, fields: [field], layout },
                 projections,
                 target_size,
                 ..
@@ -7394,10 +7011,7 @@ k::rules! {
                 target: map::get(types, field),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: Projections::ProjectionsCons {
-                        head: Projection::WrapStruct(),
-                        tail: Projections::ProjectionsEmpty()
-                    }
+                    second: [Projection::WrapStruct()]
                 },
                 target_size,
                 ..cast
@@ -8519,10 +8133,7 @@ k::rules! {
 
     set_local_value: {
         k: [
-            Execution::SetLocalValue {
-                place: MirPlace::Place { local, projections: Projections::ProjectionsEmpty() },
-                value
-            },
+            Execution::SetLocalValue { place: MirPlace::Place { local, projections: [] }, value },
             ..
         ],
         locals,
@@ -8533,10 +8144,7 @@ k::rules! {
     set_projected_local_value: {
         k: [
             Execution::SetLocalValue {
-                place: MirPlace::Place {
-                    local,
-                    projections: Projections::ProjectionsCons { head, tail }
-                },
+                place: MirPlace::Place { local, projections: [head, tail @ ..] },
                 value
             },
             ..
@@ -8547,7 +8155,7 @@ k::rules! {
             Execution::WriteProjectedLocal {
                 entry: list::get(locals, local),
                 local,
-                projections: Projections::ProjectionsCons { head, tail },
+                projections: [head, ..tail],
                 value
             },
             ..
@@ -8571,7 +8179,7 @@ k::rules! {
                 target: MirProjectionTarget::ToLocal(local),
                 value: original,
                 projections,
-                contexts: MirProjectionContexts::ContextsEmpty(),
+                contexts: [],
                 locals,
                 action: MirProjectionAction::WriteAction(value)
             },
@@ -8674,13 +8282,13 @@ k::rules! {
     };
 
     set_args_done: {
-        k: [Execution::SetArgsFromStack { args: Operands::Nil(), .. }, ..],
+        k: [Execution::SetArgsFromStack { args: [], .. }, ..],
     } => {
         k: [..],
     };
 
     set_args_cons: {
-        k: [Execution::SetArgsFromStack { index, args: Operands::Cons { head, tail } }, ..],
+        k: [Execution::SetArgsFromStack { index, args: [head, tail @ ..] }, ..],
     } => {
         k: [
             Execution::SetArgFromStack { index, operand: head },
@@ -8694,10 +8302,7 @@ k::rules! {
     } => {
         k: [
             Execution::SetLocalValue {
-                place: MirPlace::Place {
-                    local: index,
-                    projections: Projections::ProjectionsEmpty()
-                },
+                place: MirPlace::Place { local: index, projections: [] },
                 value
             },
             ..
@@ -8708,9 +8313,7 @@ k::rules! {
         k: [
             Execution::SetArgFromStack {
                 index,
-                operand: MirOperand::Copy(
-                    MirPlace::Place { local, projections: Projections::ProjectionsEmpty() }
-                )
+                operand: MirOperand::Copy(MirPlace::Place { local, projections: [] })
             },
             ..
         ],
@@ -8730,10 +8333,7 @@ k::rules! {
     } => {
         k: [
             Execution::SetLocalValue {
-                place: MirPlace::Place {
-                    local: index,
-                    projections: Projections::ProjectionsEmpty()
-                },
+                place: MirPlace::Place { local: index, projections: [] },
                 value: AdjustRef {
                     value: LocalValueOf { entry: list::get(caller_locals, local) },
                     offset: 1
@@ -8747,9 +8347,7 @@ k::rules! {
         k: [
             Execution::SetArgFromStack {
                 index,
-                operand: MirOperand::Move(
-                    MirPlace::Place { local, projections: Projections::ProjectionsEmpty() }
-                )
+                operand: MirOperand::Move(MirPlace::Place { local, projections: [] })
             },
             ..
         ],
@@ -8769,10 +8367,7 @@ k::rules! {
     } => {
         k: [
             Execution::SetLocalValue {
-                place: MirPlace::Place {
-                    local: index,
-                    projections: Projections::ProjectionsEmpty()
-                },
+                place: MirPlace::Place { local: index, projections: [] },
                 value: AdjustRef {
                     value: LocalValueOf { entry: list::get(caller_locals, local) },
                     offset: 1
@@ -8869,10 +8464,7 @@ k::rules! {
         k: [
             Execution::Continue {
                 continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesEmpty(),
-                        otherwise
-                    }
+                    MirSwitchTargets::SwitchTargets { branches: [], otherwise }
                 ),
                 ..
             },
@@ -8888,10 +8480,7 @@ k::rules! {
                 value: Value::Boolean(true),
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: 1, target },
-                            ..
-                        },
+                        branches: [MirBranch::Branch { value: 1, target }, ..],
                         ..
                     }
                 )
@@ -8910,10 +8499,7 @@ k::rules! {
                 value: Value::Boolean(true),
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, .. },
-                            tail
-                        },
+                        branches: [MirBranch::Branch { value: branch_value, .. }, tail @ ..],
                         otherwise
                     }
                 )
@@ -8938,10 +8524,7 @@ k::rules! {
                 value: Value::Boolean(false),
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: 0, target },
-                            ..
-                        },
+                        branches: [MirBranch::Branch { value: 0, target }, ..],
                         ..
                     }
                 )
@@ -8960,10 +8543,7 @@ k::rules! {
                 value: Value::Boolean(false),
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, .. },
-                            tail
-                        },
+                        branches: [MirBranch::Branch { value: branch_value, .. }, tail @ ..],
                         otherwise
                     }
                 )
@@ -8989,10 +8569,7 @@ k::rules! {
                 value: Value::Integer { value, width, .. },
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, target },
-                            ..
-                        },
+                        branches: [MirBranch::Branch { value: branch_value, target }, ..],
                         ..
                     }
                 )
@@ -9011,10 +8588,7 @@ k::rules! {
                 value: Value::Integer { value, width, signed },
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
-                        branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, .. },
-                            tail
-                        },
+                        branches: [MirBranch::Branch { value: branch_value, .. }, tail @ ..],
                         otherwise
                     }
                 )
