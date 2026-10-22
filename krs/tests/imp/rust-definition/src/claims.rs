@@ -1,7 +1,7 @@
 //! Complete IMP proof corpus: all 15 upstream IMP claims plus five adjuncts.
 
 use k::Term;
-use k::builtin::{Bool, Int, Map, bool, int};
+use k::builtin::{Bool, Int, Map, bool};
 #[allow(unused_imports)]
 use k::map;
 
@@ -108,7 +108,7 @@ fn addition_two(
 }
 
 #[k::claim(all_paths, label = "addition-var")]
-#[k::requires(int::eq(n, 4))]
+#[k::requires(n == 4)]
 fn addition_var(
     n: Term<Int>,
     k::cells! {
@@ -153,7 +153,7 @@ fn pre_branch_proved(
 
 #[k::claim(all_paths, label = "branching")]
 #[k::exists(n: Int)]
-#[k::ensures(k::or_bool![int::eq(n, 5), int::eq(n, 6)])]
+#[k::ensures(k::or_bool![n == 5, n == 6])]
 fn branching(
     k::cells! {
         k: k::configuration::KCell(
@@ -206,7 +206,7 @@ fn branching_program(
 
 #[k::claim(all_paths, label = "branching-deadcode")]
 #[k::exists(n: Int)]
-#[k::ensures(k::or_bool![int::eq(n, 5), int::eq(n, 6)])]
+#[k::ensures(k::or_bool![n == 5, n == 6])]
 fn branching_deadcode(
     branch: Term<Bool>,
     k::cells! {
@@ -289,7 +289,7 @@ fn while_cut_rule_delayed(
 }
 
 #[k::claim(all_paths, label = "sum-loop")]
-#[k::requires(int::le(0, n))]
+#[k::requires(0 <= n)]
 fn sum_loop(
     s: Term<Int>,
     n: Term<Int>,
@@ -314,7 +314,7 @@ fn sum_loop(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$s") -> int::add(s, int::div(int::mul(n, int::add(n, 1)), 2)),
+            k::id!("$s") -> s + n * (n + 1) / 2,
             k::id!("$n") -> 0,
         ]),
         ..state
@@ -322,7 +322,7 @@ fn sum_loop(
 }
 
 #[k::claim(all_paths, label = "sum-N")]
-#[k::requires(int::le(0, n))]
+#[k::requires(0 <= n)]
 fn sum_n(
     n: Term<Int>,
     k::cells! {
@@ -349,7 +349,7 @@ fn sum_n(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
-            k::id!("$s") -> int::div(int::mul(n, int::add(n, 1)), 2),
+            k::id!("$s") -> n * (n + 1) / 2,
             k::id!("$n") -> 0,
         ]),
         ..state
@@ -358,7 +358,7 @@ fn sum_n(
 
 #[k::claim(all_paths, label = "bmc-loop-concrete")]
 #[k::exists(n: Int)]
-#[k::ensures(int::lt(0, n))]
+#[k::ensures(0 < n)]
 fn bmc_loop_concrete(
     k::cells! {
         k: k::configuration::KCell(
@@ -381,8 +381,8 @@ fn bmc_loop_concrete(
 
 #[k::claim(all_paths, label = "bmc-loop-symbolic")]
 #[k::exists(n: Int)]
-#[k::requires(int::le(0, s))]
-#[k::ensures(int::lt(0, n))]
+#[k::requires(0 <= s)]
+#[k::ensures(0 < n)]
 fn bmc_loop_symbolic(
     s: Term<Int>,
     k::cells! {
@@ -411,7 +411,7 @@ fn bmc_loop_symbolic(
 }
 
 #[k::claim(all_paths, label = "sum-spec", circularity)]
-#[k::requires(int::ge(n, 0))]
+#[k::requires(n >= 0)]
 fn sum_spec(
     n: Term<Int>,
     s: Term<Int>,
@@ -437,17 +437,14 @@ fn sum_spec(
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
             k::id!("$n") -> 0,
-            k::id!("$s") -> int::add(
-                s,
-                int::div(int::mul(int::add(n, 1), n), 2),
-            ),
+            k::id!("$s") -> s + (n + 1) * n / 2,
         ]),
         ..state
     }
 }
 
 #[k::claim(all_paths, label = "two-sum-spec", circularity)]
-#[k::requires(bool::and(int::ge(n, 0), int::ge(m, 0)))]
+#[k::requires(bool::and(n >= 0, m >= 0))]
 fn two_sum_spec(
     n: Term<Int>,
     m: Term<Int>,
@@ -487,14 +484,8 @@ fn two_sum_spec(
         env: k::configuration::Cell(map![
             k::id!("$n") -> 0,
             k::id!("$m") -> 0,
-            k::id!("$s1") -> int::add(
-                s1,
-                int::div(int::mul(int::add(n, 1), n), 2),
-            ),
-            k::id!("$s2") -> int::add(
-                s2,
-                int::div(int::mul(int::add(m, 1), m), 2),
-            ),
+            k::id!("$s1") -> s1 + (n + 1) * n / 2,
+            k::id!("$s2") -> s2 + (m + 1) * m / 2,
         ]),
         ..state
     }
