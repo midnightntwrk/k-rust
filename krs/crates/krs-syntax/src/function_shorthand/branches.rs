@@ -662,6 +662,20 @@ fn unparenthesized(expression: &Expr) -> &Expr {
     }
 }
 
+/// Whether a bare name in a pattern refers to a `#[k::constant]`, which is
+/// compared, not bound ([`crate::path::is_constant_name`]).
+fn is_constant(binder: &syn::PatIdent) -> bool {
+    binder.subpat.is_none() && crate::path::is_constant_name(&binder.ident)
+}
+
+/// Whether a bare name binds the whole value: a plain binder, not a constant.
+fn is_binder(binder: &syn::PatIdent) -> bool {
+    binder.subpat.is_none()
+        && binder.by_ref.is_none()
+        && binder.mutability.is_none()
+        && !is_constant(binder)
+}
+
 /// Whether an arm matches every value: no guard, and `_` or a binder for
 /// each parameter, `_` for each other term.
 fn is_catch_all(arm: &Arm, kinds: &[Scrutinee]) -> bool {
@@ -669,11 +683,7 @@ fn is_catch_all(arm: &Arm, kinds: &[Scrutinee]) -> bool {
         && arm.components.iter().zip(kinds).all(|(component, kind)| {
             match (&component.pattern, kind) {
                 (Pat::Wild(_), _) => true,
-                (Pat::Ident(binder), Scrutinee::Parameter(_)) => {
-                    binder.subpat.is_none()
-                        && binder.by_ref.is_none()
-                        && binder.mutability.is_none()
-                }
+                (Pat::Ident(binder), Scrutinee::Parameter(_)) => is_binder(binder),
                 _ => false,
             }
         })
@@ -906,7 +916,9 @@ fn binders(pattern: &Pat) -> Vec<&Ident> {
     struct Binders<'a>(Vec<&'a Ident>);
     impl<'a> Visit<'a> for Binders<'a> {
         fn visit_pat_ident(&mut self, binder: &'a syn::PatIdent) {
-            self.0.push(&binder.ident);
+            if !is_constant(binder) {
+                self.0.push(&binder.ident);
+            }
             syn::visit::visit_pat_ident(self, binder);
         }
         fn visit_pat_or(&mut self, alternatives: &'a syn::PatOr) {
@@ -934,7 +946,9 @@ impl VisitMut for WildBinders {
     }
 
     fn visit_pat_mut(&mut self, pattern: &mut Pat) {
-        if let Pat::Ident(binder) = pattern {
+        if let Pat::Ident(binder) = pattern
+            && !is_constant(binder)
+        {
             *pattern = match binder.subpat.take() {
                 Some((_, inner)) => *inner,
                 None => Pat::Wild(syn::PatWild {
@@ -1266,6 +1280,28 @@ mod tests {
         .assert_debug_eq(&equations(
             "pub fn Clamp(value: k::Term<Int>) -> k::Term<Int> {
                 if int::lt(value, 0) { 0 } else if int::gt(value, 9) || int::eq(value, 7) { 9 } else { value }
+            }",
+        ));
+    }
+
+    #[test]
+    fn a_constant_name_in_an_arm_is_compared_not_bound() {
+        expect_test::expect![[r#"
+            [
+                "port_1: Port (IF , value) => value",
+                "port_2_1 [owise]: Port (_ , MASK) => 1",
+                "port_2_2 [owise]: Port (_ , value) requires (k :: matches ! (value , MASK)) . not :: < Bool > () => 0",
+            ]
+        "#]]
+        .assert_debug_eq(&equations(
+            "pub fn Port(address: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+                match address {
+                    IF => value,
+                    _ => match value {
+                        MASK => 1,
+                        _ => 0,
+                    },
+                }
             }",
         ));
     }

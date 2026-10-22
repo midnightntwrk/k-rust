@@ -107,6 +107,23 @@ pub fn Fit(width: Term<Int>, value: Term<Int>) -> Term<Int> {
         _ => if int::lt(value, 0) { int::add(value, width) } else { value },
     }
 }
+
+#[k::constant]
+pub const IF: Int = 0xFF0F;
+
+#[k::constant]
+pub const MASK: Int = 0b1111;
+
+#[k::function(total, internal)]
+pub fn Port(address: Term<Int>, value: Term<Int>) -> Term<Int> {
+    match address {
+        IF => value,
+        _ => match value {
+            MASK => 1,
+            _ => 0,
+        },
+    }
+}
 "#;
 
 /// The same equations written by hand, under the names the branches take.
@@ -218,6 +235,25 @@ fn fit_wide_1(k::term![Fit(width, value)]: Term<Int>) -> Term<Int> {
 #[k::equation(owise)]
 fn fit_wide_2(k::term![Fit(width, value)]: Term<Int>) -> Term<Int> {
     value
+}
+
+#[k::function(total, internal)]
+pub fn Port(address: Term<Int>, value: Term<Int>) -> Term<Int>;
+
+#[k::equation]
+fn port_1(k::term![Port(65295, value)]: Term<Int>) -> Term<Int> {
+    value
+}
+
+#[k::equation(owise)]
+fn port_2_1(k::term![Port(_, 15)]: Term<Int>) -> Term<Int> {
+    1
+}
+
+#[k::requires(k::matches!(value, 15).not::<Bool>())]
+#[k::equation(owise)]
+fn port_2_2(k::term![Port(_, value)]: Term<Int>) -> Term<Int> {
+    0
 }
 "#;
 
@@ -339,8 +375,8 @@ fn branches_emit_the_equations_written_by_hand() {
     assert!(success, "{stderr}");
     let branching = rules(&branching);
     assert_eq!(branching, rules(&long_form));
-    // `Magnitude`'s one equation, and the sixteen that branches define.
-    assert_eq!(branching.len(), 17, "{branching:#?}");
+    // `Magnitude`'s one equation, and the nineteen that branches define.
+    assert_eq!(branching.len(), 20, "{branching:#?}");
 }
 
 /// Shapes whose equations the macro and the collector must anchor alike,
