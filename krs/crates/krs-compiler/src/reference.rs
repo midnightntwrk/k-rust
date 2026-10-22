@@ -208,7 +208,21 @@ pub fn expand_reference_source(
     let mut items = Vec::new();
     for (index, mut item) in std::mem::take(&mut file.items).into_iter().enumerate() {
         if let Some(long_form) = materialize_function_shorthand(&item)? {
-            items.extend(long_form);
+            for mut long_item in long_form {
+                if let syn::Item::Fn(item_fn) = &mut long_item
+                    && requires_holds_equality(item_fn)
+                {
+                    restate_requires(
+                        item_fn,
+                        package,
+                        module_path,
+                        bundle,
+                        &descriptor_index,
+                        &semantic_rules,
+                    )?;
+                }
+                items.push(long_item);
+            }
             continue;
         }
         if let syn::Item::Use(item_use) = &mut item {
@@ -219,10 +233,13 @@ pub fn expand_reference_source(
         // A rule or equation fn whose subject holds `k::bits!` templates
         // is written as its long form, its condition restated from the
         // descriptor as a table row's is.
+        // So is a fn whose `requires` holds `==`, which the printer would
+        // not write back as Rust (see [`requires_holds_equality`]).
         if let syn::Item::Fn(item_fn) = &mut item
-            && krs_syntax::desugar_bit_templates(item_fn)
+            && (krs_syntax::desugar_bit_templates(item_fn)
                 .map_err(ReferenceExpansionError::KrsSyntax)?
                 .is_some()
+                || requires_holds_equality(item_fn))
         {
             restate_requires(
                 item_fn,
@@ -1891,6 +1908,44 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// Whether a `#[k::requires]` of `item` holds the operator `==`.
+///
+/// prettyplease writes a list attribute's arguments as `key = value` pairs,
+/// with a space after every `=`, so it would print `a == b` as `a = = b`,
+/// which no longer parses as the condition; such a condition is restated in
+/// its call spelling instead.
+fn requires_holds_equality(item: &syn::ItemFn) -> bool {
+    fn holds(tokens: TokenStream) -> bool {
+        let mut previous_joint_eq = false;
+        for tree in tokens {
+            match tree {
+                proc_macro2::TokenTree::Punct(punct) if punct.as_char() == '=' => {
+                    if previous_joint_eq {
+                        return true;
+                    }
+                    previous_joint_eq = punct.spacing() == proc_macro2::Spacing::Joint;
+                }
+                proc_macro2::TokenTree::Group(group) => {
+                    if holds(group.stream()) {
+                        return true;
+                    }
+                    previous_joint_eq = false;
+                }
+                _ => previous_joint_eq = false,
+            }
+        }
+        false
+    }
+    item.attrs.iter().any(|attribute| {
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "requires")
+            && matches!(&attribute.meta, syn::Meta::List(list) if holds(list.tokens.clone()))
+    })
 }
 
 /// Restates the `requires` of a rule or equation fn from its descriptor, in

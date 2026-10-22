@@ -47,6 +47,22 @@ k::equations! {
     clamp_mid: value => {MID};
 }
 
+/// Half of an even number; its guard holds `==`.
+#[k::function(partial, internal)]
+#[k::requires({EVEN})]
+pub fn Half(value: Term<Int>) -> Term<Int> {
+    k::term![int::div(value, 2)]
+}
+
+#[k::function(partial, internal)]
+pub fn One(value: Term<Int>) -> Term<Int>;
+
+#[k::equation]
+#[k::requires({ONE})]
+fn one(k::term![One(value)]: Term<Int>) -> Term<Int> {
+    value
+}
+
 #[k::function(total, internal)]
 pub fn Shout(s: Term<string::String>, t: Term<string::String>) -> Term<Bool> {
     k::term![{SHOUT}]
@@ -117,6 +133,12 @@ const SPELLINGS: &[(&str, &str, &str)] = &[
         "HALF_CARRY",
         "int::gt(int::add(int::bit_and(a, 15), int::bit_and(b, 15)), 15)",
         "(a & 15) + (b & 15) > 15",
+    ),
+    ("EVEN", "int::eq(int::rem(value, 2), 0)", "value % 2 == 0"),
+    (
+        "ONE",
+        "int::eq(value, 1) && int::ne(value, 2)",
+        "value == 1 && value != 2",
     ),
     ("BELOW", "int::lt(value, 0)", "value < 0"),
     ("ABOVE", "int::gt(value, 255)", "value > 255"),
@@ -311,6 +333,36 @@ fn expand_writes_the_calls_operators_denote() {
         }
     "]]
     .assert_eq(&stdout[start..end]);
+}
+
+/// The `#[k::requires]` of a fn's equation, `==` included, is written as the
+/// calls it denotes, since a list attribute's arguments print as `key = value`
+/// pairs, which would separate the two `=` of `==`.
+#[test]
+fn expand_writes_an_equation_guard_with_equality_as_calls() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "operators", &spelled(true));
+    let (success, stdout, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let guard = |function: &str| {
+        let at = stdout.find(function).expect("the equation is written");
+        let start = stdout[..at].rfind("#[k::requires(").unwrap();
+        stdout[start..at].to_owned()
+    };
+    expect_test::expect![[r"
+        #[k::requires(k::builtin::int::eq(k::builtin::int::rem(value, 2), 0))]
+    "]]
+    .assert_eq(&guard("fn half("));
+    expect_test::expect![[r"
+        #[k::requires(
+            k::builtin::bool::and_then(
+                k::builtin::int::eq(value, 1),
+                k::builtin::int::ne(value, 2)
+            )
+        )]
+    "]]
+    .assert_eq(&guard("fn one("));
 }
 
 /// The first `error[..]` headline and its message of `krs check` on a
