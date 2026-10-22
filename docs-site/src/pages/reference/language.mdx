@@ -101,6 +101,9 @@ A readable `for Machine` record matches the computation cell with a Rust slice p
 `[p1, p2, ..]` matches a cell holding at least two items, the first matching `p1` and the second `p2`, and `..` keeps the rest; `[p1, p2]` matches a cell holding exactly those two items, and `[]` the empty computation `.K`.
 `~>` is associative with unit `.K`, so a pattern that ends in `..` splits the sequence once, after its items: `store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;` emits `<k> V:Int ~> store ( A:Int ) => .K ... </k>`, a finished value followed by the frame that consumes it, and `start: { k: [Run { n }] } => { k: [Boundary()] };` emits `<k> run ( N:Int ) => boundary </k>`, which applies only when nothing else is pending.
 Each item is one `KItem`; a binder repeated across items is nonlinear matching, as inside one item.
+An item may be [alternatives](#pattern-alternatives) without parentheses, `k: [Nop() | Halt(), ..]`, as in a Rust slice pattern.
+The record is one configuration pattern, so a binder repeated across cells is nonlinear matching too: `load: { instrs: [Binary(ty, op), ..], valstack: Cons(Integer(ty, r), Cons(Integer(ty, l), rest)) } => ..` applies only where the instruction and both stacked values carry one type, and emits `Ty:IValType` at all three places.
+The exception is the value binder of a [map entry](#rules-that-leave-the-computation-cell-out), which names what the entry maps to and must be a fresh name (`duplicate readable rule binding`); compare it with another term in `#[k::requires]` instead.
 `where v: Int` is the sort test that makes `v` a finished value: without it `v` is any item, and the rule overlaps every rule on the item that would follow it.
 The result has the pattern's shape: it ends in `..` exactly when the pattern does, since one `..` is the rest on both sides, so a pattern ending in `..` never drops the rest, and a whole-cell pattern has no rest to keep.
 `..` may only end the pattern, because the cell is read from its front, and it is anonymous; `[..]` alone would match any computation and is rejected (leave `k` out to keep the cell unchanged).
@@ -203,6 +206,7 @@ K writes the name last, `( pair ( A:Exp , B:Exp ) #as P:Exp )`, and KRS emits ex
 Like `tail @ ..`, `name @ pattern` binds what its pattern matched; unlike Rust's `@`, which copies or moves a value, K's alias is the matched term itself (a conjunction of patterns), so a result can reuse it without rebuilding it.
 `dup_pair: Dup(p @ Pair(a, b)) => Pair(p, Pair(b, a));` turns `dup(pair(1, 2))` into `pair(pair(1, 2), pair(2, 1))`.
 An alias may name any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, a `map!` key or value, or a readable clause pattern, but not a whole rule subject, whose root is the matched constructor or function.
+A readable `for Machine` record's computation items and cell values are not rule subjects, so an alias may name a whole one: `charge: { k: [op @ (Push() | Pop()), ..], gas: g } => { k: [Charged(op), ..], gas: int::sub(g, 3) }` emits `<k> ( ( push #Or pop ) #as Op:Op ) => charged ( Op:Op ) ... </k>`.
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
 `@` in a result, a requires or ensures condition, or an initializer is a syntax error (K's `#as` is left-hand-side only), as are `ref` or `mut` on the alias, an alias inside its own pattern (rustc's E0416), and `name @ ..` outside a sequence, collection, or `cells!` pattern.
 
@@ -296,7 +300,12 @@ The evaluation is the builtins' definition on literals; a `requires` that calls 
 
 Otherwise the check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
 A comparison `x.bit_range::<Int>(o, l) == v` or `(x & m) == v` with constant `o`, `l` and `m` also fixes bits of `x`, and the check skips valuations no integer `x` has, so a bit template's equation covers the values it matches.
-It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, a division counts only by a nonzero constant, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, only with constant `o` and `l` that are not negative.
+A guard holds only where it is defined, and the check reads a partial Int operation together with its domain: a division or remainder holds only where its divisor is not zero, a shift or exponent where its amount is not negative, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, where `o` and `l` are not negative.
+So `w > 0 && x < 1 << (w - 1)` counts, because the shift is defined wherever `w > 0` holds, while `x / d >= 0` and `x / d < 0` leave `d == 0` uncovered.
+Comparisons are read through constant summands, so `w - 1 >= 0` is `w >= 1`, and the orders and bounds of a valuation are read together, so `a == b`, `b == c` and `a < c` do not all hold.
+A lookup is read the same way: `map::get(m, k)` is defined where `map::in_keys(k, m)`, and `list::get(l, i)` where `-list::size(l) <= i < list::size(l)` (a negative index counts from the end); a length or size is never negative.
+A guard with any other operation that may be undefined, such as a call of a partial function, counts for nothing.
+A guard also counts for nothing when a partial operation is in the right operand of a negated `&&` or of a `||`, where a backend that evaluates them lazily and the strict reading of matching logic disagree on whether the guard holds.
 The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
 A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
 
@@ -349,6 +358,7 @@ k::equations! {
 `for R8;` names a non-parametric `#[k::function]`, and each row `label: args => result;` is the equation `#[k::equation] fn label(k::term![R8(args)]: ..) -> .. { result }`, named by its label, with `R8`'s result sort.
 The arguments are one pattern, or a parenthesized list for several (`both: (true, v) => v;`, `none: () => 0;`), with every pattern an equation accepts; a row may carry `#[k::equation(..)]` keys, `#[k::requires(..)]`, and documentation, and takes no `where` narrowing.
 The table's `use` items are in scope for its rows only, and rustc resolves every unqualified name in a row through them and the module, so two of them that export one name are rustc's ambiguity error at the name.
+That includes the first segment of a qualified path: under `use Register as Reg;`, a row may write `swap_a: Reg::A => Reg::B;`, and `krs expand` prints `crate::Register::A`.
 `krs expand` prints each row as its `#[k::equation]` fn with qualified paths, and `krs fmt` lays a table out as it lays out `k::rules!`.
 
 Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
@@ -457,7 +467,10 @@ A decoder written with field functions, such as `FieldX(op) = op >> 6` and `Fiel
 #### Overlapping equations
 
 Equations are unordered, so two equations of one function at one priority that apply to one argument state that their results are equal there.
-KRS checks this on the assembled definition, for table rows and `#[k::equation]` fns alike, guarded or not, whenever it can evaluate the equations: when they bound their `Int` arguments to at most 2^16 argument vectors, as for the [coverage check](#coverage-of-total-functions), it evaluates every `requires` on each of them.
+KRS checks this on the assembled definition, for table rows and `#[k::equation]` fns alike, guarded or not.
+When the equations bound their `Int` arguments to at most 2^16 argument vectors, as for the [coverage check](#coverage-of-total-functions), it evaluates every `requires` on each of them.
+Otherwise it compares them pair by pair: it unifies the two equations' patterns over the definition's sorts (a binder `ty: Term<Ty>` does not match `TyUnknown()` of the supersort `MaybeTy`, but a binder of the field's sort `MaybeTy` does), and where they unify it decides the two `requires` together with the coverage check's reading of guards, which proves most pairs disjoint (`d == 0` and `d != 0`; `x == y`, `y == z` and `x != z`; `pc < 0` and `pc >= bytes::length(code)`).
+A pair it cannot prove disjoint is reported only when it can exhibit an argument: integer values at which both `requires` evaluate to `true` and the results differ.
 Two equations that both apply to one argument, with results that differ once the argument is substituted and builtins on literals are evaluated, are `krs::analysis::overlapping-equations`.
 `decode_ld_r_r` above with a typo in its guard, `op.ne::<Int>(117)`, is (without any `requires`, the table check above reports the two rows first)
 
@@ -465,8 +478,14 @@ Two equations that both apply to one argument, with results that differ once the
 error[krs::analysis::overlapping-equations]: equations `decode_halt` and `decode_ld_r_r` of `Decode` both apply to `Decode(118)` at the same priority and give it different results, `Instruction::Halt` and `Instruction::Ld(R8(6), R8(6))`; ..
 ```
 
+The pair check finds the overlap of a binder at a field's wider sort, as in this lookup, where `lookup_known` binds `ty` at `MaybeTy`:
+
+```text
+error[krs::analysis::overlapping-equations]: equations `lookup_known` and `lookup_unknown` of `Lookup` both apply to `Lookup(_, Maybe::TyUnknown)` at the same priority and give it different results, `map::get(_, Maybe::TyUnknown)` and `TypeInfo::Void`; ..
+```
+
 Identical results agree, so equations that overlap with them are no error.
-Equations the check cannot evaluate, because a `requires` calls a function or leaves an argument it reads unbounded, are not checked; nor are templates over more than 16 bits, though the table check above still compares unguarded rows' templates of any width.
+A pair is not reported when a pattern is one the check does not decompose (a collection pattern), when a `requires` calls a function or a partial operation the guard reading does not read, or when the integer values it finds do not make both `requires` evaluate to `true`; templates over more than 16 bits are compared pair by pair, and the table check above still compares unguarded rows' templates of any width.
 
 ### Sort-parametric productions
 

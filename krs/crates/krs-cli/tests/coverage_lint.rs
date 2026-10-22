@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 const LANGUAGE: &str = r##"
-use k::builtin::{Bool, Bytes, Int, KSequence};
+use k::builtin::{Bool, Bytes, Int, KSequence, List, int, list};
 use k::{KItem, KItemSort, Term};
 
 k::sorts! {
@@ -63,6 +63,48 @@ k::equations! {
 #[k::function(total, internal)]
 pub fn High(value: Term<Int>) -> Term<Int> {
     k::term![value.shift_right::<Int>(4)]
+}
+
+/// Guards whose shifts are defined only where an earlier conjunct holds:
+/// the three cover every argument.
+#[k::function(total, internal)]
+pub fn SignedTruncate(value: Term<Int>, width: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for SignedTruncate;
+    #[k::requires(int::le(width, 0))]
+    signed_truncate_none: (value, width) => value;
+    #[k::requires(int::gt(width, 0) && int::lt(value, int::shift_left(1, int::sub(width, 1))))]
+    signed_truncate_low: (value, width) => value;
+    #[k::requires(int::gt(width, 0) && int::ge(value, int::shift_left(1, int::sub(width, 1))))]
+    signed_truncate_high: (value, width) => int::sub(value, int::shift_left(1, width));
+}
+
+/// Guards that read an element only where its index is in range: the
+/// three cover every argument.
+#[k::function(total, internal)]
+pub fn Element(items: Term<List>, index: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Element;
+    #[k::requires(int::ge(index, 0) && int::lt(index, list::size(items)) && int::eq(list::get(items, index), 0))]
+    element_clear: (items, index) => 0;
+    #[k::requires(int::ge(index, 0) && int::lt(index, list::size(items)) && int::ne(list::get(items, index), 0))]
+    element_set: (items, index) => 1;
+    #[k::requires(int::lt(index, 0) || int::ge(index, list::size(items)))]
+    element_outside: (items, index) => 2;
+}
+
+/// Guards that divide by `divisor`: neither holds where it is 0.
+#[k::function(total, internal)]
+pub fn Quotient(value: Term<Int>, divisor: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Quotient;
+    #[k::requires(int::ge(int::div(value, divisor), 0))]
+    quotient_nonnegative: (value, divisor) => 0;
+    #[k::requires(int::lt(int::div(value, divisor), 0))]
+    quotient_negative: (value, divisor) => 1;
 }
 
 /// Guards on a total function of the argument: `High(opcode)` may be 2.
@@ -350,12 +392,14 @@ fn total_functions_warn_where_no_equation_applies() {
     expect_test::expect![[r#"
         [
             "warning[krs::analysis::uncovered-total-function]: total function `Clamp` has no equation for `Clamp(0)`",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             "warning[krs::analysis::stale-underspecified]: `FlagBit` states `underspecified`, but its equations define every argument; remove `underspecified`",
             "warning[krs::analysis::uncovered-total-function]: total function `Nibble` has no equation for `Nibble(16)`",
             "= note: KRS evaluated the `requires` of its equations on every argument they bound (0..=15) and on one argument beyond them, which stands for every other",
             "warning[krs::analysis::uncovered-total-function]: total function `Page` has no equation for `Page(opcode)` when `High(opcode)` is 2",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
+            "warning[krs::analysis::uncovered-total-function]: total function `Quotient` has no equation for `Quotient(0, 0)`",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             "warning[krs::analysis::uncovered-total-function]: total function `Size` has no equation for `Size(0)`",
             "warning[krs::analysis::uncovered-total-function]: total function `Table` has no equation for `Table(3)`",
         ]

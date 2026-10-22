@@ -819,3 +819,201 @@ fn templates_cover_their_cubes_and_nothing_outside_their_range() {
         Verdict::Refuted(_)
     ));
 }
+
+#[test]
+fn orders_no_integers_realize_together_are_skipped() {
+    // No integers make `a == b`, `b == c` and `a != c` hold, nor `a == b`,
+    // `a < 0` and `0 < b`: read together, the orders and bounds make each
+    // conjunction's negation valid.
+    let equal = |left: &str, right: &str| order(left, right, Order::Equal);
+    let chain = and(
+        equal("$0", "$1"),
+        and(equal("$1", "$2"), equal("$0", "$2").not()),
+    );
+    let verdict = decide(&[&chain.not()], &BTreeMap::new(), &Projections::new());
+    assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+    let bounded = and(
+        equal("$0", "$1"),
+        and(bound("$0", Bound::Below, 0), bound("$1", Bound::Above, 0)),
+    );
+    let verdict = decide(&[&bounded.not()], &BTreeMap::new(), &Projections::new());
+    assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+}
+
+#[test]
+fn a_size_is_never_negative() {
+    // `pc < 0` and `size <= pc` cannot both hold when `size` is a size.
+    let size = "list:Size($1)";
+    let both = and(
+        bound("$0", Bound::Below, 0),
+        order("$0", size, Order::Less).not(),
+    );
+    let projections = Projections::from([(size.to_owned(), (size.to_owned(), Projection::Size))]);
+    let verdict = decide(&[&both.clone().not()], &BTreeMap::new(), &projections);
+    assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+    let verdict = decide(&[&both.not()], &BTreeMap::new(), &Projections::new());
+    assert!(matches!(verdict, Verdict::Refuted(_)), "{verdict:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Reading guards with partial operations
+
+mod reading {
+    use std::collections::BTreeMap;
+
+    use krs_ir::{ApplicationRef, BuiltinOperation, NodeOrigin, SemanticId, SourceMapKey};
+    use krs_ir_levels::{SemanticSortRef as Sort, SemanticTerm};
+
+    use super::super::{Formula, GuardReader, Names, Projections, Signature, Verdict, decide};
+    use super::{BOOL, INT};
+
+    use BuiltinOperation::{
+        BoolAndThen, BoolNot, BoolOrElse, IntGreater, IntLess, IntLessEqual, IntShiftLeft, IntSub,
+        IntTDiv,
+    };
+
+    fn origin() -> NodeOrigin {
+        NodeOrigin::new(
+            SourceMapKey::new("sem.coverage-reading").unwrap(),
+            krs_ir::testing::authored(0, 1),
+        )
+    }
+
+    fn variable(name: &str) -> SemanticTerm {
+        SemanticTerm::variable(origin(), INT, SemanticId::new(name.to_owned()).unwrap())
+    }
+
+    fn int(value: i64) -> SemanticTerm {
+        SemanticTerm::token(origin(), INT, value.to_string()).unwrap()
+    }
+
+    fn apply(operation: BuiltinOperation, arguments: Vec<SemanticTerm>) -> SemanticTerm {
+        let sort = Sort::Builtin(operation.result_sort().builtin().unwrap());
+        SemanticTerm::application(
+            origin(),
+            sort,
+            ApplicationRef::Builtin(operation),
+            arguments,
+        )
+    }
+
+    /// Reads a guard over `x` (argument 0) and `w` (argument 1).
+    fn read(term: &SemanticTerm) -> Option<Formula> {
+        let signature = Signature::default();
+        let paths = BTreeMap::from([
+            (SemanticId::new("x".to_owned()).unwrap(), vec![0]),
+            (SemanticId::new("w".to_owned()).unwrap(), vec![1]),
+        ]);
+        let mut reader = GuardReader {
+            signature: &signature,
+            paths: &paths,
+            names: Names::new(),
+            projections: Projections::new(),
+            obligations: Vec::new(),
+        };
+        reader.guard(term)
+    }
+
+    /// `1 << (w - 1)`, defined where `w >= 1`.
+    fn half_range() -> SemanticTerm {
+        apply(
+            IntShiftLeft,
+            vec![int(1), apply(IntSub, vec![variable("w"), int(1)])],
+        )
+    }
+
+    #[test]
+    fn a_shift_defined_where_an_earlier_conjunct_holds_counts() {
+        let positive = || apply(IntGreater, vec![variable("w"), int(0)]);
+        let low = apply(
+            BoolAndThen,
+            vec![
+                positive(),
+                apply(IntLess, vec![variable("x"), half_range()]),
+            ],
+        );
+        let high = apply(
+            BoolAndThen,
+            vec![
+                positive(),
+                apply(
+                    BoolNot,
+                    vec![apply(IntLess, vec![variable("x"), half_range()])],
+                ),
+            ],
+        );
+        let none = apply(IntLessEqual, vec![variable("w"), int(0)]);
+        let guards = [
+            read(&none).unwrap(),
+            read(&low).unwrap(),
+            read(&high).unwrap(),
+        ];
+        let verdict = decide(
+            &guards.iter().collect::<Vec<_>>(),
+            &BTreeMap::new(),
+            &Projections::new(),
+        );
+        assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+    }
+
+    #[test]
+    fn a_division_holds_only_where_its_divisor_is_not_zero() {
+        let quotient = || apply(IntTDiv, vec![variable("x"), variable("w")]);
+        let negative = apply(IntLess, vec![quotient(), int(0)]);
+        let nonnegative = apply(BoolNot, vec![apply(IntLess, vec![quotient(), int(0)])]);
+        let guards = [read(&negative).unwrap(), read(&nonnegative).unwrap()];
+        let Verdict::Refuted(counterexample) = decide(
+            &guards.iter().collect::<Vec<_>>(),
+            &BTreeMap::new(),
+            &Projections::new(),
+        ) else {
+            panic!("a zero divisor leaves both guards undefined");
+        };
+        assert_eq!(
+            counterexample
+                .values
+                .get("$1")
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("0")
+        );
+    }
+
+    #[test]
+    fn a_lazy_connective_is_read_only_where_both_readings_agree() {
+        let positive = || apply(IntGreater, vec![variable("w"), int(0)]);
+        let quotient = || {
+            apply(
+                IntGreater,
+                vec![apply(IntTDiv, vec![int(1), variable("w")]), int(0)],
+            )
+        };
+        let and_then = || apply(BoolAndThen, vec![positive(), quotient()]);
+        let or_else = || apply(BoolOrElse, vec![positive(), quotient()]);
+        assert!(read(&and_then()).is_some());
+        assert!(read(&apply(BoolNot, vec![and_then()])).is_none());
+        assert!(read(&or_else()).is_none());
+        assert!(read(&apply(BoolNot, vec![or_else()])).is_some());
+        let compared = apply(
+            BuiltinOperation::BoolEqual,
+            vec![
+                and_then(),
+                SemanticTerm::token(origin(), BOOL, "false".to_owned()).unwrap(),
+            ],
+        );
+        assert!(read(&compared).is_none());
+    }
+
+    #[test]
+    fn a_constant_summand_moves_to_the_bound() {
+        let shifted = apply(
+            IntLess,
+            vec![apply(IntSub, vec![variable("w"), int(1)]), int(0)],
+        );
+        let formula = read(&shifted).unwrap();
+        assert_eq!(
+            format!("{formula:?}"),
+            format!("{:?}", super::bound("$1", super::Bound::Below, 1))
+        );
+    }
+}

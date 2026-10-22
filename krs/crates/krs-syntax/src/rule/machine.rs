@@ -1029,6 +1029,7 @@ fn assemble_machine_clause(
     let mut extras = Vec::new();
     let mut extra_bindings = Vec::new();
     let mut state_bindings: Vec<Ident> = Vec::new();
+    let mut map_values = Vec::new();
     for (cell, pattern) in subject_cells {
         match pattern {
             MachinePatternCell::KItems(pattern) => {
@@ -1066,6 +1067,7 @@ fn assemble_machine_clause(
                         })
                         .collect::<Result<_, ParseError>>()?,
                 });
+                map_values.extend(entries.iter().map(|(_, value)| value.clone()));
                 extra_bindings.extend(entries.iter().map(|(_, value)| value.clone()));
             }
             MachinePatternCell::State(before) => {
@@ -1195,10 +1197,21 @@ fn assemble_machine_clause(
         let has_first = !pattern.items.is_empty();
         let mut items = pattern.items.into_iter();
         let rule = if let Some((first, signs)) = items.next() {
-            let item: ItemFn = syn::parse2(quote! {
+            // A fn parameter takes `A | B` only in parentheses; the item
+            // keeps the authored pattern, as in a readable clause.
+            let top_level_or = matches!(first, Pat::Or(_));
+            let parameter = if top_level_or {
+                quote!((#first))
+            } else {
+                quote!(#first)
+            };
+            let mut item: ItemFn = syn::parse2(quote! {
                 #(#retained)*
-                pub fn #name(#first: #configuration_type) -> #configuration_type { #placeholder }
+                pub fn #name(#parameter: #configuration_type) -> #configuration_type { #placeholder }
             })?;
+            if top_level_or && let Some(syn::FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
+                *typed.pat = first;
+            }
             RuleItem::from_readable_item(item, signs)?
         } else {
             // `[]` matches the empty computation: like a record without
@@ -1252,25 +1265,22 @@ fn assemble_machine_clause(
             }
         }
     }
-    for introduced in state_bindings {
-        if !bindings
-            .iter()
-            .chain(&extra_bindings)
-            .any(|binding| binding.unraw() == introduced.unraw())
-        {
-            extra_bindings.push(introduced);
-        }
-    }
-    for introduced in extra_bindings {
+    // The record is one configuration pattern, so a binder repeated across
+    // cells, like one repeated across items, is nonlinear matching. A map
+    // entry's value binder stays fresh: it names what the entry maps to.
+    for introduced in extra_bindings.into_iter().chain(state_bindings) {
         if bindings
             .iter()
             .any(|binding| binding.unraw() == introduced.unraw())
         {
-            return Err(syn::Error::new(
-                introduced.span(),
-                format!("duplicate readable rule binding `{}`", introduced.unraw()),
-            )
-            .into());
+            if map_values.contains(&introduced) {
+                return Err(syn::Error::new(
+                    introduced.span(),
+                    format!("duplicate readable rule binding `{}`", introduced.unraw()),
+                )
+                .into());
+            }
+            continue;
         }
         bindings.push(introduced);
     }

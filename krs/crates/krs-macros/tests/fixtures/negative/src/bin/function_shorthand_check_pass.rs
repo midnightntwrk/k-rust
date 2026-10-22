@@ -1,6 +1,7 @@
 //@ check-pass
 //! The function shorthand, a bodiless declaration, a default syntax on a
-//! struct, and an equation table with several `use` items compile.
+//! struct, and an equation table with several `use` items compile, including
+//! qualified paths through a renamed import.
 use renamed_krs as k;
 use renamed_krs::builtin::{Bool, Int, int};
 
@@ -61,6 +62,18 @@ k::equations! {
     use Register::*;
     index_a: A() => 0;
     index_b: Register::B => 1;
+}
+
+/// A renamed import qualifies a row's paths: `Reg::B` is `Register::B`, in a
+/// pattern and in a result.
+#[k::function(total, internal)]
+pub fn Swap(register: k::Term<Reg8>) -> k::Term<Reg8>;
+
+k::equations! {
+    for Swap;
+    use Register as Reg;
+    swap_a: Reg::A => Reg::B;
+    swap_b: Reg::B => Reg::A;
 }
 
 #[k::function(total, internal, sort = Int)]

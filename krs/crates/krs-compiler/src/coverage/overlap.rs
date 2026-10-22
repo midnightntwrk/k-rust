@@ -1,0 +1,537 @@
+//! The overlap check of equations beyond the ground analysis
+//! (`equation_domain`): two equations of one function at one priority, pair
+//! by pair, by unification of their patterns over the definition's sorts and
+//! the guard decision of the coverage lint.
+//!
+//! Equations `f(p̄) => r requires φ` and `f(q̄) => s requires ψ` both apply to
+//! an argument that matches `p̄` and `q̄` and makes `φ` and `ψ` hold. Linear
+//! patterns over constructors, literals and sorted binders unify
+//! syntactically: a binder matches a constructor or a literal whose values
+//! its sort contains, and another binder when the two sorts share a kind of
+//! value. When they unify, `φ ∧ ψ` is decided over the guard abstraction
+//! ([`decide_counted`]), whose atoms name subterms by their path from the
+//! argument list, a frame both equations share, so `x` in one equation and
+//! a literal or a binder at the same place in the other are one subject.
+//! Validity of `¬φ ∨ ¬ψ` proves the pair disjoint; a refuting valuation is a
+//! candidate overlap.
+//!
+//! Only an exact overlap is reported: the candidate's Int values are made
+//! concrete, both guards evaluate to `true` on them, and the two results,
+//! with the argument substituted and builtins on literals evaluated, differ.
+//! Anything less (an opaque pattern, a guard neither the reader nor the
+//! evaluation can read, a candidate whose guards do not both hold once
+//! concrete) reports nothing, as the ground analysis does when it gives up.
+
+use std::collections::BTreeMap;
+
+use krs_ir::{ApplicationRef, BuiltinSort, SemanticId};
+use krs_ir_levels::{
+    IrCondition, SemanticModule, SemanticProduction, SemanticRule, SemanticSortRef as Sort,
+    SemanticTerm, SemanticTermKind,
+};
+use num_bigint::BigInt;
+
+use super::{
+    FUNCTION_VALUATION_BUDGET, Fact, Formula, GuardReader, Head, Names, Path, Pattern, Projections,
+    Signature, Verdict, argument_alternatives, decide_counted, display_name, path_text, snake_case,
+};
+use crate::equation_domain::{EquationOverlap, ground_literal, guard_holds};
+
+/// The sorts and constructors equations are unified over.
+pub(crate) struct EquationSignature(Signature);
+
+impl EquationSignature {
+    pub(crate) fn new(modules: &[SemanticModule]) -> Self {
+        Self(Signature::new(modules))
+    }
+}
+
+/// One alternative of an equation's argument patterns, read for
+/// unification.
+struct Side<'a> {
+    rule: &'a SemanticRule,
+    patterns: Vec<Pattern>,
+    /// Each binder's path from the argument list.
+    paths: BTreeMap<SemanticId, Path>,
+    guard: Option<&'a SemanticTerm>,
+    result: &'a SemanticTerm,
+}
+
+/// The alternatives of an equation, or `None` when the check cannot read
+/// it: a function context, a matching-logic `requires`, too many
+/// alternatives, or a binder that occurs twice.
+fn sides<'a>(signature: &Signature, rule: &'a SemanticRule) -> Option<Vec<Side<'a>>> {
+    if rule.function_context().is_some() {
+        return None;
+    }
+    let body = rule.body()?;
+    let SemanticTermKind::Application { arguments, .. } = body.from().kind() else {
+        return None;
+    };
+    let guard = match rule.requires() {
+        None => None,
+        Some(IrCondition::Bool(condition)) => Some(condition.term()),
+        Some(IrCondition::Predicate(_)) => return None,
+    };
+    let mut sides = Vec::new();
+    for (patterns, bindings) in argument_alternatives(signature, arguments)? {
+        let mut paths = BTreeMap::new();
+        for (binder, path) in bindings {
+            if paths.insert(binder, path).is_some() {
+                return None;
+            }
+        }
+        sides.push(Side {
+            rule,
+            patterns,
+            paths,
+            guard,
+            result: body.to(),
+        });
+    }
+    Some(sides)
+}
+
+/// Why two patterns have no unifier the check can use.
+enum Stop {
+    /// No term matches both.
+    Disjoint,
+    /// A pattern the check does not decompose.
+    Unknown,
+}
+
+/// The most specific pattern matching what both patterns match; an Int
+/// literal meeting a binder becomes a fact about its path.
+fn unify(
+    signature: &Signature,
+    left: &Pattern,
+    right: &Pattern,
+    path: &mut Path,
+    facts: &mut BTreeMap<String, Fact>,
+) -> Result<Pattern, Stop> {
+    let covers = |sort: &Sort, head: &Head| signature.binder_covers(sort, head);
+    match (left, right) {
+        (Pattern::Opaque, _) | (_, Pattern::Opaque) => Err(Stop::Unknown),
+        (Pattern::Binder(first), Pattern::Binder(second)) => {
+            if signature.is_subsort(first, second) {
+                Ok(left.clone())
+            } else if signature.is_subsort(second, first)
+                || signature
+                    .heads(first)
+                    .iter()
+                    .any(|head| covers(second, head))
+            {
+                Ok(right.clone())
+            } else {
+                Err(Stop::Disjoint)
+            }
+        }
+        (Pattern::Binder(sort), constructor @ Pattern::Constructor { id, instance, .. })
+        | (constructor @ Pattern::Constructor { id, instance, .. }, Pattern::Binder(sort)) => {
+            let head = Head::Constructor {
+                id: id.clone(),
+                instance: instance.clone(),
+            };
+            if covers(sort, &head) {
+                Ok(constructor.clone())
+            } else {
+                Err(Stop::Disjoint)
+            }
+        }
+        (Pattern::Binder(binder), literal @ Pattern::Literal { sort, value })
+        | (literal @ Pattern::Literal { sort, value }, Pattern::Binder(binder)) => {
+            if !covers(binder, &Head::Family(sort.clone())) {
+                return Err(Stop::Disjoint);
+            }
+            if matches!(sort, Sort::Builtin(BuiltinSort::Int))
+                && let Ok(number) = value.parse::<BigInt>()
+            {
+                facts.insert(path_text(path), Fact::Equal(number));
+            }
+            Ok(literal.clone())
+        }
+        (
+            Pattern::Constructor {
+                id,
+                instance,
+                arguments,
+            },
+            Pattern::Constructor {
+                id: other,
+                instance: other_instance,
+                arguments: other_arguments,
+            },
+        ) => {
+            if id != other || instance != other_instance {
+                return Err(Stop::Disjoint);
+            }
+            let mut unified = Vec::new();
+            for (index, (first, second)) in arguments.iter().zip(other_arguments).enumerate() {
+                path.push(index);
+                let argument = unify(signature, first, second, path, facts);
+                path.pop();
+                unified.push(argument?);
+            }
+            Ok(Pattern::Constructor {
+                id: id.clone(),
+                instance: instance.clone(),
+                arguments: unified,
+            })
+        }
+        (
+            Pattern::Literal { sort, value },
+            Pattern::Literal {
+                sort: other,
+                value: other_value,
+            },
+        ) => {
+            if sort == other && value == other_value {
+                Ok(left.clone())
+            } else {
+                Err(Stop::Disjoint)
+            }
+        }
+        (Pattern::Constructor { .. }, Pattern::Literal { .. })
+        | (Pattern::Literal { .. }, Pattern::Constructor { .. }) => Err(Stop::Disjoint),
+    }
+}
+
+/// The subpattern at `path` of an argument list.
+fn pattern_at<'p>(patterns: &'p [Pattern], path: &[usize]) -> Option<&'p Pattern> {
+    let (first, rest) = path.split_first()?;
+    let mut pattern = patterns.get(*first)?;
+    for index in rest {
+        let Pattern::Constructor { arguments, .. } = pattern else {
+            return None;
+        };
+        pattern = arguments.get(*index)?;
+    }
+    Some(pattern)
+}
+
+/// The concrete argument of a unified pattern: a comparison key and a
+/// rendering. A binder at an Int path with a value is that value; another
+/// binder is any value, named by its path in the key and `_` in the text.
+fn pattern_text(
+    pattern: &Pattern,
+    path: &mut Path,
+    values: &BTreeMap<Path, i128>,
+) -> (String, String) {
+    match pattern {
+        Pattern::Binder(_) | Pattern::Opaque => match values.get(path) {
+            Some(value) => (value.to_string(), value.to_string()),
+            None => (path_text(path), "_".to_owned()),
+        },
+        Pattern::Literal { sort, value } => {
+            let key = if matches!(sort, Sort::Builtin(BuiltinSort::Int | BuiltinSort::Bool)) {
+                value.clone()
+            } else {
+                format!("{sort:?}:{value}")
+            };
+            (key, value.clone())
+        }
+        Pattern::Constructor {
+            id,
+            instance,
+            arguments,
+        } => {
+            let mut keys = Vec::new();
+            let mut texts = Vec::new();
+            for (index, argument) in arguments.iter().enumerate() {
+                path.push(index);
+                let (key, text) = pattern_text(argument, path, values);
+                path.pop();
+                keys.push(key);
+                texts.push(text);
+            }
+            let name = display_name(id);
+            let text = if arguments.is_empty() {
+                name
+            } else {
+                format!("{name}({})", texts.join(", "))
+            };
+            (format!("{id:?}{instance:?}({})", keys.join(", ")), text)
+        }
+    }
+}
+
+/// A result with the unified argument substituted for its binders and its
+/// builtins on literals evaluated: a comparison key and a rendering, `None`
+/// for a form the check does not compare.
+fn substitute(
+    term: &SemanticTerm,
+    side: &Side<'_>,
+    unified: &[Pattern],
+    values: &BTreeMap<Path, i128>,
+    environment: &BTreeMap<&SemanticId, i128>,
+) -> Option<(String, String)> {
+    if let Some(literal) = ground_literal(term, environment) {
+        return Some((literal.clone(), literal));
+    }
+    let list = |terms: &mut dyn Iterator<Item = &SemanticTerm>| {
+        let mut keys = Vec::new();
+        let mut texts = Vec::new();
+        for term in terms {
+            let (key, text) = substitute(term, side, unified, values, environment)?;
+            keys.push(key);
+            texts.push(text);
+        }
+        Some((keys.join(", "), texts.join(", ")))
+    };
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => {
+            let path = side.paths.get(variable)?;
+            let pattern = pattern_at(unified, path)?;
+            Some(pattern_text(pattern, &mut path.clone(), values))
+        }
+        SemanticTermKind::Token { value } => {
+            Some((format!("{:?}:{value}", term.sort()), value.clone()))
+        }
+        SemanticTermKind::Application {
+            application,
+            arguments,
+            instance,
+            ..
+        } => {
+            let (head_key, head_text) = match application {
+                ApplicationRef::Declared(id) => (format!("{id:?}{instance:?}"), display_name(id)),
+                ApplicationRef::Builtin(operation) => {
+                    let spec = operation.spec();
+                    (
+                        format!("{operation:?}"),
+                        format!("{}::{}", spec.rust_module, spec.rust_name),
+                    )
+                }
+                ApplicationRef::Generated(generated) => {
+                    (format!("{generated:?}"), format!("{generated:?}"))
+                }
+            };
+            let (keys, texts) = list(&mut arguments.iter())?;
+            let text = if arguments.is_empty() && matches!(application, ApplicationRef::Declared(_))
+            {
+                head_text
+            } else {
+                format!("{head_text}({texts})")
+            };
+            Some((format!("{head_key}({keys})"), text))
+        }
+        SemanticTermKind::KSequence { items, .. } => {
+            let (keys, texts) = list(&mut items.iter())?;
+            Some((format!("seq({keys})"), format!("k::k![{texts}]")))
+        }
+        SemanticTermKind::Map(operands) => {
+            let operation = format!("{:?}", operands.operation());
+            let (keys, texts) = list(&mut operands.operands())?;
+            Some((
+                format!("map:{operation}({keys})"),
+                format!("map::{}({texts})", snake_case(&operation)),
+            ))
+        }
+        SemanticTermKind::List(operands) => {
+            let operation = format!("{:?}", operands.operation());
+            let (keys, texts) = list(&mut operands.operands())?;
+            Some((
+                format!("list:{operation}({keys})"),
+                format!("list::{}({texts})", snake_case(&operation)),
+            ))
+        }
+        SemanticTermKind::Set(operands) => {
+            let operation = format!("{:?}", operands.operation());
+            let (keys, texts) = list(&mut operands.operands())?;
+            Some((
+                format!("set:{operation}({keys})"),
+                format!("set::{}({texts})", snake_case(&operation)),
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// The Int values a candidate fixes: each Int literal of the unified
+/// argument, and each Int binder at the candidate's value of its path, else
+/// 0 (the guards then confirm or reject the choice).
+fn int_values(
+    patterns: &[Pattern],
+    candidate: &BTreeMap<String, BigInt>,
+) -> Option<BTreeMap<Path, i128>> {
+    fn walk(
+        pattern: &Pattern,
+        path: &mut Path,
+        candidate: &BTreeMap<String, BigInt>,
+        values: &mut BTreeMap<Path, i128>,
+    ) -> Option<()> {
+        match pattern {
+            Pattern::Binder(Sort::Builtin(BuiltinSort::Int)) => {
+                let value = candidate
+                    .get(&path_text(path))
+                    .map_or(Some(0), |value| i128::try_from(value).ok())?;
+                values.insert(path.clone(), value);
+            }
+            Pattern::Literal {
+                sort: Sort::Builtin(BuiltinSort::Int),
+                value,
+            } => {
+                values.insert(path.clone(), value.parse().ok()?);
+            }
+            Pattern::Constructor { arguments, .. } => {
+                for (index, argument) in arguments.iter().enumerate() {
+                    path.push(index);
+                    walk(argument, path, candidate, values)?;
+                    path.pop();
+                }
+            }
+            _ => {}
+        }
+        Some(())
+    }
+    let mut values = BTreeMap::new();
+    for (index, pattern) in patterns.iter().enumerate() {
+        walk(pattern, &mut vec![index], candidate, &mut values)?;
+    }
+    Some(values)
+}
+
+/// The values of a side's Int binders.
+fn environment<'s>(
+    side: &'s Side<'_>,
+    values: &BTreeMap<Path, i128>,
+) -> BTreeMap<&'s SemanticId, i128> {
+    side.paths
+        .iter()
+        .filter_map(|(binder, path)| values.get(path).map(|value| (binder, *value)))
+        .collect()
+}
+
+/// The overlap of one pair of alternatives: an argument both apply to with
+/// different results, or `None` when there is none or the check cannot
+/// tell. `valuations` counts the guard valuations the function's pairs have
+/// considered.
+fn pair(
+    signature: &Signature,
+    production: &SemanticProduction,
+    first: &Side<'_>,
+    second: &Side<'_>,
+    valuations: &mut u64,
+) -> Option<EquationOverlap> {
+    if first.patterns.len() != second.patterns.len() {
+        return None;
+    }
+    let mut facts = BTreeMap::new();
+    let mut unified = Vec::new();
+    for (index, (left, right)) in first.patterns.iter().zip(&second.patterns).enumerate() {
+        match unify(signature, left, right, &mut vec![index], &mut facts) {
+            Ok(pattern) => unified.push(pattern),
+            Err(Stop::Disjoint | Stop::Unknown) => return None,
+        }
+    }
+    // Results equal with every binder left symbolic agree wherever both
+    // equations apply.
+    let symbolic = BTreeMap::new();
+    if let (Some(left), Some(right)) = (
+        substitute(first.result, first, &unified, &BTreeMap::new(), &symbolic),
+        substitute(second.result, second, &unified, &BTreeMap::new(), &symbolic),
+    ) && left.0 == right.0
+    {
+        return None;
+    }
+    let mut projections = Projections::new();
+    let mut read = |side: &Side<'_>| match side.guard {
+        None => Some(Formula::Constant(true)),
+        Some(term) => {
+            let mut reader = GuardReader {
+                signature,
+                paths: &side.paths,
+                names: Names::new(),
+                projections: Projections::new(),
+                obligations: Vec::new(),
+            };
+            let formula = reader.guard(term)?;
+            projections.extend(reader.projections);
+            Some(formula)
+        }
+    };
+    let (Some(first_guard), Some(second_guard)) = (read(first), read(second)) else {
+        return None;
+    };
+    let negations = [first_guard.not(), second_guard.not()];
+    let (verdict, count) = decide_counted(
+        &negations.iter().collect::<Vec<_>>(),
+        &facts,
+        &projections,
+        false,
+    );
+    *valuations = valuations.saturating_add(count);
+    let Verdict::Refuted(candidate) = verdict else {
+        return None;
+    };
+    let values = int_values(&unified, &candidate.values)?;
+    let (first_environment, second_environment) =
+        (environment(first, &values), environment(second, &values));
+    let holds = |side: &Side<'_>, environment: &BTreeMap<&SemanticId, i128>| {
+        side.guard
+            .is_none_or(|guard| guard_holds(guard, environment) == Some(true))
+    };
+    if !holds(first, &first_environment) || !holds(second, &second_environment) {
+        return None;
+    }
+    let (Some(left), Some(right)) = (
+        substitute(first.result, first, &unified, &values, &first_environment),
+        substitute(
+            second.result,
+            second,
+            &unified,
+            &values,
+            &second_environment,
+        ),
+    ) else {
+        return None;
+    };
+    if left.0 == right.0 {
+        return None;
+    }
+    let function = display_name(production.id());
+    let arguments = unified
+        .iter()
+        .enumerate()
+        .map(|(index, pattern)| pattern_text(pattern, &mut vec![index], &values).1)
+        .collect::<Vec<_>>();
+    Some(EquationOverlap {
+        application: format!("{function}({})", arguments.join(", ")),
+        function,
+        first: first.rule.id().clone(),
+        second: second.rule.id().clone(),
+        results: (left.1, right.1),
+    })
+}
+
+/// The first exact overlap among equations at one priority, sorted by
+/// identity, pair by pair (see the module documentation).
+pub(crate) fn symbolic_overlap(
+    signature: &EquationSignature,
+    production: &SemanticProduction,
+    rules: &[&SemanticRule],
+) -> Option<EquationOverlap> {
+    let signature = &signature.0;
+    let alternatives = rules
+        .iter()
+        .map(|rule| sides(signature, rule))
+        .collect::<Vec<_>>();
+    let mut valuations = 0_u64;
+    for (index, first) in alternatives.iter().enumerate() {
+        let Some(first) = first else { continue };
+        for second in alternatives[index + 1..].iter().flatten() {
+            for left in first {
+                for right in second {
+                    if valuations > FUNCTION_VALUATION_BUDGET {
+                        return None;
+                    }
+                    let overlap = pair(signature, production, left, right, &mut valuations);
+                    if overlap.is_some() {
+                        return overlap;
+                    }
+                }
+            }
+        }
+    }
+    None
+}

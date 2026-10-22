@@ -86,7 +86,8 @@ The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core
 41. eight all-path claims, including a combined calldata-load and three-source copy execution through successful halt.
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
-The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, `PUSH0` pushes zero without immediate data, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
+The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, `PUSH0` pushes zero without immediate data, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates, reading an immediate byte past the end of the code as zero (case `push-immediate-past-code-end`).
+`Decode` is one equation table over the opcode byte: one literal row per named opcode, a bit template per encoded family (`011 nnnnn` is `PUSH(n+1)`, `1000 dddd` is `DUP(d+1)`, `1001 dddd` is `SWAP(d+1)`, `10100 ttt` with `t <= 4` is `LOG(t)`), and one `owise` row that decodes every other byte as `INVALID`.
 The operational effects after decoding remain mapped to the checked-in summary rules.
 The program bytes remain unchanged across execution, matching KEVM's program-cell boundary.
 `JUMP` and true `JUMPI` scan those same bytes from offset zero, advancing over
@@ -187,13 +188,13 @@ The structured K-Rust behavior SHA-256 is `7d7fd9dac9d3088682fa3ea27686c2a431219
 KRS passes complete fixed-arity cells directly to the structured frontend.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
-The K-Rust backend executes all 240 cases through persistent worker processes.
+The K-Rust backend executes all 241 cases through persistent worker processes.
 The K-Rust frontend compiles Definition IR directly to KORE, so ordinary qualification invokes no Java process.
 k-rust includes `KRYPTO` in its default backend hook metadata and accepts already-complete fixed-arity nested cells such as the 15-child `CallState`, so KRS needs no workaround for either.
 The eight Java/K proofs are deliberately deferred during ordinary development and must run at a signed milestone or final validation point.
 The `--java-reference` route kompiles the claim-free definition with `--hook-namespaces KRYPTO`, because the Java frontend otherwise drops the KRYPTO hooks, and passes every configuration variable except `$PGM` to `krun` as the same KORE value the K-Rust route builds.
 The pinned Haskell backend cannot concretely execute 22 corpus cases: it implements no `KRYPTO.sha256raw`, `KRYPTO.ripemd160raw`, `KRYPTO.bn128valid`, or `KRYPTO.bn128ate` hook, its `KRYPTO.keccak256raw` result is rejected by `BYTES.length`, and its `KRYPTO.ecdsaRecover` fails an internal assertion on an invalid signature.
-`HASKELL_BACKEND_GAPS` in `tests/kevm/verify.py` names those cases with their reasons; the Java route skips them and compares every other outcome against the corresponding native outcome, while the K-Rust route still executes all 240.
+`HASKELL_BACKEND_GAPS` in `tests/kevm/verify.py` names those cases with their reasons; the Java route skips them and compares every other outcome against the corresponding native outcome, while the K-Rust route still executes all 241.
 This result preserves the removed program, storage, and output adapters and models balance, code, and storage through the repeated upstream account shape.
 The remaining opcode families and stateful EVM surfaces remain explicit future evidence, not implicit claims.
 Full repeated-account collection snapshots for mutable nested calls remain uncovered together with the other calls, creation, account lifecycle beyond the selected emptiness boundary, transactions, schedules, cryptographic hooks outside the selected precompile surface, and symbolic surfaces.

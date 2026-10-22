@@ -229,42 +229,62 @@ fn __krs_rule_result_sort_864d0604ad0c2d57() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_0() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_1() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_2() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_3() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_4() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_5() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::ge>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_6() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::lt>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_7() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::eq>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_8() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_9() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Instruction::*;
     ::core::any::TypeId::of::<::k::builtin::int::ne>()
 }
 #[doc(hidden)]

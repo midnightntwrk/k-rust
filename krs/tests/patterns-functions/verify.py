@@ -314,6 +314,8 @@ NEGATIVE = (
     "context-overlap",
     "bits-halt-overlap",
     "bits-fn-overlap",
+    "sorted-binder-overlap",
+    "guard-overlap",
 )
 
 

@@ -22,7 +22,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = OpCode, result = k::KResult)]
-#[k::precedence((PushZero, Push, Pop, Duplicate, Swap, Add, Mul, Sub, Div, SignedDiv, Mod, SignedMod, AddMod, MulMod, Exponent, SignExtend, LessThan, GreaterThan, SignedLessThan, SignedGreaterThan, Equal, IsZero, BitAnd, BitOr, BitXor, BitNot, Byte, ShiftLeft, ShiftRight, SignedShiftRight, Sha3, Address, AccountBalance, TxOrigin, MsgCaller, MsgCallValue, CallDataLoad, CallDataSize, CallDataCopy, CodeSize, CodeCopy, TxGasPrice, ExternalCodeSize, ExternalCodeCopy, ReturnDataSize, ReturnDataCopy, ExternalCodeHash, BlockHash, BlockCoinbase, BlockTimestamp, BlockNumber, PrevRandao, BlockGasLimit, NetworkChainId, SelfBalance, BlockBaseFee, MemoryLoad, MemoryStore, MemoryStore8, StorageLoad, StorageStore, LogOpcode, MemorySize, GasRemaining, ProgramCounter, Jump, JumpIf, JumpDest, Return, Revert, StaticCall, Stop, Invalid, End))]
 pub enum Operation {
     #[k::syntax("PUSHZERO")]
     PushZero,
@@ -184,7 +183,6 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = LogEntry, result = k::KResult)]
-#[k::precedence((Entry))]
 pub enum LogRecord {
     #[k::syntax("logEntry({address}, {topics}, {data})")]
     Entry {
@@ -195,14 +193,12 @@ pub enum LogRecord {
 }
 
 #[k::constructors(sort = G1Point, result = k::KResult)]
-#[k::precedence((Point))]
 pub enum Bn128Point {
     #[k::syntax("({x}, {y})")]
     Point { x: Int, y: Int },
 }
 
 #[k::constructors(sort = G2Point, result = k::KResult)]
-#[k::precedence((G2))]
 pub enum Bn128G2Point {
     #[k::syntax("({x_real} x {x_imaginary}, {y_real} x {y_imaginary})")]
     G2 {
@@ -214,7 +210,6 @@ pub enum Bn128G2Point {
 }
 
 #[k::constructors(sort = StatusCode, result = k::KResult)]
-#[k::precedence((Running, Success, Reverted, StackUnderflow, StackOverflow, OutOfGas, BadJumpDestination, InvalidMemoryAccess, InvalidInstruction, StaticModeViolation))]
 pub enum Status {
     #[k::syntax(".StatusCode")]
     Running(),
@@ -239,7 +234,6 @@ pub enum Status {
 }
 
 #[k::constructors(sort = GasStep, result = k::KResult)]
-#[k::precedence((EnoughGas, EnoughEcrecPrecompileGas, EnoughSha256PrecompileGas, EnoughRipemd160PrecompileGas, EnoughIdentityPrecompileGas, EnoughModExpPrecompileGas, EnoughEcAddPrecompileGas, EnoughEcMulPrecompileGas, EnoughEcPairingPrecompileGas, InsufficientGas, StackUnderflowResult, StackOverflowResult, StaticViolationResult))]
 pub enum GasResult {
     #[k::syntax("#enoughGas({op}, {remaining})")]
     EnoughGas { op: OpCode, remaining: Int },
@@ -270,7 +264,6 @@ pub enum GasResult {
 }
 
 #[k::constructors(sort = PrecompileStep, result = k::KResult)]
-#[k::precedence((EcrecPrecompileSuccess, EcrecPrecompileFailure, Sha256PrecompileSuccess, Sha256PrecompileFailure, Ripemd160PrecompileSuccess, Ripemd160PrecompileFailure, IdentityPrecompileSuccess, IdentityPrecompileFailure, ModExpPrecompileSuccess, ModExpPrecompileFailure, EcAddPrecompileSuccess, EcAddPrecompileFailure, EcMulPrecompileSuccess, EcMulPrecompileFailure, EcPairingPrecompileSuccess, EcPairingPrecompileFailure))]
 pub enum PrecompileResult {
     #[k::syntax("#ecrecPrecompileSuccess({remaining})")]
     EcrecPrecompileSuccess { remaining: Int },
@@ -307,7 +300,6 @@ pub enum PrecompileResult {
 }
 
 #[k::constructors(sort = CopyStep, result = k::KResult)]
-#[k::precedence((ReturnDataCopyValid, ReturnDataCopyInvalid))]
 pub enum CopyResult {
     #[k::syntax("#returnDataCopyValid({remaining})")]
     ReturnDataCopyValid { remaining: Int },
@@ -316,7 +308,6 @@ pub enum CopyResult {
 }
 
 #[k::constructors(sort = JumpStep, result = k::KResult)]
-#[k::precedence((JumpValid, JumpInvalid, JumpFallthrough))]
 pub enum JumpResult {
     #[k::syntax("#jumpValid({destination})")]
     JumpValid { destination: Int },
@@ -327,7 +318,6 @@ pub enum JumpResult {
 }
 
 #[k::constructors(sort = Command, result = k::KResult)]
-#[k::precedence((Run, FinishStaticCall, FinishStaticCallExceptional))]
 pub enum ExecutionCommand {
     #[k::syntax("run")]
     Run(),
@@ -344,7 +334,6 @@ pub enum ExecutionCommand {
 }
 
 #[k::constructors(sort = WorldState, result = k::KResult)]
-#[k::precedence((Snapshot))]
 pub enum SavedWorldState {
     #[k::syntax(
         "{{ {account_id}, {balance}, {code}, {nonce}, {storage}, {original_storage} | {self_destruct}, {logs}, {refund}, {accessed_accounts}, {accessed_storage}, {created_accounts} }}"
@@ -365,9 +354,12 @@ pub enum SavedWorldState {
     },
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmChop({value})")]
-pub struct Chop {
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmChop({value})")]
+pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(
+        value,
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
+    )
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmWordDiv({dividend}, {divisor})")]
@@ -412,13 +404,18 @@ pub struct SignedWordMod {
     pub divisor: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmBoolToWord({value})")]
-pub struct BoolToWord {
-    pub value: k::Term<Bool>,
+#[k::function(total, syntax = "#kevmBoolToWord({value})")]
+pub fn BoolToWord(value: k::Term<Bool>) -> k::Term<Int>;
+
+k::equations! {
+    for BoolToWord;
+    bool_to_word_true : true  => 1;
+    bool_to_word_false: false => 0;
 }
 
 #[k::function(
     total,
+    underspecified = "SLT and SGT apply it to stack words, so both operands are in 0..2^256",
     sort = Int,
     syntax = "#kevmSignedLess({left}, {right})"
 )]
@@ -462,10 +459,15 @@ pub struct WordSignExtend {
     pub value: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmSignExtendByte({index}, {value})")]
-pub struct SignExtendByte {
-    pub index: k::Term<Int>,
-    pub value: k::Term<Int>,
+/// Byte `index` of `value`, counting from the least significant byte.
+#[k::requires(int::ge(index, 0))]
+#[k::function(
+    total,
+    underspecified = "a byte position is never negative: WordSignExtend reads it only for 0 <= index < 32",
+    syntax = "#kevmSignExtendByte({index}, {value})"
+)]
+pub fn SignExtendByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(int::shift_right(value, int::mul(8, index)), 256)
 }
 
 #[k::function(
@@ -491,27 +493,29 @@ pub struct MemoryUsageUpdate {
     pub width: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmMemoryCost({words})")]
-pub struct MemoryCost {
-    pub words: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMemoryCost({words})")]
+pub fn MemoryCost(words: k::Term<Int>) -> k::Term<Int> {
+    int::add(int::mul(3, words), int::div(int::mul(words, words), 512))
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmMemoryExpansionCost({used}, {start}, {width})"
-)]
-pub struct MemoryExpansionCost {
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMemoryExpansionCost({used}, {start}, {width})")]
+pub fn MemoryExpansionCost(
+    used: k::Term<Int>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Int> {
+    int::sub(
+        MemoryCost(MemoryUsageUpdate { used, start, width }),
+        MemoryCost(used),
+    )
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmCopyGasCost({used}, {start}, {width})")]
-pub struct CopyGasCost {
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmCopyGasCost({used}, {start}, {width})")]
+pub fn CopyGasCost(used: k::Term<Int>, start: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int> {
+    int::add(
+        MemoryExpansionCost { used, start, width },
+        int::add(3, int::mul(3, int::div(int::add(width, 31), 32))),
+    )
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmAccountAccessCost({accessed}, {account})")]
@@ -520,39 +524,66 @@ pub struct AccountAccessCost {
     pub account: k::Term<Int>,
 }
 
-#[k::function(total, sort = Bool, syntax = "#kevmAccountEmpty({code}, {nonce}, {balance})")]
-pub struct AccountEmpty {
-    pub code: k::Term<Bytes>,
-    pub nonce: k::Term<Int>,
-    pub balance: k::Term<Int>,
+#[k::function(total, syntax = "#kevmAccountEmpty({code}, {nonce}, {balance})")]
+pub fn AccountEmpty(
+    code: k::Term<Bytes>,
+    nonce: k::Term<Int>,
+    balance: k::Term<Int>,
+) -> k::Term<Bool> {
+    bool::and(
+        int::eq(bytes::length(code), 0),
+        bool::and(int::eq(nonce, 0), int::eq(balance, 0)),
+    )
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmCallMemoryUsage({used}, {argument_start}, {argument_width}, {return_start}, {return_width})"
 )]
-pub struct CallMemoryUsage {
-    pub used: k::Term<Int>,
-    pub argument_start: k::Term<Int>,
-    pub argument_width: k::Term<Int>,
-    pub return_start: k::Term<Int>,
-    pub return_width: k::Term<Int>,
+pub fn CallMemoryUsage(
+    used: k::Term<Int>,
+    argument_start: k::Term<Int>,
+    argument_width: k::Term<Int>,
+    return_start: k::Term<Int>,
+    return_width: k::Term<Int>,
+) -> k::Term<Int> {
+    MemoryUsageUpdate {
+        used: MemoryUsageUpdate {
+            used,
+            start: argument_start,
+            width: argument_width,
+        },
+        start: return_start,
+        width: return_width,
+    }
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmStaticCallCost({accessed}, {account}, {used}, {argument_start}, {argument_width}, {return_start}, {return_width})"
 )]
-pub struct StaticCallCost {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
-    pub used: k::Term<Int>,
-    pub argument_start: k::Term<Int>,
-    pub argument_width: k::Term<Int>,
-    pub return_start: k::Term<Int>,
-    pub return_width: k::Term<Int>,
+pub fn StaticCallCost(
+    accessed: k::Term<Set>,
+    account: k::Term<Int>,
+    used: k::Term<Int>,
+    argument_start: k::Term<Int>,
+    argument_width: k::Term<Int>,
+    return_start: k::Term<Int>,
+    return_width: k::Term<Int>,
+) -> k::Term<Int> {
+    int::add(
+        AccountAccessCost { accessed, account },
+        int::sub(
+            MemoryCost(CallMemoryUsage {
+                used,
+                argument_start,
+                argument_width,
+                return_start,
+                return_width,
+            }),
+            MemoryCost(used),
+        ),
+    )
 }
 
 #[k::function(
@@ -583,9 +614,36 @@ pub struct EcrecOutput {
     pub public_key: k::Term<Bytes>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcrecPrecompileOutput({data})")]
-pub struct EcrecPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcrecPrecompileOutput({data})")]
+pub fn EcrecPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    EcrecOutput {
+        public_key: EcdsaRecover {
+            hash: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            recovery: BytesToInt {
+                value: ReturnBytes {
+                    memory: data,
+                    start: 32,
+                    width: 32,
+                },
+                index: 0,
+                result: 0,
+            },
+            r: ReturnBytes {
+                memory: data,
+                start: 64,
+                width: 32,
+            },
+            s: ReturnBytes {
+                memory: data,
+                start: 96,
+                width: 32,
+            },
+        },
+    }
 }
 
 #[k::function(
@@ -608,13 +666,12 @@ pub struct Sha256Digest {
     pub value: k::Term<Bytes>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmSha256PrecompileCost({data})"
-)]
-pub struct Sha256PrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmSha256PrecompileCost({data})")]
+pub fn Sha256PrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(
+        60,
+        int::mul(12, int::div(int::add(bytes::length(data), 31), 32)),
+    )
 }
 
 #[k::function(
@@ -638,13 +695,12 @@ pub struct Ripemd160Digest {
     pub value: k::Term<Bytes>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmRipemd160PrecompileCost({data})"
-)]
-pub struct Ripemd160PrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmRipemd160PrecompileCost({data})")]
+pub fn Ripemd160PrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(
+        600,
+        int::mul(120, int::div(int::add(bytes::length(data), 31), 32)),
+    )
 }
 
 #[k::function(
@@ -658,13 +714,12 @@ pub struct ResolveRipemd160Precompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmIdentityPrecompileCost({data})"
-)]
-pub struct IdentityPrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmIdentityPrecompileCost({data})")]
+pub fn IdentityPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(
+        15,
+        int::mul(3, int::div(int::add(bytes::length(data), 31), 32)),
+    )
 }
 
 #[k::function(
@@ -678,9 +733,94 @@ pub struct ResolveIdentityPrecompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmModExpPrecompileCost({data})")]
-pub struct ModExpPrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmModExpPrecompileCost({data})")]
+pub fn ModExpPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    Maximum {
+        left: 200,
+        right: int::div(
+            int::mul(
+                int::mul(
+                    int::div(
+                        int::add(
+                            Maximum {
+                                left: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 0,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                                right: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 64,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                            },
+                            7,
+                        ),
+                        8,
+                    ),
+                    int::div(
+                        int::add(
+                            Maximum {
+                                left: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 0,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                                right: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 64,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                            },
+                            7,
+                        ),
+                        8,
+                    ),
+                ),
+                Maximum {
+                    left: ModExpAdjustedExponentLength {
+                        data,
+                        base_length: BytesToInt {
+                            value: ReturnBytes {
+                                memory: data,
+                                start: 0,
+                                width: 32,
+                            },
+                            index: 0,
+                            result: 0,
+                        },
+                        exponent_length: BytesToInt {
+                            value: ReturnBytes {
+                                memory: data,
+                                start: 32,
+                                width: 32,
+                            },
+                            index: 0,
+                            result: 0,
+                        },
+                    },
+                    right: 1,
+                },
+            ),
+            3,
+        ),
+    }
 }
 
 #[k::function(
@@ -699,9 +839,45 @@ pub struct ModExpExponentHeadBits {
     pub value: k::Term<Int>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmModExpPrecompileOutput({data})")]
-pub struct ModExpPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmModExpPrecompileOutput({data})")]
+pub fn ModExpPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    ModExpOutputBody {
+        body: ReturnBytes {
+            memory: data,
+            start: 96,
+            width: Maximum {
+                left: 0,
+                right: int::sub(bytes::length(data), 96),
+            },
+        },
+        base_length: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        exponent_length: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 32,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        modulus_length: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 64,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
 #[k::function(
@@ -718,14 +894,40 @@ pub struct ModExpOutputBody {
 
 #[k::function(
     total,
-    sort = Bytes,
     syntax = "#kevmModExpOutputExponent({body}, {base}, {exponent_length}, {modulus_length})"
 )]
-pub struct ModExpOutputExponent {
-    pub body: k::Term<Bytes>,
-    pub base: k::Term<Int>,
-    pub exponent_length: k::Term<Int>,
-    pub modulus_length: k::Term<Int>,
+pub fn ModExpOutputExponent(
+    body: k::Term<Bytes>,
+    base: k::Term<Int>,
+    exponent_length: k::Term<Int>,
+    modulus_length: k::Term<Int>,
+) -> k::Term<Bytes> {
+    WriteMemoryWord {
+        memory: bytes::pad_right(bytes::empty(), modulus_length, 0),
+        index: 0,
+        remaining: modulus_length,
+        value: ModExpPower {
+            base,
+            exponent: BytesToInt {
+                value: ReturnBytes {
+                    memory: body,
+                    start: 0,
+                    width: exponent_length,
+                },
+                index: 0,
+                result: 0,
+            },
+            modulus: BytesToInt {
+                value: ReturnBytes {
+                    memory: body,
+                    start: exponent_length,
+                    width: modulus_length,
+                },
+                index: 0,
+                result: 0,
+            },
+        },
+    }
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmModExpPower({base}, {exponent}, {modulus})")]
@@ -799,14 +1001,52 @@ pub struct Bn128Ate {
     pub g2_points: k::Term<List>,
 }
 
-#[k::function(total, sort = G1Point, syntax = "#kevmEcAddFirstPoint({data})")]
-pub struct EcAddFirstPoint {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcAddFirstPoint({data})")]
+pub fn EcAddFirstPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 32,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
-#[k::function(total, sort = G1Point, syntax = "#kevmEcAddSecondPoint({data})")]
-pub struct EcAddSecondPoint {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcAddSecondPoint({data})")]
+pub fn EcAddSecondPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 64,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 96,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
 #[k::function(total, sort = Bytes, syntax = "#kevmBn128PointBytes({point})")]
@@ -814,9 +1054,14 @@ pub struct Bn128PointBytes {
     pub point: k::Term<G1Point>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcAddPrecompileOutput({data})")]
-pub struct EcAddPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcAddPrecompileOutput({data})")]
+pub fn EcAddPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    Bn128PointBytes {
+        point: Bn128Add {
+            left: EcAddFirstPoint { data },
+            right: EcAddSecondPoint { data },
+        },
+    }
 }
 
 #[k::function(
@@ -830,19 +1075,51 @@ pub struct ResolveEcAddPrecompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(total, sort = G1Point, syntax = "#kevmEcMulPoint({data})")]
-pub struct EcMulPoint {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcMulPoint({data})")]
+pub fn EcMulPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 32,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmEcMulScalar({data})")]
-pub struct EcMulScalar {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcMulScalar({data})")]
+pub fn EcMulScalar(data: k::Term<Bytes>) -> k::Term<Int> {
+    BytesToInt {
+        value: ReturnBytes {
+            memory: data,
+            start: 64,
+            width: 32,
+        },
+        index: 0,
+        result: 0,
+    }
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcMulPrecompileOutput({data})")]
-pub struct EcMulPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcMulPrecompileOutput({data})")]
+pub fn EcMulPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    Bn128PointBytes {
+        point: Bn128Mul {
+            point: EcMulPoint { data },
+            scalar: EcMulScalar { data },
+        },
+    }
 }
 
 #[k::function(
@@ -856,29 +1133,75 @@ pub struct ResolveEcMulPrecompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmEcPairingPrecompileCost({data})")]
-pub struct EcPairingPrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcPairingPrecompileCost({data})")]
+pub fn EcPairingPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(45000, int::mul(34000, int::div(bytes::length(data), 192)))
 }
 
-#[k::function(
-    total,
-    sort = G1Point,
-    syntax = "#kevmEcPairingG1Point({data}, {index})"
-)]
-pub struct EcPairingG1Point {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingG1Point({data}, {index})")]
+pub fn EcPairingG1Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: index,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 32),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
-#[k::function(
-    total,
-    sort = G2Point,
-    syntax = "#kevmEcPairingG2Point({data}, {index})"
-)]
-pub struct EcPairingG2Point {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingG2Point({data}, {index})")]
+pub fn EcPairingG2Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G2Point> {
+    Bn128G2Point::G2 {
+        x_real: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 96),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        x_imaginary: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 64),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y_real: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 160),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y_imaginary: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 128),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
 #[k::function(
@@ -914,9 +1237,25 @@ pub struct EcPairingPointsValid {
     pub length: k::Term<Int>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcPairingPrecompileOutput({data})")]
-pub struct EcPairingPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcPairingPrecompileOutput({data})")]
+pub fn EcPairingPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    WriteMemoryWord {
+        memory: bytes::pad_right(bytes::empty(), 32, 0),
+        index: 0,
+        remaining: 32,
+        value: BoolToWord(Bn128Ate {
+            g1_points: EcPairingG1Points {
+                data,
+                index: 0,
+                length: bytes::length(data),
+            },
+            g2_points: EcPairingG2Points {
+                data,
+                index: 0,
+                length: bytes::length(data),
+            },
+        }),
+    }
 }
 
 #[k::function(
@@ -942,23 +1281,29 @@ pub struct Maximum {
     pub right: k::Term<Int>,
 }
 
-#[k::function(total, sort = Set, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
-pub struct MarkAccountAccess {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
+pub fn MarkAccountAccess(accessed: k::Term<Set>, account: k::Term<Int>) -> k::Term<Set> {
+    set::union(accessed, set::item(account))
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmExternalCopyGasCost({accessed}, {account}, {used}, {start}, {width})"
 )]
-pub struct ExternalCopyGasCost {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+pub fn ExternalCopyGasCost(
+    accessed: k::Term<Set>,
+    account: k::Term<Int>,
+    used: k::Term<Int>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Int> {
+    int::add(
+        AccountAccessCost { accessed, account },
+        int::add(
+            MemoryExpansionCost { used, start, width },
+            int::mul(3, int::div(int::add(width, 31), 32)),
+        ),
+    )
 }
 
 #[k::function(
@@ -1000,9 +1345,13 @@ pub struct BytesToInt {
     pub result: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmKeccak({value})")]
-pub struct Keccak {
-    pub value: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmKeccak({value})")]
+pub fn Keccak(value: k::Term<Bytes>) -> k::Term<Int> {
+    BytesToInt {
+        value: Keccak256Raw(value),
+        index: 0,
+        result: 0,
+    }
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmStorageValue({storage}, {index})")]
@@ -1033,14 +1382,22 @@ pub struct MarkStorageAccess {
     pub index: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmColdStorageSurcharge({warm})")]
-pub struct ColdStorageSurcharge {
-    pub warm: k::Term<Bool>,
+#[k::function(total, syntax = "#kevmColdStorageSurcharge({warm})")]
+pub fn ColdStorageSurcharge(warm: k::Term<Bool>) -> k::Term<Int>;
+
+k::equations! {
+    for ColdStorageSurcharge;
+    cold_storage_surcharge_warm: true  => 0;
+    cold_storage_surcharge_cold: false => 2100;
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmStorageLoadCost({warm})")]
-pub struct StorageLoadCost {
-    pub warm: k::Term<Bool>,
+#[k::function(total, syntax = "#kevmStorageLoadCost({warm})")]
+pub fn StorageLoadCost(warm: k::Term<Bool>) -> k::Term<Int>;
+
+k::equations! {
+    for StorageLoadCost;
+    storage_load_cost_warm: true  => 100;
+    storage_load_cost_cold: false => 2100;
 }
 
 #[k::function(
@@ -1117,15 +1474,19 @@ pub struct CopyBytes {
     pub remaining: k::Term<Int>,
 }
 
-#[k::function(
-    total,
-    sort = Bytes,
-    syntax = "#kevmReturnBytes({memory}, {start}, {width})"
-)]
-pub struct ReturnBytes {
-    pub memory: k::Term<Bytes>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmReturnBytes({memory}, {start}, {width})")]
+pub fn ReturnBytes(
+    memory: k::Term<Bytes>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Bytes> {
+    CopyBytes {
+        memory: bytes::pad_right(bytes::empty(), width, 0),
+        destination: 0,
+        source: memory,
+        source_index: start,
+        remaining: width,
+    }
 }
 
 #[k::function(
@@ -1200,10 +1561,10 @@ pub struct PreparePush {
 #[k::function(
     total,
     sort = GasStep,
-    syntax = "#kevmPrepareLog({op}, {stack}, {gas}, {used}, {static_mode})"
+    syntax = "#kevmPrepareLog({topics}, {stack}, {gas}, {used}, {static_mode})"
 )]
 pub struct PrepareLog {
-    pub op: k::Term<OpCode>,
+    pub topics: k::Term<Int>,
     pub stack: k::Term<WordStack>,
     pub gas: k::Term<Int>,
     pub used: k::Term<Int>,
@@ -1222,12 +1583,6 @@ pub struct PrepareStaticCall {
     pub gas: k::Term<Int>,
 }
 
-#[k::function(total, sort = GasStep, syntax = "#kevmCharge({op}, {gas})")]
-pub struct Charge {
-    pub op: k::Term<OpCode>,
-    pub gas: k::Term<Int>,
-}
-
 #[k::function(
     total,
     sort = GasStep,
@@ -1239,15 +1594,45 @@ pub struct ChargeFixed {
     pub cost: k::Term<Int>,
 }
 
-#[k::function(
-    total,
-    sort = GasStep,
-    syntax = "#kevmChargeStaticCall({gas}, {cost}, {account})"
-)]
-pub struct ChargeStaticCall {
-    pub gas: k::Term<Int>,
-    pub cost: k::Term<Int>,
-    pub account: k::Term<Int>,
+#[k::function(total, syntax = "#kevmChargeStaticCall({gas}, {cost}, {account})")]
+pub fn ChargeStaticCall(
+    gas: k::Term<Int>,
+    cost: k::Term<Int>,
+    account: k::Term<Int>,
+) -> k::Term<GasStep>;
+
+k::equations! {
+    for ChargeStaticCall;
+    use GasResult::*;
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecrec    : (gas, cost, 1) => EnoughEcrecPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_sha256   : (gas, cost, 2) => EnoughSha256PrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ripemd160: (gas, cost, 3) => EnoughRipemd160PrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_identity : (gas, cost, 4) => EnoughIdentityPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_modexp   : (gas, cost, 5) => EnoughModExpPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecadd    : (gas, cost, 6) => EnoughEcAddPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecmul    : (gas, cost, 7) => EnoughEcMulPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecpairing: (gas, cost, 8) => EnoughEcPairingPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 50)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call          : (gas, cost, _) => EnoughGas(Operation::StaticCall, int::sub(gas, cost));
+    #[k::requires(int::lt(gas, cost))]
+    charge_static_call_fails    : (gas, cost, _) => InsufficientGas();
 }
 
 #[k::function(total, sort = OpCode, syntax = "#kevmLookup({program}, {pc})")]
@@ -1256,12 +1641,8 @@ pub struct Lookup {
     pub pc: k::Term<Int>,
 }
 
-#[k::function(total, sort = OpCode, syntax = "#kevmDecode({opcode}, {program}, {pc})")]
-pub struct Decode {
-    pub opcode: k::Term<Int>,
-    pub program: k::Term<Bytes>,
-    pub pc: k::Term<Int>,
-}
+#[k::function(total, syntax = "#kevmDecode({opcode}, {program}, {pc})")]
+pub fn Decode(opcode: k::Term<Int>, program: k::Term<Bytes>, pc: k::Term<Int>) -> k::Term<OpCode>;
 
 #[k::function(total, sort = Int, syntax = "#kevmReadImmediate({program}, {at}, {remaining}, {value})")]
 pub struct ReadImmediate {
@@ -1371,30 +1752,6 @@ fn mark_storage_access_absent(
     }]: k::Term<Map>,
 ) -> k::Term<Map> {
     k::term![map::update(accessed, account, set::item(index))]
-}
-
-#[k::equation]
-fn cold_storage_surcharge_warm(
-    k::term![ColdStorageSurcharge { warm: true }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![0]
-}
-
-#[k::equation]
-fn cold_storage_surcharge_cold(
-    k::term![ColdStorageSurcharge { warm: false }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![2100]
-}
-
-#[k::equation]
-fn storage_load_cost_warm(k::term![StorageLoadCost { warm: true }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![100]
-}
-
-#[k::equation]
-fn storage_load_cost_cold(k::term![StorageLoadCost { warm: false }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![2100]
 }
 
 #[k::requires(int::eq(current, new))]
@@ -1707,895 +2064,84 @@ fn lookup_after_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k:
     k::term![Operation::End]
 }
 
-#[k::equation]
-fn decode_stop(
-    k::term![Decode {
-        opcode: 0,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Stop]
-}
-
-#[k::equation]
-fn decode_add(
-    k::term![Decode {
-        opcode: 1,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Add]
-}
-
-#[k::equation]
-fn decode_mul(
-    k::term![Decode {
-        opcode: 2,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Mul]
-}
-
-#[k::equation]
-fn decode_sub(
-    k::term![Decode {
-        opcode: 3,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Sub]
-}
-
-#[k::equation]
-fn decode_div(
-    k::term![Decode {
-        opcode: 4,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Div]
-}
-
-#[k::equation]
-fn decode_signed_div(
-    k::term![Decode {
-        opcode: 5,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SignedDiv]
-}
-
-#[k::equation]
-fn decode_mod(
-    k::term![Decode {
-        opcode: 6,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Mod]
-}
-
-#[k::equation]
-fn decode_signed_mod(
-    k::term![Decode {
-        opcode: 7,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SignedMod]
-}
-
-#[k::equation]
-fn decode_add_mod(
-    k::term![Decode {
-        opcode: 8,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::AddMod]
-}
-
-#[k::equation]
-fn decode_mul_mod(
-    k::term![Decode {
-        opcode: 9,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MulMod]
-}
-
-#[k::equation]
-fn decode_exponent(
-    k::term![Decode {
-        opcode: 10,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Exponent]
-}
-
-#[k::equation]
-fn decode_sign_extend(
-    k::term![Decode {
-        opcode: 11,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SignExtend]
-}
-
-#[k::equation]
-fn decode_less_than(
-    k::term![Decode {
-        opcode: 16,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::LessThan]
-}
-
-#[k::equation]
-fn decode_greater_than(
-    k::term![Decode {
-        opcode: 17,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::GreaterThan]
-}
-
-#[k::equation]
-fn decode_signed_less_than(
-    k::term![Decode {
-        opcode: 18,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SignedLessThan]
-}
-
-#[k::equation]
-fn decode_signed_greater_than(
-    k::term![Decode {
-        opcode: 19,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SignedGreaterThan]
-}
-
-#[k::equation]
-fn decode_equal(
-    k::term![Decode {
-        opcode: 20,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Equal]
-}
-
-#[k::equation]
-fn decode_is_zero(
-    k::term![Decode {
-        opcode: 21,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::IsZero]
-}
-
-#[k::equation]
-fn decode_bit_and(
-    k::term![Decode {
-        opcode: 22,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BitAnd]
-}
-
-#[k::equation]
-fn decode_bit_or(
-    k::term![Decode {
-        opcode: 23,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BitOr]
-}
-
-#[k::equation]
-fn decode_bit_xor(
-    k::term![Decode {
-        opcode: 24,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BitXor]
-}
-
-#[k::equation]
-fn decode_bit_not(
-    k::term![Decode {
-        opcode: 25,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BitNot]
-}
-
-#[k::equation]
-fn decode_byte(
-    k::term![Decode {
-        opcode: 26,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Byte]
-}
-
-#[k::equation]
-fn decode_shift_left(
-    k::term![Decode {
-        opcode: 27,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ShiftLeft]
-}
-
-#[k::equation]
-fn decode_shift_right(
-    k::term![Decode {
-        opcode: 28,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ShiftRight]
-}
-
-#[k::equation]
-fn decode_signed_shift_right(
-    k::term![Decode {
-        opcode: 29,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SignedShiftRight]
-}
-
-#[k::equation]
-fn decode_sha3(
-    k::term![Decode {
-        opcode: 32,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Sha3]
-}
-
-#[k::equation]
-fn decode_address(
-    k::term![Decode {
-        opcode: 48,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Address]
-}
-
-#[k::equation]
-fn decode_balance(
-    k::term![Decode {
-        opcode: 49,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::AccountBalance]
-}
-
-#[k::equation]
-fn decode_origin(
-    k::term![Decode {
-        opcode: 50,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::TxOrigin]
-}
-
-#[k::equation]
-fn decode_caller(
-    k::term![Decode {
-        opcode: 51,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MsgCaller]
-}
-
-#[k::equation]
-fn decode_call_value(
-    k::term![Decode {
-        opcode: 52,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MsgCallValue]
-}
-
-#[k::equation]
-fn decode_call_data_load(
-    k::term![Decode {
-        opcode: 53,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::CallDataLoad]
-}
-
-#[k::equation]
-fn decode_call_data_size(
-    k::term![Decode {
-        opcode: 54,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::CallDataSize]
-}
-
-#[k::equation]
-fn decode_call_data_copy(
-    k::term![Decode {
-        opcode: 55,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::CallDataCopy]
-}
-
-#[k::equation]
-fn decode_code_size(
-    k::term![Decode {
-        opcode: 56,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::CodeSize]
-}
-
-#[k::equation]
-fn decode_code_copy(
-    k::term![Decode {
-        opcode: 57,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::CodeCopy]
-}
-
-#[k::equation]
-fn decode_gas_price(
-    k::term![Decode {
-        opcode: 58,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::TxGasPrice]
-}
-
-#[k::equation]
-fn decode_external_code_size(
-    k::term![Decode {
-        opcode: 59,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ExternalCodeSize]
-}
-
-#[k::equation]
-fn decode_external_code_copy(
-    k::term![Decode {
-        opcode: 60,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ExternalCodeCopy]
-}
-
-#[k::equation]
-fn decode_return_data_size(
-    k::term![Decode {
-        opcode: 61,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ReturnDataSize]
-}
-
-#[k::equation]
-fn decode_return_data_copy(
-    k::term![Decode {
-        opcode: 62,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ReturnDataCopy]
-}
-
-#[k::equation]
-fn decode_external_code_hash(
-    k::term![Decode {
-        opcode: 63,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ExternalCodeHash]
-}
-
-#[k::equation]
-fn decode_block_hash(
-    k::term![Decode {
-        opcode: 64,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BlockHash]
-}
-
-#[k::equation]
-fn decode_coinbase(
-    k::term![Decode {
-        opcode: 65,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BlockCoinbase]
-}
-
-#[k::equation]
-fn decode_timestamp(
-    k::term![Decode {
-        opcode: 66,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BlockTimestamp]
-}
-
-#[k::equation]
-fn decode_number(
-    k::term![Decode {
-        opcode: 67,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BlockNumber]
-}
-
-#[k::equation]
-fn decode_prev_randao(
-    k::term![Decode {
-        opcode: 68,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::PrevRandao]
-}
-
-#[k::equation]
-fn decode_gas_limit(
-    k::term![Decode {
-        opcode: 69,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BlockGasLimit]
-}
-
-#[k::equation]
-fn decode_chain_id(
-    k::term![Decode {
-        opcode: 70,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::NetworkChainId]
-}
-
-#[k::equation]
-fn decode_self_balance(
-    k::term![Decode {
-        opcode: 71,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::SelfBalance]
-}
-
-#[k::equation]
-fn decode_base_fee(
-    k::term![Decode {
-        opcode: 72,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::BlockBaseFee]
-}
-
-#[k::equation]
-fn decode_memory_load(
-    k::term![Decode {
-        opcode: 81,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MemoryLoad]
-}
-
-#[k::equation]
-fn decode_memory_store(
-    k::term![Decode {
-        opcode: 82,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MemoryStore]
-}
-
-#[k::equation]
-fn decode_memory_store8(
-    k::term![Decode {
-        opcode: 83,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MemoryStore8]
-}
-
-#[k::equation]
-fn decode_storage_load(
-    k::term![Decode {
-        opcode: 84,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::StorageLoad]
-}
-
-#[k::equation]
-fn decode_storage_store(
-    k::term![Decode {
-        opcode: 85,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::StorageStore]
-}
-
-#[k::equation]
-fn decode_memory_size(
-    k::term![Decode {
-        opcode: 89,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::MemorySize]
-}
-
-#[k::equation]
-fn decode_gas_remaining(
-    k::term![Decode {
-        opcode: 90,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::GasRemaining]
-}
-
-#[k::equation]
-fn decode_pop(
-    k::term![Decode {
-        opcode: 80,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Pop]
-}
-
-#[k::equation]
-fn decode_pc(
-    k::term![Decode {
-        opcode: 88,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::ProgramCounter]
-}
-
-#[k::equation]
-fn decode_jump(
-    k::term![Decode {
-        opcode: 86,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Jump]
-}
-
-#[k::equation]
-fn decode_jump_if(
-    k::term![Decode {
-        opcode: 87,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::JumpIf]
-}
-
-#[k::equation]
-fn decode_jump_dest(
-    k::term![Decode {
-        opcode: 91,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::JumpDest]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 96), int::le(opcode, 127)))]
-#[k::equation]
-fn decode_push(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Push {
-        width: int::sub(opcode, 95),
-        value: ReadImmediate {
-            program,
-            at: int::add(pc, 1),
-            remaining: int::sub(opcode, 95),
-            value: 0
-        }
-    }]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 128), int::le(opcode, 143)))]
-#[k::equation]
-fn decode_duplicate(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Duplicate {
-        depth: int::sub(opcode, 127)
-    }]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 144), int::le(opcode, 159)))]
-#[k::equation]
-fn decode_swap(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Swap {
-        depth: int::sub(opcode, 143)
-    }]
-}
-
-#[k::equation]
-fn decode_push_zero(
-    k::term![Decode {
-        opcode: 95,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::PushZero]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 160), int::le(opcode, 164)))]
-#[k::equation]
-fn decode_log(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::LogOpcode {
-        topics: int::sub(opcode, 160)
-    }]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 12), int::le(opcode, 15)))]
-#[k::equation]
-fn decode_invalid_low(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Invalid]
-}
-
-#[k::requires(bool::or(
-    bool::and(
-        bool::and(int::ge(opcode, 30), int::le(opcode, 47)),
-        int::ne(opcode, 32),
-    ),
-    bool::and(int::ge(opcode, 73), int::le(opcode, 79)),
-))]
-#[k::equation]
-fn decode_invalid_context_gaps(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Invalid]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 92), int::le(opcode, 94)))]
-#[k::equation]
-fn decode_invalid_middle(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Invalid]
-}
-
-#[k::equation]
-fn decode_return(
-    k::term![Decode {
-        opcode: 243,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Return]
-}
-
-#[k::equation]
-fn decode_revert(
-    k::term![Decode {
-        opcode: 253,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Revert]
-}
-
-#[k::equation]
-fn decode_static_call(
-    k::term![Decode {
-        opcode: 250,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::StaticCall]
-}
-
-#[k::requires(bool::and(int::ge(opcode, 165), int::le(opcode, 242)))]
-#[k::equation]
-fn decode_invalid_high_before_return(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Invalid]
-}
-
-#[k::requires(bool::and(
-    bool::and(int::ge(opcode, 244), int::le(opcode, 252)),
-    int::ne(opcode, 250),
-))]
-#[k::equation]
-fn decode_invalid_high_between_return_and_revert(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Invalid]
-}
-
-#[k::requires(int::ge(opcode, 254))]
-#[k::equation]
-fn decode_invalid_high_after_revert(
-    k::term![Decode {
-        opcode,
-        program,
-        pc
-    }]: k::Term<OpCode>,
-) -> k::Term<OpCode> {
-    k::term![Operation::Invalid]
+k::equations! {
+    for Decode;
+    use Operation::*;
+    decode_stop               : (0, _, _)                            => Stop();
+    decode_add                : (1, _, _)                            => Add();
+    decode_mul                : (2, _, _)                            => Mul();
+    decode_sub                : (3, _, _)                            => Sub();
+    decode_div                : (4, _, _)                            => Div();
+    decode_signed_div         : (5, _, _)                            => SignedDiv();
+    decode_mod                : (6, _, _)                            => Mod();
+    decode_signed_mod         : (7, _, _)                            => SignedMod();
+    decode_add_mod            : (8, _, _)                            => AddMod();
+    decode_mul_mod            : (9, _, _)                            => MulMod();
+    decode_exponent           : (10, _, _)                           => Exponent();
+    decode_sign_extend        : (11, _, _)                           => SignExtend();
+    decode_less_than          : (16, _, _)                           => LessThan();
+    decode_greater_than       : (17, _, _)                           => GreaterThan();
+    decode_signed_less_than   : (18, _, _)                           => SignedLessThan();
+    decode_signed_greater_than: (19, _, _)                           => SignedGreaterThan();
+    decode_equal              : (20, _, _)                           => Equal();
+    decode_is_zero            : (21, _, _)                           => IsZero();
+    decode_bit_and            : (22, _, _)                           => BitAnd();
+    decode_bit_or             : (23, _, _)                           => BitOr();
+    decode_bit_xor            : (24, _, _)                           => BitXor();
+    decode_bit_not            : (25, _, _)                           => BitNot();
+    decode_byte               : (26, _, _)                           => Byte();
+    decode_shift_left         : (27, _, _)                           => ShiftLeft();
+    decode_shift_right        : (28, _, _)                           => ShiftRight();
+    decode_signed_shift_right : (29, _, _)                           => SignedShiftRight();
+    decode_sha3               : (32, _, _)                           => Sha3();
+    decode_address            : (48, _, _)                           => Address();
+    decode_balance            : (49, _, _)                           => AccountBalance();
+    decode_origin             : (50, _, _)                           => TxOrigin();
+    decode_caller             : (51, _, _)                           => MsgCaller();
+    decode_call_value         : (52, _, _)                           => MsgCallValue();
+    decode_call_data_load     : (53, _, _)                           => CallDataLoad();
+    decode_call_data_size     : (54, _, _)                           => CallDataSize();
+    decode_call_data_copy     : (55, _, _)                           => CallDataCopy();
+    decode_code_size          : (56, _, _)                           => CodeSize();
+    decode_code_copy          : (57, _, _)                           => CodeCopy();
+    decode_gas_price          : (58, _, _)                           => TxGasPrice();
+    decode_external_code_size : (59, _, _)                           => ExternalCodeSize();
+    decode_external_code_copy : (60, _, _)                           => ExternalCodeCopy();
+    decode_return_data_size   : (61, _, _)                           => ReturnDataSize();
+    decode_return_data_copy   : (62, _, _)                           => ReturnDataCopy();
+    decode_external_code_hash : (63, _, _)                           => ExternalCodeHash();
+    decode_block_hash         : (64, _, _)                           => BlockHash();
+    decode_coinbase           : (65, _, _)                           => BlockCoinbase();
+    decode_timestamp          : (66, _, _)                           => BlockTimestamp();
+    decode_number             : (67, _, _)                           => BlockNumber();
+    decode_prev_randao        : (68, _, _)                           => PrevRandao();
+    decode_gas_limit          : (69, _, _)                           => BlockGasLimit();
+    decode_chain_id           : (70, _, _)                           => NetworkChainId();
+    decode_self_balance       : (71, _, _)                           => SelfBalance();
+    decode_base_fee           : (72, _, _)                           => BlockBaseFee();
+    decode_pop                : (80, _, _)                           => Pop();
+    decode_memory_load        : (81, _, _)                           => MemoryLoad();
+    decode_memory_store       : (82, _, _)                           => MemoryStore();
+    decode_memory_store8      : (83, _, _)                           => MemoryStore8();
+    decode_storage_load       : (84, _, _)                           => StorageLoad();
+    decode_storage_store      : (85, _, _)                           => StorageStore();
+    decode_jump               : (86, _, _)                           => Jump();
+    decode_jump_if            : (87, _, _)                           => JumpIf();
+    decode_pc                 : (88, _, _)                           => ProgramCounter();
+    decode_memory_size        : (89, _, _)                           => MemorySize();
+    decode_gas_remaining      : (90, _, _)                           => GasRemaining();
+    decode_jump_dest          : (91, _, _)                           => JumpDest();
+    decode_push_zero          : (95, _, _)                           => PushZero();
+    decode_push               : (k::bits!("011 nnnnn"), program, pc) => Push(int::add(n, 1), crate::ReadImmediate(program, int::add(pc, 1), int::add(n, 1), 0));
+    decode_duplicate          : (k::bits!("1000 dddd"), _, _)        => Duplicate(int::add(d, 1));
+    decode_swap               : (k::bits!("1001 dddd"), _, _)        => Swap(int::add(d, 1));
+    #[k::requires(t.le::<Int>(4))]
+    decode_log                : (k::bits!("10100 ttt"), _, _)        => LogOpcode(t);
+    decode_return             : (243, _, _)                          => Return();
+    decode_static_call        : (250, _, _)                          => StaticCall();
+    decode_revert             : (253, _, _)                          => Revert();
+    #[k::equation(owise)]
+    decode_invalid            : (_, _, _)                            => Invalid();
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -2625,7 +2171,13 @@ fn read_immediate_byte(
         program,
         at: int::add(at, 1),
         remaining: int::sub(remaining, 1),
-        value: int::add(int::mul(value, 256), bytes::get(program, at))
+        value: int::add(
+            int::mul(value, 256),
+            MemoryByte {
+                memory: program,
+                index: at
+            }
+        )
     }]
 }
 
@@ -2659,32 +2211,6 @@ fn memory_usage_grows(
     k::term![int::div(int::add(int::add(start, width), 31), 32)]
 }
 
-#[k::equation]
-fn memory_cost(k::term![MemoryCost(words)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
-        int::mul(3, words),
-        int::div(int::mul(words, words), 512),
-    )]
-}
-
-#[k::equation]
-fn memory_expansion_cost(
-    k::term![MemoryExpansionCost { used, start, width }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::sub(
-        MemoryCost(MemoryUsageUpdate { used, start, width }),
-        MemoryCost(used),
-    )]
-}
-
-#[k::equation]
-fn copy_gas_cost(k::term![CopyGasCost { used, start, width }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
-        MemoryExpansionCost { used, start, width },
-        int::add(3, int::mul(3, int::div(int::add(width, 31), 32)),),
-    )]
-}
-
 #[k::requires(set::contains(account, accessed))]
 #[k::equation]
 fn account_access_cost_warm(
@@ -2699,94 +2225,6 @@ fn account_access_cost_cold(
     k::term![AccountAccessCost { accessed, account }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![2600]
-}
-
-#[k::equation]
-fn account_empty(
-    k::term![AccountEmpty {
-        code,
-        nonce,
-        balance
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![bool::and(
-        int::eq(bytes::length(code), 0),
-        bool::and(int::eq(nonce, 0), int::eq(balance, 0)),
-    )]
-}
-
-#[k::equation]
-fn call_memory_usage(
-    k::term![CallMemoryUsage {
-        used,
-        argument_start,
-        argument_width,
-        return_start,
-        return_width
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![MemoryUsageUpdate {
-        used: MemoryUsageUpdate {
-            used,
-            start: argument_start,
-            width: argument_width
-        },
-        start: return_start,
-        width: return_width
-    }]
-}
-
-#[k::equation]
-fn static_call_cost(
-    k::term![StaticCallCost {
-        accessed,
-        account,
-        used,
-        argument_start,
-        argument_width,
-        return_start,
-        return_width
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        AccountAccessCost { accessed, account },
-        int::sub(
-            MemoryCost(CallMemoryUsage {
-                used,
-                argument_start,
-                argument_width,
-                return_start,
-                return_width
-            }),
-            MemoryCost(used),
-        ),
-    )]
-}
-
-#[k::equation]
-fn mark_account_access(
-    k::term![MarkAccountAccess { accessed, account }]: k::Term<Set>,
-) -> k::Term<Set> {
-    k::term![set::union(accessed, set::item(account))]
-}
-
-#[k::equation]
-fn external_copy_gas_cost(
-    k::term![ExternalCopyGasCost {
-        accessed,
-        account,
-        used,
-        start,
-        width
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        AccountAccessCost { accessed, account },
-        int::add(
-            MemoryExpansionCost { used, start, width },
-            int::mul(3, int::div(int::add(width, 31), 32)),
-        ),
-    )]
 }
 
 #[k::requires(int::le(width, 0))]
@@ -2856,15 +2294,6 @@ fn bytes_to_int_byte(
         value,
         index: int::add(index, 1),
         result: int::add(int::mul(result, 256), bytes::get(value, index))
-    }]
-}
-
-#[k::equation]
-fn keccak(k::term![Keccak(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![BytesToInt {
-        value: Keccak256Raw(value),
-        index: 0,
-        result: 0
     }]
 }
 
@@ -2975,23 +2404,6 @@ fn copy_bytes_step(
     }]
 }
 
-#[k::equation]
-fn return_bytes(
-    k::term![ReturnBytes {
-        memory,
-        start,
-        width
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![CopyBytes {
-        memory: bytes::pad_right(bytes::empty(), width, 0),
-        destination: 0,
-        source: memory,
-        source_index: start,
-        remaining: width
-    }]
-}
-
 #[k::requires(int::le(int::add(source_index, width), bytes::length(output)))]
 #[k::equation]
 fn resolve_return_data_copy_valid(
@@ -3065,14 +2477,26 @@ fn scan_jump_destination_found(
         cursor
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![int::eq(bytes::get(program, cursor), 91)]
+    k::term![int::eq(
+        MemoryByte {
+            memory: program,
+            index: cursor
+        },
+        91
+    )]
 }
 
 #[k::requires(bool::and(
     int::lt(cursor, destination),
     bool::and(
-        int::ge(bytes::get(program, cursor), 96),
-        int::le(bytes::get(program, cursor), 127),
+        int::ge(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 96),
+        int::le(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 127),
     ),
 ))]
 #[k::equation]
@@ -3086,15 +2510,30 @@ fn scan_jump_destination_past_push(
     k::term![ScanJumpDestination {
         program,
         destination,
-        cursor: int::add(cursor, int::sub(bytes::get(program, cursor), 94),)
+        cursor: int::add(
+            cursor,
+            int::sub(
+                MemoryByte {
+                    memory: program,
+                    index: cursor
+                },
+                94
+            ),
+        )
     }]
 }
 
 #[k::requires(bool::and(
     int::lt(cursor, destination),
     bool::or(
-        int::lt(bytes::get(program, cursor), 96),
-        int::gt(bytes::get(program, cursor), 127),
+        int::lt(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 96),
+        int::gt(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 127),
     ),
 ))]
 #[k::equation]
@@ -3173,19 +2612,6 @@ fn resolve_true_jump_if(
     }]
 }
 
-// 2^256 is written as (2^64 * 2^64)^2 so every authored Rust literal fits
-// its host integer lexer while the object-language computation stays exact.
-#[k::equation]
-fn chop_word(k::term![Chop(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::rem_euclid(
-        value,
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
-    )]
-}
-
 #[k::requires(int::eq(divisor, 0))]
 #[k::equation]
 fn word_div_zero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
@@ -3212,21 +2638,12 @@ fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k:
 
 #[k::requires(bool::and(
     int::le(
-        int::div(
-            int::mul(
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            ),
-            2,
-        ),
+        57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968,
         value,
     ),
     int::lt(
         value,
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
     ),
 ))]
 #[k::equation]
@@ -3238,13 +2655,7 @@ fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     int::le(0, value),
     int::lt(
         value,
-        int::div(
-            int::mul(
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            ),
-            2,
-        ),
+        57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968,
     ),
 ))]
 #[k::equation]
@@ -3255,10 +2666,7 @@ fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
 #[k::requires(bool::or(
     int::lt(value, 0),
     int::le(
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
         value,
     ),
 ))]
@@ -3267,19 +2675,19 @@ fn sign_outside_word(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
 }
 
-#[k::requires(int::eq(Sign(value), int::sub(0, 1)))]
+#[k::requires(bool::and(int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value), int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)))]
 #[k::equation]
 fn magnitude_negative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![Chop(int::sub(0, value))]
 }
 
-#[k::requires(int::eq(Sign(value), 1))]
+#[k::requires(bool::and(int::le(0, value), int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)))]
 #[k::equation]
 fn magnitude_nonnegative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![value]
 }
 
-#[k::requires(int::eq(Sign(value), 0))]
+#[k::requires(bool::or(int::lt(value, 0), int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)))]
 #[k::equation]
 fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
@@ -3333,16 +2741,6 @@ fn signed_word_mod_negative(
             divisor: Magnitude(divisor)
         },
     ))]
-}
-
-#[k::equation]
-fn bool_to_word_true(k::term![BoolToWord(true)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![1]
-}
-
-#[k::equation]
-fn bool_to_word_false(k::term![BoolToWord(false)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
 }
 
 #[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), 1),))]
@@ -3437,10 +2835,7 @@ fn signed_shift_right_large_negative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![int::sub(
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
         1,
     )]
 }
@@ -3479,24 +2874,16 @@ fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Te
     k::term![0]
 }
 
-#[k::equation]
-fn sign_extend_byte(k::term![SignExtendByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::rem_euclid(
-        int::shift_right(value, int::mul(8, index)),
-        256
-    )]
-}
-
 #[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
 #[k::equation]
 fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     k::term![value]
 }
 
-#[k::requires(bool::and(
-    bool::and(int::ge(index, 0), int::lt(index, 32)),
-    int::lt(SignExtendByte { index, value }, 128),
-))]
+#[k::requires(
+    bool::and(int::ge(index, 0), int::lt(index, 32))
+        && int::lt(SignExtendByte { index, value }, 128)
+)]
 #[k::equation]
 fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     k::term![Chop(int::bit_and(
@@ -3505,19 +2892,16 @@ fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>)
     ))]
 }
 
-#[k::requires(bool::and(
-    bool::and(int::ge(index, 0), int::lt(index, 32)),
-    int::ge(SignExtendByte { index, value }, 128),
-))]
+#[k::requires(
+    bool::and(int::ge(index, 0), int::lt(index, 32))
+        && int::ge(SignExtendByte { index, value }, 128)
+)]
 #[k::equation]
 fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     k::term![Chop(int::bit_or(
         int::bit_xor(
             int::sub(
-                int::mul(
-                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),
-                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),
-                ),
+                115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
                 1,
             ),
             int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
@@ -3554,7 +2938,7 @@ fn block_hash_too_old(
 
 #[k::requires(bool::and(
     bool::and(int::le(requested, highest), int::lt(age, 256)),
-    bool::and(int::lt(age, list::size(hashes)), int::eq(list::get(hashes, age), 0)),
+    int::lt(age, list::size(hashes)) && int::eq(list::get(hashes, age), 0),
 ))]
 #[k::equation]
 fn block_hash_zero_sentinel(
@@ -3570,7 +2954,7 @@ fn block_hash_zero_sentinel(
 
 #[k::requires(bool::and(
     bool::and(int::eq(requested, highest), int::lt(age, 256)),
-    bool::and(int::lt(age, list::size(hashes)), int::ne(list::get(hashes, age), 0)),
+    int::lt(age, list::size(hashes)) && int::ne(list::get(hashes, age), 0),
 ))]
 #[k::equation]
 fn block_hash_found(
@@ -3586,7 +2970,7 @@ fn block_hash_found(
 
 #[k::requires(bool::and(
     bool::and(int::lt(requested, highest), int::lt(age, 256)),
-    bool::and(int::lt(age, list::size(hashes)), int::ne(list::get(hashes, age), 0)),
+    int::lt(age, list::size(hashes)) && int::ne(list::get(hashes, age), 0),
 ))]
 #[k::equation]
 fn block_hash_continue(
@@ -3874,7 +3258,7 @@ fn prepare_push_overflow(
 #[k::equation]
 fn prepare_log_underflow(
     k::term![PrepareLog {
-        op: Operation::LogOpcode { topics },
+        topics,
         stack,
         gas,
         used,
@@ -3944,41 +3328,7 @@ fn static_call_gas_capped(
     k::term![int::sub(available, int::div(available, 64))]
 }
 
-#[k::equation]
-fn ecrec_precompile_output(
-    k::term![EcrecPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![EcrecOutput {
-        public_key: EcdsaRecover {
-            hash: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            recovery: BytesToInt {
-                value: ReturnBytes {
-                    memory: data,
-                    start: 32,
-                    width: 32
-                },
-                index: 0,
-                result: 0
-            },
-            r: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32
-            },
-            s: ReturnBytes {
-                memory: data,
-                start: 96,
-                width: 32
-            }
-        }
-    }]
-}
-
-#[k::requires(int::eq(bytes::length(public_key), 0))]
+#[k::requires(int::le(bytes::length(public_key), 0))]
 #[k::equation]
 fn ecrec_output_invalid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
     k::term![bytes::empty()]
@@ -4038,14 +3388,6 @@ fn resolve_ecrec_precompile_failure(
     }]
 }
 
-#[k::equation]
-fn sha256_precompile_cost(k::term![Sha256PrecompileCost { data }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
-        60,
-        int::mul(12, int::div(int::add(bytes::length(data), 31), 32)),
-    )]
-}
-
 #[k::requires(int::ge(
     StaticCallGas { requested, available },
     Sha256PrecompileCost { data },
@@ -4084,16 +3426,6 @@ fn resolve_sha256_precompile_failure(
             }
         )
     }]
-}
-
-#[k::equation]
-fn ripemd160_precompile_cost(
-    k::term![Ripemd160PrecompileCost { data }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        600,
-        int::mul(120, int::div(int::add(bytes::length(data), 31), 32)),
-    )]
 }
 
 #[k::requires(int::ge(
@@ -4136,16 +3468,6 @@ fn resolve_ripemd160_precompile_failure(
     }]
 }
 
-#[k::equation]
-fn identity_precompile_cost(
-    k::term![IdentityPrecompileCost { data }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        15,
-        int::mul(3, int::div(int::add(bytes::length(data), 31), 32)),
-    )]
-}
-
 #[k::requires(int::ge(
     StaticCallGas { requested, available },
     IdentityPrecompileCost { data },
@@ -4182,96 +3504,6 @@ fn resolve_identity_precompile_failure(
                 requested,
                 available
             }
-        )
-    }]
-}
-
-#[k::equation]
-fn modexp_precompile_cost(k::term![ModExpPrecompileCost { data }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![Maximum {
-        left: 200,
-        right: int::div(
-            int::mul(
-                int::mul(
-                    int::div(
-                        int::add(
-                            Maximum {
-                                left: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 0,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                },
-                                right: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 64,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                }
-                            },
-                            7
-                        ),
-                        8
-                    ),
-                    int::div(
-                        int::add(
-                            Maximum {
-                                left: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 0,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                },
-                                right: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 64,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                }
-                            },
-                            7
-                        ),
-                        8
-                    )
-                ),
-                Maximum {
-                    left: ModExpAdjustedExponentLength {
-                        data,
-                        base_length: BytesToInt {
-                            value: ReturnBytes {
-                                memory: data,
-                                start: 0,
-                                width: 32
-                            },
-                            index: 0,
-                            result: 0
-                        },
-                        exponent_length: BytesToInt {
-                            value: ReturnBytes {
-                                memory: data,
-                                start: 32,
-                                width: 32
-                            },
-                            index: 0,
-                            result: 0
-                        }
-                    },
-                    right: 1
-                }
-            ),
-            3
         )
     }]
 }
@@ -4339,56 +3571,14 @@ fn modexp_exponent_head_bits_positive(
     k::term![int::log2(value)]
 }
 
-#[k::equation]
-fn modexp_precompile_output(
-    k::term![ModExpPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![ModExpOutputBody {
-        body: ReturnBytes {
-            memory: data,
-            start: 96,
-            width: Maximum {
-                left: 0,
-                right: int::sub(bytes::length(data), 96)
-            }
-        },
-        base_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        exponent_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        modulus_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
+#[k::requires(int::le(modulus_length, 0))]
 #[k::equation]
 fn modexp_output_body_empty(
     k::term![ModExpOutputBody {
         body,
         base_length,
         exponent_length,
-        modulus_length: 0
+        modulus_length
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
     k::term![bytes::empty()]
@@ -4427,44 +3617,7 @@ fn modexp_output_body_nonempty(
     }]
 }
 
-#[k::equation]
-fn modexp_output_exponent(
-    k::term![ModExpOutputExponent {
-        body,
-        base,
-        exponent_length,
-        modulus_length
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![WriteMemoryWord {
-        memory: bytes::pad_right(bytes::empty(), modulus_length, 0),
-        index: 0,
-        remaining: modulus_length,
-        value: ModExpPower {
-            base,
-            exponent: BytesToInt {
-                value: ReturnBytes {
-                    memory: body,
-                    start: 0,
-                    width: exponent_length
-                },
-                index: 0,
-                result: 0
-            },
-            modulus: BytesToInt {
-                value: ReturnBytes {
-                    memory: body,
-                    start: exponent_length,
-                    width: modulus_length
-                },
-                index: 0,
-                result: 0
-            }
-        }
-    }]
-}
-
-#[k::requires(int::eq(modulus, 0))]
+#[k::requires(int::le(modulus, 0))]
 #[k::equation]
 fn modexp_power_zero_modulus(
     k::term![ModExpPower {
@@ -4529,54 +3682,6 @@ fn resolve_modexp_precompile_failure(
 }
 
 #[k::equation]
-fn ecadd_first_point(k::term![EcAddFirstPoint { data }]: k::Term<G1Point>) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
-fn ecadd_second_point(k::term![EcAddSecondPoint { data }]: k::Term<G1Point>) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 96,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
 fn bn128_point_bytes(
     k::term![Bn128PointBytes {
         point: Bn128Point::Point { x, y }
@@ -4592,18 +3697,6 @@ fn bn128_point_bytes(
         index: 32,
         remaining: 32,
         value: y
-    }]
-}
-
-#[k::equation]
-fn ecadd_precompile_output(
-    k::term![EcAddPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![Bn128PointBytes {
-        point: Bn128Add {
-            left: EcAddFirstPoint { data },
-            right: EcAddSecondPoint { data }
-        }
     }]
 }
 
@@ -4706,55 +3799,6 @@ fn resolve_ecadd_precompile_invalid_second_point(
     }]
 }
 
-#[k::equation]
-fn ecmul_point(k::term![EcMulPoint { data }]: k::Term<G1Point>) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
-fn ecmul_scalar(k::term![EcMulScalar { data }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![BytesToInt {
-        value: ReturnBytes {
-            memory: data,
-            start: 64,
-            width: 32
-        },
-        index: 0,
-        result: 0
-    }]
-}
-
-#[k::equation]
-fn ecmul_precompile_output(
-    k::term![EcMulPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![Bn128PointBytes {
-        point: Bn128Mul {
-            point: EcMulPoint { data },
-            scalar: EcMulScalar { data }
-        }
-    }]
-}
-
 #[k::requires(bool::and(
     int::ge(StaticCallGas { requested, available }, 6000),
     Bn128PointValid {
@@ -4819,87 +3863,7 @@ fn resolve_ecmul_precompile_invalid_point(
     }]
 }
 
-#[k::equation]
-fn ecpairing_precompile_cost(
-    k::term![EcPairingPrecompileCost { data }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        45000,
-        int::mul(34000, int::div(bytes::length(data), 192))
-    )]
-}
-
-#[k::equation]
-fn ecpairing_g1_point(
-    k::term![EcPairingG1Point { data, index }]: k::Term<G1Point>,
-) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 32),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
-fn ecpairing_g2_point(
-    k::term![EcPairingG2Point { data, index }]: k::Term<G2Point>,
-) -> k::Term<G2Point> {
-    k::term![Bn128G2Point::G2 {
-        x_real: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 96),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        x_imaginary: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 64),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y_real: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 160),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y_imaginary: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 128),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::requires(int::eq(index, length))]
+#[k::requires(int::ge(index, length))]
 #[k::equation]
 fn ecpairing_g1_points_done(
     k::term![EcPairingG1Points {
@@ -4930,7 +3894,7 @@ fn ecpairing_g1_points_next(
     )]
 }
 
-#[k::requires(int::eq(index, length))]
+#[k::requires(int::ge(index, length))]
 #[k::equation]
 fn ecpairing_g2_points_done(
     k::term![EcPairingG2Points {
@@ -4961,7 +3925,7 @@ fn ecpairing_g2_points_next(
     )]
 }
 
-#[k::requires(int::eq(index, length))]
+#[k::requires(int::ge(index, length))]
 #[k::equation]
 fn ecpairing_points_valid_done(
     k::term![EcPairingPointsValid {
@@ -4997,29 +3961,6 @@ fn ecpairing_points_valid_next(
             }
         )
     )]
-}
-
-#[k::equation]
-fn ecpairing_precompile_output(
-    k::term![EcPairingPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![WriteMemoryWord {
-        memory: bytes::pad_right(bytes::empty(), 32, 0),
-        index: 0,
-        remaining: 32,
-        value: BoolToWord(Bn128Ate {
-            g1_points: EcPairingG1Points {
-                data,
-                index: 0,
-                length: bytes::length(data)
-            },
-            g2_points: EcPairingG2Points {
-                data,
-                index: 0,
-                length: bytes::length(data)
-            }
-        })
-    }]
 }
 
 #[k::requires(bool::and(
@@ -5159,7 +4100,7 @@ fn maximum_right(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int
 #[k::equation]
 fn prepare_log_static(
     k::term![PrepareLog {
-        op: Operation::LogOpcode { topics },
+        topics,
         stack,
         gas,
         used,
@@ -5173,7 +4114,7 @@ fn prepare_log_static(
 #[k::equation]
 fn prepare_log_allowed(
     k::term![PrepareLog {
-        op: Operation::LogOpcode { topics },
+        topics,
         stack,
         gas,
         used,
@@ -5215,402 +4156,6 @@ fn charge_fixed_fails(
     k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
     k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecrec(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 1
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcrecPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_sha256(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 2
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughSha256PrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ripemd160(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 3
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughRipemd160PrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_identity(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 4
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughIdentityPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_modexp(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 5
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughModExpPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecadd(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 6
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcAddPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecmul(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 7
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcMulPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecpairing(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 8
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcPairingPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 50)]
-fn charge_static_call(
-    k::term![ChargeStaticCall { gas, cost, account }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::StaticCall,
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::lt(gas, cost))]
-#[k::equation]
-fn charge_static_call_fails(
-    k::term![ChargeStaticCall { gas, cost, account }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_add(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Add,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_add_fails(k::term![Charge(Operation::Add, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_sub(k::term![Charge(Operation::Sub, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Sub,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_sub_fails(k::term![Charge(Operation::Sub, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_mul(k::term![Charge(Operation::Mul, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Mul,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_mul_fails(k::term![Charge(Operation::Mul, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_div(k::term![Charge(Operation::Div, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Div,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_div_fails(k::term![Charge(Operation::Div, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_signed_div(
-    k::term![Charge(Operation::SignedDiv, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedDiv,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_signed_div_fails(
-    k::term![Charge(Operation::SignedDiv, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_mod(k::term![Charge(Operation::Mod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Mod,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_mod_fails(k::term![Charge(Operation::Mod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 5))]
-#[k::equation]
-fn charge_signed_mod(
-    k::term![Charge(Operation::SignedMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedMod,
-        remaining: int::sub(gas, 5)
-    }]
-}
-
-#[k::requires(int::lt(gas, 5))]
-#[k::equation]
-fn charge_signed_mod_fails(
-    k::term![Charge(Operation::SignedMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 8))]
-#[k::equation]
-fn charge_add_mod(k::term![Charge(Operation::AddMod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::AddMod,
-        remaining: int::sub(gas, 8)
-    }]
-}
-
-#[k::requires(int::lt(gas, 8))]
-#[k::equation]
-fn charge_add_mod_fails(
-    k::term![Charge(Operation::AddMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 8))]
-#[k::equation]
-fn charge_mul_mod(k::term![Charge(Operation::MulMod, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::MulMod,
-        remaining: int::sub(gas, 8)
-    }]
-}
-
-#[k::requires(int::lt(gas, 8))]
-#[k::equation]
-fn charge_mul_mod_fails(
-    k::term![Charge(Operation::MulMod, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_less_than(
-    k::term![Charge(Operation::LessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::LessThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_less_than_fails(
-    k::term![Charge(Operation::LessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_greater_than(
-    k::term![Charge(Operation::GreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::GreaterThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_greater_than_fails(
-    k::term![Charge(Operation::GreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_signed_less_than(
-    k::term![Charge(Operation::SignedLessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedLessThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_signed_less_than_fails(
-    k::term![Charge(Operation::SignedLessThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_signed_greater_than(
-    k::term![Charge(Operation::SignedGreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::SignedGreaterThan,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_signed_greater_than_fails(
-    k::term![Charge(Operation::SignedGreaterThan, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_equal(k::term![Charge(Operation::Equal, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Equal,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_equal_fails(
-    k::term![Charge(Operation::Equal, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, 3))]
-#[k::equation]
-fn charge_is_zero(k::term![Charge(Operation::IsZero, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::IsZero,
-        remaining: int::sub(gas, 3)
-    }]
-}
-
-#[k::requires(int::lt(gas, 3))]
-#[k::equation]
-fn charge_is_zero_fails(
-    k::term![Charge(Operation::IsZero, gas)]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::equation]
-fn charge_stop(k::term![Charge(Operation::Stop, gas)]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::Stop,
-        remaining: gas
-    }]
 }
 
 #[k::cell]
@@ -5850,123 +4395,6 @@ k::rules! {
     }
     where width: Int, value: Int, stack: WordStack, gas: Int;
 
-    begin_push_zero: {
-        k: [Operation::PushZero, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::PushZero, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_pop: {
-        k: [Operation::Pop, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PrepareStack { op: Operation::Pop, stack, gas }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_duplicate: {
-        k: [Operation::Duplicate { depth }, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PrepareStack { op: Operation::Duplicate { depth }, stack, gas }, ..],
-    }
-    where depth: Int, stack: WordStack, gas: Int;
-
-    begin_swap: {
-        k: [Operation::Swap { depth }, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PrepareStack { op: Operation::Swap { depth }, stack, gas }, ..],
-    }
-    where depth: Int, stack: WordStack, gas: Int;
-
-    begin_add: {
-        k: [Operation::Add, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::Add, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_mul: {
-        k: [Operation::Mul, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::Mul, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_sub: {
-        k: [Operation::Sub, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::Sub, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_div: {
-        k: [Operation::Div, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::Div, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_div: {
-        k: [Operation::SignedDiv, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::SignedDiv, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_mod: {
-        k: [Operation::Mod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::Mod, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_mod: {
-        k: [Operation::SignedMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::SignedMod, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_add_mod: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::AddMod, gas), ..],
-    }
-    where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
-
-    begin_mul_mod: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::MulMod, gas), ..],
-    }
-    where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
-
     begin_exponent: {
         k: [Operation::Exponent, ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
@@ -5975,253 +4403,6 @@ k::rules! {
         k: [crate::ChargeFixed { op: Operation::Exponent, gas, cost: crate::ExpCost(w1) }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_sign_extend: {
-        k: [Operation::SignExtend, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignExtend, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_less_than: {
-        k: [Operation::LessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::LessThan, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_greater_than: {
-        k: [Operation::GreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::GreaterThan, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_less_than: {
-        k: [Operation::SignedLessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::SignedLessThan, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_greater_than: {
-        k: [Operation::SignedGreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::SignedGreaterThan, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_equal: {
-        k: [Operation::Equal, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::Equal, gas), ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_is_zero: {
-        k: [Operation::IsZero, ..],
-        word_stack: Stack::StackCons(w0, rest),
-        gas: gas,
-    } => {
-        k: [crate::Charge(Operation::IsZero, gas), ..],
-    }
-    where w0: Int, rest: WordStack, gas: Int;
-
-    begin_bit_and: {
-        k: [Operation::BitAnd, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitAnd, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_bit_or: {
-        k: [Operation::BitOr, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitOr, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_bit_xor: {
-        k: [Operation::BitXor, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitXor, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_bit_not: {
-        k: [Operation::BitNot, ..],
-        word_stack: Stack::StackCons(w0, rest),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitNot, gas, cost: 3 }, ..],
-    }
-    where w0: Int, rest: WordStack, gas: Int;
-
-    begin_byte: {
-        k: [Operation::Byte, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Byte, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_shift_left: {
-        k: [Operation::ShiftLeft, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ShiftLeft, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_shift_right: {
-        k: [Operation::ShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ShiftRight, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_shift_right: {
-        k: [Operation::SignedShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignedShiftRight, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_address: {
-        k: [Operation::Address, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::Address, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_balance: {
-        k: [Operation::AccountBalance, ..],
-        word_stack: Stack::StackCons(account, rest),
-        accessed_accounts: accessed,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::AccountBalance, gas, cost: crate::AccountAccessCost { accessed, account } }, ..],
-    }
-    where account: Int, rest: WordStack, accessed: Set, gas: Int;
-
-    begin_origin: {
-        k: [Operation::TxOrigin, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::TxOrigin, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_caller: {
-        k: [Operation::MsgCaller, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::MsgCaller, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_call_value: {
-        k: [Operation::MsgCallValue, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::MsgCallValue, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_call_data_load: {
-        k: [Operation::CallDataLoad, ..],
-        word_stack: Stack::StackCons(index, rest),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::CallDataLoad, gas, cost: 3 }, ..],
-    }
-    where index: Int, rest: WordStack, gas: Int;
-
-    begin_call_data_size: {
-        k: [Operation::CallDataSize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::CallDataSize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_call_data_copy: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::CallDataCopy, gas, cost: crate::CopyGasCost { used, start: destination, width } }, ..],
-    }
-    where destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_code_size: {
-        k: [Operation::CodeSize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::CodeSize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_code_copy: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::CodeCopy, gas, cost: crate::CopyGasCost { used, start: destination, width } }, ..],
-    }
-    where destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_gas_price: {
-        k: [Operation::TxGasPrice, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::TxGasPrice, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_external_code_size: {
-        k: [Operation::ExternalCodeSize, ..],
-        word_stack: Stack::StackCons(account, rest),
-        accessed_accounts: accessed,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ExternalCodeSize, gas, cost: crate::AccountAccessCost { accessed, account } }, ..],
-    }
-    where account: Int, rest: WordStack, accessed: Set, gas: Int;
 
     begin_external_code_copy: {
         k: [Operation::ExternalCodeCopy, ..],
@@ -6233,35 +4414,6 @@ k::rules! {
         k: [crate::ChargeFixed { op: Operation::ExternalCodeCopy, gas, cost: crate::ExternalCopyGasCost { accessed, account, used, start: destination, width } }, ..],
     }
     where account: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, accessed: Set, gas: Int;
-
-    begin_return_data_size: {
-        k: [Operation::ReturnDataSize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::ReturnDataSize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_return_data_copy: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ReturnDataCopy, gas, cost: crate::CopyGasCost { used, start: destination, width } }, ..],
-    }
-    where destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_external_code_hash: {
-        k: [Operation::ExternalCodeHash, ..],
-        word_stack: Stack::StackCons(account, rest),
-        accessed_accounts: accessed,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ExternalCodeHash, gas, cost: crate::AccountAccessCost { accessed, account } }, ..],
-    }
-    where account: Int, rest: WordStack, accessed: Set, gas: Int;
 
     begin_block_hash: {
         k: [Operation::BlockHash, ..],
@@ -6278,69 +4430,6 @@ k::rules! {
         gas: gas,
     } => {
         k: [crate::PreparePush { op: Operation::SelfBalance, stack, gas, cost: 5 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_coinbase: {
-        k: [Operation::BlockCoinbase, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockCoinbase, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_timestamp: {
-        k: [Operation::BlockTimestamp, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockTimestamp, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_number: {
-        k: [Operation::BlockNumber, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockNumber, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_prev_randao: {
-        k: [Operation::PrevRandao, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::PrevRandao, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_gas_limit: {
-        k: [Operation::BlockGasLimit, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockGasLimit, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_chain_id: {
-        k: [Operation::NetworkChainId, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::NetworkChainId, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_base_fee: {
-        k: [Operation::BlockBaseFee, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockBaseFee, stack, gas, cost: 2 }, ..],
     }
     where stack: WordStack, gas: Int;
 
@@ -6421,36 +4510,9 @@ k::rules! {
         static_mode: static_mode,
         gas: gas,
     } => {
-        k: [crate::PrepareLog { op: Operation::LogOpcode { topics }, stack, gas, used, static_mode }, ..],
+        k: [crate::PrepareLog { topics, stack, gas, used, static_mode }, ..],
     }
     where topics: Int, stack: WordStack, used: Int, static_mode: Bool, gas: Int;
-
-    begin_memory_size: {
-        k: [Operation::MemorySize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::MemorySize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_gas_remaining: {
-        k: [Operation::GasRemaining, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::GasRemaining, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_pc: {
-        k: [Operation::ProgramCounter, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::ProgramCounter, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
 
     begin_jump: {
         k: [Operation::Jump, ..],
@@ -6478,26 +4540,6 @@ k::rules! {
     }
     where gas: Int;
 
-    begin_return: {
-        k: [Operation::Return, ..],
-        word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Return, gas, cost: crate::MemoryExpansionCost { used, start, width } }, ..],
-    }
-    where start: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_revert: {
-        k: [Operation::Revert, ..],
-        word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Revert, gas, cost: crate::MemoryExpansionCost { used, start, width } }, ..],
-    }
-    where start: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
     begin_static_call: {
         k: [Operation::StaticCall, ..],
         word_stack: stack,
@@ -6513,9 +4555,116 @@ k::rules! {
         k: [Operation::Stop, ..],
         gas: gas,
     } => {
-        k: [crate::Charge(Operation::Stop, gas), ..],
+        k: [crate::ChargeFixed { op: Operation::Stop, gas, cost: 0 }, ..],
     }
     where gas: Int;
+}
+
+k::rules! {
+    for Machine;
+
+    /// Opcodes that push one word of the call, transaction, or machine state for the base cost of 2 gas.
+    begin_push_base_cost_execution: {
+        k: [op @ (Operation::PushZero | Operation::Address | Operation::TxOrigin | Operation::MsgCaller | Operation::MsgCallValue | Operation::CallDataSize | Operation::CodeSize | Operation::TxGasPrice | Operation::ReturnDataSize | Operation::MemorySize | Operation::GasRemaining | Operation::ProgramCounter), ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PreparePush(op, stack, gas, 2), ..],
+    }
+    where op: OpCode, stack: WordStack, gas: Int;
+
+    /// Opcodes that push one word of the block header for the base cost of 2 gas.
+    begin_push_base_cost_block: {
+        k: [op @ (Operation::BlockCoinbase | Operation::BlockTimestamp | Operation::BlockNumber | Operation::PrevRandao | Operation::BlockGasLimit | Operation::NetworkChainId | Operation::BlockBaseFee), ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PreparePush(op, stack, gas, 2), ..],
+    }
+    where op: OpCode, stack: WordStack, gas: Int;
+
+    /// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
+    begin_stack_operation: {
+        k: [op @ (Operation::Pop | Operation::Duplicate(_) | Operation::Swap(_)), ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PrepareStack(op, stack, gas), ..],
+    }
+    where op: OpCode, stack: WordStack, gas: Int;
+
+    /// Two-operand opcodes that cost 3 gas.
+    begin_binary_very_low: {
+        k: [op @ (Operation::Add | Operation::Sub | Operation::LessThan | Operation::GreaterThan | Operation::SignedLessThan | Operation::SignedGreaterThan | Operation::Equal | Operation::BitAnd | Operation::BitOr | Operation::BitXor | Operation::Byte | Operation::ShiftLeft | Operation::ShiftRight | Operation::SignedShiftRight), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, _)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 3), ..],
+    }
+    where op: OpCode, gas: Int;
+
+    /// Two-operand opcodes that cost 5 gas.
+    begin_binary_low: {
+        k: [op @ (Operation::Mul | Operation::Div | Operation::SignedDiv | Operation::Mod | Operation::SignedMod | Operation::SignExtend), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, _)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 5), ..],
+    }
+    where op: OpCode, gas: Int;
+
+    /// Three-operand modular opcodes that cost 8 gas.
+    begin_ternary_mid: {
+        k: [op @ (Operation::AddMod | Operation::MulMod), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, _))),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 8), ..],
+    }
+    where op: OpCode, gas: Int;
+
+    /// One-operand opcodes that cost 3 gas.
+    begin_unary_very_low: {
+        k: [op @ (Operation::IsZero | Operation::BitNot | Operation::CallDataLoad), ..],
+        word_stack: Stack::StackCons(_, _),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 3), ..],
+    }
+    where op: OpCode, gas: Int;
+
+    /// One-operand account queries charged the warm or cold account-access cost.
+    begin_account_access: {
+        k: [op @ (Operation::AccountBalance | Operation::ExternalCodeSize | Operation::ExternalCodeHash), ..],
+        word_stack: Stack::StackCons(account, _),
+        accessed_accounts: accessed,
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, crate::AccountAccessCost(accessed, account)), ..],
+    }
+    where op: OpCode, account: Int, accessed: Set, gas: Int;
+
+    /// Copies from call data, code, or return data into memory, charged by width and memory expansion.
+    begin_copy: {
+        k: [op @ (Operation::CallDataCopy | Operation::CodeCopy | Operation::ReturnDataCopy), ..],
+        word_stack: Stack::StackCons(destination, Stack::StackCons(_, Stack::StackCons(width, _))),
+        memory_used: used,
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, crate::CopyGasCost(used, destination, width)), ..],
+    }
+    where op: OpCode, destination: Int, width: Int, used: Int, gas: Int;
+
+    /// RETURN and REVERT, charged the memory expansion of their output range.
+    begin_return_or_revert: {
+        k: [op @ (Operation::Return | Operation::Revert), ..],
+        word_stack: Stack::StackCons(start, Stack::StackCons(width, _)),
+        memory_used: used,
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, crate::MemoryExpansionCost(used, start, width)), ..],
+    }
+    where op: OpCode, start: Int, width: Int, used: Int, gas: Int;
 }
 
 k::rules! {
@@ -6709,7 +4858,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(int::pow_mod(w0, w1, int::mul(int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616), int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),),), rest,),
+        word_stack: Stack::StackCons(int::pow_mod(w0, w1, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,), rest,),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -6852,7 +5001,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(int::mul(int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,), int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),), 1,),), rest,),
+        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, 1,),), rest,),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -8296,57 +6445,9 @@ k::rules! {
     }
     where return_start: Int, return_width: Int, remaining_call_stack: List, remaining_interim_states: List, saved_account_id: Int, saved_balance: Int, saved_code: Bytes, saved_nonce: Int, saved_storage: Map, saved_original_storage: Map, saved_self_destruct: Set, saved_logs: List, saved_refund: Int, saved_accessed_accounts: Set, saved_accessed_storage: Map, saved_created_accounts: Set, child_account_id: Int, child_balance: Int, child_code: Bytes, child_nonce: Int, child_storage: Map, child_original_storage: Map, child_self_destruct: Set, child_logs: List, child_refund: Int, child_accessed_accounts: Set, child_accessed_storage: Map, child_created_accounts: Set, child_output: Bytes, child_program: Bytes, child_jump_dests: Bytes, child_address: Int, child_caller: Int, child_call_data: Bytes, child_call_value: Int, child_stack: WordStack, child_memory: Bytes, child_pc: Int, child_gas: Int, child_memory_used: Int, child_call_gas: Int, child_static_mode: Bool, child_call_depth: Int, child_code_address: Int, caller_program: Bytes, caller_jump_dests: Bytes, caller_address: Int, caller_caller: Int, caller_call_data: Bytes, caller_call_value: Int, caller_stack: WordStack, caller_memory: Bytes, caller_pc: Int, caller_gas: Int, caller_memory_used: Int, caller_call_gas: Int, caller_static_mode: Bool, caller_call_depth: Int, caller_code_address: Int;
 
-    finish_static_call_stack_underflow: {
+    finish_static_call_exceptional_halt: {
         k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StackUnderflow(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_stack_overflow: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StackOverflow(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_out_of_gas: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::OutOfGas(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_bad_jump_destination: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::BadJumpDestination(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_invalid_memory_access: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::InvalidMemoryAccess(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_invalid_instruction: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::InvalidInstruction(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_static_violation: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StaticModeViolation(),
+        status_code: Status::StackUnderflow() | Status::StackOverflow() | Status::OutOfGas() | Status::BadJumpDestination() | Status::InvalidMemoryAccess() | Status::InvalidInstruction() | Status::StaticModeViolation(),
     } => {
         k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
     }
@@ -8472,8 +6573,10 @@ k::rules! {
 
 k::rules! {
     for Machine;
-    balance_underflow: {
-        k: [Operation::AccountBalance, ..],
+    use Operation::*;
+
+    stack_underflow_no_words_arithmetic: {
+        k: [Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -8482,8 +6585,8 @@ k::rules! {
     }
     where status: StatusCode;
 
-    external_code_size_underflow: {
-        k: [Operation::ExternalCodeSize, ..],
+    stack_underflow_no_words_comparison_bitwise: {
+        k: [LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | IsZero() | BitAnd() | BitOr() | BitXor() | BitNot() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -8492,8 +6595,8 @@ k::rules! {
     }
     where status: StatusCode;
 
-    external_code_hash_underflow: {
-        k: [Operation::ExternalCodeHash, ..],
+    stack_underflow_no_words_environment: {
+        k: [AccountBalance() | ExternalCodeSize() | ExternalCodeHash() | ExternalCodeCopy() | CallDataLoad() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | BlockHash(), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -8502,825 +6605,65 @@ k::rules! {
     }
     where status: StatusCode;
 
-    external_code_copy_underflow_empty: {
+    stack_underflow_no_words_memory_storage_control: {
+        k: [MemoryLoad() | MemoryStore() | MemoryStore8() | Sha3() | StorageLoad() | StorageStore() | Jump() | JumpIf() | Return() | Revert(), ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_one_word_arithmetic: {
+        k: [Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend(), ..],
+        word_stack: Stack::StackCons(_, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_one_word_comparison_bitwise: {
+        k: [LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | BitAnd() | BitOr() | BitXor() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight(), ..],
+        word_stack: Stack::StackCons(_, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_one_word_environment_memory_control: {
+        k: [ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | MemoryStore() | MemoryStore8() | Sha3() | StorageStore() | JumpIf() | Return() | Revert(), ..],
+        word_stack: Stack::StackCons(_, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_two_words: {
+        k: [ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | AddMod() | MulMod(), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty())),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_three_words: {
         k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackEmpty(),
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty()))),
         status_code: status,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
     }
     where status: StatusCode;
-
-    external_code_copy_underflow_one: {
-        k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    external_code_copy_underflow_two: {
-        k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    external_code_copy_underflow_three: {
-        k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, Stack::StackEmpty()))),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, w2: Int, status: StatusCode;
-
-    call_data_load_underflow: {
-        k: [Operation::CallDataLoad, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    call_data_copy_underflow_empty: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    call_data_copy_underflow_one: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    call_data_copy_underflow_two: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    code_copy_underflow_empty: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    code_copy_underflow_one: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    code_copy_underflow_two: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    return_data_copy_underflow_empty: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    return_data_copy_underflow_one: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    return_data_copy_underflow_two: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    return_underflow_empty: {
-        k: [Operation::Return, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    return_underflow_one: {
-        k: [Operation::Return, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    revert_underflow_empty: {
-        k: [Operation::Revert, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    revert_underflow_one: {
-        k: [Operation::Revert, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    memory_load_underflow: {
-        k: [Operation::MemoryLoad, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    memory_store_underflow_empty: {
-        k: [Operation::MemoryStore, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    memory_store_underflow_one: {
-        k: [Operation::MemoryStore, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    memory_store8_underflow_empty: {
-        k: [Operation::MemoryStore8, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    memory_store8_underflow_one: {
-        k: [Operation::MemoryStore8, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    sha3_underflow_empty: {
-        k: [Operation::Sha3, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    sha3_underflow_one: {
-        k: [Operation::Sha3, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    storage_load_underflow: {
-        k: [Operation::StorageLoad, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    storage_store_underflow_empty: {
-        k: [Operation::StorageStore, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    storage_store_underflow_one: {
-        k: [Operation::StorageStore, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    block_hash_underflow: {
-        k: [Operation::BlockHash, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    jump_underflow: {
-        k: [Operation::Jump, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    jump_if_underflow_empty: {
-        k: [Operation::JumpIf, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    jump_if_underflow_one: {
-        k: [Operation::JumpIf, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    add_underflow_empty: {
-        k: [Operation::Add, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    add_underflow_one: {
-        k: [Operation::Add, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    mul_underflow_empty: {
-        k: [Operation::Mul, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    mul_underflow_one: {
-        k: [Operation::Mul, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    sub_underflow_empty: {
-        k: [Operation::Sub, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    sub_underflow_one: {
-        k: [Operation::Sub, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    div_underflow_empty: {
-        k: [Operation::Div, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    div_underflow_one: {
-        k: [Operation::Div, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    mod_underflow_empty: {
-        k: [Operation::Mod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    mod_underflow_one: {
-        k: [Operation::Mod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_div_underflow_empty: {
-        k: [Operation::SignedDiv, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_div_underflow_one: {
-        k: [Operation::SignedDiv, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_mod_underflow_empty: {
-        k: [Operation::SignedMod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_mod_underflow_one: {
-        k: [Operation::SignedMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    add_mod_underflow_empty: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    add_mod_underflow_one: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    add_mod_underflow_two: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    mul_mod_underflow_empty: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    mul_mod_underflow_one: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    mul_mod_underflow_two: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    less_than_underflow_empty: {
-        k: [Operation::LessThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    less_than_underflow_one: {
-        k: [Operation::LessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    greater_than_underflow_empty: {
-        k: [Operation::GreaterThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    greater_than_underflow_one: {
-        k: [Operation::GreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_less_than_underflow_empty: {
-        k: [Operation::SignedLessThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_less_than_underflow_one: {
-        k: [Operation::SignedLessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_greater_than_underflow_empty: {
-        k: [Operation::SignedGreaterThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_greater_than_underflow_one: {
-        k: [Operation::SignedGreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    equal_underflow_empty: {
-        k: [Operation::Equal, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    equal_underflow_one: {
-        k: [Operation::Equal, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    is_zero_underflow: {
-        k: [Operation::IsZero, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    exponent_underflow_empty: {
-        k: [Operation::Exponent, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    exponent_underflow_one: {
-        k: [Operation::Exponent, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    sign_extend_underflow_empty: {
-        k: [Operation::SignExtend, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    sign_extend_underflow_one: {
-        k: [Operation::SignExtend, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_and_underflow_empty: {
-        k: [Operation::BitAnd, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    bit_and_underflow_one: {
-        k: [Operation::BitAnd, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_or_underflow_empty: {
-        k: [Operation::BitOr, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    bit_or_underflow_one: {
-        k: [Operation::BitOr, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_xor_underflow_empty: {
-        k: [Operation::BitXor, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    bit_xor_underflow_one: {
-        k: [Operation::BitXor, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_not_underflow: {
-        k: [Operation::BitNot, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    byte_underflow_empty: {
-        k: [Operation::Byte, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    byte_underflow_one: {
-        k: [Operation::Byte, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    shift_left_underflow_empty: {
-        k: [Operation::ShiftLeft, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    shift_left_underflow_one: {
-        k: [Operation::ShiftLeft, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    shift_right_underflow_empty: {
-        k: [Operation::ShiftRight, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    shift_right_underflow_one: {
-        k: [Operation::ShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_shift_right_underflow_empty: {
-        k: [Operation::SignedShiftRight, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_shift_right_underflow_one: {
-        k: [Operation::SignedShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
 
     stack_operation_underflow: {
         k: [GasResult::StackUnderflowResult(), ..],

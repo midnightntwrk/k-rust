@@ -1275,10 +1275,16 @@ impl<'a> TermBuilder<'a> {
         );
         self.next_key += 1;
         let cfg = self.cfg;
+        // A table's `use` items are in scope for its rows, so a qualified
+        // path whose first segment one of them introduces, such as
+        // `Info::StructType` under `use MirTypeInfo as Info;`, resolves
+        // through them as in the author's Rust.
+        let imports = self.lexical_import_items();
         self.key_functions.push(quote! {
             #(#cfg)*
             #[doc(hidden)]
             fn #key_fn() -> ::core::any::TypeId {
+                #imports
                 ::core::any::TypeId::of::<#owner>()
             }
         });
@@ -1291,7 +1297,11 @@ impl<'a> TermBuilder<'a> {
         let owner_key = quote!(#facade::HostTypeKey(#key_reference));
         Ok(if let Some(variant) = variant {
             let marker = variant_marker_function(&variant);
-            let marker_key = quote!(#facade::HostTypeKey(#owner::#marker));
+            let marker_key = if imports.is_empty() {
+                quote!(#facade::HostTypeKey(#owner::#marker))
+            } else {
+                quote!(#facade::HostTypeKey({ #imports #owner::#marker }))
+            };
             slots.variant_slot(&owner_key, &marker_key)
         } else {
             slots.nominal_target_slot(&owner_key)
@@ -1445,6 +1455,17 @@ impl<'a> TermBuilder<'a> {
         spelling(path)
     }
 
+    /// The `use` items of a `k::equations!` table, to open a block or fn
+    /// body that resolves a row's paths; empty outside a table.
+    fn lexical_import_items(&self) -> TokenStream {
+        let items = self
+            .lexical_imports
+            .unwrap_or_default()
+            .iter()
+            .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
+        quote!(#(#items)*)
+    }
+
     fn take_lexical_rule_head(&mut self, path: &Path) -> bool {
         if self.lexical_imports.is_some() {
             return path.leading_colon.is_none() && path.segments.len() == 1;
@@ -1480,10 +1501,11 @@ impl<'a> TermBuilder<'a> {
             .enum_import_item
             .filter(|_| self.enum_glob.is_some())
             .into_iter()
-            .chain(self.lexical_imports.unwrap_or_default())
             .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
+        let imports = self.lexical_import_items();
         quote! {{
             #(#import)*
+            #imports
             let __krs_rule_application_witness: ::core::option::Option<_> =
                 ::core::option::Option::None;
             if let ::core::option::Option::Some(#pattern) =

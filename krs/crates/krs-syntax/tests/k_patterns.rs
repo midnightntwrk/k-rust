@@ -15,6 +15,12 @@ fn error(clause: &str) -> String {
 }
 
 #[test]
+fn a_binder_repeated_across_cells_is_one_binder() {
+    let block = block("a: { k: [Run { n }, ..], left: n } => { k: [..], left: 0 };");
+    assert_eq!(block.clauses()[0].bindings(), ["n"]);
+}
+
+#[test]
 fn a_prefix_matches_several_items_and_keeps_the_rest() {
     let block = block(
         "store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;",
@@ -105,12 +111,29 @@ fn unsupported_shapes_are_rejected_with_their_reason() {
             "a: { k: [Run { n }, ..] } => { k: 3 };",
             "the computation cell's result is a bracketed sequence",
         ),
-        (
-            "a: { k: [Run { n }, ..], left: n } => { k: [..], left: 0 };",
-            "duplicate readable rule binding `n`",
-        ),
     ] {
         let message = error(clause);
         assert!(message.contains(reason), "{clause}: {message}");
+    }
+}
+
+#[test]
+fn an_item_may_be_an_alias_or_alternatives() {
+    for (clause, bindings) in [
+        (
+            "a: { k: [op @ (Push() | Pop()), ..] } => { k: [Wrap(op), ..] };",
+            &["op"][..],
+        ),
+        (
+            "a: { k: [x, op @ (Push() | Pop()), ..] } => { k: [op, ..] };",
+            &["x", "op"][..],
+        ),
+        ("a: { k: [Push() | Pop(), ..] } => { k: [..] };", &[][..]),
+        (
+            "a: { k: [Run { n }, ..], acc: v @ Pair(_, _) } => { k: [v, ..] };",
+            &["n", "v"][..],
+        ),
+    ] {
+        assert_eq!(block(clause).clauses()[0].bindings(), bindings, "{clause}");
     }
 }

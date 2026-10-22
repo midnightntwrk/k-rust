@@ -98,8 +98,8 @@ def verify_authored_trap() -> None:
     require_fragments(
         "semantics/kwasm/src/lib.rs",
         '#[k::syntax("trap")]\n    Trap(),',
-        "fn div_u_zero(",
-        "k::term![Value::Undefined()]",
+        "div_u_zero:",
+        "=> Value::Undefined();",
         "undefined_traps:",
         "instrs: [Trap(), ..]",
     )

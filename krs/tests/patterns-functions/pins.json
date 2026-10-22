@@ -446,6 +446,12 @@
     ],
     "bits-fn-overlap": [
       "error[krs::analysis::overlapping-equations]: equations `decode_alu` and `decode_bit` of `Decode` both apply to `Decode(160)` at the same priority and give it different results, `Instruction::Alu(4)` and `Instruction::Bit(0)`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`)."
+    ],
+    "sorted-binder-overlap": [
+      "error[krs::analysis::overlapping-equations]: equations `lookup_known` and `lookup_unknown` of `Lookup` both apply to `Lookup(_, Maybe::TyUnknown)` at the same priority and give it different results, `map::get(_, Maybe::TyUnknown)` and `TypeInfo::Void`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`)."
+    ],
+    "guard-overlap": [
+      "error[krs::analysis::overlapping-equations]: equations `sign_nonnegative` and `sign_nonpositive` of `Sign` both apply to `Sign(0)` at the same priority and give it different results, `1` and `-1`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`)."
     ]
   },
   "known_divergences": {

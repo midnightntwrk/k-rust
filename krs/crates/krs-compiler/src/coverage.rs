@@ -20,7 +20,10 @@
 //! in the matrix with its guard: a region every row of which is guarded is
 //! covered exactly when the disjunction of their guards is valid, which
 //! [`decide`] checks over a sound abstraction (Boolean structure, comparisons
-//! with integer constants, the order of two integers, and opaque atoms). The
+//! with integer constants, the order of two integers, and opaque atoms). A
+//! guard holds where it is defined and true: a partial Int operation in it
+//! contributes the condition under which it is defined, so `w > 0 &&
+//! x < 1 << (w - 1)` is read, with its shift's `w - 1 >= 0`. The
 //! abstraction only ever admits more valuations than exist, so it never calls
 //! an uncovered argument covered; it can miss facts (the range of a function,
 //! say) and then reports a gap that does not exist.
@@ -42,8 +45,8 @@ use std::rc::Rc;
 use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, GeneratedOperation, GrammarProductionItemKind,
-    GuardMeaning, ItemKind, ProductionAttribute, SemanticId, SemanticIdKind, SentenceKind,
-    StableItemId,
+    GuardMeaning, ItemKind, ListOperation, MapOperation, ProductionAttribute, SemanticId,
+    SemanticIdKind, SentenceKind, SetOperation, StableItemId,
 };
 use krs_ir_levels::{
     IrCondition, SemanticModule, SemanticProduction, SemanticRule, SemanticSortRef as Sort,
@@ -648,14 +651,20 @@ impl Formula {
 type Names = BTreeMap<String, String>;
 
 /// Reads one equation's guard. `paths` gives each pattern binder's path.
-/// `None` when the guard mentions a term that may be undefined or a binder
-/// the pattern does not bind: such an equation covers nothing the lint can
-/// see.
+/// `None` when the guard mentions a term that may be undefined other than by
+/// a partial Int operation outside its domain, or a binder the pattern does
+/// not bind: such an equation covers nothing the lint can see.
+///
+/// A guard holds where it is defined and true. Each partial Int operation
+/// it applies (division, remainder, shift, exponent, bit range) contributes
+/// its domain as an obligation, a formula over the same atoms, and
+/// [`GuardReader::guard`] conjoins the obligations with the guard's value.
 struct GuardReader<'r> {
     signature: &'r Signature,
     paths: &'r BTreeMap<SemanticId, Path>,
     names: Names,
     projections: Projections,
+    obligations: Vec<Formula>,
 }
 
 /// How a guard subject reads bits of another subject, its base.
@@ -665,6 +674,9 @@ pub(crate) enum Projection {
     BitRange { offset: BigInt, length: BigInt },
     /// `base &Int mask`, with a non-negative mask.
     Mask(BigInt),
+    /// A length or size (`bytes::length`, `list::size`, ...), its own base:
+    /// never negative.
+    Size,
 }
 
 impl Projection {
@@ -679,6 +691,7 @@ impl Projection {
                 value,
             ),
             Self::Mask(mask) => IntFact::masked(i128::try_from(mask).ok()?, value),
+            Self::Size => None,
         }
     }
 
@@ -697,6 +710,7 @@ impl Projection {
                     - 1,
             ),
             Self::Mask(mask) => (BigInt::from(0), mask.clone()),
+            Self::Size => (BigInt::from(0), BigInt::from(1) << 4096_usize),
         }
     }
 }
@@ -850,8 +864,29 @@ impl GuardReader<'_> {
             self.projections
                 .entry(key.clone())
                 .or_insert((base_key, projection));
+        } else if Self::is_size(term) {
+            self.projections
+                .entry(key.clone())
+                .or_insert((key.clone(), Projection::Size));
         }
         Some(key)
+    }
+
+    /// Whether a term is a length or a size, which is never negative.
+    fn is_size(term: &SemanticTerm) -> bool {
+        match term.kind() {
+            SemanticTermKind::Application {
+                application: ApplicationRef::Builtin(operation),
+                ..
+            } => matches!(
+                operation,
+                BuiltinOperation::BytesLength | BuiltinOperation::StringLength
+            ),
+            SemanticTermKind::Map(operands) => operands.operation() == MapOperation::Size,
+            SemanticTermKind::List(operands) => operands.operation() == ListOperation::Size,
+            SemanticTermKind::Set(operands) => operands.operation() == SetOperation::Size,
+            _ => false,
+        }
     }
 
     /// `bitRangeInt(base, o, l)` with constant `o` and `l`, or `base &Int m`
@@ -885,24 +920,30 @@ impl GuardReader<'_> {
         }
     }
 
+    /// The canonical texts and the renderings of terms, joined.
+    fn canonical_list<'t>(
+        &mut self,
+        terms: impl Iterator<Item = &'t SemanticTerm>,
+    ) -> Option<(String, String)> {
+        let mut keys = Vec::new();
+        let mut texts = Vec::new();
+        for term in terms {
+            let (key, text) = self.canonical(term)?;
+            keys.push(key);
+            texts.push(text);
+        }
+        Some((keys.join(", "), texts.join(", ")))
+    }
+
     /// The canonical text and the rendering of a term, if it is defined
-    /// everywhere: binders, literals, constructors, total functions, total
-    /// builtins, and `k::is!`.
-    fn canonical(&self, term: &SemanticTerm) -> Option<(String, String)> {
+    /// wherever the reader's obligations hold: binders, literals,
+    /// constructors, total functions, total builtins, partial Int builtins
+    /// (whose domain becomes an obligation), and `k::is!`.
+    fn canonical(&mut self, term: &SemanticTerm) -> Option<(String, String)> {
         if let Some(constant) = Self::constant(term) {
             let text = constant.to_string();
             return Some((text.clone(), text));
         }
-        let list = |reader: &Self, arguments: &mut dyn Iterator<Item = &SemanticTerm>| {
-            let mut keys = Vec::new();
-            let mut texts = Vec::new();
-            for argument in arguments {
-                let (key, text) = reader.canonical(argument)?;
-                keys.push(key);
-                texts.push(text);
-            }
-            Some((keys.join(", "), texts.join(", ")))
-        };
         match term.kind() {
             SemanticTermKind::Variable { variable } => {
                 let path = self.paths.get(variable)?;
@@ -929,7 +970,8 @@ impl GuardReader<'_> {
                     }
                     ApplicationRef::Builtin(operation) => {
                         if !operation.is_total() && !Self::defined_at(*operation, arguments) {
-                            return None;
+                            let domain = self.domain(*operation, arguments)?;
+                            self.obligations.push(domain);
                         }
                         let spec = operation.spec();
                         (
@@ -945,18 +987,47 @@ impl GuardReader<'_> {
                         return None;
                     }
                 };
-                let (keys, texts) = list(self, &mut arguments.iter())?;
+                let before = self.obligations.len();
+                let (keys, texts) = self.canonical_list(arguments.iter())?;
+                // A lazy connective inside a subject: whether it is defined
+                // depends on the reading (see `formula`).
+                if matches!(
+                    application,
+                    ApplicationRef::Builtin(
+                        BuiltinOperation::BoolAndThen | BuiltinOperation::BoolOrElse
+                    )
+                ) && self.obligations.len() > before
+                {
+                    return None;
+                }
                 Some((
                     format!("{head_key}({keys})"),
                     format!("{head_text}({texts})"),
                 ))
             }
+            SemanticTermKind::Map(_) | SemanticTermKind::List(_) | SemanticTermKind::Set(_) => {
+                self.canonical_collection(term)
+            }
+            _ => None,
+        }
+    }
+
+    /// [`GuardReader::canonical`] of a Map, List or Set operation: a total
+    /// one, or a lookup, whose domain becomes an obligation.
+    fn canonical_collection(&mut self, term: &SemanticTerm) -> Option<(String, String)> {
+        match term.kind() {
             SemanticTermKind::Map(operands) => {
                 let operation = operands.operation();
-                if !operation.is_total() {
+                if operation == MapOperation::Get {
+                    let [map, key] = operands.operands().collect::<Vec<_>>()[..] else {
+                        return None;
+                    };
+                    let domain = self.key_domain(map, key)?;
+                    self.obligations.push(domain);
+                } else if !operation.is_total() {
                     return None;
                 }
-                let (keys, texts) = list(self, &mut operands.operands())?;
+                let (keys, texts) = self.canonical_list(operands.operands())?;
                 Some((
                     format!("map:{operation:?}({keys})"),
                     format!("map::{}({texts})", snake_case(&format!("{operation:?}"))),
@@ -964,10 +1035,16 @@ impl GuardReader<'_> {
             }
             SemanticTermKind::List(operands) => {
                 let operation = operands.operation();
-                if !operation.is_total() {
+                if operation == ListOperation::Get {
+                    let [list, index] = operands.operands().collect::<Vec<_>>()[..] else {
+                        return None;
+                    };
+                    let domain = self.index_domain(list, index)?;
+                    self.obligations.push(domain);
+                } else if !operation.is_total() {
                     return None;
                 }
-                let (keys, texts) = list(self, &mut operands.operands())?;
+                let (keys, texts) = self.canonical_list(operands.operands())?;
                 Some((
                     format!("list:{operation:?}({keys})"),
                     format!("list::{}({texts})", snake_case(&format!("{operation:?}"))),
@@ -978,7 +1055,7 @@ impl GuardReader<'_> {
                 if !operation.is_total() {
                     return None;
                 }
-                let (keys, texts) = list(self, &mut operands.operands())?;
+                let (keys, texts) = self.canonical_list(operands.operands())?;
                 Some((
                     format!("set:{operation:?}({keys})"),
                     format!("set::{}({texts})", snake_case(&format!("{operation:?}"))),
@@ -988,8 +1065,202 @@ impl GuardReader<'_> {
         }
     }
 
-    /// Reads a Bool guard term.
-    fn formula(&mut self, term: &SemanticTerm) -> Option<Formula> {
+    /// Where a partial Int operation is defined, as a formula: a nonzero
+    /// divisor, a non-negative shift or exponent, a non-negative bit index
+    /// and length (a positive one for a sign extension). `None` for any
+    /// other partial operation.
+    fn domain(
+        &mut self,
+        operation: BuiltinOperation,
+        arguments: &[SemanticTerm],
+    ) -> Option<Formula> {
+        let zero = BigInt::from(0);
+        let at_least = |reader: &mut Self, index: usize, least: BigInt| {
+            Some(
+                reader
+                    .compare(arguments.get(index)?, Bound::Below, least)?
+                    .not(),
+            )
+        };
+        match operation {
+            BuiltinOperation::IntTDiv
+            | BuiltinOperation::IntEDiv
+            | BuiltinOperation::IntMod
+            | BuiltinOperation::IntTMod => {
+                Some(self.compare(arguments.get(1)?, Bound::At, zero)?.not())
+            }
+            BuiltinOperation::IntShiftLeft
+            | BuiltinOperation::IntShiftRight
+            | BuiltinOperation::IntPow => at_least(self, 1, zero),
+            BuiltinOperation::IntBitRange => Some(Formula::And(
+                Box::new(at_least(self, 1, zero.clone())?),
+                Box::new(at_least(self, 2, zero)?),
+            )),
+            BuiltinOperation::IntSignExtendBitRange => Some(Formula::And(
+                Box::new(at_least(self, 1, zero)?),
+                Box::new(at_least(self, 2, BigInt::from(1))?),
+            )),
+            _ => None,
+        }
+    }
+
+    /// Where `map::get(map, key)` is defined: `key` is a key of `map`.
+    fn key_domain(&mut self, map: &SemanticTerm, key: &SemanticTerm) -> Option<Formula> {
+        let (map_key, map_text) = self.canonical(map)?;
+        let (key_key, key_text) = self.canonical(key)?;
+        let atom = format!("map:InKeys({key_key}, {map_key})");
+        self.names
+            .entry(atom.clone())
+            .or_insert_with(|| format!("map::in_keys({key_text}, {map_text})"));
+        Some(Formula::Atom(Atom::Opaque(atom)))
+    }
+
+    /// Where `list::get(list, index)` is defined: `-size <= index < size`,
+    /// a negative index counting from the end.
+    fn index_domain(&mut self, list: &SemanticTerm, index: &SemanticTerm) -> Option<Formula> {
+        let (list_key, list_text) = self.canonical(list)?;
+        let size = format!("list:Size({list_key})");
+        self.names
+            .entry(size.clone())
+            .or_insert_with(|| format!("list::size({list_text})"));
+        self.projections
+            .entry(size.clone())
+            .or_insert((size.clone(), Projection::Size));
+        let bound = |bound, constant| {
+            Formula::Atom(Atom::Bound {
+                subject: size.clone(),
+                bound,
+                constant,
+            })
+        };
+        if let Some(constant) = Self::constant(index) {
+            // A size is never negative: `c < size` for `c >= 0`, and
+            // `-c <= size` for `c < 0`.
+            return Some(if constant >= BigInt::from(0) {
+                bound(Bound::Above, constant)
+            } else {
+                bound(Bound::Below, -constant).not()
+            });
+        }
+        let index = self.subject(index)?;
+        let below = if index < size {
+            Atom::Order {
+                left: index.clone(),
+                right: size.clone(),
+                order: Order::Less,
+            }
+        } else {
+            Atom::Order {
+                left: size.clone(),
+                right: index.clone(),
+                order: Order::Greater,
+            }
+        };
+        let sum = format!("IntAdd({index}, {size})");
+        let sum_text = format!("int::add({}, {})", self.names[&index], self.names[&size]);
+        self.names.entry(sum.clone()).or_insert(sum_text);
+        let negative = || {
+            Formula::Atom(Atom::Bound {
+                subject: index.clone(),
+                bound: Bound::Below,
+                constant: BigInt::from(0),
+            })
+        };
+        // `0 <= index < size`, or `index < 0` and `index + size >= 0`: the
+        // first case is one of order and bounds, which the decider relates
+        // to the guard's own comparisons of `index`.
+        let from_start = Formula::And(Box::new(negative().not()), Box::new(Formula::Atom(below)));
+        let from_end = Formula::And(
+            Box::new(negative()),
+            Box::new(
+                Formula::Atom(Atom::Bound {
+                    subject: sum,
+                    bound: Bound::Below,
+                    constant: BigInt::from(0),
+                })
+                .not(),
+            ),
+        );
+        Some(Formula::Or(Box::new(from_start), Box::new(from_end)))
+    }
+
+    /// A term with its constant summands taken out: `x + 2 - 5` is `x` and
+    /// `-3`, so a comparison of it with a constant is one of `x`.
+    fn offset(term: &SemanticTerm) -> (&SemanticTerm, BigInt) {
+        if let SemanticTermKind::Application {
+            application: ApplicationRef::Builtin(operation),
+            arguments,
+            ..
+        } = term.kind()
+            && let [left, right] = arguments.as_slice()
+        {
+            match (operation, Self::constant(left), Self::constant(right)) {
+                (BuiltinOperation::IntAdd, None, Some(constant)) => {
+                    let (base, offset) = Self::offset(left);
+                    return (base, offset + constant);
+                }
+                (BuiltinOperation::IntAdd, Some(constant), None) => {
+                    let (base, offset) = Self::offset(right);
+                    return (base, offset + constant);
+                }
+                (BuiltinOperation::IntSub, None, Some(constant)) => {
+                    let (base, offset) = Self::offset(left);
+                    return (base, offset - constant);
+                }
+                _ => {}
+            }
+        }
+        (term, BigInt::from(0))
+    }
+
+    /// `term < constant`, `term == constant` or `constant < term`.
+    fn compare(&mut self, term: &SemanticTerm, bound: Bound, constant: BigInt) -> Option<Formula> {
+        if let Some(value) = Self::constant(term) {
+            return Some(Formula::Constant(match bound {
+                Bound::Below => value < constant,
+                Bound::At => value == constant,
+                Bound::Above => constant < value,
+            }));
+        }
+        let (base, offset) = Self::offset(term);
+        Some(Formula::Atom(Atom::Bound {
+            subject: self.subject(base)?,
+            bound,
+            constant: constant - offset,
+        }))
+    }
+
+    /// Reads a guard: where it holds, its obligations and its value.
+    fn guard(&mut self, term: &SemanticTerm) -> Option<Formula> {
+        let value = self.formula(term, Some(true))?;
+        let mut seen = BTreeSet::new();
+        let obligations = std::mem::take(&mut self.obligations)
+            .into_iter()
+            .filter(|obligation| seen.insert(format!("{obligation:?}")))
+            .collect::<Vec<_>>();
+        Some(
+            obligations
+                .into_iter()
+                .rev()
+                .fold(value, |formula, obligation| {
+                    Formula::And(Box::new(obligation), Box::new(formula))
+                }),
+        )
+    }
+
+    /// Reads a Bool guard term at a polarity: `Some(true)` where the guard
+    /// holds when it does, `Some(false)` under one negation, `None` when
+    /// both matter (an operand of `==`).
+    ///
+    /// Every operation is strict in matching logic, so an undefined operand
+    /// makes the guard undefined, which [`GuardReader::guard`] states by its
+    /// obligations. A backend may evaluate `andThenBool` and `orElseBool`
+    /// lazily: `false andThenBool ⊥` is then `false`, and `true orElseBool ⊥`
+    /// is `true`. The two readings agree on whether a guard holds unless an
+    /// obligation comes from the right operand of an `andThenBool` read
+    /// negatively or of an `orElseBool` read positively; there the reader
+    /// gives up.
+    fn formula(&mut self, term: &SemanticTerm, polarity: Option<bool>) -> Option<Formula> {
         if let SemanticTermKind::Token { value } = term.kind()
             && matches!(term.sort(), Sort::Builtin(BuiltinSort::Bool))
         {
@@ -1006,23 +1277,38 @@ impl GuardReader<'_> {
         } = term.kind()
         {
             match (operation.guard_meaning(), arguments.as_slice()) {
-                (GuardMeaning::Negation, [operand]) => return Some(self.formula(operand)?.not()),
-                (GuardMeaning::Conjunction, [left, right]) => {
-                    return Some(Formula::And(
-                        Box::new(self.formula(left)?),
-                        Box::new(self.formula(right)?),
-                    ));
+                (GuardMeaning::Negation, [operand]) => {
+                    return Some(
+                        self.formula(operand, polarity.map(|positive| !positive))?
+                            .not(),
+                    );
                 }
-                (GuardMeaning::Disjunction, [left, right]) => {
-                    return Some(Formula::Or(
-                        Box::new(self.formula(left)?),
-                        Box::new(self.formula(right)?),
-                    ));
+                (GuardMeaning::Conjunction | GuardMeaning::Disjunction, [left, right]) => {
+                    let left = self.formula(left, polarity)?;
+                    let before = self.obligations.len();
+                    let right = self.formula(right, polarity)?;
+                    let lazy_disagrees = match operation {
+                        BuiltinOperation::BoolAndThen => polarity != Some(true),
+                        BuiltinOperation::BoolOrElse => polarity != Some(false),
+                        _ => false,
+                    };
+                    if lazy_disagrees && self.obligations.len() > before {
+                        return None;
+                    }
+                    let (left, right) = (Box::new(left), Box::new(right));
+                    return Some(if operation.guard_meaning() == GuardMeaning::Conjunction {
+                        Formula::And(left, right)
+                    } else {
+                        Formula::Or(left, right)
+                    });
                 }
                 (GuardMeaning::Implication, [left, right]) => {
                     return Some(Formula::Or(
-                        Box::new(self.formula(left)?.not()),
-                        Box::new(self.formula(right)?),
+                        Box::new(
+                            self.formula(left, polarity.map(|positive| !positive))?
+                                .not(),
+                        ),
+                        Box::new(self.formula(right, polarity)?),
                     ));
                 }
                 (GuardMeaning::Relation(literal), [first, second]) => {
@@ -1031,7 +1317,7 @@ impl GuardReader<'_> {
                     } else {
                         (first, second)
                     };
-                    let atom = self.relation(literal.relation, left, right)?;
+                    let atom = self.relation(literal.relation, left, right, polarity)?;
                     return Some(if literal.positive { atom } else { atom.not() });
                 }
                 _ => {}
@@ -1046,6 +1332,7 @@ impl GuardReader<'_> {
         relation: BuiltinOperation,
         left: &SemanticTerm,
         right: &SemanticTerm,
+        polarity: Option<bool>,
     ) -> Option<Formula> {
         match relation {
             BuiltinOperation::IntLess | BuiltinOperation::IntEqual => {
@@ -1056,16 +1343,14 @@ impl GuardReader<'_> {
                     } else {
                         left < right
                     })),
-                    (None, Some(constant)) => Some(Formula::Atom(Atom::Bound {
-                        subject: self.subject(left)?,
-                        bound: if equal { Bound::At } else { Bound::Below },
+                    (None, Some(constant)) => {
+                        self.compare(left, if equal { Bound::At } else { Bound::Below }, constant)
+                    }
+                    (Some(constant), None) => self.compare(
+                        right,
+                        if equal { Bound::At } else { Bound::Above },
                         constant,
-                    })),
-                    (Some(constant), None) => Some(Formula::Atom(Atom::Bound {
-                        subject: self.subject(right)?,
-                        bound: if equal { Bound::At } else { Bound::Above },
-                        constant,
-                    })),
+                    ),
                     (None, None) => {
                         let left = self.subject(left)?;
                         let right = self.subject(right)?;
@@ -1093,11 +1378,13 @@ impl GuardReader<'_> {
                 };
                 match (literal(left), literal(right)) {
                     (_, Some(value)) => {
-                        let formula = self.formula(left)?;
+                        let polarity = polarity.map(|positive| positive == value);
+                        let formula = self.formula(left, polarity)?;
                         Some(if value { formula } else { formula.not() })
                     }
                     (Some(value), None) => {
-                        let formula = self.formula(right)?;
+                        let polarity = polarity.map(|positive| positive == value);
+                        let formula = self.formula(right, polarity)?;
                         Some(if value { formula } else { formula.not() })
                     }
                     (None, None) => self.opaque_relation(relation, left, right, true),
@@ -1360,6 +1647,78 @@ fn consistent(
     true
 }
 
+/// Integers that give every subject a value in its region and every
+/// compared pair its order, if there are any: the regions and orders are
+/// difference constraints (`x - y <= c`), feasible exactly when their
+/// constraint graph has no negative cycle, and the shortest distances are
+/// then a solution. A length or size is also at least 0. A valuation
+/// without a solution stands for no integers, so the decider skips it:
+/// `a == b`, `b == c` and `a < c` are not independent.
+fn ordered(
+    regions: &BTreeMap<&String, &Region>,
+    orders: &BTreeMap<(&String, &String), Order>,
+    projections: &Projections,
+) -> Option<BTreeMap<String, BigInt>> {
+    let mut nodes = BTreeMap::<&String, usize>::new();
+    for subject in regions
+        .keys()
+        .copied()
+        .chain(orders.keys().flat_map(|(left, right)| [*left, *right]))
+    {
+        let next = nodes.len() + 1;
+        nodes.entry(subject).or_insert(next);
+    }
+    // An edge `(from, to, w)` states `x[to] - x[from] <= w`; node 0 is zero.
+    let mut edges = Vec::<(usize, usize, BigInt)>::new();
+    for (subject, &node) in &nodes {
+        if let Some(region) = regions.get(subject) {
+            if let Some(low) = &region.low {
+                edges.push((node, 0, -low));
+            }
+            if let Some(high) = &region.high {
+                edges.push((0, node, high.clone()));
+            }
+        }
+        if matches!(projections.get(*subject), Some((_, Projection::Size))) {
+            edges.push((node, 0, BigInt::from(0)));
+        }
+    }
+    for ((left, right), order) in orders {
+        let (left, right) = (nodes[left], nodes[right]);
+        match order {
+            Order::Less => edges.push((right, left, BigInt::from(-1))),
+            Order::Equal => {
+                edges.push((right, left, BigInt::from(0)));
+                edges.push((left, right, BigInt::from(0)));
+            }
+            Order::Greater => edges.push((left, right, BigInt::from(-1))),
+        }
+    }
+    let mut distance = vec![BigInt::from(0); nodes.len() + 1];
+    for round in 0..=nodes.len() {
+        let mut changed = false;
+        for (from, to, weight) in &edges {
+            let candidate = &distance[*from] + weight;
+            if candidate < distance[*to] {
+                distance[*to] = candidate;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+        if round == nodes.len() {
+            return None;
+        }
+    }
+    Some(
+        nodes
+            .into_iter()
+            .map(|(subject, node)| (subject.clone(), &distance[node] - &distance[0]))
+            .collect(),
+    )
+}
+
 /// The refuting valuation, without the projections of a subject whose
 /// value is exact: those say nothing more.
 fn counterexample(
@@ -1371,9 +1730,10 @@ fn counterexample(
 ) -> Counterexample {
     let implied = |subject: &String| {
         projections.get(subject).is_some_and(|(base, _)| {
-            regions
-                .get(base)
-                .is_some_and(|region| region.exact().is_some())
+            base != subject
+                && regions
+                    .get(base)
+                    .is_some_and(|region| region.exact().is_some())
         })
     };
     Counterexample {
@@ -1425,6 +1785,81 @@ fn evaluate(
     }
 }
 
+/// A refuting valuation without the parts no guard depends on there: an
+/// atom is kept when another value of it alone makes some guard hold. A
+/// subject whose value matters only where it is undefined (the quotient of
+/// a zero divisor, say) is dropped, since the guards fail whatever it is.
+#[expect(clippy::type_complexity, reason = "The three parts of a valuation.")]
+fn relevant<'v>(
+    guards: &[&Formula],
+    domains: &[(&'v String, Vec<(BigInt, Region)>)],
+    values: &BTreeMap<&'v String, &'v BigInt>,
+    orders: &BTreeMap<(&'v String, &'v String), Order>,
+    truths: &BTreeMap<&'v String, bool>,
+    projections: &Projections,
+    facts: &BTreeMap<String, Fact>,
+) -> (
+    BTreeMap<&'v String, &'v BigInt>,
+    BTreeMap<(&'v String, &'v String), Order>,
+    BTreeMap<&'v String, bool>,
+) {
+    let holds = |values: &BTreeMap<&String, &BigInt>,
+                 orders: &BTreeMap<(&String, &String), Order>,
+                 truths: &BTreeMap<&String, bool>| {
+        guards
+            .iter()
+            .any(|guard| evaluate(guard, values, orders, truths))
+    };
+    let mut kept_values = BTreeMap::new();
+    for (subject, domain) in domains {
+        let matters = domain.iter().any(|(value, region)| {
+            let mut varied = values.clone();
+            varied.insert(subject, value);
+            if !projections.is_empty() {
+                let mut regions = BTreeMap::new();
+                for (other, other_domain) in domains {
+                    if let Some((_, other_region)) = other_domain
+                        .iter()
+                        .find(|(point, _)| *point == *varied[other])
+                    {
+                        regions.insert(*other, other_region);
+                    }
+                }
+                regions.insert(*subject, region);
+                if !consistent(&regions, projections, facts) {
+                    return false;
+                }
+            }
+            holds(&varied, orders, truths)
+        });
+        if matters {
+            kept_values.insert(*subject, values[subject]);
+        }
+    }
+    let mut kept_orders = BTreeMap::new();
+    for (pair, order) in orders {
+        let matters = [Order::Less, Order::Equal, Order::Greater]
+            .into_iter()
+            .any(|other| {
+                let mut varied = orders.clone();
+                varied.insert(*pair, other);
+                holds(values, &varied, truths)
+            });
+        if matters {
+            kept_orders.insert(*pair, *order);
+        }
+    }
+    let mut kept_truths = BTreeMap::new();
+    for (key, truth) in truths {
+        let mut varied = truths.clone();
+        varied.insert(key, !truth);
+        if holds(values, orders, &varied) {
+            kept_truths.insert(*key, *truth);
+        }
+    }
+    (kept_values, kept_orders, kept_truths)
+}
+
 /// Whether some guard holds under every valuation consistent with `facts`
 /// (keyed by the path text of an Int binder).
 ///
@@ -1432,8 +1867,10 @@ fn evaluate(
 /// has under one of the enumerated valuations. An Int subject's bounds
 /// change truth only at their constants, so the constants and one point
 /// between each pair realize every assignment; two subjects are always in
-/// exactly one of three orders; distinct subjects are treated as
-/// independent, which admits more valuations than exist, never fewer.
+/// exactly one of three orders, and a valuation whose orders and bounds no
+/// integers realize together is skipped ([`ordered`]); distinct subjects are
+/// otherwise treated as independent, which admits more valuations than
+/// exist, never fewer.
 ///
 /// A valuation that gives a projection of a subject (`bitRangeInt(t, o, l)`
 /// or `t &Int m`, see [`Projections`]) a value its base cannot have
@@ -1444,14 +1881,21 @@ pub(crate) fn decide(
     facts: &BTreeMap<String, Fact>,
     projections: &Projections,
 ) -> Verdict {
-    decide_counted(guards, facts, projections).0
+    decide_counted(guards, facts, projections, true).0
 }
 
-/// [`decide`], with the number of valuations it had to consider.
+/// [`decide`], with the number of valuations it had to consider. With
+/// `minimize`, a refuting valuation keeps only the atoms some guard depends
+/// on (see [`relevant`]); without, it is the whole valuation.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One enumeration of the valuations: values, their consistency with projections and orders, truths, and the refutation."
+)]
 fn decide_counted(
     guards: &[&Formula],
     facts: &BTreeMap<String, Fact>,
     projections: &Projections,
+    minimize: bool,
 ) -> (Verdict, u64) {
     let mut atoms = BTreeSet::new();
     for guard in guards {
@@ -1525,6 +1969,14 @@ fn decide_counted(
             );
             rest /= 3;
         }
+        let solution = if pairs.is_empty() {
+            None
+        } else {
+            let Some(solution) = ordered(&regions, &orders, projections) else {
+                continue;
+            };
+            Some(solution)
+        };
         let mut truths = BTreeMap::new();
         for key in &opaque {
             truths.insert(*key, rest % 2 == 1);
@@ -1534,16 +1986,26 @@ fn decide_counted(
             .iter()
             .any(|guard| evaluate(guard, &values, &orders, &truths))
         {
-            return (
-                Verdict::Refuted(counterexample(
-                    values,
-                    orders,
-                    truths,
-                    &regions,
+            let (values, orders, truths) = if minimize {
+                relevant(
+                    guards,
+                    &domains,
+                    &values,
+                    &orders,
+                    &truths,
                     projections,
-                )),
-                index + 1,
-            );
+                    facts,
+                )
+            } else {
+                (values, orders, truths)
+            };
+            let mut refutation = counterexample(values, orders, truths, &regions, projections);
+            // Unminimized, a refutation is a candidate valuation: give every
+            // compared subject integers that realize its orders too.
+            if !minimize && let Some(solution) = solution {
+                refutation.values.extend(solution);
+            }
+            return (Verdict::Refuted(refutation), index + 1);
         }
     }
     (Verdict::Valid, count)
@@ -1887,7 +2349,7 @@ impl Search<'_> {
             .iter()
             .filter_map(|row| row.guard.as_deref())
             .collect::<Vec<_>>();
-        let (verdict, valuations) = decide_counted(&guards, facts, self.projections);
+        let (verdict, valuations) = decide_counted(&guards, facts, self.projections, true);
         self.valuations = self.valuations.saturating_add(valuations);
         if self.valuations > FUNCTION_VALUATION_BUDGET {
             self.exhausted = true;
@@ -2091,8 +2553,9 @@ fn search_instance(signature: &Signature, columns: Vec<Sort>, rules: &[&Semantic
                         paths: &paths,
                         names: Names::new(),
                         projections: Projections::new(),
+                        obligations: Vec::new(),
                     };
-                    let Some(formula) = reader.formula(condition.term()) else {
+                    let Some(formula) = reader.guard(condition.term()) else {
                         unread += 1;
                         continue;
                     };
@@ -2261,13 +2724,13 @@ fn uncovered_warning(
         }
     } else if report.guarded > 0 {
         diagnostic.notes.push(format!(
-            "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, and only when every operation in it is defined on every argument",
+            "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             report.guarded
         ));
     }
     if report.unread > 0 {
         diagnostic.notes.push(format!(
-            "{} equation alternatives are not counted: their `requires` mentions an operation that may be undefined or a binder the pattern does not bind, or a binder occurs twice in the pattern",
+            "{} equation alternatives are not counted: their `requires` mentions another operation that may be undefined, a lazy `&&` or `||` whose right operand may be, or a binder the pattern does not bind, or a binder occurs twice in the pattern",
             report.unread
         ));
     }
@@ -2304,6 +2767,9 @@ fn stale_warning(
     diagnostic.severity = Severity::Warning;
     diagnostic
 }
+
+mod overlap;
+pub(crate) use overlap::{EquationSignature, symbolic_overlap};
 
 #[cfg(test)]
 mod tests;
