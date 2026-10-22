@@ -70,7 +70,7 @@ const PINNED_CLIMB: Option<(u32, &str)> = Some((
 /// bumps `ENGINE_VERSION` to 3 and re-pins once (D25).
 const PINNED_CORPUS: Option<(u32, &str)> = Some((
     2,
-    "ad99818fbea9cc058d9a5d649c606bf153ffadc64bf49a7182d7925ecd438600",
+    "ace0f86bbab3b028bd4c5ce24f9dbdd7007c66ca8c37326a54deea3be937ddb2",
 ));
 
 /// The pinned fingerprint of the solve campaign's case sequence (FZ-15), in builds with the `z3`

@@ -39,10 +39,12 @@
 //! other operand, never by the operand itself. A `String` equality takes the other string; a
 //! `String` disequality proposes nothing.
 //!
-//! A change is drawn by comparison, then side, then occurrence, each uniformly: one position of
-//! one hole takes the value. Drawing by comparison first, with at most [`MAX_OCCURRENCES`]
-//! occurrences per side, keeps a value that is common in the case (a `0` in a list of records)
-//! from crowding out the other comparisons. A set stays sorted and distinct and a map's keys
+//! A change is drawn by a side of a comparison (uniformly among the sides with a candidate),
+//! then by occurrence: one position of one hole takes the value. Each side of a comparison is
+//! one change (`x` takes the value that passes, or `y` does), so the two sides of `D ==Int C`
+//! weigh as much as two comparisons with one applicable side each. Drawing by side first, with
+//! at most [`MAX_OCCURRENCES`] occurrences per side, keeps a value that is common in the case (a
+//! `0` in a list of records) from crowding out the other comparisons. A set stays sorted and distinct and a map's keys
 //! distinct (a change that would merge two is not proposed), and the proposer checks the hole's
 //! sort, constraints and size rules (`values::admissible`) and draws again, up to
 //! [`MAX_ATTEMPTS`] times. The climb's incumbent remembers the candidates drawn from its pool,
@@ -131,17 +133,17 @@ pub(crate) fn pool(comparisons: &[Compared], rank: &BTreeMap<String, u64>) -> Ve
     pool
 }
 
-/// The candidate changes of a case with `values` from the pool `comparisons`, grouped by
-/// comparison, then side: per side, every occurrence of its value in every hole, at most
-/// [`MAX_OCCURRENCES`], without those in `tried`.
+/// The candidate changes of a case with `values` from the pool `comparisons`, grouped by side
+/// of a comparison, in the pool's order: per side, every occurrence of its value in every hole,
+/// at most [`MAX_OCCURRENCES`], without those in `tried`.
 fn groups(
     values: &[Value],
     comparisons: &[Compared],
     tried: &BTreeSet<Candidate>,
-) -> Vec<Vec<Vec<Candidate>>> {
+) -> Vec<Vec<Candidate>> {
     comparisons
         .iter()
-        .map(|compared| {
+        .flat_map(|compared| {
             [Side::Left, Side::Right]
                 .into_iter()
                 .filter_map(|side| satisfying(compared, side))
@@ -165,7 +167,7 @@ fn groups(
                     }
                     found
                 })
-                .collect()
+                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -178,7 +180,6 @@ pub(crate) fn candidates(values: &[Value], comparisons: &[Compared]) -> Vec<Cand
     for candidate in groups(values, comparisons, &BTreeSet::new())
         .into_iter()
         .flatten()
-        .flatten()
     {
         if !found.contains(&candidate) {
             found.push(candidate);
@@ -188,8 +189,8 @@ pub(crate) fn candidates(values: &[Value], comparisons: &[Compared]) -> Vec<Cand
 }
 
 /// A change of `values` drawn from the pool `comparisons`, skipping the candidates in `tried`:
-/// a comparison drawn uniformly among those with a candidate left, then one of its sides, then
-/// one occurrence, without replacement, until one gives a value that `admits` (hole index, new
+/// a side of a comparison drawn uniformly among those with a candidate left, then one
+/// occurrence, without replacement, until one gives a value that `admits` (hole index, new
 /// value) and differs from the hole's value, up to [`MAX_ATTEMPTS`]; `None` when none does.
 /// Every candidate drawn joins `tried`, so a case's pool does not propose the same change twice.
 /// Draws from `rng` only when there is a candidate.
@@ -202,17 +203,12 @@ pub(crate) fn propose(
 ) -> Option<Vec<Value>> {
     let mut groups = groups(values, comparisons, tried);
     for _ in 0..MAX_ATTEMPTS {
-        for sides in &mut groups {
-            sides.retain(|occurrences| !occurrences.is_empty());
-        }
-        groups.retain(|sides| !sides.is_empty());
+        groups.retain(|occurrences| !occurrences.is_empty());
         if groups.is_empty() {
             return None;
         }
         let index = rng.random_range(0..groups.len());
-        let sides = &mut groups[index];
-        let index = rng.random_range(0..sides.len());
-        let occurrences = &mut sides[index];
+        let occurrences = &mut groups[index];
         let index = rng.random_range(0..occurrences.len());
         let candidate = occurrences.swap_remove(index);
         tried.insert(candidate.clone());

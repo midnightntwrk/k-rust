@@ -183,7 +183,7 @@ fn candidates_are_listed_once_and_a_common_value_starves_no_comparison() {
     assert_eq!(candidates(&[int(3)], &pool).len(), 1);
     // 200 records `tx(0, 1)` and a second hole 7: the comparisons of 0 and 1 have 200
     // occurrences each, at most `MAX_OCCURRENCES` of them candidates, and the third comparison,
-    // listed last, is still drawn about a third of the time.
+    // listed last, is still drawn about a third of the time (each has one applicable side).
     let values = vec![Value::List((0..200).map(|_| tx(0, 1)).collect()), int(7)];
     let pool = [
         compared(Comparison::IntEq, 0, 2),

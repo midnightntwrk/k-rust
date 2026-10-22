@@ -49,7 +49,7 @@ const GATE_LOCK_L2: [Option<u64>; 5] = [None, None, None, None, None];
 /// Before the run-time literals (FZ-16) they were 1094, 3452, 2546, 1310 and 1987: a key a
 /// guard compared with a constant now takes the passing value from the comparison (118, 107,
 /// 72, 62, 75 before FZ-16's fix round).
-const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(55), Some(96), Some(169), Some(52), Some(47)];
+const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(55), Some(216), Some(75), Some(54), Some(80)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
@@ -238,7 +238,7 @@ fn the_corpus_opens_the_lock_where_blind_sampling_the_dictionary_and_the_climb_s
 /// [`BANK_CI_BUDGET`] cases, with the run-time literals (FZ-16): regression pins of tuning
 /// seeds. Without them no configuration reached `double` at any of seeds 1-20 within 5000 cases
 /// but one (`research/stall-benchmark.md`, FZ-14 round 2 and FZ-16).
-const PINNED_BANK_DOUBLE: [Option<u64>; 5] = [Some(432), Some(89), Some(197), Some(159), Some(296)];
+const PINNED_BANK_DOUBLE: [Option<u64>; 5] = [Some(476), Some(170), Some(735), Some(156), Some(92)];
 
 /// The CI budget of the bank's `double`.
 const BANK_CI_BUDGET: u64 = 1000;
@@ -525,6 +525,12 @@ const FRESH_SEEDS: [u64; 10] = [21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
 #[ignore = "measurement mode: run with --ignored --nocapture measure_"]
 fn measure_runtime_bank_fresh() {
     measure_bank(&runtime_configurations(), &FRESH_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_maze_fresh() {
+    measure_maze(&runtime_configurations(), &FRESH_SEEDS);
 }
 
 #[test]
