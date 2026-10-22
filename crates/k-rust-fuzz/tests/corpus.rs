@@ -553,13 +553,22 @@ fn measure_hitcount_bank_depth_held_out() {
 }
 
 /// The tally's depth cells (`tally::DEPTHS`, FZ-17) fire exactly on a list of which at least
-/// that many keys apply: `n` keys in the window followed by one outside it.
+/// that many keys apply, on every variant: `n` keys in the window followed by three outside it
+/// (which the noise and drain variants consume after the loop).
 #[test]
 fn every_tally_depth_cell_fires_on_exactly_the_lists_that_deep() {
-    for depth in tally::DEPTHS {
+    let variants = [
+        tally::Variant::Clean,
+        tally::Variant::Noise,
+        tally::Variant::Drain,
+    ];
+    for (variant, depth) in variants
+        .into_iter()
+        .flat_map(|variant| tally::DEPTHS.map(|depth| (variant, depth)))
+    {
         for applied in [depth - 1, depth, depth + 1] {
             let mut keys = vec![1050; usize::try_from(applied).unwrap()];
-            keys.push(7);
+            keys.extend([7, 8, 9]);
             let configuration = Configuration {
                 name: "witness",
                 proposers: ProposerConfig {
@@ -571,15 +580,23 @@ fn every_tally_depth_cell_fires_on_exactly_the_lists_that_deep() {
             };
             let (hit, _) = lock::run_spec(
                 &format!("d{depth}"),
-                tally::depth_spec(depth, &configuration, 1),
+                tally::variant_spec(variant, depth, &configuration, 1),
                 1,
             );
-            assert_eq!(hit.is_some(), applied >= depth, "d{depth} under {applied}");
+            assert_eq!(
+                hit.is_some(),
+                applied >= depth,
+                "{} d{depth} under {applied}",
+                variant.name()
+            );
         }
     }
     // The anchor `ListItem(0)` applies no key.
-    let (hit, report) = lock::run_spec("d4", tally::depth_spec(4, &maze::blind(), 1), 1);
-    assert_eq!((hit, report.totals.cases), (None, 1));
+    for variant in variants {
+        let (hit, report) =
+            lock::run_spec("d4", tally::variant_spec(variant, 4, &maze::blind(), 1), 1);
+        assert_eq!((hit, report.totals.cases), (None, 1), "{}", variant.name());
+    }
 }
 
 /// blind+corpus's cases to the tally's depth 8 at [`CI_SEEDS`] within 5000 cases: regression
@@ -605,17 +622,22 @@ fn the_corpus_follows_a_loop_one_more_application_at_a_time() {
 
 /// The tally's depth cells under the corpus configurations the climb does not refuse.
 fn measure_tally(seeds: &[u64]) {
+    measure_tally_variant(tally::Variant::Clean, seeds);
+}
+
+/// [`measure_tally`] on `variant`.
+fn measure_tally_variant(variant: tally::Variant, seeds: &[u64]) {
     let labels: Vec<String> = tally::DEPTHS
         .iter()
         .map(|depth| format!("d{depth}"))
         .collect();
     let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
     measure_list(
-        "tally",
+        variant.name(),
         &labels,
         &[blind_corpus(), blind_dictionary_corpus()],
         seeds,
-        |configuration, _, seed, budget| tally::depth_line(configuration, seed, budget),
+        |configuration, _, seed, budget| tally::variant_line(variant, configuration, seed, budget),
     );
 }
 
@@ -629,4 +651,18 @@ fn measure_hitcount_tally_tuning() {
 #[ignore = "measurement mode: run with --ignored --nocapture measure_"]
 fn measure_hitcount_tally_held_out() {
     measure_tally(&HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_noise_tuning() {
+    measure_tally_variant(tally::Variant::Noise, &TUNING_SEEDS);
+    measure_tally_variant(tally::Variant::Drain, &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_hitcount_noise_held_out() {
+    measure_tally_variant(tally::Variant::Noise, &HELD_OUT_SEEDS);
+    measure_tally_variant(tally::Variant::Drain, &HELD_OUT_SEEDS);
 }

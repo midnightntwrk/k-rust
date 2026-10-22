@@ -662,11 +662,26 @@ fixture!(
     &[program!("tally/run.pgm", "KEYS" = "tally/run.keys")]
 );
 
+// The tally with work proportional to the keys left after the loop (FZ-17 fix round): an
+// equation (`NOISE`) and a rewrite rule (`DRAIN`); `tests/data/tally/harness.rs` holds the cells.
+fixture!(
+    NOISE,
+    "tally/noise.k",
+    "NOISE",
+    &[program!("tally/run.pgm", "KEYS" = "tally/run.keys")]
+);
+fixture!(
+    DRAIN,
+    "tally/drain.k",
+    "DRAIN",
+    &[program!("tally/run.pgm", "KEYS" = "tally/run.keys")]
+);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 35] = [
+pub static ALL: [&Fixture; 37] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -702,4 +717,6 @@ pub static ALL: [&Fixture; 35] = [
     &LOCK,
     &BANK,
     &TALLY,
+    &NOISE,
+    &DRAIN,
 ];

@@ -141,6 +141,11 @@ pub(crate) const MAX_ATTEMPTS: u32 = 64;
 /// power of two (16-31, 32-63, ...) share a bucket.
 pub(crate) const EXACT_COUNTS: u64 = 16;
 
+// A count's bucket is a bit of a `u128`: `EXACT_COUNTS` exact buckets plus one per power of two
+// from `EXACT_COUNTS` to `u64::MAX`, the highest at index `EXACT_COUNTS + 63 - log2(EXACT_COUNTS)`,
+// which stays below 128 (121 at most) for every bound up to 64.
+const _: () = assert!(EXACT_COUNTS > 0 && EXACT_COUNTS <= 64);
+
 /// The bucket of an applied count `count` ([`EXACT_COUNTS`]), as a bit of a rule's buckets.
 fn count_bucket(count: u64) -> u128 {
     let index = if count < EXACT_COUNTS {
