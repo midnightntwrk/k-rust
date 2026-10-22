@@ -6105,31 +6105,27 @@ k::rules! {
 
     traverse_projection_field: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Aggregate { variant, fields },
                 projections: Projections::ProjectionsCons {
                     head: Projection::Field { field, ty },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: list::get(fields, field),
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
                     head: MirProjectionContext::FieldContext { variant, fields, field, ty },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6137,31 +6133,27 @@ k::rules! {
 
     traverse_projection_union_field: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Union { field, value },
                 projections: Projections::ProjectionsCons {
                     head: Projection::Field { field, ty },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value,
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
                     head: MirProjectionContext::UnionFieldContext { field, value, ty },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6169,20 +6161,17 @@ k::rules! {
 
     traverse_projection_wrap_struct: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value,
                 projections: Projections::ProjectionsCons { head: Projection::WrapStruct(), tail },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: Value::Aggregate {
                     variant: 0,
                     fields: list::concat(list::item(value), list::empty())
@@ -6192,8 +6181,7 @@ k::rules! {
                     head: MirProjectionContext::WrapStructContext(),
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6201,28 +6189,22 @@ k::rules! {
 
     traverse_projection_downcast: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Aggregate { fields, .. },
                 projections: Projections::ProjectionsCons {
                     head: Projection::Downcast { variant },
                     tail
                 },
-                contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: Value::Aggregate { variant, fields },
                 projections: tail,
-                contexts,
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6230,8 +6212,7 @@ k::rules! {
 
     traverse_projection_index: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::Index { local },
@@ -6239,14 +6220,13 @@ k::rules! {
                 },
                 contexts,
                 locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: list::get(elements, ExpectUsize { entry: list::get(locals, local) }),
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
@@ -6256,8 +6236,7 @@ k::rules! {
                     },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6266,31 +6245,27 @@ k::rules! {
     #[k::requires(offset >= 0 && offset < list::size(elements))]
     traverse_projection_constant_index_front: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::ConstantIndex { offset, from_end: false, .. },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: list::get(elements, offset),
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
                     head: MirProjectionContext::IndexContext { elements, index: offset },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6301,23 +6276,20 @@ k::rules! {
     )]
     traverse_projection_constant_index_end: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::ConstantIndex { offset, min_length, from_end: true },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: list::get(elements, min_length - offset),
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
@@ -6327,8 +6299,7 @@ k::rules! {
                     },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6343,23 +6314,20 @@ k::rules! {
     )]
     traverse_projection_subslice_front: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::Subslice { from, to, from_end: false },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: Value::Range {
                     elements: list::range(elements, from, list::size(elements) - to)
                 },
@@ -6372,8 +6340,7 @@ k::rules! {
                     },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6384,23 +6351,20 @@ k::rules! {
     )]
     traverse_projection_subslice_end: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::Subslice { from, to, from_end: true },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: Value::Range { elements: list::range(elements, from, to) },
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
@@ -6411,8 +6375,7 @@ k::rules! {
                     },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6421,23 +6384,20 @@ k::rules! {
     #[k::requires(offset >= 0 && offset <= list::size(elements))]
     traverse_projection_pointer_offset: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::PointerOffset { offset, origin_size },
                     tail
                 },
                 contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: Value::Range { elements: list::range(elements, offset, 0) },
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
@@ -6448,8 +6408,7 @@ k::rules! {
                     },
                     tail: contexts
                 },
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6458,8 +6417,7 @@ k::rules! {
     #[k::requires(size >= 0 && size <= list::size(elements))]
     traverse_projection_truncate_size: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::DerefTruncate {
@@ -6467,23 +6425,18 @@ k::rules! {
                     },
                     tail
                 },
-                contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: Value::Range {
                     elements: list::range(elements, 0, list::size(elements) - size)
                 },
                 projections: tail,
-                contexts,
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6491,28 +6444,22 @@ k::rules! {
 
     traverse_projection_truncate_array_head: {
         k: [
-            Execution::TraverseProjection {
-                target,
+            traversal @ Execution::TraverseProjection {
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
                     head: Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
                     tail
                 },
-                contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::TraverseProjection {
-                target,
                 value: list::get(elements, 0),
                 projections: tail,
-                contexts,
-                locals,
-                action
+                ..traversal
             },
             ..
         ],
@@ -6521,31 +6468,17 @@ k::rules! {
     #[k::rule(owise)]
     traverse_projection_truncate_non_range: {
         k: [
-            Execution::TraverseProjection {
-                target,
-                value,
+            traversal @ Execution::TraverseProjection {
                 projections: Projections::ProjectionsCons {
                     head: Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
                     tail
                 },
-                contexts,
-                locals,
-                action
+                ..
             },
             ..
         ],
     } => {
-        k: [
-            Execution::TraverseProjection {
-                target,
-                value,
-                projections: tail,
-                contexts,
-                locals,
-                action
-            },
-            ..
-        ],
+        k: [Execution::TraverseProjection { projections: tail, ..traversal }, ..],
     };
 
     #[k::rule(owise)]
@@ -7048,33 +6981,24 @@ k::rules! {
 
     resolve_ptr_cast_to_zst: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::PrimitiveType(_)
                 | MirTypeInfo::ArrayType(_, _)
                 | MirTypeInfo::PointerType(_),
                 target: MirTypeInfo::VoidType(),
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::ResolvePtrCast {
-                phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::VoidType(),
-                target: MirTypeInfo::VoidType(),
                 projections: AppendCastProjections {
                     first: projections,
                     second: Projections::ProjectionsCons {
@@ -7082,7 +7006,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7090,31 +7015,23 @@ k::rules! {
 
     resolve_ptr_cast_from_zst: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::VoidType(),
                 target: target @ (MirTypeInfo::PrimitiveType(_)
                 | MirTypeInfo::ArrayType(_, _)
                 | MirTypeInfo::PointerType(_)),
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
     } => {
         k: [
             Execution::ResolvePtrCast {
-                phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: target,
                 target,
                 projections: AppendCastProjections {
@@ -7124,7 +7041,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7144,17 +7062,14 @@ k::rules! {
     )]
     resolve_ptr_cast_bytes_to_str: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
                 metadata,
-                destination,
                 source: MirTypeInfo::ArrayType { element, size: MirMaybeTyConst::NoTyConst() },
                 target: target @ MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() },
-                projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7162,16 +7077,11 @@ k::rules! {
     } => {
         k: [
             Execution::ResolvePtrCast {
-                phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: target,
                 target,
-                projections,
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7187,20 +7097,16 @@ k::rules! {
     )]
     resolve_ptr_cast_str_to_bytes: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() },
                 target: target @ MirTypeInfo::ArrayType {
                     element,
                     size: MirMaybeTyConst::NoTyConst()
                 },
-                projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7208,16 +7114,11 @@ k::rules! {
     } => {
         k: [
             Execution::ResolvePtrCast {
-                phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: target,
                 target,
-                projections,
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7234,13 +7135,9 @@ k::rules! {
     )]
     resolve_ptr_cast_array_to_exact_wrapper: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::ArrayType { element: source_element, size: source_size },
                 target: MirTypeInfo::StructType {
                     name,
@@ -7249,7 +7146,8 @@ k::rules! {
                     layout
                 },
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7257,12 +7155,7 @@ k::rules! {
     } => {
         k: [
             Execution::ResolvePtrCast {
-                phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::ArrayType { element: source_element, size: source_size },
                 target: map::get(types, field),
                 projections: AppendCastProjections {
@@ -7272,7 +7165,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7281,17 +7175,11 @@ k::rules! {
     #[k::rule(owise)]
     resolve_ptr_cast_compare_different: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
-                target,
-                projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7299,15 +7187,9 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
-                target,
-                projections,
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7316,22 +7198,18 @@ k::rules! {
     #[k::requires(ZeroFieldOffset { layout })]
     resolve_ptr_cast_source_struct: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::StructType {
                     name,
                     adt_def,
                     fields: MirTys::TysCons { head: field, tail: MirTys::TysEmpty() },
                     layout
                 },
-                target,
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7340,13 +7218,8 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: map::get(types, field),
-                target,
                 projections: AppendCastProjections {
                     first: projections,
                     second: Projections::ProjectionsCons {
@@ -7354,7 +7227,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7362,17 +7236,13 @@ k::rules! {
 
     resolve_ptr_cast_source_array: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::ArrayType { element, .. },
-                target,
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7381,13 +7251,8 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: map::get(types, element),
-                target,
                 projections: AppendCastProjections {
                     first: projections,
                     second: Projections::ProjectionsCons {
@@ -7399,7 +7264,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7409,17 +7275,13 @@ k::rules! {
     // (`str::as_ptr` casts `*const str` to `*const u8`).
     resolve_ptr_cast_source_str: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() },
-                target,
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7427,15 +7289,10 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
                 source: MirTypeInfo::PrimitiveType {
                     primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() }
                 },
-                target,
                 projections: AppendCastProjections {
                     first: projections,
                     second: Projections::ProjectionsCons {
@@ -7447,7 +7304,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7456,17 +7314,11 @@ k::rules! {
     #[k::rule(owise)]
     resolve_ptr_cast_source_done: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
-                target,
-                projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7474,15 +7326,9 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::TargetPhase(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
-                target,
-                projections,
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7490,17 +7336,13 @@ k::rules! {
 
     resolve_ptr_cast_target_array: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::TargetPhase(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
                 target: MirTypeInfo::ArrayType { element, .. },
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7509,12 +7351,7 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
                 target: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
@@ -7523,7 +7360,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
@@ -7532,14 +7370,9 @@ k::rules! {
     #[k::requires(ZeroFieldOffset { layout })]
     resolve_ptr_cast_target_struct: {
         k: [
-            Execution::ResolvePtrCast {
+            cast @ Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::TargetPhase(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
                 target: MirTypeInfo::StructType {
                     name,
                     adt_def,
@@ -7547,7 +7380,8 @@ k::rules! {
                     layout
                 },
                 projections,
-                target_size
+                target_size,
+                ..
             },
             ..
         ],
@@ -7556,12 +7390,7 @@ k::rules! {
         k: [
             Execution::ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
-                height,
                 pointer_place,
-                mutability,
-                metadata,
-                destination,
-                source,
                 target: map::get(types, field),
                 projections: AppendCastProjections {
                     first: projections,
@@ -7570,7 +7399,8 @@ k::rules! {
                         tail: Projections::ProjectionsEmpty()
                     }
                 },
-                target_size
+                target_size,
+                ..cast
             },
             ..
         ],
