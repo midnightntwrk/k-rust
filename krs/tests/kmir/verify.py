@@ -17,13 +17,13 @@ import native  # noqa: E402
 PROBES = (
     (
         "block lookup command",
-        "Execution::ExecBlock(list::get(program, index))",
+        "ExecBlock(list::get(program, index))",
         "ExecBlock",
         "    ExecBlock { block: BasicBlock },",
     ),
     (
         "entry block command",
-        "Execution::ExecBlockIdx(0)",
+        "k: [ExecBlockIdx(0), ..]",
         "ExecBlockIdx",
         "    ExecBlockIdx { index: Int },",
     ),
