@@ -680,3 +680,83 @@ k::rules! {
         assert!(definition.contains(sentence), "{sentence}:\n{definition}");
     }
 }
+
+/// `[]` reads alike as the empty cons list and as no instances of a List
+/// collection; on a cons-list cell, whose declared type the collector
+/// knows, it is the empty list, matched or written.
+#[test]
+fn an_empty_bracket_on_a_cons_list_cell_is_the_empty_list() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let source = r#"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult};
+
+k::sorts! {
+    ValStack: KItem;
+    Instruction: KItem;
+}
+
+#[k::constructors(sort = ValStack, result = KResult)]
+#[k::cons_list]
+#[k::precedence((ValCons, ValEmpty))]
+pub enum Vals {
+    #[k::syntax("{head} : {tail}")]
+    ValCons { head: Int, tail: ValStack },
+    #[k::syntax(".ValStack")]
+    ValEmpty(),
+}
+
+#[k::constructors(sort = Instruction, result = KResult)]
+pub enum Instr {
+    #[k::syntax("drop")]
+    Drop,
+    #[k::syntax("clear")]
+    Clear,
+    #[k::syntax("trap")]
+    Trap,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(name = "valstack")]
+    pub valstack: ValStack,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] program: KSequence) -> Self {
+        Self { k: k::k![program], valstack: Vals::ValEmpty() }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Instr::*;
+
+    drop_empty: { k: [Drop(), ..], valstack: [] } => { k: [Trap(), ..] };
+    clear: { k: [Clear(), ..], valstack: [_] } => { k: [..], valstack: [] };
+}
+"#;
+    let definition = definition_k(target.path(), temporary.path(), "machine", source);
+    let rules = definition
+        .split("  rule [")
+        .skip(1)
+        .map(|rule| {
+            format!(
+                "rule [{}",
+                rule.split("\nendmodule").next().unwrap().trim_end()
+            )
+        })
+        .filter(|rule| rule.starts_with("rule [drop-empty]") || rule.starts_with("rule [clear]"))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "rule [clear]:\n    <k> clear => .K ... </k>\n    <valstack> _ : . ValStack => . ValStack </valstack>",
+            "rule [drop-empty]:\n    <k> drop => trap ... </k>\n    <valstack> . ValStack </valstack>",
+        ]
+    "#]]
+    .assert_debug_eq(&rules);
+}

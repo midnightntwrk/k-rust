@@ -807,10 +807,10 @@ fn readable_list_reading(
     targets: &[HeadRuleTarget],
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
 ) -> Result<krs_ir::HostHeadRule, CollectionError> {
-    let has_list = rule
-        .extras
-        .iter()
-        .any(|extra| matches!(extra, krs_ir::ProtocolHeadRuleExtra::RewriteList { .. }));
+    let has_list = rule.extras.iter().any(|extra| {
+        matches!(extra, krs_ir::ProtocolHeadRuleExtra::RewriteList { .. })
+            || empty_brackets(extra).is_some()
+    });
     if rule.configuration.is_none() || (rule.computation_cell_name.is_none() && !has_list) {
         return Ok(rule);
     }
@@ -856,7 +856,56 @@ fn readable_list_reading(
         rule.head = Some(list_head(&cell, before, after)?);
         rule.computation_cell_name = Some(cell.name);
     }
+    // `[]` reads alike as no instances of a List collection and as the
+    // empty cons list, and the macro, which cannot see declared types,
+    // reads it as instances: on an ordinary leaf cell it is the empty list.
+    for extra in &mut rule.extras {
+        if let Some(cell) = empty_brackets(extra)
+            && wrapper(&cell.name) == Some(krs_ir::CellWrapper::Cell)
+        {
+            let krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                cell, result_key, ..
+            } = extra.clone()
+            else {
+                unreachable!("empty brackets are a state extra");
+            };
+            let empty = || krs_ir::ProtocolHeadRuleList {
+                items: Vec::new(),
+                rest: krs_ir::ProtocolHeadRuleListRest::Exact,
+            };
+            *extra = krs_ir::ProtocolHeadRuleExtra::RewriteList {
+                cell,
+                after: result_key.as_ref().map(|_| empty()),
+                result_key,
+                before: empty(),
+            };
+        }
+    }
     Ok(rule)
+}
+
+/// The cell of a state extra that matches the empty bracketed instance
+/// list `[]`, and rewrites it to `[]` again or leaves it out.
+fn empty_brackets(extra: &krs_ir::HostHeadRuleExtra) -> Option<&krs_ir::HostHeadRuleCellReference> {
+    let is_empty = |state: &krs_ir::ProtocolRuleStateTerm<krs_ir::HostTerm>| {
+        matches!(
+            state,
+            krs_ir::ProtocolRuleStateTerm::Instances(instances)
+                if instances.delimiter == krs_ir::InstanceDelimiter::Bracket
+                    && instances.front.is_empty()
+                    && instances.back.is_empty()
+                    && instances.rest == krs_ir::ProtocolRuleFrame::Exact
+        )
+    };
+    match extra {
+        krs_ir::ProtocolHeadRuleExtra::RewriteState {
+            cell,
+            before,
+            after,
+            ..
+        } if is_empty(before) && after.as_ref().is_none_or(is_empty) => Some(cell),
+        _ => None,
+    }
 }
 
 /// The list reading of the head `head` read on the ordinary cell `name`:
