@@ -32,12 +32,12 @@ const stories = [
 ]
 
 const phases = [
-  { on: -1, partners: true, caption: 'Test suites carried some of the biggest moves in software this year, and they sit beside proofs, not below them. Play walks through each story.' },
-  { on: 0, partners: false, caption: 'Rewrites that used to be unthinkable now happen in weeks, and what makes them safe to ship is a test suite.' },
-  { on: 1, partners: false, caption: 'The same pattern in another language: the old implementation\'s tests define "done" for the new one.' },
-  { on: 2, partners: false, caption: 'A conformance suite is how one specification reaches many implementations.' },
-  { on: 3, partners: false, caption: "And speed work starts from a corpus: you can't measure faster without programs you trust." },
-  { on: -1, partners: true, caption: 'Proofs and test suites answer different questions, and K gives you both. The rest of this page is about building the second one well.' },
+  { on: -1, caption: 'Test suites carried some of the biggest moves in software this year. Play walks through each story.' },
+  { on: 0, caption: 'Rewrites that used to be unthinkable now happen in weeks, and what makes them safe to ship is a test suite.' },
+  { on: 1, caption: 'The same pattern in another language: the old implementation\'s tests define "done" for the new one.' },
+  { on: 2, caption: 'A conformance suite is how one specification reaches many implementations.' },
+  { on: 3, caption: "And speed work starts from a corpus: you can't measure faster without programs you trust." },
+  { on: -1, caption: 'A shared corpus gives a rewrite concrete behavior to preserve and a performance effort programs to measure. The rest of this page is about building that corpus well.' },
 ]
 
 export function WhyTests() {
@@ -61,22 +61,6 @@ export function WhyTests() {
             )}
           </div>
         ))}
-      </div>
-      <div className={`${styles.cards} ${phase.partners ? '' : styles.dim}`}>
-        <div className={styles.card}>
-          <span className={styles.who}>A proof</span>
-          <p>
-            Answers "is this property true for every input?" for the properties you state. Lean, Coq and K's own prover live here: the strongest
-            guarantee, and work to set up.
-          </p>
-        </div>
-        <div className={styles.card}>
-          <span className={styles.who}>A test corpus</span>
-          <p>
-            Answers "does this implementation behave like the specification?" It runs against any implementation, in any language, in CI, and it
-            is a signal an AI agent can climb.
-          </p>
-        </div>
       </div>
     </Stage>
   )
