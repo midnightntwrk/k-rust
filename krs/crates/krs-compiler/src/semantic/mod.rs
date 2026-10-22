@@ -238,6 +238,20 @@ pub fn lower_descriptor_bundle(
         });
     }
     if let Some(overlap) = crate::equation_domain::first_equation_overlap(&modules) {
+        if let Some(arms) = declarations
+            .get(&overlap.first)
+            .zip(declarations.get(&overlap.second))
+            .and_then(|(first, second)| branch_ranges(first, second))
+        {
+            return Err(DescriptorLoweringError::OverlappingMatchArms {
+                function: overlap.function,
+                first: Box::new(overlap.first),
+                second: Box::new(overlap.second),
+                application: overlap.application,
+                results: Box::new(overlap.results),
+                arms: Box::new(arms),
+            });
+        }
         let range = declarations
             .get(&overlap.second)
             .and_then(exact_rule_head_range)
@@ -252,6 +266,37 @@ pub fn lower_descriptor_bundle(
         });
     }
     Ok(SemanticTheory::new(modules)?)
+}
+
+/// The exact authored range of a descriptor's first anchor of `role`.
+fn exact_role_range(descriptor: &Descriptor, role: ProvenanceRole) -> Option<krs_ir::SourceRange> {
+    descriptor
+        .provenance()
+        .origins()
+        .iter()
+        .find(|node| node.key.role() == role && node.key.ordinal() == 0)?
+        .origin
+        .exact_authored_range()
+}
+
+/// The authored branches of two equations that one function shorthand's
+/// branching body defines: both name the function at one authored head, the
+/// fn's name, which is not where their sort is written (an equation table's
+/// rows name their function at the header, which is also their sort), and
+/// each is named at its own branch rather than at the head.
+fn branch_ranges(
+    first: &Descriptor,
+    second: &Descriptor,
+) -> Option<(krs_ir::SourceRange, krs_ir::SourceRange)> {
+    let head = exact_role_range(first, ProvenanceRole::RuleLeftApplicationHead)?;
+    if exact_role_range(second, ProvenanceRole::RuleLeftApplicationHead)? != head
+        || exact_role_range(first, ProvenanceRole::RuleType)? == head
+    {
+        return None;
+    }
+    let first_branch = exact_role_range(first, ProvenanceRole::RuleDeclaration)?;
+    let second_branch = exact_role_range(second, ProvenanceRole::RuleDeclaration)?;
+    (first_branch != head && second_branch != head).then_some((first_branch, second_branch))
 }
 
 /// The authored range of a rule's subject head, or of its name when the

@@ -99,6 +99,22 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second equation's head.
         second_head_range: Option<Box<SourceRange>>,
     },
+    /// Two arms of one function shorthand body's `match` both apply to one
+    /// argument and give it different results.
+    OverlappingMatchArms {
+        /// The function, rendered.
+        function: String,
+        /// First arm's equation in deterministic stable-identity order.
+        first: Box<StableItemId>,
+        /// Second arm's equation in deterministic stable-identity order.
+        second: Box<StableItemId>,
+        /// The application both apply to, rendered.
+        application: String,
+        /// The first and the second arm's result there, rendered.
+        results: Box<(String, String)>,
+        /// The exact authored ranges of the first and the second arm.
+        arms: Box<(SourceRange, SourceRange)>,
+    },
     /// Two alternatives of one `A | B` or-pattern can match the same term with
     /// different bindings (F2 amendment clause 8, KF-030).
     AmbiguousOrPattern {
@@ -554,6 +570,21 @@ impl fmt::Display for DescriptorLoweringError {
                 results.0,
                 results.1
             ),
+            Self::OverlappingMatchArms {
+                function,
+                first,
+                second,
+                application,
+                results,
+                ..
+            } => write!(
+                formatter,
+                "branches `{}` and `{}` of `{function}` both apply to `{application}` and give it different results, `{}` and `{}`; Rust would take the earlier arm, but each branch is an equation and equations are unordered, so the arms of a branching body must not overlap. Make them disjoint with a pattern or a guard that excludes the argument.",
+                first.item_name(),
+                second.item_name(),
+                results.0,
+                results.1
+            ),
             Self::AmbiguousOrPattern { first, second, .. } => write!(
                 formatter,
                 "alternatives `{first}` and `{second}` of this or-pattern can match the same term with different bindings; K's #Or then is ambiguous (LLVM takes one, Haskell explores both). Make them disjoint or split the rule."
@@ -673,6 +704,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
             Self::OverlappingEquations { .. } => codes::analysis::OVERLAPPING_EQUATIONS,
+            Self::OverlappingMatchArms { .. } => codes::analysis::OVERLAPPING_MATCH_ARMS,
             Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
@@ -733,6 +765,8 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),
+            // The later arm is the one Rust would not reach.
+            Self::OverlappingMatchArms { arms, .. } => Location::Source(later_arm(arms).1.clone()),
             Self::NondetGroup { range, .. }
             | Self::AmbiguousOrPattern { range, .. }
             | Self::InvalidOverload { range, .. }
@@ -782,6 +816,23 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
             Self::OverlappingEquations { first, second, .. } => diagnostic
+                .with_note(format!("first equation: {first}"))
+                .with_note(format!("second equation: {second}")),
+            Self::OverlappingMatchArms {
+                first,
+                second,
+                arms,
+                ..
+            } => diagnostic
+                .with_secondary({
+                    let (earlier, name) = if later_arm(arms).1 == &arms.1 {
+                        (&arms.0, first.item_name())
+                    } else {
+                        (&arms.1, second.item_name())
+                    };
+                    krs_diagnostic::Label::new(Location::Source(earlier.clone()))
+                        .with_message(format!("the earlier arm, `{name}`, also applies"))
+                })
                 .with_note(format!("first equation: {first}"))
                 .with_note(format!("second equation: {second}")),
             Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
@@ -851,6 +902,15 @@ impl From<krs_ir::LookupError> for DescriptorLoweringError {
     }
 }
 
+/// The earlier and the later of two arms, by their authored position.
+fn later_arm(arms: &(SourceRange, SourceRange)) -> (&SourceRange, &SourceRange) {
+    if arms.1.start_byte >= arms.0.start_byte {
+        (&arms.0, &arms.1)
+    } else {
+        (&arms.1, &arms.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -880,6 +940,42 @@ mod tests {
                 format!("first rule: {first}"),
                 format!("second rule: {second}"),
             ]
+        );
+    }
+
+    #[test]
+    fn overlapping_match_arms_point_at_the_later_arm_and_name_the_earlier() {
+        // Stable-identity order puts `f_10` before `f_2`; the arm written
+        // later is still the primary location.
+        let first = krs_ir::testing::item("arms", "f_10", ItemKind::Equation);
+        let second = krs_ir::testing::item("arms", "f_2", ItemKind::Equation);
+        let later = krs_ir::testing::authored(40, 45)
+            .exact_authored_range()
+            .unwrap();
+        let earlier = krs_ir::testing::authored(10, 15)
+            .exact_authored_range()
+            .unwrap();
+        let error = DescriptorLoweringError::OverlappingMatchArms {
+            function: "F".to_owned(),
+            first: Box::new(first),
+            second: Box::new(second),
+            application: "F(0)".to_owned(),
+            results: Box::new(("1".to_owned(), "2".to_owned())),
+            arms: Box::new((later.clone(), earlier.clone())),
+        };
+        let diagnostic = error.to_diagnostic();
+        assert_eq!(diagnostic.code, codes::analysis::OVERLAPPING_MATCH_ARMS);
+        let Location::Source(primary) = diagnostic.primary.location else {
+            panic!("missing the later arm");
+        };
+        assert_eq!(primary, later);
+        let [label] = diagnostic.secondary.as_slice() else {
+            panic!("one secondary label");
+        };
+        assert!(matches!(&label.location, Location::Source(range) if *range == earlier));
+        assert_eq!(
+            label.message.as_deref(),
+            Some("the earlier arm, `f_2`, also applies")
         );
     }
 }

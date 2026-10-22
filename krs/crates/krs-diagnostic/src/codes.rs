@@ -179,6 +179,7 @@ register_codes! {
         SORT_CYCLE: "krs::analysis::sort-cycle" => "The direct subsort relation contains a cycle.",
         OVERLAPPING_RULE_HEADS: "krs::analysis::overlapping-rule-heads" => "Two rules have overlapping application heads.",
         OVERLAPPING_EQUATIONS: "krs::analysis::overlapping-equations" => "Two equations of one function at one priority apply to one argument and give it different results, so the definition would state that the results are equal.",
+        OVERLAPPING_MATCH_ARMS: "krs::analysis::overlapping-match-arms" => "Two arms of a function body's `match` apply to one argument and give it different results; each arm is an unordered equation, so the arms must not overlap.",
         AMBIGUOUS_OR_PATTERN: "krs::analysis::ambiguous-or-pattern" => "Two alternatives of one `A | B` or-pattern can match the same term with different bindings.",
         NONDET_GROUP: "krs::analysis::nondet-group" => "A `nondet` group has one rule, mixes priorities, or names a rule that overlaps no other rule of the group.",
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a production's symbol is one K generates.",
