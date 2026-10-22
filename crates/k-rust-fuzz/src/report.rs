@@ -213,14 +213,15 @@ pub struct SolveParameters {
     pub work_slack: u64,
     /// The most model queries per symbolic run, one per leaf whose path applied the blocked rule.
     pub max_model_queries: u32,
-    /// The Z3 resource units (`BackendOptions::smt_resource_limit`, the clock-free mode, no
-    /// retry) of each solver decision of a symbolic run: a decision Z3 has not made within them
-    /// is undecided, and the run handles it as the backend handles any undecided answer.
+    /// The Z3 resource units (`BackendOptions::smt_resource_limit`, the clock-free mode) of the
+    /// first attempt of each solver decision of a symbolic run, doubled on each of
+    /// `run-retries`: a decision Z3 has not made within them is undecided, and the run handles it as the backend handles any undecided answer.
     pub run_resource_units: u32,
     /// The retries of an undecided decision of a run, each with twice the units.
     pub run_retries: u32,
-    /// The Z3 resource units of each model query (clock-free, no retry): a query not decided
-    /// within them answers unknown, which gives no candidate.
+    /// The Z3 resource units of the first attempt of each model query (clock-free), doubled on
+    /// each of `model-retries`: a query not decided within them answers unknown, which gives no
+    /// candidate.
     pub model_resource_units: u32,
     /// The retries of an undecided model query, each with twice the units.
     pub model_retries: u32,
