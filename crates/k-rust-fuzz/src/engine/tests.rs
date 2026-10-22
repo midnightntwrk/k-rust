@@ -260,6 +260,7 @@ fn settings(holes: usize) -> LoopSettings {
         sort_overrides: Vec::new(),
         warnings: Vec::new(),
         scorer: None,
+        pool_rank: std::collections::BTreeMap::new(),
     }
 }
 

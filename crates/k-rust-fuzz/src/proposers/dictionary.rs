@@ -104,7 +104,7 @@ use crate::{
     holes::ResolvedHole,
     report::DictionaryParameters,
     spec::{CampaignSpec, ProposerKind},
-    target::{TargetKind, resolve_rule},
+    target::TargetKind,
     values::{self, Constraints, GenerationBounds, Generator, Value, ValueRng, ValueSort},
 };
 
@@ -234,6 +234,7 @@ impl Harvest {
     /// [`CampaignError::Definition`] when the backend, its catalog or its graph is not
     /// available, and [`CampaignError::Target`] for a rule reference the catalog does not
     /// resolve; `Campaign::new` refuses both earlier, when it resolves the target.
+    #[cfg(test)]
     pub(crate) fn for_campaign(spec: &CampaignSpec) -> Result<Self, CampaignError> {
         let mut backend =
             build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
@@ -245,7 +246,10 @@ impl Harvest {
                         .map_err(|error| CampaignError::Definition {
                             message: format!("the rule catalog is not available: {error}"),
                         })?;
-                Some(resolve_rule(&catalog, &rule.rule).map_err(CampaignError::Target)?)
+                Some(
+                    crate::target::resolve_rule(&catalog, &rule.rule)
+                        .map_err(CampaignError::Target)?,
+                )
             }
             TargetKind::Pattern(_) | TargetKind::Differential(_) | TargetKind::Observer(_) => None,
         };

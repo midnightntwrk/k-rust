@@ -67,12 +67,16 @@ const BLIND_ISOLATED_S3: [Option<u64>; 5] =
 /// literals (FZ-16) moved them from `c4` 50, 75, 151, 83, 65; `s3` 47, 193, 175, 213, 141;
 /// `c6` 781, 188, 239, 456, 252; whole-maze `c4` 921, 286, 411, 484, 934: a window's bound or
 /// `D ==Int C` gives the passing value at once, while `c6` (`3F ==Int G +Int 1000001`) compares
-/// no hole's value as it is.
-const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(12), Some(3), Some(4), Some(6), Some(10)];
-const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(12), Some(3), Some(11), Some(6), Some(10)];
+/// no hole's value as it is. FZ-16's fix round (reading only atoms below refuting nodes, drawing
+/// by comparison first, no change proposed twice) moved them again, from `c4` 12, 3, 4, 6, 10;
+/// `s3` 12, 3, 11, 6, 10; `c6` 681, 288, 239, 410, 418; whole-maze `c4` 227, 46, 67, 40, 74: the
+/// random streams are drawn differently; at seeds 11-20 the isolated medians are unchanged
+/// within noise (`c4` 11 against 10, `s3` 14 against 27; `exp/fz16/fix-iso.log`).
+const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(32), Some(10), Some(32), Some(17), Some(24)];
+const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(31), Some(10), Some(7), Some(24), Some(83)];
 const PINNED_ISOLATED_C6: [Option<u64>; 5] =
-    [Some(681), Some(288), Some(239), Some(410), Some(418)];
-const PINNED_MAZE_C4: [Option<u64>; 5] = [Some(227), Some(46), Some(67), Some(40), Some(74)];
+    [Some(693), Some(259), Some(294), Some(409), Some(308)];
+const PINNED_MAZE_C4: [Option<u64>; 5] = [Some(40), Some(33), Some(38), Some(79), Some(49)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {

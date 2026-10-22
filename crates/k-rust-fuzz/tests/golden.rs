@@ -58,7 +58,7 @@ const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
 /// it climbs moves it: bump `ENGINE_VERSION` and re-pin every fingerprint.
 const PINNED_CLIMB: Option<(u32, &str)> = Some((
     2,
-    "6eb85cd6236f429162d72aeae7aec0797c19d654f7a68314f1165e1d490656a8",
+    "81695de9cdab5c23e5be7b35a9c68817ed07904f54c038ab6c0bc57a862149cf",
 ));
 
 /// The pinned fingerprint of the corpus campaign's case sequence (FZ-14). The corpus is new in
@@ -70,7 +70,7 @@ const PINNED_CLIMB: Option<(u32, &str)> = Some((
 /// bumps `ENGINE_VERSION` to 3 and re-pins once (D25).
 const PINNED_CORPUS: Option<(u32, &str)> = Some((
     2,
-    "4ee3ae3f9632faac34ee64bc7696c02ccbb3dee99c369c68a09d52a1a45af367",
+    "ad99818fbea9cc058d9a5d649c606bf153ffadc64bf49a7182d7925ecd438600",
 ));
 
 /// The pinned fingerprint of the solve campaign's case sequence (FZ-15), in builds with the `z3`

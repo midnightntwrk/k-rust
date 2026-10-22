@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 pub use observer::{
     ConfigurationView, Observer, ObserverHandle, ObserverTarget, ObserverVerdict, contains_symbol,
 };
+#[cfg(test)]
 pub(crate) use rule::resolve_rule;
 
 use crate::{

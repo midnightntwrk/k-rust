@@ -47,8 +47,9 @@ const GATE_LOCK_L2: [Option<u64>; 5] = [None, None, None, None, None];
 /// regression pins. They move whenever the corpus's case sequence moves (its parameters, its
 /// mutations or its harvest), as `tests/golden.rs`'s corpus fingerprint does.
 /// Before the run-time literals (FZ-16) they were 1094, 3452, 2546, 1310 and 1987: a key a
-/// guard compared with a constant now takes the passing value from the comparison.
-const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(118), Some(107), Some(72), Some(62), Some(75)];
+/// guard compared with a constant now takes the passing value from the comparison (118, 107,
+/// 72, 62, 75 before FZ-16's fix round).
+const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(55), Some(96), Some(189), Some(52), Some(47)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
@@ -237,7 +238,7 @@ fn the_corpus_opens_the_lock_where_blind_sampling_the_dictionary_and_the_climb_s
 /// [`BANK_CI_BUDGET`] cases, with the run-time literals (FZ-16): regression pins of tuning
 /// seeds. Without them no configuration reached `double` at any of seeds 1-20 within 5000 cases
 /// but one (`research/stall-benchmark.md`, FZ-14 round 2 and FZ-16).
-const PINNED_BANK_DOUBLE: [Option<u64>; 5] = [Some(705), Some(56), Some(155), Some(191), Some(203)];
+const PINNED_BANK_DOUBLE: [Option<u64>; 5] = [Some(432), Some(89), Some(197), Some(159), Some(296)];
 
 /// The CI budget of the bank's `double`.
 const BANK_CI_BUDGET: u64 = 1000;

@@ -164,6 +164,7 @@ pub(crate) fn parameters(target: &TargetKind) -> ClimbParameters {
             }
         }
         .into(),
+        runtime_guard_radius: u32::try_from(super::dictionary::RADIUS).unwrap_or(u32::MAX),
     }
 }
 
@@ -200,6 +201,8 @@ pub(crate) struct Incumbent {
     reads: Vec<Operand>,
     /// Its pool of run-time literals.
     comparisons: Vec<Compared>,
+    /// The changes already drawn from its pool.
+    tried: std::collections::BTreeSet<super::runtime::Candidate>,
 }
 
 impl Incumbent {
@@ -209,6 +212,7 @@ impl Incumbent {
             values: proposal.values.clone(),
             reads: observation.reads.clone(),
             comparisons: observation.comparisons.clone(),
+            tried: std::collections::BTreeSet::new(),
         })
     }
 }
@@ -625,7 +629,7 @@ impl Proposer for ClimbProposer {
     }
 
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
-        let incumbent = self.incumbent.as_ref()?;
+        let incumbent = self.incumbent.as_mut()?;
         if !incumbent.comparisons.is_empty()
             && self
                 .runtime
@@ -635,6 +639,7 @@ impl Proposer for ClimbProposer {
             if let Some(values) = super::runtime::propose(
                 &incumbent.values,
                 &incumbent.comparisons,
+                &mut incumbent.tried,
                 &mut self.runtime,
                 |hole, value| {
                     let hole = &holes[hole];

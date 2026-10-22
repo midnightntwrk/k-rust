@@ -263,6 +263,8 @@ struct Entry {
     score_only: bool,
     /// Its pool of run-time literals (module documentation, "Run-time literals").
     comparisons: Vec<Compared>,
+    /// The changes already drawn from its pool.
+    tried: BTreeSet<runtime::Candidate>,
 }
 
 /// The corpus's last case, to follow up from its pool of run-time literals.
@@ -379,6 +381,7 @@ impl CorpusProposer {
             values,
             score_only,
             comparisons,
+            tried: BTreeSet::new(),
         });
     }
 
@@ -789,12 +792,23 @@ impl CorpusProposer {
 
     /// A change of `values` from the pool `comparisons` (`runtime::propose`), admissible in the
     /// hole it changes.
-    fn runtime_change(&mut self, values: &[Value], comparisons: &[Compared]) -> Option<Vec<Value>> {
+    fn runtime_change(
+        &mut self,
+        values: &[Value],
+        comparisons: &[Compared],
+        tried: &mut BTreeSet<runtime::Candidate>,
+    ) -> Option<Vec<Value>> {
         let (holes, bounds) = (&self.holes, &self.bounds);
-        runtime::propose(values, comparisons, &mut self.runtime, |hole, value| {
-            let hole = &holes[hole];
-            values::admissible(value, &hole.sort, &hole.constraints, bounds)
-        })
+        runtime::propose(
+            values,
+            comparisons,
+            tried,
+            &mut self.runtime,
+            |hole, value| {
+                let hole = &holes[hole];
+                values::admissible(value, &hole.sort, &hole.constraints, bounds)
+            },
+        )
     }
 
     /// One admissible mutation of hole `hole` from `value`, or `None` when none was drawn in
@@ -836,7 +850,8 @@ impl Proposer for CorpusProposer {
             && self
                 .runtime
                 .random_ratio(FOLLOW_PROBABILITY.0, FOLLOW_PROBABILITY.1)
-            && let Some(values) = self.runtime_change(&follow.values, &follow.comparisons)
+            && let Some(values) =
+                self.runtime_change(&follow.values, &follow.comparisons, &mut BTreeSet::new())
         {
             self.depth = follow.depth + 1;
             return Some(Proposal::plain(
@@ -855,11 +870,17 @@ impl Proposer for CorpusProposer {
                 .runtime
                 .random_ratio(RUNTIME_PROBABILITY.0, RUNTIME_PROBABILITY.1)
         {
-            let (values, comparisons) = {
-                let entry = &self.entries[entry];
-                (entry.values.clone(), entry.comparisons.clone())
+            let (values, comparisons, mut tried) = {
+                let entry = &mut self.entries[entry];
+                (
+                    entry.values.clone(),
+                    entry.comparisons.clone(),
+                    std::mem::take(&mut entry.tried),
+                )
             };
-            if let Some(values) = self.runtime_change(&values, &comparisons) {
+            let change = self.runtime_change(&values, &comparisons, &mut tried);
+            self.entries[entry].tried = tried;
+            if let Some(values) = change {
                 return Some(Proposal::plain(
                     Origin::Scheduled(ProposerKind::Corpus),
                     values,

@@ -1341,6 +1341,8 @@ export interface FuzzClimbParameters {
   'max-comparisons': number
   /** `dictionary-guard-rules` for a rule target, `none` for an observer target. */
   'runtime-condition-rules': string
+  /** The rule-graph radius of `dictionary-guard-rules`. */
+  'runtime-guard-radius': number
 }
 
 /** Probabilities and shares are `[numerator, denominator]`. */

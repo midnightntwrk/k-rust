@@ -110,37 +110,46 @@ pub(crate) struct Compared {
 }
 
 /// The comparisons of the last refuted complete record of each rule of `conditions` that its
-/// guard needed the other way round ([`Compared`]), in the rules' order, each once, at most
-/// `limit` of them.
+/// guard needed the other way round ([`Compared`]), in the rules' order, each once per rule, at
+/// most `limit` per rule. `crate::proposers::runtime::pool` orders and bounds them for a case.
 ///
 /// Only each guard's last refuted entry is read: a run went on after the earlier ones (another
 /// rule took the step, or the next attempt came), so the last is where the guard last stopped
-/// the run, which on a run over a list is the element where it ended.
+/// the run, which on a run over a list is the element where it ended. That holds only when the
+/// rule's records are complete: a rule marked `truncated` (the backend keeps the first entries,
+/// `ConditionCollection::limit`) gives nothing, since its last recorded entry may be any earlier
+/// attempt, whose values belong to an earlier state.
 ///
-/// An atom is taken when it is a comparison over two ground `Int` or two ground `String` values
-/// (the comparisons the distance measures, [`atom`]), its truth is decided, and the truth is the
-/// one that refutes the guard at the atom's polarity: false under an even number of negations,
-/// true under an odd number. A `notBool`, `\not` or `\equals(b, false)` flips the polarity, the
-/// premise of an implication is under a negation, and the operands of `xorBool` and `\iff`,
-/// which a guard needs either way, are not read. `chosen` records, whose operands may be one
-/// model's values of something the definition leaves open, are not read either.
+/// Only atoms below nodes that refuted the guard are read (ARCHITECTURE 6.2): a node is entered
+/// when its decided truth is the refuting one at its polarity (false under an even number of
+/// negations, true under an odd number), so an atom under a disjunction or an implication that
+/// held, or under a node that is undefined or undecided, is not read; neither is any node whose
+/// subtree meets an undefined value, which a guard cannot be brought nearer to by one
+/// comparison. An atom is taken when it is a comparison over two ground `Int` or two ground
+/// `String` values (the comparisons the distance measures, [`atom`]) and its decided truth
+/// refutes. A `notBool`, `\not` or `\equals(b, false)` flips the polarity, the premise of an
+/// implication is under a negation, and the operands of `xorBool` and `\iff`, which a guard
+/// needs either way, are not read. `chosen` records, whose operands may be one model's values of
+/// something the definition leaves open, are not read either.
 pub(crate) fn comparisons(conditions: &[RuleConditionsOutput], limit: usize) -> Vec<Compared> {
     let mut found = Vec::new();
-    for rule in conditions {
+    for rule in conditions.iter().filter(|rule| !rule.truncated) {
         let last = rule
             .records
             .iter()
             .rev()
             .find(|record| record.verdict == Some(VerdictOutput::Refuted) && !record.chosen);
+        let mut own = Vec::new();
         for conjunct in last.into_iter().flat_map(|record| &record.condition) {
-            wrong_atoms(conjunct, true, &rule.rule, limit, &mut found);
+            wrong_atoms(conjunct, true, &rule.rule, limit, &mut own);
         }
+        found.extend(own);
     }
     found
 }
 
 /// Push onto `found` the comparisons below `node` whose truth refutes it at `positive` polarity
-/// ([`comparisons`]), up to `limit`.
+/// ([`comparisons`]), up to `limit`; nothing when `node` itself does not refute.
 fn wrong_atoms(
     node: &ConditionNodeOutput,
     positive: bool,
@@ -149,7 +158,17 @@ fn wrong_atoms(
     found: &mut Vec<Compared>,
 ) {
     use ConnectiveOutput as C;
-    if found.len() >= limit {
+    let refuting = if positive {
+        TruthOutput::False
+    } else {
+        TruthOutput::True
+    };
+    let value = match node {
+        ConditionNodeOutput::Connective { value, .. }
+        | ConditionNodeOutput::Equals { value, .. } => *value,
+        ConditionNodeOutput::Atom(atom) => atom.value,
+    };
+    if found.len() >= limit || value != refuting || self::node(node).1 {
         return;
     }
     match node {
@@ -174,14 +193,6 @@ fn wrong_atoms(
             wrong_atoms(child, positive == *literal, rule, limit, found);
         }
         ConditionNodeOutput::Atom(atom) => {
-            let refuting = if positive {
-                TruthOutput::False
-            } else {
-                TruthOutput::True
-            };
-            if atom.value != refuting {
-                return;
-            }
             let Cond::Compare(comparison, Some((left, right))) = self::atom(atom) else {
                 return;
             };
@@ -876,6 +887,88 @@ mod tests {
             comparisons(&[rule(vec![window])], 64),
             vec![compared(IntGt, 7, 4096)]
         );
+    }
+
+    #[test]
+    fn atoms_below_nodes_that_did_not_refute_the_guard_are_not_read() {
+        let compared = |comparison, left: i64, right: i64| Compared {
+            rule: "r".into(),
+            comparison,
+            left: Operand::Int(left.into()),
+            right: Operand::Int(right.into()),
+        };
+        // `A <=Int 3 andBool (B ==Int 1 orBool C ==Int 2)` at A = 5, B = 1, C = 9: the
+        // disjunction held through B, so `C ==Int 2` did not refute the guard.
+        let disjunction = entry(
+            vec![requires(connective(
+                ConnectiveOutput::AndBool,
+                vec![
+                    atom("INT.le", vec![int(5), int(3)], False),
+                    connective(
+                        ConnectiveOutput::OrBool,
+                        vec![
+                            atom("INT.eq", vec![int(1), int(1)], True),
+                            atom("INT.eq", vec![int(9), int(2)], False),
+                        ],
+                        True,
+                    ),
+                ],
+                False,
+            ))],
+            Some(Refuted),
+        );
+        assert_eq!(
+            comparisons(&[rule(vec![disjunction])], 64),
+            vec![compared(Comparison::IntLe, 5, 3)]
+        );
+        // `A ==Int 4 andBool f(X)` with `f(X)` undefined: the strict conjunction is undefined,
+        // and `A = 4` would leave it so.
+        let undefined = entry(
+            vec![requires(connective(
+                ConnectiveOutput::AndBool,
+                vec![
+                    atom("INT.eq", vec![int(7), int(4)], False),
+                    atom("LblF", vec![int(0)], Undefined),
+                ],
+                Undefined,
+            ))],
+            Some(Refuted),
+        );
+        assert_eq!(comparisons(&[rule(vec![undefined])], 64), Vec::new());
+        // Under the matching-logic negation an undefined operand makes the node true; a
+        // subtree that meets an undefined value gives nothing either way.
+        let ml = entry(
+            vec![
+                connective(
+                    ConnectiveOutput::Not,
+                    vec![requires(atom(
+                        "INT.eq",
+                        vec![int(3), RecordedValueOutput::Undefined],
+                        Undefined,
+                    ))],
+                    True,
+                ),
+                requires(atom("INT.eq", vec![int(1), int(2)], False)),
+            ],
+            Some(Refuted),
+        );
+        assert_eq!(
+            comparisons(&[rule(vec![ml])], 64),
+            vec![compared(Comparison::IntEq, 1, 2)]
+        );
+    }
+
+    #[test]
+    fn a_truncated_rule_gives_no_comparison() {
+        // Its last recorded entry may be any earlier attempt, not where the guard stopped.
+        let refuted = entry(
+            vec![requires(atom("INT.eq", vec![int(1), int(2)], False))],
+            Some(Refuted),
+        );
+        let mut truncated = rule(vec![refuted.clone()]);
+        truncated.truncated = true;
+        assert_eq!(comparisons(&[truncated], 64), Vec::new());
+        assert_eq!(comparisons(&[rule(vec![refuted])], 64).len(), 1);
     }
 
     #[test]

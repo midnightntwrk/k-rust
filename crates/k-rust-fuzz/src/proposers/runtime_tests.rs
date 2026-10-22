@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use rand::SeedableRng as _;
 
 use super::*;
@@ -82,7 +84,10 @@ fn a_compared_value_is_replaced_where_it_occurs_at_any_depth() {
             int(5),
         ]]
     );
-    let proposal = propose(&values, &pool, &mut rng(), |_, _| true).expect("a change");
+    let proposal = propose(&values, &pool, &mut BTreeSet::new(), &mut rng(), |_, _| {
+        true
+    })
+    .expect("a change");
     assert_eq!(
         proposal[0],
         Value::List(vec![tx(0, 100), tx(1, 200), tx(2, 400)])
@@ -91,7 +96,12 @@ fn a_compared_value_is_replaced_where_it_occurs_at_any_depth() {
     // the changes it does not admit.
     let twice = vec![Value::List(vec![tx(7, 1), tx(1, 7)])];
     assert_eq!(changes(&twice, &pool).len(), 2);
-    assert_eq!(propose(&twice, &pool, &mut rng(), |_, _| false), None);
+    assert_eq!(
+        propose(&twice, &pool, &mut BTreeSet::new(), &mut rng(), |_, _| {
+            false
+        }),
+        None
+    );
     // A map's keys and values, and a set's elements, are searched too.
     let map = vec![Value::Map(vec![(int(2), int(7)), (int(7), int(1))])];
     assert_eq!(
@@ -108,7 +118,10 @@ fn a_change_that_merges_set_elements_or_map_keys_is_not_proposed() {
     let pool = [compared(Comparison::IntEq, 1, 2)];
     let set = vec![Value::Set(vec![int(1), int(2)])];
     assert_eq!(changes(&set, &pool), Vec::<Vec<Value>>::new());
-    assert_eq!(propose(&set, &pool, &mut rng(), |_, _| true), None);
+    assert_eq!(
+        propose(&set, &pool, &mut BTreeSet::new(), &mut rng(), |_, _| true),
+        None
+    );
     let keys = vec![Value::Map(vec![(int(1), int(0)), (int(2), int(0))])];
     assert_eq!(changes(&keys, &pool), Vec::<Vec<Value>>::new());
 }
@@ -146,24 +159,87 @@ fn a_pool_without_candidates_draws_nothing() {
         propose(
             &values,
             &[compared(Comparison::IntEq, 5, 6)],
+            &mut BTreeSet::new(),
             &mut drawn,
             |_, _| true
         ),
         None
     );
-    assert_eq!(propose(&values, &[], &mut drawn, |_, _| true), None);
+    assert_eq!(
+        propose(&values, &[], &mut BTreeSet::new(), &mut drawn, |_, _| true),
+        None
+    );
     let mut fresh = rng();
     assert_eq!(drawn.random::<u64>(), fresh.random::<u64>());
 }
 
 #[test]
-fn candidates_are_bounded_and_listed_once() {
+fn candidates_are_listed_once_and_a_common_value_starves_no_comparison() {
     // The same comparison twice gives each candidate once.
     let pool = [
         compared(Comparison::IntEq, 3, 4),
         compared(Comparison::IntEq, 3, 4),
     ];
     assert_eq!(candidates(&[int(3)], &pool).len(), 1);
-    let many = vec![Value::List((0..300).map(|_| int(3)).collect())];
-    assert_eq!(candidates(&many, &pool).len(), MAX_CANDIDATES);
+    // 200 records `tx(0, 1)` and a second hole 7: the comparisons of 0 and 1 have 200
+    // occurrences each, at most `MAX_OCCURRENCES` of them candidates, and the third comparison,
+    // listed last, is still drawn about a third of the time.
+    let values = vec![Value::List((0..200).map(|_| tx(0, 1)).collect()), int(7)];
+    let pool = [
+        compared(Comparison::IntEq, 0, 2),
+        compared(Comparison::IntEq, 1, 5),
+        compared(Comparison::IntEq, 7, 9),
+    ];
+    let listed = candidates(&values, &pool);
+    assert_eq!(listed.len(), 2 * MAX_OCCURRENCES + 1);
+    assert!(listed.iter().any(|candidate| candidate.hole == 1));
+    let mut rng = rng();
+    let third = (0..300)
+        .filter(|_| {
+            propose(&values, &pool, &mut BTreeSet::new(), &mut rng, |_, _| true)
+                .is_some_and(|values| values[1] == int(9))
+        })
+        .count();
+    assert!((60..=140).contains(&third), "{third}");
+}
+
+#[test]
+fn a_pool_proposes_each_change_once() {
+    let values = vec![int(3), int(3)];
+    let pool = [compared(Comparison::IntEq, 3, 4)];
+    let mut tried = BTreeSet::new();
+    let mut rng = rng();
+    let first = propose(&values, &pool, &mut tried, &mut rng, |_, _| true).expect("a change");
+    let second = propose(&values, &pool, &mut tried, &mut rng, |_, _| true).expect("a change");
+    assert_ne!(first, second);
+    assert_eq!(
+        propose(&values, &pool, &mut tried, &mut rng, |_, _| true),
+        None
+    );
+}
+
+#[test]
+fn the_pool_puts_the_target_s_comparisons_first_and_each_once() {
+    let at = |rule: &str, left: i64| Compared {
+        rule: rule.into(),
+        ..compared(Comparison::IntEq, left, 0)
+    };
+    let rank = BTreeMap::from([("target".to_owned(), 0), ("near".to_owned(), 1)]);
+    let mut many: Vec<Compared> = (0..i64::try_from(MAX_COMPARISONS).expect("small"))
+        .map(|left| at("a-far", left))
+        .collect();
+    many.push(at("near", 1_000));
+    many.push(at("target", 2_000));
+    many.push(at("target", 5));
+    let pool = pool(&many, &rank);
+    assert_eq!(pool.len(), MAX_COMPARISONS);
+    assert_eq!(pool[0], at("target", 2_000));
+    // `target`'s comparison of 5 with 0 is first; the unranked rule's same comparison is gone.
+    assert_eq!(pool[1], at("target", 5));
+    assert_eq!(pool[2], at("near", 1_000));
+    assert!(
+        !pool[3..]
+            .iter()
+            .any(|compared| compared.left == Operand::Int(5.into()))
+    );
 }

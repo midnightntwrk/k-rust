@@ -440,6 +440,9 @@ pub struct ClimbParameters {
     /// (`CorpusParameters::runtime_condition_rules`): `dictionary-guard-rules` for a rule
     /// target, `none` for an observer target.
     pub runtime_condition_rules: String,
+    /// The rule-graph radius of `dictionary-guard-rules`: the rules at most this many edges
+    /// before the target (and their higher-priority competitors) are recorded for the pools.
+    pub runtime_guard_radius: u32,
 }
 
 impl ClimbParameters {

@@ -13,11 +13,13 @@
 //! # The pool
 //!
 //! The pool of a case is its comparisons ([`Compared`], `crate::score::records::comparisons`):
-//! every comparison atom of a refuted record of a recorded rule whose decided truth refuted the
-//! guard (false where the guard needed it true, true under a negation), with its two ground
-//! `Int` or `String` operands, keyed by the rule whose guard it is, each once, the first
-//! [`MAX_COMPARISONS`] in the run's order. Only refuted records are read: an atom of a guard
-//! that held needs no other value.
+//! for each recorded rule whose records are complete, the comparison atoms of its last refuted
+//! entry that lie below nodes that refuted the guard and whose own decided truth refuted it
+//! (false where the guard needed it true, true under a negation), with their two ground `Int`
+//! or `String` operands, keyed by the rule whose guard it is. [`pool`] orders them by the rule's
+//! rule-graph distance to the target, so that the target's own comparisons come first, keeps
+//! each comparison of the same operands once and at most [`MAX_COMPARISONS`]. Only refuted
+//! records are read: an atom of a guard that held needs no other value.
 //!
 //! The pool belongs to the case that produced it, not to the campaign. Its values are relative
 //! to that case's state (the balance after this case's transactions), so they are proposed only
@@ -37,12 +39,17 @@
 //! other operand, never by the operand itself. A `String` equality takes the other string; a
 //! `String` disequality proposes nothing.
 //!
-//! A change is one candidate drawn uniformly: one position of one hole takes the value. A set
-//! stays sorted and distinct and a map's keys distinct (a change that would merge two is not
-//! proposed), and the proposer checks the hole's sort, constraints and size rules
-//! (`values::admissible`) and draws again, up to [`MAX_ATTEMPTS`] times. An occurrence that is
-//! equal by coincidence (a `0` elsewhere in the case) gives a wrong change, which costs one case
-//! and is judged like any other.
+//! A change is drawn by comparison, then side, then occurrence, each uniformly: one position of
+//! one hole takes the value. Drawing by comparison first, with at most [`MAX_OCCURRENCES`]
+//! occurrences per side, keeps a value that is common in the case (a `0` in a list of records)
+//! from crowding out the other comparisons. A set stays sorted and distinct and a map's keys
+//! distinct (a change that would merge two is not proposed), and the proposer checks the hole's
+//! sort, constraints and size rules (`values::admissible`) and draws again, up to
+//! [`MAX_ATTEMPTS`] times. Each case's pool remembers the candidates it has drawn, so a change
+//! that was proposed (or refused) is not proposed again from the same case; when none is left
+//! the proposer makes its ordinary move or mutation. An occurrence that is equal by coincidence
+//! (a `0` elsewhere in the case) gives a wrong change, which costs one case and is judged like
+//! any other.
 //!
 //! # Who draws
 //!
@@ -52,6 +59,8 @@
 //! Every choice is drawn from a `ChaCha20` stream of the drawing proposer's own (`climb-runtime`,
 //! `corpus-runtime`), drawn from only when a pool is not empty, so a campaign whose cases record
 //! no conditions proposes exactly the cases it proposed before.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use num_bigint::BigInt;
 use rand::Rng as _;
@@ -65,15 +74,17 @@ use crate::{
 /// The most comparisons the pool of one case holds.
 pub(crate) const MAX_COMPARISONS: usize = 64;
 
-/// The most candidate changes of one case that are enumerated.
-pub(crate) const MAX_CANDIDATES: usize = 256;
+/// The most occurrences of one side of one comparison that are candidates: a value common in
+/// the case (a `0` in a list of records) cannot crowd out the other comparisons, which are
+/// drawn first ([`propose`]).
+pub(crate) const MAX_OCCURRENCES: usize = 64;
 
 /// The most candidates drawn for one proposal before it is given up.
 pub(crate) const MAX_ATTEMPTS: usize = 16;
 
 /// One candidate change: occurrence `occurrence` (in [`occurrences`]'s order) of `from` in hole
 /// `hole`'s value takes `to`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct Candidate {
     pub(crate) hole: usize,
     pub(crate) from: Value,
@@ -88,52 +99,121 @@ enum Side {
     Right,
 }
 
-/// The candidate changes of a case with `values` and the pool `comparisons`, in order: for each
-/// comparison, each side, each hole, each occurrence; at most [`MAX_CANDIDATES`], each once.
+/// The pool of a case from the comparisons its recorded guards gave
+/// (`crate::score::records::comparisons`): ordered by the rank of their rule (`rank`, the
+/// rule-graph distance to the target, so the target's own comparisons come first; an unranked
+/// rule last), then by rule id, each comparison of the same operands once (the first, nearest
+/// the target), at most [`MAX_COMPARISONS`].
+pub(crate) fn pool(comparisons: &[Compared], rank: &BTreeMap<String, u64>) -> Vec<Compared> {
+    let mut ordered: Vec<&Compared> = comparisons.iter().collect();
+    ordered.sort_by_key(|compared| {
+        (
+            rank.get(&compared.rule).copied().unwrap_or(u64::MAX),
+            compared.rule.as_str(),
+        )
+    });
+    let mut pool: Vec<Compared> = Vec::new();
+    for compared in ordered {
+        if pool.len() >= MAX_COMPARISONS {
+            break;
+        }
+        let same = |other: &Compared| {
+            other.comparison == compared.comparison
+                && other.left == compared.left
+                && other.right == compared.right
+        };
+        if !pool.iter().any(same) {
+            pool.push(compared.clone());
+        }
+    }
+    pool
+}
+
+/// The candidate changes of a case with `values` from the pool `comparisons`, grouped by
+/// comparison, then side: per side, every occurrence of its value in every hole, at most
+/// [`MAX_OCCURRENCES`], without those in `tried`.
+fn groups(
+    values: &[Value],
+    comparisons: &[Compared],
+    tried: &BTreeSet<Candidate>,
+) -> Vec<Vec<Vec<Candidate>>> {
+    comparisons
+        .iter()
+        .map(|compared| {
+            [Side::Left, Side::Right]
+                .into_iter()
+                .filter_map(|side| satisfying(compared, side))
+                .map(|(from, to)| {
+                    let mut found = Vec::new();
+                    'holes: for (hole, value) in values.iter().enumerate() {
+                        for occurrence in 0..occurrences(value, &from) {
+                            if found.len() >= MAX_OCCURRENCES {
+                                break 'holes;
+                            }
+                            let candidate = Candidate {
+                                hole,
+                                from: from.clone(),
+                                occurrence,
+                                to: to.clone(),
+                            };
+                            if !tried.contains(&candidate) {
+                                found.push(candidate);
+                            }
+                        }
+                    }
+                    found
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Every candidate change of a case with `values` from the pool `comparisons`, in the order of
+/// [`groups`], each once.
+#[cfg(test)]
 pub(crate) fn candidates(values: &[Value], comparisons: &[Compared]) -> Vec<Candidate> {
     let mut found: Vec<Candidate> = Vec::new();
-    for compared in comparisons {
-        for side in [Side::Left, Side::Right] {
-            let Some((from, to)) = satisfying(compared, side) else {
-                continue;
-            };
-            for (hole, value) in values.iter().enumerate() {
-                for occurrence in 0..occurrences(value, &from) {
-                    if found.len() >= MAX_CANDIDATES {
-                        return found;
-                    }
-                    let candidate = Candidate {
-                        hole,
-                        from: from.clone(),
-                        occurrence,
-                        to: to.clone(),
-                    };
-                    if !found.contains(&candidate) {
-                        found.push(candidate);
-                    }
-                }
-            }
+    for candidate in groups(values, comparisons, &BTreeSet::new())
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if !found.contains(&candidate) {
+            found.push(candidate);
         }
     }
     found
 }
 
-/// A change of `values` drawn from the pool `comparisons`: candidates drawn uniformly without
-/// replacement until one gives a value that `admits` (hole index, new value) and differs from
-/// the hole's value, up to [`MAX_ATTEMPTS`]; `None` when none does. Draws from `rng` only when
-/// there is a candidate.
+/// A change of `values` drawn from the pool `comparisons`, skipping the candidates in `tried`:
+/// a comparison drawn uniformly among those with a candidate left, then one of its sides, then
+/// one occurrence, without replacement, until one gives a value that `admits` (hole index, new
+/// value) and differs from the hole's value, up to [`MAX_ATTEMPTS`]; `None` when none does.
+/// Every candidate drawn joins `tried`, so a case's pool does not propose the same change twice.
+/// Draws from `rng` only when there is a candidate.
 pub(crate) fn propose(
     values: &[Value],
     comparisons: &[Compared],
+    tried: &mut BTreeSet<Candidate>,
     rng: &mut ChaCha20Rng,
     mut admits: impl FnMut(usize, &Value) -> bool,
 ) -> Option<Vec<Value>> {
-    let mut candidates = candidates(values, comparisons);
+    let mut groups = groups(values, comparisons, tried);
     for _ in 0..MAX_ATTEMPTS {
-        if candidates.is_empty() {
+        for sides in &mut groups {
+            sides.retain(|occurrences| !occurrences.is_empty());
+        }
+        groups.retain(|sides| !sides.is_empty());
+        if groups.is_empty() {
             return None;
         }
-        let candidate = candidates.swap_remove(rng.random_range(0..candidates.len()));
+        let index = rng.random_range(0..groups.len());
+        let sides = &mut groups[index];
+        let index = rng.random_range(0..sides.len());
+        let occurrences = &mut sides[index];
+        let index = rng.random_range(0..occurrences.len());
+        let candidate = occurrences.swap_remove(index);
+        tried.insert(candidate.clone());
         let mut seen = 0;
         let Some(changed) = replace(
             &values[candidate.hole],
