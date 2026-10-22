@@ -7,7 +7,7 @@ use krs_ir::LineIndex;
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind};
 use proc_macro2::{Span, TokenStream, TokenTree};
 
-use crate::rules::{self, TrailingCommentStyle};
+use crate::rules::{self, BodyLayout};
 use crate::{Edition, FormatError, FormatErrorKind};
 
 pub(crate) struct ElidedSource {
@@ -114,7 +114,7 @@ pub(crate) fn elide_rule_bodies(
 pub(crate) fn splice_rule_bodies(
     source: &str,
     bodies: &[RuleBody],
-    trailing_comments: TrailingCommentStyle,
+    layout: BodyLayout,
     facade: &FacadeScope,
 ) -> Result<String, FormatError> {
     let ranges = find_rule_bodies(source, facade)?;
@@ -155,12 +155,7 @@ pub(crate) fn splice_rule_bodies(
             FunctionMacro::Claims => rules::format_claim_body,
             _ => rules::format_rule_body,
         };
-        let formatted = format(
-            &body.source,
-            body.source_start,
-            &body_indent,
-            trailing_comments,
-        )?;
+        let formatted = format(&body.source, body.source_start, &body_indent, layout)?;
         replacements.push(format!("\n{formatted}\n{base_indent}"));
     }
     let mut output = source.to_owned();
@@ -178,8 +173,54 @@ fn line_indent(source: &str, offset: usize) -> String {
         .collect()
 }
 
+/// Rustfmt's `max_width` when no configuration sets it.
+pub(crate) const DEFAULT_MAX_WIDTH: usize = 100;
+
+fn command() -> Command {
+    Command::new(std::env::var_os("RUSTFMT").unwrap_or_else(|| "rustfmt".into()))
+}
+
+/// The `max_width` of the Rustfmt configuration that applies in `directory`.
+pub(crate) fn max_width(directory: &Path) -> Result<usize, FormatError> {
+    // Rustfmt resolves the configuration of a file path from the file's
+    // directory; the file need not exist.
+    let output = command()
+        .args(["--print-config", "current", "krs-fmt-config-probe.rs"])
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| {
+            FormatError::new(
+                FormatErrorKind::Rustfmt,
+                format!("cannot start Rustfmt: {error}"),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(FormatError::new(
+            FormatErrorKind::Rustfmt,
+            format!(
+                "Rustfmt cannot resolve its configuration: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        ));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == "max_width").then(|| value.trim().parse().ok())?
+        })
+        .ok_or_else(|| {
+            FormatError::new(
+                FormatErrorKind::Rustfmt,
+                "Rustfmt's configuration has no `max_width`",
+            )
+        })
+}
+
 pub(crate) fn run(source: &str, edition: Edition, directory: &Path) -> Result<String, FormatError> {
-    let mut command = Command::new(std::env::var_os("RUSTFMT").unwrap_or_else(|| "rustfmt".into()));
+    let mut command = command();
     command
         .arg("--edition")
         .arg(edition.to_string())

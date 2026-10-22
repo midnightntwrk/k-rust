@@ -1,10 +1,10 @@
-use std::iter::FromIterator;
 use std::str::FromStr;
 
 use krs_syntax::{RuleBlock, RuleClauseLayout, SourceRange, TokenRange, TriviaKind, TriviaTable};
-use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use unicode_width::UnicodeWidthStr;
 
+use crate::layout::{self, Comments, Component, Context, Doc, INDENT};
 use crate::{FormatError, FormatErrorKind};
 
 /// Canonical placement policy for comments trailing rule clauses.
@@ -14,6 +14,14 @@ pub enum TrailingCommentStyle {
     AlignedColumn,
     /// Put every trailing comment two spaces after its clause terminator.
     FixedGutter,
+}
+
+/// How a macro body is laid out: its trailing comments and its line width.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BodyLayout {
+    pub(crate) trailing_comments: TrailingCommentStyle,
+    /// The maximum line width, indentation included.
+    pub(crate) max_width: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -38,12 +46,32 @@ struct ClauseSource {
     machine: bool,
 }
 
+/// One table row: its one-line components when it has no comment that
+/// forces a break, and its layout when it does not fit on one line.
 #[derive(Clone, Debug)]
 struct TableRow {
     label: String,
+    flat: Option<FlatRow>,
+    lines: Doc,
+}
+
+#[derive(Clone, Debug)]
+struct FlatRow {
     pattern: String,
     result: String,
     conditions: Option<String>,
+}
+
+impl TableRow {
+    fn unaligned(&self, flat: &FlatRow) -> String {
+        let mut line = format!("{}: {} => {}", self.label, flat.pattern, flat.result);
+        if let Some(conditions) = &flat.conditions {
+            line.push_str(" where ");
+            line.push_str(conditions);
+        }
+        line.push(';');
+        line
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -71,19 +99,12 @@ pub(crate) fn format_rule_body(
     source: &str,
     source_offset: usize,
     indent: &str,
-    trailing_style: TrailingCommentStyle,
+    layout: BodyLayout,
 ) -> Result<String, FormatError> {
     let (block, trivia) = krs_syntax::parse_rule_block_source_with_trivia(source)
         .map_err(|error| body_syntax_error("k::rules!", source_offset, &error))?;
     let clauses = clause_sources(&block)?;
-    format_clauses(
-        source,
-        indent,
-        trailing_style,
-        &trivia,
-        &clauses,
-        "k::rules!",
-    )
+    format_clauses(source, indent, layout, &trivia, &clauses, "k::rules!")
 }
 
 /// Formats one complete `claims!` body at its Rustfmt-selected indentation,
@@ -92,19 +113,12 @@ pub(crate) fn format_claim_body(
     source: &str,
     source_offset: usize,
     indent: &str,
-    trailing_style: TrailingCommentStyle,
+    layout: BodyLayout,
 ) -> Result<String, FormatError> {
     let (block, trivia) = krs_syntax::parse_claim_block_source_with_trivia(source)
         .map_err(|error| body_syntax_error("k::claims!", source_offset, &error))?;
     let clauses = clause_sources(block.block())?;
-    format_clauses(
-        source,
-        indent,
-        trailing_style,
-        &trivia,
-        &clauses,
-        "k::claims!",
-    )
+    format_clauses(source, indent, layout, &trivia, &clauses, "k::claims!")
 }
 
 /// Formats one complete `equations!` body at its Rustfmt-selected
@@ -114,7 +128,7 @@ pub(crate) fn format_equation_body(
     source: &str,
     source_offset: usize,
     indent: &str,
-    trailing_style: TrailingCommentStyle,
+    layout: BodyLayout,
 ) -> Result<String, FormatError> {
     let (table, trivia) = krs_syntax::parse_equation_table_source_with_trivia(source)
         .map_err(|error| body_syntax_error("k::equations!", source_offset, &error))?;
@@ -133,14 +147,7 @@ pub(crate) fn format_equation_body(
             }
         })
         .collect::<Vec<_>>();
-    format_clauses(
-        source,
-        indent,
-        trailing_style,
-        &trivia,
-        &clauses,
-        "k::equations!",
-    )
+    format_clauses(source, indent, layout, &trivia, &clauses, "k::equations!")
 }
 
 fn body_syntax_error(
@@ -161,14 +168,23 @@ fn body_syntax_error(
     )
 }
 
+/// The display width of an indentation, a tab counting as one level.
+fn indent_width(indent: &str) -> usize {
+    indent
+        .chars()
+        .map(|character| if character == '\t' { INDENT } else { 1 })
+        .sum()
+}
+
 fn format_clauses(
     source: &str,
     indent: &str,
-    trailing_style: TrailingCommentStyle,
+    body_layout: BodyLayout,
     trivia: &TriviaTable,
     clauses: &[ClauseSource],
     macro_name: &str,
 ) -> Result<String, FormatError> {
+    let width = body_layout.max_width.saturating_sub(indent_width(indent));
     let comments = line_comments(trivia);
     let first_clause = clauses.first().ok_or_else(|| {
         FormatError::new(
@@ -195,7 +211,7 @@ fn format_clauses(
         .filter_map(|comment| comment.text(source))
         .map(|comment| comment.trim_start().to_owned())
         .collect::<Vec<_>>();
-    header_lines.extend(render_header(&source[..header_end])?);
+    header_lines.extend(render_header(&source[..header_end], width)?);
     let mut rendered: Vec<RenderedClause> = Vec::with_capacity(clauses.len());
     for (index, clause_source) in clauses.iter().enumerate() {
         let previous_end = if index == 0 {
@@ -216,17 +232,21 @@ fn format_clauses(
             rendered[index - 1].trailing = Some(comment);
         }
 
+        let parts = clause_parts(source, clause_source.layout)?;
+        let (moved, keep_in_place) = moved_comments(source, clause_source, &parts, &comments);
         let mut leading = gap.leading;
-        leading.extend(
-            comments
-                .iter()
-                .filter(|comment| {
-                    comment.start() >= clause_source.start && comment.end() <= clause_source.end
-                })
-                .filter_map(|comment| comment.text(source))
-                .map(|comment| GapEvent::Comment(comment.to_owned())),
-        );
-        let (attributes, body) = render_clause(source, clause_source, &comments)?;
+        leading.extend(moved);
+        let attributes = render_attributes(source, clause_source, &comments, width);
+        let in_place = if keep_in_place {
+            Comments::new(source, &comments)
+        } else {
+            Comments::none()
+        };
+        let body = if clause_source.machine {
+            ClauseBody::Lines(layout::print(&machine_clause(&parts, in_place)?, width))
+        } else {
+            ClauseBody::Row(table_row(&parts, in_place))
+        };
         rendered.push(RenderedClause {
             leading,
             attributes,
@@ -243,27 +263,35 @@ fn format_clauses(
             .expect("the parser guarantees one clause")
             .trailing = Some(comment);
     }
-    let mut rendered = align_single_clauses(rendered);
-    align_trailing_comments(&mut rendered, trailing_style);
+    let mut rendered = align_single_clauses(rendered, width);
+    align_trailing_comments(&mut rendered, body_layout.trailing_comments);
 
-    let mut lines = header_lines;
-    for clause in rendered {
-        for event in clause.leading {
+    Ok(join_lines(header_lines, rendered, footer.leading, indent))
+}
+
+/// The body's lines at `indent`: the header, then each clause after the
+/// blank lines and comments before it, then those after the last.
+fn join_lines(
+    header: Vec<String>,
+    clauses: Vec<AlignedClause>,
+    footer: Vec<GapEvent>,
+    indent: &str,
+) -> String {
+    let gap = |lines: &mut Vec<String>, events: Vec<GapEvent>| {
+        for event in events {
             match event {
                 GapEvent::Blank => lines.push(String::new()),
                 GapEvent::Comment(comment) => lines.push(comment.trim_start().to_owned()),
             }
         }
+    };
+    let mut lines = header;
+    for clause in clauses {
+        gap(&mut lines, clause.leading);
         lines.extend(clause.lines);
     }
-    for event in footer.leading {
-        match event {
-            GapEvent::Blank => lines.push(String::new()),
-            GapEvent::Comment(comment) => lines.push(comment.trim_start().to_owned()),
-        }
-    }
-
-    Ok(lines
+    gap(&mut lines, footer);
+    lines
         .into_iter()
         .map(|line| {
             if line.is_empty() {
@@ -273,7 +301,43 @@ fn format_clauses(
             }
         })
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n")
+}
+
+/// The comments of a clause that move before it, and whether the others
+/// keep their place. A comment inside a delimited group keeps its place
+/// there; any other comment of the clause moves before it. When one of
+/// those follows a comment kept in place, every comment of the clause moves,
+/// so none is reordered.
+fn moved_comments(
+    source: &str,
+    clause_source: &ClauseSource,
+    parts: &ClauseParts,
+    comments: &[SourceRange],
+) -> (Vec<GapEvent>, bool) {
+    let interiors = parts.group_interiors();
+    let clause_comments = comments
+        .iter()
+        .filter(|comment| {
+            comment.start() >= clause_source.start && comment.end() <= clause_source.end
+        })
+        .collect::<Vec<_>>();
+    let kept = |comment: &SourceRange| {
+        interiors
+            .iter()
+            .any(|&(start, end)| start <= comment.start() && comment.end() <= end)
+    };
+    let keep_in_place = clause_comments
+        .iter()
+        .position(|comment| kept(comment))
+        .is_none_or(|first| clause_comments[first..].iter().all(|comment| kept(comment)));
+    let moved = clause_comments
+        .iter()
+        .filter(|comment| !keep_in_place || !kept(comment))
+        .filter_map(|comment| comment.text(source))
+        .map(|comment| GapEvent::Comment(comment.to_owned()))
+        .collect();
+    (moved, keep_in_place)
 }
 
 fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource>, FormatError> {
@@ -311,7 +375,7 @@ fn line_comments(trivia: &TriviaTable) -> Vec<SourceRange> {
         .collect()
 }
 
-fn render_header(source: &str) -> Result<Vec<String>, FormatError> {
+fn render_header(source: &str, width: usize) -> Result<Vec<String>, FormatError> {
     let stream = TokenStream::from_str(source).map_err(|error| {
         FormatError::new(
             FormatErrorKind::DslSyntax,
@@ -324,8 +388,14 @@ fn render_header(source: &str) -> Result<Vec<String>, FormatError> {
         let is_semicolon = matches!(&token, TokenTree::Punct(punct) if punct.as_char() == ';');
         current.push(token);
         if is_semicolon {
-            statements.push(render_tokens(&current));
-            current.clear();
+            let statement = Component {
+                tokens: std::mem::take(&mut current),
+                offset: 0,
+            };
+            statements.extend(layout::print(
+                &layout::sequence(&statement, Context::Expression, Comments::none()),
+                width,
+            ));
         }
     }
     if !current.is_empty() {
@@ -337,52 +407,73 @@ fn render_header(source: &str) -> Result<Vec<String>, FormatError> {
     Ok(statements)
 }
 
-fn render_clause(
+/// A clause's attributes as written, their continuation lines keeping
+/// their indentation relative to the clause, so a multi-line `requires`
+/// keeps its layout at the table's indentation. A one-line attribute too
+/// long for the width breaks inside its arguments.
+fn render_attributes(
     source: &str,
     clause_source: &ClauseSource,
     comments: &[SourceRange],
-) -> Result<(Vec<String>, ClauseBody), FormatError> {
+    width: usize,
+) -> Vec<String> {
     let attributes = source_without_comments(
         source,
         clause_source.start,
         clause_source.name_start,
         comments,
     );
-    // An attribute is kept as written: its continuation lines keep their
-    // indentation relative to the clause, so a multi-line `requires` keeps
-    // its layout at the table's indentation.
     let line_start = source[..clause_source.start]
         .rfind('\n')
         .map_or(0, |newline| newline + 1);
     let column = clause_source.start - line_start;
-    let attribute_lines = attributes
+    let lines = attributes
         .lines()
         .map(|line| strip_indentation(line, column).trim_end())
         .filter(|line| !line.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-    let layout = clause_source.layout;
-    let parts = ClauseParts {
-        label: clause_tokens(source, layout.label)?,
-        pattern: clause_tokens(source, layout.pattern)?,
-        result: clause_tokens(source, layout.result)?,
-        conditions: layout
-            .conditions
-            .map(|range| clause_tokens(source, range))
-            .transpose()?,
-    };
-    let body = if clause_source.machine {
-        ClauseBody::Lines(render_machine_clause(&parts)?)
-    } else {
-        ClauseBody::Row(render_single_clause(&parts))
-    };
-    Ok((attribute_lines, body))
+    lines
+        .into_iter()
+        .flat_map(|line| wrapped_attribute(&line, width).unwrap_or_else(|| vec![line]))
+        .collect()
 }
 
-fn clause_tokens(source: &str, range: TokenRange) -> Result<Vec<TokenTree>, FormatError> {
+/// An attribute line `#[path(arguments)]` laid out in `width` columns, when
+/// it is one attribute too long for them.
+fn wrapped_attribute(line: &str, width: usize) -> Option<Vec<String>> {
+    if line.width() <= width || !line.starts_with("#[") {
+        return None;
+    }
+    let tokens = TokenStream::from_str(line)
+        .ok()?
+        .into_iter()
+        .collect::<Vec<_>>();
+    let [TokenTree::Punct(hash), TokenTree::Group(group)] = tokens.as_slice() else {
+        return None;
+    };
+    if hash.as_char() != '#' || group.delimiter() != Delimiter::Bracket {
+        return None;
+    }
+    let inner = Component {
+        tokens: group.stream().into_iter().collect(),
+        offset: 0,
+    };
+    let doc = Doc::Concat(vec![
+        Doc::text("#["),
+        layout::sequence(&inner, Context::Expression, Comments::none()),
+        Doc::text("]"),
+    ]);
+    Some(layout::print(&doc, width))
+}
+
+fn clause_tokens(source: &str, range: TokenRange) -> Result<Component, FormatError> {
     let bytes = range.first().byte_range().start..range.last().byte_range().end;
-    TokenStream::from_str(&source[bytes])
-        .map(|stream| stream.into_iter().collect())
+    TokenStream::from_str(&source[bytes.clone()])
+        .map(|stream| Component {
+            tokens: stream.into_iter().collect(),
+            offset: bytes.start,
+        })
         .map_err(|error| {
             FormatError::new(
                 FormatErrorKind::DslSyntax,
@@ -392,102 +483,167 @@ fn clause_tokens(source: &str, range: TokenRange) -> Result<Vec<TokenTree>, Form
 }
 
 struct ClauseParts {
-    label: Vec<TokenTree>,
-    pattern: Vec<TokenTree>,
-    result: Vec<TokenTree>,
-    conditions: Option<Vec<TokenTree>>,
+    label: Component,
+    pattern: Component,
+    result: Component,
+    conditions: Option<Component>,
 }
 
-fn render_single_clause(parts: &ClauseParts) -> TableRow {
-    TableRow {
-        label: render_tokens(&parts.label),
-        pattern: render_tokens(&parts.pattern),
-        result: render_tokens(&parts.result),
-        conditions: parts
+impl ClauseParts {
+    fn group_interiors(&self) -> Vec<(usize, usize)> {
+        [&self.pattern, &self.result]
+            .into_iter()
+            .chain(&self.conditions)
+            .flat_map(Component::group_interiors)
+            .collect()
+    }
+}
+
+fn clause_parts(source: &str, layout: RuleClauseLayout) -> Result<ClauseParts, FormatError> {
+    Ok(ClauseParts {
+        label: clause_tokens(source, layout.label)?,
+        pattern: clause_tokens(source, layout.pattern)?,
+        result: clause_tokens(source, layout.result)?,
+        conditions: layout
             .conditions
-            .as_ref()
-            .map(|tokens| render_tokens(tokens)),
-    }
+            .map(|range| clause_tokens(source, range))
+            .transpose()?,
+    })
 }
 
-fn render_machine_clause(parts: &ClauseParts) -> Result<Vec<String>, FormatError> {
-    let pattern = record_fields(&parts.pattern, "machine subject")?;
-    let result = record_fields(&parts.result, "machine result")?;
-    let mut lines = vec![format!("{}: {{", render_tokens(&parts.label))];
-    lines.extend(pattern.into_iter().map(|field| format!("    {field}")));
-    lines.push("} => {".to_owned());
-    lines.extend(result.into_iter().map(|field| format!("    {field}")));
-    lines.push("}".to_owned());
+/// `where` and its list, flat after a space or one binder per line.
+fn conditions_doc(conditions: &Component, comments: Comments<'_>) -> Doc {
+    Doc::Concat(vec![
+        Doc::text("where"),
+        layout::list(conditions, Context::Expression, comments),
+    ])
+}
+
+fn table_row(parts: &ClauseParts, comments: Comments<'_>) -> TableRow {
+    let label = layout::render(&parts.label.tokens);
+    let pattern = layout::sequence(&parts.pattern, Context::Pattern, comments);
+    let result = layout::sequence(&parts.result, Context::Expression, comments);
+    let conditions = parts
+        .conditions
+        .as_ref()
+        .map(|conditions| layout::list(conditions, Context::Expression, comments));
+    let flat = (|| {
+        Some(FlatRow {
+            pattern: layout::flat(&pattern)?,
+            result: layout::flat(&result)?,
+            conditions: match &conditions {
+                Some(conditions) => Some(layout::flat(conditions)?.trim_start().to_owned()),
+                None => None,
+            },
+        })
+    })();
+    // A row too long for the table: the label on its own line, then the
+    // pattern and result indented, `where` on a line of its own.
+    let mut body = vec![Doc::Hard, pattern, Doc::Arm(Box::new(result))];
     if let Some(conditions) = &parts.conditions {
-        lines.push(format!("where {};", render_tokens(conditions)));
-    } else if let Some(last) = lines.last_mut() {
-        last.push(';');
+        body.push(Doc::Hard);
+        body.push(conditions_doc(conditions, comments));
     }
-    Ok(lines)
+    let lines = Doc::Concat(vec![
+        Doc::text(format!("{label}:")),
+        Doc::nest(INDENT, Doc::Concat(body)),
+        Doc::text(";"),
+    ]);
+    TableRow { label, flat, lines }
 }
 
-fn record_fields(tokens: &[TokenTree], context: &str) -> Result<Vec<String>, FormatError> {
-    let [TokenTree::Group(group)] = tokens else {
-        return Err(FormatError::new(
-            FormatErrorKind::DslSyntax,
-            format!("a {context} must be a brace-delimited cell record"),
-        ));
+/// A cell-record clause: each record one cell per line, `where` on a line
+/// of its own.
+fn machine_clause(parts: &ClauseParts, comments: Comments<'_>) -> Result<Doc, FormatError> {
+    let record = |component: &Component, context, what: &str| {
+        layout::delimited(component, context, comments, true)
+            .filter(|_| {
+                matches!(component.tokens.as_slice(), [TokenTree::Group(group)] if group.delimiter() == Delimiter::Brace)
+            })
+            .ok_or_else(|| {
+                FormatError::new(
+                    FormatErrorKind::DslSyntax,
+                    format!("a machine {what} must be a brace-delimited cell record"),
+                )
+            })
     };
-    if group.delimiter() != Delimiter::Brace {
-        return Err(FormatError::new(
-            FormatErrorKind::DslSyntax,
-            format!("a {context} must use braces"),
-        ));
+    let mut docs = vec![
+        Doc::text(format!("{}: ", layout::render(&parts.label.tokens))),
+        record(&parts.pattern, Context::Pattern, "subject")?,
+        Doc::text(" => "),
+        record(&parts.result, Context::Expression, "result")?,
+    ];
+    if let Some(conditions) = &parts.conditions {
+        docs.push(Doc::Hard);
+        docs.push(conditions_doc(conditions, comments));
     }
-    let mut fields = Vec::new();
-    let mut current = Vec::new();
-    for token in group.stream() {
-        let comma = matches!(&token, TokenTree::Punct(punct) if punct.as_char() == ',');
-        current.push(token);
-        if comma {
-            fields.push(render_tokens(&current));
-            current.clear();
-        }
-    }
-    if !current.is_empty() {
-        fields.push(render_tokens(&current));
-    }
-    Ok(fields)
+    docs.push(Doc::text(";"));
+    Ok(Doc::Concat(docs))
 }
 
-fn align_single_clauses(clauses: Vec<RenderedClause>) -> Vec<AlignedClause> {
-    let mut label_width = 0;
-    let mut pattern_width = 0;
-    let mut result_width = 0;
-    for clause in &clauses {
-        if let ClauseBody::Row(row) = &clause.body {
-            label_width = label_width.max(row.label.width());
-            pattern_width = pattern_width.max(row.pattern.width());
-            result_width = result_width.max(row.result.width());
+/// Lays out a table's rows. A row that fits on one line joins the table's
+/// alignment, unless aligning it would push it, or another row, past the
+/// width: then the row whose removal narrows the columns most is set
+/// unaligned on its own line, until every aligned row fits. A row that does
+/// not fit on one line is laid out on its own and widens no column.
+fn align_single_clauses(clauses: Vec<RenderedClause>, width: usize) -> Vec<AlignedClause> {
+    let rows = clauses
+        .iter()
+        .map(|clause| match &clause.body {
+            ClauseBody::Row(row) => row
+                .flat
+                .as_ref()
+                .filter(|flat| row.unaligned(flat).width() <= width)
+                .map(|flat| (row.label.width(), flat.clone())),
+            ClauseBody::Lines(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let mut aligned = rows.iter().map(Option::is_some).collect::<Vec<_>>();
+    let columns = |aligned: &[bool], skip: Option<usize>| {
+        let mut widths = Columns::default();
+        for (index, row) in rows.iter().enumerate() {
+            if let Some((label, flat)) = row
+                && aligned[index]
+                && skip != Some(index)
+            {
+                widths.label = widths.label.max(*label);
+                widths.pattern = widths.pattern.max(flat.pattern.width());
+                widths.result = widths.result.max(flat.result.width());
+            }
         }
+        widths
+    };
+    loop {
+        let widths = columns(&aligned, None);
+        let overflows = rows.iter().enumerate().any(|(index, row)| {
+            aligned[index]
+                && row
+                    .as_ref()
+                    .is_some_and(|(_, flat)| widths.row_width(flat) > width)
+        });
+        if !overflows {
+            break;
+        }
+        let narrowest = (0..rows.len())
+            .filter(|&index| aligned[index])
+            .min_by_key(|&index| columns(&aligned, Some(index)).sum())
+            .expect("an overflowing row is aligned");
+        aligned[narrowest] = false;
     }
+    let widths = columns(&aligned, None);
+
     clauses
         .into_iter()
-        .map(|clause| {
+        .zip(aligned)
+        .zip(rows.iter().map(Option::is_some))
+        .map(|((clause, aligned), fits)| {
             let mut lines = clause.attributes;
             match clause.body {
-                ClauseBody::Row(row) => {
-                    let mut rendered = format!(
-                        "{}{}: {}{} => {}",
-                        row.label,
-                        " ".repeat(label_width - row.label.width()),
-                        row.pattern,
-                        " ".repeat(pattern_width - row.pattern.width()),
-                        row.result,
-                    );
-                    if let Some(conditions) = row.conditions {
-                        rendered.push_str(&" ".repeat(result_width - row.result.width()));
-                        rendered.push_str(" where ");
-                        rendered.push_str(&conditions);
-                    }
-                    rendered.push(';');
-                    lines.push(rendered);
-                }
+                ClauseBody::Row(row) => match &row.flat {
+                    Some(flat) if aligned => lines.push(widths.render(&row.label, flat)),
+                    Some(flat) if fits => lines.push(row.unaligned(flat)),
+                    _ => lines.extend(layout::print(&row.lines, width)),
+                },
                 ClauseBody::Lines(body) => lines.extend(body),
             }
             AlignedClause {
@@ -497,6 +653,45 @@ fn align_single_clauses(clauses: Vec<RenderedClause>) -> Vec<AlignedClause> {
             }
         })
         .collect()
+}
+
+/// The column widths of a table's aligned rows.
+#[derive(Clone, Copy, Debug, Default)]
+struct Columns {
+    label: usize,
+    pattern: usize,
+    result: usize,
+}
+
+impl Columns {
+    fn sum(self) -> usize {
+        self.label + self.pattern + self.result
+    }
+
+    fn row_width(self, flat: &FlatRow) -> usize {
+        let head = self.label + ": ".len() + self.pattern + " => ".len();
+        match &flat.conditions {
+            Some(conditions) => head + self.result + " where ".len() + conditions.width() + 1,
+            None => head + flat.result.width() + 1,
+        }
+    }
+
+    fn render(self, label: &str, flat: &FlatRow) -> String {
+        let mut rendered = format!(
+            "{label}{}: {}{} => {}",
+            " ".repeat(self.label - label.width()),
+            flat.pattern,
+            " ".repeat(self.pattern - flat.pattern.width()),
+            flat.result,
+        );
+        if let Some(conditions) = &flat.conditions {
+            rendered.push_str(&" ".repeat(self.result - flat.result.width()));
+            rendered.push_str(" where ");
+            rendered.push_str(conditions);
+        }
+        rendered.push(';');
+        rendered
+    }
 }
 
 fn align_trailing_comments(clauses: &mut [AlignedClause], style: TrailingCommentStyle) {
@@ -605,210 +800,14 @@ fn source_without_comments(
     output
 }
 
-#[derive(Clone, Debug)]
-enum AtomKind {
-    Word,
-    Group(Delimiter),
-    Punctuation(String),
-}
-
-#[derive(Clone, Debug)]
-struct Atom {
-    text: String,
-    kind: AtomKind,
-}
-
-fn render_tokens(tokens: &[TokenTree]) -> String {
-    let stream = TokenStream::from_iter(tokens.iter().cloned());
-    let atoms = atoms(stream);
-    let mut output = String::new();
-    // Open turbofish angle brackets (`Choose::<Exp>`, KF-027), which hug
-    // their arguments like Rust's own spelling.
-    let mut turbofish = 0_usize;
-    let mut after_close = false;
-    for (index, atom) in atoms.iter().enumerate() {
-        let punctuation = |atom: &Atom, text: &str| matches!(&atom.kind, AtomKind::Punctuation(value) if value == text);
-        let opens = index > 0 && punctuation(atom, "<") && punctuation(&atoms[index - 1], "::");
-        let closes = turbofish > 0 && punctuation(atom, ">");
-        let after_open = index > 0 && turbofish > 0 && punctuation(&atoms[index - 1], "<");
-        let call = after_close && matches!(atom.kind, AtomKind::Group(Delimiter::Parenthesis));
-        // A bit range between integers, as in a `k::bits!` modifier's
-        // `[10:5]`, keeps the spelling of the ISA manuals.
-        let integer = |atom: &Atom| {
-            matches!(atom.kind, AtomKind::Word)
-                && atom
-                    .text
-                    .starts_with(|character: char| character.is_ascii_digit())
-        };
-        let bit_range = index > 1
-            && integer(atom)
-            && punctuation(&atoms[index - 1], ":")
-            && integer(&atoms[index - 2]);
-        if index > 0
-            && !closes
-            && !after_open
-            && !call
-            && !bit_range
-            && needs_space(
-                index.checked_sub(2).map(|before| &atoms[before]),
-                &atoms[index - 1],
-                atom,
-            )
-        {
-            output.push(' ');
-        }
-        if opens {
-            turbofish += 1;
-        }
-        if closes {
-            turbofish -= 1;
-        }
-        after_close = closes;
-        output.push_str(&atom.text);
-    }
-    output
-}
-
-fn atoms(stream: TokenStream) -> Vec<Atom> {
-    let tokens = stream.into_iter().collect::<Vec<_>>();
-    let mut output = Vec::new();
-    let mut index = 0_usize;
-    while index < tokens.len() {
-        match &tokens[index] {
-            TokenTree::Group(group) => {
-                let inner = render_tokens(&group.stream().into_iter().collect::<Vec<_>>());
-                let text = match group.delimiter() {
-                    Delimiter::Parenthesis => format!("({inner})"),
-                    Delimiter::Bracket => format!("[{inner}]"),
-                    Delimiter::Brace if inner.is_empty() => "{}".to_owned(),
-                    Delimiter::Brace => format!("{{ {inner} }}"),
-                    Delimiter::None => inner,
-                };
-                output.push(Atom {
-                    text,
-                    kind: AtomKind::Group(group.delimiter()),
-                });
-                index += 1;
-            }
-            TokenTree::Ident(ident) => {
-                output.push(Atom {
-                    text: ident.to_string(),
-                    kind: AtomKind::Word,
-                });
-                index += 1;
-            }
-            TokenTree::Literal(literal) => {
-                output.push(Atom {
-                    text: literal.to_string(),
-                    kind: AtomKind::Word,
-                });
-                index += 1;
-            }
-            // A minus after an operator or at the start, followed by a literal,
-            // is the sign of a negative literal such as `-1`: keep it attached.
-            TokenTree::Punct(punct)
-                if punct.as_char() == '-'
-                    && matches!(tokens.get(index + 1), Some(TokenTree::Literal(_)))
-                    && output.last().is_none_or(|atom: &Atom| {
-                        matches!(atom.kind, AtomKind::Punctuation(_))
-                    }) =>
-            {
-                let Some(TokenTree::Literal(literal)) = tokens.get(index + 1) else {
-                    unreachable!("the guard requires a following literal");
-                };
-                output.push(Atom {
-                    text: format!("-{literal}"),
-                    kind: AtomKind::Word,
-                });
-                index += 2;
-            }
-            TokenTree::Punct(punct) => {
-                let mut text = punct.as_char().to_string();
-                index += 1;
-                if punct.spacing() == Spacing::Joint
-                    && let Some(TokenTree::Punct(next)) = tokens.get(index)
-                    && punctuation_pair(punct.as_char(), next.as_char())
-                {
-                    text.push(next.as_char());
-                    index += 1;
-                    if text == ".."
-                        && next.spacing() == Spacing::Joint
-                        && matches!(tokens.get(index), Some(TokenTree::Punct(last)) if last.as_char() == '=')
-                    {
-                        text.push('=');
-                        index += 1;
-                    }
-                }
-                output.push(Atom {
-                    kind: AtomKind::Punctuation(text.clone()),
-                    text,
-                });
-            }
-        }
-    }
-    output
-}
-
-fn punctuation_pair(first: char, second: char) -> bool {
-    matches!(
-        (first, second),
-        (':', ':')
-            | ('=' | '-', '>')
-            | ('.', '.')
-            | ('<', '<' | '=')
-            | ('>', '>' | '=')
-            | ('&', '&' | '=')
-            | ('|', '|' | '=')
-            | ('=' | '!' | '+' | '-' | '*' | '/' | '%' | '^', '=')
-    )
-}
-
-/// Whether a space separates `current` from `previous`, which follows
-/// `before` (`None` at the start of a group).
-fn needs_space(before: Option<&Atom>, previous: &Atom, current: &Atom) -> bool {
-    if matches!(&current.kind, AtomKind::Punctuation(value) if matches!(value.as_str(), "," | ";" | ":" | "::" | "." | "?"))
-    {
-        return false;
-    }
-    if matches!(&previous.kind, AtomKind::Punctuation(value) if matches!(value.as_str(), "::" | "." | "#" | "$" | "!"))
-    {
-        return false;
-    }
-    // A record's rest `..base` (F5) hugs its base, as Rust's struct update
-    // does; `..` after an operand is a range.
-    if matches!(&previous.kind, AtomKind::Punctuation(value) if value == "..")
-        && matches!(current.kind, AtomKind::Word)
-    {
-        return before.is_some_and(|before| {
-            !matches!(&before.kind, AtomKind::Punctuation(value) if value == "," || value == "@")
-        });
-    }
-    // A macro's `!` follows its name; a unary `!` after an operator does not.
-    if matches!(&current.kind, AtomKind::Punctuation(value) if value == "!") {
-        return matches!(previous.kind, AtomKind::Punctuation(_));
-    }
-    if matches!(
-        (&previous.kind, &current.kind),
-        (
-            AtomKind::Word | AtomKind::Group(_),
-            AtomKind::Group(Delimiter::Parenthesis | Delimiter::Bracket)
-        )
-    ) {
-        return false;
-    }
-    // A prefix `&`, `*`, or `-` hugs its operand; after an operand it is a
-    // binary operator, as in `a & 15`.
-    if matches!(&previous.kind, AtomKind::Punctuation(value) if matches!(value.as_str(), "&" | "*" | "-"))
-    {
-        return before
-            .is_some_and(|before| matches!(before.kind, AtomKind::Word | AtomKind::Group(_)));
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const LAYOUT: BodyLayout = BodyLayout {
+        trailing_comments: TrailingCommentStyle::AlignedColumn,
+        max_width: 100,
+    };
 
     /// A turbofish on a parametric head (KF-027) keeps Rust's spelling,
     /// `Choose::<Exp>`, and formats idempotently.
@@ -821,10 +820,8 @@ mod tests {
             pick: Pick(c, x, y) => crate::Choose :: < Exp > { cond: c, then_branch: x, else_branch: y };
             pair: Both(x) => Pair::<Int,dyn ExpSort>(x, x);
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
-        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format again");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format again");
         assert_eq!(output, again);
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
@@ -848,10 +845,9 @@ mod tests {
             r8_other : _ => HlIndirect;  // fallback
             pair:(0,-1)=>Reg(A);
         ";
-        let output = format_equation_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
-        let again = format_equation_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let output = format_equation_body(source, 0, "    ", LAYOUT).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(output, again, "equation table formatting is idempotent");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
@@ -882,10 +878,9 @@ mod tests {
             code_other: n => 100;
         "
         .replace('\'', "\"");
-        let output = format_equation_body(&source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
-        let again = format_equation_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let output = format_equation_body(&source, 0, "    ", LAYOUT).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(output, again, "attribute layout is idempotent");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r#"
@@ -910,17 +905,18 @@ mod tests {
             beq: k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b : signed [ 12 | 10 : 5 | 4:1 | 11 ]) => Beq(r, s, b);
             addi: k::bits!("iiiiiiiiiiii rrrrr 000 ddddd 0010011", i: signed) => Addi(d, r, i);
         "#;
-        let output = format_equation_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
-        let again = format_equation_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let output = format_equation_body(source, 0, "    ", LAYOUT).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(output, again, "modifier formatting is idempotent");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r#"
             body:
                 for Decode;
-                beq : k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => Beq(r, s, b);
-                addi: k::bits!("iiiiiiiiiiii rrrrr 000 ddddd 0010011", i: signed)                        => Addi(d, r, i);"#]]
+                beq:
+                    k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11])
+                    => Beq(r, s, b);
+                addi: k::bits!("iiiiiiiiiiii rrrrr 000 ddddd 0010011", i: signed) => Addi(d, r, i);"#]]
         .assert_eq(&actual);
     }
 
@@ -933,8 +929,7 @@ mod tests {
             tiny:A(x)=>x;
             longer: Pair(lhs,rhs)=>k![lhs,rhs] where lhs: Value;
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
             body:
@@ -957,8 +952,7 @@ mod tests {
             swap:Swap{e}=>{let Pair(x,y)=e;let z:Int=x;Pair(y,z)};
             shadow: Shadow { e } => Pair({ let e = Pair(e, e); e }, e);
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
             body:
@@ -968,8 +962,7 @@ mod tests {
                 swap  : Swap { e }   => { let Pair(x, y) = e; let z: Int = x; Pair(y, z) };
                 shadow: Shadow { e } => Pair({ let e = Pair(e, e); e }, e);"]]
         .assert_eq(&actual);
-        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(again, output);
     }
 
@@ -984,8 +977,7 @@ mod tests {
             check:Check(n,t,c)=>n.gt :: < Int > (0)&&(t.lt::<Int>(c)||c.eq::<K>(t));
             chain: Chain(b, m) => b . bit_and::<Int>(m).ne::<Int>(b);
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
             body:
@@ -995,8 +987,7 @@ mod tests {
                 check: Check(n, t, c) => n.gt::<Int>(0) && (t.lt::<Int>(c) || c.eq::<K>(t));
                 chain: Chain(b, m)    => b.bit_and::<Int>(m).ne::<Int>(b);"]]
         .assert_eq(&actual);
-        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(again, output);
     }
 
@@ -1009,8 +1000,7 @@ mod tests {
             div_by_minus_one:Div{lhs,rhs:- 1}=>int::sub(0,lhs);
             sign: Sgn(-1) => -1;
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
             body:
@@ -1020,8 +1010,7 @@ mod tests {
                 div_by_minus_one: Div { lhs, rhs: -1 } => int::sub(0, lhs);
                 sign            : Sgn(-1)              => -1;"]]
         .assert_eq(&actual);
-        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(again, output);
     }
 
@@ -1034,8 +1023,7 @@ mod tests {
             enter: { frame: saved @ Frame { pc: p, .. } } => { frame: Frame { pc: int::add(p, 1), .. saved } };
             reset: { k: [t @ Ctor { f: _, .. }, ..] } => { k: [Ctor { .. t }, ..] };
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         assert!(
             output.contains("frame: Frame { pc: int::add(p, 1), ..saved }"),
             "{output}"
@@ -1045,8 +1033,7 @@ mod tests {
             "{output}"
         );
         assert!(output.contains("k: [Ctor { ..t }, ..]"), "{output}");
-        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(again, output);
     }
 
@@ -1059,8 +1046,7 @@ mod tests {
             load_if:Load(0xFF0F)=>0b1010_0101;
             negative: Sgn(-0x10) => 0o17;
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
             body:
@@ -1070,8 +1056,7 @@ mod tests {
                 load_if : Load(0xFF0F) => 0b1010_0101;
                 negative: Sgn(-0x10)   => 0o17;"]]
         .assert_eq(&actual);
-        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format formatted body");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(again, output);
     }
 
@@ -1082,28 +1067,35 @@ mod tests {
     )]
     fn aligns_unicode_table_and_trailing_comments_by_display_width() {
         // Term validation rejects string literals, so this test exercises rendering and alignment directly.
-        let tokens = |source: &str| {
-            TokenStream::from_str(source)
+        let tokens = |source: &str| Component {
+            tokens: TokenStream::from_str(source)
                 .expect("tokenize component")
                 .into_iter()
-                .collect::<Vec<_>>()
+                .collect(),
+            offset: 0,
         };
         let row = |label, result, conditions: Option<&str>, comment: &str| RenderedClause {
             leading: Vec::new(),
             attributes: Vec::new(),
-            body: ClauseBody::Row(render_single_clause(&ClauseParts {
-                label: tokens(label),
-                pattern: tokens("A(x)"),
-                result: tokens(result),
-                conditions: conditions.map(tokens),
-            })),
+            body: ClauseBody::Row(table_row(
+                &ClauseParts {
+                    label: tokens(label),
+                    pattern: tokens("A(x)"),
+                    result: tokens(result),
+                    conditions: conditions.map(tokens),
+                },
+                Comments::none(),
+            )),
             trailing: Some(comment.to_owned()),
         };
-        let mut clauses = align_single_clauses(vec![
-            row("wide", r#""漢字""#, Some("x: Value"), "// wide"),
-            row("café", "x", Some("x: Value"), "// combining"),
-            row("ascii", "x", None, "// ascii"),
-        ]);
+        let mut clauses = align_single_clauses(
+            vec![
+                row("wide", r#""漢字""#, Some("x: Value"), "// wide"),
+                row("café", "x", Some("x: Value"), "// combining"),
+                row("ascii", "x", None, "// ascii"),
+            ],
+            100,
+        );
         align_trailing_comments(&mut clauses, TrailingCommentStyle::AlignedColumn);
         let output = clauses
             .into_iter()
@@ -1127,8 +1119,7 @@ mod tests {
                       漢字: A(x) => x where x: Value; // wide\n\
                       cafe\u{301}: Pair(x, y) => y; // combining\n\
                       ascii: A(x) => Pair(x, x) where x: Value; // ascii\n";
-        let output = format_rule_body(source, 0, "", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "", LAYOUT).expect("format body");
         expect_test::expect![[r"
             for Expr;
             漢字 : A(x)       => x          where x: Value;  // wide
@@ -1145,8 +1136,7 @@ mod tests {
 
             apply:{env:e,k:[Pair(name,value),..],}=>{k:[..],env:map::update(e,name,value),}where value:Value;
         ";
-        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
-            .expect("format body");
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
         let actual = format!("body:\n{output}");
         expect_test::expect![[r"
             body:

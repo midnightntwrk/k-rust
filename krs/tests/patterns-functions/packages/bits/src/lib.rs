@@ -240,11 +240,12 @@ pub fn Imm(word: Term<Int>) -> Term<Int>;
 
 k::equations! {
     for Imm;
-    imm_addi : k::bits!("iiiiiiiiiiii _____ 000 _____ 0010011", i: signed)                        => i;
-    imm_sw   : k::bits!("iiiiiii _____ _____ 010 iiiii 0100011", i: signed[11:5 | 4:0])           => i;
-    imm_beq  : k::bits!("bbbbbbb _____ _____ 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => b;
-    imm_lui  : k::bits!("uuuuuuuuuuuuuuuuuuuu _____ 0110111", u: signed[31:12])                   => u;
-    imm_jal  : k::bits!("jjjjjjjjjjjjjjjjjjjj _____ 1101111", j: signed[20 | 10:1 | 11 | 19:12])  => j;
+    imm_addi : k::bits!("iiiiiiiiiiii _____ 000 _____ 0010011", i: signed)              => i;
+    imm_sw   : k::bits!("iiiiiii _____ _____ 010 iiiii 0100011", i: signed[11:5 | 4:0]) => i;
+    imm_beq:
+        k::bits!("bbbbbbb _____ _____ 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => b;
+    imm_lui  : k::bits!("uuuuuuuuuuuuuuuuuuuu _____ 0110111", u: signed[31:12])         => u;
+    imm_jal: k::bits!("jjjjjjjjjjjjjjjjjjjj _____ 1101111", j: signed[20 | 10:1 | 11 | 19:12]) => j;
     #[k::equation(owise)]
-    imm_other: word                                                                               => 0;
+    imm_other: word                                                                     => 0;
 }
