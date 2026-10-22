@@ -7966,7 +7966,7 @@ fn pure_word_tranche_stop(
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
         CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            115792089237316195423570985008687907853269984665640564039457584007913129639935,
+            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF,
             Stack::StackCons(
                 16,
                 Stack::StackCons(
@@ -7974,7 +7974,7 @@ fn pure_word_tranche_stop(
                     Stack::StackCons(
                         171,
                         Stack::StackCons(
-                            115792089237316195423570985008687907853269984665640564039457584007913129639935,
+                            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF,
                             Stack::StackCons(
                                 60,
                                 Stack::StackCons(
@@ -7982,7 +7982,7 @@ fn pure_word_tranche_stop(
                                     Stack::StackCons(
                                         3,
                                         Stack::StackCons(
-                                            115792089237316195423570985008687907853269984665640564039457584007913129639808,
+                                            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FF80,
                                             Stack::StackCons(256, Stack::StackEmpty()),
                                         ),
                                     ),
@@ -8343,7 +8343,7 @@ fn load_copy_tranche_stop(
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
         CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            77224998574671802608401215176576978315802517580781917942944813718736052682752,
+            0xAABB_CCDD_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
             Stack::StackEmpty(),
         )),
         CallState::pc: k::configuration::Cell(24),
