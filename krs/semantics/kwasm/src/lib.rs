@@ -17,7 +17,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = IValType, result = KResult)]
-#[k::precedence((I32, I64))]
 pub enum IntegerType {
     #[k::syntax("i32")]
     I32,
@@ -26,7 +25,6 @@ pub enum IntegerType {
 }
 
 #[k::constructors(sort = IBinOp, result = KResult)]
-#[k::precedence((Add, Sub, Mul, DivU))]
 pub enum IntegerBinOp {
     #[k::syntax("add")]
     Add,
@@ -39,7 +37,6 @@ pub enum IntegerBinOp {
 }
 
 #[k::constructors(sort = Val, result = KResult)]
-#[k::precedence((Integer, Undefined))]
 pub enum Value {
     #[k::syntax("< {ty} > {value}")]
     Integer { ty: IValType, value: Int },
@@ -57,7 +54,6 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = Instr, result = KResult)]
-#[k::precedence((Const, Binary, Trap))]
 pub enum Instruction {
     #[k::syntax("{ty}.const {value}")]
     Const { ty: IValType, value: Int },
@@ -77,80 +73,33 @@ pub enum InstrList {
     InstrCons { head: Instr, tail: Instrs },
 }
 
-#[k::function(total, sort = Val, syntax = "#kwasmChop({ty}, {value})")]
-pub struct Chop {
-    pub ty: k::Term<IValType>,
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kwasmChop({ty}, {value})")]
+pub fn Chop(ty: k::Term<IValType>, value: k::Term<Int>) -> k::Term<Val>;
+
+#[k::function(total, syntax = "#kwasmIntBinOp({ty}, {op}, {lhs}, {rhs})")]
+pub fn IntBinOp(
+    ty: k::Term<IValType>,
+    op: k::Term<IBinOp>,
+    lhs: k::Term<Int>,
+    rhs: k::Term<Int>,
+) -> k::Term<Val>;
+
+k::equations! {
+    for Chop;
+    chop_i32: (IntegerType::I32, value) => Value::Integer(IntegerType::I32, int::rem_euclid(value, 4_294_967_296));
+    chop_i64: (IntegerType::I64, value) => Value::Integer(IntegerType::I64, int::rem_euclid(value, 18_446_744_073_709_551_616));
 }
 
-#[k::function(
-    total,
-    sort = Val,
-    syntax = "#kwasmIntBinOp({ty}, {op}, {lhs}, {rhs})"
-)]
-pub struct IntBinOp {
-    pub ty: k::Term<IValType>,
-    pub op: k::Term<IBinOp>,
-    pub lhs: k::Term<Int>,
-    pub rhs: k::Term<Int>,
-}
-
-#[k::equation]
-fn chop_i32(k::term![Chop(IntegerType::I32, value)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Integer(
-        IntegerType::I32,
-        int::rem_euclid(value, 4_294_967_296),
-    )]
-}
-
-#[k::equation]
-fn chop_i64(k::term![Chop(IntegerType::I64, value)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Integer(
-        IntegerType::I64,
-        int::rem_euclid(value, 18_446_744_073_709_551_616),
-    )]
-}
-
-#[k::equation]
-fn add(k::term![IntBinOp(ty, IntegerBinOp::Add, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Chop(ty, int::add(lhs, rhs))]
-}
-
-#[k::equation]
-fn sub_i32(
-    k::term![IntBinOp(IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)]: k::Term<Val>,
-) -> k::Term<Val> {
-    k::term![Chop(
-        IntegerType::I32,
-        int::sub(int::add(lhs, 4_294_967_296), rhs)
-    )]
-}
-
-#[k::equation]
-fn sub_i64(
-    k::term![IntBinOp(IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)]: k::Term<Val>,
-) -> k::Term<Val> {
-    k::term![Chop(
-        IntegerType::I64,
-        int::sub(int::add(lhs, 18_446_744_073_709_551_616), rhs),
-    )]
-}
-
-#[k::equation]
-fn mul(k::term![IntBinOp(ty, IntegerBinOp::Mul, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Chop(ty, int::mul(lhs, rhs))]
-}
-
-#[k::requires(int::ne(rhs, 0))]
-#[k::equation]
-fn div_u(k::term![IntBinOp(ty, IntegerBinOp::DivU, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Integer(ty, int::div(lhs, rhs))]
-}
-
-#[k::requires(int::eq(rhs, 0))]
-#[k::equation]
-fn div_u_zero(k::term![IntBinOp(_, IntegerBinOp::DivU, _, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Undefined()]
+k::equations! {
+    for IntBinOp;
+    add       : (ty, IntegerBinOp::Add, lhs, rhs)               => Chop(ty, int::add(lhs, rhs));
+    sub_i32   : (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs) => Chop(IntegerType::I32, int::sub(int::add(lhs, 4_294_967_296), rhs));
+    sub_i64   : (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs) => Chop(IntegerType::I64, int::sub(int::add(lhs, 18_446_744_073_709_551_616), rhs));
+    mul       : (ty, IntegerBinOp::Mul, lhs, rhs)               => Chop(ty, int::mul(lhs, rhs));
+    #[k::requires(int::ne(rhs, 0))]
+    div_u     : (ty, IntegerBinOp::DivU, lhs, rhs)              => Value::Integer(ty, int::div(lhs, rhs));
+    #[k::requires(int::eq(rhs, 0))]
+    div_u_zero: (_, IntegerBinOp::DivU, _, rhs)                 => Value::Undefined();
 }
 
 /// The two operational cells selected from `KWasm`'s `<wasm>` configuration.

@@ -82,7 +82,7 @@ The second slice ports KWasm's unsigned integer division partition and its `unde
 5. the operational `<instrs> undefined => trap ... </instrs>` rule.
 
 This slice deliberately does not port KWasm's global `owise` fallback for all unsupported integer binary operators.
-The selected `add`, `sub`, `mul`, and `div_u` operators are exhaustive through unconditional equations or explicit zero/nonzero guards, so adding an `owise` surface would have no evidence-backed use here.
+The selected `add`, `sub`, `mul`, and `div_u` operators are exhaustive through unconditional equations or explicit zero/nonzero guards, which `krs check` confirms (no `uncovered-total-function` warning for `IntBinOp` or `Chop`), so adding an `owise` surface would have no evidence-backed use here.
 Remainder (`rem_u`, `rem_s`) remains deferred: unsigned division does not require it.
 Full trap bubbling through label, frame, instruction, and definition continuations remains outside this slice together with those omitted constructs.
 

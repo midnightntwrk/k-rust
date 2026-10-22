@@ -28,7 +28,7 @@ PROBES = (
         "function application",
         "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
         "IntBinOp",
-        "pub struct IntBinOp {",
+        "pub fn IntBinOp(",
     ),
     (
         "configuration target",
