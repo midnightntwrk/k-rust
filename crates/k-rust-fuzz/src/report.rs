@@ -214,20 +214,23 @@ pub struct ClimbParameters {
     /// The most draws of a move per changed hole before an inadmissible move is given up.
     pub max_attempts: u32,
     /// Which rules' condition entries the cases record for the score:
-    /// `target-and-keyed-predecessors` (the target and its direct predecessors in the rule graph
-    /// whose right-hand side keys the head of `<k>`, or all of them when none does).
+    /// `target-and-keyed-predecessors` for a rule target (the target and its direct
+    /// predecessors in the rule graph whose right-hand side keys the head of `<k>`, or all of
+    /// them when none does), `none` for an observer target, whose score reads the observer's
+    /// progress instead.
     pub condition_rules: String,
-    /// The most condition entries recorded per rule and run.
+    /// The most condition entries recorded per rule and run (no rule is recorded under
+    /// `condition-rules` `none`).
     pub condition_limit: u64,
     /// The largest recorded value, in term nodes; a larger one gives no signal.
     pub condition_value_size: u64,
 }
 
 impl ClimbParameters {
-    /// The parameters of this build.
+    /// The parameters of this build for a campaign whose target is `target`.
     #[must_use]
-    pub fn current() -> Self {
-        crate::proposers::climb::parameters()
+    pub fn for_target(target: &crate::target::TargetKind) -> Self {
+        crate::proposers::climb::parameters(target)
     }
 }
 

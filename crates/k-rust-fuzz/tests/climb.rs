@@ -185,7 +185,12 @@ fn a_climb_campaign_reports_the_same_bytes_twice_and_records_its_parameters() {
     let (second_run, second) = maze::run_isolated(cell, &maze::blind_climb(), 1, 200);
     assert_eq!(first_run, second_run);
     assert_eq!(first.to_canonical_json(), second.to_canonical_json());
-    assert_eq!(first.identity.climb, Some(ClimbParameters::current()));
+    let parameters = first
+        .identity
+        .climb
+        .clone()
+        .expect("the climb's parameters");
+    assert_eq!(parameters.condition_rules, "target-and-keyed-predecessors");
     assert!(
         first
             .to_canonical_json()
@@ -328,7 +333,13 @@ fn an_observer_target_climbs_on_the_observers_progress() {
             .find(|hole| hole.name == "D")
             .expect("the hole D");
         assert_eq!(d.value, Value::Int(4242.into()), "seed {seed}");
-        assert_eq!(report.identity.climb, Some(ClimbParameters::current()));
+        // The observer's score reads no condition records, and the identity says so.
+        let parameters = ClimbParameters::for_target(&TargetKind::Observer(ObserverTarget::new(
+            "d-near",
+            DNear { goal: 4242 },
+        )));
+        assert_eq!(parameters.condition_rules, "none");
+        assert_eq!(report.identity.climb, Some(parameters));
         println!("seed {seed}: {} cases", report.totals.cases);
     }
     let blind = campaign(&maze::blind(), 1);

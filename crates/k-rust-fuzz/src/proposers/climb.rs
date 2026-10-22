@@ -82,6 +82,7 @@ use crate::{
     report::ClimbParameters,
     score::{Operand, Score},
     spec::ProposerKind,
+    target::TargetKind,
     values::{
         self, ArgumentSort, Constraints, DataAlternative, DataSorts, GenerationBounds, Generator,
         Value, ValueRng, ValueSort,
@@ -117,8 +118,16 @@ pub(crate) const ACCEPT_EQUAL: bool = true;
 /// proposes the incumbent's values changed in whichever holes did move.
 pub(crate) const MAX_ATTEMPTS: u32 = 64;
 
-/// The climb's parameters as the report records them ([`ClimbParameters`]).
-pub(crate) fn parameters() -> ClimbParameters {
+/// The climb's parameters for a campaign whose target is `target`, as the report records them
+/// ([`ClimbParameters`]): an observer target's score reads no condition records, so its cases
+/// request none (`condition-rules` is `none`).
+pub(crate) fn parameters(target: &TargetKind) -> ClimbParameters {
+    let condition_rules = match target {
+        TargetKind::Observer(_) => "none",
+        TargetKind::Rule(_) | TargetKind::Pattern(_) | TargetKind::Differential(_) => {
+            "target-and-keyed-predecessors"
+        }
+    };
     ClimbParameters {
         budget_share: [BUDGET_SHARE.0, BUDGET_SHARE.1],
         initial_exponent: INITIAL_EXPONENT,
@@ -128,7 +137,7 @@ pub(crate) fn parameters() -> ClimbParameters {
         read_probability: [READ_PROBABILITY.0, READ_PROBABILITY.1],
         accept_equal: ACCEPT_EQUAL,
         max_attempts: MAX_ATTEMPTS,
-        condition_rules: "target-and-keyed-predecessors".into(),
+        condition_rules: condition_rules.into(),
         condition_limit: u64::try_from(k_rust::k_rust_backend::coverage::DEFAULT_CONDITION_LIMIT)
             .unwrap_or(u64::MAX),
         condition_value_size: u64::try_from(

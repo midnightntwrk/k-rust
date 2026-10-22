@@ -303,8 +303,30 @@ fn collection_moves_keep_sets_and_maps_sorted_and_distinct() {
         &observation(Some(score(1))),
     );
     let mut lengths: BTreeMap<usize, std::collections::BTreeSet<usize>> = BTreeMap::new();
+    let start_keys = [int(1), int(4)];
+    let mut key_moves = 0;
     for _ in 0..300 {
         let proposal = propose(&mut climb);
+        // A key move keeps the map's size and its entries' values and changes one key; no other
+        // move of one hole does (a value move keeps the keys, removal and insertion the size).
+        if let Value::Map(entries) = &proposal.values[1]
+            && entries.len() == start_keys.len()
+            && entries.iter().map(|(key, _)| key).ne(start_keys.iter())
+        {
+            let mut values: Vec<&Value> = entries.iter().map(|(_, value)| value).collect();
+            values.sort();
+            assert_eq!(
+                values,
+                [&Value::Bool(false), &Value::Bool(true)],
+                "{entries:?}"
+            );
+            let kept = entries
+                .iter()
+                .filter(|(key, _)| start_keys.contains(key))
+                .count();
+            assert_eq!(kept, 1, "one key moved: {entries:?}");
+            key_moves += 1;
+        }
         for (index, value) in proposal.values.iter().enumerate() {
             assert!(
                 values::admissible(value, &sorts[index], &Constraints::default(), &bounds()),
@@ -319,6 +341,7 @@ fn collection_moves_keep_sets_and_maps_sorted_and_distinct() {
         }
         climb.observe(&proposal, &observation(Some(score(2))), false);
     }
+    assert!(key_moves > 0, "no proposal moved a map key");
     // Every collection both lost and gained an element in some proposal.
     for (index, start) in [2usize, 2, 1].iter().enumerate() {
         let seen = &lengths[&index];

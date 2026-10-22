@@ -530,7 +530,8 @@ fn identity(
         solver: if k_rust::Z3_INFERENCE { "z3" } else { "none" }.into(),
         dictionary: (weight(&spec.proposers, ProposerKind::Dictionary) > 0)
             .then(DictionaryParameters::current),
-        climb: (weight(&spec.proposers, ProposerKind::Climb) > 0).then(ClimbParameters::current),
+        climb: (weight(&spec.proposers, ProposerKind::Climb) > 0)
+            .then(|| ClimbParameters::for_target(&spec.target.kind)),
     })
 }
 

@@ -14,8 +14,15 @@
 //! - The K Boolean connectives are strict functions on `Bool`: `notBool`, `andBool` and
 //!   `andThenBool`, `orBool` and `orElseBool`, `impliesBool`, and `xorBool` as
 //!   `(a andBool notBool b) orBool (notBool a andBool b)`; an undefined operand makes them
-//!   undefined, which the decided truth already says. The matching-logic connectives `\not`,
-//!   `\and`, `\or`, `\implies`, `\iff` combine two-valued predicates the same way. An `equals`
+//!   undefined, which the decided truth already says. This holds for the operand `andThenBool`
+//!   or `orElseBool` does not evaluate too, and no bound such as `d(a) + 1` (the first
+//!   operand's distance plus one) is given for it: a symbol applied to an undefined argument is
+//!   undefined, and the variable of `false andThenBool _ => false` ranges over defined values,
+//!   so `false andThenBool ⊥` is `⊥`. The guard then has no truth value to be near, and a
+//!   distance for it would be invented; it would also rank such an input above a defined miss
+//!   farther than `d(a) + 1`, pulling the climb toward the undefined point. The matching-logic
+//!   connectives `\not`, `\and`, `\or`, `\implies`, `\iff` combine two-valued predicates the
+//!   same way. An `equals`
 //!   node `\equals(b, literal)` is `b` for `true` and `notBool b` for `false`.
 //! - An atom is measured by its operands only when they are ground values (`kind: value`);
 //!   `unevaluated`, `symbolic`, `undefined`, `stopped` and `omitted` operands leave it to its
