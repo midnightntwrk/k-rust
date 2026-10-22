@@ -70,6 +70,34 @@ fn file_formatting_uses_rustfmt_config_in_the_file_directory() {
     assert!(formatted.output.contains("\tlet value = 1;"));
 }
 
+/// KRS bodies wrap at the `max_width` of the Rustfmt configuration that
+/// applies to the file, as the surrounding Rust does.
+#[test]
+fn rule_bodies_wrap_at_the_rustfmt_max_width_of_the_file_directory() {
+    let temporary = temp_dir();
+    let root = temporary.path();
+    fs::create_dir_all(root.join("source")).unwrap();
+    fs::write(root.join("source/rustfmt.toml"), "max_width = 60\n").unwrap();
+    let source = root.join("source/lib.rs");
+    fs::write(
+        &source,
+        "k::equations! { for Width; short: Bool() => 1; \
+         long: (types, Pointer(pointee) | Reference(pointee)) => int::mul(Width(types), Words(pointee)); }\n",
+    )
+    .unwrap();
+    let formatted = format_file(&source, &FormatOptions::default()).unwrap();
+    expect_test::expect![[r"
+        k::equations! {
+            for Width;
+            short: Bool() => 1;
+            long:
+                (types, Pointer(pointee) | Reference(pointee))
+                => int::mul(Width(types), Words(pointee));
+        }
+    "]]
+    .assert_eq(&formatted.output);
+}
+
 #[test]
 fn check_selects_module_files_and_skips_the_configured_target_directory() {
     let temporary = temp_dir();
