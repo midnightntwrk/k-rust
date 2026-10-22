@@ -404,9 +404,13 @@ pub struct SignedWordMod {
     pub divisor: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmBoolToWord({value})")]
-pub struct BoolToWord {
-    pub value: k::Term<Bool>,
+#[k::function(total, syntax = "#kevmBoolToWord({value})")]
+pub fn BoolToWord(value: k::Term<Bool>) -> k::Term<Int>;
+
+k::equations! {
+    for BoolToWord;
+    bool_to_word_true : true  => 1;
+    bool_to_word_false: false => 0;
 }
 
 #[k::function(
@@ -1378,14 +1382,22 @@ pub struct MarkStorageAccess {
     pub index: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmColdStorageSurcharge({warm})")]
-pub struct ColdStorageSurcharge {
-    pub warm: k::Term<Bool>,
+#[k::function(total, syntax = "#kevmColdStorageSurcharge({warm})")]
+pub fn ColdStorageSurcharge(warm: k::Term<Bool>) -> k::Term<Int>;
+
+k::equations! {
+    for ColdStorageSurcharge;
+    cold_storage_surcharge_warm: true  => 0;
+    cold_storage_surcharge_cold: false => 2100;
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmStorageLoadCost({warm})")]
-pub struct StorageLoadCost {
-    pub warm: k::Term<Bool>,
+#[k::function(total, syntax = "#kevmStorageLoadCost({warm})")]
+pub fn StorageLoadCost(warm: k::Term<Bool>) -> k::Term<Int>;
+
+k::equations! {
+    for StorageLoadCost;
+    storage_load_cost_warm: true  => 100;
+    storage_load_cost_cold: false => 2100;
 }
 
 #[k::function(
@@ -1582,15 +1594,45 @@ pub struct ChargeFixed {
     pub cost: k::Term<Int>,
 }
 
-#[k::function(
-    total,
-    sort = GasStep,
-    syntax = "#kevmChargeStaticCall({gas}, {cost}, {account})"
-)]
-pub struct ChargeStaticCall {
-    pub gas: k::Term<Int>,
-    pub cost: k::Term<Int>,
-    pub account: k::Term<Int>,
+#[k::function(total, syntax = "#kevmChargeStaticCall({gas}, {cost}, {account})")]
+pub fn ChargeStaticCall(
+    gas: k::Term<Int>,
+    cost: k::Term<Int>,
+    account: k::Term<Int>,
+) -> k::Term<GasStep>;
+
+k::equations! {
+    for ChargeStaticCall;
+    use GasResult::*;
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecrec    : (gas, cost, 1) => EnoughEcrecPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_sha256   : (gas, cost, 2) => EnoughSha256PrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ripemd160: (gas, cost, 3) => EnoughRipemd160PrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_identity : (gas, cost, 4) => EnoughIdentityPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_modexp   : (gas, cost, 5) => EnoughModExpPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecadd    : (gas, cost, 6) => EnoughEcAddPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecmul    : (gas, cost, 7) => EnoughEcMulPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 40)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call_ecpairing: (gas, cost, 8) => EnoughEcPairingPrecompileGas(int::sub(gas, cost));
+    #[k::equation(priority = 50)]
+    #[k::requires(int::ge(gas, cost))]
+    charge_static_call          : (gas, cost, _) => EnoughGas(Operation::StaticCall, int::sub(gas, cost));
+    #[k::requires(int::lt(gas, cost))]
+    charge_static_call_fails    : (gas, cost, _) => InsufficientGas();
 }
 
 #[k::function(total, sort = OpCode, syntax = "#kevmLookup({program}, {pc})")]
@@ -1710,30 +1752,6 @@ fn mark_storage_access_absent(
     }]: k::Term<Map>,
 ) -> k::Term<Map> {
     k::term![map::update(accessed, account, set::item(index))]
-}
-
-#[k::equation]
-fn cold_storage_surcharge_warm(
-    k::term![ColdStorageSurcharge { warm: true }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![0]
-}
-
-#[k::equation]
-fn cold_storage_surcharge_cold(
-    k::term![ColdStorageSurcharge { warm: false }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![2100]
-}
-
-#[k::equation]
-fn storage_load_cost_warm(k::term![StorageLoadCost { warm: true }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![100]
-}
-
-#[k::equation]
-fn storage_load_cost_cold(k::term![StorageLoadCost { warm: false }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![2100]
 }
 
 #[k::requires(int::eq(current, new))]
@@ -2723,16 +2741,6 @@ fn signed_word_mod_negative(
             divisor: Magnitude(divisor)
         },
     ))]
-}
-
-#[k::equation]
-fn bool_to_word_true(k::term![BoolToWord(true)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![1]
-}
-
-#[k::equation]
-fn bool_to_word_false(k::term![BoolToWord(false)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
 }
 
 #[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), 1),))]
@@ -4146,137 +4154,6 @@ fn charge_fixed(k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>) -> k:
 #[k::equation]
 fn charge_fixed_fails(
     k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecrec(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 1
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcrecPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_sha256(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 2
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughSha256PrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ripemd160(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 3
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughRipemd160PrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_identity(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 4
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughIdentityPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_modexp(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 5
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughModExpPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecadd(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 6
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcAddPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecmul(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 7
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcMulPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 40)]
-fn charge_static_call_ecpairing(
-    k::term![ChargeStaticCall {
-        gas,
-        cost,
-        account: 8
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughEcPairingPrecompileGas {
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::ge(gas, cost))]
-#[k::equation(priority = 50)]
-fn charge_static_call(
-    k::term![ChargeStaticCall { gas, cost, account }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
-        op: Operation::StaticCall,
-        remaining: int::sub(gas, cost)
-    }]
-}
-
-#[k::requires(int::lt(gas, cost))]
-#[k::equation]
-fn charge_static_call_fails(
-    k::term![ChargeStaticCall { gas, cost, account }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
     k::term![GasResult::InsufficientGas()]
 }
