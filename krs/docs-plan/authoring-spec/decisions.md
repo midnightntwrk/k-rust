@@ -386,6 +386,13 @@ bug — report it, don't guess.
   (`[.., Job { .. }]`, `[Push(), ..]`) is read that way, and a rule has
   one computation cell. This replaces a syntactic rule that read a front
   record naming every child as the computation cell's head.
+  *E7 note: the cell shorthand (2026-10, F4).* An entry that is a lone
+  cell name, `{ pc, gas }`, is Rust's field-init shorthand for `{ pc: pc,
+  gas: gas }` on either side; the binder is the name's own token. It is a
+  spelling of the long entry, so it inherits that entry's meaning: a
+  subject entry binds and reads the cell, a result entry writes the
+  binder, `{ gas } => { gas }` is a read, and a group cell's name binds the
+  whole nested cell.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the

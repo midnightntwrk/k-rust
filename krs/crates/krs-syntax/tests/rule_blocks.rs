@@ -752,3 +752,110 @@ fn readable_patterns_match_string_literals() {
     .unwrap_err();
     assert!(error.to_string().contains("U+00FF"), "{error}");
 }
+
+/// The clause's bindings, extras, and anchors, with the anchors' source
+/// ranges left out, so that two spellings of one clause compare equal.
+fn clause_shape(source: &str) -> (Vec<String>, Vec<String>, Vec<(ProvenanceRole, u32)>) {
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let clause = &block.clauses()[0];
+    let bindings = clause.bindings().iter().map(ToString::to_string).collect();
+    let extras = clause
+        .extras()
+        .iter()
+        .map(|extra| match extra {
+            RuleExtra::RewriteCell {
+                cell,
+                before,
+                after,
+                ..
+            } => format!(
+                "{cell}: {} => {:?}",
+                before.spelling(),
+                after.as_ref().map(|after| after.spelling())
+            ),
+            RuleExtra::UpdateMap { cell, base, .. } => format!("update {cell} from {base}"),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    let anchors = clause
+        .provenance()
+        .unwrap()
+        .into_iter()
+        .map(|anchor| (anchor.role(), anchor.key().ordinal()))
+        .collect();
+    (bindings, extras, anchors)
+}
+
+#[test]
+fn a_lone_cell_name_is_the_cell_bound_to_its_name() {
+    for (shorthand, long) in [
+        (
+            "for Machine; step: { k: [Push(), ..], pc, gas } => { k: [..], pc: int::add(pc, 1), gas };",
+            "for Machine; step: { k: [Push(), ..], pc: pc, gas: gas } => { k: [..], pc: int::add(pc, 1), gas: gas };",
+        ),
+        (
+            "for Machine; save: { k: [Save(), ..], frame, stack } => { k: [..], stack: list::concat(list::item(frame), stack) };",
+            "for Machine; save: { k: [Save(), ..], frame: frame, stack: stack } => { k: [..], stack: list::concat(list::item(frame), stack) };",
+        ),
+        (
+            "for Machine; store: { k: [Store(r, v), ..], regs } => { k: [..], regs: map::update(regs, r, v) };",
+            "for Machine; store: { k: [Store(r, v), ..], regs: regs } => { k: [..], regs: map::update(regs, r, v) };",
+        ),
+        (
+            "for Machine; kind: { k: [Tag(), ..], r#type } => { k: [..], r#type: int::add(r#type, 1) };",
+            "for Machine; kind: { k: [Tag(), ..], r#type: r#type } => { k: [..], r#type: int::add(r#type, 1) };",
+        ),
+    ] {
+        assert_eq!(clause_shape(shorthand), clause_shape(long), "{shorthand}");
+    }
+}
+
+#[test]
+fn a_shorthand_entry_binds_at_the_cell_name() {
+    let source = "for Machine; step: { k: [Go(), ..], gas } => { k: [..], gas: int::add(gas, 1) };";
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let anchors = block.clauses()[0].provenance().unwrap();
+    let range = |role| {
+        let anchor = anchors.iter().find(|anchor| anchor.role() == role).unwrap();
+        let range = anchor.range();
+        &source[range.first().byte_range().start..range.last().byte_range().end]
+    };
+    let cell = source.find("gas }").unwrap();
+    let anchor = anchors
+        .iter()
+        .find(|anchor| anchor.role() == ProvenanceRole::RuleLeftReference)
+        .unwrap();
+    assert_eq!(anchor.range().first().byte_range().start, cell);
+    assert_eq!(range(ProvenanceRole::RuleLeftCellsField), "gas");
+    assert_eq!(range(ProvenanceRole::RuleLeftReference), "gas");
+}
+
+#[test]
+fn shorthand_follows_the_entry_it_stands_for() {
+    for (source, expected) in [
+        // A state cell's result restates its `Some`/`None` or instances.
+        (
+            "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter };",
+            "an optional cell's result is `Some(..)` or `None`",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], thread: { Thread { id: t, .. }, .. } } => { k: [..], thread };",
+            "a collection cell's result is an instance list",
+        ),
+        // A result shorthand names a cell the subject matched.
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], gas };",
+            "a machine-rule result cannot introduce an unmatched cell",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..], gas, gas } => { k: [..] };",
+            "duplicate machine-rule cell `gas`",
+        ),
+    ] {
+        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+        assert!(
+            error.to_string().contains(expected),
+            "expected {expected:?} in {error}"
+        );
+    }
+}

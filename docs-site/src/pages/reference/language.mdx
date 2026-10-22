@@ -123,6 +123,11 @@ A readable `for Machine` record matches cells on the left and writes cells on th
 Writing the cell back unchanged, `z: v` on both sides, denotes the same rule and emits the same read, so the result names only the cells the rule changes; a nested group entry (`frame: f`) and an ordinary leaf read alike.
 `z: _` left out of the result constrains and binds nothing, so the rule would be the same without it; it is a syntax error that asks for the entry to be removed.
 
+An entry that is only a cell name is Rust's field-init shorthand: `pc` means `pc: pc`, in the subject and in the result.
+`jump: { k: [Jump(), ..], pc } => { k: [..], pc: int::add(pc, 10) }` binds the content of `pc` to the binder `pc`, and a result entry `gas` writes the binder `gas` into the cell `gas`, which the subject must bind, as any result term's binders; a raw identifier binds itself (`r#type` is `r#type: r#type`).
+The shorthand is a spelling of the long entry and nothing more: a group cell's `frame` binds the whole nested cell, `{ gas } => { gas }` is a read, `k` alone is `k: k` (a binder over the whole computation cell, which a readable record rejects; match its items with `k: [..]`), and an optional or collection cell's result still restates its `Some`/`None` or instance list.
+`krs expand` writes the long entries.
+
 ### Rules that leave the computation cell out
 
 A K rule names only the cells it needs, and that includes `<k>`.

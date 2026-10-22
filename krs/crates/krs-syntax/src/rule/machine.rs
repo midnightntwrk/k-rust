@@ -442,6 +442,20 @@ fn readable_state_bindings(state: &StateTerm) -> Vec<Ident> {
     output
 }
 
+/// Whether a record entry ends right after its cell name: the cell shorthand
+/// `{ pc, gas }`, Rust's field-init shorthand, which means `{ pc: pc, gas:
+/// gas }`.
+fn is_shorthand_end(content: ParseStream<'_>) -> bool {
+    content.is_empty() || content.peek(Token![,])
+}
+
+/// The binder pattern a shorthand subject entry stands for: the cell name's
+/// own token, so a raw identifier binds itself and a diagnostic about the
+/// binder points at the name.
+fn shorthand_pattern(cell: &Ident) -> Result<Pat, ParseError> {
+    Ok(Pat::parse_single.parse2(cell.to_token_stream())?)
+}
+
 fn parse_machine_pattern_record(
     input: ParseStream<'_>,
 ) -> Result<Vec<(Ident, MachinePatternCell)>, ParseError> {
@@ -462,6 +476,23 @@ fn parse_machine_pattern_record(
                 format!("duplicate machine-rule cell `{}`", cell.unraw()),
             )
             .into());
+        }
+        if is_shorthand_end(&content) {
+            // `gas` is `gas: gas`, as in Rust's field-init shorthand: the
+            // binder is the cell name's own token.
+            let (pattern, tree) =
+                readable_cell_pattern(shorthand_pattern(&cell)?, NegativeLiteralSpans::default())?;
+            cells.push((
+                cell,
+                MachinePatternCell::Term {
+                    pattern: Box::new(pattern),
+                    tree: Box::new(tree),
+                },
+            ));
+            if content.peek(Token![,]) {
+                content.parse::<Token![,]>()?;
+            }
+            continue;
         }
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
@@ -592,11 +623,40 @@ fn parse_machine_result_record(
             )
             .into());
         }
-        content.parse::<Token![:]>()?;
         let family = states
             .iter()
             .find(|(name, _)| name.unraw() == cell.unraw())
             .map(|(_, family)| *family);
+        if is_shorthand_end(&content) {
+            // `gas` is `gas: gas`: the cell is written with the binder of
+            // its name. An optional or collection cell's result restates its
+            // `Some`/`None` or instance list, which a binder is not.
+            let value = match family {
+                Some(StateFamily::Optional) => {
+                    return Err(readable_error(
+                        cell.span(),
+                        "an optional cell's result is `Some(..)` or `None`",
+                    ));
+                }
+                Some(StateFamily::Instances) => {
+                    return Err(readable_error(
+                        cell.span(),
+                        "a collection cell's result is an instance list `{ .. }` or `[ .. ]`",
+                    ));
+                }
+                None => MachineResultCell::Term(Box::new(Expr::Path(syn::ExprPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: Path::from(cell.clone()),
+                }))),
+            };
+            cells.push((cell, value));
+            if content.peek(Token![,]) {
+                content.parse::<Token![,]>()?;
+            }
+            continue;
+        }
+        content.parse::<Token![:]>()?;
         let value = if let Some(family) = family {
             MachineResultCell::State(Box::new(parse_readable_result_state(&content, family)?))
         } else if content.peek(syn::token::Bracket) {
