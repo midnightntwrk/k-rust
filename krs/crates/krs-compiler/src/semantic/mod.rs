@@ -4,6 +4,7 @@ mod catalog;
 mod cell_states;
 mod configuration;
 mod configuration_rules;
+mod constants;
 mod error;
 mod evaluation;
 mod family_precedence;
@@ -72,6 +73,14 @@ pub fn lower_descriptor_bundle(
 ) -> Result<SemanticTheory, DescriptorLoweringError> {
     let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
     descriptors.sort_by(|left, right| left.id().cmp(right.id()));
+    // A constant is a name for a term: every use becomes the term before
+    // anything else reads the bundle, so no later check sees a constant.
+    let inlined = constants::inline_constants(&descriptors)?;
+    let descriptors = inlined
+        .descriptors
+        .iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<&Descriptor>>();
     let configurations = descriptors
         .iter()
         .filter(|descriptor| {
@@ -89,6 +98,12 @@ pub fn lower_descriptor_bundle(
     validate_all_stable_references(&descriptors, &declarations)?;
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
+    constants::check_constants(
+        &inlined.constants,
+        &declarations,
+        &production_catalog,
+        &semantic_sort_parents,
+    )?;
     let mut declaration_metadata = bundle
         .declarations()
         .iter()

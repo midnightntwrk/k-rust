@@ -78,6 +78,9 @@ pub fn __krs_host_payload(wire: &str, slots: __KrsSlots<'_>) -> HostDescriptorPa
         WirePayload::ContextAlias(value) => {
             HostDescriptorPayload::ContextAlias(Box::new(value.try_map_refs(map).unwrap()))
         }
+        WirePayload::Constant(value) => {
+            HostDescriptorPayload::Constant(Box::new(value.try_map_refs(map).unwrap()))
+        }
     }
 }
 

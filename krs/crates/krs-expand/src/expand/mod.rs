@@ -2,6 +2,7 @@
 
 mod claims;
 mod configuration;
+mod constant;
 mod constructors;
 mod enum_family;
 mod equation_table;
@@ -24,6 +25,7 @@ mod tokens;
 
 pub(crate) use claims::claim;
 pub(crate) use configuration::{cell, configuration};
+pub(crate) use constant::constant;
 pub(crate) use constructors::{constructor, function, orphan_strictness, symbol, token};
 pub(crate) use enum_family::constructors;
 pub(crate) use equation_table::equations;

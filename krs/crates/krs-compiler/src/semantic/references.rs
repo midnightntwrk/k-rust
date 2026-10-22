@@ -71,6 +71,8 @@ pub(super) fn validate_all_stable_references(
                 declarations.configuration(&alias.configuration.configuration)?;
                 validate_rule_cells_references(&alias.pattern, declarations)?;
             }
+            // Constants are substituted at their uses before lowering.
+            DescriptorPayload::Constant(_) => {}
         }
     }
     Ok(())

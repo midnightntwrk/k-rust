@@ -36,6 +36,11 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: String,
     },
+    /// A `#[k::constant]` item was outside the constant's shape.
+    InvalidConstant {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
     /// A `k::equations!` table was malformed.
     InvalidEquationTable {
         /// Complete stable explanation, naming the fix.
@@ -422,6 +427,7 @@ impl SyntaxErrorKind {
             Self::MissingArgument { .. } => codes::syntax::MISSING_ARGUMENT,
             Self::MissingFunctionSyntax => codes::syntax::MISSING_FUNCTION_SYNTAX,
             Self::InvalidFunctionShorthand { .. } => codes::syntax::INVALID_FUNCTION_SHORTHAND,
+            Self::InvalidConstant { .. } => codes::syntax::INVALID_CONSTANT,
             Self::InvalidEquationTable { .. } => codes::syntax::INVALID_EQUATION_TABLE,
             Self::DuplicateEquationRow { .. } => codes::syntax::DUPLICATE_EQUATION_ROW,
             Self::CatchAllEquationRow { .. } => codes::syntax::CATCH_ALL_EQUATION_ROW,
@@ -779,6 +785,7 @@ impl fmt::Display for SyntaxError {
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
             SyntaxErrorKind::InvalidFunctionShorthand { reason }
+            | SyntaxErrorKind::InvalidConstant { reason }
             | SyntaxErrorKind::InvalidEquationTable { reason }
             | SyntaxErrorKind::DuplicateEquationRow { reason }
             | SyntaxErrorKind::CatchAllEquationRow { reason }

@@ -637,6 +637,33 @@ impl Descriptor {
         .unwrap_or_else(|error| panic!("Descriptor seed {seed}: permuted rebuild failed: {error}"))
     }
 
+    /// Returns this descriptor with `payload` in place of its own, where
+    /// `payload` is its own payload with the value of a named constant
+    /// substituted for each use of one. Each substituted node is keyed
+    /// [`ProvenanceRole::InlinedConstant`], and `origins` gives one origin
+    /// per such key. Those keys are outside the parser's canonical
+    /// numbering, so the grammar and state contracts, which check that
+    /// numbering, are not checked again; the substitution does not change
+    /// the shape those contracts check.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DescriptorProvenanceError`] when an origin repeats a key.
+    pub fn with_inlined_constants(
+        &self,
+        payload: DescriptorPayload,
+        origins: Vec<DescriptorNodeOrigin>,
+    ) -> Result<Self, DescriptorProvenanceError> {
+        let mut all = self.provenance.origins().to_vec();
+        all.extend(origins);
+        Ok(Self {
+            id: self.id.clone(),
+            cfg: self.cfg.clone(),
+            provenance: DescriptorProvenance::new(self.provenance.primary_key().clone(), all)?,
+            payload,
+        })
+    }
+
     /// Returns the primary declaration's authored-to-descriptor provenance.
     #[must_use]
     pub fn origin(&self) -> &OriginStack {
@@ -666,6 +693,10 @@ impl Descriptor {
                     Some(StructuredRuleDescriptor::expected_primary_key()),
                 )
             }
+            DescriptorPayload::Constant(constant) => (
+                Some(constant.expected_provenance_keys()?),
+                Some(crate::transport::constant::ConstantDescriptor::expected_primary_key()),
+            ),
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
             | DescriptorPayload::FixedConfiguration(_)
@@ -740,7 +771,8 @@ impl Descriptor {
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
             | DescriptorPayload::Grammar(_)
-            | DescriptorPayload::StructuredRule(_) => Ok(()),
+            | DescriptorPayload::StructuredRule(_)
+            | DescriptorPayload::Constant(_) => Ok(()),
         }
     }
 }
@@ -988,6 +1020,8 @@ stage_shape! {
         HeadRule(value: Box<H> => [box via head]),
         /// One-sided reusable fixed-configuration context template.
         ContextAlias(value: Box<ContextAlias<S>> => [box nested]),
+        /// Named constant: a declared sort and a ground value.
+        Constant(value: Box<crate::transport::constant::ConstantPayload<S>> => [box nested]),
     }
 }
 
@@ -1027,6 +1061,7 @@ impl<S: crate::Stage, H: HeadRuleSentenceKind> Payload<S, H> {
             Self::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
             Self::HeadRule(rule) => rule.sentence_kind().item_kind(),
             Self::ContextAlias(_) => ItemKind::ContextAlias,
+            Self::Constant(_) => ItemKind::Constant,
         }
     }
 }

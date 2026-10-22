@@ -980,7 +980,8 @@ impl HostDescriptor {
             HostDescriptorPayload::Sort(_)
             | HostDescriptorPayload::Constructor(_)
             | HostDescriptorPayload::Grammar(_)
-            | HostDescriptorPayload::StructuredRule(_) => Ok(()),
+            | HostDescriptorPayload::StructuredRule(_)
+            | HostDescriptorPayload::Constant(_) => Ok(()),
         }
     }
 }
@@ -990,6 +991,9 @@ pub type HostDescriptorPayload = crate::bundle::Payload<crate::HostStage, HostHe
 
 /// Build-local host-stage form of [`crate::bundle::SortPayload`].
 pub type HostSortDescriptor = crate::bundle::SortPayload<crate::HostStage>;
+
+/// Build-local host-stage form of [`crate::ConstantPayload`].
+pub type HostConstantDescriptor = crate::ConstantPayload<crate::HostStage>;
 
 /// Build-local host-stage form of [`crate::bundle::Constructor`].
 pub type HostConstructorDescriptor = crate::bundle::Constructor<crate::HostStage>;

@@ -709,10 +709,8 @@ impl<'a> TermBuilder<'a> {
                 };
                 let authored_path = spelling(application.head());
                 let target = if lexical {
-                    let expression = self.lexical_rule_application_target(
-                        &turbofish_path(application),
-                        Some(application.arguments()),
-                    );
+                    let expression =
+                        self.lexical_rule_application_target(&turbofish_path(application));
                     slots.target_slot_unique(&expression)
                 } else {
                     self.application_wire_slot(
@@ -780,7 +778,7 @@ impl<'a> TermBuilder<'a> {
                 } else {
                     let authored_path = spelling(path);
                     let target = if lexical {
-                        let expression = self.lexical_rule_application_target(path, None);
+                        let expression = self.lexical_rule_application_target(path);
                         slots.target_slot_unique(&expression)
                     } else {
                         self.application_wire_slot(path, false, slots)?
@@ -1391,11 +1389,7 @@ impl<'a> TermBuilder<'a> {
         enabled && path.leading_colon.is_none() && path.segments.len() == 1
     }
 
-    fn lexical_rule_application_target(
-        &self,
-        authored: &Path,
-        arguments: Option<&TermArguments>,
-    ) -> TokenStream {
+    fn lexical_rule_application_target(&self, authored: &Path) -> TokenStream {
         let path = authored.clone();
         let ident = authored
             .segments
@@ -1403,13 +1397,12 @@ impl<'a> TermBuilder<'a> {
             .expect("one-segment lexical paths have one identifier");
         let selector = rule_application_selector(&ident.ident);
         let authored_spelling = spelling(authored);
-        let pattern = match arguments {
-            // `A { .. }` matches a unit, tuple, or record constructor alike, so
-            // `A()` names a unit variant as `Register::A()` does.
-            Some(TermArguments::Positional(values)) if values.is_empty() => quote!(#path { .. }),
-            Some(TermArguments::Positional(_) | TermArguments::Named(_)) => quote!(#path { .. }),
-            None => quote!(#path),
-        };
+        // `A { .. }` matches a unit, tuple, or record constructor alike, so
+        // `A()` names a unit variant as `Register::A()` does. A bare `A`,
+        // such as a named constant, is written the same way: in a Rust
+        // pattern a bare name that resolves to nothing would bind, while
+        // `A { .. }` makes rustc report the unresolved name.
+        let pattern = quote!(#path { .. });
         let facade = self.facade;
         // A path under the block's enum import repeats the import, so `Frame`
         // names the variant when the enum has one and the item in scope

@@ -1614,7 +1614,7 @@ fn collect_term_bindings(
     let (left, _) = crate::term::split_rewrite_images(term.nodes());
     for node in left {
         let binding = match node {
-            TermNode::Reference(path) => bare_ident(path),
+            TermNode::Reference(path) => crate::path::pattern_binder(path),
             TermNode::As { binding, .. } => Some(binding),
             _ => None,
         };

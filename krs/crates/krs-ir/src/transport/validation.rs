@@ -73,7 +73,7 @@ impl ValidationStage for DescriptorStage {
     }
 
     fn validate_application(application: &Self::Application) -> Result<(), GrammarTransportError> {
-        application.application.validate()
+        application.application.validate_term_head()
     }
 
     fn validate_fragment(

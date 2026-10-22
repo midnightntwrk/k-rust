@@ -127,6 +127,9 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidFunctionShorthand {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::InvalidConstant {
+            reason: String::from("example"),
+        },
         SyntaxErrorKind::InvalidEquationTable {
             reason: String::from("example"),
         },

@@ -60,7 +60,7 @@ fn __krs_rule_descriptor_7706b185ded6a76c() -> ::core::result::Result<
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Instruction::*;
                         let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(Halt) = &__krs_rule_application_witness {}
+                        if let ::core::option::Option::Some(Halt { .. }) = &__krs_rule_application_witness {}
                         ::k::__krs_resolve_rule_application::<
                             _,
                             6395597285178393498u64,

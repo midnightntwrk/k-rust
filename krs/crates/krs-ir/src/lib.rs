@@ -131,6 +131,7 @@ pub use transport::configuration::{
     ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, StageCellDeclaration,
     StageConfigurationInitializer, StateTransportError,
 };
+pub use transport::constant::{ConstantDescriptor, ConstantPayload};
 pub use transport::grammar::{
     Arguments, ArgumentsError, CellTermField, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,

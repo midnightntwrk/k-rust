@@ -11,6 +11,25 @@ pub(crate) fn is_plain_path(path: &Path) -> bool {
             .all(|segment| matches!(segment.arguments, syn::PathArguments::None))
 }
 
+/// Whether `ident` is spelled as Rust spells a constant: with an uppercase
+/// letter and no lowercase one (`IF`, `WORD_SIZE`, `P2`). In a pattern such a
+/// bare name refers to a `#[k::constant]` and binds nothing, as a Rust `const`
+/// in a pattern is compared, not bound; every other bare name is a binder.
+/// KRS binders are snake case, so the two spellings never meet.
+#[must_use]
+pub fn is_constant_name(ident: &syn::Ident) -> bool {
+    use syn::ext::IdentExt;
+    let text = ident.unraw().to_string();
+    text.chars().any(char::is_uppercase) && !text.chars().any(char::is_lowercase)
+}
+
+/// The binder a bare name in a pattern introduces: an unqualified
+/// one-segment path, unless it is spelled as a constant
+/// ([`is_constant_name`]).
+pub(crate) fn pattern_binder(path: &Path) -> Option<&syn::Ident> {
+    unqualified_path_ident(path).filter(|ident| !is_constant_name(ident))
+}
+
 pub(crate) fn plain_path_last(path: &Path) -> Option<&syn::PathSegment> {
     is_plain_path(path).then(|| path.segments.last()).flatten()
 }

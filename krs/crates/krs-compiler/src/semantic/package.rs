@@ -231,7 +231,10 @@ fn lower_module_descriptor(
                 production_catalog,
             )?);
         }
-        DescriptorPayload::Constructor(_) | DescriptorPayload::Cell(_) => {}
+        // Constants are substituted at their uses before lowering.
+        DescriptorPayload::Constructor(_)
+        | DescriptorPayload::Cell(_)
+        | DescriptorPayload::Constant(_) => {}
         DescriptorPayload::ConfigurationRule(rule) => {
             sentences.rules.push(lower_configuration_rule_descriptor(
                 descriptor,
@@ -364,6 +367,8 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
                 }
                 collect_rule_cells_packages(&alias.pattern, &mut packages);
             }
+            // Constants are substituted at their uses before lowering.
+            DescriptorPayload::Constant(_) => {}
         }
     }
     packages

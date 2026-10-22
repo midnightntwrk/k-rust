@@ -80,7 +80,7 @@ fn __krs_rule_descriptor_28374b87eb14f4b8() -> ::core::result::Result<
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Register::*;
                         let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(B) = &__krs_rule_application_witness {}
+                        if let ::core::option::Option::Some(B { .. }) = &__krs_rule_application_witness {}
                         ::k::__krs_resolve_rule_application::<
                             _,
                             12638225683462629381u64,
@@ -322,7 +322,7 @@ fn __krs_rule_descriptor_99baddc925745240() -> ::core::result::Result<
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Register::*;
                         let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(Immediate) = &__krs_rule_application_witness {}
+                        if let ::core::option::Option::Some(Immediate { .. }) = &__krs_rule_application_witness {}
                         ::k::__krs_resolve_rule_application::<
                             _,
                             10843325120475849882u64,
@@ -625,7 +625,7 @@ fn __krs_rule_descriptor_26ac63c0f73bf14c() -> ::core::result::Result<
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Register::*;
                         let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(HlIndirect) = &__krs_rule_application_witness {}
+                        if let ::core::option::Option::Some(HlIndirect { .. }) = &__krs_rule_application_witness {}
                         ::k::__krs_resolve_rule_application::<
                             _,
                             14281169331705544899u64,

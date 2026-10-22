@@ -1287,8 +1287,9 @@ impl Sample for DescriptorPayload {
                 Self::ConfigurationRule(sample::<Box<DescriptorConfigurationRule>>()),
                 Self::HeadRule(sample::<Box<crate::DescriptorHeadRule>>()),
                 Self::ContextAlias(sample::<Box<DescriptorContextAlias>>()),
+                Self::Constant(sample::<Box<ConstantDescriptor>>()),
             ],
-            9,
+            10,
             "DescriptorPayload",
             |value| match value {
                 Self::Sort(..) => 0,
@@ -1300,8 +1301,25 @@ impl Sample for DescriptorPayload {
                 Self::ConfigurationRule(..) => 6,
                 Self::HeadRule(..) => 7,
                 Self::ContextAlias(..) => 8,
+                Self::Constant(..) => 9,
             },
         )
+    }
+}
+impl Sample for ConstantDescriptor {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<DescriptorSortReference>(),
+            value: sample::<DescriptorTerm>(),
+        }]
+    }
+}
+impl Sample for WireConstant {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<WireSortReference>(),
+            value: sample::<WireTerm>(),
+        }]
     }
 }
 impl Sample for DescriptorProductionAttribute {
@@ -3929,8 +3947,9 @@ impl Sample for WirePayload {
                 Self::Cell(sample::<Box<WireCellDeclaration>>()),
                 Self::ConfigurationRule(sample::<Box<WireConfigurationRule>>()),
                 Self::ContextAlias(sample::<Box<WireContextAlias>>()),
+                Self::Constant(sample::<Box<WireConstant>>()),
             ],
-            9,
+            10,
             "WirePayload",
             |value| match value {
                 Self::Constructor(..) => 0,
@@ -3942,6 +3961,7 @@ impl Sample for WirePayload {
                 Self::Cell(..) => 6,
                 Self::ConfigurationRule(..) => 7,
                 Self::ContextAlias(..) => 8,
+                Self::Constant(..) => 9,
             },
         )
     }
@@ -4212,6 +4232,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DescriptorEvaluationStep>(corpus, "DescriptorEvaluationStep");
     insert::<DescriptorConfigurationRule>(corpus, "DescriptorConfigurationRule");
     insert::<DescriptorContextAlias>(corpus, "DescriptorContextAlias");
+    insert::<ConstantDescriptor>(corpus, "ConstantDescriptor");
     insert::<DescriptorFunctionContext>(corpus, "DescriptorFunctionContext");
     insert::<DescriptorDeclaration>(corpus, "DescriptorDeclaration");
     insert::<DescriptorFixedConfiguration>(corpus, "DescriptorFixedConfiguration");
@@ -4318,6 +4339,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<WireClaim>(corpus, "WireClaim");
     insert::<WireConfigurationRule>(corpus, "WireConfigurationRule");
     insert::<WireContextAlias>(corpus, "WireContextAlias");
+    insert::<WireConstant>(corpus, "WireConstant");
     insert::<WireFunctionContext>(corpus, "WireFunctionContext");
     insert::<WireHeadRule>(corpus, "WireHeadRule");
     insert::<WirePayload>(corpus, "WirePayload");

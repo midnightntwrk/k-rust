@@ -164,7 +164,8 @@ fn check_member(
     descriptor: &Descriptor,
 ) -> Result<(), DescriptorLoweringError> {
     let kind = match descriptor.id().item_kind() {
-        ItemKind::Claim | ItemKind::Simplification => return Ok(()),
+        // A constant is substituted at its uses and emits nothing.
+        ItemKind::Claim | ItemKind::Simplification | ItemKind::Constant => return Ok(()),
         ItemKind::Sort => "a sort",
         ItemKind::Constructor => "a constructor",
         ItemKind::Configuration => "a configuration",

@@ -7,7 +7,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
 use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
-use crate::path::{path_text, plain_path_last, unqualified_path_ident};
+use crate::path::{path_text, plain_path_last};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
     TermTree, TokenRange,
@@ -237,7 +237,7 @@ impl MapPatternBindings {
             .flat_map(|item| [item.key(), item.value()])
             .flat_map(|term| crate::term::split_rewrite_images(term.nodes()).0)
             .filter_map(|node| match node {
-                TermNode::Reference(path) => unqualified_path_ident(path).cloned(),
+                TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
                 TermNode::As { binding, .. } => Some(binding.clone()),
                 _ => None,
             })

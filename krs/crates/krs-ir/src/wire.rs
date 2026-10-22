@@ -140,6 +140,8 @@ pub type WireClaimBinder = ClaimBinder<WireStage>;
 pub type WireEvaluationStep = crate::EvaluationStep<WireStage>;
 /// Static wire-stage context alias.
 pub type WireContextAlias = ContextAlias<WireStage>;
+/// Static-slot named constant.
+pub type WireConstant = crate::transport::constant::ConstantPayload<WireStage>;
 /// Equation function context before host type-slot resolution (KF-025).
 pub type WireFunctionContext = FunctionContext<WireStage>;
 
@@ -288,6 +290,8 @@ pub enum WirePayload {
     HeadRule(Box<WireHeadRule>),
     /// Reusable fixed-configuration context template.
     ContextAlias(Box<WireContextAlias>),
+    /// Named constant.
+    Constant(Box<WireConstant>),
 }
 
 #[cfg(test)]

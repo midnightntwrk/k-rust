@@ -63,7 +63,8 @@ pub(super) fn build_semantic_sort_parents(
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
             | DescriptorPayload::HeadRule(_)
-            | DescriptorPayload::ContextAlias(_) => {}
+            | DescriptorPayload::ContextAlias(_)
+            | DescriptorPayload::Constant(_) => {}
         }
     }
     // K makes every generated cell sort a subsort of KItem, so a whole-group

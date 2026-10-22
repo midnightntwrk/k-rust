@@ -526,3 +526,11 @@ pub fn rewrite(input: TokenStream) -> TokenStream {
 pub fn context(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Context, attributes, item)
 }
+
+/// Declares a named constant: `#[k::constant] pub const IF: Int = 0xFF0F;`
+/// names a ground constructor term of the declared sort, which every use,
+/// in a pattern as in a result, stands for.
+#[proc_macro_attribute]
+pub fn constant(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Constant, attributes, item)
+}

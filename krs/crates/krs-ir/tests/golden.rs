@@ -33,6 +33,7 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
         | ItemKind::Desugar
         | ItemKind::Context => ProvenanceRole::RuleDeclaration,
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
+        ItemKind::Constant => ProvenanceRole::ConstantDeclaration,
     };
     let primary_key = ProvenanceKey::new(role, 0);
     krs_ir::testing::descriptor(

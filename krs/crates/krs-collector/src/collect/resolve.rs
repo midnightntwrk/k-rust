@@ -23,7 +23,11 @@ pub(super) fn declared_type_table(
         let Some(key) = descriptor.host.declared_type else {
             if matches!(
                 kind,
-                ItemKind::Sort | ItemKind::Constructor | ItemKind::Configuration | ItemKind::Cell
+                ItemKind::Sort
+                    | ItemKind::Constructor
+                    | ItemKind::Configuration
+                    | ItemKind::Cell
+                    | ItemKind::Constant
             ) {
                 return Err(CollectionError::new(
                     CollectionErrorKind::MissingTypeDeclaration,
@@ -35,9 +39,15 @@ pub(super) fn declared_type_table(
             }
             continue;
         };
+        // A named constant's Rust item is a unit struct, which a use names
+        // as it names a constructor.
         if !matches!(
             kind,
-            ItemKind::Sort | ItemKind::Constructor | ItemKind::Configuration | ItemKind::Cell
+            ItemKind::Sort
+                | ItemKind::Constructor
+                | ItemKind::Configuration
+                | ItemKind::Cell
+                | ItemKind::Constant
         ) {
             return Err(CollectionError::new(
                 CollectionErrorKind::ItemKindMismatch,
@@ -105,7 +115,8 @@ pub(super) fn declared_cell_field_table(
             | HostDescriptorPayload::StructuredRule(_)
             | HostDescriptorPayload::ConfigurationRule(_)
             | HostDescriptorPayload::HeadRule(_)
-            | HostDescriptorPayload::ContextAlias(_) => continue,
+            | HostDescriptorPayload::ContextAlias(_)
+            | HostDescriptorPayload::Constant(_) => continue,
         };
         for field in &declaration.fields {
             let key = field.reference.cell.resolve();
@@ -963,11 +974,13 @@ fn resolve_application_reference(
 ) -> Result<DescriptorApplicationReference, CollectionError> {
     let identity = reference.target.resolve();
     let application = if let Some((id, kind)) = declarations.get(&identity) {
-        if *kind != ItemKind::Constructor {
+        // A use of a named constant stays a reference to it until the
+        // compiler substitutes the constant's value.
+        if !matches!(kind, ItemKind::Constructor | ItemKind::Constant) {
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to `{}`, but a constructor is required",
+                    "Rust path `{}` resolves to `{}`, but a constructor or a constant is required",
                     reference.target.authored_path(),
                     id
                 ),

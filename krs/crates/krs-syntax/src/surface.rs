@@ -140,6 +140,8 @@ entry_points! {
         SpecModule = "spec_module",
         /// `#[k::context]` (KF-021).
         Context = "context",
+        /// `#[k::constant]` on a `const` item.
+        Constant = "constant",
     }
 }
 

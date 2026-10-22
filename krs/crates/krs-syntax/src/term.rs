@@ -1526,7 +1526,7 @@ fn pattern_binders(nodes: &[TermNode]) -> Vec<syn::Ident> {
     nodes
         .iter()
         .filter_map(|node| match node {
-            TermNode::Reference(path) if path.leading_colon.is_none() => path.get_ident().cloned(),
+            TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
             TermNode::As { binding, .. } => Some(binding.clone()),
             _ => None,
         })
@@ -2164,8 +2164,8 @@ fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Iden
             }
         };
         match tree {
-            TermTree::Reference(path) if !root && path.leading_colon.is_none() => {
-                if let Some(ident) = path.get_ident() {
+            TermTree::Reference(path) if !root => {
+                if let Some(ident) = crate::path::pattern_binder(path) {
                     push(ident);
                 }
             }
@@ -2401,8 +2401,7 @@ pub(crate) fn check_rewrite_right_bindings(
     let (_, right) = split_rewrite_images(nodes);
     for node in right {
         if let TermNode::Reference(path) = node
-            && path.leading_colon.is_none()
-            && let Some(name) = path.get_ident()
+            && let Some(name) = crate::path::pattern_binder(path)
             && !bindings.iter().any(|binding| binding == name)
         {
             return Err(local_rewrite_error(

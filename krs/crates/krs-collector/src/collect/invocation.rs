@@ -101,7 +101,8 @@ fn collect_module_items(
         | Item::Enum(syn::ItemEnum { attrs, .. })
         | Item::Fn(syn::ItemFn { attrs, .. })
         | Item::Impl(syn::ItemImpl { attrs, .. })
-        | Item::Type(syn::ItemType { attrs, .. }) = item
+        | Item::Type(syn::ItemType { attrs, .. })
+        | Item::Const(syn::ItemConst { attrs, .. }) = item
         {
             resolver.check(attrs)?;
         }
@@ -129,6 +130,7 @@ fn collect_module_items(
             }
             Item::Impl(item) => collect_impl_invocations(item, resolver, output)?,
             Item::Type(item) => collect_type_invocations(item, resolver, output)?,
+            Item::Const(item) => collect_const_invocations(item, resolver, output)?,
             Item::Macro(item) => {
                 if let Some(invocation) = invocation
                     && let InvocationKind::Function { entry, .. } = &invocation.kind
@@ -557,6 +559,33 @@ fn collect_type_invocations(
     if let Some(stack) = token_stack(&item_type.attrs, resolver)? {
         let token = TokenDeclaration::from_alias(item_type.clone()).map_err(source_syntax)?;
         push_token_invocation(&token, &stack, &item_type.vis, output)?;
+    }
+    Ok(())
+}
+
+/// Reparses a `#[k::constant]` on a `const` item.
+fn collect_const_invocations(
+    item_const: &syn::ItemConst,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    if item_const
+        .attrs
+        .iter()
+        .any(|attribute| resolver.invokes(attribute, AttributeMacro::Constant))
+    {
+        let constant =
+            krs_syntax::ConstantItem::from_item(item_const.clone()).map_err(source_syntax)?;
+        let invocation = parsed_invocation(
+            ProvenanceRole::ConstantDeclaration,
+            item_const.ident.to_string(),
+            constant.provenance().map_err(source_syntax)?,
+            ParsedInvocationPayload::Declaration,
+        )?;
+        output.push(with_visibility(
+            invocation,
+            rust_visibility(&item_const.vis)?,
+        ));
     }
     Ok(())
 }
@@ -1306,7 +1335,8 @@ pub(super) fn validate_reparsed_payload(
             | HostDescriptorPayload::Grammar(_)
             | HostDescriptorPayload::Cell(_)
             | HostDescriptorPayload::ConfigurationRule(_)
-            | HostDescriptorPayload::ContextAlias(_),
+            | HostDescriptorPayload::ContextAlias(_)
+            | HostDescriptorPayload::Constant(_),
             ParsedInvocationPayload::Declaration,
         ) => Ok(()),
         (HostDescriptorPayload::FixedConfiguration(_), ParsedInvocationPayload::Configuration) => {

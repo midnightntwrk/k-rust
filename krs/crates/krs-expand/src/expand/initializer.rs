@@ -278,13 +278,19 @@ fn inject_initializer_value(
     Ok(())
 }
 
-/// A literal or call term (`1`, `-1`, `list::empty()`, or notation for a call such as `a && b`),
-/// which is not a Rust value of the cell's marker type; a binding path and a state macro are.
+/// A literal, call, or named-constant term (`1`, `-1`, `list::empty()`, `PC_START`, or
+/// notation for a call such as `a && b`), which is not a Rust value of the cell's marker type;
+/// a binding path and a state macro are.
 fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
     matches!(
         expression,
         syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
     ) || krs_syntax::is_expression_notation(expression)
+        || matches!(expression, syn::Expr::Path(path)
+        if path.qself.is_none()
+            && path.path.segments.last().is_some_and(|segment| {
+                krs_syntax::is_constant_name(&segment.ident)
+            }))
 }
 
 fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {

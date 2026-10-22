@@ -1002,6 +1002,7 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     DescriptorPayload::ConfigurationRule(_) => "configuration_rule",
                     DescriptorPayload::HeadRule(_) => "head_rule",
                     DescriptorPayload::ContextAlias(_) => "context_alias",
+                    DescriptorPayload::Constant(_) => "constant",
                 };
                 let item = enum_name(&d.id().item_kind());
                 if accepts(descriptor_kind.as_deref(), kind) && accepts(item_kind.as_deref(), &item)

@@ -498,6 +498,7 @@ fn primary_key(kind: ItemKind) -> Result<ProvenanceKey, CollectionError> {
         | ItemKind::Context => ProvenanceRole::RuleDeclaration,
         ItemKind::Claim => ProvenanceRole::ClaimDeclaration,
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
+        ItemKind::Constant => ProvenanceRole::ConstantDeclaration,
         ItemKind::Grammar => {
             return Err(CollectionError::new(
                 CollectionErrorKind::ProvenanceMismatch,
@@ -523,6 +524,7 @@ fn descriptor_label(kind: ItemKind) -> &'static str {
         ItemKind::Context => "context",
         ItemKind::Claim => "claim",
         ItemKind::Grammar => "grammar",
+        ItemKind::Constant => "constant",
     }
 }
 

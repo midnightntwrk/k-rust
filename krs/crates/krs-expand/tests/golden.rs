@@ -1148,6 +1148,21 @@ pub struct Zero;
 ",
     ),
     (
+        "constant",
+        r"
+/// Interrupt flag register.
+#[k::constant]
+pub const IF: Int = 0xFF0F;
+",
+    ),
+    (
+        "constant_constructor",
+        r"
+#[k::constant]
+pub(crate) const START: Instr = Instruction::Jump(IF);
+",
+    ),
+    (
         "context_alias",
         r"
 #[k::context_alias(name = operand_eval, here = site)]
@@ -1458,6 +1473,7 @@ fn item_attributes(item: &mut syn::Item) -> &mut Vec<syn::Attribute> {
         syn::Item::Trait(item) => &mut item.attrs,
         syn::Item::Type(item) => &mut item.attrs,
         syn::Item::Mod(item) => &mut item.attrs,
+        syn::Item::Const(item) => &mut item.attrs,
         other => panic!("unsupported golden item: {}", other.to_token_stream()),
     }
 }

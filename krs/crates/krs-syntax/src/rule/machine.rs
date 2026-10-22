@@ -426,7 +426,7 @@ fn readable_state_bindings(state: &StateTerm) -> Vec<Ident> {
     for term in state.terms() {
         for node in crate::term::split_rewrite_images(term.nodes()).0 {
             let binding = match node {
-                crate::TermNode::Reference(path) => crate::path::unqualified_path_ident(path),
+                crate::TermNode::Reference(path) => crate::path::pattern_binder(path),
                 crate::TermNode::As { binding, .. } => Some(binding),
                 _ => None,
             };

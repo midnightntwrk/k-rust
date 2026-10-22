@@ -7,6 +7,7 @@
 
 mod attribute;
 mod configuration;
+mod constant;
 mod enum_constructor;
 mod error;
 mod function_shorthand;
@@ -18,6 +19,7 @@ mod lexical;
 mod notation;
 pub mod parse;
 mod path;
+pub use path::is_constant_name;
 mod provenance;
 mod range;
 mod rule;
@@ -45,6 +47,7 @@ pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
     option_content,
 };
+pub use constant::ConstantItem;
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
     EnumPrecedenceGroup,

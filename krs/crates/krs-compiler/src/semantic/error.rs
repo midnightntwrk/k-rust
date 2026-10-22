@@ -462,6 +462,14 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the clause name or production marker.
         range: Option<Box<SourceRange>>,
     },
+    /// A named constant's value is not a ground constructor term, the
+    /// constants form a cycle, or a use applies a constant to arguments.
+    InvalidConstant {
+        /// Stable reason naming the constant and the offending term.
+        reason: String,
+        /// Sole exact authored range of the offending term or use.
+        range: Option<Box<SourceRange>>,
+    },
     /// An `smt_lemma` mentions a function Z3 cannot see (KF-043).
     SmtLemmaUntranslatable {
         /// Stable reason naming the function and the fix.
@@ -689,6 +697,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::DuplicateSmtlib { reason, .. }
             | Self::InvalidMatchRestriction { reason, .. }
             | Self::InvalidStaticClause { reason, .. }
+            | Self::InvalidConstant { reason, .. }
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
@@ -778,6 +787,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatchRestriction { .. } => codes::analysis::INVALID_MATCH_RESTRICTION,
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
             Self::InvalidStaticClause { .. } => codes::analysis::INVALID_STATIC_CLAUSE,
+            Self::InvalidConstant { .. } => codes::analysis::INVALID_CONSTANT,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -829,6 +839,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::DuplicateSmtlib { range, .. }
             | Self::InvalidMatchRestriction { range, .. }
             | Self::InvalidStaticClause { range, .. }
+            | Self::InvalidConstant { range, .. }
             | Self::SmtLemmaUntranslatable { range, .. }
             | Self::InvalidConsoleCell { range, .. }
             | Self::CellCollection { range, .. } => range

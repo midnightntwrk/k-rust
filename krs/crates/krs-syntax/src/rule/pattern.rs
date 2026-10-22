@@ -846,6 +846,10 @@ fn validate_binding(identifier: &PatIdent, bindings: &mut Vec<Ident>) -> Result<
         && identifier.mutability.is_none()
         && identifier.subpat.is_none()
     {
+        // A name spelled as a constant refers to one and binds nothing.
+        if crate::path::is_constant_name(&identifier.ident) {
+            return Ok(());
+        }
         crate::parse::validate_authored_binder(
             &identifier.ident.to_string(),
             identifier.ident.span(),
@@ -870,7 +874,7 @@ fn term_pattern_bindings(term: &TermExpression) -> Result<Vec<Ident>, SyntaxErro
     let (left, _) = crate::term::split_rewrite_images(term.nodes());
     for binding in left.into_iter().filter_map(|node| match node {
         TermNode::ApplicationHead(_) | TermNode::Reference(_) if std::mem::take(&mut root) => None,
-        TermNode::Reference(path) => bare_path_ident(path).cloned(),
+        TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
         TermNode::As { binding, .. } => Some(binding.clone()),
         _ => None,
     }) {
@@ -906,7 +910,7 @@ pub(super) fn is_bound_path(path: &Path, bindings: &[Ident]) -> bool {
     })
 }
 
-pub(super) fn push_term_node_anchors(
+pub(crate) fn push_term_node_anchors(
     anchors: &mut Vec<ProvenanceAnchor>,
     nodes: &[TermNode],
     application_role: ProvenanceRole,

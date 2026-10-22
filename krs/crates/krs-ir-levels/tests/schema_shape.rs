@@ -153,6 +153,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DescriptorEvaluationStep",
     "DescriptorConfigurationRule",
     "DescriptorContextAlias",
+    "ConstantDescriptor",
     "DescriptorDeclaration",
     "DescriptorFixedConfiguration",
     "DescriptorFunctionContext",
@@ -219,6 +220,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "WireClaim",
     "WireConfigurationRule",
     "WireContextAlias",
+    "WireConstant",
     "WireFixedConfiguration",
     "WireFunctionContext",
     "WireHeadRule",
@@ -901,6 +903,7 @@ fn registry() -> Registry {
     unsupported!(DescriptorConfigurationRoot: DescriptorConfigurationRoot);
     unsupported!(DescriptorConfigurationRule: DescriptorConfigurationRule);
     unsupported!(DescriptorContextAlias: DescriptorContextAlias);
+    unsupported!(ConstantDescriptor: ConstantDescriptor);
     unsupported!(DescriptorFunctionContext: DescriptorFunctionContext);
     unsupported!(DefinitionFunctionContext: DefinitionFunctionContext);
     unsupported!(DescriptorDeclaration: DescriptorDeclaration);
@@ -971,6 +974,7 @@ fn registry() -> Registry {
     trace!(WireEvaluationStep: WireEvaluationStep);
     unsupported!(WireConfigurationRule: WireConfigurationRule);
     unsupported!(WireContextAlias: WireContextAlias);
+    unsupported!(WireConstant: WireConstant);
     unsupported!(WireFunctionContext: WireFunctionContext);
     unsupported!(WireFixedConfiguration: WireFixedConfiguration);
     unsupported!(WireHeadRule: WireHeadRule);

@@ -6,24 +6,25 @@ renamed_krs::sorts! {
 }
 
 #[k::constructors(sort = Reg8, result = renamed_krs::KResult)]
-#[k::precedence((A, B))]
+#[k::precedence((Ra, Rb))]
 pub enum Register {
     #[k::syntax("ra")]
-    A,
+    Ra,
     #[k::syntax("rb")]
-    B,
+    Rb,
 }
 
 #[k::function(total, internal)]
 pub fn Index(register: k::Term<Reg8>) -> k::Term<Int>;
 
-// A bare `A` is a binder in a pattern; rustc rejects it where `A` names a
-// unit variant, which `A()` or `Register::A` spells.
+// A bare `Ra` is a binder in a pattern; rustc rejects it where `Ra` names a
+// unit variant, which `Ra()` or `Register::Ra` spells. (A name spelled as a
+// constant, such as `RA`, is no binder: it names what it resolves to.)
 k::equations! {
     for Index;
     use Register::*;
-    index_a: A => 0; //~ ERROR mismatched types
-    index_b: Register::B => 1;
+    index_a: Ra => 0; //~ ERROR mismatched types
+    index_b: Register::Rb => 1;
 }
 
 fn main() {}

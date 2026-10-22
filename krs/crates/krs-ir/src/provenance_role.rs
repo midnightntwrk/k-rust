@@ -552,6 +552,15 @@ provenance_roles! {
     RuleRightCellsInstanceField => "rule_right_cells_instance_field",
     /// The rest of a collection entry in a rule result.
     RuleRightCellsInstancesRest => "rule_right_cells_instances_rest",
+    /// Name of a `#[k::constant]` item.
+    ConstantDeclaration => "constant_declaration",
+    /// Declared sort path of a `#[k::constant]` item.
+    ConstantType => "constant_type",
+    /// Value expression of a `#[k::constant]` item.
+    ConstantValue => "constant_value",
+    /// One node of a constant's value substituted at a use of the constant.
+    /// The compiler numbers these per descriptor; their origin is the use.
+    InlinedConstant => "inlined_constant",
 }
 
 impl Serialize for ProvenanceRole {

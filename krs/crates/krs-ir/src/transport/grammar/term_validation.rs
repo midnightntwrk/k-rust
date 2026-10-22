@@ -82,7 +82,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     ) -> Result<(), Self::Error> {
         require_key(&reference.key, self.provenance)?;
         require_key(path_key, self.provenance)?;
-        reference.application.validate()?;
+        reference.application.validate_term_head()?;
         if head_class == DescriptorApplicationHeadClass::BareReference && !arguments.is_empty() {
             return Err(GrammarTransportError::InvalidApplication(
                 GrammarApplicationReason::BareConstructorArguments,

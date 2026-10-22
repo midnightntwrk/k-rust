@@ -144,7 +144,8 @@ fn open_sort_edges(
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
             | DescriptorPayload::HeadRule(_)
-            | DescriptorPayload::ContextAlias(_) => {}
+            | DescriptorPayload::ContextAlias(_)
+            | DescriptorPayload::Constant(_) => {}
             DescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
                 GrammarDescriptor::Production(production) => {
                     if let DescriptorProductionOwner::Constructor { constructor } =

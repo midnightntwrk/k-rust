@@ -1600,6 +1600,7 @@ stage_shape! {
             to: Option<Box<Term<S>>> => [option box nested],
         },
     }
+    pre_map: term;
 }
 
 /// Which generated sort operation a [`Term::SortTest`] denotes.
@@ -2246,6 +2247,21 @@ impl DescriptorApplicationRef {
             ));
         }
         Ok(())
+    }
+
+    /// Checks the stable namespace of a term's application head: a
+    /// constructor, or a named constant, which the compiler substitutes
+    /// before it reads the term.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrammarTransportError::ApplicationReferenceKind`] when a
+    /// declared head is neither a constructor nor a constant.
+    pub fn validate_term_head(&self) -> Result<(), GrammarTransportError> {
+        match self {
+            Self::Declared(id) if id.item_kind() == ItemKind::Constant => Ok(()),
+            _ => self.validate(),
+        }
     }
 }
 
@@ -4547,6 +4563,21 @@ fn increment(value: u32) -> Result<u32, GrammarTransportError> {
         .ok_or(GrammarTransportError::InvalidProduction(
             GrammarProductionReason::ProvenanceOrdinalExceedsU32,
         ))
+}
+
+/// Inserts a constant's type key and its value's keys, which are numbered
+/// as the nodes of a rule result are.
+pub(super) fn collect_constant_keys(
+    constant: &super::constant::ConstantDescriptor,
+    keys: &mut BTreeSet<ProvenanceKey>,
+) -> Result<(), GrammarTransportError> {
+    insert_exact(keys, &constant.sort.key, ProvenanceRole::ConstantType, 0)?;
+    constant.sort.sort.validate()?;
+    constant.value.collect_expected_term_keys(
+        keys,
+        TermSide::Right,
+        &mut TermKeyCounters::default(),
+    )
 }
 
 fn validate_sort_reference(

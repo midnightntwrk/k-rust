@@ -24,6 +24,7 @@ impl fmt::Display for ItemKind {
             Self::Claim => "claim",
             Self::Desugar => "desugar",
             Self::Context => "context",
+            Self::Constant => "constant",
         })
     }
 }

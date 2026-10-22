@@ -226,6 +226,19 @@ pub trait RefMap<From: Stage, To: Stage> {
         &mut self,
         reference: From::ConstructorFieldSort,
     ) -> Result<To::ConstructorFieldSort, Self::Error>;
+    /// Rewrites a whole term before the references in it are mapped, at
+    /// every term node, outermost first; the default keeps the term. The
+    /// compiler substitutes named constants' values through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the implementation's error when the rewrite fails.
+    fn term(
+        &mut self,
+        term: crate::transport::grammar::Term<From>,
+    ) -> Result<crate::transport::grammar::Term<From>, Self::Error> {
+        Ok(term)
+    }
 }
 
 // Every field declares its mapping beside its type, including invariant fields.
@@ -282,7 +295,7 @@ macro_rules! stage_shape {
           $(($value:ident: $value_ty:ty => [$($value_map:tt)+]))?
           $({ $($(#[$field_attr:meta])* $field:ident: $ty:ty => [$($mapping:tt)+]),* $(,)? })?
         ),* $(,)?
-    }) => {
+    } $(pre_map: $hook:ident;)?) => {
         $(#[$attr])* pub enum $name<$s: $crate::Stage> {
             $($(#[$variant_attr])* $variant $(($value_ty))? $({ $($(#[$field_attr])* $field: $ty),* })?),*
         }
@@ -296,7 +309,9 @@ macro_rules! stage_shape {
             pub fn try_map_refs<To: $crate::Stage, M: $crate::RefMap<$s, To>>(
                 self, map: &mut M,
             ) -> Result<$name<To>, M::Error> {
-                Ok(match self { $(Self::$variant $(($value))? $({ $($field),* })? =>
+                let this = self;
+                $(let this = map.$hook(this)?;)?
+                Ok(match this { $(Self::$variant $(($value))? $({ $($field),* })? =>
                     $name::$variant $((stage_shape!(@map [$($value_map)+] $value map)))?
                         $({ $($field: stage_shape!(@map [$($mapping)+] $field map)),* })?),* })
             }
