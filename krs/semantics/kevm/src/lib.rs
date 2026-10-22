@@ -4560,198 +4560,111 @@ k::rules! {
     where gas: Int;
 }
 
-/// Opcodes that push one word of the call, transaction, or machine state for the base cost of 2 gas.
-#[k::rule(label = "begin-push-base-cost-execution")]
-fn begin_push_base_cost_execution(
-    op: k::Term<OpCode>,
-    stack: k::Term<WordStack>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::PushZero | Operation::Address | Operation::TxOrigin | Operation::MsgCaller | Operation::MsgCallValue | Operation::CallDataSize | Operation::CodeSize | Operation::TxGasPrice | Operation::ReturnDataSize | Operation::MemorySize | Operation::GasRemaining | Operation::ProgramCounter), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(stack),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::PreparePush(op, stack, gas, 2), ..tail),
-        ..state
-    }
-}
+k::rules! {
+    for Machine;
 
-/// Opcodes that push one word of the block header for the base cost of 2 gas.
-#[k::rule(label = "begin-push-base-cost-block")]
-fn begin_push_base_cost_block(
-    op: k::Term<OpCode>,
-    stack: k::Term<WordStack>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::BlockCoinbase | Operation::BlockTimestamp | Operation::BlockNumber | Operation::PrevRandao | Operation::BlockGasLimit | Operation::NetworkChainId | Operation::BlockBaseFee), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(stack),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::PreparePush(op, stack, gas, 2), ..tail),
-        ..state
+    /// Opcodes that push one word of the call, transaction, or machine state for the base cost of 2 gas.
+    begin_push_base_cost_execution: {
+        k: [op @ (Operation::PushZero | Operation::Address | Operation::TxOrigin | Operation::MsgCaller | Operation::MsgCallValue | Operation::CallDataSize | Operation::CodeSize | Operation::TxGasPrice | Operation::ReturnDataSize | Operation::MemorySize | Operation::GasRemaining | Operation::ProgramCounter), ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PreparePush(op, stack, gas, 2), ..],
     }
-}
+    where op: OpCode, stack: WordStack, gas: Int;
 
-/// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
-#[k::rule(label = "begin-stack-operation")]
-fn begin_stack_operation(
-    op: k::Term<OpCode>,
-    stack: k::Term<WordStack>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::Pop | Operation::Duplicate(_) | Operation::Swap(_)), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(stack),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::PrepareStack(op, stack, gas), ..tail),
-        ..state
+    /// Opcodes that push one word of the block header for the base cost of 2 gas.
+    begin_push_base_cost_block: {
+        k: [op @ (Operation::BlockCoinbase | Operation::BlockTimestamp | Operation::BlockNumber | Operation::PrevRandao | Operation::BlockGasLimit | Operation::NetworkChainId | Operation::BlockBaseFee), ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PreparePush(op, stack, gas, 2), ..],
     }
-}
+    where op: OpCode, stack: WordStack, gas: Int;
 
-/// Two-operand opcodes that cost 3 gas.
-#[k::rule(label = "begin-binary-very-low")]
-fn begin_binary_very_low(
-    op: k::Term<OpCode>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::Add | Operation::Sub | Operation::LessThan | Operation::GreaterThan | Operation::SignedLessThan | Operation::SignedGreaterThan | Operation::Equal | Operation::BitAnd | Operation::BitOr | Operation::BitXor | Operation::Byte | Operation::ShiftLeft | Operation::ShiftRight | Operation::SignedShiftRight), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, Stack::StackCons(_, _))),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 3), ..tail),
-        ..state
+    /// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
+    begin_stack_operation: {
+        k: [op @ (Operation::Pop | Operation::Duplicate(_) | Operation::Swap(_)), ..],
+        word_stack: stack,
+        gas: gas,
+    } => {
+        k: [crate::PrepareStack(op, stack, gas), ..],
     }
-}
+    where op: OpCode, stack: WordStack, gas: Int;
 
-/// Two-operand opcodes that cost 5 gas.
-#[k::rule(label = "begin-binary-low")]
-fn begin_binary_low(
-    op: k::Term<OpCode>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::Mul | Operation::Div | Operation::SignedDiv | Operation::Mod | Operation::SignedMod | Operation::SignExtend), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, Stack::StackCons(_, _))),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 5), ..tail),
-        ..state
+    /// Two-operand opcodes that cost 3 gas.
+    begin_binary_very_low: {
+        k: [op @ (Operation::Add | Operation::Sub | Operation::LessThan | Operation::GreaterThan | Operation::SignedLessThan | Operation::SignedGreaterThan | Operation::Equal | Operation::BitAnd | Operation::BitOr | Operation::BitXor | Operation::Byte | Operation::ShiftLeft | Operation::ShiftRight | Operation::SignedShiftRight), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, _)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 3), ..],
     }
-}
+    where op: OpCode, gas: Int;
 
-/// Three-operand modular opcodes that cost 8 gas.
-#[k::rule(label = "begin-ternary-mid")]
-fn begin_ternary_mid(
-    op: k::Term<OpCode>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::AddMod | Operation::MulMod), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, _)))),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 8), ..tail),
-        ..state
+    /// Two-operand opcodes that cost 5 gas.
+    begin_binary_low: {
+        k: [op @ (Operation::Mul | Operation::Div | Operation::SignedDiv | Operation::Mod | Operation::SignedMod | Operation::SignExtend), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, _)),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 5), ..],
     }
-}
+    where op: OpCode, gas: Int;
 
-/// One-operand opcodes that cost 3 gas.
-#[k::rule(label = "begin-unary-very-low")]
-fn begin_unary_very_low(
-    op: k::Term<OpCode>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::IsZero | Operation::BitNot | Operation::CallDataLoad), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, _)),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 3), ..tail),
-        ..state
+    /// Three-operand modular opcodes that cost 8 gas.
+    begin_ternary_mid: {
+        k: [op @ (Operation::AddMod | Operation::MulMod), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, _))),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 8), ..],
     }
-}
+    where op: OpCode, gas: Int;
 
-/// One-operand account queries charged the warm or cold account-access cost.
-#[k::rule(label = "begin-account-access")]
-fn begin_account_access(
-    op: k::Term<OpCode>,
-    account: k::Term<Int>,
-    accessed: k::Term<Set>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::AccountBalance | Operation::ExternalCodeSize | Operation::ExternalCodeHash), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(account, _)),
-        Substate::accessed_accounts: k::configuration::Cell(accessed),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, crate::AccountAccessCost(accessed, account)), ..tail),
-        ..state
+    /// One-operand opcodes that cost 3 gas.
+    begin_unary_very_low: {
+        k: [op @ (Operation::IsZero | Operation::BitNot | Operation::CallDataLoad), ..],
+        word_stack: Stack::StackCons(_, _),
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, 3), ..],
     }
-}
+    where op: OpCode, gas: Int;
 
-/// Copies from call data, code, or return data into memory, charged by width and memory expansion.
-#[k::rule(label = "begin-copy")]
-fn begin_copy(
-    op: k::Term<OpCode>,
-    destination: k::Term<Int>,
-    width: k::Term<Int>,
-    used: k::Term<Int>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::CallDataCopy | Operation::CodeCopy | Operation::ReturnDataCopy), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(destination, Stack::StackCons(_, Stack::StackCons(width, _)))),
-        CallState::memory_used: k::configuration::Cell(used),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, crate::CopyGasCost(used, destination, width)), ..tail),
-        ..state
+    /// One-operand account queries charged the warm or cold account-access cost.
+    begin_account_access: {
+        k: [op @ (Operation::AccountBalance | Operation::ExternalCodeSize | Operation::ExternalCodeHash), ..],
+        word_stack: Stack::StackCons(account, _),
+        accessed_accounts: accessed,
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, crate::AccountAccessCost(accessed, account)), ..],
     }
-}
+    where op: OpCode, account: Int, accessed: Set, gas: Int;
 
-/// RETURN and REVERT, charged the memory expansion of their output range.
-#[k::rule(label = "begin-return-or-revert")]
-fn begin_return_or_revert(
-    op: k::Term<OpCode>,
-    start: k::Term<Int>,
-    width: k::Term<Int>,
-    used: k::Term<Int>,
-    gas: k::Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(op @ (Operation::Return | Operation::Revert), tail @ ..),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(start, Stack::StackCons(width, _))),
-        CallState::memory_used: k::configuration::Cell(used),
-        CallState::gas: k::configuration::Cell(gas),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(crate::ChargeFixed(op, gas, crate::MemoryExpansionCost(used, start, width)), ..tail),
-        ..state
+    /// Copies from call data, code, or return data into memory, charged by width and memory expansion.
+    begin_copy: {
+        k: [op @ (Operation::CallDataCopy | Operation::CodeCopy | Operation::ReturnDataCopy), ..],
+        word_stack: Stack::StackCons(destination, Stack::StackCons(_, Stack::StackCons(width, _))),
+        memory_used: used,
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, crate::CopyGasCost(used, destination, width)), ..],
     }
+    where op: OpCode, destination: Int, width: Int, used: Int, gas: Int;
+
+    /// RETURN and REVERT, charged the memory expansion of their output range.
+    begin_return_or_revert: {
+        k: [op @ (Operation::Return | Operation::Revert), ..],
+        word_stack: Stack::StackCons(start, Stack::StackCons(width, _)),
+        memory_used: used,
+        gas: gas,
+    } => {
+        k: [crate::ChargeFixed(op, gas, crate::MemoryExpansionCost(used, start, width)), ..],
+    }
+    where op: OpCode, start: Int, width: Int, used: Int, gas: Int;
 }
 
 k::rules! {
