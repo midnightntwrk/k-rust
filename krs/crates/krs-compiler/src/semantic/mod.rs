@@ -15,6 +15,7 @@ mod lists;
 pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;
+mod operators;
 mod or_positions;
 mod origin;
 mod overload;
@@ -30,7 +31,9 @@ mod token_collisions;
 mod tokens;
 mod visibility;
 
-pub use error::{DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem};
+pub use error::{
+    DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OperatorProblem,
+};
 
 use crate::overlap::OverlapViolation;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
@@ -297,6 +300,17 @@ fn branch_ranges(
     let first_branch = exact_role_range(first, ProvenanceRole::RuleDeclaration)?;
     let second_branch = exact_role_range(second, ProvenanceRole::RuleDeclaration)?;
     (first_branch != head && second_branch != head).then_some((first_branch, second_branch))
+}
+
+/// The source-map key semantic lowering gives the application whose head has
+/// provenance `key` in `descriptor`, whatever operation it applies.
+pub(crate) fn application_source_key(
+    descriptor: &Descriptor,
+    key: &krs_ir::ProvenanceKey,
+) -> Option<krs_ir::SourceMapKey> {
+    origin::semantic_origin(descriptor, key.clone(), "term-application")
+        .ok()
+        .map(|origin| origin.key().clone())
 }
 
 /// The authored range of a rule's subject head, or of its name when the

@@ -964,24 +964,24 @@ impl TermExpression {
             Expr::Call(_) => TermRootKind::Call,
             Expr::Struct(_) => TermRootKind::Record,
             Expr::Lit(literal) if is_supported_literal(literal) => TermRootKind::Literal,
-            // `validate_expression` reports a minus on anything but a numeric literal.
+            // `a && b`, `a + b`, `!a`, `-a`, and `recv.op::<D>(..)` denote
+            // builtin calls.
+            other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
+            // The minus of a literal, which `validate_expression` checks.
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
             // A term block (K's `#let`) applies a generated function.
             Expr::Block(_) if context == TermExpressionContext::Expression => TermRootKind::Call,
-            Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => {
-                return Err(pattern_or_error(
-                    PATTERN_OR_OUTSIDE_LHS.to_owned(),
-                    binary.op.span(),
-                ));
-            }
-            // `a && b`, `a || b`, and `recv.op::<D>(..)` denote builtin calls.
-            other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
                 .root_kind(),
+            other @ (Expr::Cast(_) | Expr::Range(_)) => {
+                return Err(
+                    rust_only_operator(other).expect("a cast and a range are Rust-only operators")
+                );
+            }
             other => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
@@ -1510,10 +1510,6 @@ fn pattern_or_error(reason: String, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidPatternOr { reason }, span)
 }
 
-/// The reason given for `|` in a result or condition.
-pub(crate) const PATTERN_OR_OUTSIDE_LHS: &str =
-    "`|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!";
-
 /// The reason given for `|` next to a `..` remainder.
 pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not remainders";
 
@@ -1800,6 +1796,28 @@ fn validate_field_patterns(
     Ok(arguments)
 }
 
+/// The error for `as` and a range, Rust operators that no builtin operation
+/// stands behind, or `None` for any other expression.
+fn rust_only_operator(expression: &Expr) -> Option<SyntaxError> {
+    let (reason, span) = match expression {
+        Expr::Cast(cast) => (
+            "`as` converts Rust values, and no term operator does; convert with a builtin call such as `float::from_int(..)` or `string::from_int(..)`",
+            cast.as_token.span,
+        ),
+        Expr::Range(range) => (
+            "a range is not a term; `..` belongs only in a pattern, after the items it matches",
+            range.limits.span(),
+        ),
+        _ => return None,
+    };
+    Some(SyntaxError::new(
+        SyntaxErrorKind::InvalidExpressionNotation {
+            reason: reason.to_owned(),
+        },
+        span,
+    ))
+}
+
 fn validate_expression(
     expression: &Expr,
     context: TermExpressionContext,
@@ -1842,12 +1860,9 @@ fn validate_expression(
             CLOSURE_OUTSIDE_EXISTS.to_owned(),
             closure.span(),
         )),
-        // `A | B` is K's #Or only in a pattern; a result or condition has no
-        // alternatives (KF-030).
-        Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => Err(pattern_or_error(
-            PATTERN_OR_OUTSIDE_LHS.to_owned(),
-            binary.op.span(),
-        )),
+        Expr::Cast(_) | Expr::Range(_) => {
+            Err(rust_only_operator(expression).expect("a cast and a range are Rust-only operators"))
+        }
         _ => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "expected paths, named calls/records, parentheses, or literal arguments",
@@ -3360,8 +3375,7 @@ fn validate_record(
 }
 
 /// The reason given for a unary minus that is not part of an Int literal.
-pub(crate) const UNARY_MINUS: &str =
-    "unary minus is part of a literal only; K has no unary minus on Int, write int::sub(0, x)";
+pub(crate) const UNARY_MINUS: &str = "this minus is a literal's sign, which only an unsuffixed decimal integer or a float literal takes";
 
 /// The reason given for `-0`, which is not a canonical K `Int` token.
 pub(crate) const NEGATIVE_ZERO: &str = "`-0` is not an Int literal; write 0";
@@ -3806,7 +3820,7 @@ mod bytes_token_tests {
 
 #[cfg(test)]
 mod negative_literal_tests {
-    use super::{NEGATIVE_ZERO, TermExpression, TermLiteral, TermNode, TermRootKind, UNARY_MINUS};
+    use super::{NEGATIVE_ZERO, TermExpression, TermLiteral, TermNode, TermRootKind};
     use crate::{KrsSyntax, ProvenanceRole, SyntaxErrorKind};
 
     fn literals(source: &str) -> Vec<String> {
@@ -3845,13 +3859,30 @@ mod negative_literal_tests {
     }
 
     #[test]
-    fn a_minus_on_anything_else_is_rejected() {
+    fn a_minus_on_anything_but_a_literal_is_the_negation_operator() {
+        for source in ["-x", "Sgn(-x)", "Sgn(-(1))", "Sgn(--1)", "Sgn(-Zero())"] {
+            let term = TermExpression::parse_source(source).unwrap();
+            let negations = term
+                .nodes()
+                .iter()
+                .filter(|node| {
+                    matches!(node, TermNode::ApplicationHead(path)
+                        if crate::path::path_text(path) == "__operator::neg")
+                })
+                .count();
+            assert_eq!(negations, 1, "{source}");
+        }
+        assert_eq!(
+            TermExpression::parse_source("-x").unwrap().root_kind(),
+            TermRootKind::Call
+        );
+        // `--1` negates the literal `-1`.
+        assert_eq!(literals("Sgn(--1)"), ["-1"]);
+    }
+
+    #[test]
+    fn a_malformed_signed_literal_is_rejected() {
         for (source, expected) in [
-            ("-x", UNARY_MINUS),
-            ("Sgn(-x)", UNARY_MINUS),
-            ("Sgn(-(1))", UNARY_MINUS),
-            ("Sgn(--1)", UNARY_MINUS),
-            ("Sgn(-Zero())", UNARY_MINUS),
             ("Sgn(-0)", NEGATIVE_ZERO),
             ("Sgn(-0_0)", NEGATIVE_ZERO),
             (

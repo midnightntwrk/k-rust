@@ -241,7 +241,8 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
         }
     };
     let arguments_range = TokenRange::for_tokens(&tokens.iter().cloned().collect::<TokenStream>())?;
-    let patterns = argument_patterns(&arguments)?;
+    let patterns =
+        argument_patterns(&arguments).map_err(|error| arguments_error(&arguments, error))?;
     let arity = patterns.len();
     input.parse::<Token![=>]>()?;
     let result: Expr = input.parse()?;
@@ -585,6 +586,21 @@ fn argument_patterns(arguments: &Group) -> syn::Result<Punctuated<Pat, Token![,]
         Punctuated::<Pat, Token![,]>::parse_terminated_with(input, Pat::parse_multi)
     })
     .parse2(arguments.stream())
+}
+
+/// `error`, the failure to parse a row's arguments as patterns, or the
+/// notation error when an argument is an operator, a connective, or a method
+/// call, which a left-hand side writes as the call it denotes.
+fn arguments_error(arguments: &Group, error: syn::Error) -> ParseError {
+    (|input: ParseStream<'_>| Punctuated::<Expr, Token![,]>::parse_terminated(input))
+        .parse2(arguments.stream())
+        .ok()
+        .and_then(|expressions| {
+            expressions
+                .iter()
+                .find_map(crate::notation::notation_in_pattern)
+        })
+        .map_or_else(|| error.into(), Into::into)
 }
 
 fn canonical_integer(digits: &str) -> String {

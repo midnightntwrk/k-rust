@@ -16,6 +16,15 @@ pub enum LexicalProblem {
     Recursive,
 }
 
+/// How an operator (`a + b`) fails to denote one builtin operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperatorProblem {
+    /// The operands' sorts choose no builtin domain, or two.
+    Ambiguous,
+    /// The chosen domain defines no such operation (`&` on `Bool`).
+    Undefined,
+}
+
 /// The fresh-value rule a definition breaks (KF-022).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FreshProblem {
@@ -262,6 +271,18 @@ pub enum DescriptorLoweringError {
         /// Stable reason.
         reason: String,
         /// Sole exact authored range of the or-pattern.
+        range: Option<Box<SourceRange>>,
+    },
+    /// An operator's operands choose no single builtin domain, or the domain
+    /// they choose does not define the operator.
+    InvalidOperator {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Which of the two failures it is.
+        problem: OperatorProblem,
+        /// Stable reason, naming the calls to write instead.
+        reason: String,
+        /// Sole exact authored range of the operator.
         range: Option<Box<SourceRange>>,
     },
     /// A `k::matches!` (K's `:=K`) pattern name shadows a rule binder or is
@@ -651,6 +672,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
+            | Self::InvalidOperator { reason, .. }
             | Self::InvalidMatches { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
@@ -722,6 +744,10 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
+            Self::InvalidOperator { problem, .. } => match problem {
+                OperatorProblem::Ambiguous => codes::analysis::AMBIGUOUS_OPERATOR,
+                OperatorProblem::Undefined => codes::syntax::INVALID_EXPRESSION_NOTATION,
+            },
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
@@ -785,6 +811,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidPatternAs { range, .. }
             | Self::InvalidPatternOr { range, .. }
+            | Self::InvalidOperator { range, .. }
             | Self::InvalidMatches { range, .. }
             | Self::InvalidLet { range, .. }
             | Self::MlPlacement { range, .. }

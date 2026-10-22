@@ -87,10 +87,8 @@ fn int_and_bool_literals_are_root_and_nested_nodes() {
 #[test]
 fn out_of_scope_rust_expressions_are_rejected() {
     for source in [
-        "lhs + rhs",
-        "lhs & rhs",
-        "!flag",
-        "lhs < rhs",
+        "*pointer",
+        "lhs = rhs",
         "if test { A } else { B }",
         "Ctor { field, ..base }",
         "42u32",
@@ -401,4 +399,162 @@ fn readable_patterns_name_notation_where_a_pattern_parser_stops() {
         };
         assert!(reason.contains(expected), "{source}: {reason}");
     }
+}
+
+#[test]
+fn operators_denote_their_markers_with_rust_precedence() {
+    for (source, expected) in [
+        ("a + b", "__operator::add(a, b)"),
+        ("a - b * c", "__operator::sub(a, __operator::mul(b, c))"),
+        ("a / b % c", "__operator::rem(__operator::div(a, b), c)"),
+        ("a << 1 >> b", "__operator::shr(__operator::shl(a, 1), b)"),
+        (
+            "(a & 15) + (b & 15) > 15",
+            "__operator::gt(__operator::add(__operator::bit_and(a, 15), __operator::bit_and(b, 15)), 15)",
+        ),
+        (
+            "a & 15 == 0",
+            "__operator::eq(__operator::bit_and(a, 15), 0)",
+        ),
+        (
+            "a | b ^ c & d",
+            "__operator::bit_or(a, __operator::bit_xor(b, __operator::bit_and(c, d)))",
+        ),
+        ("-x * y", "__operator::mul(__operator::neg(x), y)"),
+        ("!(a == b)", "__operator::not(__operator::eq(a, b))"),
+        (
+            "!a && b != c",
+            "bool::and_then(__operator::not(a), __operator::ne(b, c))",
+        ),
+        (
+            "a <= b || a >= c",
+            "bool::or_else(__operator::le(a, b), __operator::ge(a, c))",
+        ),
+        ("a < -1", "__operator::lt(a, -1)"),
+        ("x - -1.5", "__operator::sub(x, -1.5)"),
+        ("s + t", "__operator::add(s, t)"),
+        ("Wrap(n + 1)", "Wrap(__operator::add(n, 1))"),
+        ("n.add::<Int>(1) * 2", "__operator::mul(int::add(n, 1), 2)"),
+    ] {
+        assert_eq!(denoted_source(source), expected, "{source}");
+    }
+}
+
+#[test]
+fn operator_heads_span_the_operator() {
+    let source = "a <= b + -c";
+    let term = krs_syntax::TermExpression::parse_source(source).unwrap();
+    let columns = |range: krs_syntax::TokenRange| (range.start().column, range.end().column);
+    let heads = term
+        .full_provenance()
+        .unwrap()
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::TermApplicationHead)
+        .map(|anchor| columns(anchor.range()))
+        .collect::<Vec<_>>();
+    assert_eq!(heads, [(2, 4), (7, 8), (9, 10)]);
+}
+
+#[test]
+fn denoted_tokens_call_the_operator_markers() {
+    let term = krs_syntax::TermExpression::parse_source("Wrap(!a, b * -c < 1)").unwrap();
+    let builtin: syn::Path = syn::parse_str("::renamed::builtin").unwrap();
+    assert_eq!(
+        term.denoted_tokens(&builtin).to_string(),
+        "Wrap (:: renamed :: builtin :: __operator :: not (a) , :: renamed :: builtin :: __operator :: lt (:: renamed :: builtin :: __operator :: mul (b , :: renamed :: builtin :: __operator :: neg (c)) , 1))"
+    );
+}
+
+#[test]
+fn rust_only_operators_name_the_term_form() {
+    for (source, expected) in [
+        (
+            "Wrap(a += 1)",
+            "`+=` assigns, and a term has nothing to assign to; write the value `a + b`",
+        ),
+        ("a <<= b", "`<<=` assigns"),
+        ("x as Int", "`as` converts Rust values"),
+        ("Wrap(a..b)", "a range is not a term"),
+    ] {
+        let error = krs_syntax::TermExpression::parse_source(source).unwrap_err();
+        let SyntaxErrorKind::InvalidExpressionNotation { reason } = error.kind() else {
+            panic!("{source}: expected an expression-notation error, found {error}");
+        };
+        assert!(reason.contains(expected), "{source}: {reason}");
+    }
+}
+
+#[test]
+fn a_left_hand_side_rejects_operators_naming_their_calls() {
+    for (source, expected) in [
+        (
+            "fn r(k::term![Check(n + 1)]: Term<Bool>) -> Term<Bool> { n }",
+            "`+` is not a pattern: a left-hand side matches a builtin operation only as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`",
+        ),
+        (
+            "fn r(k::term![Check(a == b)]: Term<Bool>) -> Term<Bool> { a }",
+            "`==` is not a pattern",
+        ),
+        (
+            "fn r(k::term![Check(-n)]: Term<Bool>) -> Term<Bool> { n }",
+            "`-` is not a pattern: a left-hand side matches a builtin operation only as its call, `int::sub(0, ..)` or `float::neg(..)`",
+        ),
+        (
+            "fn r(k::term![Check(!b)]: Term<Bool>) -> Term<Bool> { b }",
+            "`int::bit_not(..)` or `bool::not(..)`",
+        ),
+    ] {
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
+        let SyntaxErrorKind::InvalidExpressionNotation { reason } = error.kind() else {
+            panic!("{source}: expected an expression-notation error, found {error}");
+        };
+        assert!(reason.contains(expected), "{source}: {reason}");
+    }
+    let error =
+        krs_syntax::RuleBlock::parse_source("for Machine; tick: { pc: p + 1 } => { pc: p };")
+            .unwrap_err();
+    assert!(
+        error.to_string().contains("`+` is not a pattern"),
+        "{error}"
+    );
+}
+
+#[test]
+fn operators_are_accepted_wherever_the_denoted_call_is() {
+    let rule = krs_syntax::RuleItem::parse_source(
+        "#[k::requires(n > 0 && (t < c || b & m != b))]
+         fn r(k::term![Check(n, t, c, b, m)]: Term<Int>) -> Term<Int> { n * 2 - t }",
+    )
+    .unwrap();
+    assert_eq!(
+        denoted(rule.requires().unwrap().term().tree()),
+        "bool::and_then(__operator::gt(n, 0), bool::or_else(__operator::lt(t, c), __operator::ne(__operator::bit_and(b, m), b)))"
+    );
+    assert_eq!(
+        denoted(rule.result().unwrap().tree()),
+        "__operator::sub(__operator::mul(n, 2), t)"
+    );
+    let sequence =
+        krs_syntax::parse_k_sequence_expression("Push(x + 1), Pop()".parse().unwrap()).unwrap();
+    assert_eq!(
+        denoted(sequence.items()[0].tree()),
+        "Push(__operator::add(x, 1))"
+    );
+    let or_bool = krs_syntax::TermExpression::parse_source("k::or_bool!(a < b, !c)").unwrap();
+    assert!(matches!(or_bool.tree(), TermTree::OrBool { .. }));
+}
+
+#[test]
+fn a_pattern_alternative_is_not_reported_as_an_operator() {
+    let error = krs_syntax::RuleItem::parse_source(
+        "fn r(k::term![Check(Red() | b.lt::<Int>(c))]: Term<Bool>) -> Term<Bool> { b }",
+    )
+    .unwrap_err();
+    let SyntaxErrorKind::InvalidExpressionNotation { reason } = error.kind() else {
+        panic!("expected an expression-notation error, found {error}");
+    };
+    assert!(
+        reason.starts_with("a method call is not a pattern"),
+        "{reason}"
+    );
 }

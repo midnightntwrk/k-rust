@@ -21,10 +21,10 @@ use super::detail::{
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
-    BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
-    ListOperation, MlConnective, ProductionFieldId, ProductionGroupId, ProvenanceKey,
-    ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation, SmtFragment, StableItemId,
-    StrictnessKind, TermMapOperation,
+    BuiltinOperation, BuiltinOperator, BuiltinSort, FormatFragment, GroupAssociativity,
+    HookOperation, ItemKind, ListOperation, MlConnective, ProductionFieldId, ProductionGroupId,
+    ProvenanceKey, ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation, SmtFragment,
+    StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -111,6 +111,9 @@ pub enum DescriptorApplicationRef {
     /// A matching-logic connective of `k::ml` (KF-039): a predicate, never an
     /// object term.
     Ml(MlConnective),
+    /// A Rust operator (`a + b`), which denotes the builtin operation of the
+    /// domain semantic analysis chooses from its operands' inferred sorts.
+    Operator(BuiltinOperator),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -370,6 +373,8 @@ pub struct HostBuiltinRegistry {
     pub set_operations: [HostTypeKey; SetOperation::ALL.len()],
     /// Registered `k::ml` connective markers in [`MlConnective::ALL`] order (KF-039).
     pub ml_connectives: [HostTypeKey; MlConnective::ALL.len()],
+    /// Registered operator markers in [`BuiltinOperator::ALL`] order.
+    pub operators: [HostTypeKey; BuiltinOperator::ALL.len()],
 }
 
 impl HostBuiltinRegistry {
@@ -389,6 +394,7 @@ impl HostBuiltinRegistry {
             .chain(&self.list_operations)
             .chain(&self.set_operations)
             .chain(&self.ml_connectives)
+            .chain(&self.operators)
         {
             if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
@@ -455,6 +461,16 @@ impl HostBuiltinRegistry {
             .zip(&self.ml_connectives)
             .find(|(_, key)| key.resolve() == target)
             .map(|(connective, _)| connective)
+    }
+
+    /// Resolves one build-local type as an operator.
+    #[must_use]
+    pub fn resolve_operator(&self, target: TypeId) -> Option<BuiltinOperator> {
+        BuiltinOperator::ALL
+            .into_iter()
+            .zip(&self.operators)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(operator, _)| operator)
     }
 }
 
@@ -2288,7 +2304,8 @@ fn validate_collection_application_shape(
         // reports the connective's arity (KF-039).
         DescriptorApplicationRef::Declared(_)
         | DescriptorApplicationRef::Builtin(_)
-        | DescriptorApplicationRef::Ml(_) => {
+        | DescriptorApplicationRef::Ml(_)
+        | DescriptorApplicationRef::Operator(_) => {
             return Ok(());
         }
     };

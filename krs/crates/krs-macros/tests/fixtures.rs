@@ -113,6 +113,37 @@ fn expression_notation_emits_the_k_of_the_calls_it_denotes() {
 }
 
 #[test]
+fn operators_emit_the_k_of_the_calls_they_denote() {
+    let manifest = fixture("negative");
+    let output = cargo_fixture(&manifest)
+        .args(&["--quiet", "--bin", "operator_notation_emits_call_form"])
+        .run();
+    assert!(
+        output.status.success(),
+        "operator fixture failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    expect_test::expect_file!["golden/operator_notation_rule.txt"]
+        .assert_eq(std::str::from_utf8(&output.stdout).unwrap());
+}
+
+#[test]
+fn an_operator_whose_operands_choose_no_domain_names_the_explicit_forms() {
+    expect_test::expect![[r"
+        `==` has operands of sorts `Obj` and `Obj`, which choose no builtin domain; write the operation you mean: `a.eq::<Int>(b)`, `a.eq::<Bool>(b)`, `a.eq::<String>(b)`, `a.eq::<Float>(b)`, or `a.eq::<K>(b)` to compare terms
+    "]]
+    .assert_eq(&run_fixture("operator_ambiguous"));
+}
+
+#[test]
+fn bitwise_and_on_bool_points_to_the_connectives() {
+    expect_test::expect![[r"
+        `&` is not a `Bool` connective: Rust's precedence would make `a == b & c == d` a parse error; write `a && b`, or `bool::and(a, b)` to evaluate both operands
+    "]]
+    .assert_eq(&run_fixture("operator_bool_bitand"));
+}
+
+#[test]
 fn map_update_lookalike_is_rejected_after_type_identity_resolution() {
     let manifest = fixture("negative");
     let output = cargo_fixture(&manifest)

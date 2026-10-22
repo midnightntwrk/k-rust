@@ -407,6 +407,86 @@ fn total_functions_warn_where_no_equation_applies() {
     .assert_debug_eq(&lines);
 }
 
+/// Each builtin call of [`LANGUAGE`]'s guards and results, and the operator
+/// notation that denotes it.
+const OPERATOR_SPELLINGS: &[(&str, &str)] = &[
+    ("value.lt::<Int>(0)", "value < 0"),
+    ("value.gt::<Int>(255)", "value > 255"),
+    ("value.shift_right::<Int>(4)", "value >> 4"),
+    ("int::le(width, 0)", "width <= 0"),
+    (
+        "int::gt(width, 0) && int::lt(value, int::shift_left(1, int::sub(width, 1)))",
+        "width > 0 && value < 1 << (width - 1)",
+    ),
+    (
+        "int::gt(width, 0) && int::ge(value, int::shift_left(1, int::sub(width, 1)))",
+        "width > 0 && value >= 1 << (width - 1)",
+    ),
+    (
+        "int::sub(value, int::shift_left(1, width))",
+        "value - (1 << width)",
+    ),
+    (
+        "int::ge(index, 0) && int::lt(index, list::size(items)) && int::eq(list::get(items, index), 0)",
+        "index >= 0 && index < list::size(items) && list::get(items, index) == 0",
+    ),
+    (
+        "int::ge(index, 0) && int::lt(index, list::size(items)) && int::ne(list::get(items, index), 0)",
+        "index >= 0 && index < list::size(items) && list::get(items, index) != 0",
+    ),
+    (
+        "int::lt(index, 0) || int::ge(index, list::size(items))",
+        "index < 0 || index >= list::size(items)",
+    ),
+    (
+        "int::ge(int::div(value, divisor), 0)",
+        "value / divisor >= 0",
+    ),
+    (
+        "int::lt(int::div(value, divisor), 0)",
+        "value / divisor < 0",
+    ),
+    ("High(opcode).eq::<Int>(0)", "High(opcode) == 0"),
+    ("High(opcode).eq::<Int>(1)", "High(opcode) == 1"),
+    ("op.ne::<Int>(6)", "op != 6"),
+    ("value.lt::<Int>(128)", "value < 128"),
+    ("value.ge::<Int>(128)", "value >= 128"),
+    ("value.sub::<Int>(256)", "value - 256"),
+    (
+        "k::builtin::bytes::length(value).eq::<Int>(0)",
+        "k::builtin::bytes::length(value) == 0",
+    ),
+];
+
+/// The lint reads an operator guard as it reads the call the operator
+/// denotes: [`LANGUAGE`] with every guard and result written with operators
+/// warns exactly as it does with calls, and emits the same K.
+#[test]
+fn operator_guards_warn_as_the_calls_they_denote() {
+    let mut operators = LANGUAGE.to_owned();
+    for (call, operator) in OPERATOR_SPELLINGS {
+        assert!(operators.contains(call), "`{call}` no longer occurs");
+        operators = operators.replace(call, operator);
+    }
+    let target = shared_fixture_target();
+    let emitted = |source: &str| {
+        let temporary = temp_dir();
+        package(temporary.path(), "language", source, None, "main");
+        let manifest = workspace(temporary.path(), &["language"]);
+        let output = temporary.path().join("emitted");
+        let (success, lines) = emit(target.path(), &manifest, "language", &output, &[]);
+        assert!(success, "{lines:#?}");
+        (
+            lines,
+            fs::read_to_string(output.join("definition.k")).unwrap(),
+        )
+    };
+    let (call_lines, call_k) = emitted(LANGUAGE);
+    let (operator_lines, operator_k) = emitted(&operators);
+    assert_eq!(operator_lines, call_lines);
+    assert_eq!(operator_k, call_k);
+}
+
 #[test]
 fn a_constructor_another_package_adds_uncovers_a_total_function() {
     let target = shared_fixture_target();

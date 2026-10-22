@@ -105,6 +105,11 @@ impl Sample for BuiltinOperation {
         vec![Self::IntAdd]
     }
 }
+impl Sample for BuiltinOperator {
+    fn samples() -> Vec<Self> {
+        vec![Self::Add]
+    }
+}
 impl Sample for BuiltinSort {
     fn samples() -> Vec<Self> {
         vec![Self::KSequence]
@@ -1214,8 +1219,9 @@ impl Sample for DescriptorApplicationRef {
                 Self::List(sample::<ListOperation>()),
                 Self::Set(sample::<SetOperation>()),
                 Self::Ml(sample::<MlConnective>()),
+                Self::Operator(sample::<BuiltinOperator>()),
             ],
-            6,
+            7,
             "DescriptorApplicationRef",
             |value| match value {
                 Self::Declared(..) => 0,
@@ -1224,6 +1230,7 @@ impl Sample for DescriptorApplicationRef {
                 Self::List(..) => 3,
                 Self::Set(..) => 4,
                 Self::Ml(..) => 5,
+                Self::Operator(..) => 6,
             },
         )
     }

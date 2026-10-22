@@ -114,14 +114,6 @@ fn malformed_or_patterns_are_rejected() {
             "fn r(k::term![Red() | Green()]: Term<Int>) -> Term<Int> { 1 }",
             "`|` cannot join whole `k::term!` subjects",
         ),
-        (
-            "fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { Red() | Green() }",
-            "`|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!",
-        ),
-        (
-            "#[k::requires(a | b)] fn r(k::term![Dup(a, b)]: Term<Exp>) -> Term<Exp> { a }",
-            "`|` is a pattern alternative; for Bool disjunction use `||`, bool::or, or k::or_bool!",
-        ),
     ] {
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(reason(&error).contains(expected), "{source}: {error}");
@@ -145,11 +137,6 @@ fn malformed_or_patterns_are_rejected() {
         reason(&readable).contains("variable `x` is not bound in all alternatives"),
         "{readable}"
     );
-    let result = krs_syntax::RuleBlock::parse_source(
-        "for Exp; use ExpSyntax::*; bad: Dup(a) => Red() | Green();",
-    )
-    .unwrap_err();
-    assert!(reason(&result).contains("pattern alternative"), "{result}");
     let records = krs_syntax::RuleBlock::parse_source(
         "for Machine; bad: { fuel: f } | { acc: f } => { fuel: f };",
     )
@@ -162,4 +149,29 @@ fn malformed_or_patterns_are_rejected() {
         "for Machine; good: { fuel: Red() | Green(), acc: a } => { fuel: Red() };",
     );
     assert!(inside.is_ok(), "{:?}", inside.err());
+}
+
+#[test]
+fn bar_outside_a_pattern_is_the_bitwise_or_operator() {
+    // A result has no alternatives: `|` there is the operator, whose operands
+    // choose its domain once their sorts are inferred.
+    let rule = krs_syntax::RuleItem::parse_source(
+        "fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { Red() | Green() }",
+    )
+    .unwrap();
+    let TermTree::Application(application) = rule.result().expect("a result").tree() else {
+        panic!("`|` in a result is an application");
+    };
+    assert!(application.is_notation());
+    assert_eq!(
+        krs_syntax::surface::path_text(application.head()),
+        "__operator::bit_or"
+    );
+    // A readable clause's result likewise.
+    assert!(
+        krs_syntax::RuleBlock::parse_source(
+            "for Exp; use ExpSyntax::*; flags: Dup(a) => Red() | Green();",
+        )
+        .is_ok()
+    );
 }

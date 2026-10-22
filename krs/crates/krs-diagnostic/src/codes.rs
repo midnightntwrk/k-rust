@@ -108,6 +108,7 @@ register_codes! {
         INVALID_LITERAL: "krs::reference::invalid-literal" => "A canonical integer payload is not valid Rust tokens.",
         UNSUPPORTED_BUILTIN_TOKEN: "krs::reference::unsupported-builtin-token" => "A builtin token sort has no reference spelling.",
         UNSUPPORTED_STATE: "krs::reference::unsupported-state" => "A readable optional or collection entry has a shape with no reference spelling.",
+        UNRESOLVED_OPERATOR: "krs::reference::unresolved-operator" => "Semantic lowering recorded no builtin operation for an operator the reference projection renders.",
     }
     /// Diagnostics from native Definition compilation.
     native {
@@ -180,6 +181,7 @@ register_codes! {
         OVERLAPPING_RULE_HEADS: "krs::analysis::overlapping-rule-heads" => "Two rules have overlapping application heads.",
         OVERLAPPING_EQUATIONS: "krs::analysis::overlapping-equations" => "Two equations of one function at one priority apply to one argument and give it different results, so the definition would state that the results are equal.",
         OVERLAPPING_MATCH_ARMS: "krs::analysis::overlapping-match-arms" => "Two arms of a function body's `match` apply to one argument and give it different results; each arm is an unordered equation, so the arms must not overlap.",
+        AMBIGUOUS_OPERATOR: "krs::analysis::ambiguous-operator" => "The sorts of an operator's operands (`a + b`, `a == b`) choose no builtin domain, or choose two, so it denotes no one builtin operation.",
         AMBIGUOUS_OR_PATTERN: "krs::analysis::ambiguous-or-pattern" => "Two alternatives of one `A | B` or-pattern can match the same term with different bindings.",
         NONDET_GROUP: "krs::analysis::nondet-group" => "A `nondet` group has one rule, mixes priorities, or names a rule that overlaps no other rule of the group.",
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a production's symbol is one K generates.",
@@ -325,7 +327,7 @@ register_codes! {
         INVALID_SPEC_MODULE: "krs::syntax::invalid-spec-module" => "A `#[k::spec_module]` was malformed: it is not on an inline `mod`, repeats or misspells a key, or names an invalid K module or one ending in the reserved `-SYNTAX` suffix.",
         INVALID_SORT_PARAMETER: "krs::syntax::invalid-sort-parameter" => "A production struct's generic parameter is not a K sort parameter `S: ?Sized` used by a field: a lifetime, const, default, other bound, or where clause.",
         INVALID_TURBOFISH: "krs::syntax::invalid-turbofish" => "A turbofish on a term head is not a list of sort markers (`Choose::<k::builtin::Int>`, `Choose::<dyn ExpSort>`): it has lifetimes, consts, or other types, or sits on a path segment other than the last.",
-        INVALID_EXPRESSION_NOTATION: "krs::syntax::invalid-expression-notation" => "A domain method call (`recv.op::<Int>(..)`) has no domain turbofish, names a domain other than `Int`, `Bool`, `String`, `Float`, `Bytes`, or `K`, names an operation the domain's builtin module does not define or one with no operand, or a notation form (`&&`, `||`, or a method call) occurs in a pattern.",
+        INVALID_EXPRESSION_NOTATION: "krs::syntax::invalid-expression-notation" => "A domain method call (`recv.op::<Int>(..)`) has no domain turbofish, names a domain other than `Int`, `Bool`, `String`, `Float`, `Bytes`, or `K`, names an operation the domain's builtin module does not define or one with no operand; an operator is applied in a domain that does not define it (`&` on `Bool`); a Rust-only operator (`+=`, `as`, a range) occurs in a term; or a notation form (`&&`, `||`, an operator, or a method call) occurs in a pattern.",
         INVALID_ML_EXISTS: "krs::syntax::invalid-ml-exists" => "An `ml::exists` closure does not take exactly one typed parameter (`|x: Sort| predicate`), or a closure occurs anywhere but as the one argument of `ml::exists`.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.

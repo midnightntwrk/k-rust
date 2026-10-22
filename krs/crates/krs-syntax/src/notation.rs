@@ -1,18 +1,20 @@
 //! Expression notation for builtin applications: the short-circuit Boolean
-//! connectives `a && b` and `a || b`, and domain method calls
-//! `recv.op::<D>(args..)`.
+//! connectives `a && b` and `a || b`, Rust's operators (`a + b`, `a < b`,
+//! `!a`, `-a`), and domain method calls `recv.op::<D>(args..)`.
 //!
 //! Each form is notation for one builtin call and has no meaning of its own.
 //! Term validation lowers a form to the application it denotes, marked
 //! [`TermApplication::is_notation`](crate::TermApplication::is_notation),
 //! whose head is the operation's path in the `builtin` module
-//! (`bool::and_then`). Expansion qualifies that head with the facade, so it
-//! names the facade's operation whatever the facade crate is called and
-//! whether or not the author imported the operation's module. Code that rustc
-//! checks receives the denoted calls through [`denote_notation`], with each
-//! form's own spans.
+//! (`bool::and_then`). An operator does not name its domain, so its head is
+//! the operator's marker (`__operator::add`), which semantic analysis replaces
+//! with the operation of the domain the operands' inferred sorts choose.
+//! Expansion qualifies every head with the facade, so it names the facade's
+//! marker whatever the facade crate is called and whether or not the author
+//! imported the operation's module. Code that rustc checks receives the
+//! denoted calls through [`denote_notation`], with each form's own spans.
 
-use krs_ir::BuiltinOperation;
+use krs_ir::{BuiltinOperation, BuiltinOperator, OperatorReading};
 use proc_macro2::Span;
 use quote::ToTokens;
 use syn::parse::ParseStream;
@@ -21,8 +23,8 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::visit_mut::VisitMut;
 use syn::{
-    BinOp, Expr, ExprBinary, ExprCall, ExprMethodCall, ExprPath, GenericArgument, Ident, Path,
-    PathArguments, PathSegment, Token, Type,
+    BinOp, Expr, ExprBinary, ExprCall, ExprMethodCall, ExprPath, ExprUnary, GenericArgument, Ident,
+    Path, PathArguments, PathSegment, Token, Type, UnOp,
 };
 
 use crate::{SyntaxError, SyntaxErrorKind};
@@ -44,15 +46,63 @@ fn notation_error(reason: String, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidExpressionNotation { reason }, span)
 }
 
-/// Whether `expression` is a notation form at its root: `&&`, `||`, or a
-/// method call.
+/// Whether `expression` is a notation form at its root: `&&`, `||`, an
+/// operator, or a method call. A binary expression is always one, so a
+/// compound assignment such as `a += b` is reported as notation it is not.
 #[must_use]
 pub fn is_expression_notation(expression: &Expr) -> bool {
     match expression {
-        Expr::Binary(binary) => matches!(binary.op, BinOp::And(_) | BinOp::Or(_)),
-        Expr::MethodCall(_) => true,
+        Expr::Binary(_) | Expr::MethodCall(_) => true,
+        Expr::Unary(unary) => unary_operator(unary).is_some(),
         _ => false,
     }
+}
+
+/// The operator a unary expression applies: `!a`, or `-a` on anything but a
+/// literal. The minus of `-1`, `-1.5`, or `-f64::INFINITY` belongs to the
+/// literal, which is one token in patterns and results alike; `*a` is no
+/// operator.
+fn unary_operator(unary: &ExprUnary) -> Option<BuiltinOperator> {
+    match unary.op {
+        UnOp::Not(_) => Some(BuiltinOperator::Not),
+        UnOp::Neg(_) => {
+            let literal = match &*unary.expr {
+                Expr::Lit(_) => true,
+                Expr::Path(path) => {
+                    path.qself.is_none()
+                        && path.path.leading_colon.is_none()
+                        && crate::term::float_constant_path(&path.path).is_some()
+                }
+                _ => false,
+            };
+            (!literal).then_some(BuiltinOperator::Neg)
+        }
+        _ => None,
+    }
+}
+
+/// The operator a binary operator token applies, or `None` for `&&` and
+/// `||`, which are connectives, and for a compound assignment.
+const fn binary_operator(operator: &BinOp) -> Option<BuiltinOperator> {
+    Some(match operator {
+        BinOp::Add(_) => BuiltinOperator::Add,
+        BinOp::Sub(_) => BuiltinOperator::Sub,
+        BinOp::Mul(_) => BuiltinOperator::Mul,
+        BinOp::Div(_) => BuiltinOperator::Div,
+        BinOp::Rem(_) => BuiltinOperator::Rem,
+        BinOp::Shl(_) => BuiltinOperator::ShiftLeft,
+        BinOp::Shr(_) => BuiltinOperator::ShiftRight,
+        BinOp::BitAnd(_) => BuiltinOperator::BitAnd,
+        BinOp::BitOr(_) => BuiltinOperator::BitOr,
+        BinOp::BitXor(_) => BuiltinOperator::BitXor,
+        BinOp::Eq(_) => BuiltinOperator::Eq,
+        BinOp::Ne(_) => BuiltinOperator::Ne,
+        BinOp::Lt(_) => BuiltinOperator::Lt,
+        BinOp::Le(_) => BuiltinOperator::Le,
+        BinOp::Gt(_) => BuiltinOperator::Gt,
+        BinOp::Ge(_) => BuiltinOperator::Ge,
+        _ => return None,
+    })
 }
 
 /// Replaces every notation form in `expression` with the call it denotes,
@@ -92,32 +142,118 @@ impl VisitMut for Denote<'_> {
 /// module does not define, or that has no operand to be its receiver.
 pub(crate) fn denoted_call(expression: &Expr) -> Result<Option<ExprCall>, SyntaxError> {
     match expression {
-        Expr::Binary(binary) => connective(binary),
+        Expr::Binary(binary) => binary_call(binary).map(Some),
+        Expr::Unary(unary) => unary_operator(unary)
+            .map(|operator| unary_call(unary, operator))
+            .transpose(),
         Expr::MethodCall(call) => method_call(call).map(Some),
         _ => Ok(None),
     }
 }
 
-/// `a && b` is `bool::and_then(a, b)` and `a || b` is `bool::or_else(a, b)`;
-/// the head spans the operator.
-fn connective(binary: &ExprBinary) -> Result<Option<ExprCall>, SyntaxError> {
-    let (operation, [first, last]) = match binary.op {
-        BinOp::And(token) => ("and_then", token.spans),
-        BinOp::Or(token) => ("or_else", token.spans),
-        _ => return Ok(None),
+/// `a && b` is `bool::and_then(a, b)`, `a || b` is `bool::or_else(a, b)`,
+/// and `a + b` is the operator marker's call `__operator::add(a, b)`; the head
+/// spans the operator.
+fn binary_call(binary: &ExprBinary) -> Result<ExprCall, SyntaxError> {
+    let (first, last) = token_spans(&binary.op);
+    let head = match binary.op {
+        BinOp::And(_) => generated_head("bool", "and_then", first, last),
+        BinOp::Or(_) => generated_head("bool", "or_else", first, last),
+        operator => {
+            let Some(operator) = binary_operator(&operator) else {
+                return Err(compound_assignment(&operator, first));
+            };
+            operator_head(operator, first, last)
+        }
     };
     crate::term::reject_attributes(&binary.attrs, binary.span())?;
-    let head = generated_head("bool", operation, first, last);
     let mut arguments = Punctuated::new();
     arguments.push_value((*binary.left).clone());
     arguments.push_punct(Token![,](last));
     arguments.push_value((*binary.right).clone());
-    Ok(Some(ExprCall {
+    Ok(ExprCall {
         attrs: Vec::new(),
         func: Box::new(head),
         paren_token: syn::token::Paren(last),
         args: arguments,
-    }))
+    })
+}
+
+/// `!a` is `__operator::not(a)` and `-a` is `__operator::neg(a)`; the head
+/// spans the operator.
+fn unary_call(unary: &ExprUnary, operator: BuiltinOperator) -> Result<ExprCall, SyntaxError> {
+    crate::term::reject_attributes(&unary.attrs, unary.span())?;
+    let (first, last) = token_spans(&unary.op);
+    let mut arguments = Punctuated::new();
+    arguments.push_value((*unary.expr).clone());
+    Ok(ExprCall {
+        attrs: Vec::new(),
+        func: Box::new(operator_head(operator, first, last)),
+        paren_token: syn::token::Paren(last),
+        args: arguments,
+    })
+}
+
+/// The spans of an operator's first and last characters: `<=` is two tokens.
+fn token_spans(operator: &impl ToTokens) -> (Span, Span) {
+    let spans = operator
+        .to_token_stream()
+        .into_iter()
+        .map(|token| token.span())
+        .collect::<Vec<_>>();
+    let first = spans.first().copied().unwrap_or_else(Span::call_site);
+    (first, spans.last().copied().unwrap_or(first))
+}
+
+/// `__operator::name`, the marker of an operator whose domain semantic
+/// analysis chooses.
+fn operator_head(operator: BuiltinOperator, first: Span, last: Span) -> Expr {
+    let marker = operator.facade_marker();
+    generated_head(marker.module, marker.name, first, last)
+}
+
+/// The error for `a += b` and the other compound assignments: a term
+/// denotes a value and has no place to assign to.
+fn compound_assignment(operator: &BinOp, span: Span) -> SyntaxError {
+    let written = operator.to_token_stream().to_string().replace(' ', "");
+    let reason = match written.strip_suffix('=').and_then(|base| {
+        BuiltinOperator::ALL
+            .into_iter()
+            .find(|operator| operator.arity() == 2 && operator.symbol() == base)
+    }) {
+        Some(operator) => format!(
+            "`{written}` assigns, and a term has nothing to assign to; write the value `a {} b`",
+            operator.symbol()
+        ),
+        None => format!("`{written}` is not a term operator"),
+    };
+    notation_error(reason, span)
+}
+
+/// The calls a left-hand side writes for `operator`, one per domain that
+/// defines it: `` `int::add(..)`, `string::concat(..)`, or `float::add(..)` ``.
+fn operator_calls(operator: BuiltinOperator) -> String {
+    let calls = operator
+        .domains()
+        .into_iter()
+        .filter_map(|domain| operator.reading(domain))
+        .map(|reading| {
+            let spec = reading.operation().spec();
+            match reading {
+                OperatorReading::Operation(_) => {
+                    format!("`{}::{}(..)`", spec.rust_module, spec.rust_name)
+                }
+                OperatorReading::IntNegation => {
+                    format!("`{}::{}(0, ..)`", spec.rust_module, spec.rust_name)
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    match calls.as_slice() {
+        [first, second] => format!("{first} or {second}"),
+        [rest @ .., last] if !rest.is_empty() => format!("{}, or {last}", rest.join(", ")),
+        _ => calls.concat(),
+    }
 }
 
 /// `recv.op::<D>(args..)` is `d::op(recv, args..)`, where `d` is the builtin
@@ -250,8 +386,8 @@ fn generated_head(module: &str, operation: &str, first: Span, last: Span) -> Exp
 }
 
 /// The error for the first notation form in `expression`, which is the
-/// expression a pattern failed to parse as: neither form is a Rust pattern, so
-/// a left-hand side spells the operation as the call it denotes.
+/// expression a pattern failed to parse as: no form is a Rust pattern, so a
+/// left-hand side spells the operation as the call it denotes.
 pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
     struct First(Option<SyntaxError>);
     impl<'ast> Visit<'ast> for First {
@@ -259,7 +395,10 @@ pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
             if self.0.is_some() {
                 return;
             }
-            if is_expression_notation(expression) {
+            // `|` between patterns is an alternative, not the operator.
+            let alternative =
+                matches!(expression, Expr::Binary(binary) if matches!(binary.op, BinOp::BitOr(_)));
+            if is_expression_notation(expression) && !alternative {
                 self.0 = Some(pattern_error(expression));
                 return;
             }
@@ -299,19 +438,38 @@ fn pattern_error(expression: &Expr) -> SyntaxError {
     let Expr::Path(head) = &*call.func else {
         unreachable!("notation generates a path head");
     };
-    let operation = crate::path::path_text(&head.path);
-    let (form, span) = match expression {
+    let (form, operator, span) = match expression {
         Expr::Binary(binary) => (
-            format!("`{}`", binary.op.to_token_stream()),
-            binary.op.span(),
+            binary.op.to_token_stream().to_string().replace(' ', ""),
+            binary_operator(&binary.op),
+            token_spans(&binary.op).0,
         ),
-        Expr::MethodCall(method) => ("a method call".to_owned(), method.method.span()),
+        Expr::Unary(unary) => (
+            unary.op.to_token_stream().to_string(),
+            unary_operator(unary),
+            token_spans(&unary.op).0,
+        ),
+        Expr::MethodCall(method) => {
+            let operation = crate::path::path_text(&head.path);
+            return notation_error(
+                format!(
+                    "a method call is not a pattern: a left-hand side matches `{operation}` only as the call `{operation}(..)`"
+                ),
+                method.method.span(),
+            );
+        }
         _ => unreachable!("only notation forms reach here"),
     };
-    notation_error(
+    let reason = if let Some(operator) = operator {
         format!(
-            "{form} is not a pattern: a left-hand side matches `{operation}` only as the call `{operation}(..)`"
-        ),
-        span,
-    )
+            "`{form}` is not a pattern: a left-hand side matches a builtin operation only as its call, {}",
+            operator_calls(operator)
+        )
+    } else {
+        let operation = crate::path::path_text(&head.path);
+        format!(
+            "`{form}` is not a pattern: a left-hand side matches `{operation}` only as the call `{operation}(..)`"
+        )
+    };
+    notation_error(reason, span)
 }

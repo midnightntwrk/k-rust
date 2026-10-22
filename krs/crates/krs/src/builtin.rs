@@ -1006,3 +1006,70 @@ pub mod io {
     pub use Putc as putc;
     pub use Write as write;
 }
+
+/// Markers for Rust's operators in a term (`a + b`, `!a`), before KRS chooses
+/// the builtin domain they read in.
+///
+/// Expansion writes an operator application as a call of one of these
+/// markers, so rustc checks the operands of `a + b` without reading `+` as
+/// Rust's addition. Each marker accepts operands of any type: semantic
+/// analysis chooses `int::add`, `float::add`, or `string::concat` from the
+/// operands' inferred sorts.
+#[doc(hidden)]
+pub mod __operator {
+    /// Marker for `a + b`.
+    pub struct Add<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a - b`.
+    pub struct Sub<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a * b`.
+    pub struct Mul<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a / b`.
+    pub struct Div<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a % b`.
+    pub struct Rem<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a << b`.
+    pub struct Shl<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a >> b`.
+    pub struct Shr<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a & b`.
+    pub struct BitAnd<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a | b`.
+    pub struct BitOr<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a ^ b`.
+    pub struct BitXor<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a == b`.
+    pub struct Eq<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a != b`.
+    pub struct Ne<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a < b`.
+    pub struct Lt<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a <= b`.
+    pub struct Le<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a > b`.
+    pub struct Gt<A = (), B = ()>(pub A, pub B);
+    /// Marker for `a >= b`.
+    pub struct Ge<A = (), B = ()>(pub A, pub B);
+    /// Marker for `!a`.
+    pub struct Not<A = ()>(pub A);
+    /// Marker for `-a`.
+    pub struct Neg<A = ()>(pub A);
+
+    pub use self::Eq as eq;
+    pub use Add as add;
+    pub use BitAnd as bit_and;
+    pub use BitOr as bit_or;
+    pub use BitXor as bit_xor;
+    pub use Div as div;
+    pub use Ge as ge;
+    pub use Gt as gt;
+    pub use Le as le;
+    pub use Lt as lt;
+    pub use Mul as mul;
+    pub use Ne as ne;
+    pub use Neg as neg;
+    pub use Not as not;
+    pub use Rem as rem;
+    pub use Shl as shl;
+    pub use Shr as shr;
+    pub use Sub as sub;
+}

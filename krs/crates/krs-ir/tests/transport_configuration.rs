@@ -297,6 +297,9 @@ fn builtin_registry_resolves_map_and_id() {
         list_operations: keys(list_offset),
         set_operations: keys(set_offset),
         ml_connectives: keys(set_offset + krs_ir::SetOperation::ALL.len()),
+        operators: keys(
+            set_offset + krs_ir::SetOperation::ALL.len() + krs_ir::MlConnective::ALL.len(),
+        ),
     };
     registry.validate().unwrap();
 

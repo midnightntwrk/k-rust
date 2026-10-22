@@ -1391,6 +1391,12 @@ fn registry() -> HostBuiltinRegistry {
         ml_connectives: filler(
             list_offset + ListOperation::ALL.len() + krs_ir::SetOperation::ALL.len(),
         ),
+        operators: filler(
+            list_offset
+                + ListOperation::ALL.len()
+                + krs_ir::SetOperation::ALL.len()
+                + krs_ir::MlConnective::ALL.len(),
+        ),
     }
 }
 

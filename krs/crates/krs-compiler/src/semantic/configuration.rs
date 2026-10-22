@@ -596,10 +596,11 @@ fn lower_initializer_term(
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
+        operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
     };
-    builder.infer(term, expected_sort, false)?;
+    builder.infer_sentence(|builder| builder.infer(term, expected_sort, false))?;
     builder.resolve_binding_sorts()?;
     builder.lower(term, expected_sort, false)
 }

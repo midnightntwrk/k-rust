@@ -64,10 +64,11 @@ impl StateRuleTerms<'_> {
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
+            operators: super::operators::OperatorInference::default(),
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
         };
-        builder.infer(term, expected_sort, subject)?;
+        builder.infer_sentence(|builder| builder.infer(term, expected_sort, subject))?;
         builder.resolve_binding_sorts()?;
         let lowered = builder.lower(term, expected_sort, subject)?;
         self.wildcard_ordinal += builder.wildcards.len();
@@ -102,11 +103,12 @@ impl StateRuleTerms<'_> {
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
+            operators: super::operators::OperatorInference::default(),
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
         };
         super::ml::check_condition_placement(&builder, kind, condition, ensures)?;
-        super::ml::infer_condition(&mut builder, condition)?;
+        builder.infer_sentence(|builder| super::ml::infer_condition(builder, condition))?;
         builder.resolve_binding_sorts()?;
         let lowered = super::ml::lower_condition(&mut builder, condition, role)?;
         self.wildcard_ordinal += builder.wildcards.len();

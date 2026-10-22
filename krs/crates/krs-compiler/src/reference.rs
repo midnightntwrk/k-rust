@@ -10,13 +10,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
-    DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
+    ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, Descriptor,
+    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle, DescriptorHeadRule,
+    DescriptorIndex, DescriptorPayload, DescriptorStage, DescriptorTerm,
     ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, OriginFrame, PackageId, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, Sha256Digest, SourceFileId,
-    StableItemId,
+    ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap, Sha256Digest, SourceFileId,
+    SourceMapKey, StableItemId, Stage,
 };
-use krs_ir_levels::{SemanticRule, SemanticSortRef, SemanticTheory};
+use krs_ir_levels::{
+    IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm, SemanticTheory,
+};
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
@@ -221,7 +224,14 @@ pub fn expand_reference_source(
                 .map_err(ReferenceExpansionError::KrsSyntax)?
                 .is_some()
         {
-            restate_requires(item_fn, package, module_path, bundle, &descriptor_index)?;
+            restate_requires(
+                item_fn,
+                package,
+                module_path,
+                bundle,
+                &descriptor_index,
+                &semantic_rules,
+            )?;
         }
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
@@ -273,19 +283,25 @@ pub fn expand_reference_source(
                                 && descriptor.id().item_name() == name
                                 && descriptor.id().item_kind() == krs_ir::ItemKind::Equation =>
                         {
-                            Some(rule.as_ref())
+                            Some((descriptor, rule.as_ref()))
                         }
                         _ => None,
                     })
                     .collect::<Vec<_>>();
-                let [rule] = descriptors.as_slice() else {
+                let [(descriptor, rule)] = descriptors.as_slice() else {
                     return Err(ReferenceExpansionError::RuleCoverage {
                         name,
                         found: descriptors.len(),
                     });
                 };
+                let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
+                    ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
+                })?;
+                let rule = (*rule)
+                    .clone()
+                    .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
                 items.push(syn::Item::Fn(render_equation_row(
-                    row, rule, package, bundle,
+                    row, &rule, package, bundle,
                 )?));
             }
             continue;
@@ -320,9 +336,12 @@ pub fn expand_reference_source(
             let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
                 ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
             })?;
+            let rule = (*rule)
+                .clone()
+                .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
             items.push(syn::Item::Fn(render_rule(
                 clause,
-                rule,
+                &rule,
                 semantic_rule,
                 package,
                 bundle,
@@ -1714,6 +1733,7 @@ fn restate_requires(
     module_path: &[String],
     bundle: &krs_ir::DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
+    semantic_rules: &BTreeMap<&StableItemId, &SemanticRule>,
 ) -> Result<(), ReferenceExpansionError> {
     let name = item.sig.ident.unraw().to_string();
     let condition = descriptor_index
@@ -1724,14 +1744,23 @@ fn restate_requires(
                     && descriptor.id().module_path() == module_path
                     && descriptor.id().item_name() == name =>
             {
-                rule.requires.as_ref()
+                rule.requires
+                    .as_ref()
+                    .map(|condition| (descriptor, condition))
             }
             _ => None,
         });
-    let Some(condition) = condition else {
+    let Some((descriptor, condition)) = condition else {
         return Ok(());
     };
-    let term = render_term(&condition.term, false, package, bundle)?;
+    let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
+        ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
+    })?;
+    let condition = condition
+        .term
+        .clone()
+        .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
+    let term = render_term(&condition, false, package, bundle)?;
     for attribute in &mut item.attrs {
         if attribute.path().segments.len() > 1
             && attribute
@@ -2099,6 +2128,24 @@ fn render_term(
                     let name = format_ident!("{}", connective.facade_marker().name);
                     quote!(k::ml::#name)
                 }
+                // [`OperatorCalls`] leaves only `-x` on `Int` an operator:
+                // K has no unary minus on `Int`, so it is `int::sub(0, x)`.
+                DescriptorApplicationRef::Operator(BuiltinOperator::Neg) => {
+                    let krs_ir::Arguments::Positional(operands) = arguments else {
+                        return Err(ReferenceExpansionError::UnresolvedOperator("-"));
+                    };
+                    let [operand] = operands.as_slice() else {
+                        return Err(ReferenceExpansionError::UnresolvedOperator("-"));
+                    };
+                    let operand = render_term(operand, pattern, package, bundle)?;
+                    let sub = render_builtin_operation(BuiltinOperation::IntSub);
+                    return Ok(quote!(#sub(0, #operand)));
+                }
+                DescriptorApplicationRef::Operator(operator) => {
+                    return Err(ReferenceExpansionError::UnresolvedOperator(
+                        operator.symbol(),
+                    ));
+                }
             };
             if arguments.is_empty()
                 && matches!(
@@ -2447,6 +2494,172 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
     quote!(k::builtin::#name)
 }
 
+/// The calls the operators of one descriptor denote, read from the semantic
+/// rule lowered from it: each operator head becomes the operation semantic
+/// lowering applied at that head, found by the source-map key lowering gives
+/// the application there. `-x` on `Int` applies `int::sub` to an operand the
+/// descriptor does not hold, so it stays the operator `-`, which
+/// [`render_term`] spells `int::sub(0, x)`.
+struct OperatorCalls<'a> {
+    descriptor: &'a Descriptor,
+    operations: BTreeMap<SourceMapKey, BuiltinOperation>,
+}
+
+impl<'a> OperatorCalls<'a> {
+    fn new(descriptor: &'a Descriptor, rule: &SemanticRule) -> Self {
+        let mut operations = BTreeMap::new();
+        let mut pending = semantic_rule_terms(rule);
+        while let Some(term) = pending.pop() {
+            if let IrTermKind::Application {
+                application: ApplicationRef::Builtin(operation),
+                ..
+            } = term.kind()
+            {
+                operations.insert(term.origin().key().clone(), *operation);
+            }
+            pending.extend(term.children());
+        }
+        Self {
+            descriptor,
+            operations,
+        }
+    }
+}
+
+/// Every term of a semantic rule, equation, or claim.
+fn semantic_rule_terms(rule: &SemanticRule) -> Vec<&SemanticTerm> {
+    let mut terms = Vec::new();
+    match rule.relational_body() {
+        RuleBodyRef::Term(rewrite) => {
+            terms.push(rewrite.from());
+            terms.push(rewrite.to());
+        }
+        RuleBodyRef::Configuration { body, .. } => {
+            for part in body.parts() {
+                terms.extend(part.terms());
+            }
+        }
+        RuleBodyRef::Predicate(body) => {
+            terms.extend(body.lhs().terms());
+            terms.extend(body.rhs().terms());
+        }
+    }
+    if let Some(context) = rule.function_context() {
+        terms.extend(
+            context
+                .cells()
+                .cells()
+                .iter()
+                .map(krs_ir::FixedCellPattern::pattern),
+        );
+    }
+    for condition in rule.requires().into_iter().chain(rule.ensures()) {
+        terms.extend(condition.terms());
+    }
+    terms
+}
+
+impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
+    type Error = ReferenceExpansionError;
+
+    fn application(
+        &mut self,
+        reference: DescriptorApplicationReference,
+    ) -> Result<DescriptorApplicationReference, Self::Error> {
+        let DescriptorApplicationRef::Operator(operator) = reference.application else {
+            return Ok(reference);
+        };
+        let operation = crate::semantic::application_source_key(self.descriptor, &reference.key)
+            .and_then(|key| self.operations.get(&key).copied())
+            .ok_or(ReferenceExpansionError::UnresolvedOperator(
+                operator.symbol(),
+            ))?;
+        let application =
+            if operator == BuiltinOperator::Neg && operation == BuiltinOperation::IntSub {
+                DescriptorApplicationRef::Operator(operator)
+            } else {
+                DescriptorApplicationRef::Builtin(operation)
+            };
+        Ok(DescriptorApplicationReference {
+            key: reference.key,
+            application,
+        })
+    }
+
+    fn sort(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Sort,
+    ) -> Result<<DescriptorStage as Stage>::Sort, Self::Error> {
+        Ok(reference)
+    }
+    fn nominal(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Nominal,
+    ) -> Result<<DescriptorStage as Stage>::Nominal, Self::Error> {
+        Ok(reference)
+    }
+    fn context_alias(
+        &mut self,
+        reference: <DescriptorStage as Stage>::ContextAlias,
+    ) -> Result<<DescriptorStage as Stage>::ContextAlias, Self::Error> {
+        Ok(reference)
+    }
+    fn configuration(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Configuration,
+    ) -> Result<<DescriptorStage as Stage>::Configuration, Self::Error> {
+        Ok(reference)
+    }
+    fn cell(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Cell,
+    ) -> Result<<DescriptorStage as Stage>::Cell, Self::Error> {
+        Ok(reference)
+    }
+    fn head_rule_cell(
+        &mut self,
+        reference: <DescriptorStage as Stage>::HeadRuleCell,
+    ) -> Result<<DescriptorStage as Stage>::HeadRuleCell, Self::Error> {
+        Ok(reference)
+    }
+    fn item(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Item,
+    ) -> Result<<DescriptorStage as Stage>::Item, Self::Error> {
+        Ok(reference)
+    }
+    fn cell_declaration(
+        &mut self,
+        reference: <DescriptorStage as Stage>::CellDeclaration,
+    ) -> Result<<DescriptorStage as Stage>::CellDeclaration, Self::Error> {
+        Ok(reference)
+    }
+    fn initializer_owner(
+        &mut self,
+        reference: <DescriptorStage as Stage>::InitializerOwner,
+    ) -> Result<<DescriptorStage as Stage>::InitializerOwner, Self::Error> {
+        Ok(reference)
+    }
+    fn parent(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Parent,
+    ) -> Result<<DescriptorStage as Stage>::Parent, Self::Error> {
+        Ok(reference)
+    }
+    fn constructor_sort(
+        &mut self,
+        reference: <DescriptorStage as Stage>::ConstructorSort,
+    ) -> Result<<DescriptorStage as Stage>::ConstructorSort, Self::Error> {
+        Ok(reference)
+    }
+    fn constructor_field_sort(
+        &mut self,
+        reference: <DescriptorStage as Stage>::ConstructorFieldSort,
+    ) -> Result<<DescriptorStage as Stage>::ConstructorFieldSort, Self::Error> {
+        Ok(reference)
+    }
+}
+
 fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
     let spec = operation.spec();
     let module = format_ident!("{}", spec.rust_module);
@@ -2769,6 +2982,8 @@ pub enum ReferenceExpansionError {
     UnsupportedBuiltinToken(BuiltinSort),
     /// A readable optional or collection entry has no reference spelling.
     UnsupportedState,
+    /// Semantic lowering chose no operation for an operator.
+    UnresolvedOperator(&'static str),
 }
 
 impl ToDiagnostic for ReferenceExpansionError {
@@ -2804,6 +3019,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::InvalidLiteral(_) => codes::reference::INVALID_LITERAL,
             Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
             Self::UnsupportedState => codes::reference::UNSUPPORTED_STATE,
+            Self::UnresolvedOperator(_) => codes::reference::UNRESOLVED_OPERATOR,
         };
         Diagnostic::error(code, self.to_string(), Location::None)
     }
@@ -2898,6 +3114,10 @@ impl fmt::Display for ReferenceExpansionError {
             }
             Self::UnsupportedState => formatter
                 .write_str("a readable optional or collection entry has no reference spelling"),
+            Self::UnresolvedOperator(operator) => write!(
+                formatter,
+                "semantic lowering chose no builtin operation for an operator `{operator}`"
+            ),
         }
     }
 }
@@ -2927,7 +3147,8 @@ impl Error for ReferenceExpansionError {
             | Self::UnknownApplicationField { .. }
             | Self::InvalidLiteral(_)
             | Self::UnsupportedBuiltinToken(_)
-            | Self::UnsupportedState => None,
+            | Self::UnsupportedState
+            | Self::UnresolvedOperator(_) => None,
         }
     }
 }

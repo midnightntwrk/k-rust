@@ -305,6 +305,7 @@ pub(super) fn lower_head_rule_descriptor(
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
+        operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
     };
@@ -792,98 +793,110 @@ fn seed_head_rule_sorts(
 }
 
 /// Infers every term of the head rule and checks that each binding has a sort.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One inference pass visits the head, every extra, and the conditions in order."
+)]
 fn infer_head_rule(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
     head_sort: Option<&SemanticSortRef>,
     seeds: &HeadRuleSeeds,
 ) -> Result<(), DescriptorLoweringError> {
-    if let Some(head) = &rule.head {
-        for item in &head.items {
-            let k_item = builder.k_item_sort.clone();
-            builder.infer(item, head_item_sort(item, head_sort, k_item.as_ref()), true)?;
-        }
-        match &head.result {
-            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
-                builder.infer(term, head_sort, false)?;
+    builder.infer_sentence(|builder| {
+        if let Some(head) = &rule.head {
+            for item in &head.items {
+                let k_item = builder.k_item_sort.clone();
+                builder.infer(item, head_item_sort(item, head_sort, k_item.as_ref()), true)?;
             }
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
-                for term in items {
+            match &head.result {
+                Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                     builder.infer(term, head_sort, false)?;
                 }
-            }
-            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
-        }
-    }
-    for extra in &rule.extras {
-        match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
-                let expected = seeds
-                    .map_argument_sorts
-                    .get(&cell.cell)
-                    .map(|(key_sort, _)| key_sort);
-                for entry in entries {
-                    builder.infer(&entry.key, expected, true)?;
-                }
-            }
-            krs_ir::ProtocolHeadRuleExtra::UpdateMap {
-                cell,
-                base_binding,
-                update,
-            } => {
-                let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
-                    DescriptorLoweringError::UnsupportedShape {
-                        node: "head-anchored rule extra",
-                        detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
+                Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
+                    for term in items {
+                        builder.infer(term, head_sort, false)?;
                     }
-                })?;
-                builder.infer_collection_update(
-                    update,
+                }
+                Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
+            }
+        }
+        for extra in &rule.extras {
+            match extra {
+                krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+                    let expected = seeds
+                        .map_argument_sorts
+                        .get(&cell.cell)
+                        .map(|(key_sort, _)| key_sort);
+                    for entry in entries {
+                        builder.infer(&entry.key, expected, true)?;
+                    }
+                }
+                krs_ir::ProtocolHeadRuleExtra::UpdateMap {
+                    cell,
                     base_binding,
-                    expected,
-                    seeds.map_argument_sorts.get(&cell.cell),
-                )?;
-            }
-            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
-                cell,
-                before,
-                after,
-                ..
-            } => {
-                let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
-                    DescriptorLoweringError::UnsupportedShape {
-                        node: "head-anchored rule extra",
-                        detail: format!("ordinary cell {:?} is not a fixed leaf", cell.cell.field),
-                    }
-                })?;
-                builder.infer(before, Some(expected), true)?;
-                if let Some(after) = after {
-                    builder.infer(after, Some(expected), false)?;
+                    update,
+                } => {
+                    let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
+                        DescriptorLoweringError::UnsupportedShape {
+                            node: "head-anchored rule extra",
+                            detail: format!(
+                                "updated cell {:?} is not a fixed leaf",
+                                cell.cell.field
+                            ),
+                        }
+                    })?;
+                    builder.infer_collection_update(
+                        update,
+                        base_binding,
+                        expected,
+                        seeds.map_argument_sorts.get(&cell.cell),
+                    )?;
                 }
-            }
-            krs_ir::ProtocolHeadRuleExtra::RewriteState {
-                cell,
-                before,
-                after,
-                ..
-            } => {
-                let declarations = builder
-                    .declarations
-                    .expect("head rules lower with declarations");
-                let field = require_cell_field(&cell.cell, declarations)?;
-                infer_readable_state(builder, declarations, field, before, true)?;
-                if let Some(after) = after {
-                    infer_readable_state(builder, declarations, field, after, false)?;
+                krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                    cell,
+                    before,
+                    after,
+                    ..
+                } => {
+                    let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
+                        DescriptorLoweringError::UnsupportedShape {
+                            node: "head-anchored rule extra",
+                            detail: format!(
+                                "ordinary cell {:?} is not a fixed leaf",
+                                cell.cell.field
+                            ),
+                        }
+                    })?;
+                    builder.infer(before, Some(expected), true)?;
+                    if let Some(after) = after {
+                        builder.infer(after, Some(expected), false)?;
+                    }
+                }
+                krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                    cell,
+                    before,
+                    after,
+                    ..
+                } => {
+                    let declarations = builder
+                        .declarations
+                        .expect("head rules lower with declarations");
+                    let field = require_cell_field(&cell.cell, declarations)?;
+                    infer_readable_state(builder, declarations, field, before, true)?;
+                    if let Some(after) = after {
+                        infer_readable_state(builder, declarations, field, after, false)?;
+                    }
                 }
             }
         }
-    }
-    infer_rule_conditions(
-        builder,
-        rule.sentence_kind,
-        rule.requires.as_ref(),
-        rule.ensures.as_ref(),
-    )?;
+        infer_rule_conditions(
+            builder,
+            rule.sentence_kind,
+            rule.requires.as_ref(),
+            rule.ensures.as_ref(),
+        )
+    })?;
     default_item_binders(builder, rule, head_sort);
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
@@ -1584,6 +1597,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
+        operators: super::operators::OperatorInference::default(),
         declared_binders,
         subject_keys: BTreeMap::new(),
     };
@@ -1597,22 +1611,14 @@ pub(super) fn lower_structured_rule_descriptor(
         || subject_sort.clone(),
         |sort| semantic_sort_ref(&sort.sort),
     );
-    builder.infer(&rule.subject, Some(&subject_sort), true)?;
-    infer_rule_conditions(
-        &mut builder,
-        rule.sentence_kind,
-        rule.requires.as_ref(),
-        None,
-    )?;
-    if let Some(result) = &rule.result {
-        builder.infer(result, Some(&result_sort), false)?;
-    }
-    infer_rule_conditions(
-        &mut builder,
-        rule.sentence_kind,
-        None,
-        rule.ensures.as_ref(),
-    )?;
+    builder.infer_sentence(|builder| {
+        builder.infer(&rule.subject, Some(&subject_sort), true)?;
+        infer_rule_conditions(builder, rule.sentence_kind, rule.requires.as_ref(), None)?;
+        if let Some(result) = &rule.result {
+            builder.infer(result, Some(&result_sort), false)?;
+        }
+        infer_rule_conditions(builder, rule.sentence_kind, None, rule.ensures.as_ref())
+    })?;
     builder.resolve_binding_sorts()?;
     // The subject's root is the sentence's head, whose parametric instance
     // its turbofish fixes (KF-027).
@@ -1757,14 +1763,11 @@ fn lower_predicate_rule(
             "a predicate simplification states its ml::Predicate result; a single-body rule (`k::rewrite!`) rewrites object terms".to_owned(),
         ));
     };
-    builder.infer_predicate(&rule.subject, true)?;
-    infer_rule_conditions(
-        &mut builder,
-        rule.sentence_kind,
-        rule.requires.as_ref(),
-        None,
-    )?;
-    builder.infer_predicate(result, false)?;
+    builder.infer_sentence(|builder| {
+        builder.infer_predicate(&rule.subject, true)?;
+        infer_rule_conditions(builder, rule.sentence_kind, rule.requires.as_ref(), None)?;
+        builder.infer_predicate(result, false)
+    })?;
     builder.resolve_binding_sorts()?;
     let lhs = builder.lower_predicate(&rule.subject, true)?;
     let rhs = builder.lower_predicate(result, false)?;

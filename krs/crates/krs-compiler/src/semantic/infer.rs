@@ -50,6 +50,8 @@ pub(super) struct StructuredTermBuilder<'a> {
     /// Whether the next term lowered is the head of an equation or rule,
     /// whose parametric instance its turbofish fixes (KF-027).
     pub(super) head_pending: bool,
+    /// The builtin domain chosen for each operator (`a + b`).
+    pub(super) operators: super::operators::OperatorInference,
 }
 
 /// The local binders of a sentence's `k::matches!` patterns (BIND-1, KF-031).
@@ -649,7 +651,7 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
-    fn is_inferring_local(&self, name: &str) -> bool {
+    pub(super) fn is_inferring_local(&self, name: &str) -> bool {
         self.locals
             .inferring
             .as_ref()
@@ -966,7 +968,7 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
-    fn infer_application(
+    pub(super) fn infer_application(
         &mut self,
         reference: &DescriptorApplicationReference,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
@@ -1018,6 +1020,15 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorApplicationRef::Ml(connective) => {
                 return Err(self.ml_in_object_term(&reference.key, *connective));
+            }
+            DescriptorApplicationRef::Operator(operator) => {
+                return self.infer_operator(
+                    reference,
+                    *operator,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
             }
         };
         if let Some(expected) = expected_sort
@@ -1647,7 +1658,8 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Set(operation) => operation.spec().is_projected(),
             DescriptorApplicationRef::Declared(_)
             | DescriptorApplicationRef::Builtin(_)
-            | DescriptorApplicationRef::Ml(_) => false,
+            | DescriptorApplicationRef::Ml(_)
+            | DescriptorApplicationRef::Operator(_) => false,
         };
         projected.then(|| {
             self.k_item_sort
@@ -1656,7 +1668,11 @@ impl StructuredTermBuilder<'_> {
         })
     }
 
-    fn lower_application(
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per kind of the closed application reference sum."
+    )]
+    pub(super) fn lower_application(
         &mut self,
         reference: &DescriptorApplicationReference,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
@@ -1743,6 +1759,16 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorApplicationRef::Ml(connective) => {
                 return Err(self.ml_in_object_term(&reference.key, *connective));
+            }
+            DescriptorApplicationRef::Operator(operator) => {
+                return self.lower_operator(
+                    reference,
+                    *operator,
+                    arguments,
+                    expected_sort,
+                    subject,
+                    head,
+                );
             }
         };
         let ordered = order_structured_arguments(arguments, &signature.fields, subject)
@@ -2437,7 +2463,7 @@ impl StructuredTermBuilder<'_> {
 
     /// An invalid-term error, which [`Self::infer`] and [`Self::lower`]
     /// locate at the term they were given.
-    fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
+    pub(super) fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
         DescriptorLoweringError::invalid_term(self.descriptor.id(), detail)
     }
 
@@ -2615,7 +2641,7 @@ pub(super) fn initial_binding_constraints(
 /// higher candidate is the greatest lower bound that preserves every value
 /// admitted by the occurrence constraints. The stable sort ordering makes an
 /// ambiguous result deterministic for diagnostics.
-fn most_specific_common_descendants(
+pub(super) fn most_specific_common_descendants(
     constraints: &BTreeSet<SemanticSortRef>,
     parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Vec<SemanticSortRef> {
