@@ -780,7 +780,13 @@ impl fmt::Display for SyntaxError {
                 write!(
                     formatter,
                     "expected the reserved `term!` macro, found `{path}!`"
-                )
+                )?;
+                if path.rsplit("::").next() == Some("map") {
+                    formatter.write_str(
+                        "; `map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and a readable record reads entries with `cell: { key -> value, .. }`",
+                    )?;
+                }
+                Ok(())
             }
             SyntaxErrorKind::UnsupportedTermExpression { reason } => {
                 write!(formatter, "unsupported term expression: {reason}")

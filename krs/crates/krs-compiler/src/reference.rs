@@ -1749,10 +1749,29 @@ fn render_rule(
                 after,
                 ..
             } => {
+                // `[]` on a cell of the builtin `List` is `.List`, the only
+                // bracket that sort has.
+                let empty = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
+                    list.items.is_empty() && list.rest == krs_ir::ProtocolHeadRuleListRest::Exact
+                };
+                let Some(list) = cell_cons_list(&cell.cell, bundle) else {
+                    if !empty(before) || !after.as_ref().is_none_or(empty) {
+                        return Err(ReferenceExpansionError::UnresolvedListNotation);
+                    }
+                    let unit = render_facade_marker(krs_ir::ListOperation::Empty.facade_marker());
+                    let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                    left_cells.push(quote! {
+                        #field: k::configuration::Cell(#unit())
+                    });
+                    if after.is_some() {
+                        right_cells.push(quote! {
+                            #field: k::configuration::Cell(#unit())
+                        });
+                    }
+                    continue;
+                };
                 // A list cell is the constructor term it denotes (F6); its
                 // anonymous `..` is a parameter both sides name.
-                let list = cell_cons_list(&cell.cell, bundle)
-                    .ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
                 let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
                     .then(|| {
                         let rest = fresh_ident("rest", &mut reserved);
@@ -2752,12 +2771,15 @@ struct OperatorCalls<'a> {
     descriptor: &'a Descriptor,
     operations: BTreeMap<SourceMapKey, BuiltinOperation>,
     constructors: BTreeMap<SourceMapKey, StableItemId>,
+    /// The keys of `.List` terms: `[]` at a builtin `List` position.
+    list_units: BTreeSet<SourceMapKey>,
 }
 
 impl<'a> OperatorCalls<'a> {
     fn new(descriptor: &'a Descriptor, rule: &SemanticRule) -> Self {
         let mut operations = BTreeMap::new();
         let mut constructors = BTreeMap::new();
+        let mut list_units = BTreeSet::new();
         let mut pending = semantic_rule_terms(rule);
         while let Some(term) = pending.pop() {
             match term.kind() {
@@ -2773,6 +2795,11 @@ impl<'a> OperatorCalls<'a> {
                 } => {
                     constructors.insert(term.origin().key().clone(), id.clone());
                 }
+                IrTermKind::List(operands)
+                    if matches!(**operands, krs_ir_levels::ListOperands::Empty) =>
+                {
+                    list_units.insert(term.origin().key().clone());
+                }
                 _ => {}
             }
             pending.extend(term.children());
@@ -2781,6 +2808,7 @@ impl<'a> OperatorCalls<'a> {
             descriptor,
             operations,
             constructors,
+            list_units,
         }
     }
 }
@@ -2828,11 +2856,19 @@ impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
         if let DescriptorApplicationRef::ListNotation(_) = reference.application {
             let constructor =
                 crate::semantic::application_source_key(self.descriptor, &reference.key)
-                    .and_then(|key| self.constructors.get(&key).cloned())
-                    .ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+                    .and_then(|key| self.constructors.get(&key).cloned());
+            let unit = crate::semantic::list_operation_source_key(self.descriptor, &reference.key)
+                .is_some_and(|key| self.list_units.contains(&key));
+            let application = if let Some(constructor) = constructor {
+                DescriptorApplicationRef::Declared(constructor)
+            } else if unit {
+                DescriptorApplicationRef::List(krs_ir::ListOperation::Empty)
+            } else {
+                return Err(ReferenceExpansionError::UnresolvedListNotation);
+            };
             return Ok(DescriptorApplicationReference {
                 key: reference.key,
-                application: DescriptorApplicationRef::Declared(constructor),
+                application,
             });
         }
         let DescriptorApplicationRef::Operator(operator) = reference.application else {

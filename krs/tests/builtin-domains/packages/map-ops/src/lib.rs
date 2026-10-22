@@ -17,9 +17,11 @@ k::sorts! {
 
 /// One case per Map operation; `key` and `default` are program values.
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((Remove, RemoveAll, Keys, KeysList, Values, Size, UpdateAll, GetOrDefault))]
+#[k::precedence((Empty, Remove, RemoveAll, Keys, KeysList, Values, Size, UpdateAll, GetOrDefault))]
 #[rustfmt::skip]
 pub enum Case {
+    #[k::syntax("freshCount({key})")]
+    Empty { key: Int },
     #[k::syntax("removeKey({key})")]
     Remove { key: Int },
     #[k::syntax("removeKeys({key})")]
@@ -59,6 +61,13 @@ impl Machine {
 k::rules! {
     for Machine;
     use Case::*;
+
+    /// `map::empty`: the size of the empty map after adding `key`.
+    empty: {
+        k: [Empty { key }, ..],
+    } => {
+        k: [map::size(map::update(map::empty(), key, key)), ..],
+    };
 
     /// `map::remove`: the size after removing `key`.
     remove: {

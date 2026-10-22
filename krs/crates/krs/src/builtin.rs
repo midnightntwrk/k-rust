@@ -81,6 +81,10 @@ pub struct Map<K = Id, V = ()> {
 pub mod map {
     use super::{Id, Map, Set};
 
+    /// Marker for `.Map`, the empty map.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Empty;
+
     /// Persistent update of one typed map entry.
     ///
     /// The generic defaults provide one stable marker identity for KRS's
@@ -145,6 +149,7 @@ pub mod map {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct GetOrDefault<K = Id, V = ()>(pub Map<K, V>, pub K, pub V);
 
+    pub use Empty as empty;
     pub use Get as get;
     pub use GetOrDefault as get_or_default;
     pub use InKeys as in_keys;

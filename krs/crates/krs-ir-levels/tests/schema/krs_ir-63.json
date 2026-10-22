@@ -1318,10 +1318,10 @@
   "MapOperation": {
     "ENUM": {
       "0": {
-        "empty": "UNIT"
+        "item": "UNIT"
       },
       "1": {
-        "item": "UNIT"
+        "empty": "UNIT"
       },
       "2": {
         "update": "UNIT"

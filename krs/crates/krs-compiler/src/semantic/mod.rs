@@ -332,6 +332,18 @@ pub(crate) fn application_source_key(
         .map(|origin| origin.key().clone())
 }
 
+/// The source-map key of the builtin List operation lowered at the
+/// application with provenance `key`, as [`application_source_key`] gives a
+/// constructor's: `[]` at a builtin `List` position lowers to `.List`.
+pub(crate) fn list_operation_source_key(
+    descriptor: &Descriptor,
+    key: &krs_ir::ProvenanceKey,
+) -> Option<krs_ir::SourceMapKey> {
+    origin::semantic_origin(descriptor, key.clone(), "term-list-operation")
+        .ok()
+        .map(|origin| origin.key().clone())
+}
+
 /// The authored range of a rule's subject head, or of its name when the
 /// subject has no application head (a `cells!` rule).
 fn exact_rule_head_range(descriptor: &Descriptor) -> Option<krs_ir::SourceRange> {

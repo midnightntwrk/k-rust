@@ -977,9 +977,9 @@ fn infer_head_rule(
                     let sort = seeds.cell_sorts.get(&cell.cell);
                     let list = builder.list_cell(cell, sort)?;
                     let sort = sort.expect("a cons-list cell is a leaf of its sort");
-                    builder.infer_list(before, sort, &list, true)?;
+                    builder.infer_list(before, sort, &list, cell, true)?;
                     if let Some(after) = after {
-                        builder.infer_list(after, sort, &list, false)?;
+                        builder.infer_list(after, sort, &list, cell, false)?;
                     }
                 }
             }

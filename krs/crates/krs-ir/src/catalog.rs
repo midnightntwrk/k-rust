@@ -2596,16 +2596,6 @@ macro_rules! __krs_map_operation_catalog {
         $callback! {
             rust_module: map;
             structural {
-                /// Empty map unit (`.Map`).
-                Empty {
-                    description: "empty Map",
-                    k_label: ".Map",
-                    k_hook: Some("MAP.unit"),
-                    k_module: "MAP",
-                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Map"] },
-                    operand_sorts: [],
-                    result_sort: Builtin(Map)
-                }
                 /// One or more flattened key/value map items, also usable in associative matching.
                 Item {
                     description: "Map item",
@@ -2618,6 +2608,18 @@ macro_rules! __krs_map_operation_catalog {
                 }
             }
             term {
+                /// Empty map unit (`.Map`), `map::empty()` as a term and
+                /// `map![]` in a `cells!` entry or an initializer.
+                Empty {
+                    rust_name: empty,
+                    description: "empty Map",
+                    k_label: ".Map",
+                    k_hook: Some("MAP.unit"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Map"] },
+                    operand_sorts: [],
+                    result_sort: Builtin(Map)
+                }
                 /// Functional map update.
                 Update {
                     rust_name: update,
@@ -2797,8 +2799,8 @@ macro_rules! define_map_operations {
         impl TermMapOperation {
             /// Map operations which may occur as ordinary authored term applications, in stable semantic order.
             ///
-            /// Empty maps and map items retain their dedicated `map!` structural syntax.
-            /// Update, lookup, and key membership resolve through the ordinary application-head registry.
+            /// Map items retain their dedicated `map!` structural syntax.
+            /// The empty map, update, lookup, and key membership resolve through the ordinary application-head registry.
             pub const ALL: [Self; [$(stringify!($term)),*].len()] = [$(Self::$term),*];
 
             /// Returns the pinned operation specification.

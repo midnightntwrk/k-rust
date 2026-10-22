@@ -329,7 +329,7 @@ pub(super) fn lower_instances_clause(
         return Err(entry_error(
             &cell.key,
             format!(
-                "`{name}` is not a cell collection: an instance list names a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`"
+                "`{name}` is not a cell collection: an instance list names a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"
             ),
         ));
     };

@@ -787,7 +787,8 @@ fn ordinary_map_references_have_closed_wire_shapes() {
         ))
     ));
 
-    for operation in [MapOperation::Empty, MapOperation::Item] {
+    {
+        let operation = MapOperation::Item;
         assert_eq!(
             TermMapOperation::try_from(operation),
             Err(GrammarTransportError::InvalidApplication(

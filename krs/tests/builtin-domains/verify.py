@@ -226,6 +226,7 @@ SET_OPS = (
 )
 
 MAP_OPS = (
+    case("empty", "freshCount(5)", "1"),
     case("remove", "removeKey(2)", "2"),
     case("remove-absent", "removeKey(9)", "3"),
     case("remove-all", "removeKeys(1)", "1"),

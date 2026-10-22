@@ -1976,12 +1976,16 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
     if crate::rule::is_bits_macro(path) {
         return crate::rule::misplaced_bit_template(path.span());
     }
-    SyntaxError::new(
-        SyntaxErrorKind::UnsupportedTermExpression {
-            reason: "the root must be a named path/call/record or an Int/Bool literal",
-        },
-        span,
-    )
+    let reason = if path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "map")
+    {
+        "`map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and `map::update(..)` adds an entry"
+    } else {
+        "the root must be a named path/call/record or an Int/Bool literal"
+    };
+    SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
 }
 
 fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {

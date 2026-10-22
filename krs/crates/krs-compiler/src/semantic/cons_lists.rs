@@ -12,17 +12,19 @@
 //! expects, and every later phase (emission, coverage, overlap) sees that
 //! constructor. A position whose expected sort is unknown or not a cons list
 //! has no constructor the brackets could denote, and is an error rather than
-//! a guess.
+//! a guess. K's builtin `List` is no cons list, but it has an empty list:
+//! `[]` at a `List` position is `.List`, so `[]` is the empty list of every
+//! list sort, while brackets holding elements build cons lists only.
 
 use std::collections::BTreeMap;
 
 use krs_ir::{
     ApplicationRef, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
     DescriptorCellReference, DescriptorPayload, DescriptorProductionAttribute,
-    DescriptorProductionItem, GrammarDescriptor, ListNotation, ProtocolHeadRuleListRest,
-    ProvenanceKey, SemanticId, StableItemId,
+    DescriptorProductionItem, GrammarDescriptor, ListNotation, ListOperation,
+    ProtocolHeadRuleListRest, ProvenanceKey, SemanticId, StableItemId,
 };
-use krs_ir_levels::{SemanticSortRef, SemanticTerm, SemanticVariable};
+use krs_ir_levels::{ListOperands, SemanticSortRef, SemanticTerm, SemanticVariable};
 
 use super::catalog::{ProductionSignature, semantic_sort_ref};
 use super::error::DescriptorLoweringError;
@@ -33,19 +35,33 @@ use super::overload::sort_name;
 /// One side of a readable record's list cell (F6).
 type DescriptorHeadRuleList = krs_ir::ProtocolHeadRuleList<krs_ir::DescriptorTerm>;
 
-/// The constructors of one cons-list sort.
+/// The constructors of one cons-list sort, or of the builtin `List`, whose
+/// only bracket is `[]`.
 pub(super) struct ConsListConstructors {
-    /// The two-field constructor `Cons(head, tail)`.
-    pub(super) cons: StableItemId,
-    /// The zero-field constructor.
-    pub(super) empty: StableItemId,
+    /// The two-field constructor `Cons(head, tail)`; `None` for the builtin
+    /// `List`, which is built with `list::item` and `list::concat`.
+    pub(super) cons: Option<StableItemId>,
+    /// The zero-field constructor; `None` for the builtin `List`, whose
+    /// empty list is `.List`.
+    pub(super) empty: Option<StableItemId>,
     /// The sort of the cons constructor's first field, the list's elements.
     pub(super) element: SemanticSortRef,
 }
 
+/// Why brackets holding elements denote nothing at the builtin `List`.
+const BUILTIN_LIST_ELEMENTS: &str = "brackets holding elements build a cons list, but this position has the builtin sort `List`, whose only bracket is the empty list `[]`: build its elements with `list::item(..)` and `list::concat(..)`";
+
 impl StructuredTermBuilder<'_> {
     /// The constructors of `sort` when it is a cons list.
     pub(super) fn cons_list_of(&self, sort: &SemanticSortRef) -> Option<ConsListConstructors> {
+        // `[]` is the empty list wherever a List is expected.
+        if *sort == SemanticSortRef::Builtin(krs_ir::BuiltinSort::List) {
+            return Some(ConsListConstructors {
+                cons: None,
+                empty: None,
+                element: sort.clone(),
+            });
+        }
         self.catalog.iter().find_map(|(id, signature)| {
             if signature.result_sort != *sort {
                 return None;
@@ -53,8 +69,8 @@ impl StructuredTermBuilder<'_> {
             let empty = signature.cons_list_empty.clone()?;
             let (_, element) = signature.fields.first()?;
             Some(ConsListConstructors {
-                cons: id.clone(),
-                empty,
+                cons: Some(id.clone()),
+                empty: Some(empty),
                 element: element.clone(),
             })
         })
@@ -88,12 +104,19 @@ impl StructuredTermBuilder<'_> {
                 ),
             ));
         };
+        let application = match (notation, list.cons, list.empty) {
+            (ListNotation::Cons, Some(cons), _) => DescriptorApplicationRef::Declared(cons),
+            (ListNotation::Cons, None, _) => {
+                return Err(
+                    self.invalid_list_notation(&reference.key, BUILTIN_LIST_ELEMENTS.to_owned())
+                );
+            }
+            (ListNotation::Empty, _, Some(empty)) => DescriptorApplicationRef::Declared(empty),
+            (ListNotation::Empty, _, None) => DescriptorApplicationRef::List(ListOperation::Empty),
+        };
         Ok(DescriptorApplicationReference {
             key: reference.key.clone(),
-            application: DescriptorApplicationRef::Declared(match notation {
-                ListNotation::Cons => list.cons,
-                ListNotation::Empty => list.empty,
-            }),
+            application,
         })
     }
 
@@ -245,8 +268,14 @@ impl StructuredTermBuilder<'_> {
         list: &DescriptorHeadRuleList,
         sort: &SemanticSortRef,
         constructors: &ConsListConstructors,
+        cell: &DescriptorCellReference,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
+        if constructors.cons.is_none()
+            && (!list.items.is_empty() || list.rest != ProtocolHeadRuleListRest::Exact)
+        {
+            return Err(self.invalid_list_notation(&cell.key, BUILTIN_LIST_ELEMENTS.to_owned()));
+        }
         for item in &list.items {
             self.infer(item, Some(&constructors.element), subject)?;
         }
@@ -297,18 +326,32 @@ impl StructuredTermBuilder<'_> {
             .map(|item| self.lower(item, Some(&constructors.element), subject))
             .collect::<Result<Vec<_>, _>>()?;
         let mut list_term = match &list.rest {
-            ProtocolHeadRuleListRest::Exact => SemanticTerm::application(
-                semantic_origin(descriptor, cell.key.clone(), &format!("list-empty-{side}"))?,
-                sort.clone(),
-                ApplicationRef::Declared(constructors.empty.clone()),
-                Vec::new(),
-            ),
+            ProtocolHeadRuleListRest::Exact => {
+                let origin =
+                    semantic_origin(descriptor, cell.key.clone(), &format!("list-empty-{side}"))?;
+                match &constructors.empty {
+                    Some(empty) => SemanticTerm::application(
+                        origin,
+                        sort.clone(),
+                        ApplicationRef::Declared(empty.clone()),
+                        Vec::new(),
+                    ),
+                    None => SemanticTerm::list(origin, sort.clone(), ListOperands::Empty),
+                }
+            }
             ProtocolHeadRuleListRest::Shared => SemanticTerm::variable(
                 semantic_origin(descriptor, cell.key.clone(), &format!("list-rest-{side}"))?,
                 sort.clone(),
                 self.shared_list_rest(cell, sort)?,
             ),
             ProtocolHeadRuleListRest::Term(rest) => self.lower(rest, Some(sort), subject)?,
+        };
+        let cons = match &constructors.cons {
+            Some(cons) => cons,
+            None if items.is_empty() => return Ok(list_term),
+            None => {
+                return Err(self.invalid_list_notation(&cell.key, BUILTIN_LIST_ELEMENTS.to_owned()));
+            }
         };
         for (index, item) in items.into_iter().enumerate().rev() {
             list_term = SemanticTerm::application(
@@ -318,7 +361,7 @@ impl StructuredTermBuilder<'_> {
                     &format!("list-cons-{side}-{index}"),
                 )?,
                 sort.clone(),
-                ApplicationRef::Declared(constructors.cons.clone()),
+                ApplicationRef::Declared(cons.clone()),
                 vec![item, list_term],
             );
         }
