@@ -358,10 +358,7 @@ pub enum SavedWorldState {
 pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
     int::rem_euclid(
         value,
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
     )
 }
 
@@ -2557,8 +2554,6 @@ fn resolve_true_jump_if(
     }]
 }
 
-// 2^256 is written as (2^64 * 2^64)^2 so every authored Rust literal fits
-// its host integer lexer while the object-language computation stays exact.
 #[k::requires(int::eq(divisor, 0))]
 #[k::equation]
 fn word_div_zero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
@@ -2585,21 +2580,12 @@ fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k:
 
 #[k::requires(bool::and(
     int::le(
-        int::div(
-            int::mul(
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            ),
-            2,
-        ),
+        57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968,
         value,
     ),
     int::lt(
         value,
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
     ),
 ))]
 #[k::equation]
@@ -2611,13 +2597,7 @@ fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     int::le(0, value),
     int::lt(
         value,
-        int::div(
-            int::mul(
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-                int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            ),
-            2,
-        ),
+        57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968,
     ),
 ))]
 #[k::equation]
@@ -2628,10 +2608,7 @@ fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
 #[k::requires(bool::or(
     int::lt(value, 0),
     int::le(
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
         value,
     ),
 ))]
@@ -2810,10 +2787,7 @@ fn signed_shift_right_large_negative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![int::sub(
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
+        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
         1,
     )]
 }
@@ -2879,10 +2853,7 @@ fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>)
     k::term![Chop(int::bit_or(
         int::bit_xor(
             int::sub(
-                int::mul(
-                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),
-                    int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),
-                ),
+                115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
                 1,
             ),
             int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
@@ -5056,7 +5027,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(int::pow_mod(w0, w1, int::mul(int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616), int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),),), rest,),
+        word_stack: Stack::StackCons(int::pow_mod(w0, w1, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,), rest,),
         pc: int::add(pc, 1),
         gas: remaining,
     }
@@ -5199,7 +5170,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(int::mul(int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,), int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616,),), 1,),), rest,),
+        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, 1,),), rest,),
         pc: int::add(pc, 1),
         gas: remaining,
     }
