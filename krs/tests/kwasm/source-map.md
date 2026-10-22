@@ -108,7 +108,8 @@ The width-preserving operand rule repeats its type binder across `<instrs>` and 
 
 KWasm defines `#chop(< ITYPE > N) => < ITYPE > (N modInt #pow(ITYPE))`.
 The port's total wrap function `#kwasmChop` applies `int::rem_euclid`, which
-emits `_modInt_`, with the literal modulus `2^32` or `2^64` for each width.
+emits `_modInt_`, with the modulus `POW32` (2^32) or `POW64` (2^64) for each width,
+named by `#[k::constant]`s and emitted as the decimal literal.
 
 The slice originally had no modulo builtin and spelled the reduction as
 `X -Int ((X /Int M) *Int M)`, which equals `X modInt M` only for nonnegative
@@ -121,7 +122,7 @@ The constant rules accept KWasm's i32/i64 literal ranges, including `-1`.
 
 ### W3 — guarded division and traps require no authoring extension
 
-KRS already exposes typed `int::div`, `int::eq`, and `int::ne` builtins and retains `#[k::requires(...)]` conditions on equations.
+KRS already exposes typed `int::div`, `int::eq`, and `int::ne` builtins, which the port writes as the operators `lhs / rhs`, `rhs == 0`, and `rhs != 0`, and retains `#[k::requires(...)]` conditions on equations.
 The two explicit guards partition the selected `div_u` domain without source ordering or `owise`.
 The existing constructor and readable machine-rule surfaces express `undefined`, `trap`, and the operational transition directly.
 No descriptor protocol change is justified by the second slice.

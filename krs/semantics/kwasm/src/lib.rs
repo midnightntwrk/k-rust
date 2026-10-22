@@ -104,17 +104,17 @@ k::equations! {
 
 k::equations! {
     for IntBinOp;
-    add       : (ty, IntegerBinOp::Add, lhs, rhs)  => Chop(ty, int::add(lhs, rhs));
+    add       : (ty, IntegerBinOp::Add, lhs, rhs)  => Chop(ty, lhs + rhs);
     sub_i32:
         (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I32, int::sub(int::add(lhs, POW32), rhs));
+        => Chop(IntegerType::I32, lhs + POW32 - rhs);
     sub_i64:
         (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I64, int::sub(int::add(lhs, POW64), rhs));
-    mul       : (ty, IntegerBinOp::Mul, lhs, rhs)  => Chop(ty, int::mul(lhs, rhs));
-    #[k::requires(int::ne(rhs, 0))]
-    div_u     : (ty, IntegerBinOp::DivU, lhs, rhs) => Value::Integer(ty, int::div(lhs, rhs));
-    #[k::requires(int::eq(rhs, 0))]
+        => Chop(IntegerType::I64, lhs + POW64 - rhs);
+    mul       : (ty, IntegerBinOp::Mul, lhs, rhs)  => Chop(ty, lhs * rhs);
+    #[k::requires(rhs != 0)]
+    div_u     : (ty, IntegerBinOp::DivU, lhs, rhs) => Value::Integer(ty, lhs / rhs);
+    #[k::requires(rhs == 0)]
     div_u_zero: (_, IntegerBinOp::DivU, _, rhs)    => Value::Undefined();
 }
 
@@ -164,13 +164,13 @@ k::rules! {
     constant_i32: {
         instrs: [Const(IntegerType::I32, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I32, int::add(value, POW32)), ..],
+        instrs: [Chop(IntegerType::I32, value + POW32), ..],
     };
 
     constant_i64: {
         instrs: [Const(IntegerType::I64, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I64, int::add(value, POW64)), ..],
+        instrs: [Chop(IntegerType::I64, value + POW64), ..],
     };
 
     undefined_traps: {
