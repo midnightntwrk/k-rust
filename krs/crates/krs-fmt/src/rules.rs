@@ -833,6 +833,21 @@ mod tests {
                 pair: Both(x)       => Pair::<Int, dyn ExpSort>(x, x);"]].assert_eq(&actual);
     }
 
+    /// A list's rest after its elements hugs its operand, `[b, a, ..rest]`
+    /// (F6); `rest @ ..` keeps its spacing.
+    #[test]
+    fn a_list_rest_hugs_its_operand() {
+        let source = r"
+            for Machine;
+            swap: { word_stack: [a, b, rest @ ..] } => { word_stack: [b, a, .. rest] };
+        ";
+        let output = format_rule_body(source, 0, "    ", LAYOUT).expect("format body");
+        assert!(output.contains("[a, b, rest @ ..]"), "{output}");
+        assert!(output.contains("[b, a, ..rest]"), "{output}");
+        let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format again");
+        assert_eq!(output, again);
+    }
+
     #[test]
     fn formats_equation_tables_with_the_rule_table_layout() {
         let source = r"
