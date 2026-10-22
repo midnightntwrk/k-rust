@@ -43,7 +43,7 @@ PROBES = (
         "local binding",
         "value: int::add(lhs, rhs)",
         "lhs",
-        "checked: false, operation: MirBinaryOp::BinOpAdd(), lhs: Value::Integer { value: lhs, width, signed }",
+        "lhs: Value::Integer { value: lhs, width, signed }",
     ),
     (
         "return constructor",
