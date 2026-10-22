@@ -55,7 +55,7 @@ PORT = semantics.Port(
     label="KWasm",
     key="kwasm",
     checkout=INSPIRATIONS / "runtimeverification/wasm-semantics",
-    descriptors=59,
+    descriptors=61,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=90,
 )

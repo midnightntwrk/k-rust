@@ -73,6 +73,14 @@ pub enum InstrList {
     InstrCons { head: Instr, tail: Instrs },
 }
 
+/// 2^32: `i32` arithmetic wraps modulo it.
+#[k::constant]
+pub const POW32: Int = 0x1_0000_0000;
+
+/// 2^64: `i64` arithmetic wraps modulo it.
+#[k::constant]
+pub const POW64: Int = 0x1_0000_0000_0000_0000;
+
 #[k::function(total, syntax = "#kwasmChop({ty}, {value})")]
 pub fn Chop(ty: k::Term<IValType>, value: k::Term<Int>) -> k::Term<Val>;
 
@@ -88,10 +96,10 @@ k::equations! {
     for Chop;
     chop_i32:
         (IntegerType::I32, value)
-        => Value::Integer(IntegerType::I32, int::rem_euclid(value, 0x1_0000_0000));
+        => Value::Integer(IntegerType::I32, int::rem_euclid(value, POW32));
     chop_i64:
         (IntegerType::I64, value)
-        => Value::Integer(IntegerType::I64, int::rem_euclid(value, 0x1_0000_0000_0000_0000));
+        => Value::Integer(IntegerType::I64, int::rem_euclid(value, POW64));
 }
 
 k::equations! {
@@ -99,10 +107,10 @@ k::equations! {
     add       : (ty, IntegerBinOp::Add, lhs, rhs)  => Chop(ty, int::add(lhs, rhs));
     sub_i32:
         (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I32, int::sub(int::add(lhs, 0x1_0000_0000), rhs));
+        => Chop(IntegerType::I32, int::sub(int::add(lhs, POW32), rhs));
     sub_i64:
         (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I64, int::sub(int::add(lhs, 0x1_0000_0000_0000_0000), rhs));
+        => Chop(IntegerType::I64, int::sub(int::add(lhs, POW64), rhs));
     mul       : (ty, IntegerBinOp::Mul, lhs, rhs)  => Chop(ty, int::mul(lhs, rhs));
     #[k::requires(int::ne(rhs, 0))]
     div_u     : (ty, IntegerBinOp::DivU, lhs, rhs) => Value::Integer(ty, int::div(lhs, rhs));
@@ -156,13 +164,13 @@ k::rules! {
     constant_i32: {
         instrs: [Const(IntegerType::I32, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I32, int::add(value, 0x1_0000_0000)), ..],
+        instrs: [Chop(IntegerType::I32, int::add(value, POW32)), ..],
     };
 
     constant_i64: {
         instrs: [Const(IntegerType::I64, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I64, int::add(value, 0x1_0000_0000_0000_0000)), ..],
+        instrs: [Chop(IntegerType::I64, int::add(value, POW64)), ..],
     };
 
     undefined_traps: {
