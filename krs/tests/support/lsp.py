@@ -25,6 +25,22 @@ from support.process import BASE_ENVIRONMENT
 Probe = tuple[str, str, str, str]
 ENVIRONMENT = {**os.environ, **BASE_ENVIRONMENT, "RUSTUP_TOOLCHAIN": "stable"}
 
+# LSP's `ServerCancelled` error code.
+SERVER_CANCELLED = -32802
+# Resends of one request the server cancelled asking for it again, and the
+# delay before the first, which grows linearly.
+RETRIGGER_ATTEMPTS = 5
+RETRIGGER_DELAY = 0.5
+
+
+def retrigger(error: Any) -> bool:
+    """Whether `error` is the server cancelling a request it asks to be sent
+    again (`ServerCancelled` with `retriggerRequest: true`)."""
+    if not isinstance(error, dict) or error.get("code") != SERVER_CANCELLED:
+        return False
+    data = error.get("data")
+    return isinstance(data, dict) and data.get("retriggerRequest") is True
+
 
 class Client:
     """A minimal JSON-RPC client over one rust-analyzer process."""
@@ -71,18 +87,36 @@ class Client:
         self.send({"jsonrpc": "2.0", "id": message["id"], "result": result})
 
     def request(self, method: str, params: Any, timeout: float = 60) -> Any:
-        request_id = self.next_id
-        self.next_id += 1
-        self.send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+        """Send one request and return its result.
+
+        A server under load may cancel a request with `ServerCancelled` and
+        `retriggerRequest: true`, which the LSP specification defines as an
+        invitation to send it again: the request is resent, as a new request,
+        up to `RETRIGGER_ATTEMPTS` more times within the same timeout.
+        """
         deadline = time.monotonic() + timeout
+        for attempt in range(RETRIGGER_ATTEMPTS + 1):
+            request_id = self.next_id
+            self.next_id += 1
+            self.send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+            error, result = self._response(method, request_id, deadline)
+            if error is None:
+                return result
+            if not retrigger(error) or attempt == RETRIGGER_ATTEMPTS:
+                raise GateError(f"{method} failed: {error}")
+            time.sleep(min(RETRIGGER_DELAY * (attempt + 1), max(deadline - time.monotonic(), 0)))
+        raise AssertionError("unreachable")
+
+    def _response(self, method: str, request_id: int, deadline: float) -> tuple[Any, Any]:
+        """Wait for the response to `request_id`: its error and result."""
         while time.monotonic() < deadline:
             message = self.receive(deadline - time.monotonic())
             if message is None:
                 break
             if message.get("id") == request_id and "method" not in message:
                 if "error" in message:
-                    raise GateError(f"{method} failed: {message['error']}")
-                return message.get("result")
+                    return message["error"], None
+                return None, message.get("result")
             self.handle(message)
         raise GateError(f"timed out waiting for {method}")
 
