@@ -1034,12 +1034,14 @@ k::equations! {
     use MirTypeInfo::*;
     use Value::*;
     #[k::requires(
-        bytes::length(bytes) == 1 && ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 0
+        bytes::length(bytes) == 1
+            && ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 0
     )]
     decode_allocated_boolean_false:
         (_, bytes, PrimitiveType { primitive: Bool() }) => Boolean(false);
     #[k::requires(
-        bytes::length(bytes) == 1 && ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 1
+        bytes::length(bytes) == 1
+            && ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 1
     )]
     decode_allocated_boolean_true: (_, bytes, PrimitiveType { primitive: Bool() }) => Boolean(true);
     decode_allocated_signed_integer:
@@ -1180,7 +1182,8 @@ k::equations! {
         (_, bytes, TupleType { fields: [], .. }) => Aggregate { variant: 0, fields: list::empty() };
     #[k::requires(
         NeededBytesForOffsets { types, fields: [first, ..remaining], offsets } >= 0
-            && bytes::length(bytes) >= NeededBytesForOffsets { types, fields: [first, ..remaining], offsets }
+            && bytes::length(bytes)
+                >= NeededBytesForOffsets { types, fields: [first, ..remaining], offsets }
     )]
     decode_allocated_tuple:
         (
@@ -2771,7 +2774,11 @@ k::equations! {
             locals
         };
     #[k::requires(
-        from >= 0 && from <= list::size(elements) && to > 0 && to <= list::size(elements) && from < to
+        from >= 0
+            && from <= list::size(elements)
+            && to > 0
+            && to <= list::size(elements)
+            && from < to
     )]
     read_projection_subslice_front:
         (Range { elements }, [Subslice { from, to, from_end: false }, tail @ ..], locals)
@@ -2872,7 +2879,11 @@ k::equations! {
             )
         };
     #[k::requires(
-        from >= 0 && from <= list::size(elements) && to > 0 && to <= list::size(elements) && from < to
+        from >= 0
+            && from <= list::size(elements)
+            && to > 0
+            && to <= list::size(elements)
+            && from < to
     )]
     write_projection_subslice_front:
         (
@@ -5834,7 +5845,8 @@ k::rules! {
 
     #[k::requires(
         rhs != 0
-            && TruncateInteger { value: lhs - lhs / rhs * rhs, width, signed } == lhs - lhs / rhs * rhs
+            && TruncateInteger { value: lhs - lhs / rhs * rhs, width, signed }
+                == lhs - lhs / rhs * rhs
     )]
     finish_rem: {
         k: [
@@ -7088,9 +7100,15 @@ fn list_add_switch_return(
                 list::concat(
                     list::item(LocalValue::NewLocal(MirTy::TyId(2), LocalMutability::Mutable())),
                     list::concat(
-                        list::item(LocalValue::NewLocal(MirTy::TyId(3), LocalMutability::Mutable())),
+                        list::item(LocalValue::NewLocal(
+                            MirTy::TyId(3),
+                            LocalMutability::Mutable(),
+                        )),
                         list::concat(
-                            list::item(LocalValue::NewLocal(MirTy::TyId(4), LocalMutability::Mutable())),
+                            list::item(LocalValue::NewLocal(
+                                MirTy::TyId(4),
+                                LocalMutability::Mutable(),
+                            )),
                             list::empty(),
                         ),
                     ),
@@ -7167,15 +7185,35 @@ fn list_add_switch_return(
         CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
         CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
         CurrentFrame::locals: k::configuration::Cell(list::concat(
-            list::item(LocalValue::TypedValue(Value::Integer(42, 64, false), MirTy::TyId(0), LocalMutability::Mutable())),
+            list::item(LocalValue::TypedValue(
+                Value::Integer(42, 64, false),
+                MirTy::TyId(0),
+                LocalMutability::Mutable(),
+            )),
             list::concat(
-                list::item(LocalValue::TypedValue(Value::Integer(20, 64, false), MirTy::TyId(1), LocalMutability::Mutable())),
+                list::item(LocalValue::TypedValue(
+                    Value::Integer(20, 64, false),
+                    MirTy::TyId(1),
+                    LocalMutability::Mutable(),
+                )),
                 list::concat(
-                    list::item(LocalValue::TypedValue(Value::Integer(22, 64, false), MirTy::TyId(2), LocalMutability::Mutable())),
+                    list::item(LocalValue::TypedValue(
+                        Value::Integer(22, 64, false),
+                        MirTy::TyId(2),
+                        LocalMutability::Mutable(),
+                    )),
                     list::concat(
-                        list::item(LocalValue::TypedValue(Value::Integer(42, 64, false), MirTy::TyId(3), LocalMutability::Mutable())),
+                        list::item(LocalValue::TypedValue(
+                            Value::Integer(42, 64, false),
+                            MirTy::TyId(3),
+                            LocalMutability::Mutable(),
+                        )),
                         list::concat(
-                            list::item(LocalValue::TypedValue(Value::Boolean(true), MirTy::TyId(4), LocalMutability::Mutable())),
+                            list::item(LocalValue::TypedValue(
+                                Value::Boolean(true),
+                                MirTy::TyId(4),
+                                LocalMutability::Mutable(),
+                            )),
                             list::empty(),
                         ),
                     ),
