@@ -87,6 +87,7 @@ The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core
 
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, `PUSH0` pushes zero without immediate data, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates.
+`Decode` is one equation table over the opcode byte: one literal row per named opcode, a bit template per encoded family (`011 nnnnn` is `PUSH(n+1)`, `1000 dddd` is `DUP(d+1)`, `1001 dddd` is `SWAP(d+1)`, `10100 ttt` with `t <= 4` is `LOG(t)`), and one `owise` row that decodes every other byte as `INVALID`.
 The operational effects after decoding remain mapped to the checked-in summary rules.
 The program bytes remain unchanged across execution, matching KEVM's program-cell boundary.
 `JUMP` and true `JUMPI` scan those same bytes from offset zero, advancing over
