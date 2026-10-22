@@ -224,8 +224,18 @@ impl Substitution<'_> {
                 reference,
                 arguments,
                 instance,
+                update,
                 ..
             } => {
+                // A record update copies fields from a matched alias, and a
+                // constant's value is ground: it matches nothing.
+                if update.is_some() {
+                    return Err(DescriptorLoweringError::UnsupportedShape {
+                        node: "constant value",
+                        detail: "a constant's value is a literal or a constructor application"
+                            .into(),
+                    });
+                }
                 let reference = krs_ir::DescriptorApplicationReference {
                     key: self.key(origin)?,
                     application: reference.application.clone(),
@@ -257,6 +267,7 @@ impl Substitution<'_> {
                     path_key,
                     arguments,
                     instance: instance.clone(),
+                    update: None,
                 }
             }
             _ => {
@@ -438,6 +449,7 @@ pub(super) fn check_constants(
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
             operators: super::operators::OperatorInference::default(),
+            record_updates: super::record_updates::RecordUpdateState::default(),
         };
         builder.infer(
             &constant.value,
