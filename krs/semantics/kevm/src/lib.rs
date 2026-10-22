@@ -611,30 +611,10 @@ pub struct EcrecOutput {
 pub fn EcrecPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
     EcrecOutput {
         public_key: EcdsaRecover {
-            hash: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32,
-            },
-            recovery: BytesToInt {
-                value: ReturnBytes {
-                    memory: data,
-                    start: 32,
-                    width: 32,
-                },
-                index: 0,
-                result: 0,
-            },
-            r: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32,
-            },
-            s: ReturnBytes {
-                memory: data,
-                start: 96,
-                width: 32,
-            },
+            hash: ReturnBytes(data, 0, 32),
+            recovery: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
+            r: ReturnBytes(data, 64, 32),
+            s: ReturnBytes(data, 96, 32),
         },
     }
 }
@@ -719,76 +699,28 @@ pub struct ResolveIdentityPrecompile {
 
 #[k::function(total, syntax = "#kevmModExpPrecompileCost({data})")]
 pub fn ModExpPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
-    Maximum {
-        left: 200,
-        right: (Maximum {
-            left: BytesToInt {
-                value: ReturnBytes {
-                    memory: data,
-                    start: 0,
-                    width: 32,
-                },
-                index: 0,
-                result: 0,
-            },
-            right: BytesToInt {
-                value: ReturnBytes {
-                    memory: data,
-                    start: 64,
-                    width: 32,
-                },
-                index: 0,
-                result: 0,
-            },
-        } + 7)
+    Maximum(
+        200,
+        (Maximum(
+            BytesToInt(ReturnBytes(data, 0, 32), 0, 0),
+            BytesToInt(ReturnBytes(data, 64, 32), 0, 0),
+        ) + 7)
             / 8
-            * ((Maximum {
-                left: BytesToInt {
-                    value: ReturnBytes {
-                        memory: data,
-                        start: 0,
-                        width: 32,
-                    },
-                    index: 0,
-                    result: 0,
-                },
-                right: BytesToInt {
-                    value: ReturnBytes {
-                        memory: data,
-                        start: 64,
-                        width: 32,
-                    },
-                    index: 0,
-                    result: 0,
-                },
-            } + 7)
+            * ((Maximum(
+                BytesToInt(ReturnBytes(data, 0, 32), 0, 0),
+                BytesToInt(ReturnBytes(data, 64, 32), 0, 0),
+            ) + 7)
                 / 8)
-            * Maximum {
-                left: ModExpAdjustedExponentLength {
+            * Maximum(
+                ModExpAdjustedExponentLength {
                     data,
-                    base_length: BytesToInt {
-                        value: ReturnBytes {
-                            memory: data,
-                            start: 0,
-                            width: 32,
-                        },
-                        index: 0,
-                        result: 0,
-                    },
-                    exponent_length: BytesToInt {
-                        value: ReturnBytes {
-                            memory: data,
-                            start: 32,
-                            width: 32,
-                        },
-                        index: 0,
-                        result: 0,
-                    },
+                    base_length: BytesToInt(ReturnBytes(data, 0, 32), 0, 0),
+                    exponent_length: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
                 },
-                right: 1,
-            }
+                1,
+            )
             / 3,
-    }
+    )
 }
 
 #[k::function(
@@ -810,41 +742,10 @@ pub struct ModExpExponentHeadBits {
 #[k::function(total, syntax = "#kevmModExpPrecompileOutput({data})")]
 pub fn ModExpPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
     ModExpOutputBody {
-        body: ReturnBytes {
-            memory: data,
-            start: 96,
-            width: Maximum {
-                left: 0,
-                right: bytes::length(data) - 96,
-            },
-        },
-        base_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        exponent_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        modulus_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
+        body: ReturnBytes(data, 96, Maximum(0, bytes::length(data) - 96)),
+        base_length: BytesToInt(ReturnBytes(data, 0, 32), 0, 0),
+        exponent_length: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
+        modulus_length: BytesToInt(ReturnBytes(data, 64, 32), 0, 0),
     }
 }
 
@@ -876,24 +777,8 @@ pub fn ModExpOutputExponent(
         remaining: modulus_length,
         value: ModExpPower {
             base,
-            exponent: BytesToInt {
-                value: ReturnBytes {
-                    memory: body,
-                    start: 0,
-                    width: exponent_length,
-                },
-                index: 0,
-                result: 0,
-            },
-            modulus: BytesToInt {
-                value: ReturnBytes {
-                    memory: body,
-                    start: exponent_length,
-                    width: modulus_length,
-                },
-                index: 0,
-                result: 0,
-            },
+            exponent: BytesToInt(ReturnBytes(body, 0, exponent_length), 0, 0),
+            modulus: BytesToInt(ReturnBytes(body, exponent_length, modulus_length), 0, 0),
         },
     }
 }
@@ -972,48 +857,16 @@ pub struct Bn128Ate {
 #[k::function(total, syntax = "#kevmEcAddFirstPoint({data})")]
 pub fn EcAddFirstPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
     Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
+        x: BytesToInt(ReturnBytes(data, 0, 32), 0, 0),
+        y: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
     }
 }
 
 #[k::function(total, syntax = "#kevmEcAddSecondPoint({data})")]
 pub fn EcAddSecondPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
     Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 96,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
+        x: BytesToInt(ReturnBytes(data, 64, 32), 0, 0),
+        y: BytesToInt(ReturnBytes(data, 96, 32), 0, 0),
     }
 }
 
@@ -1046,38 +899,14 @@ pub struct ResolveEcAddPrecompile {
 #[k::function(total, syntax = "#kevmEcMulPoint({data})")]
 pub fn EcMulPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
     Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
+        x: BytesToInt(ReturnBytes(data, 0, 32), 0, 0),
+        y: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
     }
 }
 
 #[k::function(total, syntax = "#kevmEcMulScalar({data})")]
 pub fn EcMulScalar(data: k::Term<Bytes>) -> k::Term<Int> {
-    BytesToInt {
-        value: ReturnBytes {
-            memory: data,
-            start: 64,
-            width: 32,
-        },
-        index: 0,
-        result: 0,
-    }
+    BytesToInt(ReturnBytes(data, 64, 32), 0, 0)
 }
 
 #[k::function(total, syntax = "#kevmEcMulPrecompileOutput({data})")]
@@ -1109,66 +938,18 @@ pub fn EcPairingPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
 #[k::function(total, syntax = "#kevmEcPairingG1Point({data}, {index})")]
 pub fn EcPairingG1Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G1Point> {
     Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index + 32,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
+        x: BytesToInt(ReturnBytes(data, index, 32), 0, 0),
+        y: BytesToInt(ReturnBytes(data, index + 32, 32), 0, 0),
     }
 }
 
 #[k::function(total, syntax = "#kevmEcPairingG2Point({data}, {index})")]
 pub fn EcPairingG2Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G2Point> {
     Bn128G2Point::G2 {
-        x_real: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index + 96,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        x_imaginary: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index + 64,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        y_real: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index + 160,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
-        y_imaginary: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index + 128,
-                width: 32,
-            },
-            index: 0,
-            result: 0,
-        },
+        x_real: BytesToInt(ReturnBytes(data, index + 96, 32), 0, 0),
+        x_imaginary: BytesToInt(ReturnBytes(data, index + 64, 32), 0, 0),
+        y_real: BytesToInt(ReturnBytes(data, index + 160, 32), 0, 0),
+        y_imaginary: BytesToInt(ReturnBytes(data, index + 128, 32), 0, 0),
     }
 }
 
@@ -1310,11 +1091,7 @@ pub struct BytesToInt {
 
 #[k::function(total, syntax = "#kevmKeccak({value})")]
 pub fn Keccak(value: k::Term<Bytes>) -> k::Term<Int> {
-    BytesToInt {
-        value: Keccak256Raw(value),
-        index: 0,
-        result: 0,
-    }
+    BytesToInt(Keccak256Raw(value), 0, 0)
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmStorageValue({storage}, {index})")]
@@ -2170,30 +1947,14 @@ fn memory_byte_absent(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k
 
 #[k::requires(index < 0 || index >= bytes::length(value))]
 #[k::equation]
-fn bytes_to_int_done(
-    k::term![BytesToInt {
-        value,
-        index,
-        result
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
+fn bytes_to_int_done(k::term![BytesToInt(value, index, result)]: k::Term<Int>) -> k::Term<Int> {
     result
 }
 
 #[k::requires(index >= 0 && index < bytes::length(value))]
 #[k::equation]
-fn bytes_to_int_byte(
-    k::term![BytesToInt {
-        value,
-        index,
-        result
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    BytesToInt {
-        value,
-        index: index + 1,
-        result: result * 256 + bytes::get(value, index),
-    }
+fn bytes_to_int_byte(k::term![BytesToInt(value, index, result)]: k::Term<Int>) -> k::Term<Int> {
+    BytesToInt(value, index + 1, result * 256 + bytes::get(value, index))
 }
 
 #[k::requires(remaining <= 0)]
@@ -3145,11 +2906,7 @@ fn ecrec_output_valid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k
     CopyBytes {
         memory: bytes::pad_right(bytes::empty(), 32, 0),
         destination: 12,
-        source: ReturnBytes {
-            memory: Keccak256Raw { value: public_key },
-            start: 12,
-            width: 20,
-        },
+        source: ReturnBytes(Keccak256Raw { value: public_key }, 12, 20),
         source_index: 0,
         remaining: 20,
     }
@@ -3291,15 +3048,7 @@ fn modexp_adjusted_exponent_length_short(
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     ModExpExponentHeadBits {
-        value: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 96 + base_length,
-                width: exponent_length,
-            },
-            index: 0,
-            result: 0,
-        },
+        value: BytesToInt(ReturnBytes(data, 96 + base_length, exponent_length), 0, 0),
     }
 }
 
@@ -3314,15 +3063,7 @@ fn modexp_adjusted_exponent_length_long(
 ) -> k::Term<Int> {
     8 * (exponent_length - 32)
         + ModExpExponentHeadBits {
-            value: BytesToInt {
-                value: ReturnBytes {
-                    memory: data,
-                    start: 96 + base_length,
-                    width: 32,
-                },
-                index: 0,
-                result: 0,
-            },
+            value: BytesToInt(ReturnBytes(data, 96 + base_length, 32), 0, 0),
         }
 }
 
@@ -3366,23 +3107,12 @@ fn modexp_output_body_nonempty(
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
     ModExpOutputExponent {
-        body: ReturnBytes {
-            memory: body,
-            start: base_length,
-            width: Maximum {
-                left: 0,
-                right: bytes::length(body) - base_length,
-            },
-        },
-        base: BytesToInt {
-            value: ReturnBytes {
-                memory: body,
-                start: 0,
-                width: base_length,
-            },
-            index: 0,
-            result: 0,
-        },
+        body: ReturnBytes(
+            body,
+            base_length,
+            Maximum(0, bytes::length(body) - base_length),
+        ),
+        base: BytesToInt(ReturnBytes(body, 0, base_length), 0, 0),
         exponent_length,
         modulus_length,
     }
@@ -3772,25 +3502,25 @@ fn resolve_ecpairing_precompile_invalid_point(
 
 #[k::requires(left <= right)]
 #[k::equation]
-fn minimum_left(k::term![Minimum { left, right }]: k::Term<Int>) -> k::Term<Int> {
+fn minimum_left(k::term![Minimum(left, right)]: k::Term<Int>) -> k::Term<Int> {
     left
 }
 
 #[k::requires(left > right)]
 #[k::equation]
-fn minimum_right(k::term![Minimum { left, right }]: k::Term<Int>) -> k::Term<Int> {
+fn minimum_right(k::term![Minimum(left, right)]: k::Term<Int>) -> k::Term<Int> {
     right
 }
 
 #[k::requires(left >= right)]
 #[k::equation]
-fn maximum_left(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int> {
+fn maximum_left(k::term![Maximum(left, right)]: k::Term<Int>) -> k::Term<Int> {
     left
 }
 
 #[k::requires(left < right)]
 #[k::equation]
-fn maximum_right(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int> {
+fn maximum_right(k::term![Maximum(left, right)]: k::Term<Int>) -> k::Term<Int> {
     right
 }
 
@@ -5396,7 +5126,7 @@ k::rules! {
     } => {
         k: [ExecutionCommand::Run(), ..],
         memory_used: MemoryUsageUpdate { used, start, width },
-        word_stack: Stack::StackCons(Keccak(ReturnBytes { memory, start, width }), rest),
+        word_stack: Stack::StackCons(Keccak(ReturnBytes(memory, start, width)), rest),
         pc: pc + 1,
         gas: remaining,
     };
@@ -5462,7 +5192,7 @@ k::rules! {
                 LogRecord::Entry {
                     address,
                     topics: StackTakeList { stack: topic_stack, remaining: topics },
-                    data: ReturnBytes { memory, start, width },
+                    data: ReturnBytes(memory, start, width),
                 }
             ),
         ),
@@ -5575,7 +5305,7 @@ k::rules! {
         status_code: _,
     } => {
         k: [..],
-        output: ReturnBytes { memory, start, width },
+        output: ReturnBytes(memory, start, width),
         memory_used: MemoryUsageUpdate { used, start, width },
         word_stack: rest,
         gas: remaining,
@@ -5592,7 +5322,7 @@ k::rules! {
         status_code: _,
     } => {
         k: [..],
-        output: ReturnBytes { memory, start, width },
+        output: ReturnBytes(memory, start, width),
         memory_used: MemoryUsageUpdate { used, start, width },
         word_stack: rest,
         gas: remaining,
@@ -5647,9 +5377,7 @@ k::rules! {
             set::union(touched_accounts, set::item(address)),
             set::item(1)
         ),
-        output: EcrecPrecompileOutput {
-            data: ReturnBytes { memory, start: argument_start, width: argument_width }
-        },
+        output: EcrecPrecompileOutput { data: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
                 memory: PrepareCopyMemory {
@@ -5664,17 +5392,17 @@ k::rules! {
             },
             destination: return_start,
             source: EcrecPrecompileOutput {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                data: ReturnBytes(memory, argument_start, argument_width)
             },
             source_index: 0,
-            remaining: Minimum {
-                left: return_width,
-                right: bytes::length(
+            remaining: Minimum(
+                return_width,
+                bytes::length(
                     EcrecPrecompileOutput {
-                        data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                        data: ReturnBytes(memory, argument_start, argument_width)
                     }
                 )
-            },
+            ),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -5762,7 +5490,7 @@ k::rules! {
     } => {
         k: [
             ResolveSha256Precompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -5799,9 +5527,7 @@ k::rules! {
             set::union(touched_accounts, set::item(address)),
             set::item(2)
         ),
-        output: Sha256Digest {
-            value: ReturnBytes { memory, start: argument_start, width: argument_width }
-        },
+        output: Sha256Digest { value: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
                 memory: PrepareCopyMemory {
@@ -5815,11 +5541,9 @@ k::rules! {
                 width: return_width,
             },
             destination: return_start,
-            source: Sha256Digest {
-                value: ReturnBytes { memory, start: argument_start, width: argument_width }
-            },
+            source: Sha256Digest { value: ReturnBytes(memory, argument_start, argument_width) },
             source_index: 0,
-            remaining: Minimum { left: return_width, right: 32 },
+            remaining: Minimum(return_width, 32),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -5907,7 +5631,7 @@ k::rules! {
     } => {
         k: [
             ResolveRipemd160Precompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -5947,9 +5671,7 @@ k::rules! {
         output: CopyBytes {
             memory: bytes::pad_right(bytes::empty(), 32, 0),
             destination: 12,
-            source: Ripemd160Digest {
-                value: ReturnBytes { memory, start: argument_start, width: argument_width }
-            },
+            source: Ripemd160Digest { value: ReturnBytes(memory, argument_start, argument_width) },
             source_index: 0,
             remaining: 20
         },
@@ -5970,13 +5692,13 @@ k::rules! {
                 memory: bytes::pad_right(bytes::empty(), 32, 0),
                 destination: 12,
                 source: Ripemd160Digest {
-                    value: ReturnBytes { memory, start: argument_start, width: argument_width }
+                    value: ReturnBytes(memory, argument_start, argument_width)
                 },
                 source_index: 0,
                 remaining: 20
             },
             source_index: 0,
-            remaining: Minimum { left: return_width, right: 32 },
+            remaining: Minimum(return_width, 32),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -6064,7 +5786,7 @@ k::rules! {
     } => {
         k: [
             ResolveIdentityPrecompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -6101,7 +5823,7 @@ k::rules! {
             set::union(touched_accounts, set::item(address)),
             set::item(4)
         ),
-        output: ReturnBytes { memory, start: argument_start, width: argument_width },
+        output: ReturnBytes(memory, argument_start, argument_width),
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
                 memory: PrepareCopyMemory {
@@ -6115,9 +5837,9 @@ k::rules! {
                 width: return_width,
             },
             destination: return_start,
-            source: ReturnBytes { memory, start: argument_start, width: argument_width },
+            source: ReturnBytes(memory, argument_start, argument_width),
             source_index: 0,
-            remaining: Minimum { left: return_width, right: argument_width },
+            remaining: Minimum(return_width, argument_width),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -6205,7 +5927,7 @@ k::rules! {
     } => {
         k: [
             ResolveModExpPrecompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -6243,7 +5965,7 @@ k::rules! {
             set::item(5)
         ),
         output: ModExpPrecompileOutput {
-            data: ReturnBytes { memory, start: argument_start, width: argument_width }
+            data: ReturnBytes(memory, argument_start, argument_width)
         },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
@@ -6259,17 +5981,17 @@ k::rules! {
             },
             destination: return_start,
             source: ModExpPrecompileOutput {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                data: ReturnBytes(memory, argument_start, argument_width)
             },
             source_index: 0,
-            remaining: Minimum {
-                left: return_width,
-                right: bytes::length(
+            remaining: Minimum(
+                return_width,
+                bytes::length(
                     ModExpPrecompileOutput {
-                        data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                        data: ReturnBytes(memory, argument_start, argument_width)
                     }
                 )
-            },
+            ),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -6357,7 +6079,7 @@ k::rules! {
     } => {
         k: [
             ResolveEcAddPrecompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -6394,9 +6116,7 @@ k::rules! {
             set::union(touched_accounts, set::item(address)),
             set::item(6)
         ),
-        output: EcAddPrecompileOutput {
-            data: ReturnBytes { memory, start: argument_start, width: argument_width }
-        },
+        output: EcAddPrecompileOutput { data: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
                 memory: PrepareCopyMemory {
@@ -6411,10 +6131,10 @@ k::rules! {
             },
             destination: return_start,
             source: EcAddPrecompileOutput {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                data: ReturnBytes(memory, argument_start, argument_width)
             },
             source_index: 0,
-            remaining: Minimum { left: return_width, right: 64 },
+            remaining: Minimum(return_width, 64),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -6502,7 +6222,7 @@ k::rules! {
     } => {
         k: [
             ResolveEcMulPrecompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -6539,9 +6259,7 @@ k::rules! {
             set::union(touched_accounts, set::item(address)),
             set::item(7)
         ),
-        output: EcMulPrecompileOutput {
-            data: ReturnBytes { memory, start: argument_start, width: argument_width }
-        },
+        output: EcMulPrecompileOutput { data: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
                 memory: PrepareCopyMemory {
@@ -6556,10 +6274,10 @@ k::rules! {
             },
             destination: return_start,
             source: EcMulPrecompileOutput {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                data: ReturnBytes(memory, argument_start, argument_width)
             },
             source_index: 0,
-            remaining: Minimum { left: return_width, right: 64 },
+            remaining: Minimum(return_width, 64),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -6647,7 +6365,7 @@ k::rules! {
     } => {
         k: [
             ResolveEcPairingPrecompile {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width },
+                data: ReturnBytes(memory, argument_start, argument_width),
                 requested: gas_cap,
                 available: remaining,
             },
@@ -6685,7 +6403,7 @@ k::rules! {
             set::item(8)
         ),
         output: EcPairingPrecompileOutput {
-            data: ReturnBytes { memory, start: argument_start, width: argument_width }
+            data: ReturnBytes(memory, argument_start, argument_width)
         },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
@@ -6701,10 +6419,10 @@ k::rules! {
             },
             destination: return_start,
             source: EcPairingPrecompileOutput {
-                data: ReturnBytes { memory, start: argument_start, width: argument_width }
+                data: ReturnBytes(memory, argument_start, argument_width)
             },
             source_index: 0,
-            remaining: Minimum { left: return_width, right: 32 },
+            remaining: Minimum(return_width, 32),
         },
         memory_used: CallMemoryUsage {
             used,
@@ -6903,7 +6621,7 @@ k::rules! {
         jump_dests: bytes::empty(),
         address: account,
         caller: address,
-        call_data: ReturnBytes { memory, start: argument_start, width: argument_width },
+        call_data: ReturnBytes(memory, argument_start, argument_width),
         call_value: 0,
         local_mem: bytes::empty(),
         memory_used: 0,
@@ -6982,7 +6700,7 @@ k::rules! {
             destination: return_start,
             source: child_output,
             source_index: 0,
-            remaining: Minimum { left: return_width, right: bytes::length(child_output) },
+            remaining: Minimum(return_width, bytes::length(child_output)),
         },
         pc: caller_pc,
         gas: caller_gas + child_gas,
@@ -7101,7 +6819,7 @@ k::rules! {
             destination: return_start,
             source: child_output,
             source_index: 0,
-            remaining: Minimum { left: return_width, right: bytes::length(child_output) },
+            remaining: Minimum(return_width, bytes::length(child_output)),
         },
         pc: caller_pc,
         gas: caller_gas + child_gas,
