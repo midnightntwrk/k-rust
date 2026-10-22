@@ -222,7 +222,8 @@ fn every_reachable_bank_cell_has_a_witness_and_broke_none() {
 fn every_bank_depth_cell_fires_on_exactly_the_lists_that_deep() {
     for depth in bank::DEPTHS {
         for applied in [depth - 1, depth, depth + 1] {
-            let mut txs: Vec<(i64, i64)> = (0..applied).map(|nonce| (nonce as i64, 1)).collect();
+            let mut txs: Vec<(i64, i64)> =
+                (0..applied).map(|nonce| (nonce.cast_signed(), 1)).collect();
             txs.push((99, 1));
             let configuration = Configuration {
                 name: "witness",

@@ -342,6 +342,7 @@ fn the_proposer_asks_after_a_stall_never_twice_and_moves_on() {
         class: OutcomeClass::Miss,
         applied: Vec::new(),
         matched: Vec::new(),
+        applied_counts: std::collections::BTreeMap::new(),
         work: 9,
         score: Some(Score {
             level: Level::At(0),
@@ -466,6 +467,7 @@ fn a_run_the_safety_limit_stops_is_settled_and_charged() {
         class: OutcomeClass::Miss,
         applied: Vec::new(),
         matched: Vec::new(),
+        applied_counts: std::collections::BTreeMap::new(),
         work: 9,
         score: Some(Score {
             level: Level::At(0),
