@@ -7139,46 +7139,52 @@ fn list_add_switch_return(
         current_func: k::configuration::Cell(MirTy::TyId(-1)),
         CurrentFrame::current_body: k::configuration::Cell(list::concat(
             list::item(BlockSyntax::Block(
-                StatementList::StatementsCons(
-                    MirStatement::Assign(MirPlace::Place(1, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Integer(20, 64, false)))),
-                    StatementList::StatementsCons(
-                        MirStatement::Assign(MirPlace::Place(2, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Integer(22, 64, false)))),
-                        StatementList::StatementsCons(
-                            MirStatement::Assign(MirPlace::Place(3, Projections::ProjectionsEmpty()), MirRvalue::Binary(MirBinaryOp::BinOpAdd(), MirOperand::Copy(MirPlace::Place(1, Projections::ProjectionsEmpty())), MirOperand::Copy(MirPlace::Place(2, Projections::ProjectionsEmpty())))),
-                            StatementList::StatementsCons(
-                                MirStatement::Assign(MirPlace::Place(4, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Boolean(true)))),
-                                StatementList::StatementsEmpty(),
-                            ),
+                [
+                    MirStatement::Assign(
+                        MirPlace::Place(1, []),
+                        MirRvalue::Use(MirOperand::Constant(Value::Integer(20, 64, false))),
+                    ),
+                    MirStatement::Assign(
+                        MirPlace::Place(2, []),
+                        MirRvalue::Use(MirOperand::Constant(Value::Integer(22, 64, false))),
+                    ),
+                    MirStatement::Assign(
+                        MirPlace::Place(3, []),
+                        MirRvalue::Binary(
+                            MirBinaryOp::BinOpAdd(),
+                            MirOperand::Copy(MirPlace::Place(1, [])),
+                            MirOperand::Copy(MirPlace::Place(2, [])),
                         ),
                     ),
-                ),
+                    MirStatement::Assign(
+                        MirPlace::Place(4, []),
+                        MirRvalue::Use(MirOperand::Constant(Value::Boolean(true))),
+                    ),
+                ],
                 MirTerminator::Goto(1),
             )),
             list::concat(
                 list::item(BlockSyntax::Block(
-                    StatementList::StatementsEmpty(),
+                    [],
                     MirTerminator::SwitchInt(
-                        MirOperand::Copy(MirPlace::Place(4, Projections::ProjectionsEmpty())),
-                        MirSwitchTargets::SwitchTargets(
-                            BranchList::BranchesCons(MirBranch::Branch(1, 2), BranchList::BranchesEmpty()),
-                            3,
-                        ),
+                        MirOperand::Copy(MirPlace::Place(4, [])),
+                        MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
                     ),
                 )),
                 list::concat(
                     list::item(BlockSyntax::Block(
-                        StatementList::StatementsCons(
-                            MirStatement::Assign(MirPlace::Place(0, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Copy(MirPlace::Place(3, Projections::ProjectionsEmpty())))),
-                            StatementList::StatementsEmpty(),
-                        ),
+                        [MirStatement::Assign(
+                            MirPlace::Place(0, []),
+                            MirRvalue::Use(MirOperand::Copy(MirPlace::Place(3, []))),
+                        )],
                         MirTerminator::Return(),
                     )),
                     list::concat(
                         list::item(BlockSyntax::Block(
-                            StatementList::StatementsCons(
-                                MirStatement::Assign(MirPlace::Place(0, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Integer(0, 64, false)))),
-                                StatementList::StatementsEmpty(),
-                            ),
+                            [MirStatement::Assign(
+                                MirPlace::Place(0, []),
+                                MirRvalue::Use(MirOperand::Constant(Value::Integer(0, 64, false))),
+                            )],
                             MirTerminator::Return(),
                         )),
                         list::empty(),
@@ -7187,7 +7193,7 @@ fn list_add_switch_return(
             ),
         )),
         CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(-1)),
-        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, Projections::ProjectionsEmpty())),
+        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, [])),
         CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
         CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
         CurrentFrame::locals: k::configuration::Cell(list::concat(
@@ -7218,46 +7224,52 @@ fn list_add_switch_return(
         current_func: k::configuration::Cell(MirTy::TyId(-1)),
         CurrentFrame::current_body: k::configuration::Cell(list::concat(
             list::item(BlockSyntax::Block(
-                StatementList::StatementsCons(
-                    MirStatement::Assign(MirPlace::Place(1, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Integer(20, 64, false)))),
-                    StatementList::StatementsCons(
-                        MirStatement::Assign(MirPlace::Place(2, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Integer(22, 64, false)))),
-                        StatementList::StatementsCons(
-                            MirStatement::Assign(MirPlace::Place(3, Projections::ProjectionsEmpty()), MirRvalue::Binary(MirBinaryOp::BinOpAdd(), MirOperand::Copy(MirPlace::Place(1, Projections::ProjectionsEmpty())), MirOperand::Copy(MirPlace::Place(2, Projections::ProjectionsEmpty())))),
-                            StatementList::StatementsCons(
-                                MirStatement::Assign(MirPlace::Place(4, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Boolean(true)))),
-                                StatementList::StatementsEmpty(),
-                            ),
+                [
+                    MirStatement::Assign(
+                        MirPlace::Place(1, []),
+                        MirRvalue::Use(MirOperand::Constant(Value::Integer(20, 64, false))),
+                    ),
+                    MirStatement::Assign(
+                        MirPlace::Place(2, []),
+                        MirRvalue::Use(MirOperand::Constant(Value::Integer(22, 64, false))),
+                    ),
+                    MirStatement::Assign(
+                        MirPlace::Place(3, []),
+                        MirRvalue::Binary(
+                            MirBinaryOp::BinOpAdd(),
+                            MirOperand::Copy(MirPlace::Place(1, [])),
+                            MirOperand::Copy(MirPlace::Place(2, [])),
                         ),
                     ),
-                ),
+                    MirStatement::Assign(
+                        MirPlace::Place(4, []),
+                        MirRvalue::Use(MirOperand::Constant(Value::Boolean(true))),
+                    ),
+                ],
                 MirTerminator::Goto(1),
             )),
             list::concat(
                 list::item(BlockSyntax::Block(
-                    StatementList::StatementsEmpty(),
+                    [],
                     MirTerminator::SwitchInt(
-                        MirOperand::Copy(MirPlace::Place(4, Projections::ProjectionsEmpty())),
-                        MirSwitchTargets::SwitchTargets(
-                            BranchList::BranchesCons(MirBranch::Branch(1, 2), BranchList::BranchesEmpty()),
-                            3,
-                        ),
+                        MirOperand::Copy(MirPlace::Place(4, [])),
+                        MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
                     ),
                 )),
                 list::concat(
                     list::item(BlockSyntax::Block(
-                        StatementList::StatementsCons(
-                            MirStatement::Assign(MirPlace::Place(0, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Copy(MirPlace::Place(3, Projections::ProjectionsEmpty())))),
-                            StatementList::StatementsEmpty(),
-                        ),
+                        [MirStatement::Assign(
+                            MirPlace::Place(0, []),
+                            MirRvalue::Use(MirOperand::Copy(MirPlace::Place(3, []))),
+                        )],
                         MirTerminator::Return(),
                     )),
                     list::concat(
                         list::item(BlockSyntax::Block(
-                            StatementList::StatementsCons(
-                                MirStatement::Assign(MirPlace::Place(0, Projections::ProjectionsEmpty()), MirRvalue::Use(MirOperand::Constant(Value::Integer(0, 64, false)))),
-                                StatementList::StatementsEmpty(),
-                            ),
+                            [MirStatement::Assign(
+                                MirPlace::Place(0, []),
+                                MirRvalue::Use(MirOperand::Constant(Value::Integer(0, 64, false))),
+                            )],
                             MirTerminator::Return(),
                         )),
                         list::empty(),
@@ -7266,7 +7278,7 @@ fn list_add_switch_return(
             ),
         )),
         CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(-1)),
-        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, Projections::ProjectionsEmpty())),
+        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, [])),
         CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
         CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
         CurrentFrame::locals: k::configuration::Cell(list::concat(
