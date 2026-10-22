@@ -181,6 +181,10 @@ pub fn z3_version() -> &'static str {
     z3::full_version()
 }
 
+/// One attempt's wall-clock timeout (`None`: no clock) and resource limit, as tests read them.
+#[cfg(test)]
+pub(crate) type AttemptLimit = (Option<u32>, u32);
+
 #[derive(Clone, Debug)]
 pub struct Z3Solver {
     prelude: SmtPrelude,
@@ -203,7 +207,7 @@ pub struct Z3Solver {
     /// Every attempt's parameters, in order: its wall-clock timeout (`None`: no clock) and its
     /// resource limit.
     #[cfg(test)]
-    attempt_limits: Arc<Mutex<Vec<(Option<u32>, u32)>>>,
+    attempt_limits: Arc<Mutex<Vec<AttemptLimit>>>,
 }
 
 /// Z3 resource-limit units granted to an attempt per millisecond of its timeout.
@@ -395,7 +399,7 @@ impl Z3Solver {
 
     /// Every attempt's wall-clock timeout (`None`: no clock) and resource limit, in order.
     #[cfg(test)]
-    pub(crate) fn attempt_limits(&self) -> Vec<(Option<u32>, u32)> {
+    pub(crate) fn attempt_limits(&self) -> Vec<AttemptLimit> {
         self.attempt_limits
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
