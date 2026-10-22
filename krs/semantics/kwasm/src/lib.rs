@@ -197,25 +197,23 @@ k::rules! {
     };
 }
 
-/// Executable all-path claim corresponding to `KWasm`'s simple-addition claim shape.
-#[k::claim(all_paths, label = "simple-addition")]
-fn simple_addition(
-    k::cells! {
-        instrs: k::configuration::KCell(
-            Instruction::Const(IntegerType::I32, 3),
-            Instruction::Const(IntegerType::I32, 4),
-            Instruction::Binary(IntegerType::I32, IntegerBinOp::Add)
-        ),
-        valstack: k::configuration::Cell(Stack::Empty()),
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        instrs: k::configuration::KCell(.K),
-        valstack: k::configuration::Cell(Stack::Cons(
-            Value::Integer(IntegerType::I32, 7),
-            Stack::Empty(),
-        )),
-    }
+k::claims! {
+    for Machine;
+    use Instruction::*;
+
+    /// Executable all-path claim corresponding to `KWasm`'s simple-addition claim shape.
+    #[k::claim(all_paths)]
+    simple_addition: {
+        instrs: [
+            Const(IntegerType::I32, 3),
+            Const(IntegerType::I32, 4),
+            Binary(IntegerType::I32, IntegerBinOp::Add),
+        ],
+        valstack: [],
+    } => {
+        instrs: [],
+        valstack: [Value::Integer(IntegerType::I32, 7)],
+    };
 }
 
 #[cfg(test)]
