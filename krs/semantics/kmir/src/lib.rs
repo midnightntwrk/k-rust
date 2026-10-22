@@ -3828,17 +3828,31 @@ fn adjust_ref_range(
     }]
 }
 
+/// A union holds one value, its active field, and that value may be a
+/// reference into a frame (`union U<'a> { r: &'a i8, n: usize }`), so it is
+/// rebased like a struct field.
+#[k::equation]
+fn adjust_ref_union(
+    k::term![AdjustRef {
+        value: Value::Union { field, value },
+        offset,
+    }]: k::Term<MirValue>,
+) -> k::Term<MirValue> {
+    k::term![Value::Union {
+        field,
+        value: AdjustRef { value, offset },
+    }]
+}
+
 /// Integers, Booleans, the moved marker, and allocation references hold no
 /// frame height, so crossing a call boundary leaves them unchanged: an
 /// allocation reference names its allocation by `AllocId`, which does not
-/// depend on the call stack. A union is also left as it is; its active value
-/// is not traversed.
+/// depend on the call stack.
 #[k::equation]
 fn adjust_ref_unchanged(
     k::term![AdjustRef {
         value: value @ (Value::Integer { value: _, width: _, signed: _ }
             | Value::Boolean(_)
-            | Value::Union { field: _, value: _ }
             | Value::AllocationReference { allocation: _, projections: _, metadata: _ }
             | Value::Moved()),
         offset: _,
