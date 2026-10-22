@@ -370,46 +370,56 @@ pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
     int::rem_euclid(value, POW256)
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmWordDiv({dividend}, {divisor})")]
-pub struct WordDiv {
-    pub dividend: k::Term<Int>,
-    pub divisor: k::Term<Int>,
+#[k::function(total, syntax = "#kevmWordDiv({dividend}, {divisor})")]
+pub fn WordDiv(dividend: k::Term<Int>, divisor: k::Term<Int>) -> k::Term<Int> {
+    if divisor == 0 { 0 } else { dividend / divisor }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmWordMod({dividend}, {divisor})")]
-pub struct WordMod {
-    pub dividend: k::Term<Int>,
-    pub divisor: k::Term<Int>,
+#[k::function(total, syntax = "#kevmWordMod({dividend}, {divisor})")]
+pub fn WordMod(dividend: k::Term<Int>, divisor: k::Term<Int>) -> k::Term<Int> {
+    if divisor == 0 {
+        0
+    } else {
+        int::rem_euclid(dividend, divisor)
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmSign({value})")]
-pub struct Sign {
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmSign({value})")]
+pub fn Sign(value: k::Term<Int>) -> k::Term<Int> {
+    if 0 <= value && value < POW255 {
+        1
+    } else if POW255 <= value && value < POW256 {
+        -1
+    } else {
+        0
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmAbs({value})")]
-pub struct Magnitude {
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmAbs({value})")]
+pub fn Magnitude(value: k::Term<Int>) -> k::Term<Int> {
+    if 0 <= value && value < POW255 {
+        value
+    } else if POW255 <= value && value < POW256 {
+        Chop(-value)
+    } else {
+        0
+    }
 }
 
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#kevmSignedWordDiv({dividend}, {divisor})"
-)]
-pub struct SignedWordDiv {
-    pub dividend: k::Term<Int>,
-    pub divisor: k::Term<Int>,
+#[k::function(partial, syntax = "#kevmSignedWordDiv({dividend}, {divisor})")]
+pub fn SignedWordDiv(dividend: k::Term<Int>, divisor: k::Term<Int>) -> k::Term<Int> {
+    match Sign(dividend) * Sign(divisor) {
+        1 => WordDiv(Magnitude(dividend), Magnitude(divisor)),
+        -1 => Chop(-WordDiv(Magnitude(dividend), Magnitude(divisor))),
+    }
 }
 
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#kevmSignedWordMod({dividend}, {divisor})"
-)]
-pub struct SignedWordMod {
-    pub dividend: k::Term<Int>,
-    pub divisor: k::Term<Int>,
+#[k::function(partial, syntax = "#kevmSignedWordMod({dividend}, {divisor})")]
+pub fn SignedWordMod(dividend: k::Term<Int>, divisor: k::Term<Int>) -> k::Term<Int> {
+    match Sign(dividend) {
+        1 => WordMod(Magnitude(dividend), Magnitude(divisor)),
+        -1 => Chop(-WordMod(Magnitude(dividend), Magnitude(divisor))),
+    }
 }
 
 #[k::function(total, syntax = "#kevmBoolToWord({value})")]
@@ -424,47 +434,75 @@ k::equations! {
 #[k::function(
     total,
     underspecified = "SLT and SGT apply it to stack words, so both operands are in 0..2^256",
-    sort = Int,
     syntax = "#kevmSignedLess({left}, {right})"
 )]
-pub struct SignedLess {
-    pub left: k::Term<Int>,
-    pub right: k::Term<Int>,
+pub fn SignedLess(left: k::Term<Int>, right: k::Term<Int>) -> k::Term<Int> {
+    match (Sign(left), Sign(right)) {
+        (1, 1) => BoolToWord(left < right),
+        (1, -1) => BoolToWord(false),
+        (-1, 1) => BoolToWord(true),
+        (-1, -1) => BoolToWord(Magnitude(right) < Magnitude(left)),
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmExpCost({exponent})")]
-pub struct ExpCost {
-    pub exponent: k::Term<Int>,
+#[k::function(total, syntax = "#kevmExpCost({exponent})")]
+pub fn ExpCost(exponent: k::Term<Int>) -> k::Term<Int> {
+    if exponent <= 0 {
+        10
+    } else {
+        10 + 50 * (int::log2(exponent) / 8 + 1)
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmShiftLeft({value}, {shift})")]
-pub struct WordShiftLeft {
-    pub value: k::Term<Int>,
-    pub shift: k::Term<Int>,
+#[k::function(total, syntax = "#kevmShiftLeft({value}, {shift})")]
+pub fn WordShiftLeft(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> {
+    if value >= 0 && shift >= 0 && shift < 256 {
+        Chop(value << shift)
+    } else {
+        0
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmShiftRight({value}, {shift})")]
-pub struct WordShiftRight {
-    pub value: k::Term<Int>,
-    pub shift: k::Term<Int>,
+#[k::function(total, syntax = "#kevmShiftRight({value}, {shift})")]
+pub fn WordShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> {
+    if value >= 0 && shift >= 0 && shift < 256 {
+        value >> shift
+    } else {
+        0
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmSignedShiftRight({value}, {shift})")]
-pub struct WordSignedShiftRight {
-    pub value: k::Term<Int>,
-    pub shift: k::Term<Int>,
+#[k::function(total, syntax = "#kevmSignedShiftRight({value}, {shift})")]
+pub fn WordSignedShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> {
+    if value < 0 || shift < 0 {
+        0
+    } else if shift < 256 {
+        Chop((Magnitude(value) * Sign(value)) >> shift)
+    } else if Sign(value) == -1 {
+        POW256 - 1
+    } else {
+        0
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmByte({index}, {value})")]
-pub struct WordByte {
-    pub index: k::Term<Int>,
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmByte({index}, {value})")]
+pub fn WordByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+    if index >= 0 && index < 32 {
+        int::rem_euclid(value >> (8 * (31 - index)), 256)
+    } else {
+        0
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmSignExtend({index}, {value})")]
-pub struct WordSignExtend {
-    pub index: k::Term<Int>,
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmSignExtend({index}, {value})")]
+pub fn WordSignExtend(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+    if index < 0 || index >= 32 {
+        value
+    } else if SignExtendByte(index, value) < 128 {
+        Chop(((1 << (8 * (index + 1))) - 1) & value)
+    } else {
+        Chop(((POW256 - 1) ^ ((1 << (8 * (index + 1))) - 1)) | value)
+    }
 }
 
 /// Byte `index` of `value`, counting from the least significant byte.
@@ -480,25 +518,53 @@ pub fn SignExtendByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> 
 
 #[k::function(
     partial,
-    sort = Int,
     syntax = "#kevmBlockHash({hashes}, {requested}, {highest}, {age})"
 )]
-pub struct BlockHashLookup {
-    pub hashes: k::Term<List>,
-    pub requested: k::Term<Int>,
-    pub highest: k::Term<Int>,
-    pub age: k::Term<Int>,
+pub fn BlockHashLookup(
+    hashes: k::Term<List>,
+    requested: k::Term<Int>,
+    highest: k::Term<Int>,
+    age: k::Term<Int>,
+) -> k::Term<Int>;
+
+k::equations! {
+    for BlockHashLookup;
+    #[k::requires(requested > highest)]
+    block_hash_future       : (_, requested, highest, _)        => 0;
+    #[k::requires(requested <= highest && age >= 256)]
+    block_hash_too_old      : (_, requested, highest, age)      => 0;
+    #[k::requires(bool::and(
+        requested <= highest && age < 256,
+        age < list::size(hashes) && list::get(hashes, age) == 0,
+    ))]
+    block_hash_zero_sentinel: (hashes, requested, highest, age) => 0;
+    #[k::requires(bool::and(
+        requested == highest && age < 256,
+        age < list::size(hashes) && list::get(hashes, age) != 0,
+    ))]
+    block_hash_found        : (hashes, requested, highest, age) => list::get(hashes, age);
+    #[k::requires(bool::and(
+        requested < highest && age < 256,
+        age < list::size(hashes) && list::get(hashes, age) != 0,
+    ))]
+    block_hash_continue:
+        (hashes, requested, highest, age)
+        => BlockHashLookup { hashes, requested, highest: highest - 1, age: age + 1, };
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmMemoryUsageUpdate({used}, {start}, {width})"
-)]
-pub struct MemoryUsageUpdate {
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMemoryUsageUpdate({used}, {start}, {width})")]
+pub fn MemoryUsageUpdate(
+    used: k::Term<Int>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Int> {
+    if width <= 0 {
+        used
+    } else if used >= (start + width + 31) / 32 {
+        used
+    } else {
+        (start + width + 31) / 32
+    }
 }
 
 #[k::function(total, syntax = "#kevmMemoryCost({words})")]
@@ -520,10 +586,13 @@ pub fn CopyGasCost(used: k::Term<Int>, start: k::Term<Int>, width: k::Term<Int>)
     MemoryExpansionCost { used, start, width } + (3 + 3 * ((width + 31) / 32))
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmAccountAccessCost({accessed}, {account})")]
-pub struct AccountAccessCost {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
+#[k::function(total, syntax = "#kevmAccountAccessCost({accessed}, {account})")]
+pub fn AccountAccessCost(accessed: k::Term<Set>, account: k::Term<Int>) -> k::Term<Int> {
+    if set::contains(account, accessed) {
+        100
+    } else {
+        2600
+    }
 }
 
 #[k::function(total, syntax = "#kevmAccountEmpty({code}, {nonce}, {balance})")]
@@ -580,14 +649,13 @@ pub fn StaticCallCost(
         }) - MemoryCost(used))
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmStaticCallGas({requested}, {available})"
-)]
-pub struct StaticCallGas {
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+#[k::function(total, syntax = "#kevmStaticCallGas({requested}, {available})")]
+pub fn StaticCallGas(requested: k::Term<Int>, available: k::Term<Int>) -> k::Term<Int> {
+    if requested <= available - available / 64 {
+        requested
+    } else {
+        available - available / 64
+    }
 }
 
 #[k::function(
@@ -603,9 +671,19 @@ pub struct EcdsaRecover {
     pub s: k::Term<Bytes>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcrecOutput({public_key})")]
-pub struct EcrecOutput {
-    pub public_key: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcrecOutput({public_key})")]
+pub fn EcrecOutput(public_key: k::Term<Bytes>) -> k::Term<Bytes> {
+    if bytes::length(public_key) <= 0 {
+        bytes::empty()
+    } else {
+        CopyBytes {
+            memory: bytes::pad_right(bytes::empty(), 32, 0),
+            destination: 12,
+            source: ReturnBytes(Keccak256Raw { value: public_key }, 12, 20),
+            source_index: 0,
+            remaining: 20,
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmEcrecPrecompileOutput({data})")]
@@ -622,12 +700,21 @@ pub fn EcrecPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveEcrecPrecompile({requested}, {available})"
 )]
-pub struct ResolveEcrecPrecompile {
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveEcrecPrecompile(
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) >= 3000 {
+        PrecompileResult::EcrecPrecompileSuccess {
+            remaining: available - 3000,
+        }
+    } else {
+        PrecompileResult::EcrecPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(
@@ -647,13 +734,22 @@ pub fn Sha256PrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveSha256Precompile({data}, {requested}, {available})"
 )]
-pub struct ResolveSha256Precompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveSha256Precompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) >= Sha256PrecompileCost(data) {
+        PrecompileResult::Sha256PrecompileSuccess {
+            remaining: available - Sha256PrecompileCost(data),
+        }
+    } else {
+        PrecompileResult::Sha256PrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(
@@ -673,13 +769,22 @@ pub fn Ripemd160PrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveRipemd160Precompile({data}, {requested}, {available})"
 )]
-pub struct ResolveRipemd160Precompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveRipemd160Precompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) >= Ripemd160PrecompileCost(data) {
+        PrecompileResult::Ripemd160PrecompileSuccess {
+            remaining: available - Ripemd160PrecompileCost(data),
+        }
+    } else {
+        PrecompileResult::Ripemd160PrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmIdentityPrecompileCost({data})")]
@@ -689,13 +794,22 @@ pub fn IdentityPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveIdentityPrecompile({data}, {requested}, {available})"
 )]
-pub struct ResolveIdentityPrecompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveIdentityPrecompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) >= IdentityPrecompileCost(data) {
+        PrecompileResult::IdentityPrecompileSuccess {
+            remaining: available - IdentityPrecompileCost(data),
+        }
+    } else {
+        PrecompileResult::IdentityPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmModExpPrecompileCost({data})")]
@@ -726,18 +840,28 @@ pub fn ModExpPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmModExpAdjustedExponentLength({data}, {base_length}, {exponent_length})"
 )]
-pub struct ModExpAdjustedExponentLength {
-    pub data: k::Term<Bytes>,
-    pub base_length: k::Term<Int>,
-    pub exponent_length: k::Term<Int>,
+pub fn ModExpAdjustedExponentLength(
+    data: k::Term<Bytes>,
+    base_length: k::Term<Int>,
+    exponent_length: k::Term<Int>,
+) -> k::Term<Int> {
+    if exponent_length <= 32 {
+        ModExpExponentHeadBits(BytesToInt(
+            ReturnBytes(data, 96 + base_length, exponent_length),
+            0,
+            0,
+        ))
+    } else {
+        8 * (exponent_length - 32)
+            + ModExpExponentHeadBits(BytesToInt(ReturnBytes(data, 96 + base_length, 32), 0, 0))
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmModExpExponentHeadBits({value})")]
-pub struct ModExpExponentHeadBits {
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmModExpExponentHeadBits({value})")]
+pub fn ModExpExponentHeadBits(value: k::Term<Int>) -> k::Term<Int> {
+    if value <= 1 { 0 } else { int::log2(value) }
 }
 
 #[k::function(total, syntax = "#kevmModExpPrecompileOutput({data})")]
@@ -752,14 +876,28 @@ pub fn ModExpPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
 
 #[k::function(
     total,
-    sort = Bytes,
     syntax = "#kevmModExpOutputBody({body}, {base_length}, {exponent_length}, {modulus_length})"
 )]
-pub struct ModExpOutputBody {
-    pub body: k::Term<Bytes>,
-    pub base_length: k::Term<Int>,
-    pub exponent_length: k::Term<Int>,
-    pub modulus_length: k::Term<Int>,
+pub fn ModExpOutputBody(
+    body: k::Term<Bytes>,
+    base_length: k::Term<Int>,
+    exponent_length: k::Term<Int>,
+    modulus_length: k::Term<Int>,
+) -> k::Term<Bytes> {
+    if modulus_length <= 0 {
+        bytes::empty()
+    } else {
+        ModExpOutputExponent {
+            body: ReturnBytes(
+                body,
+                base_length,
+                Maximum(0, bytes::length(body) - base_length),
+            ),
+            base: BytesToInt(ReturnBytes(body, 0, base_length), 0, 0),
+            exponent_length,
+            modulus_length,
+        }
+    }
 }
 
 #[k::function(
@@ -784,22 +922,37 @@ pub fn ModExpOutputExponent(
     }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmModExpPower({base}, {exponent}, {modulus})")]
-pub struct ModExpPower {
-    pub base: k::Term<Int>,
-    pub exponent: k::Term<Int>,
-    pub modulus: k::Term<Int>,
+#[k::function(total, syntax = "#kevmModExpPower({base}, {exponent}, {modulus})")]
+pub fn ModExpPower(
+    base: k::Term<Int>,
+    exponent: k::Term<Int>,
+    modulus: k::Term<Int>,
+) -> k::Term<Int> {
+    if modulus <= 0 {
+        0
+    } else {
+        int::pow_mod(base, exponent, modulus)
+    }
 }
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveModExpPrecompile({data}, {requested}, {available})"
 )]
-pub struct ResolveModExpPrecompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveModExpPrecompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) >= ModExpPrecompileCost(data) {
+        PrecompileResult::ModExpPrecompileSuccess {
+            remaining: available - ModExpPrecompileCost(data),
+        }
+    } else {
+        PrecompileResult::ModExpPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(
@@ -871,9 +1024,23 @@ pub fn EcAddSecondPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
     }
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmBn128PointBytes({point})")]
-pub struct Bn128PointBytes {
-    pub point: k::Term<G1Point>,
+#[k::function(total, syntax = "#kevmBn128PointBytes({point})")]
+pub fn Bn128PointBytes(point: k::Term<G1Point>) -> k::Term<Bytes>;
+
+k::equations! {
+    for Bn128PointBytes;
+    bn128_point_bytes:
+        Bn128Point::Point { x, y } => WriteMemoryWord {
+            memory: WriteMemoryWord {
+                memory: bytes::pad_right(bytes::empty(), 64, 0),
+                index: 0,
+                remaining: 32,
+                value: x,
+            },
+            index: 32,
+            remaining: 32,
+            value: y,
+        };
 }
 
 #[k::function(total, syntax = "#kevmEcAddPrecompileOutput({data})")]
@@ -888,13 +1055,32 @@ pub fn EcAddPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveEcAddPrecompile({data}, {requested}, {available})"
 )]
-pub struct ResolveEcAddPrecompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveEcAddPrecompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) < 150 {
+        PrecompileResult::EcAddPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    } else if Bn128PointValid(EcAddFirstPoint(data)) {
+        if Bn128PointValid(EcAddSecondPoint(data)) {
+            PrecompileResult::EcAddPrecompileSuccess {
+                remaining: available - 150,
+            }
+        } else {
+            PrecompileResult::EcAddPrecompileFailure {
+                remaining: available - StaticCallGas(requested, available),
+            }
+        }
+    } else {
+        PrecompileResult::EcAddPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmEcMulPoint({data})")]
@@ -922,13 +1108,26 @@ pub fn EcMulPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveEcMulPrecompile({data}, {requested}, {available})"
 )]
-pub struct ResolveEcMulPrecompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveEcMulPrecompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) < 6000 {
+        PrecompileResult::EcMulPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    } else if Bn128PointValid(EcMulPoint(data)) {
+        PrecompileResult::EcMulPrecompileSuccess {
+            remaining: available - 6000,
+        }
+    } else {
+        PrecompileResult::EcMulPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmEcPairingPrecompileCost({data})")]
@@ -954,37 +1153,65 @@ pub fn EcPairingG2Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G2
     }
 }
 
-#[k::function(
-    total,
-    sort = List,
-    syntax = "#kevmEcPairingG1Points({data}, {index}, {length})"
-)]
-pub struct EcPairingG1Points {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub length: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingG1Points({data}, {index}, {length})")]
+pub fn EcPairingG1Points(
+    data: k::Term<Bytes>,
+    index: k::Term<Int>,
+    length: k::Term<Int>,
+) -> k::Term<List> {
+    if index >= length {
+        list::empty()
+    } else {
+        list::concat(
+            list::item(EcPairingG1Point { data, index }),
+            EcPairingG1Points {
+                data,
+                index: index + 192,
+                length,
+            },
+        )
+    }
 }
 
-#[k::function(
-    total,
-    sort = List,
-    syntax = "#kevmEcPairingG2Points({data}, {index}, {length})"
-)]
-pub struct EcPairingG2Points {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub length: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingG2Points({data}, {index}, {length})")]
+pub fn EcPairingG2Points(
+    data: k::Term<Bytes>,
+    index: k::Term<Int>,
+    length: k::Term<Int>,
+) -> k::Term<List> {
+    if index >= length {
+        list::empty()
+    } else {
+        list::concat(
+            list::item(EcPairingG2Point { data, index }),
+            EcPairingG2Points {
+                data,
+                index: index + 192,
+                length,
+            },
+        )
+    }
 }
 
-#[k::function(
-    total,
-    sort = Bool,
-    syntax = "#kevmEcPairingPointsValid({data}, {index}, {length})"
-)]
-pub struct EcPairingPointsValid {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub length: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingPointsValid({data}, {index}, {length})")]
+pub fn EcPairingPointsValid(
+    data: k::Term<Bytes>,
+    index: k::Term<Int>,
+    length: k::Term<Int>,
+) -> k::Term<Bool> {
+    if index >= length {
+        true
+    } else {
+        Bn128PointValid {
+            point: EcPairingG1Point { data, index },
+        } && Bn128G2PointValid {
+            point: EcPairingG2Point { data, index },
+        } && EcPairingPointsValid {
+            data,
+            index: index + 192,
+            length,
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmEcPairingPrecompileOutput({data})")]
@@ -1010,25 +1237,42 @@ pub fn EcPairingPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
 
 #[k::function(
     total,
-    sort = PrecompileStep,
     syntax = "#kevmResolveEcPairingPrecompile({data}, {requested}, {available})"
 )]
-pub struct ResolveEcPairingPrecompile {
-    pub data: k::Term<Bytes>,
-    pub requested: k::Term<Int>,
-    pub available: k::Term<Int>,
+pub fn ResolveEcPairingPrecompile(
+    data: k::Term<Bytes>,
+    requested: k::Term<Int>,
+    available: k::Term<Int>,
+) -> k::Term<PrecompileStep> {
+    if StaticCallGas(requested, available) < EcPairingPrecompileCost(data) {
+        PrecompileResult::EcPairingPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    } else if int::rem_euclid(bytes::length(data), 192) == 0 {
+        if EcPairingPointsValid(data, 0, bytes::length(data)) {
+            PrecompileResult::EcPairingPrecompileSuccess {
+                remaining: available - EcPairingPrecompileCost(data),
+            }
+        } else {
+            PrecompileResult::EcPairingPrecompileFailure {
+                remaining: available - StaticCallGas(requested, available),
+            }
+        }
+    } else {
+        PrecompileResult::EcPairingPrecompileFailure {
+            remaining: available - StaticCallGas(requested, available),
+        }
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmMinimum({left}, {right})")]
-pub struct Minimum {
-    pub left: k::Term<Int>,
-    pub right: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMinimum({left}, {right})")]
+pub fn Minimum(left: k::Term<Int>, right: k::Term<Int>) -> k::Term<Int> {
+    if left <= right { left } else { right }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmMaximum({left}, {right})")]
-pub struct Maximum {
-    pub left: k::Term<Int>,
-    pub right: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMaximum({left}, {right})")]
+pub fn Maximum(left: k::Term<Int>, right: k::Term<Int>) -> k::Term<Int> {
+    if left >= right { left } else { right }
 }
 
 #[k::function(total, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
@@ -1053,20 +1297,28 @@ pub fn ExternalCopyGasCost(
 
 #[k::function(
     total,
-    sort = Bytes,
     syntax = "#kevmPrepareCopyMemory({memory}, {used}, {start}, {width})"
 )]
-pub struct PrepareCopyMemory {
-    pub memory: k::Term<Bytes>,
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+pub fn PrepareCopyMemory(
+    memory: k::Term<Bytes>,
+    used: k::Term<Int>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Bytes> {
+    if width <= 0 {
+        memory
+    } else {
+        bytes::pad_right(memory, MemoryUsageUpdate { used, start, width } * 32, 0)
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmMemoryByte({memory}, {index})")]
-pub struct MemoryByte {
-    pub memory: k::Term<Bytes>,
-    pub index: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMemoryByte({memory}, {index})")]
+pub fn MemoryByte(memory: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<Int> {
+    if index >= 0 && index < bytes::length(memory) {
+        bytes::get(memory, index)
+    } else {
+        0
+    }
 }
 
 #[k::function(
@@ -1079,15 +1331,17 @@ pub struct Keccak256Raw {
     pub value: k::Term<Bytes>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmBytesToInt({value}, {index}, {result})"
-)]
-pub struct BytesToInt {
-    pub value: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub result: k::Term<Int>,
+#[k::function(total, syntax = "#kevmBytesToInt({value}, {index}, {result})")]
+pub fn BytesToInt(
+    value: k::Term<Bytes>,
+    index: k::Term<Int>,
+    result: k::Term<Int>,
+) -> k::Term<Int> {
+    if index >= 0 && index < bytes::length(value) {
+        BytesToInt(value, index + 1, result * 256 + bytes::get(value, index))
+    } else {
+        result
+    }
 }
 
 #[k::function(total, syntax = "#kevmKeccak({value})")]
@@ -1095,32 +1349,46 @@ pub fn Keccak(value: k::Term<Bytes>) -> k::Term<Int> {
     BytesToInt(Keccak256Raw(value), 0, 0)
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmStorageValue({storage}, {index})")]
-pub struct StorageValue {
-    pub storage: k::Term<Map>,
-    pub index: k::Term<Int>,
+#[k::function(total, syntax = "#kevmStorageValue({storage}, {index})")]
+pub fn StorageValue(storage: k::Term<Map>, index: k::Term<Int>) -> k::Term<Int> {
+    if map::in_keys(index, storage) {
+        map::get(storage, index)
+    } else {
+        0
+    }
+}
+
+#[k::function(total, syntax = "#kevmStorageWarm({accessed}, {account}, {index})")]
+pub fn StorageWarm(
+    accessed: k::Term<Map>,
+    account: k::Term<Int>,
+    index: k::Term<Int>,
+) -> k::Term<Bool> {
+    if map::in_keys(account, accessed) {
+        set::contains(index, map::get(accessed, account))
+    } else {
+        false
+    }
 }
 
 #[k::function(
     total,
-    sort = Bool,
-    syntax = "#kevmStorageWarm({accessed}, {account}, {index})"
-)]
-pub struct StorageWarm {
-    pub accessed: k::Term<Map>,
-    pub account: k::Term<Int>,
-    pub index: k::Term<Int>,
-}
-
-#[k::function(
-    total,
-    sort = Map,
     syntax = "#kevmMarkStorageAccess({accessed}, {account}, {index})"
 )]
-pub struct MarkStorageAccess {
-    pub accessed: k::Term<Map>,
-    pub account: k::Term<Int>,
-    pub index: k::Term<Int>,
+pub fn MarkStorageAccess(
+    accessed: k::Term<Map>,
+    account: k::Term<Int>,
+    index: k::Term<Int>,
+) -> k::Term<Map> {
+    if map::in_keys(account, accessed) {
+        map::update(
+            accessed,
+            account,
+            set::union(map::get(accessed, account), set::item(index)),
+        )
+    } else {
+        map::update(accessed, account, set::item(index))
+    }
 }
 
 #[k::function(total, syntax = "#kevmColdStorageSurcharge({warm})")]
@@ -1143,76 +1411,152 @@ k::equations! {
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmStorageStoreCost({original}, {current}, {new}, {warm})"
 )]
-pub struct StorageStoreCost {
-    pub original: k::Term<Int>,
-    pub current: k::Term<Int>,
-    pub new: k::Term<Int>,
-    pub warm: k::Term<Bool>,
+pub fn StorageStoreCost(
+    original: k::Term<Int>,
+    current: k::Term<Int>,
+    new: k::Term<Int>,
+    warm: k::Term<Bool>,
+) -> k::Term<Int> {
+    if current == new {
+        100 + ColdStorageSurcharge(warm)
+    } else if original == current {
+        if original == 0 {
+            20000 + ColdStorageSurcharge(warm)
+        } else {
+            2900 + ColdStorageSurcharge(warm)
+        }
+    } else {
+        100 + ColdStorageSurcharge(warm)
+    }
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmStorageRefundDelta({original}, {current}, {new})"
 )]
-pub struct StorageRefundDelta {
-    pub original: k::Term<Int>,
-    pub current: k::Term<Int>,
-    pub new: k::Term<Int>,
+pub fn StorageRefundDelta(
+    original: k::Term<Int>,
+    current: k::Term<Int>,
+    new: k::Term<Int>,
+) -> k::Term<Int> {
+    if current == new {
+        0
+    } else if original == current {
+        if original != 0 && new == 0 { 4800 } else { 0 }
+    } else if original == 0 {
+        if new == original { 19900 } else { 0 }
+    } else if current == 0 {
+        if new == original { -2000 } else { -4800 }
+    } else if new == 0 {
+        4800
+    } else if new == original {
+        2800
+    } else {
+        0
+    }
 }
 
 #[k::function(
     total,
-    sort = GasStep,
     syntax = "#kevmPrepareStorageStore({gas}, {original}, {current}, {new}, {warm}, {static_mode})"
 )]
-pub struct PrepareStorageStore {
-    pub gas: k::Term<Int>,
-    pub original: k::Term<Int>,
-    pub current: k::Term<Int>,
-    pub new: k::Term<Int>,
-    pub warm: k::Term<Bool>,
-    pub static_mode: k::Term<Bool>,
+pub fn PrepareStorageStore(
+    gas: k::Term<Int>,
+    original: k::Term<Int>,
+    current: k::Term<Int>,
+    new: k::Term<Int>,
+    warm: k::Term<Bool>,
+    static_mode: k::Term<Bool>,
+) -> k::Term<GasStep> {
+    match static_mode {
+        true => GasResult::StaticViolationResult(),
+        false => {
+            if gas <= 2300 {
+                GasResult::InsufficientGas()
+            } else {
+                ChargeFixed {
+                    op: Operation::StorageStore,
+                    gas,
+                    cost: StorageStoreCost {
+                        original,
+                        current,
+                        new,
+                        warm,
+                    },
+                }
+            }
+        }
+    }
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmReadMemoryWord({memory}, {index}, {remaining}, {value})"
 )]
-pub struct ReadMemoryWord {
-    pub memory: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub remaining: k::Term<Int>,
-    pub value: k::Term<Int>,
+pub fn ReadMemoryWord(
+    memory: k::Term<Bytes>,
+    index: k::Term<Int>,
+    remaining: k::Term<Int>,
+    value: k::Term<Int>,
+) -> k::Term<Int> {
+    if remaining <= 0 {
+        value
+    } else {
+        ReadMemoryWord {
+            memory,
+            index: index + 1,
+            remaining: remaining - 1,
+            value: value * 256 + MemoryByte(memory, index),
+        }
+    }
 }
 
 #[k::function(
     partial,
-    sort = Bytes,
     syntax = "#kevmWriteMemoryWord({memory}, {index}, {remaining}, {value})"
 )]
-pub struct WriteMemoryWord {
-    pub memory: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub remaining: k::Term<Int>,
-    pub value: k::Term<Int>,
+pub fn WriteMemoryWord(
+    memory: k::Term<Bytes>,
+    index: k::Term<Int>,
+    remaining: k::Term<Int>,
+    value: k::Term<Int>,
+) -> k::Term<Bytes> {
+    if remaining <= 0 {
+        memory
+    } else {
+        WriteMemoryWord {
+            memory: bytes::update(memory, index + (remaining - 1), int::rem_euclid(value, 256)),
+            index,
+            remaining: remaining - 1,
+            value: value / 256,
+        }
+    }
 }
 
 #[k::function(
     partial,
-    sort = Bytes,
     syntax = "#kevmCopyBytes({memory}, {destination}, {source}, {source_index}, {remaining})"
 )]
-pub struct CopyBytes {
-    pub memory: k::Term<Bytes>,
-    pub destination: k::Term<Int>,
-    pub source: k::Term<Bytes>,
-    pub source_index: k::Term<Int>,
-    pub remaining: k::Term<Int>,
+pub fn CopyBytes(
+    memory: k::Term<Bytes>,
+    destination: k::Term<Int>,
+    source: k::Term<Bytes>,
+    source_index: k::Term<Int>,
+    remaining: k::Term<Int>,
+) -> k::Term<Bytes> {
+    if remaining <= 0 {
+        memory
+    } else {
+        CopyBytes {
+            memory: bytes::update(memory, destination, MemoryByte(source, source_index)),
+            destination: destination + 1,
+            source,
+            source_index: source_index + 1,
+            remaining: remaining - 1,
+        }
+    }
 }
 
 #[k::function(total, syntax = "#kevmReturnBytes({memory}, {start}, {width})")]
@@ -1232,107 +1576,195 @@ pub fn ReturnBytes(
 
 #[k::function(
     total,
-    sort = CopyStep,
     syntax = "#kevmResolveReturnDataCopy({output}, {source_index}, {width}, {remaining})"
 )]
-pub struct ResolveReturnDataCopy {
-    pub output: k::Term<Bytes>,
-    pub source_index: k::Term<Int>,
-    pub width: k::Term<Int>,
-    pub remaining: k::Term<Int>,
+pub fn ResolveReturnDataCopy(
+    output: k::Term<Bytes>,
+    source_index: k::Term<Int>,
+    width: k::Term<Int>,
+    remaining: k::Term<Int>,
+) -> k::Term<CopyStep> {
+    if source_index + width <= bytes::length(output) {
+        CopyResult::ReturnDataCopyValid { remaining }
+    } else {
+        CopyResult::ReturnDataCopyInvalid { remaining }
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmStackSize({stack})")]
-pub struct StackSize {
-    pub stack: k::Term<WordStack>,
+#[k::function(total, syntax = "#kevmStackSize({stack})")]
+pub fn StackSize(stack: k::Term<WordStack>) -> k::Term<Int> {
+    match stack {
+        [] => 0,
+        [_, tail @ ..] => 1 + StackSize(tail),
+    }
 }
 
-#[k::function(partial, sort = Int, syntax = "#kevmStackAt({stack}, {index})")]
-pub struct StackAt {
-    pub stack: k::Term<WordStack>,
-    pub index: k::Term<Int>,
+#[k::function(partial, syntax = "#kevmStackAt({stack}, {index})")]
+pub fn StackAt(stack: k::Term<WordStack>, index: k::Term<Int>) -> k::Term<Int>;
+
+k::equations! {
+    for StackAt;
+    #[k::requires(index <= 0)]
+    stack_at_here : ([head, ..], index)     => head;
+    #[k::requires(index > 0)]
+    stack_at_later: ([_, tail @ ..], index) => StackAt(tail, index - 1);
 }
 
-#[k::function(
-    partial,
-    sort = WordStack,
-    syntax = "#kevmStackSet({stack}, {index}, {value})"
-)]
-pub struct StackSet {
-    pub stack: k::Term<WordStack>,
-    pub index: k::Term<Int>,
-    pub value: k::Term<Int>,
+#[k::function(partial, syntax = "#kevmStackSet({stack}, {index}, {value})")]
+pub fn StackSet(
+    stack: k::Term<WordStack>,
+    index: k::Term<Int>,
+    value: k::Term<Int>,
+) -> k::Term<WordStack>;
+
+k::equations! {
+    for StackSet;
+    #[k::requires(index <= 0)]
+    stack_set_here: ([_, tail @ ..], index, value) => [value, ..tail];
+    #[k::requires(index > 0)]
+    stack_set_later:
+        ([head, tail @ ..], index, value) => [head, ..StackSet(tail, index - 1, value)];
 }
 
-#[k::function(total, sort = List, syntax = "#kevmStackTakeList({stack}, {remaining})")]
-pub struct StackTakeList {
-    pub stack: k::Term<WordStack>,
-    pub remaining: k::Term<Int>,
+#[k::function(total, syntax = "#kevmStackTakeList({stack}, {remaining})")]
+pub fn StackTakeList(stack: k::Term<WordStack>, remaining: k::Term<Int>) -> k::Term<List> {
+    if remaining <= 0 {
+        list::empty()
+    } else {
+        match stack {
+            [] => list::concat(list::item(0), StackTakeList([], remaining - 1)),
+            [head, tail @ ..] => list::concat(list::item(head), StackTakeList(tail, remaining - 1)),
+        }
+    }
 }
 
-#[k::function(total, sort = WordStack, syntax = "#kevmStackDrop({stack}, {remaining})")]
-pub struct StackDrop {
-    pub stack: k::Term<WordStack>,
-    pub remaining: k::Term<Int>,
+#[k::function(total, syntax = "#kevmStackDrop({stack}, {remaining})")]
+pub fn StackDrop(stack: k::Term<WordStack>, remaining: k::Term<Int>) -> k::Term<WordStack> {
+    if remaining <= 0 {
+        stack
+    } else {
+        match stack {
+            [] => [],
+            [_, tail @ ..] => StackDrop(tail, remaining - 1),
+        }
+    }
 }
 
-#[k::function(
-    partial,
-    sort = GasStep,
-    syntax = "#kevmPrepareStack({op}, {stack}, {gas})"
-)]
-pub struct PrepareStack {
-    pub op: k::Term<OpCode>,
-    pub stack: k::Term<WordStack>,
-    pub gas: k::Term<Int>,
+#[k::function(partial, syntax = "#kevmPrepareStack({op}, {stack}, {gas})")]
+pub fn PrepareStack(
+    op: k::Term<OpCode>,
+    stack: k::Term<WordStack>,
+    gas: k::Term<Int>,
+) -> k::Term<GasStep> {
+    match op {
+        Operation::Pop => {
+            if StackSize(stack) == 0 {
+                GasResult::StackUnderflowResult()
+            } else {
+                ChargeFixed(Operation::Pop, gas, 2)
+            }
+        }
+        Operation::Duplicate { depth } => {
+            if StackSize(stack) < depth {
+                GasResult::StackUnderflowResult()
+            } else if StackSize(stack) < 1024 {
+                ChargeFixed(Operation::Duplicate { depth }, gas, 3)
+            } else {
+                GasResult::StackOverflowResult()
+            }
+        }
+        Operation::Swap { depth } => {
+            if StackSize(stack) < depth + 1 {
+                GasResult::StackUnderflowResult()
+            } else {
+                ChargeFixed(Operation::Swap { depth }, gas, 3)
+            }
+        }
+    }
+}
+
+#[k::function(total, syntax = "#kevmPreparePush({op}, {stack}, {gas}, {cost})")]
+pub fn PreparePush(
+    op: k::Term<OpCode>,
+    stack: k::Term<WordStack>,
+    gas: k::Term<Int>,
+    cost: k::Term<Int>,
+) -> k::Term<GasStep> {
+    if StackSize(stack) < 1024 {
+        ChargeFixed { op, gas, cost }
+    } else {
+        GasResult::StackOverflowResult()
+    }
 }
 
 #[k::function(
     total,
-    sort = GasStep,
-    syntax = "#kevmPreparePush({op}, {stack}, {gas}, {cost})"
-)]
-pub struct PreparePush {
-    pub op: k::Term<OpCode>,
-    pub stack: k::Term<WordStack>,
-    pub gas: k::Term<Int>,
-    pub cost: k::Term<Int>,
-}
-
-#[k::function(
-    total,
-    sort = GasStep,
     syntax = "#kevmPrepareLog({topics}, {stack}, {gas}, {used}, {static_mode})"
 )]
-pub struct PrepareLog {
-    pub topics: k::Term<Int>,
-    pub stack: k::Term<WordStack>,
-    pub gas: k::Term<Int>,
-    pub used: k::Term<Int>,
-    pub static_mode: k::Term<Bool>,
+pub fn PrepareLog(
+    topics: k::Term<Int>,
+    stack: k::Term<WordStack>,
+    gas: k::Term<Int>,
+    used: k::Term<Int>,
+    static_mode: k::Term<Bool>,
+) -> k::Term<GasStep> {
+    if StackSize(stack) < topics + 2 {
+        GasResult::StackUnderflowResult()
+    } else {
+        match static_mode {
+            true => GasResult::StaticViolationResult(),
+            false => ChargeFixed {
+                op: Operation::LogOpcode { topics },
+                gas,
+                cost: MemoryExpansionCost {
+                    used,
+                    start: StackAt { stack, index: 0 },
+                    width: StackAt { stack, index: 1 },
+                } + (375 + (8 * StackAt { stack, index: 1 } + 375 * topics)),
+            },
+        }
+    }
 }
 
 #[k::function(
     total,
-    sort = GasStep,
     syntax = "#kevmPrepareStaticCall({stack}, {accessed}, {used}, {gas})"
 )]
-pub struct PrepareStaticCall {
-    pub stack: k::Term<WordStack>,
-    pub accessed: k::Term<Set>,
-    pub used: k::Term<Int>,
-    pub gas: k::Term<Int>,
+pub fn PrepareStaticCall(
+    stack: k::Term<WordStack>,
+    accessed: k::Term<Set>,
+    used: k::Term<Int>,
+    gas: k::Term<Int>,
+) -> k::Term<GasStep> {
+    if StackSize(stack) < 6 {
+        GasResult::StackUnderflowResult()
+    } else {
+        ChargeStaticCall {
+            gas,
+            cost: StaticCallCost {
+                accessed,
+                account: StackAt { stack, index: 1 },
+                used,
+                argument_start: StackAt { stack, index: 2 },
+                argument_width: StackAt { stack, index: 3 },
+                return_start: StackAt { stack, index: 4 },
+                return_width: StackAt { stack, index: 5 },
+            },
+            account: StackAt { stack, index: 1 },
+        }
+    }
 }
 
-#[k::function(
-    total,
-    sort = GasStep,
-    syntax = "#kevmChargeFixed({op}, {gas}, {cost})"
-)]
-pub struct ChargeFixed {
-    pub op: k::Term<OpCode>,
-    pub gas: k::Term<Int>,
-    pub cost: k::Term<Int>,
+#[k::function(total, syntax = "#kevmChargeFixed({op}, {gas}, {cost})")]
+pub fn ChargeFixed(op: k::Term<OpCode>, gas: k::Term<Int>, cost: k::Term<Int>) -> k::Term<GasStep> {
+    if gas >= cost {
+        GasResult::EnoughGas {
+            op,
+            remaining: gas - cost,
+        }
+    } else {
+        GasResult::InsufficientGas()
+    }
 }
 
 #[k::function(total, syntax = "#kevmChargeStaticCall({gas}, {cost}, {account})")]
@@ -1376,379 +1808,113 @@ k::equations! {
     charge_static_call_fails    : (gas, cost, _) => InsufficientGas();
 }
 
-#[k::function(total, sort = OpCode, syntax = "#kevmLookup({program}, {pc})")]
-pub struct Lookup {
-    pub program: k::Term<Bytes>,
-    pub pc: k::Term<Int>,
+#[k::function(total, syntax = "#kevmLookup({program}, {pc})")]
+pub fn Lookup(program: k::Term<Bytes>, pc: k::Term<Int>) -> k::Term<OpCode> {
+    if pc < 0 {
+        Operation::End
+    } else if pc < bytes::length(program) {
+        Decode {
+            opcode: bytes::get(program, pc),
+            program,
+            pc,
+        }
+    } else {
+        Operation::End
+    }
 }
 
 #[k::function(total, syntax = "#kevmDecode({opcode}, {program}, {pc})")]
 pub fn Decode(opcode: k::Term<Int>, program: k::Term<Bytes>, pc: k::Term<Int>) -> k::Term<OpCode>;
 
-#[k::function(total, sort = Int, syntax = "#kevmReadImmediate({program}, {at}, {remaining}, {value})")]
-pub struct ReadImmediate {
-    pub program: k::Term<Bytes>,
-    pub at: k::Term<Int>,
-    pub remaining: k::Term<Int>,
-    pub value: k::Term<Int>,
-}
-
 #[k::function(
     total,
-    sort = Bool,
-    syntax = "#kevmValidJumpDestination({program}, {destination})"
+    syntax = "#kevmReadImmediate({program}, {at}, {remaining}, {value})"
 )]
-pub struct ValidJumpDestination {
-    pub program: k::Term<Bytes>,
-    pub destination: k::Term<Int>,
+pub fn ReadImmediate(
+    program: k::Term<Bytes>,
+    at: k::Term<Int>,
+    remaining: k::Term<Int>,
+    value: k::Term<Int>,
+) -> k::Term<Int> {
+    if remaining <= 0 {
+        value
+    } else {
+        ReadImmediate {
+            program,
+            at: at + 1,
+            remaining: remaining - 1,
+            value: value * 256 + MemoryByte(program, at),
+        }
+    }
+}
+
+#[k::function(total, syntax = "#kevmValidJumpDestination({program}, {destination})")]
+pub fn ValidJumpDestination(program: k::Term<Bytes>, destination: k::Term<Int>) -> k::Term<Bool> {
+    if destination >= 0 && destination < bytes::length(program) {
+        ScanJumpDestination {
+            program,
+            destination,
+            cursor: 0,
+        }
+    } else {
+        false
+    }
 }
 
 #[k::function(
     total,
-    sort = Bool,
     syntax = "#kevmScanJumpDestination({program}, {destination}, {cursor})"
 )]
-pub struct ScanJumpDestination {
-    pub program: k::Term<Bytes>,
-    pub destination: k::Term<Int>,
-    pub cursor: k::Term<Int>,
+pub fn ScanJumpDestination(
+    program: k::Term<Bytes>,
+    destination: k::Term<Int>,
+    cursor: k::Term<Int>,
+) -> k::Term<Bool> {
+    if cursor > destination {
+        false
+    } else if cursor == destination {
+        MemoryByte(program, cursor) == 0x5B
+    } else if MemoryByte(program, cursor) >= 0x60 && MemoryByte(program, cursor) <= 0x7F {
+        ScanJumpDestination {
+            program,
+            destination,
+            cursor: cursor + (MemoryByte(program, cursor) - 94),
+        }
+    } else {
+        ScanJumpDestination {
+            program,
+            destination,
+            cursor: cursor + 1,
+        }
+    }
 }
 
-#[k::function(total, sort = JumpStep, syntax = "#kevmResolveJump({program}, {destination})")]
-pub struct ResolveJump {
-    pub program: k::Term<Bytes>,
-    pub destination: k::Term<Int>,
+#[k::function(total, syntax = "#kevmResolveJump({program}, {destination})")]
+pub fn ResolveJump(program: k::Term<Bytes>, destination: k::Term<Int>) -> k::Term<JumpStep> {
+    if ValidJumpDestination(program, destination) {
+        JumpResult::JumpValid { destination }
+    } else {
+        JumpResult::JumpInvalid()
+    }
 }
 
 #[k::function(
     total,
-    sort = JumpStep,
     syntax = "#kevmResolveJumpIf({program}, {destination}, {condition})"
 )]
-pub struct ResolveJumpIf {
-    pub program: k::Term<Bytes>,
-    pub destination: k::Term<Int>,
-    pub condition: k::Term<Int>,
-}
-
-#[k::requires(map::in_keys(index, storage))]
-#[k::equation]
-fn storage_value_present(k::term![StorageValue { storage, index }]: k::Term<Int>) -> k::Term<Int> {
-    map::get(storage, index)
-}
-
-#[k::requires(!map::in_keys(index, storage))]
-#[k::equation]
-fn storage_value_absent(k::term![StorageValue { storage, index }]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(map::in_keys(account, accessed))]
-#[k::equation]
-fn storage_warm_present(
-    k::term![StorageWarm {
-        accessed,
-        account,
-        index
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    set::contains(index, map::get(accessed, account))
-}
-
-#[k::requires(!map::in_keys(account, accessed))]
-#[k::equation]
-fn storage_warm_absent(
-    k::term![StorageWarm {
-        accessed,
-        account,
-        index
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    false
-}
-
-#[k::requires(map::in_keys(account, accessed))]
-#[k::equation]
-fn mark_storage_access_present(
-    k::term![MarkStorageAccess {
-        accessed,
-        account,
-        index
-    }]: k::Term<Map>,
-) -> k::Term<Map> {
-    map::update(
-        accessed,
-        account,
-        set::union(map::get(accessed, account), set::item(index)),
-    )
-}
-
-#[k::requires(!map::in_keys(account, accessed))]
-#[k::equation]
-fn mark_storage_access_absent(
-    k::term![MarkStorageAccess {
-        accessed,
-        account,
-        index
-    }]: k::Term<Map>,
-) -> k::Term<Map> {
-    map::update(accessed, account, set::item(index))
-}
-
-#[k::requires(current == new)]
-#[k::equation]
-fn storage_store_cost_unchanged(
-    k::term![StorageStoreCost {
-        original,
-        current,
-        new,
-        warm
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    100 + ColdStorageSurcharge(warm)
-}
-
-#[k::requires(current != new && original == current && original == 0)]
-#[k::equation]
-fn storage_store_cost_set(
-    k::term![StorageStoreCost {
-        original,
-        current,
-        new,
-        warm
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    20000 + ColdStorageSurcharge(warm)
-}
-
-#[k::requires(current != new && original == current && original != 0)]
-#[k::equation]
-fn storage_store_cost_reset(
-    k::term![StorageStoreCost {
-        original,
-        current,
-        new,
-        warm
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    2900 + ColdStorageSurcharge(warm)
-}
-
-#[k::requires(current != new && original != current)]
-#[k::equation]
-fn storage_store_cost_dirty(
-    k::term![StorageStoreCost {
-        original,
-        current,
-        new,
-        warm
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    100 + ColdStorageSurcharge(warm)
-}
-
-#[k::requires(current == new)]
-#[k::equation]
-fn storage_refund_unchanged(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(current != new && original == current && original != 0 && new == 0)]
-#[k::equation]
-fn storage_refund_clean_clear(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    4800
-}
-
-#[k::requires(current != new && original == current && (original == 0 || new != 0))]
-#[k::equation]
-fn storage_refund_clean_no_clear(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(original != current && original == 0 && new == original)]
-#[k::equation]
-fn storage_refund_restore_new_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    19900
-}
-
-#[k::requires(current != new && original != current && original == 0 && new != original)]
-#[k::equation]
-fn storage_refund_dirty_new_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(original != current && original != 0 && current == 0 && new == original)]
-#[k::equation]
-fn storage_refund_restore_cleared_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    -2000
-}
-
-#[k::requires(
-    current != new && original != current && original != 0 && current == 0 && new != original
-)]
-#[k::equation]
-fn storage_refund_rewrite_cleared_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    -4800
-}
-
-#[k::requires(original != current && original != 0 && current != 0 && new == 0)]
-#[k::equation]
-fn storage_refund_clear_dirty_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    4800
-}
-
-#[k::requires(original != current && original != 0 && current != 0 && new == original)]
-#[k::equation]
-fn storage_refund_restore_dirty_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    2800
-}
-
-#[k::requires(
-    current != new
-        && original != current
-        && original != 0
-        && current != 0
-        && new != 0
-        && new != original
-)]
-#[k::equation]
-fn storage_refund_other_dirty_slot(
-    k::term![StorageRefundDelta {
-        original,
-        current,
-        new
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::equation]
-fn prepare_storage_store_static(
-    k::term![PrepareStorageStore {
-        gas,
-        original,
-        current,
-        new,
-        warm,
-        static_mode: true
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StaticViolationResult()
-}
-
-#[k::requires(gas <= 2300)]
-#[k::equation]
-fn prepare_storage_store_stipend(
-    k::term![PrepareStorageStore {
-        gas,
-        original,
-        current,
-        new,
-        warm,
-        static_mode: false
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::InsufficientGas()
-}
-
-#[k::requires(gas > 2300)]
-#[k::equation]
-fn prepare_storage_store_allowed(
-    k::term![PrepareStorageStore {
-        gas,
-        original,
-        current,
-        new,
-        warm,
-        static_mode: false
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeFixed {
-        op: Operation::StorageStore,
-        gas,
-        cost: StorageStoreCost {
-            original,
-            current,
-            new,
-            warm,
-        },
+pub fn ResolveJumpIf(
+    program: k::Term<Bytes>,
+    destination: k::Term<Int>,
+    condition: k::Term<Int>,
+) -> k::Term<JumpStep> {
+    if condition == 0 {
+        JumpResult::JumpFallthrough()
+    } else {
+        ResolveJump {
+            program,
+            destination,
+        }
     }
-}
-
-#[k::requires(pc >= 0 && pc < bytes::length(program))]
-#[k::equation]
-fn lookup_opcode(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
-    Decode {
-        opcode: bytes::get(program, pc),
-        program,
-        pc,
-    }
-}
-
-#[k::requires(pc < 0)]
-#[k::equation]
-fn lookup_before_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
-    Operation::End
-}
-
-#[k::requires(pc >= bytes::length(program))]
-#[k::equation]
-fn lookup_after_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
-    Operation::End
 }
 
 k::equations! {
@@ -1831,1749 +1997,6 @@ k::equations! {
     decode_revert             : (0xFD, _, _)                  => Revert;
     #[k::equation(owise)]
     decode_invalid            : (_, _, _)                     => Invalid;
-}
-
-#[k::requires(remaining <= 0)]
-#[k::equation]
-fn read_immediate_done(
-    k::term![ReadImmediate {
-        program,
-        at,
-        remaining,
-        value
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    value
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn read_immediate_byte(
-    k::term![ReadImmediate {
-        program,
-        at,
-        remaining,
-        value
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    ReadImmediate {
-        program,
-        at: at + 1,
-        remaining: remaining - 1,
-        value: value * 256
-            + MemoryByte {
-                memory: program,
-                index: at,
-            },
-    }
-}
-
-#[k::requires(width <= 0)]
-#[k::equation]
-fn memory_usage_nonpositive_width(
-    k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
-) -> k::Term<Int> {
-    used
-}
-
-#[k::requires(width > 0 && used >= (start + width + 31) / 32)]
-#[k::equation]
-fn memory_usage_unchanged(
-    k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
-) -> k::Term<Int> {
-    used
-}
-
-#[k::requires(width > 0 && used < (start + width + 31) / 32)]
-#[k::equation]
-fn memory_usage_grows(
-    k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
-) -> k::Term<Int> {
-    (start + width + 31) / 32
-}
-
-#[k::requires(set::contains(account, accessed))]
-#[k::equation]
-fn account_access_cost_warm(
-    k::term![AccountAccessCost { accessed, account }]: k::Term<Int>,
-) -> k::Term<Int> {
-    100
-}
-
-#[k::requires(!set::contains(account, accessed))]
-#[k::equation]
-fn account_access_cost_cold(
-    k::term![AccountAccessCost { accessed, account }]: k::Term<Int>,
-) -> k::Term<Int> {
-    2600
-}
-
-#[k::requires(width <= 0)]
-#[k::equation]
-fn prepare_copy_memory_zero_width(
-    k::term![PrepareCopyMemory {
-        memory,
-        used,
-        start,
-        width
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    memory
-}
-
-#[k::requires(width > 0)]
-#[k::equation]
-fn prepare_copy_memory_positive_width(
-    k::term![PrepareCopyMemory {
-        memory,
-        used,
-        start,
-        width
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    bytes::pad_right(memory, MemoryUsageUpdate { used, start, width } * 32, 0)
-}
-
-#[k::requires(index >= 0 && index < bytes::length(memory))]
-#[k::equation]
-fn memory_byte_present(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k::Term<Int> {
-    bytes::get(memory, index)
-}
-
-#[k::requires(index < 0 || index >= bytes::length(memory))]
-#[k::equation]
-fn memory_byte_absent(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(index < 0 || index >= bytes::length(value))]
-#[k::equation]
-fn bytes_to_int_done(k::term![BytesToInt(value, index, result)]: k::Term<Int>) -> k::Term<Int> {
-    result
-}
-
-#[k::requires(index >= 0 && index < bytes::length(value))]
-#[k::equation]
-fn bytes_to_int_byte(k::term![BytesToInt(value, index, result)]: k::Term<Int>) -> k::Term<Int> {
-    BytesToInt(value, index + 1, result * 256 + bytes::get(value, index))
-}
-
-#[k::requires(remaining <= 0)]
-#[k::equation]
-fn read_memory_word_done(
-    k::term![ReadMemoryWord {
-        memory,
-        index,
-        remaining,
-        value
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    value
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn read_memory_word_byte(
-    k::term![ReadMemoryWord {
-        memory,
-        index,
-        remaining,
-        value
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    ReadMemoryWord {
-        memory,
-        index: index + 1,
-        remaining: remaining - 1,
-        value: value * 256 + MemoryByte { memory, index },
-    }
-}
-
-#[k::requires(remaining <= 0)]
-#[k::equation]
-fn write_memory_word_done(
-    k::term![WriteMemoryWord {
-        memory,
-        index,
-        remaining,
-        value
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    memory
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn write_memory_word_byte(
-    k::term![WriteMemoryWord {
-        memory,
-        index,
-        remaining,
-        value
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    WriteMemoryWord {
-        memory: bytes::update(memory, index + (remaining - 1), int::rem_euclid(value, 256)),
-        index,
-        remaining: remaining - 1,
-        value: value / 256,
-    }
-}
-
-#[k::requires(remaining <= 0)]
-#[k::equation]
-fn copy_bytes_done(
-    k::term![CopyBytes {
-        memory,
-        destination,
-        source,
-        source_index,
-        remaining
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    memory
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn copy_bytes_step(
-    k::term![CopyBytes {
-        memory,
-        destination,
-        source,
-        source_index,
-        remaining
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    CopyBytes {
-        memory: bytes::update(
-            memory,
-            destination,
-            MemoryByte {
-                memory: source,
-                index: source_index,
-            },
-        ),
-        destination: destination + 1,
-        source,
-        source_index: source_index + 1,
-        remaining: remaining - 1,
-    }
-}
-
-#[k::requires(source_index + width <= bytes::length(output))]
-#[k::equation]
-fn resolve_return_data_copy_valid(
-    k::term![ResolveReturnDataCopy {
-        output,
-        source_index,
-        width,
-        remaining
-    }]: k::Term<CopyStep>,
-) -> k::Term<CopyStep> {
-    CopyResult::ReturnDataCopyValid { remaining }
-}
-
-#[k::requires(source_index + width > bytes::length(output))]
-#[k::equation]
-fn resolve_return_data_copy_invalid(
-    k::term![ResolveReturnDataCopy {
-        output,
-        source_index,
-        width,
-        remaining
-    }]: k::Term<CopyStep>,
-) -> k::Term<CopyStep> {
-    CopyResult::ReturnDataCopyInvalid { remaining }
-}
-
-#[k::requires(destination < 0 || destination >= bytes::length(program))]
-#[k::equation]
-fn invalid_jump_destination_outside_program(
-    k::term![ValidJumpDestination {
-        program,
-        destination
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    false
-}
-
-#[k::requires(destination >= 0 && destination < bytes::length(program))]
-#[k::equation]
-fn scan_jump_destination(
-    k::term![ValidJumpDestination {
-        program,
-        destination
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    ScanJumpDestination {
-        program,
-        destination,
-        cursor: 0,
-    }
-}
-
-#[k::requires(cursor > destination)]
-#[k::equation]
-fn scan_jump_destination_skipped(
-    k::term![ScanJumpDestination {
-        program,
-        destination,
-        cursor
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    false
-}
-
-#[k::requires(cursor == destination)]
-#[k::equation]
-fn scan_jump_destination_found(
-    k::term![ScanJumpDestination {
-        program,
-        destination,
-        cursor
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    MemoryByte {
-        memory: program,
-        index: cursor,
-    } == 0x5B
-}
-
-#[k::requires(
-    cursor < destination
-        && MemoryByte { memory: program, index: cursor } >= 0x60
-        && MemoryByte { memory: program, index: cursor } <= 0x7F
-)]
-#[k::equation]
-fn scan_jump_destination_past_push(
-    k::term![ScanJumpDestination {
-        program,
-        destination,
-        cursor
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    ScanJumpDestination {
-        program,
-        destination,
-        cursor: cursor
-            + (MemoryByte {
-                memory: program,
-                index: cursor,
-            } - 94),
-    }
-}
-
-#[k::requires(
-    cursor < destination
-        && (MemoryByte { memory: program, index: cursor } < 0x60
-            || MemoryByte { memory: program, index: cursor } > 0x7F)
-)]
-#[k::equation]
-fn scan_jump_destination_past_opcode(
-    k::term![ScanJumpDestination {
-        program,
-        destination,
-        cursor
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    ScanJumpDestination {
-        program,
-        destination,
-        cursor: cursor + 1,
-    }
-}
-
-#[k::requires(bool::eq(
-    ValidJumpDestination {
-        program,
-        destination
-    },
-    true,
-))]
-#[k::equation]
-fn resolve_valid_jump(
-    k::term![ResolveJump {
-        program,
-        destination
-    }]: k::Term<JumpStep>,
-) -> k::Term<JumpStep> {
-    JumpResult::JumpValid { destination }
-}
-
-#[k::requires(bool::eq(
-    ValidJumpDestination {
-        program,
-        destination
-    },
-    false,
-))]
-#[k::equation]
-fn resolve_invalid_jump(
-    k::term![ResolveJump {
-        program,
-        destination
-    }]: k::Term<JumpStep>,
-) -> k::Term<JumpStep> {
-    JumpResult::JumpInvalid()
-}
-
-#[k::requires(condition == 0)]
-#[k::equation]
-fn resolve_false_jump_if(
-    k::term![ResolveJumpIf {
-        program,
-        destination,
-        condition
-    }]: k::Term<JumpStep>,
-) -> k::Term<JumpStep> {
-    JumpResult::JumpFallthrough()
-}
-
-#[k::requires(condition != 0)]
-#[k::equation]
-fn resolve_true_jump_if(
-    k::term![ResolveJumpIf {
-        program,
-        destination,
-        condition
-    }]: k::Term<JumpStep>,
-) -> k::Term<JumpStep> {
-    ResolveJump {
-        program,
-        destination,
-    }
-}
-
-#[k::requires(divisor == 0)]
-#[k::equation]
-fn word_div_zero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(divisor != 0)]
-#[k::equation]
-fn word_div_nonzero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    dividend / divisor
-}
-
-#[k::requires(divisor == 0)]
-#[k::equation]
-fn word_mod_zero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(divisor != 0)]
-#[k::equation]
-fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    int::rem_euclid(dividend, divisor)
-}
-
-#[k::requires(POW255 <= value && value < POW256)]
-#[k::equation]
-fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    -1
-}
-
-#[k::requires(0 <= value && value < POW255)]
-#[k::equation]
-fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    1
-}
-
-#[k::requires(value < 0 || POW256 <= value)]
-#[k::equation]
-fn sign_outside_word(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(POW255 <= value && value < POW256)]
-#[k::equation]
-fn magnitude_negative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
-    Chop(-value)
-}
-
-#[k::requires(0 <= value && value < POW255)]
-#[k::equation]
-fn magnitude_nonnegative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
-    value
-}
-
-#[k::requires(value < 0 || POW256 <= value)]
-#[k::equation]
-fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(Sign(dividend) * Sign(divisor) == 1)]
-#[k::equation]
-fn signed_word_div_same_sign(
-    k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
-) -> k::Term<Int> {
-    WordDiv {
-        dividend: Magnitude(dividend),
-        divisor: Magnitude(divisor),
-    }
-}
-
-#[k::requires(Sign(dividend) * Sign(divisor) == -1)]
-#[k::equation]
-fn signed_word_div_different_sign(
-    k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
-) -> k::Term<Int> {
-    Chop(-WordDiv {
-        dividend: Magnitude(dividend),
-        divisor: Magnitude(divisor),
-    })
-}
-
-#[k::requires(Sign(dividend) == 1)]
-#[k::equation]
-fn signed_word_mod_nonnegative(
-    k::term![SignedWordMod { dividend, divisor }]: k::Term<Int>,
-) -> k::Term<Int> {
-    WordMod {
-        dividend: Magnitude(dividend),
-        divisor: Magnitude(divisor),
-    }
-}
-
-#[k::requires(Sign(dividend) == -1)]
-#[k::equation]
-fn signed_word_mod_negative(
-    k::term![SignedWordMod { dividend, divisor }]: k::Term<Int>,
-) -> k::Term<Int> {
-    Chop(-WordMod {
-        dividend: Magnitude(dividend),
-        divisor: Magnitude(divisor),
-    })
-}
-
-#[k::requires(Sign(left) == 1 && Sign(right) == 1)]
-#[k::equation]
-fn signed_less_nonnegative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    BoolToWord(left < right)
-}
-
-#[k::requires(Sign(left) == 1 && Sign(right) == -1)]
-#[k::equation]
-fn signed_less_positive_negative(
-    k::term![SignedLess { left, right }]: k::Term<Int>,
-) -> k::Term<Int> {
-    BoolToWord(false)
-}
-
-#[k::requires(Sign(left) == -1 && Sign(right) == 1)]
-#[k::equation]
-fn signed_less_negative_positive(
-    k::term![SignedLess { left, right }]: k::Term<Int>,
-) -> k::Term<Int> {
-    BoolToWord(true)
-}
-
-#[k::requires(Sign(left) == -1 && Sign(right) == -1)]
-#[k::equation]
-fn signed_less_negative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    BoolToWord(Magnitude(right) < Magnitude(left))
-}
-
-#[k::requires(exponent <= 0)]
-#[k::equation]
-fn exp_cost_zero(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> {
-    10
-}
-
-#[k::requires(exponent > 0)]
-#[k::equation]
-fn exp_cost_positive(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> {
-    10 + 50 * (int::log2(exponent) / 8 + 1)
-}
-
-#[k::requires(value >= 0 && shift >= 0 && shift < 256)]
-#[k::equation]
-fn shift_left_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
-    Chop(value << shift)
-}
-
-#[k::requires(value < 0 || shift < 0 || shift >= 256)]
-#[k::equation]
-fn shift_left_outside_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(value >= 0 && shift >= 0 && shift < 256)]
-#[k::equation]
-fn shift_right_word(k::term![WordShiftRight { value, shift }]: k::Term<Int>) -> k::Term<Int> {
-    value >> shift
-}
-
-#[k::requires(value < 0 || shift < 0 || shift >= 256)]
-#[k::equation]
-fn shift_right_outside_word(
-    k::term![WordShiftRight { value, shift }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(value >= 0 && shift >= 0 && shift < 256)]
-#[k::equation]
-fn signed_shift_right_word(
-    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
-) -> k::Term<Int> {
-    Chop((Magnitude(value) * Sign(value)) >> shift)
-}
-
-#[k::requires(value >= 0 && shift >= 256 && Sign(value) == -1)]
-#[k::equation]
-fn signed_shift_right_large_negative(
-    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
-) -> k::Term<Int> {
-    POW256 - 1
-}
-
-#[k::requires(value >= 0 && shift >= 256 && Sign(value) != -1)]
-#[k::equation]
-fn signed_shift_right_large_nonnegative(
-    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(value < 0 || shift < 0)]
-#[k::equation]
-fn signed_shift_right_outside_word(
-    k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(index >= 0 && index < 32)]
-#[k::equation]
-fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    int::rem_euclid(value >> (8 * (31 - index)), 256)
-}
-
-#[k::requires(index < 0 || index >= 32)]
-#[k::equation]
-fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(index < 0 || index >= 32)]
-#[k::equation]
-fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    value
-}
-
-#[k::requires(index >= 0 && index < 32 && SignExtendByte { index, value } < 128)]
-#[k::equation]
-fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    Chop(((1 << (8 * (index + 1))) - 1) & value)
-}
-
-#[k::requires(index >= 0 && index < 32 && SignExtendByte { index, value } >= 128)]
-#[k::equation]
-fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    Chop(((POW256 - 1) ^ ((1 << (8 * (index + 1))) - 1)) | value)
-}
-
-#[k::requires(requested > highest)]
-#[k::equation]
-fn block_hash_future(
-    k::term![BlockHashLookup {
-        hashes,
-        requested,
-        highest,
-        age
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(requested <= highest && age >= 256)]
-#[k::equation]
-fn block_hash_too_old(
-    k::term![BlockHashLookup {
-        hashes,
-        requested,
-        highest,
-        age
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(bool::and(
-    requested <= highest && age < 256,
-    age < list::size(hashes) && list::get(hashes, age) == 0,
-))]
-#[k::equation]
-fn block_hash_zero_sentinel(
-    k::term![BlockHashLookup {
-        hashes,
-        requested,
-        highest,
-        age
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(bool::and(
-    requested == highest && age < 256,
-    age < list::size(hashes) && list::get(hashes, age) != 0,
-))]
-#[k::equation]
-fn block_hash_found(
-    k::term![BlockHashLookup {
-        hashes,
-        requested,
-        highest,
-        age
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    list::get(hashes, age)
-}
-
-#[k::requires(bool::and(
-    requested < highest && age < 256,
-    age < list::size(hashes) && list::get(hashes, age) != 0,
-))]
-#[k::equation]
-fn block_hash_continue(
-    k::term![BlockHashLookup {
-        hashes,
-        requested,
-        highest,
-        age
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    BlockHashLookup {
-        hashes,
-        requested,
-        highest: highest - 1,
-        age: age + 1,
-    }
-}
-
-#[k::equation]
-fn stack_size_empty(k::term![StackSize([])]: k::Term<Int>) -> k::Term<Int> {
-    0
-}
-
-#[k::equation]
-fn stack_size_cons(k::term![StackSize([head, tail @ ..])]: k::Term<Int>) -> k::Term<Int> {
-    1 + StackSize(tail)
-}
-
-#[k::requires(index <= 0)]
-#[k::equation]
-fn stack_at_here(
-    k::term![StackAt {
-        stack: [head, tail @ ..],
-        index
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    head
-}
-
-#[k::requires(index > 0)]
-#[k::equation]
-fn stack_at_later(
-    k::term![StackAt {
-        stack: [head, tail @ ..],
-        index
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    StackAt {
-        stack: tail,
-        index: index - 1,
-    }
-}
-
-#[k::requires(index <= 0)]
-#[k::equation]
-fn stack_set_here(
-    k::term![StackSet {
-        stack: [head, tail @ ..],
-        index,
-        value
-    }]: k::Term<WordStack>,
-) -> k::Term<WordStack> {
-    [value, ..tail]
-}
-
-#[k::requires(index > 0)]
-#[k::equation]
-fn stack_set_later(
-    k::term![StackSet {
-        stack: [head, tail @ ..],
-        index,
-        value
-    }]: k::Term<WordStack>,
-) -> k::Term<WordStack> {
-    [
-        head,
-        ..StackSet {
-            stack: tail,
-            index: index - 1,
-            value,
-        },
-    ]
-}
-
-#[k::requires(remaining <= 0)]
-#[k::equation]
-fn stack_take_list_done(
-    k::term![StackTakeList { stack, remaining }]: k::Term<List>,
-) -> k::Term<List> {
-    list::empty()
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn stack_take_list_empty(
-    k::term![StackTakeList {
-        stack: [],
-        remaining
-    }]: k::Term<List>,
-) -> k::Term<List> {
-    list::concat(
-        list::item(0),
-        StackTakeList {
-            stack: [],
-            remaining: remaining - 1,
-        },
-    )
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn stack_take_list_item(
-    k::term![StackTakeList {
-        stack: [head, tail @ ..],
-        remaining
-    }]: k::Term<List>,
-) -> k::Term<List> {
-    list::concat(
-        list::item(head),
-        StackTakeList {
-            stack: tail,
-            remaining: remaining - 1,
-        },
-    )
-}
-
-#[k::requires(remaining <= 0)]
-#[k::equation]
-fn stack_drop_done(
-    k::term![StackDrop { stack, remaining }]: k::Term<WordStack>,
-) -> k::Term<WordStack> {
-    stack
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn stack_drop_empty(
-    k::term![StackDrop {
-        stack: [],
-        remaining
-    }]: k::Term<WordStack>,
-) -> k::Term<WordStack> {
-    []
-}
-
-#[k::requires(remaining > 0)]
-#[k::equation]
-fn stack_drop_item(
-    k::term![StackDrop {
-        stack: [head, tail @ ..],
-        remaining
-    }]: k::Term<WordStack>,
-) -> k::Term<WordStack> {
-    StackDrop {
-        stack: tail,
-        remaining: remaining - 1,
-    }
-}
-
-#[k::requires(StackSize(stack) == 0)]
-#[k::equation]
-fn prepare_pop_underflow(
-    k::term![PrepareStack {
-        op: Operation::Pop,
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackUnderflowResult()
-}
-
-#[k::requires(StackSize(stack) > 0)]
-#[k::equation]
-fn prepare_pop(
-    k::term![PrepareStack {
-        op: Operation::Pop,
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeFixed {
-        op: Operation::Pop,
-        gas,
-        cost: 2,
-    }
-}
-
-#[k::requires(StackSize(stack) < depth)]
-#[k::equation]
-fn prepare_duplicate_underflow(
-    k::term![PrepareStack {
-        op: Operation::Duplicate { depth },
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackUnderflowResult()
-}
-
-#[k::requires(StackSize(stack) >= depth && StackSize(stack) < 1024)]
-#[k::equation]
-fn prepare_duplicate(
-    k::term![PrepareStack {
-        op: Operation::Duplicate { depth },
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeFixed {
-        op: Operation::Duplicate { depth },
-        gas,
-        cost: 3,
-    }
-}
-
-#[k::requires(StackSize(stack) >= depth && StackSize(stack) >= 1024)]
-#[k::equation]
-fn prepare_duplicate_overflow(
-    k::term![PrepareStack {
-        op: Operation::Duplicate { depth },
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackOverflowResult()
-}
-
-#[k::requires(StackSize(stack) < depth + 1)]
-#[k::equation]
-fn prepare_swap_underflow(
-    k::term![PrepareStack {
-        op: Operation::Swap { depth },
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackUnderflowResult()
-}
-
-#[k::requires(StackSize(stack) >= depth + 1)]
-#[k::equation]
-fn prepare_swap(
-    k::term![PrepareStack {
-        op: Operation::Swap { depth },
-        stack,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeFixed {
-        op: Operation::Swap { depth },
-        gas,
-        cost: 3,
-    }
-}
-
-#[k::requires(StackSize(stack) < 1024)]
-#[k::equation]
-fn prepare_push(
-    k::term![PreparePush {
-        op,
-        stack,
-        gas,
-        cost
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeFixed { op, gas, cost }
-}
-
-#[k::requires(StackSize(stack) >= 1024)]
-#[k::equation]
-fn prepare_push_overflow(
-    k::term![PreparePush {
-        op,
-        stack,
-        gas,
-        cost
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackOverflowResult()
-}
-
-#[k::requires(StackSize(stack) < topics + 2)]
-#[k::equation]
-fn prepare_log_underflow(
-    k::term![PrepareLog {
-        topics,
-        stack,
-        gas,
-        used,
-        static_mode
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackUnderflowResult()
-}
-
-#[k::requires(StackSize(stack) < 6)]
-#[k::equation]
-fn prepare_static_call_underflow(
-    k::term![PrepareStaticCall {
-        stack,
-        accessed,
-        used,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StackUnderflowResult()
-}
-
-#[k::requires(StackSize(stack) >= 6)]
-#[k::equation]
-fn prepare_static_call(
-    k::term![PrepareStaticCall {
-        stack,
-        accessed,
-        used,
-        gas
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeStaticCall {
-        gas,
-        cost: StaticCallCost {
-            accessed,
-            account: StackAt { stack, index: 1 },
-            used,
-            argument_start: StackAt { stack, index: 2 },
-            argument_width: StackAt { stack, index: 3 },
-            return_start: StackAt { stack, index: 4 },
-            return_width: StackAt { stack, index: 5 },
-        },
-        account: StackAt { stack, index: 1 },
-    }
-}
-
-#[k::requires(requested <= available - available / 64)]
-#[k::equation]
-fn static_call_gas_requested(
-    k::term![StaticCallGas {
-        requested,
-        available
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    requested
-}
-
-#[k::requires(requested > available - available / 64)]
-#[k::equation]
-fn static_call_gas_capped(
-    k::term![StaticCallGas {
-        requested,
-        available
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    available - available / 64
-}
-
-#[k::requires(bytes::length(public_key) <= 0)]
-#[k::equation]
-fn ecrec_output_invalid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
-    bytes::empty()
-}
-
-#[k::requires(bytes::length(public_key) > 0)]
-#[k::equation]
-fn ecrec_output_valid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
-    CopyBytes {
-        memory: bytes::pad_right(bytes::empty(), 32, 0),
-        destination: 12,
-        source: ReturnBytes(Keccak256Raw { value: public_key }, 12, 20),
-        source_index: 0,
-        remaining: 20,
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } >= 3000)]
-#[k::equation]
-fn resolve_ecrec_precompile_success(
-    k::term![ResolveEcrecPrecompile {
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcrecPrecompileSuccess {
-        remaining: available - 3000,
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < 3000)]
-#[k::equation]
-fn resolve_ecrec_precompile_failure(
-    k::term![ResolveEcrecPrecompile {
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcrecPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } >= Sha256PrecompileCost { data })]
-#[k::equation]
-fn resolve_sha256_precompile_success(
-    k::term![ResolveSha256Precompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::Sha256PrecompileSuccess {
-        remaining: available - Sha256PrecompileCost { data },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < Sha256PrecompileCost { data })]
-#[k::equation]
-fn resolve_sha256_precompile_failure(
-    k::term![ResolveSha256Precompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::Sha256PrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } >= Ripemd160PrecompileCost { data })]
-#[k::equation]
-fn resolve_ripemd160_precompile_success(
-    k::term![ResolveRipemd160Precompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::Ripemd160PrecompileSuccess {
-        remaining: available - Ripemd160PrecompileCost { data },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < Ripemd160PrecompileCost { data })]
-#[k::equation]
-fn resolve_ripemd160_precompile_failure(
-    k::term![ResolveRipemd160Precompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::Ripemd160PrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } >= IdentityPrecompileCost { data })]
-#[k::equation]
-fn resolve_identity_precompile_success(
-    k::term![ResolveIdentityPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::IdentityPrecompileSuccess {
-        remaining: available - IdentityPrecompileCost { data },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < IdentityPrecompileCost { data })]
-#[k::equation]
-fn resolve_identity_precompile_failure(
-    k::term![ResolveIdentityPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::IdentityPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(exponent_length <= 32)]
-#[k::equation]
-fn modexp_adjusted_exponent_length_short(
-    k::term![ModExpAdjustedExponentLength {
-        data,
-        base_length,
-        exponent_length
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    ModExpExponentHeadBits {
-        value: BytesToInt(ReturnBytes(data, 96 + base_length, exponent_length), 0, 0),
-    }
-}
-
-#[k::requires(exponent_length > 32)]
-#[k::equation]
-fn modexp_adjusted_exponent_length_long(
-    k::term![ModExpAdjustedExponentLength {
-        data,
-        base_length,
-        exponent_length
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    8 * (exponent_length - 32)
-        + ModExpExponentHeadBits {
-            value: BytesToInt(ReturnBytes(data, 96 + base_length, 32), 0, 0),
-        }
-}
-
-#[k::requires(value <= 1)]
-#[k::equation]
-fn modexp_exponent_head_bits_zero_or_one(
-    k::term![ModExpExponentHeadBits { value }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(value > 1)]
-#[k::equation]
-fn modexp_exponent_head_bits_positive(
-    k::term![ModExpExponentHeadBits { value }]: k::Term<Int>,
-) -> k::Term<Int> {
-    int::log2(value)
-}
-
-#[k::requires(modulus_length <= 0)]
-#[k::equation]
-fn modexp_output_body_empty(
-    k::term![ModExpOutputBody {
-        body,
-        base_length,
-        exponent_length,
-        modulus_length
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    bytes::empty()
-}
-
-#[k::requires(modulus_length > 0)]
-#[k::equation]
-fn modexp_output_body_nonempty(
-    k::term![ModExpOutputBody {
-        body,
-        base_length,
-        exponent_length,
-        modulus_length
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    ModExpOutputExponent {
-        body: ReturnBytes(
-            body,
-            base_length,
-            Maximum(0, bytes::length(body) - base_length),
-        ),
-        base: BytesToInt(ReturnBytes(body, 0, base_length), 0, 0),
-        exponent_length,
-        modulus_length,
-    }
-}
-
-#[k::requires(modulus <= 0)]
-#[k::equation]
-fn modexp_power_zero_modulus(
-    k::term![ModExpPower {
-        base,
-        exponent,
-        modulus
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    0
-}
-
-#[k::requires(modulus > 0)]
-#[k::equation]
-fn modexp_power_nonzero_modulus(
-    k::term![ModExpPower {
-        base,
-        exponent,
-        modulus
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    int::pow_mod(base, exponent, modulus)
-}
-
-#[k::requires(StaticCallGas { requested, available } >= ModExpPrecompileCost { data })]
-#[k::equation]
-fn resolve_modexp_precompile_success(
-    k::term![ResolveModExpPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::ModExpPrecompileSuccess {
-        remaining: available - ModExpPrecompileCost { data },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < ModExpPrecompileCost { data })]
-#[k::equation]
-fn resolve_modexp_precompile_failure(
-    k::term![ResolveModExpPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::ModExpPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::equation]
-fn bn128_point_bytes(
-    k::term![Bn128PointBytes {
-        point: Bn128Point::Point { x, y }
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    WriteMemoryWord {
-        memory: WriteMemoryWord {
-            memory: bytes::pad_right(bytes::empty(), 64, 0),
-            index: 0,
-            remaining: 32,
-            value: x,
-        },
-        index: 32,
-        remaining: 32,
-        value: y,
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= 150
-        && Bn128PointValid { point: EcAddFirstPoint { data } }
-        && Bn128PointValid { point: EcAddSecondPoint { data } }
-)]
-#[k::equation]
-fn resolve_ecadd_precompile_success(
-    k::term![ResolveEcAddPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcAddPrecompileSuccess {
-        remaining: available - 150,
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < 150)]
-#[k::equation]
-fn resolve_ecadd_precompile_out_of_gas(
-    k::term![ResolveEcAddPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcAddPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= 150
-        && !Bn128PointValid { point: EcAddFirstPoint { data } }
-)]
-#[k::equation]
-fn resolve_ecadd_precompile_invalid_first_point(
-    k::term![ResolveEcAddPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcAddPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= 150
-        && Bn128PointValid { point: EcAddFirstPoint { data } }
-        && !Bn128PointValid { point: EcAddSecondPoint { data } }
-)]
-#[k::equation]
-fn resolve_ecadd_precompile_invalid_second_point(
-    k::term![ResolveEcAddPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcAddPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= 6000 && Bn128PointValid { point: EcMulPoint { data } }
-)]
-#[k::equation]
-fn resolve_ecmul_precompile_success(
-    k::term![ResolveEcMulPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcMulPrecompileSuccess {
-        remaining: available - 6000,
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < 6000)]
-#[k::equation]
-fn resolve_ecmul_precompile_out_of_gas(
-    k::term![ResolveEcMulPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcMulPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= 6000
-        && !Bn128PointValid { point: EcMulPoint { data } }
-)]
-#[k::equation]
-fn resolve_ecmul_precompile_invalid_point(
-    k::term![ResolveEcMulPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcMulPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(index >= length)]
-#[k::equation]
-fn ecpairing_g1_points_done(
-    k::term![EcPairingG1Points {
-        data,
-        index,
-        length
-    }]: k::Term<List>,
-) -> k::Term<List> {
-    list::empty()
-}
-
-#[k::requires(index < length)]
-#[k::equation]
-fn ecpairing_g1_points_next(
-    k::term![EcPairingG1Points {
-        data,
-        index,
-        length
-    }]: k::Term<List>,
-) -> k::Term<List> {
-    list::concat(
-        list::item(EcPairingG1Point { data, index }),
-        EcPairingG1Points {
-            data,
-            index: index + 192,
-            length,
-        },
-    )
-}
-
-#[k::requires(index >= length)]
-#[k::equation]
-fn ecpairing_g2_points_done(
-    k::term![EcPairingG2Points {
-        data,
-        index,
-        length
-    }]: k::Term<List>,
-) -> k::Term<List> {
-    list::empty()
-}
-
-#[k::requires(index < length)]
-#[k::equation]
-fn ecpairing_g2_points_next(
-    k::term![EcPairingG2Points {
-        data,
-        index,
-        length
-    }]: k::Term<List>,
-) -> k::Term<List> {
-    list::concat(
-        list::item(EcPairingG2Point { data, index }),
-        EcPairingG2Points {
-            data,
-            index: index + 192,
-            length,
-        },
-    )
-}
-
-#[k::requires(index >= length)]
-#[k::equation]
-fn ecpairing_points_valid_done(
-    k::term![EcPairingPointsValid {
-        data,
-        index,
-        length
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    true
-}
-
-#[k::requires(index < length)]
-#[k::equation]
-fn ecpairing_points_valid_next(
-    k::term![EcPairingPointsValid {
-        data,
-        index,
-        length
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    Bn128PointValid {
-        point: EcPairingG1Point { data, index },
-    } && Bn128G2PointValid {
-        point: EcPairingG2Point { data, index },
-    } && EcPairingPointsValid {
-        data,
-        index: index + 192,
-        length,
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= EcPairingPrecompileCost { data }
-        && int::rem_euclid(bytes::length(data), 192) == 0
-        && EcPairingPointsValid { data, index: 0, length: bytes::length(data) }
-)]
-#[k::equation]
-fn resolve_ecpairing_precompile_success(
-    k::term![ResolveEcPairingPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcPairingPrecompileSuccess {
-        remaining: available - EcPairingPrecompileCost { data },
-    }
-}
-
-#[k::requires(StaticCallGas { requested, available } < EcPairingPrecompileCost { data })]
-#[k::equation]
-fn resolve_ecpairing_precompile_out_of_gas(
-    k::term![ResolveEcPairingPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcPairingPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= EcPairingPrecompileCost { data }
-        && int::rem_euclid(bytes::length(data), 192) != 0
-)]
-#[k::equation]
-fn resolve_ecpairing_precompile_malformed_length(
-    k::term![ResolveEcPairingPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcPairingPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(
-    StaticCallGas { requested, available } >= EcPairingPrecompileCost { data }
-        && int::rem_euclid(bytes::length(data), 192) == 0
-        && !EcPairingPointsValid { data, index: 0, length: bytes::length(data) }
-)]
-#[k::equation]
-fn resolve_ecpairing_precompile_invalid_point(
-    k::term![ResolveEcPairingPrecompile {
-        data,
-        requested,
-        available
-    }]: k::Term<PrecompileStep>,
-) -> k::Term<PrecompileStep> {
-    PrecompileResult::EcPairingPrecompileFailure {
-        remaining: available
-            - StaticCallGas {
-                requested,
-                available,
-            },
-    }
-}
-
-#[k::requires(left <= right)]
-#[k::equation]
-fn minimum_left(k::term![Minimum(left, right)]: k::Term<Int>) -> k::Term<Int> {
-    left
-}
-
-#[k::requires(left > right)]
-#[k::equation]
-fn minimum_right(k::term![Minimum(left, right)]: k::Term<Int>) -> k::Term<Int> {
-    right
-}
-
-#[k::requires(left >= right)]
-#[k::equation]
-fn maximum_left(k::term![Maximum(left, right)]: k::Term<Int>) -> k::Term<Int> {
-    left
-}
-
-#[k::requires(left < right)]
-#[k::equation]
-fn maximum_right(k::term![Maximum(left, right)]: k::Term<Int>) -> k::Term<Int> {
-    right
-}
-
-#[k::requires(StackSize(stack) >= topics + 2)]
-#[k::equation]
-fn prepare_log_static(
-    k::term![PrepareLog {
-        topics,
-        stack,
-        gas,
-        used,
-        static_mode: true
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::StaticViolationResult()
-}
-
-#[k::requires(StackSize(stack) >= topics + 2)]
-#[k::equation]
-fn prepare_log_allowed(
-    k::term![PrepareLog {
-        topics,
-        stack,
-        gas,
-        used,
-        static_mode: false
-    }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    ChargeFixed {
-        op: Operation::LogOpcode { topics },
-        gas,
-        cost: MemoryExpansionCost {
-            used,
-            start: StackAt { stack, index: 0 },
-            width: StackAt { stack, index: 1 },
-        } + (375 + (8 * StackAt { stack, index: 1 } + 375 * topics)),
-    }
-}
-
-#[k::requires(gas >= cost)]
-#[k::equation]
-fn charge_fixed(k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>) -> k::Term<GasStep> {
-    GasResult::EnoughGas {
-        op,
-        remaining: gas - cost,
-    }
-}
-
-#[k::requires(gas < cost)]
-#[k::equation]
-fn charge_fixed_fails(
-    k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>,
-) -> k::Term<GasStep> {
-    GasResult::InsufficientGas()
 }
 
 #[k::cell]
