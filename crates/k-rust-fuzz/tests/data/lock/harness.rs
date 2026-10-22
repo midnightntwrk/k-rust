@@ -87,22 +87,45 @@ pub fn keys(keys: &[i64]) -> Value {
 /// hole `KEYS` on the configuration variable `$KEYS` (a `List` of `Int`, anchor `ListItem(0)`),
 /// the cell's rule fired as the target, no shrinking.
 pub fn spec(cell: &Cell, configuration: &Configuration, seed: u64) -> CampaignSpec {
-    let compiled = super::support::LOCK.compiled();
+    list_spec(
+        &super::support::LOCK,
+        "lock/open.pgm",
+        "KEYS",
+        "Int",
+        &format!("LOCK.{}", cell.label),
+        configuration,
+        seed,
+    )
+}
+
+/// The campaign on `fixture`'s program `program` whose one hole is the configuration variable
+/// `variable`, a `List` of `element`, with the rule `rule` fired as the target and no
+/// shrinking: the lock's, and the bank's (`bank/harness.rs`).
+pub fn list_spec(
+    fixture: &'static super::support::Fixture,
+    program: &str,
+    variable: &str,
+    element: &str,
+    rule: &str,
+    configuration: &Configuration,
+    seed: u64,
+) -> CampaignSpec {
+    let compiled = fixture.compiled();
     CampaignSpec {
         definitions: Definitions {
             baseline: Arc::new(compiled.definition()),
             mutant: None,
         },
-        program: ProgramInput::Source(compiled.program_source("lock/open.pgm")),
+        program: ProgramInput::Source(compiled.program_source(program)),
         holes: vec![HoleDecl {
-            name: "KEYS".into(),
+            name: variable.into(),
             sort: "List".into(),
             location: HoleLocation::ConfigVar {
-                name: "KEYS".into(),
+                name: variable.into(),
             },
             constraints: Constraints {
                 elements: Some(ElementSorts::Elements {
-                    element: "Int".into(),
+                    element: element.into(),
                 }),
                 ..Constraints::default()
             },
@@ -110,7 +133,7 @@ pub fn spec(cell: &Cell, configuration: &Configuration, seed: u64) -> CampaignSp
         }],
         target: Target {
             kind: TargetKind::Rule(RuleTarget {
-                rule: RuleRef::Label(format!("LOCK.{}", cell.label)),
+                rule: RuleRef::Label(rule.into()),
                 mode: RuleMode::Fired,
             }),
             run_to_completion: false,
@@ -145,22 +168,30 @@ pub fn run_cell(
     seed: u64,
     budget: u64,
 ) -> (Option<u64>, FuzzReport) {
-    let mut campaign = Campaign::new(spec(cell, configuration, seed))
-        .unwrap_or_else(|error| panic!("cell {}: the campaign is refused: {error}", cell.label));
+    run_spec(cell.label, spec(cell, configuration, seed), budget)
+}
+
+/// [`run_cell`] on any campaign whose target cell is labelled `label`.
+///
+/// # Panics
+///
+/// As [`run_cell`].
+pub fn run_spec(label: &str, spec: CampaignSpec, budget: u64) -> (Option<u64>, FuzzReport) {
+    let mut campaign = Campaign::new(spec)
+        .unwrap_or_else(|error| panic!("cell {label}: the campaign is refused: {error}"));
     let report = campaign.run(Budget::Cases(budget), None);
     assert!(
         report.engine_defects.is_empty(),
-        "cell {}: {:#?}",
-        cell.label,
+        "cell {label}: {:#?}",
         report.engine_defects
     );
     let cases_to_hit = match &report.outcome {
         CampaignOutcome::WitnessFound { witness } => {
-            assert_eq!(witness.label, HitLabel::Hit, "cell {}", cell.label);
+            assert_eq!(witness.label, HitLabel::Hit, "cell {label}");
             Some(report.totals.cases)
         }
         CampaignOutcome::NoWitnessFound { .. } => None,
-        other => panic!("cell {}: the campaign ended {other:?}", cell.label),
+        other => panic!("cell {label}: the campaign ended {other:?}"),
     };
     let hits = u64::from(cases_to_hit.is_some());
     let mut expected = BTreeMap::from([(OutcomeClass::Miss, report.totals.cases - hits)]);
@@ -170,10 +201,9 @@ pub fn run_cell(
     expected.retain(|_, count| *count > 0);
     assert_eq!(
         report.totals.classes, expected,
-        "cell {}: every case is a clean miss or the hit",
-        cell.label
+        "cell {label}: every case is a clean miss or the hit"
     );
-    assert_eq!(report.totals.outside_determinism, 0, "cell {}", cell.label);
+    assert_eq!(report.totals.outside_determinism, 0, "cell {label}");
     (cases_to_hit, report)
 }
 
