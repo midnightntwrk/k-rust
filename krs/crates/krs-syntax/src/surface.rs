@@ -154,6 +154,8 @@ entry_points! {
         FrameworkSorts = "__framework_sorts",
         /// `k::rules!`.
         Rules = "rules",
+        /// `k::claims!`.
+        Claims = "claims",
         /// `k::equations!`.
         Equations = "equations",
         /// `k::term!`.

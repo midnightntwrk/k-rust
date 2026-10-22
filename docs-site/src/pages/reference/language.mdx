@@ -31,6 +31,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::constant]` on a `const` | a named ground term, substituted at every use, in patterns as in results | [Named constants](#named-constants) |
 | `#[k::simplification]` | logical normalization lemma | [Static semantics](/semantics/static-semantics) |
 | `#[k::claim]` | reachability proof sentence | [Reachability claims](/verification/reachability-claims) |
+| `k::claims!` | readable reachability claims over a fixed configuration, the claim counterpart of `k::rules!`: each clause `label: { .. } => { .. };` is the `#[k::claim]` fn its records stand for | [Readable claims](/verification/reachability-claims#readable-claims) |
 | `#[k::spec_module(name = "..", imports = [..])]` | an author K proof module on an inline `mod`: its claims, simplification lemmas, and tokens for existing sorts, emitted into `spec.k` and proved with `krs prove --spec-module NAME`; a package may hold only spec modules | [Spec modules](/verification/reachability-claims#spec-modules) |
 | `#[k::symbol("public::Name")]` | pinned public identity and K symbol for a sort, a standalone constructor, or a family variant; on a struct or trait place it immediately before that KRS declaration attribute, on a variant anywhere among its helpers | [Composition](/advanced/composition) |
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |

@@ -380,8 +380,10 @@ pub(super) fn lower_head_rule_descriptor(
         )?);
     }
     // Every cell record is checked, since one may now only read `k`; a
-    // `for Sort` table's clause is a K term rule and is not.
-    if rule.head_sort.is_none() {
+    // `for Sort` table's clause is a K term rule and is not. A claim is no
+    // step of execution, so neither check applies to it: it may state that
+    // a configuration reaches itself.
+    if rule.head_sort.is_none() && rule.claim.is_none() {
         check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
     }
     super::cell_states::check_implicit_and_explicit_instances(
@@ -459,17 +461,25 @@ pub(super) fn lower_head_rule_descriptor(
         })
         .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
     variables.append(&mut builder.wildcards);
+    // A readable claim's declaration has the claim role (F7).
+    let declaration = if rule.claim.is_some() {
+        ProvenanceRole::ClaimDeclaration
+    } else {
+        ProvenanceRole::RuleDeclaration
+    };
+    let claim = rule
+        .claim
+        .as_ref()
+        .map(|claim| lower_head_rule_claim(descriptor, claim))
+        .transpose()?;
     Ok(SemanticRule::new_configuration(
-        semantic_origin(
-            descriptor,
-            role_key(ProvenanceRole::RuleDeclaration, 0),
-            "head-anchored-rule",
-        )?,
+        semantic_origin(descriptor, role_key(declaration, 0), "head-anchored-rule")?,
         descriptor.id().clone(),
         rule.sentence_kind,
         variables,
         body,
     )?
+    .with_claim(claim)
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
     .with_priority(priority)?
     .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
@@ -478,6 +488,25 @@ pub(super) fn lower_head_rule_descriptor(
     .with_fresh(fresh)
     .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
     .with_requires(requires)?)
+}
+
+/// Lowers a readable claim's modality and flags (F7). Its binders are the
+/// rule's inferred variables, so it declares no universal binder.
+fn lower_head_rule_claim(
+    descriptor: &Descriptor,
+    claim: &krs_ir::HeadRuleClaim,
+) -> Result<krs_ir_levels::SemanticClaim, DescriptorLoweringError> {
+    let flag = |key: Option<&ProvenanceKey>, role| {
+        key.map(|key| semantic_origin(descriptor, key.clone(), role))
+            .transpose()
+    };
+    Ok(krs_ir_levels::SemanticClaim::new(
+        semantic_origin(descriptor, claim.modality_key.clone(), "claim-modality")?,
+        claim.modality,
+        flag(claim.circularity_key.as_ref(), "claim-circularity")?,
+        Vec::new(),
+    )
+    .with_trusted_origin(flag(claim.trusted_key.as_ref(), "claim-trusted")?))
 }
 
 /// Lowers the `heat` or `cool` key of a transition (KF-014); the hole is
@@ -707,10 +736,13 @@ fn head_rule_configuration<'a>(
     rule: &krs_ir::DescriptorHeadRule,
     declarations: &'a DescriptorIndex<'_>,
 ) -> Result<&'a DescriptorFixedConfiguration, DescriptorLoweringError> {
-    if rule.sentence_kind != krs_ir::SentenceKind::Transition {
+    if !matches!(
+        rule.sentence_kind,
+        krs_ir::SentenceKind::Transition | krs_ir::SentenceKind::Claim
+    ) {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
-            detail: "readable head completion currently supports transition rules only".into(),
+            detail: "readable head completion supports transitions and claims only".into(),
         });
     }
     let configuration = require_fixed_configuration(

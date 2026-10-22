@@ -19,6 +19,20 @@ use crate::provenance::host_provenance;
 /// Expands a readable block into independent ordinary rule declarations.
 pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let block = krs_syntax::RuleBlock::parse_tokens(input)?;
+    expand_block(env, &block)
+}
+
+/// Expands a readable claim block (F7) into independent claims: each clause
+/// is a readable record clause whose descriptor is a claim.
+pub(crate) fn claims(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
+    let block = krs_syntax::ClaimBlock::parse_tokens(input)?;
+    expand_block(env, block.block())
+}
+
+fn expand_block(
+    env: &dyn MacroEnvironment,
+    block: &krs_syntax::RuleBlock,
+) -> crate::Result<TokenStream> {
     let enum_import_item = block.imports().first().map(krs_syntax::RuleImport::item);
     let import_checks = block.imports().iter().map(|import| {
         let item = import.item();
@@ -64,7 +78,7 @@ fn expand_head_rule(
     let facade = env.facade_path()?;
     let rule = clause.rule();
     let mut anchors = clause.provenance()?;
-    anchors.extend(clause.attribute().provenance()?);
+    anchors.extend(clause.attribute_provenance()?);
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
@@ -423,13 +437,43 @@ fn expand_head_rule(
         #(let _ = &#tooling_binding_references;)*
     });
 
-    let label = Some(krs_ir::DescriptorRuleLabel {
-        key: rule_label_role.key(0),
-        name: clause.attribute().label().map_or_else(
-            || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
-            syn::LitStr::value,
-        ),
+    // A claim clause is labelled by its name, which its `#[k::claim(..)]`
+    // carries (F7).
+    let label = Some(match clause.claim() {
+        Some(claim) => krs_ir::DescriptorRuleLabel {
+            key: ProvenanceRole::ClaimLabel.key(0),
+            name: claim.label().value(),
+        },
+        None => krs_ir::DescriptorRuleLabel {
+            key: rule_label_role.key(0),
+            name: clause.attribute().label().map_or_else(
+                || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
+                syn::LitStr::value,
+            ),
+        },
     });
+    let (sentence_kind, item_kind, claim) = match clause.claim() {
+        Some(claim) => (
+            krs_ir::SentenceKind::Claim,
+            quote!(#facade::ItemKind::Claim),
+            Some(krs_ir::HeadRuleClaim {
+                modality_key: ProvenanceRole::ClaimModality.key(0),
+                modality: match claim.modality() {
+                    krs_syntax::ClaimModality::AllPaths => krs_ir::ClaimModality::AllPaths,
+                    krs_syntax::ClaimModality::OnePath => krs_ir::ClaimModality::OnePath,
+                },
+                circularity_key: claim
+                    .circularity()
+                    .then(|| ProvenanceRole::ClaimCircularity.key(0)),
+                trusted_key: claim.trusted().then(|| ProvenanceRole::ClaimTrusted.key(0)),
+            }),
+        ),
+        None => (
+            krs_ir::SentenceKind::Transition,
+            quote!(#facade::ItemKind::Rule),
+            None,
+        ),
+    };
     let priority = clause
         .attribute()
         .transition_priority()
@@ -489,7 +533,7 @@ fn expand_head_rule(
             name: group.unraw().to_string(),
         });
     let wire = krs_ir::wire::WirePayload::HeadRule(Box::new(krs_ir::wire::WireHeadRule {
-        sentence_kind: krs_ir::SentenceKind::Transition,
+        sentence_kind,
         label,
         priority,
         nondet,
@@ -507,6 +551,7 @@ fn expand_head_rule(
         fresh,
         evaluation,
         bracket_alternative,
+        claim,
     }));
     let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
     let slot_tokens = slots.tokens();
@@ -515,7 +560,7 @@ fn expand_head_rule(
         facade: &facade,
         factory: &factory,
         name: quote!(#name),
-        item_kind: quote!(#facade::ItemKind::Rule),
+        item_kind,
         disambiguator: quote!(""),
         identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote!(::core::option::Option::None),

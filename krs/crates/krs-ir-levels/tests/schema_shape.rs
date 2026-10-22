@@ -800,6 +800,7 @@ fn registry() -> Registry {
     trace!(ProtocolMapItem: ProtocolMapItem<String>);
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
+    trace!(HeadRuleClaim: HeadRuleClaim);
     trace!(ProtocolHeadRuleMapEntry: ProtocolHeadRuleMapEntry<String>);
     trace!(ProtocolTypedBinding: ProtocolTypedBinding<String>);
     trace!(ProtocolRuleKSequenceItem: ProtocolRuleKSequenceItem<String>);

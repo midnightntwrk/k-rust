@@ -1084,7 +1084,14 @@ fn collect_macro_invocations(
 ) -> Result<(), CollectionError> {
     match entry {
         FunctionMacro::Rules => {
-            collect_rules_macro(item_macro, output)?;
+            let block = krs_syntax::RuleBlock::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            collect_rule_block(&block, ProvenanceRole::RuleDeclaration, output)?;
+        }
+        FunctionMacro::Claims => {
+            let block = krs_syntax::ClaimBlock::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            collect_rule_block(block.block(), ProvenanceRole::ClaimDeclaration, output)?;
         }
         FunctionMacro::Equations => {
             let table = krs_syntax::EquationTable::parse_tokens(item_macro.mac.tokens.clone())
@@ -1168,12 +1175,13 @@ fn collect_macro_invocations(
     Ok(())
 }
 
-fn collect_rules_macro(
-    item_macro: &syn::ItemMacro,
+/// Records the clauses of a readable rule or claim block, whose descriptors'
+/// primary anchor has the role `declaration`.
+fn collect_rule_block(
+    block: &krs_syntax::RuleBlock,
+    declaration: ProvenanceRole,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let block = krs_syntax::RuleBlock::parse_tokens(item_macro.mac.tokens.clone())
-        .map_err(source_syntax)?;
     for clause in block.clauses() {
         let rule = clause.rule();
         // The macro names a binding or cell by its identifier without `r#`,
@@ -1205,9 +1213,9 @@ fn collect_rules_macro(
             .partition(|(kind, _)| kind == "have");
         extras.extend(writes);
         let mut anchors = clause.provenance().map_err(source_syntax)?;
-        anchors.extend(clause.attribute().provenance().map_err(source_syntax)?);
+        anchors.extend(clause.attribute_provenance().map_err(source_syntax)?);
         output.push(parsed_invocation(
-            ProvenanceRole::RuleDeclaration,
+            declaration,
             rule.item()
                 .sig
                 .ident

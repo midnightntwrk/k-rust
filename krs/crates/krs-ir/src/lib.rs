@@ -160,7 +160,7 @@ pub use transport::grammar::{
 pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
-    DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule, HostHeadRule,
+    DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule, HeadRuleClaim, HostHeadRule,
     HostHeadRuleBinding, HostHeadRuleBracketAlternative, HostHeadRuleCellReference,
     HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
     ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,

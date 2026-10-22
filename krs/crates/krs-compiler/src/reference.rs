@@ -307,13 +307,27 @@ pub fn expand_reference_source(
             }
             continue;
         }
-        if entry != Some(&FunctionMacro::Rules) {
-            items.push(item);
-            items.extend(trailing_enum_grammar);
-            continue;
-        }
-        let block = krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
-            .map_err(ReferenceExpansionError::KrsSyntax)?;
+        // A claim block's clauses are readable records too, whose
+        // descriptors are claims (F7).
+        let (block, kind) = match entry {
+            Some(FunctionMacro::Rules) => (
+                krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
+                    .map_err(ReferenceExpansionError::KrsSyntax)?,
+                krs_ir::ItemKind::Rule,
+            ),
+            Some(FunctionMacro::Claims) => (
+                krs_syntax::ClaimBlock::parse_tokens(invocation.mac.tokens.clone())
+                    .map_err(ReferenceExpansionError::KrsSyntax)?
+                    .block()
+                    .clone(),
+                krs_ir::ItemKind::Claim,
+            ),
+            _ => {
+                items.push(item);
+                items.extend(trailing_enum_grammar);
+                continue;
+            }
+        };
         for clause in block.clauses() {
             let name = clause.rule().item().sig.ident.unraw().to_string();
             if !rendered_names.insert(name.clone()) {
@@ -325,6 +339,7 @@ pub fn expand_reference_source(
                     descriptor.id().package() == package
                         && descriptor.id().module_path() == module_path
                         && descriptor.id().item_name() == name
+                        && descriptor.id().item_kind() == kind
                 })
                 .collect::<Vec<_>>();
             let [(descriptor, rule)] = descriptors.as_slice() else {
@@ -1675,12 +1690,16 @@ fn render_rule(
         })
         .transpose()?
         .unwrap_or_default();
-    let rule_attribute = reference_rule_attribute(
-        rule.priority.as_ref(),
-        &evaluation,
-        rule.nondet.as_ref(),
-        &label,
-    );
+    // A claim clause is the `#[k::claim]` fn its records stand for (F7).
+    let rule_attribute = match &rule.claim {
+        Some(claim) => reference_claim_attribute(claim, &label),
+        None => reference_rule_attribute(
+            rule.priority.as_ref(),
+            &evaluation,
+            rule.nondet.as_ref(),
+            &label,
+        ),
+    };
     // A `cells!` rule declares its typed binders in their first-occurrence
     // order in the subject, which lists the cells in another order than
     // the readable record (map reads first), so the order is read back from
@@ -1708,10 +1727,18 @@ fn render_rule(
     };
     parameters.sort_by_key(|(name, _)| position(name));
     let parameters = parameters.into_iter().map(|(_, parameter)| parameter);
+    // A `#[k::claim]` fn takes its helpers after the claim attribute, which
+    // reads them; a rule fn's `#[k::exists]` and `#[k::ensures]` precede it.
+    let (before, after) = if rule.claim.is_some() {
+        (Vec::new(), existential_helpers.to_vec())
+    } else {
+        (existential_helpers.to_vec(), Vec::new())
+    };
     syn::parse2(quote! {
         #(#attrs)*
-        #(#existential_helpers)*
+        #(#before)*
         #rule_attribute
+        #(#after)*
         #requires
         pub fn #name(
             #(#parameters,)*
@@ -2047,6 +2074,22 @@ fn reference_rule_attribute(
     }
     keys.push(quote!(label = #label));
     quote!(#[k::rule(#(#keys),*)])
+}
+
+/// The `#[k::claim(..)]` of a readable claim: its modality, label, and flags.
+fn reference_claim_attribute(claim: &krs_ir::HeadRuleClaim, label: &syn::LitStr) -> TokenStream {
+    let mut keys = vec![match claim.modality {
+        krs_ir::ClaimModality::AllPaths => quote!(all_paths),
+        krs_ir::ClaimModality::OnePath => quote!(one_path),
+    }];
+    keys.push(quote!(label = #label));
+    if claim.circularity_key.is_some() {
+        keys.push(quote!(circularity));
+    }
+    if claim.trusted_key.is_some() {
+        keys.push(quote!(trusted));
+    }
+    quote!(#[k::claim(#(#keys),*)])
 }
 
 fn render_rule_cell_field(

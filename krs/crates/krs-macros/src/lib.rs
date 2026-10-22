@@ -227,6 +227,35 @@ pub fn rules(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Rules, input)
 }
 
+/// Declares readable reachability claims over a fixed configuration, the
+/// claim counterpart of `k::rules!`.
+///
+/// ```ignore
+/// k::claims! {
+///     for Machine;
+///     use Instruction::*;
+///
+///     #[k::claim(all_paths)]
+///     simple_addition: {
+///         instrs: [Const(I32, 3), Const(I32, 4), Binary(I32, Add)],
+///         valstack: Empty(),
+///     } => {
+///         instrs: [],
+///         valstack: Cons(Integer(I32, 7), Empty()),
+///     };
+/// }
+/// ```
+///
+/// Each clause `label: subject => result;` is the `#[k::claim]` fn whose
+/// `cells!` records the readable records stand for, labelled with the
+/// clause name (`_` written `-`). `#[k::claim(..)]` gives its modality and
+/// flags; `#[k::requires]`, `#[k::exists]`, and `#[k::ensures]` apply as on
+/// the fn.
+#[proc_macro]
+pub fn claims(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Claims, input)
+}
+
 /// Declares a table of labelled equations of one function.
 ///
 /// ```ignore

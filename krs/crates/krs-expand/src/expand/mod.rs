@@ -31,7 +31,7 @@ pub(crate) use enum_family::constructors;
 pub(crate) use equation_table::equations;
 pub(crate) use grammar::{associativity, layout, lexical, precedence, raw_k};
 pub(crate) use initializer::init;
-pub(crate) use rule_block::rules;
+pub(crate) use rule_block::{claims, rules};
 pub(crate) use rules::{
     alias, context, desugar, equation, orphan_rule_helper, priority, rule, simplification,
 };

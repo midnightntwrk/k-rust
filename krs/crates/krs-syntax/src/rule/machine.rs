@@ -7,8 +7,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, Pat, PatIdent, Path, Token, Type, braced, bracketed};
 
 use super::block::{
-    BracketAlternative, RuleClause, RuleClauseLayout, RuleHead, RuleHeadItem, RuleHeadResult,
-    RuleNarrowing, take_rule_clause_attribute,
+    BracketAlternative, ReadableSentence, RuleClause, RuleClauseLayout, RuleHead, RuleHeadItem,
+    RuleHeadResult, RuleNarrowing, take_claim_clause_attribute, take_rule_clause_attribute,
 };
 use super::condition::{
     MapUpdateExtra, RuleExtra, RuleMapEntry, condition_token_range, parse_map_update,
@@ -682,6 +682,7 @@ pub(super) fn parse_machine_clause(
     name: &Ident,
     configuration_type: &Type,
     clause_start: proc_macro2::Span,
+    sentence: ReadableSentence,
 ) -> Result<RuleClause, ParseError> {
     let pattern_record: TokenTree = input.fork().parse()?;
     let subject_cells = parse_machine_pattern_record(input)?;
@@ -757,6 +758,7 @@ pub(super) fn parse_machine_clause(
     }
     let semicolon = input.parse::<Token![;]>()?;
     let clause = MachineClause {
+        sentence,
         attributes,
         name,
         configuration_type,
@@ -772,6 +774,7 @@ pub(super) fn parse_machine_clause(
 /// The parsed parts of one cell-record clause that every reading of its
 /// bracketed values shares.
 struct MachineClause<'a> {
+    sentence: ReadableSentence,
     attributes: &'a [Attribute],
     name: &'a Ident,
     configuration_type: &'a Type,
@@ -1076,6 +1079,7 @@ fn assemble_machine_clause(
     result_cells: &[(Ident, MachineResultCell)],
 ) -> Result<RuleClause, ParseError> {
     let MachineClause {
+        sentence,
         attributes,
         name,
         configuration_type,
@@ -1246,7 +1250,16 @@ fn assemble_machine_clause(
             .into());
         }
     }
-    let (attribute, retained) = take_rule_clause_attribute(attributes.to_vec())?;
+    let (attribute, claim, retained) = match sentence {
+        ReadableSentence::Rule => {
+            let (attribute, retained) = take_rule_clause_attribute(attributes.to_vec())?;
+            (attribute, None, retained)
+        }
+        ReadableSentence::Claim => {
+            let (claim, retained) = take_claim_clause_attribute(attributes.to_vec(), name)?;
+            (crate::RuleAttribute::default(), Some(claim), retained)
+        }
+    };
     let (rule, head, head_result, computation_cell) = if let Some((computation_cell, pattern)) =
         subject_k
     {
@@ -1371,6 +1384,7 @@ fn assemble_machine_clause(
         source_range,
         layout,
         bracket_alternative: None,
+        claim,
     };
     clause.check_existentials()?;
     Ok(clause)

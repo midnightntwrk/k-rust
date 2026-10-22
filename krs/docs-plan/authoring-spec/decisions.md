@@ -407,6 +407,13 @@ bug — report it, don't guess.
   children out, as a constructor record may. `krs expand` writes the long
   form, so the reference `cells!` surface gains nothing and rejects the
   notation.
+  *E7 note: readable claims (2026-10, F7).* `k::claims! { for Machine;
+  label: { .. } => { .. }; }` is to `#[k::claim] fn` what `k::rules!` is to
+  `#[k::rule] fn`: a clause is a readable record clause, with the same
+  grammar, framing, and binder inference, whose descriptor is a claim
+  carrying its `#[k::claim(..)]` modality and flags; the label is the
+  clause name. It adds no claim semantics: the emitted claim is the
+  reference fn's, which `krs expand` writes.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the

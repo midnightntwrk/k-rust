@@ -479,6 +479,7 @@ mod tests {
                 fresh: Vec::new(),
                 evaluation: None,
                 bracket_alternative: None,
+                claim: None,
             },
             "sort",
             3,

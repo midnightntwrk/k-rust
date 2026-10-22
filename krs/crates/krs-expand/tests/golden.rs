@@ -906,6 +906,23 @@ k::rules! {
 ",
     ),
     (
+        "claims",
+        r"
+k::claims! {
+    for ReadableRuleMachine;
+
+    #[k::claim(all_paths, circularity)]
+    #[k::exists(x: Int)]
+    #[k::ensures(int::ne(x, 0))]
+    reaches_nonzero: {
+        computation: [0],
+    } => {
+        computation: [x],
+    };
+}
+",
+    ),
+    (
         "rule_fresh",
         r#"
 #[k::rule(label = "allocate")]

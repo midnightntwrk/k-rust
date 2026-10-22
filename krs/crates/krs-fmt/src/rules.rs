@@ -86,6 +86,27 @@ pub(crate) fn format_rule_body(
     )
 }
 
+/// Formats one complete `claims!` body at its Rustfmt-selected indentation,
+/// with the layout of a `rules!` block of cell records (F7).
+pub(crate) fn format_claim_body(
+    source: &str,
+    source_offset: usize,
+    indent: &str,
+    trailing_style: TrailingCommentStyle,
+) -> Result<String, FormatError> {
+    let (block, trivia) = krs_syntax::parse_claim_block_source_with_trivia(source)
+        .map_err(|error| body_syntax_error("k::claims!", source_offset, &error))?;
+    let clauses = clause_sources(block.block())?;
+    format_clauses(
+        source,
+        indent,
+        trailing_style,
+        &trivia,
+        &clauses,
+        "k::claims!",
+    )
+}
+
 /// Formats one complete `equations!` body at its Rustfmt-selected
 /// indentation, with the `rules!` table layout: one row per line, labels,
 /// `=>`, and results aligned across the table.

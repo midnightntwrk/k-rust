@@ -678,6 +678,7 @@ fn head_rule() -> DescriptorHeadRule {
         ensures: None,
         fresh: Vec::new(),
         evaluation: None,
+        claim: None,
     }
 }
 

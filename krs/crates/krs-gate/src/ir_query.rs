@@ -2186,6 +2186,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            claim: None,
         }));
         fs::write(
             dir.path().join("descriptor-bundle.json"),

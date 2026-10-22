@@ -243,12 +243,36 @@ stage_shape! {
         /// one reading by the cell's declared type.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub bracket_alternative: Option<ProtocolHeadRuleBracketAlternative<S::Sort, S::HeadRuleCell, Term<S>>> => [option protocol sort head_rule_cell nested],
+        /// The modality and flags of a readable claim (`k::claims!`, F7),
+        /// present exactly for a claim; its existentials and ensures are the
+        /// rule's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub claim: Option<HeadRuleClaim> => [keep],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
 pub type HostHeadRule = HeadRule<HostStage>;
+
+/// The claim metadata of a readable claim clause (`k::claims!`, F7): its
+/// reachability modality and flags. A readable claim's binders are the
+/// rule's inferred bindings and its existentials and ensures the rule's
+/// own, so they are not repeated here.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeadRuleClaim {
+    /// Exact modality provenance.
+    pub modality_key: ProvenanceKey,
+    /// Exactly one reachability modality.
+    pub modality: crate::ClaimModality,
+    /// Optional circularity marker provenance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub circularity_key: Option<ProvenanceKey>,
+    /// Optional trusted marker provenance: the claim is assumed without proof.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_key: Option<ProvenanceKey>,
+}
 
 stage_shape! {
     /// Collector-resolved head rule with a selected configuration and computation cell.
@@ -309,6 +333,9 @@ stage_shape! {
         /// The `heat` or `cool` key of a transition (KF-014).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub evaluation: Option<crate::transport::rule::EvaluationStep<S>> => [option nested],
+        /// The modality and flags of a readable claim (F7).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub claim: Option<HeadRuleClaim> => [keep],
     }
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
@@ -333,6 +360,42 @@ fn validate_nondet(
     Ok(())
 }
 
+/// A readable claim (F7) carries its modality and flags, a transition none;
+/// a claim states whole configurations, so it is a cell-record clause, and
+/// its keys have the claim roles.
+fn validate_claim(
+    kind: SentenceKind,
+    claim: Option<&HeadRuleClaim>,
+    term_table: bool,
+) -> Result<(), StateTransportError> {
+    let valid = match (kind, claim) {
+        (SentenceKind::Transition, None) => true,
+        (SentenceKind::Claim, Some(claim)) => {
+            !term_table
+                && claim.modality_key.role() == ProvenanceRole::ClaimModality
+                && claim
+                    .circularity_key
+                    .as_ref()
+                    .is_none_or(|key| key.role() == ProvenanceRole::ClaimCircularity)
+                && claim
+                    .trusted_key
+                    .as_ref()
+                    .is_none_or(|key| key.role() == ProvenanceRole::ClaimTrusted)
+                && !(claim.modality == crate::ClaimModality::OnePath
+                    && claim.circularity_key.is_some())
+                && !(claim.circularity_key.is_some() && claim.trusted_key.is_some())
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidReadableClaim,
+        ))
+    }
+}
+
 fn validate_owise_priority(
     kind: SentenceKind,
     priority: Option<&DescriptorRulePriority>,
@@ -347,15 +410,18 @@ fn validate_owise_priority(
     Ok(())
 }
 
-/// Existentials and ensures belong to transitions; each existential has the
-/// transition roles and a fresh name, and the ensures key is `RuleEnsures#0`.
+/// Existentials and ensures belong to transitions and readable claims; each
+/// existential has the readable roles and a fresh name, and the ensures key
+/// is `RuleEnsures#0`.
 fn validate_existentials<S: crate::Stage>(
     kind: SentenceKind,
     bindings: &[ProtocolHeadRuleBinding<S::Sort>],
     existentials: &[crate::transport::rule::ClaimBinder<S>],
     ensures: Option<&RuleCondition<S>>,
 ) -> Result<(), StateTransportError> {
-    if (!existentials.is_empty() || ensures.is_some()) && kind != SentenceKind::Transition {
+    if (!existentials.is_empty() || ensures.is_some())
+        && !matches!(kind, SentenceKind::Transition | SentenceKind::Claim)
+    {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidRuleExistential,
         ));
@@ -540,6 +606,11 @@ impl HostHeadRule {
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         validate_nondet(self.sentence_kind, self.nondet.as_ref())?;
+        validate_claim(
+            self.sentence_kind,
+            self.claim.as_ref(),
+            self.head_sort.is_some(),
+        )?;
         if self.pattern_key.role() != ProvenanceRole::RulePattern
             || self.pattern_key.ordinal() != 0
             || self.result_key.role() != ProvenanceRole::RuleResult
@@ -717,6 +788,11 @@ impl DescriptorHeadRule {
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         validate_nondet(self.sentence_kind, self.nondet.as_ref())?;
+        validate_claim(
+            self.sentence_kind,
+            self.claim.as_ref(),
+            self.head_sort.is_some(),
+        )?;
         if self.configuration.item_kind() != ItemKind::Configuration {
             return Err(StateTransportError::ItemKind {
                 field: TransportField::HeadRuleConfiguration,
@@ -1040,6 +1116,7 @@ mod tests {
             fresh: Vec::new(),
             evaluation: None,
             bracket_alternative: None,
+            claim: None,
         };
         let original = serde_json::to_value(&rule).unwrap();
         let mut map = CountingMap::default();
@@ -1149,6 +1226,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            claim: None,
         };
         let mut map = CountingMap::default();
         let mapped = rule.clone().try_map_refs(&mut map).unwrap();

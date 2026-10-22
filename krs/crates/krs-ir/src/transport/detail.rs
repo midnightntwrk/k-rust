@@ -179,6 +179,7 @@ details! {
         PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
         InitializerPatternOr => "`A | B` or-patterns (#Or) are not allowed in initializers",
         RecordUpdateBase => "the base of a record update is a variable outside a pattern",
+        InvalidReadableClaim => "a readable claim is a cell-record clause with claim metadata of the claim roles, and a transition has none",
         InitializerRecordUpdate => "record updates are not allowed in initializers",
         MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
         InitializerMatches => "`k::matches!` (:=K) is not allowed in initializers",

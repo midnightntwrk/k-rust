@@ -226,3 +226,89 @@ fn trusted_claims_parse_with_either_modality() {
         .expect("plain claim");
     assert!(!plain.trusted());
 }
+
+#[test]
+fn a_readable_claim_clause_is_a_claim_labelled_by_its_name() {
+    let block = krs_syntax::ClaimBlock::parse_source(
+        r"
+        for Machine;
+        use Instruction::*;
+
+        /// `3 + 4` leaves 7 on the stack.
+        #[k::claim(all_paths, circularity)]
+        #[k::requires(int::ge(g, 0))]
+        simple_addition: {
+            instrs: [Const(I32, 3), Const(I32, 4), Binary(I32, Add)],
+            valstack: Empty(),
+            gas: g,
+        } => {
+            instrs: [],
+            valstack: Cons(Integer(I32, 7), Empty()),
+        };
+        ",
+    )
+    .unwrap();
+    let [clause] = block.clauses() else {
+        panic!("one clause");
+    };
+    let claim = clause.claim().expect("a claims! clause is a claim");
+    assert_eq!(claim.label().value(), "simple-addition");
+    assert_eq!(claim.modality(), krs_syntax::ClaimModality::AllPaths);
+    assert!(claim.circularity() && !claim.trusted());
+    assert!(clause.rule().requires().is_some());
+    let roles = clause
+        .provenance()
+        .unwrap()
+        .into_iter()
+        .chain(clause.attribute_provenance().unwrap())
+        .map(|anchor| anchor.role())
+        .collect::<Vec<_>>();
+    for role in [
+        krs_syntax::ProvenanceRole::ClaimDeclaration,
+        krs_syntax::ProvenanceRole::ClaimLabel,
+        krs_syntax::ProvenanceRole::ClaimModality,
+        krs_syntax::ProvenanceRole::ClaimCircularity,
+    ] {
+        assert!(roles.contains(&role), "{role:?} in {roles:?}");
+    }
+    for role in [
+        krs_syntax::ProvenanceRole::RuleDeclaration,
+        krs_syntax::ProvenanceRole::RuleLabel,
+    ] {
+        assert!(!roles.contains(&role), "{role:?} in {roles:?}");
+    }
+}
+
+#[test]
+fn a_readable_claim_clause_rejects_rule_only_forms() {
+    for (clause, expected) in [
+        (
+            "x: { k: [Go()] } => { k: [] };",
+            "a claim clause states its modality",
+        ),
+        (
+            "#[k::claim(all_paths)] #[k::rule(owise)] x: { k: [Go()] } => { k: [] };",
+            "`#[k::rule(..)]` is a rule's metadata",
+        ),
+        (
+            "#[k::claim(all_paths)] #[k::fresh(n: Int)] x: { k: [Go()] } => { k: [] };",
+            "a claim has no fresh binders",
+        ),
+        (
+            "#[k::claim(all_paths, label = \"y\")] x: { k: [Go()] } => { k: [] };",
+            "labelled by its name",
+        ),
+        (
+            "#[k::claim(all_paths)] x: Go() => 1;",
+            "a pair of cell records",
+        ),
+        (
+            "#[k::claim(all_paths)] #[k::claim(one_path)] x: { k: [Go()] } => { k: [] };",
+            "one `#[k::claim(..)]`",
+        ),
+    ] {
+        let error =
+            krs_syntax::ClaimBlock::parse_source(&format!("for Machine; {clause}")).unwrap_err();
+        assert!(error.to_string().contains(expected), "{clause}: {error}");
+    }
+}

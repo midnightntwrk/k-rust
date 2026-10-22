@@ -388,6 +388,7 @@ mod tests {
                 ensures: None,
                 fresh: Vec::new(),
                 evaluation: None,
+                claim: None,
             })),
         )
     }

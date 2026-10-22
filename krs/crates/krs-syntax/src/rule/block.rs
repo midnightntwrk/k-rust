@@ -203,6 +203,17 @@ pub struct RuleClause {
     pub(super) source_range: TokenRange,
     pub(super) layout: RuleClauseLayout,
     pub(super) bracket_alternative: Option<Box<BracketAlternative>>,
+    /// The modality and flags of a `k::claims!` clause (F7), which is then a
+    /// claim and carries no `#[k::rule]` metadata.
+    pub(super) claim: Option<crate::ClaimAttribute>,
+}
+
+/// Which sentences a readable record block declares: `k::rules!` rules or
+/// `k::claims!` claims (F7).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ReadableSentence {
+    Rule,
+    Claim,
 }
 
 /// The List-collection reading of a cell-record clause whose bracketed
@@ -296,6 +307,26 @@ impl RuleClause {
         &self.attribute
     }
 
+    /// Returns the modality and flags of a `k::claims!` clause (F7), which
+    /// is a claim labelled by its name; `None` for a rule.
+    #[must_use]
+    pub const fn claim(&self) -> Option<&crate::ClaimAttribute> {
+        self.claim.as_ref()
+    }
+
+    /// Returns the provenance of the clause's metadata attribute:
+    /// `#[k::rule(..)]` for a rule, `#[k::claim(..)]` for a claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error if an authored token has no recoverable range.
+    pub fn attribute_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        match &self.claim {
+            Some(claim) => claim.provenance(),
+            None => self.attribute.provenance(),
+        }
+    }
+
     /// Returns binding refinements in authored order.
     #[must_use]
     pub fn narrowings(&self) -> &[RuleNarrowing] {
@@ -370,7 +401,24 @@ impl RuleClause {
     )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.rule.full_provenance()?;
-        if self.attribute.label().is_none() {
+        // A claim clause is a claim: its declaration has the claim role, and
+        // its name, its label, is anchored by its `#[k::claim(..)]` (F7).
+        if self.claim.is_some() {
+            anchors = anchors
+                .into_iter()
+                .map(|anchor| {
+                    if anchor.role() == ProvenanceRole::RuleDeclaration {
+                        ProvenanceAnchor::new(
+                            ProvenanceRole::ClaimDeclaration,
+                            anchor.key().ordinal(),
+                            anchor.range(),
+                        )
+                    } else {
+                        anchor
+                    }
+                })
+                .collect();
+        } else if self.attribute.label().is_none() {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleLabel,
                 0,
@@ -1149,11 +1197,18 @@ impl RuleBlock {
         &self.clauses
     }
 
+    fn from_stream(input: ParseStream<'_>) -> Result<Self, ParseError> {
+        Self::from_stream_of(input, ReadableSentence::Rule)
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "One linear parser keeps clause diagnostics at authored tokens."
     )]
-    fn from_stream(input: ParseStream<'_>) -> Result<Self, ParseError> {
+    fn from_stream_of(
+        input: ParseStream<'_>,
+        sentence: ReadableSentence,
+    ) -> Result<Self, ParseError> {
         input.parse::<Token![for]>()?;
         let sort_type: Type = input.parse()?;
         let sort = parse_readable_sort(sort_type.clone())?;
@@ -1202,6 +1257,14 @@ impl RuleBlock {
             }
             input.parse::<Token![:]>()?;
             let machine_clause = input.peek(syn::token::Brace);
+            // A claim states whole configurations (F7).
+            if sentence == ReadableSentence::Claim && !machine_clause {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "a `k::claims!` clause is a pair of cell records `{ .. } => { .. }` over the block's configuration",
+                )
+                .into());
+            }
             if let Some(expected) = configuration {
                 if expected != machine_clause {
                     return Err(syn::Error::new(
@@ -1220,6 +1283,7 @@ impl RuleBlock {
                     &name,
                     &sort_type,
                     clause_start,
+                    sentence,
                 )?);
                 continue;
             }
@@ -1393,6 +1457,7 @@ impl RuleBlock {
                 source_range: TokenRange::new(clause_start, semicolon.span),
                 layout,
                 bracket_alternative: None,
+                claim: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);
@@ -1458,6 +1523,67 @@ impl KrsSyntax for RuleBlock {
     }
 }
 
+/// A readable block of reachability claims, `k::claims!` (F7): the claim
+/// counterpart of a `for Configuration` rule block. Each clause `label:
+/// subject => result;` is the `#[k::claim]` fn whose `cells!` records its
+/// readable records stand for, labelled by its name.
+#[derive(Clone, Debug)]
+pub struct ClaimBlock {
+    block: RuleBlock,
+}
+
+impl ClaimBlock {
+    /// Returns the configuration type the clauses' records are over.
+    #[must_use]
+    pub const fn sort(&self) -> &TermSort {
+        self.block.sort()
+    }
+
+    /// Returns block-local enum imports in authored order.
+    #[must_use]
+    pub fn imports(&self) -> &[RuleImport] {
+        self.block.imports()
+    }
+
+    /// Returns the claims in authored order; each [`RuleClause::claim`] is
+    /// present.
+    #[must_use]
+    pub fn clauses(&self) -> &[RuleClause] {
+        self.block.clauses()
+    }
+
+    /// Returns the clauses as a configuration-owned readable block, which
+    /// they share the grammar and expansion of.
+    #[must_use]
+    pub const fn block(&self) -> &RuleBlock {
+        &self.block
+    }
+}
+
+impl KrsSyntax for ClaimBlock {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, |input| -> Result<Self, ParseError> {
+            Ok(Self {
+                block: RuleBlock::from_stream_of(input, ReadableSentence::Claim)?,
+            })
+        })
+    }
+}
+
+/// Parses a readable claim block together with lossless source trivia.
+///
+/// # Errors
+///
+/// Returns the same semantic failures as [`ClaimBlock::parse_tokens`] and
+/// rejects non-documentation block comments with a byte-exact source range.
+pub fn parse_claim_block_source_with_trivia(
+    source: &str,
+) -> Result<(ClaimBlock, crate::TriviaTable), SyntaxError> {
+    let (tokens, trivia) = crate::trivia::tokenize_with_trivia(source)?;
+    trivia.reject_non_doc_block_comments("k::claims")?;
+    Ok((ClaimBlock::parse_tokens(tokens)?, trivia))
+}
+
 /// Parses a readable term-rule family together with lossless source trivia.
 ///
 /// # Errors
@@ -1511,6 +1637,63 @@ pub(super) fn take_rule_clause_attribute(
         }
     }
     Ok((rule.unwrap_or_default(), retained))
+}
+
+/// Takes a `k::claims!` clause's `#[k::claim(..)]`, which states its
+/// modality, and keeps the helpers a claim takes (`#[k::requires]`,
+/// `#[k::exists]`, `#[k::ensures]`, and doc comments) for its rule item. A
+/// rule's `#[k::rule(..)]` and `#[k::fresh]` have no meaning on a claim.
+pub(super) fn take_claim_clause_attribute(
+    attributes: Vec<Attribute>,
+    name: &Ident,
+) -> Result<(crate::ClaimAttribute, Vec<Attribute>), SyntaxError> {
+    let mut claim = None;
+    let mut retained = Vec::with_capacity(attributes.len());
+    for attribute in attributes {
+        let helper = attribute
+            .path()
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string());
+        match helper.as_deref() {
+            Some("claim") => {
+                if claim.is_some() {
+                    return Err(unsupported_signature(
+                        "a claim clause carries one `#[k::claim(..)]`",
+                        attribute.span(),
+                    ));
+                }
+                let Meta::List(list) = &attribute.meta else {
+                    return Err(unsupported_signature(
+                        "`#[k::claim(..)]` states the claim's modality: `#[k::claim(all_paths)]` or `#[k::claim(one_path)]`",
+                        attribute.span(),
+                    ));
+                };
+                claim = Some(crate::ClaimAttribute::parse_clause_tokens(
+                    list.tokens.clone(),
+                    name,
+                )?);
+            }
+            Some(other @ ("rule" | "fresh")) => {
+                return Err(unsupported_signature(
+                    if other == "rule" {
+                        "`#[k::rule(..)]` is a rule's metadata; a claim clause takes `#[k::claim(..)]`"
+                    } else {
+                        "`#[k::fresh]` draws values in a rule step; a claim has no fresh binders"
+                    },
+                    attribute.span(),
+                ));
+            }
+            _ => retained.push(attribute),
+        }
+    }
+    let claim = claim.ok_or_else(|| {
+        unsupported_signature(
+            "a claim clause states its modality: write `#[k::claim(all_paths)]` or `#[k::claim(one_path)]` before it",
+            name.span(),
+        )
+    })?;
+    Ok((claim, retained))
 }
 
 fn enum_glob_owner(item: &ItemUse) -> syn::Result<(Path, Option<Ident>)> {

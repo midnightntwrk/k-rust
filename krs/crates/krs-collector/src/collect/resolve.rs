@@ -1478,6 +1478,7 @@ mod tests {
             fresh: Vec::new(),
             evaluation: None,
             bracket_alternative: None,
+            claim: None,
         };
         let identity = krs_ir::DescriptorCellIdentity {
             owner: StableItemId::new(

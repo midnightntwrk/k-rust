@@ -40,7 +40,7 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
     let mut ranges = Vec::new();
     for invocation in surface::invocations(&syntax, facade) {
         let InvocationKind::Function {
-            entry: entry @ (FunctionMacro::Rules | FunctionMacro::Equations),
+            entry: entry @ (FunctionMacro::Rules | FunctionMacro::Claims | FunctionMacro::Equations),
             delimiter: Some(delimiter),
             ..
         } = invocation.kind
@@ -150,10 +150,10 @@ pub(crate) fn splice_rule_bodies(
             })?;
         let base_indent = line_indent(source, range.start);
         let body_indent = format!("{base_indent}    ");
-        let format = if body.entry == FunctionMacro::Equations {
-            rules::format_equation_body
-        } else {
-            rules::format_rule_body
+        let format = match body.entry {
+            FunctionMacro::Equations => rules::format_equation_body,
+            FunctionMacro::Claims => rules::format_claim_body,
+            _ => rules::format_rule_body,
         };
         let formatted = format(
             &body.source,

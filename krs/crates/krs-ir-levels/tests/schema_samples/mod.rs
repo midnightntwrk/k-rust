@@ -244,6 +244,16 @@ impl Sample for ClaimModality {
         vec![Self::AllPaths]
     }
 }
+impl Sample for HeadRuleClaim {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            modality_key: sample::<ProvenanceKey>(),
+            modality: sample::<ClaimModality>(),
+            circularity_key: Some(sample::<ProvenanceKey>()),
+            trusted_key: Some(sample::<ProvenanceKey>()),
+        }]
+    }
+}
 impl Sample for CollectorMeasureDocument {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -1558,7 +1568,7 @@ impl Sample for DescriptorTerm {
                     reference: sample::<DescriptorApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<DescriptorTermArgument>>().try_into().unwrap(),
-                    update: None,
+                    update: Some(Box::new(sample::<DescriptorTerm>())),
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -1589,8 +1599,8 @@ impl Sample for DescriptorTerm {
                     key: sample::<ProvenanceKey>(),
                     declaration: sample::<StableItemId>(),
                     fields: sample::<Vec<DescriptorCellTermField>>(),
-                    open: false,
-                    update: None,
+                    open: true,
+                    update: Some(Box::new(sample::<DescriptorTerm>())),
                 },
                 Self::Lexeme {
                     key: sample::<ProvenanceKey>(),
@@ -2806,7 +2816,7 @@ impl Sample for WireTerm {
                     reference: sample::<WireApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<WireTermArgument>>().try_into().unwrap(),
-                    update: None,
+                    update: Some(Box::new(sample::<WireTerm>())),
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -2837,8 +2847,8 @@ impl Sample for WireTerm {
                     key: sample::<ProvenanceKey>(),
                     declaration: sample::<WireTypeReference>(),
                     fields: sample::<Vec<WireCellTermField>>(),
-                    open: false,
-                    update: None,
+                    open: true,
+                    update: Some(Box::new(sample::<WireTerm>())),
                 },
                 Self::Lexeme {
                     key: sample::<ProvenanceKey>(),
@@ -3370,6 +3380,7 @@ impl Sample for DescriptorHeadRule {
             ensures: sample(),
             fresh: sample(),
             evaluation: sample(),
+            claim: Some(sample::<HeadRuleClaim>()),
         }]
     }
 }
@@ -3937,6 +3948,7 @@ impl Sample for WireHeadRule {
             fresh: sample(),
             evaluation: sample(),
             bracket_alternative: sample(),
+            claim: Some(sample::<HeadRuleClaim>()),
         }]
     }
 }
