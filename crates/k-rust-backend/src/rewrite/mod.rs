@@ -633,6 +633,11 @@ pub struct ExecutionOptions {
     /// while it has not matched, so the cost grows with the visits times the skipped
     /// candidates; asking changes nothing else in the result.
     pub collect_offered: bool,
+    /// With [`Self::collect_coverage`], also report how many times the run applied each axiom
+    /// of `applied` ([`crate::coverage::RunCoverage::applied_counts`]). Off by default; ignored
+    /// without `collect_coverage`. The collection counts at no cost beyond the set's, so asking
+    /// costs only the result's map and changes nothing else in the result.
+    pub collect_counts: bool,
     /// With [`Self::collect_coverage`], also record the condition entries of the rewrite rules it
     /// names ([`crate::coverage::RunCoverage::conditions`]): for each entry into a named rule's
     /// `requires` for a matched instance, the bindings of the variables the condition reads, the
@@ -723,6 +728,7 @@ impl Default for ExecutionOptions {
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
             collect_offered: false,
+            collect_counts: false,
             collect_conditions: None,
             max_work: None,
             discard_stopped: false,

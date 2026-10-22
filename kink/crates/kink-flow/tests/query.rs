@@ -517,6 +517,7 @@ fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {
         result_modality: ResultModalityOutput::StateSet,
         collect_coverage: false,
         collect_offered: false,
+        collect_counts: false,
         collect_conditions: None,
         max_work: None,
         trace: false,

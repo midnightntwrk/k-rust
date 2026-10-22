@@ -976,3 +976,210 @@ mod probes {
         assert!(offered.contains("tBottom"), "{offered:?}");
     }
 }
+
+/// The applied counts (`collect_counts`): how many times a run applied each rule and equation
+/// of `applied`. The sets cannot tell a loop that ran three times from one that ran five; the
+/// counts can.
+mod counts {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::*;
+
+    /// A loop that applies `step` once per unit of its argument, evaluating the function `dec`
+    /// in each step's right-hand side, and `done` once at the end.
+    const COUNT: &str = r"
+module COUNT-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= loop(Int)  [symbol(loop)]
+endmodule
+
+module COUNT
+  imports COUNT-SYNTAX
+  imports INT
+  imports BOOL
+
+  syntax Int ::= dec(Int)  [function, total, symbol(dec)]
+  rule [dec]: dec(N) => N -Int 1
+
+  configuration <k> $PGM:Pgm </k> <total> 0 </total>
+
+  rule [step]: <k> loop(N) => loop(dec(N)) ... </k> <total> T => T +Int N </total>
+    requires N >Int 0
+  rule [done]: <k> loop(N) => .K ... </k> requires N <=Int 0
+endmodule
+";
+
+    fn definition_kore() -> std::sync::Arc<String> {
+        static KORE: shared::Shared<String> = shared::Shared::new();
+        KORE.get(|| compile_source("count.k", COUNT, "COUNT"))
+    }
+
+    fn backend() -> Backend {
+        Backend::new(&definition_kore(), "COUNT", BackendOptions::default()).unwrap()
+    }
+
+    fn state(n: i64) -> String {
+        format!(
+            "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lblloop{{}}({})), dotk{{}}())), Lbl'-LT-'total'-GT-'{{}}({}), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
+            int(n),
+            int(0),
+            int(0)
+        )
+    }
+
+    fn counting(n: i64) -> ExecuteRequest {
+        ExecuteRequest {
+            result_modality: ResultModalityOutput::PathSet,
+            collect_coverage: true,
+            collect_counts: true,
+            ..ExecuteRequest::new(parse_pattern(&state(n)).unwrap())
+        }
+    }
+
+    /// The `COUNT` labels of a run's applied counts, and of its `applied` set.
+    fn counted(
+        backend: &Backend,
+        result: &ExecutionResult,
+    ) -> (BTreeMap<String, u64>, BTreeSet<String>) {
+        let catalog = catalog(backend);
+        let coverage = result
+            .coverage
+            .as_ref()
+            .expect("the request asked for coverage");
+        let counts = coverage
+            .applied_counts
+            .as_ref()
+            .expect("the request asked for counts");
+        let by_label = counts
+            .iter()
+            .flat_map(|(id, count)| {
+                labels_in("COUNT.", &catalog, std::slice::from_ref(id))
+                    .into_iter()
+                    .map(move |label| (label, *count))
+            })
+            .collect();
+        (by_label, labels_in("COUNT.", &catalog, &coverage.applied))
+    }
+
+    /// A loop of five applies `step` five times and `dec` in each of its right-hand sides, and
+    /// `done` once; a loop of three has the same `applied` set and smaller counts. The keys of
+    /// the counts are `applied`, every count at least 1.
+    #[test]
+    fn a_loop_counts_each_application_where_the_set_does_not_change() {
+        let mut backend = backend();
+        let five = backend.execute(counting(5)).unwrap();
+        let three = backend.execute(counting(3)).unwrap();
+        let (five_counts, five_applied) = counted(&backend, &five);
+        let (three_counts, three_applied) = counted(&backend, &three);
+        assert_eq!(five_applied, three_applied);
+        assert_eq!(
+            five_counts.keys().cloned().collect::<BTreeSet<_>>(),
+            five_applied
+        );
+        for (label, count) in [("step", 5), ("dec", 5), ("done", 1)] {
+            assert_eq!(
+                five_counts.get(label),
+                Some(&count),
+                "{label}: {five_counts:?}"
+            );
+        }
+        for (label, count) in [("step", 3), ("dec", 3), ("done", 1)] {
+            assert_eq!(
+                three_counts.get(label),
+                Some(&count),
+                "{label}: {three_counts:?}"
+            );
+        }
+        let coverage = five.coverage.as_ref().unwrap();
+        let counts = coverage.applied_counts.as_ref().unwrap();
+        assert_eq!(
+            counts.keys().cloned().collect::<Vec<_>>(),
+            coverage.applied,
+            "every applied id, and only those, is counted"
+        );
+        assert!(counts.values().all(|count| *count >= 1));
+    }
+
+    /// The counts are a function of the request: the same on a fresh backend, after other
+    /// requests, and through `execute_observed`.
+    #[test]
+    fn the_counts_do_not_depend_on_request_history() {
+        let expected = backend().execute(counting(5)).unwrap().coverage;
+        let mut used = backend();
+        used.execute(counting(3)).unwrap();
+        used.execute(counting(7)).unwrap();
+        assert_eq!(used.execute(counting(5)).unwrap().coverage, expected);
+        let observed = used
+            .execute_observed(ObservedRequest {
+                request: counting(5),
+                rules: None,
+            })
+            .unwrap()
+            .coverage;
+        assert_eq!(observed, expected);
+    }
+
+    /// Asking for counts changes nothing else in the result; the wire form has `appliedCounts`
+    /// only when asked, and `collectCounts` without `collectCoverage` is refused.
+    #[test]
+    fn asking_for_counts_changes_nothing_else_and_the_wire_form_has_them_only_when_asked() {
+        let mut backend = backend();
+        let mut counted = backend.execute(counting(4)).unwrap();
+        let plain = backend
+            .execute(ExecuteRequest {
+                collect_counts: false,
+                ..counting(4)
+            })
+            .unwrap();
+        let counts = counted.coverage.as_mut().unwrap().applied_counts.take();
+        assert!(counts.is_some());
+        assert_eq!(plain.coverage.as_ref().unwrap().applied_counts, None);
+        assert_eq!(
+            serde_json::to_value(&counted).unwrap(),
+            serde_json::to_value(&plain).unwrap()
+        );
+
+        let state = codec::to_value(&parse_pattern(&state(2)).unwrap()).unwrap();
+        let parse = |text: String| serde_json::from_str::<serde_json::Value>(&text).unwrap();
+        let request = |fields: serde_json::Value| {
+            let mut request = serde_json::json!({ "state": state });
+            request
+                .as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            serde_json::from_value::<ExecuteRequest>(request).unwrap()
+        };
+        let without = parse(
+            backend
+                .execute_json(request(serde_json::json!({ "collectCoverage": true })))
+                .unwrap(),
+        );
+        assert!(
+            without["coverage"].get("appliedCounts").is_none(),
+            "{without}"
+        );
+        let with = parse(
+            backend
+                .execute_json(request(
+                    serde_json::json!({ "collectCoverage": true, "collectCounts": true }),
+                ))
+                .unwrap(),
+        );
+        let counts = with["coverage"]["appliedCounts"]
+            .as_object()
+            .expect("an object of counts");
+        assert_eq!(
+            counts.keys().cloned().collect::<Vec<_>>(),
+            serde_json::from_value::<Vec<String>>(with["coverage"]["applied"].clone()).unwrap()
+        );
+        let refused = backend
+            .execute_json(request(serde_json::json!({ "collectCounts": true })))
+            .unwrap_err();
+        assert!(
+            refused
+                .to_string()
+                .contains("collectCounts requires collectCoverage"),
+            "{refused}"
+        );
+    }
+}

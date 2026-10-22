@@ -280,6 +280,10 @@ pub struct BackendCapabilities {
     /// ([`RunCoverageOutput::offered`]) when the request sets `collect_offered` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_offered`]).
     pub coverage_offered: bool,
+    /// `execute` and `execute_observed` also report how many times the run applied each rule and
+    /// equation of `applied` ([`RunCoverageOutput::applied_counts`]) when the request sets
+    /// `collect_counts` beside `collect_coverage` ([`ExecuteRequest::collect_counts`]).
+    pub coverage_counts: bool,
     /// `execute` and `execute_observed` also report the condition records of the run's coverage
     /// ([`RunCoverageOutput::conditions`]) when the request sets `collect_conditions` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_conditions`]).
@@ -382,6 +386,13 @@ pub struct ExecuteRequest {
     /// (docs/compatibility.md, "Run coverage").
     #[serde(default)]
     pub collect_offered: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::applied_counts`] (wire
+    /// `collectCounts`): how many times the run applied each rule and equation of `applied`.
+    /// Off by default; a request that sets it without `collect_coverage` is refused. Asking
+    /// changes no other field of the result and costs only the map: the run counts at the
+    /// cost of the set's own lookup (docs/compatibility.md, "Run coverage").
+    #[serde(default)]
+    pub collect_counts: bool,
     /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::conditions`] (wire
     /// `collectConditions`): for each rewrite rule it names whose `requires` the run began to
     /// decide for a matched instance, the bindings of the variables the condition reads, the
@@ -471,6 +482,7 @@ impl ExecuteRequest {
             result_modality: ResultModalityOutput::StateSet,
             collect_coverage: false,
             collect_offered: false,
+            collect_counts: false,
             collect_conditions: None,
             max_work: None,
             trace: true,
@@ -663,6 +675,15 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   explored, as the lists do, and are a deterministic function of the same inputs; unlike the
 ///   lists they are kept in the order the run first made each distinct entry, up to the
 ///   request's limit per rule.
+///
+/// - `applied_counts`, present exactly when the request set `collect_counts`: each id of
+///   `applied` with the number of times the run applied it (at least 1; its keys are
+///   `applied`): for a rewrite rule, the successors (one per right-hand-side alternative) and
+///   undefined-step entries its steps built; for an equation, the instances that gave a result
+///   where the run computed one, so an evaluation served from a memo of the run counts once.
+///   Unlike the lists, the counts grow with the states explored (a `state-set` run that skips a
+///   twin subtree counts less than the `path-set` run) and count attempts later undone as
+///   often as they ran; they are a deterministic function of the same inputs.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -673,6 +694,8 @@ pub struct RunCoverageOutput<K = Value> {
     pub offered: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<RuleConditionsOutput<K>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_counts: Option<BTreeMap<String, u64>>,
 }
 
 /// Which rules' condition entries an execute request records (wire `collectConditions`), and
@@ -1637,6 +1660,7 @@ impl Backend {
             observation: true,
             coverage: true,
             coverage_offered: true,
+            coverage_counts: true,
             coverage_conditions: true,
             stack_stops: true,
             smt_unknowns: true,
@@ -1785,6 +1809,11 @@ impl Backend {
                 "collectOffered requires collectCoverage: the offered level is part of the run's coverage",
             ));
         }
+        if request.collect_counts && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectCounts requires collectCoverage: the counts are part of the run's coverage",
+            ));
+        }
         if request.collect_conditions.is_some() && !request.collect_coverage {
             return Err(BackendError::new(
                 "collectConditions requires collectCoverage: the condition records are part of the run's coverage",
@@ -1836,6 +1865,7 @@ impl Backend {
                 // what building a module applied.
                 collect_coverage: request.collect_coverage,
                 collect_offered: request.collect_offered,
+                collect_counts: request.collect_counts,
                 collect_conditions: request.collect_conditions.map(Into::into),
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
@@ -3015,6 +3045,24 @@ mod tests {
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["coverageOffered"], true);
+    }
+
+    /// The applied counts of run coverage are declared where the facade reads and writes them:
+    /// the request flag, the optional map of the coverage, and a capability flag, true in every
+    /// build.
+    #[test]
+    fn the_applied_counts_match_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectCounts?: boolean");
+        assert_typescript_member("RunCoverage", "appliedCounts?: Record<string, number>");
+        assert_typescript_member("BackendCapabilities", "coverageCounts: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageCounts"], true);
     }
 
     /// The condition records of run coverage are declared where the facade reads and writes
