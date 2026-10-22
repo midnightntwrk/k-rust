@@ -2,7 +2,10 @@
 //!
 //! A template of width `w` matches exactly the integers `n` with
 //! `0 <= n < 2^w` whose fixed bits are as written; a field letter names
-//! `bitRangeInt(n, offset, length)`. The template is sugar for its long form,
+//! `bitRangeInt(n, offset, length)`. Field modifiers after the template,
+//! `k::bits!("..", b: signed[12 | 10:5 | 4:1 | 11])`, place a field's template
+//! bits at other value bits, most significant template bit first, and read
+//! it as two's complement. The template is sugar for its long form,
 //! which this module writes into the sentence's fn item before the item is
 //! parsed:
 //!
@@ -13,7 +16,9 @@
 //!   `X >= 0 && X < 2^w` and one `bit_range(X, o, l) == v` per maximal run of
 //!   fixed bits within a space-separated group, most significant first;
 //! - every field occurrence in the `requires`, `ensures`, and result becomes
-//!   `X.bit_range::<Int>(o, l)`.
+//!   `X.bit_range::<Int>(o, l)`, or for a modified field the sum of its
+//!   pieces' bit ranges times powers of two, less its sign bit times
+//!   `2^width` when it is signed ([`FieldTerm::term`]).
 //!
 //! The macro and the collector both run this rewrite on the same authored
 //! tokens, so the generated tokens, which carry the template's span, have the
@@ -54,15 +59,41 @@ pub(crate) struct FixedRun {
     pub value: u128,
 }
 
-/// One named field: a contiguous bit range.
+/// One piece of a field: the template bits `offset..offset + length` carry
+/// the field's value bits `shift..shift + length`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FieldPiece {
+    /// Index of the piece's least significant template bit.
+    pub offset: u32,
+    /// Number of bits.
+    pub length: u32,
+    /// The value bit the piece's least significant bit carries.
+    pub shift: u32,
+}
+
+/// One named field: its pieces, and how its value is read.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BitField {
     /// The field letter.
     pub name: char,
-    /// Index of the field's least significant bit.
-    pub offset: u32,
-    /// Number of bits.
-    pub length: u32,
+    /// The pieces, most significant template bit first.
+    pub pieces: Vec<FieldPiece>,
+    /// The value's width: one more than its highest value bit. Value bits
+    /// no piece carries are zero.
+    pub width: u32,
+    /// Whether the value is two's complement of `width` bits; otherwise it is
+    /// unsigned.
+    pub signed: bool,
+}
+
+/// What a modifier `x: signed[11:5 | 4:0]` says of field `x`.
+#[derive(Clone, Debug)]
+struct FieldModifier {
+    name: Ident,
+    signed: bool,
+    /// The value bits `(high, low)` of each piece, in the order of the
+    /// field's template bits, most significant first; `None` when unwritten.
+    bits: Option<Vec<(u32, u32)>>,
 }
 
 /// A parsed bit template.
@@ -71,14 +102,62 @@ pub(crate) struct BitTemplate {
     width: u32,
     /// Fixed runs, most significant first.
     runs: Vec<FixedRun>,
-    /// Fields, most significant first.
+    /// Each field letter's template bits, most significant first, in the
+    /// order the letters first occur.
+    letters: Vec<(char, Vec<u32>)>,
+    /// Fields, most significant first; empty for a test, which binds none.
     fields: Vec<BitField>,
     span: Span,
 }
 
 impl BitTemplate {
-    /// Parses the string literal of `k::bits!("..")`.
-    pub(crate) fn parse(literal: &LitStr) -> Result<Self, SyntaxError> {
+    /// Parses the template of a pattern with its field modifiers: each field
+    /// is a contiguous unsigned bit range unless a modifier says otherwise.
+    fn pattern(literal: &LitStr, modifiers: &[FieldModifier]) -> Result<Self, SyntaxError> {
+        let mut template = Self::parse(literal)?;
+        for (index, modifier) in modifiers.iter().enumerate() {
+            let name = modifier.name.to_string();
+            if modifiers[..index]
+                .iter()
+                .any(|previous| previous.name == modifier.name)
+            {
+                return Err(invalid(
+                    format!(
+                        "field `{name}` has two modifiers; write one, as in `{name}: signed[7:0]`"
+                    ),
+                    modifier.name.span(),
+                ));
+            }
+            if !template
+                .letters
+                .iter()
+                .any(|(letter, _)| letter.to_string() == name)
+            {
+                return Err(invalid(
+                    format!(
+                        "`{name}` names no field of the bit template; a modifier describes one of its field letters"
+                    ),
+                    modifier.name.span(),
+                ));
+            }
+        }
+        template.fields = template
+            .letters
+            .iter()
+            .map(|(name, positions)| {
+                let modifier = modifiers
+                    .iter()
+                    .find(|modifier| modifier.name == name.to_string());
+                resolve_field(*name, positions, modifier, literal.span())
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(template)
+    }
+
+    /// Parses the string literal of `k::bits!`: its width, fixed runs, and
+    /// field letters. A field letter's bits need not be adjacent here; a
+    /// pattern's fields are resolved by [`Self::pattern`].
+    fn parse(literal: &LitStr) -> Result<Self, SyntaxError> {
         if !literal.suffix().is_empty() {
             return Err(invalid(
                 "a bit template is a plain string literal, without a suffix".to_owned(),
@@ -125,7 +204,7 @@ impl BitTemplate {
             })?;
         let position = |index: usize| width - 1 - u32::try_from(index).unwrap_or(u32::MAX);
         let mut runs = Vec::<FixedRun>::new();
-        let mut fields = Vec::<BitField>::new();
+        let mut letters = Vec::<(char, Vec<u32>)>::new();
         let mut previous: Option<(usize, char)> = None;
         for (index, (group, character)) in bits.iter().enumerate() {
             let bit = position(index);
@@ -150,33 +229,18 @@ impl BitTemplate {
                     }
                 }
                 '_' => {}
-                letter => {
-                    if previous.is_some_and(|(_, before)| before == *letter) {
-                        let field = fields.last_mut().expect("the previous bit opened a field");
-                        field.offset = bit;
-                        field.length += 1;
-                    } else if fields.iter().any(|field| field.name == *letter) {
-                        return Err(invalid(
-                            format!(
-                                "field `{letter}` is split: its bits are not adjacent, and a field is one contiguous bit range; name each part with its own letter and combine them in the result"
-                            ),
-                            literal.span(),
-                        ));
-                    } else {
-                        fields.push(BitField {
-                            name: *letter,
-                            offset: bit,
-                            length: 1,
-                        });
-                    }
-                }
+                letter => match letters.iter_mut().find(|(name, _)| name == letter) {
+                    Some((_, positions)) => positions.push(bit),
+                    None => letters.push((*letter, vec![bit])),
+                },
             }
             previous = Some((*group, *character));
         }
         Ok(Self {
             width,
             runs,
-            fields,
+            letters,
+            fields: Vec::new(),
             span: literal.span(),
         })
     }
@@ -232,6 +296,161 @@ impl BitTemplate {
         }
         guard
     }
+}
+
+/// The field of letter `name`, whose template bits are `positions` (most
+/// significant first), as `modifier` describes it.
+///
+/// Without written value bits the letter's bits must be adjacent and carry
+/// the value's bits in order, from bit 0. With them, the field's template
+/// bits carry the written value bits in order, most significant template bit
+/// first: `[12 | 10:5]` puts value bit 12 at the first, and bits 10 to 5 at
+/// the next six. Each template bit carries one value bit and no value bit is
+/// carried twice; value bits no piece carries are zero.
+fn resolve_field(
+    name: char,
+    positions: &[u32],
+    modifier: Option<&FieldModifier>,
+    span: Span,
+) -> Result<BitField, SyntaxError> {
+    let count = u32::try_from(positions.len()).expect("a template is at most 128 bits wide");
+    let value_bits = if let Some(bits) = modifier.and_then(|modifier| modifier.bits.as_ref()) {
+        let span = modifier.map_or(span, |modifier| modifier.name.span());
+        let mut value_bits = Vec::new();
+        for &(high, low) in bits {
+            if high < low {
+                return Err(invalid(
+                    format!(
+                        "the value bits `{high}:{low}` of field `{name}` run upward; write the high bit first, as in `{low}:{high}`"
+                    ),
+                    span,
+                ));
+            }
+            if high >= MAXIMUM_WIDTH {
+                return Err(invalid(
+                    format!(
+                        "value bit {high} of field `{name}` is out of range; a field's value bits are numbered below {MAXIMUM_WIDTH}"
+                    ),
+                    span,
+                ));
+            }
+            for bit in (low..=high).rev() {
+                if value_bits.contains(&bit) {
+                    return Err(invalid(
+                        format!(
+                            "value bit {bit} of field `{name}` is written twice; each value bit comes from one template bit"
+                        ),
+                        span,
+                    ));
+                }
+                value_bits.push(bit);
+            }
+        }
+        if value_bits.len() != positions.len() {
+            return Err(invalid(
+                format!(
+                    "field `{name}` has {count} bits in the template, but its value bits name {}; list one value bit per template bit, most significant template bit first",
+                    value_bits.len()
+                ),
+                span,
+            ));
+        }
+        value_bits
+    } else {
+        if positions.windows(2).any(|pair| pair[0] != pair[1] + 1) {
+            return Err(invalid(
+                format!(
+                    "field `{name}` is split: its bits are not adjacent, so say which value bits each template bit carries, most significant template bit first, as in `{name}: [12 | 10:5]`; or name each part with its own letter"
+                ),
+                span,
+            ));
+        }
+        (0..count).rev().collect()
+    };
+    let mut pieces = Vec::<FieldPiece>::new();
+    for (&position, &bit) in positions.iter().zip(&value_bits) {
+        match pieces.last_mut() {
+            Some(piece) if piece.offset == position + 1 && piece.shift == bit + 1 => {
+                piece.offset = position;
+                piece.shift = bit;
+                piece.length += 1;
+            }
+            _ => pieces.push(FieldPiece {
+                offset: position,
+                length: 1,
+                shift: bit,
+            }),
+        }
+    }
+    let width = value_bits.iter().max().map_or(0, |highest| highest + 1);
+    Ok(BitField {
+        name,
+        pieces,
+        width,
+        signed: modifier.is_some_and(|modifier| modifier.signed),
+    })
+}
+
+/// Parses one modifier: `x: signed`, `x: [11:5 | 4:0]`, or both, as in
+/// `x: signed[11:5 | 4:0]`.
+fn parse_modifier(input: syn::parse::ParseStream<'_>) -> syn::Result<FieldModifier> {
+    let name: Ident = input.parse()?;
+    let spelling = name.to_string();
+    if spelling.len() != 1 || !spelling.chars().all(|letter| letter.is_ascii_lowercase()) {
+        return Err(syn::Error::new(
+            name.span(),
+            format!(
+                "`{spelling}` is no field letter; a modifier starts with the field's letter, as in `i: signed`"
+            ),
+        ));
+    }
+    input.parse::<Token![:]>()?;
+    let signed = if input.peek(Ident) {
+        let word: Ident = input.parse()?;
+        if word != "signed" {
+            return Err(syn::Error::new(
+                word.span(),
+                format!(
+                    "`{word}` is no field modifier; write `signed`, the value bits in brackets, or both, as in `{spelling}: signed[11:5 | 4:0]`"
+                ),
+            ));
+        }
+        true
+    } else {
+        false
+    };
+    let bits = if input.peek(syn::token::Bracket) {
+        let content;
+        syn::bracketed!(content in input);
+        let mut bits = Vec::new();
+        loop {
+            let high: LitInt = content.parse()?;
+            let high = high.base10_parse::<u32>()?;
+            let low = if content.peek(Token![:]) {
+                content.parse::<Token![:]>()?;
+                content.parse::<LitInt>()?.base10_parse::<u32>()?
+            } else {
+                high
+            };
+            bits.push((high, low));
+            if content.is_empty() {
+                break;
+            }
+            content.parse::<Token![|]>()?;
+        }
+        Some(bits)
+    } else {
+        None
+    };
+    if !signed && bits.is_none() {
+        return Err(syn::Error::new(
+            name.span(),
+            format!(
+                "field `{spelling}` has an empty modifier; write `signed`, the value bits in brackets, or both, as in `{spelling}: signed[11:5 | 4:0]`"
+            ),
+        ));
+    }
+    Ok(FieldModifier { name, signed, bits })
 }
 
 const fn low_ones(length: u32) -> u128 {
@@ -298,20 +517,51 @@ pub(crate) fn misplaced(span: Span) -> SyntaxError {
     )
 }
 
-/// Parses the template of a `k::bits!` invocation.
+/// Parses the template of a `k::bits!` pattern: the string literal, then
+/// any field modifiers, as in `k::bits!("iiii iiii", i: signed)`.
 pub(crate) fn template_of(invocation: &Macro) -> Result<BitTemplate, SyntaxError> {
-    let literal = syn::parse2::<LitStr>(invocation.tokens.clone()).map_err(|_| {
+    let parser = |input: syn::parse::ParseStream<'_>| {
+        let literal: LitStr = input.parse()?;
+        let mut modifiers = Vec::new();
+        while !input.is_empty() {
+            input.parse::<Token![,]>()?;
+            if input.is_empty() {
+                break;
+            }
+            modifiers.push(parse_modifier(input)?);
+        }
+        Ok((literal, modifiers))
+    };
+    if syn::parse2::<LitStr>(
+        invocation
+            .tokens
+            .clone()
+            .into_iter()
+            .take(1)
+            .collect::<TokenStream>(),
+    )
+    .is_err()
+    {
         let reason = if Punctuated::<Expr, Token![,]>::parse_terminated
             .parse2(invocation.tokens.clone())
             .is_ok_and(|arguments| arguments.len() > 1)
         {
-            "in a pattern, `k::bits!` takes one string literal, the template, as in `k::bits!(\"00 yyy 100\")`; a second argument is reserved for modifiers such as signed fields, which are not supported yet. The test `k::bits!(value, \"..\")` is a `Bool` term, for a condition or a claim"
+            "in a pattern, `k::bits!` takes the template first, then any field modifiers, as in `k::bits!(\"iiii iiii\", i: signed)`; the test `k::bits!(value, \"..\")` is a `Bool` term, for a condition or a claim"
         } else {
-            "`k::bits!` takes exactly one string literal, the template, as in `k::bits!(\"00 yyy 100\")`"
+            "`k::bits!` takes a string literal, the template, as in `k::bits!(\"00 yyy 100\")`, then any field modifiers"
         };
-        invalid(reason.to_owned(), invocation.tokens.span())
+        return Err(invalid(reason.to_owned(), invocation.tokens.span()));
+    }
+    let (literal, modifiers) = parser.parse2(invocation.tokens.clone()).map_err(|error| {
+        // syn's own errors name only the token it expected.
+        let reason = if error.to_string().starts_with("expected") {
+            format!("{error}: a field modifier is a letter, `:`, and `signed`, the value bits in brackets, or both, as in `b: signed[12 | 10:5 | 4:1 | 11]`")
+        } else {
+            error.to_string()
+        };
+        invalid(reason, error.span())
     })?;
-    BitTemplate::parse(&literal)
+    BitTemplate::pattern(&literal, &modifiers)
 }
 
 thread_local! {
@@ -542,13 +792,27 @@ fn test_long_form(invocation: &Macro) -> Result<Expr, SyntaxError> {
         Ok((value, template))
     };
     let Ok((value, template)) = parser.parse2(invocation.tokens.clone()) else {
-        if syn::parse2::<LitStr>(invocation.tokens.clone()).is_ok() {
+        let first = invocation
+            .tokens
+            .clone()
+            .into_iter()
+            .take(1)
+            .collect::<TokenStream>();
+        if syn::parse2::<LitStr>(first).is_ok() {
             return Err(misplaced(invocation.path.span()));
         }
-        return Err(invalid(
-            "a `k::bits!` test takes the value and the template, as in `k::bits!(op, \"00 yyy 100\")`".to_owned(),
-            invocation.tokens.span(),
-        ));
+        let commas = invocation
+            .tokens
+            .clone()
+            .into_iter()
+            .filter(|token| matches!(token, TokenTree::Punct(punct) if punct.as_char() == ','))
+            .count();
+        let reason = if commas > 1 {
+            "a `k::bits!` test takes the value and the template, as in `k::bits!(op, \"00 yyy 100\")`, and no field modifiers: a test binds no field"
+        } else {
+            "a `k::bits!` test takes the value and the template, as in `k::bits!(op, \"00 yyy 100\")`"
+        };
+        return Err(invalid(reason.to_owned(), invocation.tokens.span()));
     };
     if !is_test_value(&value) {
         return Err(invalid(
@@ -956,11 +1220,10 @@ fn pattern_binders(pattern: &Pat, binders: &mut Vec<Ident>) {
     }
 }
 
-/// A field's term: its template's binder and its bit range.
+/// A field's term: its template's binder and the field.
 struct FieldTerm {
     binder: Ident,
-    offset: u32,
-    length: u32,
+    field: BitField,
 }
 
 fn field_terms(occurrences: &[Occurrence]) -> BTreeMap<String, FieldTerm> {
@@ -971,8 +1234,7 @@ fn field_terms(occurrences: &[Occurrence]) -> BTreeMap<String, FieldTerm> {
                 field.name.to_string(),
                 FieldTerm {
                     binder: occurrence.binder.clone(),
-                    offset: field.offset,
-                    length: field.length,
+                    field: field.clone(),
                 },
             );
         }
@@ -981,12 +1243,50 @@ fn field_terms(occurrences: &[Occurrence]) -> BTreeMap<String, FieldTerm> {
 }
 
 impl FieldTerm {
-    /// `binder.bit_range::<Int>(offset, length)` at the occurrence's span.
+    /// The field's value at the occurrence's span: each piece's
+    /// `binder.bit_range::<Int>(offset, length)`, times `2^shift` when it
+    /// does not carry bit 0, summed most significant template bit first; a
+    /// signed field then subtracts its sign bit times `2^width`, which reads
+    /// the sum as two's complement. A field of one unshifted piece is its
+    /// bit range.
     fn term(&self, span: Span) -> Expr {
         let binder = Ident::new(&self.binder.to_string(), span);
-        let offset = LitInt::new(&self.offset.to_string(), span);
-        let length = LitInt::new(&self.length.to_string(), span);
-        syn::parse_quote_spanned!(span=> #binder.bit_range::<Int>(#offset, #length))
+        let bit_range = |offset: u32, length: u32| -> Expr {
+            let offset = LitInt::new(&offset.to_string(), span);
+            let length = LitInt::new(&length.to_string(), span);
+            syn::parse_quote_spanned!(span=> #binder.bit_range::<Int>(#offset, #length))
+        };
+        let scaled = |term: Expr, shift: u32| -> Expr {
+            if shift == 0 {
+                term
+            } else {
+                let factor = LitInt::new(&power_of_two(shift), span);
+                syn::parse_quote_spanned!(span=> #term.mul::<Int>(#factor))
+            }
+        };
+        let mut pieces = self
+            .field
+            .pieces
+            .iter()
+            .map(|piece| scaled(bit_range(piece.offset, piece.length), piece.shift));
+        let first = pieces.next().expect("a field has a bit");
+        let mut term = pieces.fold(
+            first,
+            |sum, piece| syn::parse_quote_spanned!(span=> #sum.add::<Int>(#piece)),
+        );
+        if self.field.signed {
+            let sign = self.field.width - 1;
+            let piece = self
+                .field
+                .pieces
+                .iter()
+                .find(|piece| (piece.shift..piece.shift + piece.length).contains(&sign))
+                .expect("a piece carries the field's highest value bit");
+            let sign_bit = bit_range(piece.offset + (sign - piece.shift), 1);
+            let weight = scaled(sign_bit, self.field.width);
+            term = syn::parse_quote_spanned!(span=> #term.sub::<Int>(#weight));
+        }
+        term
     }
 }
 
@@ -1129,7 +1429,21 @@ mod tests {
     use super::*;
 
     fn template(text: &str) -> Result<BitTemplate, SyntaxError> {
-        BitTemplate::parse(&LitStr::new(text, Span::call_site()))
+        BitTemplate::pattern(&LitStr::new(text, Span::call_site()), &[])
+    }
+
+    /// A field of one unsigned piece carrying the value's low bits.
+    fn plain(name: char, offset: u32, length: u32) -> BitField {
+        BitField {
+            name,
+            pieces: vec![FieldPiece {
+                offset,
+                length,
+                shift: 0,
+            }],
+            width: length,
+            signed: false,
+        }
     }
 
     #[test]
@@ -1151,14 +1465,7 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(
-            parsed.fields(),
-            [BitField {
-                name: 'y',
-                offset: 3,
-                length: 3
-            }]
-        );
+        assert_eq!(parsed.fields(), [plain('y', 3, 3)]);
         assert_eq!(parsed.cube(), (0b1100_0111, 0b0000_0100));
         assert_eq!(parsed.literal(), None);
     }
@@ -1191,15 +1498,8 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(
-            parsed.fields(),
-            [BitField {
-                name: 'q',
-                offset: 4,
-                length: 2
-            }]
-        );
-        assert_eq!(template("yy y").unwrap().fields()[0].length, 3);
+        assert_eq!(parsed.fields(), [plain('q', 4, 2)]);
+        assert_eq!(template("yy y").unwrap().fields(), [plain('y', 0, 3)]);
         assert_eq!(
             template("0011 01").unwrap().runs(),
             [
@@ -1447,13 +1747,212 @@ mod tests {
         }
     }
 
+    /// The template of a pattern `k::bits!(..)` whose arguments are `arguments`.
+    fn pattern_template(arguments: &str) -> Result<BitTemplate, SyntaxError> {
+        let invocation: Macro = syn::parse_str(&format!("k::bits!({arguments})")).unwrap();
+        template_of(&invocation)
+    }
+
+    /// RISC-V's B-type immediate, `imm[12|10:5]` in bits 31 to 25 and
+    /// `imm[4:1|11]` in bits 11 to 7, is four pieces of a 13-bit signed value
+    /// whose bit 0 is zero.
     #[test]
-    fn a_second_argument_in_a_pattern_is_reserved() {
-        let error = desugar_error("fn f(F(k::bits!(n, \"01\")): Int) -> Int { 0 }");
+    fn modifiers_place_scattered_pieces_and_sign() {
+        let template = pattern_template(
+            "\"bbbbbbb sssss rrrrr 000 bbbbb 1100011\", b: signed[12 | 10:5 | 4:1 | 11]",
+        )
+        .unwrap();
+        let piece = |offset, length, shift| FieldPiece {
+            offset,
+            length,
+            shift,
+        };
+        assert_eq!(
+            template.fields()[0],
+            BitField {
+                name: 'b',
+                pieces: vec![
+                    piece(31, 1, 12),
+                    piece(25, 6, 5),
+                    piece(8, 4, 1),
+                    piece(7, 1, 11)
+                ],
+                width: 13,
+                signed: true,
+            }
+        );
+        assert_eq!(template.fields()[1], plain('s', 20, 5));
+        // Bits not written for a contiguous field: shifted, unsigned.
+        let upper = pattern_template("\"uuuu uuuu 0110111\", u: [31:24]").unwrap();
+        assert_eq!(
+            upper.fields(),
+            [BitField {
+                name: 'u',
+                pieces: vec![piece(7, 8, 24)],
+                width: 32,
+                signed: false,
+            }]
+        );
+    }
+
+    /// The value a field's term computes, evaluated as the K hooks would.
+    fn field_value(field: &BitField, n: i128) -> i128 {
+        let mut value = field
+            .pieces
+            .iter()
+            .map(|piece| ((n >> piece.offset) & ((1 << piece.length) - 1)) << piece.shift)
+            .sum::<i128>();
+        if field.signed {
+            let sign = field.width - 1;
+            let piece = field
+                .pieces
+                .iter()
+                .find(|piece| (piece.shift..piece.shift + piece.length).contains(&sign))
+                .unwrap();
+            value -= ((n >> (piece.offset + sign - piece.shift)) & 1) << field.width;
+        }
+        value
+    }
+
+    /// The same value read bit by bit from the modifier: template bit `i` of
+    /// the letter carries value bit `bits[i]`, then sign extension.
+    fn reference_value(positions: &[u32], bits: &[u32], width: u32, signed: bool, n: i128) -> i128 {
+        let mut value = 0_i128;
+        for (position, bit) in positions.iter().zip(bits) {
+            value |= ((n >> position) & 1) << bit;
+        }
+        if signed && value >> (width - 1) & 1 == 1 {
+            value -= 1 << width;
+        }
+        value
+    }
+
+    #[test]
+    fn field_values_agree_with_a_bit_by_bit_reading() {
+        // RISC-V's B, J, S, I and U immediates.
+        let formats = [
+            (
+                "bbbbbbb _____ _____ ___ bbbbb _______",
+                "b: signed[12 | 10:5 | 4:1 | 11]",
+                vec![12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 11],
+            ),
+            (
+                "jjjjjjjjjjjjjjjjjjjj _____ _______",
+                "j: signed[20 | 10:1 | 11 | 19:12]",
+                [20].into_iter()
+                    .chain((1..=10).rev())
+                    .chain([11])
+                    .chain((12..=19).rev())
+                    .collect(),
+            ),
+            (
+                "jjjjjjj _____ _____ ___ jjjjj _______",
+                "j: signed[11:5 | 4:0]",
+                (0..=11).rev().collect(),
+            ),
+            (
+                "jjjjjjjjjjjj _____ ___ _____ _______",
+                "j: signed",
+                (0..=11).rev().collect(),
+            ),
+            (
+                "jjjjjjjjjjjjjjjjjjjj _____ _______",
+                "j: signed[31:12]",
+                (12..=31).rev().collect(),
+            ),
+        ];
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        for (text, modifier, bits) in formats {
+            let template = pattern_template(&format!("\"{text}\", {modifier}")).unwrap();
+            let field = &template.fields()[0];
+            let positions = &template.letters[0].1;
+            let width = bits.iter().max().unwrap() + 1;
+            for _ in 0..4096 {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let n = i128::from(state & 0xffff_ffff);
+                assert_eq!(
+                    field_value(field, n),
+                    reference_value(positions, &bits, width, true, n),
+                    "{modifier} at {n:#x}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_signed_field_subtracts_its_sign_bit_and_pieces_sum() {
+        let (long, _) = desugar("fn f(F(k::bits!(\"iiii 0011\", i: signed)): Int) -> Int { i }");
         assert!(
-            error.contains("reserved for modifiers such as signed fields"),
+            long.ends_with("{ __krs_bits_0 . bit_range :: < Int > (4 , 4) . sub :: < Int > (__krs_bits_0 . bit_range :: < Int > (7 , 1) . mul :: < Int > (16)) }"),
+            "{long}"
+        );
+        let (long, _) = desugar("fn f(F(k::bits!(\"jj 0 j\", j: [2:1 | 4])): Int) -> Int { j }");
+        assert!(
+            long.ends_with("{ __krs_bits_0 . bit_range :: < Int > (2 , 2) . mul :: < Int > (2) . add :: < Int > (__krs_bits_0 . bit_range :: < Int > (0 , 1) . mul :: < Int > (16)) }"),
+            "{long}"
+        );
+    }
+
+    #[test]
+    fn malformed_modifiers_are_rejected() {
+        for (arguments, needle) in [
+            ("\"aa0aa\"", "field `a` is split"),
+            ("\"aa0aa\", a: signed", "field `a` is split"),
+            (
+                "\"aaaa\", a: [0:3]",
+                "write the high bit first, as in `3:0`",
+            ),
+            (
+                "\"aaaa\", a: [3:1 | 1]",
+                "value bit 1 of field `a` is written twice",
+            ),
+            (
+                "\"aaaa\", a: [3:1]",
+                "has 4 bits in the template, but its value bits name 3",
+            ),
+            (
+                "\"aaaa\", a: [200:197]",
+                "value bit 200 of field `a` is out of range",
+            ),
+            (
+                "\"aaaa\", b: signed",
+                "`b` names no field of the bit template",
+            ),
+            (
+                "\"aaaa\", a: signed, a: [3:0]",
+                "field `a` has two modifiers",
+            ),
+            ("\"aaaa\", a: unsigned", "`unsigned` is no field modifier"),
+            ("\"aaaa\", a:", "field `a` has an empty modifier"),
+            (
+                "\"aaaa\", a signed",
+                "expected `:`: a field modifier is a letter",
+            ),
+            ("\"aaaa\", ab: signed", "`ab` is no field letter"),
+            ("\"0101\", a: signed", "`a` names no field"),
+            (
+                "n, \"01\"",
+                "the test `k::bits!(value, \"..\")` is a `Bool` term",
+            ),
+        ] {
+            let error = pattern_template(arguments).unwrap_err().to_string();
+            assert!(error.contains(needle), "{arguments}: {error}");
+        }
+        let error = tested("k::bits!(n, \"aa\", a: signed)")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("no field modifiers: a test binds no field"),
             "{error}"
         );
+        let error = tested("n && k::bits!(\"aa\", a: signed)")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("`k::bits!` is a pattern"), "{error}");
+        // A test reads a scattered template's fixed bits; its letters bind nothing.
+        assert!(tested("k::bits!(n, \"a0 a1\")").is_ok());
     }
 
     fn desugar_error(source: &str) -> String {
@@ -1495,7 +1994,7 @@ mod tests {
             ),
             (
                 "fn f(F(k::bits!(1)): Int) -> Int { 0 }",
-                "exactly one string literal",
+                "takes a string literal, the template",
             ),
         ] {
             let error = desugar_error(source);

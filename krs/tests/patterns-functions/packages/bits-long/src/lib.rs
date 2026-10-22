@@ -17,7 +17,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((DecodeOf, DecodeCbOf, KindOf, RegOf, EdgeOf))]
+#[k::precedence((DecodeOf, DecodeCbOf, KindOf, RegOf, EdgeOf, ImmOf))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("decodeOf({opcode})")]
@@ -30,6 +30,8 @@ pub enum ExpSyntax {
     RegOf { opcode: Int },
     #[k::syntax("edgeOf({opcode})")]
     EdgeOf { opcode: Int },
+    #[k::syntax("immOf({word})")]
+    ImmOf { word: Int },
 }
 
 #[k::constructors(sort = Reg, result = KResult)]
@@ -277,6 +279,7 @@ k::rules! {
     #[k::requires(op.ge::<Int>(0) && op.lt::<Int>(256) && op.bit_range::<Int>(7, 1).eq::<Int>(1))]
     reg_high    : RegOf(op)     => crate::Instruction::Alu(op, crate::R8(op.bit_range::<Int>(4, 3)));
     edge_of     : EdgeOf(n)     => crate::Edge(n);
+    imm_of      : ImmOf(n)      => crate::Imm(n);
 }
 
 /// Whether an opcode is an 8-bit load or `halt`: the test form of the
@@ -326,4 +329,84 @@ fn edge_jr(k::term![Edge(op)]: Term<Int>) -> Term<Int> {
 #[k::equation]
 fn edge_push(k::term![Edge(op)]: Term<Int>) -> Term<Int> {
     op.bit_range::<Int>(4, 2).add::<Int>(10)
+}
+
+/// The immediate of a RISC-V instruction word: signed, in pieces, scattered,
+/// or shifted into place, as the encoding table draws each format.
+#[k::function(total, internal)]
+pub fn Imm(word: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Imm;
+    #[k::equation(owise)]
+    imm_other: word => 0;
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(4294967296)
+        && op.bit_range::<Int>(12, 3).eq::<Int>(0)
+        && op.bit_range::<Int>(0, 7).eq::<Int>(19)
+)]
+#[k::equation]
+fn imm_addi(k::term![Imm(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(20, 12)
+        .sub::<Int>(op.bit_range::<Int>(31, 1).mul::<Int>(4096))
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(4294967296)
+        && op.bit_range::<Int>(12, 3).eq::<Int>(2)
+        && op.bit_range::<Int>(0, 7).eq::<Int>(35)
+)]
+#[k::equation]
+fn imm_sw(k::term![Imm(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(25, 7)
+        .mul::<Int>(32)
+        .add::<Int>(op.bit_range::<Int>(7, 5))
+        .sub::<Int>(op.bit_range::<Int>(31, 1).mul::<Int>(4096))
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(4294967296)
+        && op.bit_range::<Int>(12, 3).eq::<Int>(0)
+        && op.bit_range::<Int>(0, 7).eq::<Int>(99)
+)]
+#[k::equation]
+fn imm_beq(k::term![Imm(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(31, 1)
+        .mul::<Int>(4096)
+        .add::<Int>(op.bit_range::<Int>(25, 6).mul::<Int>(32))
+        .add::<Int>(op.bit_range::<Int>(8, 4).mul::<Int>(2))
+        .add::<Int>(op.bit_range::<Int>(7, 1).mul::<Int>(2048))
+        .sub::<Int>(op.bit_range::<Int>(31, 1).mul::<Int>(8192))
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(4294967296)
+        && op.bit_range::<Int>(0, 7).eq::<Int>(55)
+)]
+#[k::equation]
+fn imm_lui(k::term![Imm(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(12, 20)
+        .mul::<Int>(4096)
+        .sub::<Int>(op.bit_range::<Int>(31, 1).mul::<Int>(4294967296))
+}
+
+#[k::requires(
+    op.ge::<Int>(0)
+        && op.lt::<Int>(4294967296)
+        && op.bit_range::<Int>(0, 7).eq::<Int>(111)
+)]
+#[k::equation]
+fn imm_jal(k::term![Imm(op)]: Term<Int>) -> Term<Int> {
+    op.bit_range::<Int>(31, 1)
+        .mul::<Int>(1048576)
+        .add::<Int>(op.bit_range::<Int>(21, 10).mul::<Int>(2))
+        .add::<Int>(op.bit_range::<Int>(20, 1).mul::<Int>(2048))
+        .add::<Int>(op.bit_range::<Int>(12, 8).mul::<Int>(4096))
+        .sub::<Int>(op.bit_range::<Int>(31, 1).mul::<Int>(2097152))
 }

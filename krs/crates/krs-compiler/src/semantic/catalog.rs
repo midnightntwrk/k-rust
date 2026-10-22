@@ -236,13 +236,11 @@ pub(super) fn common_sequence_item_sort(
         if !k_item {
             return Ok(SemanticSortRef::k_sequence());
         }
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail:
-                "K sequence items do not have one most-specific common sort; a `K` item splices \
-                 into a sequence only in a rule result"
-                    .into(),
-        });
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            "K sequence items do not have one most-specific common sort; a `K` item splices \
+                 into a sequence only in a rule result",
+        ));
     };
     Ok(item_sort.clone())
 }

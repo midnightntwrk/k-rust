@@ -383,7 +383,7 @@ The template is a string because Rust's lexer rejects `0b00yyy100`.
 Its characters are read most significant bit first: `0` and `1` are fixed bits, `_` is a bit that may be either, a lowercase letter is a bit of the field it names, and spaces separate groups and are not bits.
 The width is the number of bits, here 8, and a template matches exactly the integers `n` with `0 <= n < 2^width` whose fixed bits are as written, so `decodeOf(4)` is `inc rb` while `decodeOf(260)`, whose low 8 bits are those of `4`, and `decodeOf(-252)` fall to the `owise` row.
 A field names that part of the matched value, `bitRangeInt(n, offset, length)`, in the sentence's `requires` and result: `y` above is bits 5 to 3.
-A field's bits must be adjacent (``field `a` is split``), because a scattered field would need an order to assemble its parts that the template cannot state; name each part with its own letter and combine them in the result.
+A field is unsigned and its bits are adjacent unless a modifier says otherwise (below).
 `op @ k::bits!(..)` also binds the whole value; otherwise the value has no name an author can write.
 
 A template is sugar, and `krs expand` prints its long form.
@@ -407,9 +407,32 @@ K emits `rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3,
 A template without `_` or fields is its decimal literal, `decode_halt` above is the row `118 => Halt`, so it is matched as a literal, without a guard.
 Splitting runs at spaces keeps the guards of templates written on one grid (`xx yyy zzz`) on the same terms, so templates that differ in a fixed bit compare equal terms with different values: the rule-overlap check, which reads such guards as facts about the bits of a term, keeps `kindOf(k::bits!("0___ ____"))` and `kindOf(k::bits!("1___ ____"))` apart, and reads the same guards written by hand alike.
 
+**Signed, shifted, and scattered fields.**
+After the template, a modifier per field says how its value is read, the way an ISA manual draws the encoding:
+
+```rust
+k::equations! {
+    for Decode;
+    use Instruction::*;
+    addi: k::bits!("iiiiiiiiiiii sssss 000 ddddd 0010011", i: signed)                        => Addi(d, s, i);
+    sw  : k::bits!("iiiiiii ttttt sssss 010 iiiii 0100011", i: signed[11:5 | 4:0])           => Sw(t, s, i);
+    beq : k::bits!("bbbbbbb ttttt sssss 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => Beq(s, t, b);
+    lui : k::bits!("uuuuuuuuuuuuuuuuuuuu ddddd 0110111", u: signed[31:12])                   => Lui(d, u);
+}
+```
+
+- The brackets list the value bits that the field's template bits carry, most significant template bit first, in the manuals' notation: `hi:lo` is a run of bits from `hi` down to `lo`, and `n` is one bit. RISC-V's B-type immediate is `imm[12|10:5]` in bits 31 to 25 and `imm[4:1|11]` in bits 11 to 7, so `b`'s twelve template bits carry `[12 | 10:5 | 4:1 | 11]`.
+- Value bits that no template bit carries are zero: B-type's bit 0, and bits 11 to 0 of LUI's `u`, which is the immediate already shifted into place.
+- `signed` reads the value as two's complement of its width, one more than its highest value bit: ADDI's `i` is in -2048..2047, and BEQ's `b` is an even offset in -4096..4094.
+- A letter whose bits are not adjacent needs the brackets (``field `b` is split`` otherwise): joining its parts in template order would be a guess, and a wrong one for B-type.
+
+The long form stays arithmetic over bit ranges: each piece is its `bit_range`, times the power of two of its lowest value bit, and the pieces are summed; a signed field then subtracts its sign bit times `2^width`.
+`addi`'s `i` is `bits.bit_range::<Int>(20, 12).sub::<Int>(bits.bit_range::<Int>(31, 1).mul::<Int>(4096))`.
+The prover reads a bit range by constant amounts as division and remainder and the rest as linear arithmetic, so it decides claims about such fields exactly: under `k::bits!(i, "1___ 0011")`, the signed field of `k::bits!("iiii 0011", i: signed)` is proven to be `(i - 259) / 16`.
+
 A template stands in an `Int` argument of a rule's, an equation's, or a table row's left-hand side, or in an argument of a sort above `Int`; at a position of another sort, such as `Bool`, it is `krs::analysis::bit-template-sort`, reported at the template.
 As a pattern, a template is rejected in a result, a guard, a `cells!` cell pattern, a context, or an alternative of `|` (`krs::syntax::bit-template-position`), as is an unnamed template in a sentence that lists its binders, whose value must be named to be listed.
-A character that is no bit, an empty template, more than 128 bits, and a split field are `krs::syntax::invalid-bit-template`; a field letter that is also a binder of the sentence, a field of another template, or a name a `let` or `k::matches!` binds again is `krs::syntax::bit-field-collision`.
+A character that is no bit, an empty template, more than 128 bits, a split field without its value bits, and a malformed modifier (one that names no field, a second one for a field, value bits written upward or twice, a count of value bits other than the field's template bits, or a value bit of 128 or more) are `krs::syntax::invalid-bit-template`; a field letter that is also a binder of the sentence, a field of another template, or a name a `let` or `k::matches!` binds again is `krs::syntax::bit-field-collision`.
 In a table, two rows that match one argument with templates of different widths are `krs::syntax::bit-template-width-mismatch`, a missing or extra bit being the likely cause, and two rows without an authored `requires` whose templates and literals share a value are `krs::syntax::duplicate-equation-row`, naming the arguments both apply to.
 
 **Testing a value.**
@@ -420,7 +443,7 @@ A template without free bits tests the same terms; only the pattern turns it int
 Field letters and `_` constrain nothing in a test, and a test binds nothing: its letters are accepted so that a row's template can be copied as it is, and outside the test a letter is only what the sentence's own binders make it, usually unbound.
 The value is a variable, a field of the sentence's own template, or a bit range of a variable (`x.bit_range::<Int>(0, 8)`).
 The long form reads it once per term, so a larger term, which would be repeated as many times, is bound to a name first: `op @` in the pattern, or a `let` (`krs::syntax::invalid-bit-template` otherwise).
-`k::bits!("..")` alone in a condition or a result is `krs::syntax::bit-template-position`; in a pattern, `k::bits!` takes only the template, and a second argument there is `krs::syntax::invalid-bit-template`, the place being reserved for modifiers such as signed fields.
+`k::bits!("..")` alone in a condition or a result is `krs::syntax::bit-template-position`; a test takes no field modifiers, since it binds no field, and a pattern takes its template first (`krs::syntax::invalid-bit-template` otherwise).
 
 **Migrating from field functions.**
 A decoder written with field functions, such as `FieldX(op) = op >> 6` and `FieldY(op) = (op >> 3) & 7` in guards like `FieldX(op) == 0 && FieldZ(op) == 4`, becomes one template per row:

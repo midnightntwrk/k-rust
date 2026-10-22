@@ -714,10 +714,10 @@ fn seed_head_rule_sorts(
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
     if binding_names.len() != rule.bindings.len() {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: "head-anchored rule has duplicate bindings".into(),
-        });
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            "head-anchored rule has duplicate bindings",
+        ));
     }
     let mut binding_sorts = BTreeMap::new();
     for binding in &rule.bindings {
@@ -769,12 +769,12 @@ fn seed_head_rule_sorts(
             })?;
             match binding_sorts.get(base_binding) {
                 Some(sort) if sort != cell_sort => {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: format!(
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        format!(
                             "updated-cell binding {base_binding:?} has a refinement other than {cell_sort}"
                         ),
-                    });
+                    ));
                 }
                 Some(_) => {}
                 None => {
@@ -888,10 +888,10 @@ fn infer_head_rule(
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
         if !builder.binding_sorts.contains_key(&binding.name) {
-            return Err(DescriptorLoweringError::InvalidTerm {
-                id: Box::new(builder.descriptor.id().clone()),
-                detail: format!("binding {:?} has no inferred semantic sort", binding.name),
-            });
+            return Err(DescriptorLoweringError::invalid_term(
+                builder.descriptor.id(),
+                format!("binding {:?} has no inferred semantic sort", binding.name),
+            ));
         }
     }
     Ok(())
@@ -1097,12 +1097,10 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
             State::Term(term) | State::Group(term) => self.builder.lower(term, Some(sort), subject),
             State::KSequence(sequence) => {
                 if *sort != SemanticSortRef::k_sequence() {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail:
-                            "a `[..]` sequence occurs in a cell that is not the computation cell"
-                                .into(),
-                    });
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "a `[..]` sequence occurs in a cell that is not the computation cell",
+                    ));
                 }
                 let items = sequence
                     .items
@@ -1123,10 +1121,10 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
                 ))
             }
             State::Map(_) | State::Present { .. } | State::Absent | State::Instances(_) => {
-                Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id().clone()),
-                    detail: "a readable cell state holds terms and `[..]` sequences".into(),
-                })
+                Err(DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    "a readable cell state holds terms and `[..]` sequences",
+                ))
             }
         }
     }
@@ -1283,9 +1281,11 @@ fn lower_head_rule_map_read(
             .binding_sorts
             .get(value_binding)
             .cloned()
-            .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id().clone()),
-                detail: format!("map value binding {value_binding:?} has no inferred sort"),
+            .ok_or_else(|| {
+                DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    format!("map value binding {value_binding:?} has no inferred sort"),
+                )
             })?;
         // Each value variable has its own origin; the first keeps the
         // spelling of a one-entry read.
@@ -1300,11 +1300,9 @@ fn lower_head_rule_map_read(
         );
         items.push(MapEntry { key, value });
     }
-    let items =
-        MapOperands::items(items).map_err(|error| DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: error.to_string(),
-        })?;
+    let items = MapOperands::items(items).map_err(|error| {
+        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
+    })?;
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, cell.key.clone(), "completed-map-read")?,
         semantic_cell_id(&cell.cell)?,
@@ -1665,10 +1663,10 @@ pub(super) fn lower_structured_rule_descriptor(
         .chain(&unbound_names)
     {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
-            DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id().clone()),
-                detail: format!("binding {binding:?} has no inferred subject sort"),
-            }
+            DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!("binding {binding:?} has no inferred subject sort"),
+            )
         })?;
         variables.push(SemanticVariable::new(
             SemanticId::new(binding.clone())?,
@@ -1776,10 +1774,10 @@ fn lower_predicate_rule(
     let mut variables = Vec::new();
     for binding in bindings {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
-            DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id().clone()),
-                detail: format!("binding {binding:?} has no inferred subject sort"),
-            }
+            DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!("binding {binding:?} has no inferred subject sort"),
+            )
         })?;
         variables.push(SemanticVariable::new(
             SemanticId::new(binding.clone())?,

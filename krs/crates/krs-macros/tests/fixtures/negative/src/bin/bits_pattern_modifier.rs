@@ -6,7 +6,7 @@ pub fn Code(value: k::Term<Int>) -> k::Term<Int>;
 
 k::equations! {
     for Code;
-    code_modified: k::bits!("aa", signed) => a; //~ ERROR a second argument is reserved for modifiers such as signed fields
+    code_modified: k::bits!("aa", signed) => a; //~ ERROR `signed` is no field letter; a modifier starts with the field's letter, as in `i: signed`
     #[k::equation(owise)]
     code_other: n => 1;
 }

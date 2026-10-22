@@ -64,6 +64,8 @@ pub enum DescriptorLoweringError {
         id: Box<StableItemId>,
         /// Stable diagnostic detail.
         detail: String,
+        /// The innermost enclosing term with an exact authored range.
+        range: Option<Box<krs_ir::SourceRange>>,
     },
     /// The descriptor graph is outside the supported shape.
     UnsupportedShape {
@@ -481,6 +483,18 @@ pub enum NondetGroupProblem {
     },
 }
 
+impl DescriptorLoweringError {
+    /// An invalid-term error for the descriptor `id`, without a range: where
+    /// it arises in a term, sort inference and lowering locate it.
+    pub(crate) fn invalid_term(id: &StableItemId, detail: impl Into<String>) -> Self {
+        Self::InvalidTerm {
+            id: Box::new(id.clone()),
+            detail: detail.into(),
+            range: None,
+        }
+    }
+}
+
 impl fmt::Display for DescriptorLoweringError {
     #[expect(
         clippy::too_many_lines,
@@ -513,7 +527,7 @@ impl fmt::Display for DescriptorLoweringError {
                 formatter,
                 "parser/reference disagreement for {id}: {detail}"
             ),
-            Self::InvalidTerm { id, detail } => {
+            Self::InvalidTerm { id, detail, .. } => {
                 write!(formatter, "invalid descriptor term for {id}: {detail}")
             }
             Self::UnsupportedShape { node, detail } => {
@@ -733,6 +747,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::TokenCollision { range, .. }
             | Self::InvalidSortTest { range, .. }
             | Self::BitTemplateSort { range, .. }
+            | Self::InvalidTerm { range, .. }
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidPatternAs { range, .. }
             | Self::InvalidPatternOr { range, .. }

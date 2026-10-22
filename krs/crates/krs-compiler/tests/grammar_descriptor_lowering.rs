@@ -1260,7 +1260,10 @@ fn ordinary_map_update_rejects_a_non_map_base_locally() {
     let krs_compiler::DescriptorLoweringError::InvalidTerm { detail, .. } = error else {
         panic!("unexpected error: {error:?}")
     };
-    assert_eq!(detail, "literal of sort Int is not admissible at sort Map");
+    assert_eq!(
+        detail,
+        "literal `2` of sort Int is not admissible at sort Map"
+    );
 }
 
 #[test]
@@ -1495,6 +1498,7 @@ fn structured_rule_bindings_reject_ambiguous_common_descendants_deterministicall
     let krs_compiler::DescriptorLoweringError::InvalidTerm {
         id: offending_id,
         detail,
+        ..
     } = first
     else {
         panic!("unexpected error: {first}")

@@ -118,7 +118,12 @@ clauses whose results read fields, with and without `op @`, make `regOf(5)`
 `rl` and `regOf(147)` `alu 147 rc`; templates beside an authored top-level
 `||` in a table row and an `#[k::equation]` fn, and `k::bits!(opcode, "..")`
 tests in a condition and a result, make `edgeOf(56)` `3`, `edgeOf(245)` `13`,
-and `edgeOf(112)` `6`. `krs check` warns that `DecodeCb`, whose templates
+and `edgeOf(112)` `6`. Field modifiers read RISC-V's immediates, signed,
+in pieces, scattered, and shifted into place, so that `bits-long` writes
+each as a sum of `bitRangeInt` terms times powers of two less the sign bit,
+and `immOf` gives ADDI's `-1` and `2047`, SW's `-4`, BEQ's `-8` and `4094`,
+LUI's `-2147483648`, and JAL's `-2048` and `1048574`, and `0` for an SW
+word with another `funct3`. `krs check` warns that `DecodeCb`, whose templates
 cover exactly `0..=255`, has no equation for `DecodeCb(256)`. Two negative
 fixtures overlap equations of one function at one priority: SM83-style
 `#[k::equation]` fns for HALT and `LD r, r'` without `op != 118`, and a fn
@@ -258,6 +263,16 @@ BITS_PROGRAMS = (
     Program("edge-ld-other", "edgeOf(70)", "accepted", "0"),
     Program("edge-push", "edgeOf(245)", "accepted", "13"),
     Program("edge-push-other", "edgeOf(213)", "accepted", "0"),
+    Program("imm-addi-negative", "immOf(4293918867)", "accepted", "-1"),
+    Program("imm-addi-max", "immOf(2146435219)", "accepted", "2047"),
+    Program("imm-sw-negative", "immOf(4263620131)", "accepted", "-4"),
+    Program("imm-sw-other", "immOf(4263616035)", "accepted", "0"),
+    Program("imm-beq-backward", "immOf(4263546083)", "accepted", "-8"),
+    Program("imm-beq-forward", "immOf(2116063203)", "accepted", "4094"),
+    Program("imm-lui-high", "immOf(2147484343)", "accepted", "-2147483648"),
+    Program("imm-lui-low", "immOf(305418935)", "accepted", "305418240"),
+    Program("imm-jal-backward", "immOf(2149576815)", "accepted", "-2048"),
+    Program("imm-jal-forward", "immOf(2147479791)", "accepted", "1048574"),
 )
 # The hidden binder of an unnamed template, and the long form's name for it.
 BITS_HIDDEN_BINDER = ("Krs_Bits0", "Op")
@@ -616,7 +631,7 @@ def main() -> int:
         print("PASS sugar: the function shorthand and equation tables emit their long form's K; byteOf, halfOf, regOf, and pickOf agree natively and on Java LLVM")
 
         verify_bits(harness)
-        print("PASS bits: bit templates and tests emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, kindOf, regOf, and edgeOf agree natively and on Java LLVM")
+        print("PASS bits: bit templates and tests emit their long form's K up to the hidden binder's name; decodeOf, decodeCbOf, kindOf, regOf, edgeOf, and immOf agree natively and on Java LLVM")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
