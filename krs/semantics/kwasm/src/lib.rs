@@ -156,13 +156,13 @@ k::rules! {
     constant_i32: {
         instrs: [Const(IntegerType::I32, value), ..],
     } => {
-        instrs: [crate::Chop(IntegerType::I32, int::add(value, 4_294_967_296)), ..],
+        instrs: [Chop(IntegerType::I32, int::add(value, 4_294_967_296)), ..],
     };
 
     constant_i64: {
         instrs: [Const(IntegerType::I64, value), ..],
     } => {
-        instrs: [crate::Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616)), ..],
+        instrs: [Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616)), ..],
     };
 
     undefined_traps: {
@@ -175,7 +175,7 @@ k::rules! {
         instrs: [Binary(ty, op), ..],
         valstack: Stack::Cons(Value::Integer(ty, rhs), Stack::Cons(Value::Integer(ty, lhs), rest)),
     } => {
-        instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..],
+        instrs: [IntBinOp(ty, op, lhs, rhs), ..],
         valstack: rest,
     };
 

@@ -26,7 +26,7 @@ PROBES = (
     ),
     (
         "function application",
-        "instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..]",
+        "instrs: [IntBinOp(ty, op, lhs, rhs), ..]",
         "IntBinOp",
         "pub fn IntBinOp(",
     ),
@@ -38,7 +38,7 @@ PROBES = (
     ),
     (
         "binding reference",
-        "instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..]",
+        "instrs: [IntBinOp(ty, op, lhs, rhs), ..]",
         "rhs",
         "valstack: Stack::Cons(Value::Integer(ty, rhs)",
     ),
