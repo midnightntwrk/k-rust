@@ -1,15 +1,29 @@
 //! The one place that reads the backend's condition records (`collectConditions`, G-7) into
 //! the algebra's [`Cond`]. A change of the record shape is absorbed here.
 //!
-//! A record gives no distance when it is marked `chosen` (its terms may be one model's of a
-//! value the definition leaves open), and an atom gives none when its truth is not decided or
-//! one of its operands is not a ground value (`symbolic`, `undefined`, `omitted`, or variable-free
-//! but holding an unevaluated application): no signal, never a distance of 0
-//! (`super::distance`).
+//! - Only complete entries count: a record whose verdict is `reentered` is followed by the
+//!   complete entry of the same attempt and is skipped; a record whose attempt stopped, left the
+//!   condition undecided or ended without a verdict gives no distance, and neither does a
+//!   `chosen` record (its terms may be one model's of a value the definition leaves open). A
+//!   `held` record is at distance 0. A `refuted` record is measured, and gives no distance when
+//!   the measure finds every atom satisfied (it was refuted by the path, which the record does
+//!   not show).
+//! - Every node carries the truth the record's evaluation decided. The measure uses it where it
+//!   is decided ([`Cond::Decided`]): a node that holds is at distance 0 without measuring its
+//!   children, and a node that is `undefined` or `undecided` gives no distance.
+//! - The K Boolean connectives are strict functions on `Bool`: `notBool`, `andBool` and
+//!   `andThenBool`, `orBool` and `orElseBool`, `impliesBool`, and `xorBool` as
+//!   `(a andBool notBool b) orBool (notBool a andBool b)`; an undefined operand makes them
+//!   undefined, which the decided truth already says. The matching-logic connectives `\not`,
+//!   `\and`, `\or`, `\implies`, `\iff` combine two-valued predicates the same way. An `equals`
+//!   node `\equals(b, literal)` is `b` for `true` and `notBool b` for `false`.
+//! - An atom is measured by its operands only when they are ground values (`kind: value`);
+//!   `unevaluated`, `symbolic`, `undefined`, `stopped` and `omitted` operands leave it to its
+//!   decided truth (`super::distance`).
 
 use k_rust::backend::{
-    ConditionAtomOutput, ConditionNodeOutput, ConditionRecordOutput, RecordedValueOutput,
-    RuleConditionsOutput,
+    ConditionAtomOutput, ConditionNodeOutput, ConditionRecordOutput, ConnectiveOutput,
+    RecordedValueOutput, RuleConditionsOutput, TruthOutput, VerdictOutput,
 };
 use num_bigint::BigInt;
 use serde_json::Value as Json;
@@ -19,8 +33,8 @@ use super::{
     distance::{Comparison, Cond, Distance, Operand, Truth, distance},
 };
 
-/// Each record of each rule in `conditions`, by rule id, in the records' order: its guard
-/// distance (`None` when it gives none) and the ground `Int` and `String` values it binds.
+/// Each complete record of each rule in `conditions`, by rule id, in the records' order: its
+/// guard distance (`None` when it gives none) and the ground `Int` and `String` values it binds.
 pub(crate) fn guards(conditions: &[RuleConditionsOutput]) -> Guards {
     conditions
         .iter()
@@ -28,6 +42,7 @@ pub(crate) fn guards(conditions: &[RuleConditionsOutput]) -> Guards {
             let entries = rule
                 .records
                 .iter()
+                .filter(|record| record.verdict != Some(VerdictOutput::Reentered))
                 .map(|record| GuardEntry {
                     distance: record_distance(record),
                     reads: record
@@ -45,27 +60,89 @@ pub(crate) fn guards(conditions: &[RuleConditionsOutput]) -> Guards {
         .collect()
 }
 
-/// The guard distance of one record: the distance of the conjunction of its conjuncts.
+/// The guard distance of one complete record (module documentation).
 fn record_distance(record: &ConditionRecordOutput) -> Option<Distance> {
     if record.chosen {
         return None;
     }
-    distance(&Cond::And(record.condition.iter().map(node).collect()))
+    match record.verdict? {
+        VerdictOutput::Held => Some(Distance::zero()),
+        VerdictOutput::Refuted => distance(&Cond::And(record.condition.iter().map(node).collect()))
+            .filter(|distance| !distance.is_zero()),
+        VerdictOutput::Undecided | VerdictOutput::Stopped | VerdictOutput::Reentered => None,
+    }
+}
+
+fn truth(value: TruthOutput) -> Truth {
+    match value {
+        TruthOutput::True => Truth::True,
+        TruthOutput::False => Truth::False,
+        TruthOutput::Undefined | TruthOutput::Undecided => Truth::Unknown,
+    }
 }
 
 fn node(node: &ConditionNodeOutput) -> Cond {
     match node {
-        ConditionNodeOutput::And(children) => Cond::And(children.iter().map(self::node).collect()),
-        ConditionNodeOutput::Or(children) => Cond::Or(children.iter().map(self::node).collect()),
-        ConditionNodeOutput::Not(child) => Cond::Not(Box::new(self::node(child))),
-        ConditionNodeOutput::Implies(antecedent, consequent) => Cond::Implies(
-            Box::new(self::node(antecedent)),
-            Box::new(self::node(consequent)),
-        ),
-        ConditionNodeOutput::Atom(atom) => self::atom(atom),
+        ConditionNodeOutput::Connective {
+            connective,
+            children,
+            value,
+        } => {
+            let children: Vec<Cond> = children.iter().map(self::node).collect();
+            Cond::Decided(truth(*value), Box::new(connect(*connective, children)))
+        }
+        ConditionNodeOutput::Equals {
+            literal,
+            child,
+            value,
+        } => {
+            let child = self::node(child);
+            let cond = if *literal {
+                child
+            } else {
+                Cond::Not(Box::new(child))
+            };
+            Cond::Decided(truth(*value), Box::new(cond))
+        }
+        ConditionNodeOutput::Atom(atom) => {
+            Cond::Decided(truth(atom.value), Box::new(self::atom(atom)))
+        }
     }
 }
 
+/// The algebra's form of `connective` over `children` (a malformed arity gives an unknown
+/// atom, no signal).
+fn connect(connective: ConnectiveOutput, mut children: Vec<Cond>) -> Cond {
+    use ConnectiveOutput as C;
+    let not = |cond: Cond| Cond::Not(Box::new(cond));
+    match (connective, children.len()) {
+        (C::NotBool | C::Not, 1) => not(children.remove(0)),
+        (C::AndBool | C::AndThenBool | C::And, _) => Cond::And(children),
+        (C::OrBool | C::OrElseBool | C::Or, _) => Cond::Or(children),
+        (C::ImpliesBool | C::Implies, 2) => {
+            let consequent = children.remove(1);
+            Cond::Implies(Box::new(children.remove(0)), Box::new(consequent))
+        }
+        (C::XorBool, 2) => {
+            let (a, b) = (children[0].clone(), children[1].clone());
+            Cond::Or(vec![
+                Cond::And(vec![a.clone(), not(b.clone())]),
+                Cond::And(vec![not(a), b]),
+            ])
+        }
+        (C::Iff, 2) => {
+            let (a, b) = (children[0].clone(), children[1].clone());
+            Cond::Or(vec![
+                Cond::And(vec![a.clone(), b.clone()]),
+                Cond::And(vec![not(a), not(b)]),
+            ])
+        }
+        _ => Cond::Atom(Truth::Unknown),
+    }
+}
+
+/// An atom measured by its operands when it is a comparison over two ground `Int` or `String`
+/// values; otherwise counted by its truth (the caller wraps it in that truth).
 fn atom(atom: &ConditionAtomOutput) -> Cond {
     let ground: Option<Vec<&Json>> = atom
         .operands
@@ -75,10 +152,8 @@ fn atom(atom: &ConditionAtomOutput) -> Cond {
             _ => None,
         })
         .collect();
-    let Some(ground) = ground else {
-        return Cond::Atom(Truth::Unknown);
-    };
-    if let Some((comparison, family)) = comparison(atom.head.as_deref(), atom.hook.as_deref())
+    if let Some(ground) = ground
+        && let Some((comparison, family)) = comparison(atom.head.as_deref(), atom.hook.as_deref())
         && let [left, right] = ground[..]
     {
         match (operand(left), operand(right), family) {
@@ -96,11 +171,7 @@ fn atom(atom: &ConditionAtomOutput) -> Cond {
             _ => {}
         }
     }
-    Cond::Atom(match atom.value {
-        Some(true) => Truth::True,
-        Some(false) => Truth::False,
-        None => Truth::Unknown,
-    })
+    Cond::Atom(truth(atom.value))
 }
 
 /// Which operands a comparison measures.
@@ -158,6 +229,7 @@ fn operand(term: &Json) -> Option<Operand> {
 
 #[cfg(test)]
 mod tests {
+    use k_rust::backend::RecordedBindingOutput;
     use serde_json::json;
 
     use super::*;
@@ -172,10 +244,11 @@ mod tests {
         }
     }
 
+    /// A Boolean application atom with `hook`.
     fn atom(
         hook: &str,
         operands: Vec<RecordedValueOutput>,
-        value: Option<bool>,
+        value: TruthOutput,
     ) -> ConditionNodeOutput {
         ConditionNodeOutput::Atom(ConditionAtomOutput {
             head: Some("Lbl".into()),
@@ -186,63 +259,218 @@ mod tests {
         })
     }
 
-    fn record(condition: Vec<ConditionNodeOutput>, chosen: bool) -> RuleConditionsOutput {
+    /// The conjunct `requires b`: `\equals(b, true)`, true exactly when `b` is.
+    fn requires(child: ConditionNodeOutput) -> ConditionNodeOutput {
+        let value = match node_truth(&child) {
+            TruthOutput::True => TruthOutput::True,
+            TruthOutput::False | TruthOutput::Undefined => TruthOutput::False,
+            TruthOutput::Undecided => TruthOutput::Undecided,
+        };
+        ConditionNodeOutput::Equals {
+            literal: true,
+            child: Box::new(child),
+            value,
+        }
+    }
+
+    fn node_truth(node: &ConditionNodeOutput) -> TruthOutput {
+        match node {
+            ConditionNodeOutput::Connective { value, .. }
+            | ConditionNodeOutput::Equals { value, .. } => *value,
+            ConditionNodeOutput::Atom(atom) => atom.value,
+        }
+    }
+
+    fn connective(
+        connective: ConnectiveOutput,
+        children: Vec<ConditionNodeOutput>,
+        value: TruthOutput,
+    ) -> ConditionNodeOutput {
+        ConditionNodeOutput::Connective {
+            connective,
+            children,
+            value,
+        }
+    }
+
+    fn entry(
+        condition: Vec<ConditionNodeOutput>,
+        verdict: Option<VerdictOutput>,
+    ) -> ConditionRecordOutput {
+        ConditionRecordOutput {
+            bindings: Vec::new(),
+            condition,
+            verdict,
+            chosen: false,
+        }
+    }
+
+    fn rule(records: Vec<ConditionRecordOutput>) -> RuleConditionsOutput {
         RuleConditionsOutput {
             rule: "r".into(),
-            records: vec![ConditionRecordOutput {
-                bindings: Vec::new(),
-                condition,
-                chosen,
-            }],
+            records,
             truncated: false,
         }
     }
 
-    fn only(conditions: &RuleConditionsOutput) -> Option<Distance> {
-        guards(std::slice::from_ref(conditions))["r"][0]
-            .distance
-            .clone()
+    fn distances(records: Vec<ConditionRecordOutput>) -> Vec<Option<Distance>> {
+        guards(&[rule(records)])["r"]
+            .iter()
+            .map(|entry| entry.distance.clone())
+            .collect()
     }
+
+    fn one(condition: Vec<ConditionNodeOutput>, verdict: VerdictOutput) -> Option<Distance> {
+        distances(vec![entry(condition, Some(verdict))])[0].clone()
+    }
+
+    use TruthOutput::{False, True, Undecided, Undefined};
+    use VerdictOutput::{Held, Reentered, Refuted, Stopped};
 
     #[test]
     fn integer_atoms_are_measured_by_their_operands() {
-        let window = record(
-            vec![
-                atom("INT.gt", vec![int(-3), int(1000)], Some(false)),
-                atom("INT.lt", vec![int(-3), int(1100)], Some(true)),
-            ],
-            false,
+        // 1000 < D < 1100 at D = -3.
+        let window = vec![
+            requires(atom("INT.gt", vec![int(-3), int(1000)], False)),
+            requires(atom("INT.lt", vec![int(-3), int(1100)], True)),
+        ];
+        assert_eq!(
+            one(window, Refuted),
+            Some(Distance::normalized(1004u32.into()))
         );
-        assert_eq!(only(&window), Some(Distance::normalized(1004u32.into())));
+        // Under a K connective: `notBool (D <=Int 1000)` at D = -3 is D > 1000.
+        let negated = vec![requires(connective(
+            ConnectiveOutput::NotBool,
+            vec![atom("INT.le", vec![int(-3), int(1000)], True)],
+            False,
+        ))];
+        assert_eq!(
+            one(negated, Refuted),
+            Some(Distance::normalized(1004u32.into()))
+        );
     }
 
     #[test]
-    fn chosen_records_and_non_ground_operands_give_no_distance() {
-        let chosen = record(
-            vec![atom("INT.eq", vec![int(1), int(2)], Some(false))],
-            true,
+    fn only_complete_decided_records_count() {
+        let far = || vec![requires(atom("INT.eq", vec![int(1), int(9)], False))];
+        // A held record is at distance 0; a refuted one is measured.
+        let held = vec![requires(atom("INT.eq", vec![int(9), int(9)], True))];
+        assert_eq!(one(held, Held), Some(Distance::zero()));
+        // A reentered record is followed by the complete entry: only that one is an entry.
+        let records = vec![entry(far(), Some(Reentered)), entry(far(), Some(Refuted))];
+        assert_eq!(
+            distances(records),
+            vec![Some(Distance::normalized(8u32.into()))]
         );
-        assert_eq!(only(&chosen), None);
+        // Undecided, stopped and verdict-less attempts and chosen records give no distance.
+        for verdict in [Some(VerdictOutput::Undecided), Some(Stopped), None] {
+            assert_eq!(distances(vec![entry(far(), verdict)]), vec![None]);
+        }
+        let mut chosen = entry(far(), Some(Refuted));
+        chosen.chosen = true;
+        assert_eq!(distances(vec![chosen]), vec![None]);
+        // A refuted record whose atoms all hold was refuted by the path: no distance, never 0.
+        let path = vec![requires(atom("INT.eq", vec![int(9), int(9)], True))];
+        assert_eq!(one(path, Refuted), None);
+    }
+
+    #[test]
+    fn undefined_and_undecided_nodes_give_no_distance() {
+        // `notBool (X /Int Y >Int 3)` at Y = 0: the comparison and the notBool are undefined,
+        // the conjunct false, the verdict refuted: no gradient.
+        let undefined = vec![requires(connective(
+            ConnectiveOutput::NotBool,
+            vec![atom(
+                "INT.gt",
+                vec![RecordedValueOutput::Undefined, int(3)],
+                Undefined,
+            )],
+            Undefined,
+        ))];
+        assert_eq!(one(undefined, Refuted), None);
+        // A strict `andThenBool` over an undefined operand is undefined.
+        let strict = vec![requires(connective(
+            ConnectiveOutput::AndThenBool,
+            vec![
+                atom("INT.eq", vec![int(1), int(2)], False),
+                atom(
+                    "INT.gt",
+                    vec![RecordedValueOutput::Undefined, int(3)],
+                    Undefined,
+                ),
+            ],
+            Undefined,
+        ))];
+        assert_eq!(one(strict, Refuted), None);
         for operand in [
             RecordedValueOutput::Symbolic { term: json!({}) },
-            RecordedValueOutput::Ground { term: json!({}) },
-            RecordedValueOutput::Undefined,
+            RecordedValueOutput::Unevaluated { term: json!({}) },
+            RecordedValueOutput::Stopped,
             RecordedValueOutput::Omitted,
         ] {
-            // The truth a record gives such an atom is not used: no signal, never 0.
-            let record = record(
-                vec![atom("INT.eq", vec![int(1), operand], Some(true))],
-                false,
+            // An undecided atom over such an operand is no signal.
+            let undecided = vec![requires(atom(
+                "INT.eq",
+                vec![int(1), operand.clone()],
+                Undecided,
+            ))];
+            assert_eq!(one(undecided, Refuted), None);
+            // A decided one counts by its truth only: its operands are not measured.
+            let decided = vec![requires(atom("INT.eq", vec![int(1), operand], False))];
+            assert_eq!(
+                one(decided, Refuted),
+                Some(Distance::normalized(1u32.into()))
             );
-            assert_eq!(only(&record), None);
         }
-        let undecided = record(vec![atom("SET.in", vec![int(1)], None)], false);
-        assert_eq!(only(&undecided), None);
+    }
+
+    #[test]
+    fn a_decided_true_node_is_not_measured_below() {
+        // `D >Int 1000 orBool <undecided>` decided true by its first operand: distance 0
+        // contributes nothing to the conjunction; the second conjunct is measured.
+        let condition = vec![
+            requires(connective(
+                ConnectiveOutput::OrBool,
+                vec![
+                    atom("INT.gt", vec![int(2000), int(1000)], True),
+                    atom("SET.in", vec![int(1)], Undecided),
+                ],
+                True,
+            )),
+            requires(atom("INT.eq", vec![int(5), int(7)], False)),
+        ];
+        assert_eq!(
+            one(condition, Refuted),
+            Some(Distance::normalized(2u32.into()))
+        );
+    }
+
+    #[test]
+    fn xor_and_iff_are_read_by_their_definitions() {
+        // `(A ==Int 1) xorBool (B ==Int 1)` at A = B = 3: either equality, 2 steps.
+        let xor = vec![requires(connective(
+            ConnectiveOutput::XorBool,
+            vec![
+                atom("INT.eq", vec![int(3), int(1)], False),
+                atom("INT.eq", vec![int(3), int(1)], False),
+            ],
+            False,
+        ))];
+        assert_eq!(one(xor, Refuted), Some(Distance::normalized(2u32.into())));
+        // `\iff(A ==Int 1, B ==Int 1)` at A = 1, B = 3: B to 1 (2 steps) or A off 1 (1).
+        let iff = vec![connective(
+            ConnectiveOutput::Iff,
+            vec![
+                requires(atom("INT.eq", vec![int(1), int(1)], True)),
+                requires(atom("INT.eq", vec![int(3), int(1)], False)),
+            ],
+            False,
+        )];
+        assert_eq!(one(iff, Refuted), Some(Distance::normalized(1u32.into())));
     }
 
     #[test]
     fn the_ground_integer_and_string_bindings_are_read() {
-        use k_rust::backend::RecordedBindingOutput;
         let string = RecordedValueOutput::Value {
             term: json!({
                 "tag": "DV",
@@ -254,17 +482,17 @@ mod tests {
             variable: json!(name),
             value,
         };
-        let mut conditions = record(
-            vec![atom("INT.eq", vec![int(1), int(2)], Some(false))],
-            false,
+        let mut record = entry(
+            vec![requires(atom("INT.eq", vec![int(1), int(2)], False))],
+            Some(Refuted),
         );
-        conditions.records[0].bindings = vec![
+        record.bindings = vec![
             binding("A", int(5)),
             binding("B", RecordedValueOutput::Symbolic { term: json!({}) }),
             binding("S", string),
             binding("U", RecordedValueOutput::Undefined),
         ];
-        let entry = &guards(std::slice::from_ref(&conditions))["r"][0];
+        let entry = &guards(&[rule(vec![record])])["r"][0];
         assert_eq!(
             entry.reads,
             vec![Operand::Int(5.into()), Operand::Str("open".into())]
@@ -273,9 +501,7 @@ mod tests {
 
     #[test]
     fn other_atoms_count_by_their_truth() {
-        let holds = record(vec![atom("SET.in", vec![int(1)], Some(true))], false);
-        assert_eq!(only(&holds), Some(Distance::zero()));
-        let fails = record(vec![atom("SET.in", vec![int(1)], Some(false))], false);
-        assert_eq!(only(&fails), Some(Distance::normalized(1u32.into())));
+        let fails = vec![requires(atom("SET.in", vec![int(1)], False))];
+        assert_eq!(one(fails, Refuted), Some(Distance::normalized(1u32.into())));
     }
 }

@@ -110,6 +110,11 @@ pub(crate) enum Cond {
     Compare(Comparison, Option<(Operand, Operand)>),
     /// Any other atom, by its truth.
     Atom(Truth),
+    /// A node whose truth an evaluation already decided: a node that holds has distance 0 and
+    /// its negation is measured from `cond`; a node that does not hold is measured from `cond`
+    /// and its negation has distance 0; a node without a truth value (undefined, undecided)
+    /// gives no distance either way.
+    Decided(Truth, Box<Cond>),
 }
 
 /// A non-negative exact fraction: a sum of normalized atom distances. Ordered by value.
@@ -215,6 +220,11 @@ fn distance_with(cond: &Cond, positive: bool) -> Option<Distance> {
             let (left, right) = operands.as_ref()?;
             raw_comparison(comparison, left, right).map(Distance::normalized)
         }
+        Cond::Decided(truth, cond) => match (truth, positive) {
+            (Truth::Unknown, _) => None,
+            (Truth::True, true) | (Truth::False, false) => Some(Distance::zero()),
+            (Truth::True, false) | (Truth::False, true) => distance_with(cond, positive),
+        },
         Cond::Atom(truth) => match (truth, positive) {
             (Truth::Unknown, _) => None,
             (Truth::True, true) | (Truth::False, false) => Some(Distance::zero()),
@@ -450,6 +460,30 @@ mod tests {
         let near = distance(&string(Comparison::StrEq, "opex", "open"));
         let far = distance(&string(Comparison::StrEq, "oxxx", "open"));
         assert!(near < far);
+    }
+
+    #[test]
+    fn a_decided_node_is_measured_only_where_it_fails() {
+        let decided = |truth, cond: Cond| Cond::Decided(truth, Box::new(cond));
+        // A node that holds is at distance 0 without its children being measured (an unknown
+        // child below a decided node does not make it undefined).
+        let holds = decided(
+            Truth::True,
+            Cond::Or(vec![
+                compare(Comparison::IntEq, 1, 1),
+                Cond::Atom(Truth::Unknown),
+            ]),
+        );
+        assert_eq!(parts(&holds), (0, 1));
+        // Its negation is measured from the children.
+        assert_eq!(distance(&not(holds)), None);
+        let fails = decided(Truth::False, compare(Comparison::IntEq, 3, 7));
+        assert_eq!(parts(&fails), (4, 5));
+        assert_eq!(parts(&not(fails)), (0, 1));
+        // An undefined or undecided node gives no distance either way.
+        let unknown = decided(Truth::Unknown, compare(Comparison::IntEq, 3, 7));
+        assert_eq!(distance(&unknown), None);
+        assert_eq!(distance(&not(unknown)), None);
     }
 
     #[test]
