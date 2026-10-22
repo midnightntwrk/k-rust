@@ -28,7 +28,7 @@ PROBES = (
     ),
     (
         "push preparation function",
-        "k: [PreparePush { op: Operation::Push { width, value }, stack, gas, cost: 3 }, ..]",
+        "k: [PreparePush { op: Push { width, value }, stack, gas, cost: 3 }, ..]",
         "PreparePush",
         "pub fn PreparePush(",
     ),
@@ -42,7 +42,7 @@ PROBES = (
         "width binding",
         "pc: pc + (width + 1)",
         "width",
-        "k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..]",
+        "k: [EnoughGas(Push { width, value }, remaining), ..]",
     ),
     (
         "exception constructor",

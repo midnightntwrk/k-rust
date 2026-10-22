@@ -2218,6 +2218,7 @@ impl Machine {
 
 k::rules! {
     for Machine;
+    use Operation::*;
     lookup: {
         k: [ExecutionCommand::Run(), ..],
         program,
@@ -2227,23 +2228,23 @@ k::rules! {
     };
 
     begin_push: {
-        k: [Operation::Push { width, value }, ..],
+        k: [Push { width, value }, ..],
         word_stack: stack,
         gas,
     } => {
-        k: [PreparePush { op: Operation::Push { width, value }, stack, gas, cost: 3 }, ..],
+        k: [PreparePush { op: Push { width, value }, stack, gas, cost: 3 }, ..],
     };
 
     begin_exponent: {
-        k: [Operation::Exponent, ..],
+        k: [Exponent(), ..],
         word_stack: [_, w1, ..],
         gas,
     } => {
-        k: [ChargeFixed { op: Operation::Exponent, gas, cost: ExpCost(w1) }, ..],
+        k: [ChargeFixed { op: Exponent, gas, cost: ExpCost(w1) }, ..],
     };
 
     begin_external_code_copy: {
-        k: [Operation::ExternalCodeCopy, ..],
+        k: [ExternalCodeCopy(), ..],
         word_stack: [account, destination, _, width, ..],
         memory_used: used,
         accessed_accounts: accessed,
@@ -2251,7 +2252,7 @@ k::rules! {
     } => {
         k: [
             ChargeFixed {
-                op: Operation::ExternalCodeCopy,
+                op: ExternalCodeCopy,
                 gas,
                 cost: ExternalCopyGasCost { accessed, account, used, start: destination, width }
             },
@@ -2260,30 +2261,30 @@ k::rules! {
     };
 
     begin_block_hash: {
-        k: [Operation::BlockHash, ..],
+        k: [BlockHash(), ..],
         word_stack: [_, ..],
         gas,
     } => {
-        k: [ChargeFixed { op: Operation::BlockHash, gas, cost: 20 }, ..],
+        k: [ChargeFixed { op: BlockHash, gas, cost: 20 }, ..],
     };
 
     begin_self_balance: {
-        k: [Operation::SelfBalance, ..],
+        k: [SelfBalance(), ..],
         word_stack: stack,
         gas,
     } => {
-        k: [PreparePush { op: Operation::SelfBalance, stack, gas, cost: 5 }, ..],
+        k: [PreparePush { op: SelfBalance, stack, gas, cost: 5 }, ..],
     };
 
     begin_memory_load: {
-        k: [Operation::MemoryLoad, ..],
+        k: [MemoryLoad(), ..],
         word_stack: [index, ..],
         memory_used: used,
         gas,
     } => {
         k: [
             ChargeFixed {
-                op: Operation::MemoryLoad,
+                op: MemoryLoad,
                 gas,
                 cost: 3 + MemoryExpansionCost { used, start: index, width: 32 }
             },
@@ -2292,14 +2293,14 @@ k::rules! {
     };
 
     begin_memory_store: {
-        k: [Operation::MemoryStore, ..],
+        k: [MemoryStore(), ..],
         word_stack: [index, _, ..],
         memory_used: used,
         gas,
     } => {
         k: [
             ChargeFixed {
-                op: Operation::MemoryStore,
+                op: MemoryStore,
                 gas,
                 cost: 3 + MemoryExpansionCost { used, start: index, width: 32 }
             },
@@ -2308,14 +2309,14 @@ k::rules! {
     };
 
     begin_memory_store8: {
-        k: [Operation::MemoryStore8, ..],
+        k: [MemoryStore8(), ..],
         word_stack: [index, _, ..],
         memory_used: used,
         gas,
     } => {
         k: [
             ChargeFixed {
-                op: Operation::MemoryStore8,
+                op: MemoryStore8,
                 gas,
                 cost: 3 + MemoryExpansionCost { used, start: index, width: 1 }
             },
@@ -2324,14 +2325,14 @@ k::rules! {
     };
 
     begin_sha3: {
-        k: [Operation::Sha3, ..],
+        k: [Sha3(), ..],
         word_stack: [start, width, ..],
         memory_used: used,
         gas,
     } => {
         k: [
             ChargeFixed {
-                op: Operation::Sha3,
+                op: Sha3,
                 gas,
                 cost: MemoryExpansionCost { used, start, width } + (30 + 6 * ((width + 31) / 32))
             },
@@ -2341,7 +2342,7 @@ k::rules! {
 
     #[k::requires(current_account == account_id)]
     begin_storage_load: {
-        k: [Operation::StorageLoad, ..],
+        k: [StorageLoad(), ..],
         address: current_account,
         account_id,
         storage,
@@ -2351,7 +2352,7 @@ k::rules! {
     } => {
         k: [
             ChargeFixed {
-                op: Operation::StorageLoad,
+                op: StorageLoad,
                 gas,
                 cost: StorageLoadCost {
                     warm: StorageWarm { accessed, account: current_account, index }
@@ -2363,7 +2364,7 @@ k::rules! {
 
     #[k::requires(current_account == account_id)]
     begin_storage_store: {
-        k: [Operation::StorageStore, ..],
+        k: [StorageStore(), ..],
         address: current_account,
         account_id,
         storage,
@@ -2387,7 +2388,7 @@ k::rules! {
     };
 
     begin_log: {
-        k: [Operation::LogOpcode { topics }, ..],
+        k: [LogOpcode { topics }, ..],
         word_stack: stack,
         memory_used: used,
         static_mode,
@@ -2397,30 +2398,30 @@ k::rules! {
     };
 
     begin_jump: {
-        k: [Operation::Jump, ..],
+        k: [Jump(), ..],
         word_stack: [_, ..],
         gas,
     } => {
-        k: [ChargeFixed { op: Operation::Jump, gas, cost: 8 }, ..],
+        k: [ChargeFixed { op: Jump, gas, cost: 8 }, ..],
     };
 
     begin_jump_if: {
-        k: [Operation::JumpIf, ..],
+        k: [JumpIf(), ..],
         word_stack: [_, _, ..],
         gas,
     } => {
-        k: [ChargeFixed { op: Operation::JumpIf, gas, cost: 10 }, ..],
+        k: [ChargeFixed { op: JumpIf, gas, cost: 10 }, ..],
     };
 
     begin_jump_dest: {
-        k: [Operation::JumpDest, ..],
+        k: [JumpDest(), ..],
         gas,
     } => {
-        k: [ChargeFixed { op: Operation::JumpDest, gas, cost: 1 }, ..],
+        k: [ChargeFixed { op: JumpDest, gas, cost: 1 }, ..],
     };
 
     begin_static_call: {
-        k: [Operation::StaticCall, ..],
+        k: [StaticCall(), ..],
         word_stack: stack,
         memory_used: used,
         accessed_accounts: accessed,
@@ -2430,31 +2431,32 @@ k::rules! {
     };
 
     begin_stop: {
-        k: [Operation::Stop, ..],
+        k: [Stop(), ..],
         gas,
     } => {
-        k: [ChargeFixed { op: Operation::Stop, gas, cost: 0 }, ..],
+        k: [ChargeFixed { op: Stop, gas, cost: 0 }, ..],
     };
 }
 
 k::rules! {
     for Machine;
+    use Operation::*;
 
     /// Opcodes that push one word of the call, transaction, or machine state for the base cost of 2 gas.
     begin_push_base_cost_execution: {
         k: [
-            op @ (Operation::PushZero
-            | Operation::Address
-            | Operation::TxOrigin
-            | Operation::MsgCaller
-            | Operation::MsgCallValue
-            | Operation::CallDataSize
-            | Operation::CodeSize
-            | Operation::TxGasPrice
-            | Operation::ReturnDataSize
-            | Operation::MemorySize
-            | Operation::GasRemaining
-            | Operation::ProgramCounter),
+            op @ (PushZero()
+            | Address()
+            | TxOrigin()
+            | MsgCaller()
+            | MsgCallValue()
+            | CallDataSize()
+            | CodeSize()
+            | TxGasPrice()
+            | ReturnDataSize()
+            | MemorySize()
+            | GasRemaining()
+            | ProgramCounter()),
             ..
         ],
         word_stack: stack,
@@ -2466,13 +2468,13 @@ k::rules! {
     /// Opcodes that push one word of the block header for the base cost of 2 gas.
     begin_push_base_cost_block: {
         k: [
-            op @ (Operation::BlockCoinbase
-            | Operation::BlockTimestamp
-            | Operation::BlockNumber
-            | Operation::PrevRandao
-            | Operation::BlockGasLimit
-            | Operation::NetworkChainId
-            | Operation::BlockBaseFee),
+            op @ (BlockCoinbase()
+            | BlockTimestamp()
+            | BlockNumber()
+            | PrevRandao()
+            | BlockGasLimit()
+            | NetworkChainId()
+            | BlockBaseFee()),
             ..
         ],
         word_stack: stack,
@@ -2483,7 +2485,7 @@ k::rules! {
 
     /// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
     begin_stack_operation: {
-        k: [op @ (Operation::Pop | Operation::Duplicate(_) | Operation::Swap(_)), ..],
+        k: [op @ (Pop() | Duplicate(_) | Swap(_)), ..],
         word_stack: stack,
         gas,
     } => {
@@ -2493,20 +2495,20 @@ k::rules! {
     /// Two-operand opcodes that cost 3 gas.
     begin_binary_very_low: {
         k: [
-            op @ (Operation::Add
-            | Operation::Sub
-            | Operation::LessThan
-            | Operation::GreaterThan
-            | Operation::SignedLessThan
-            | Operation::SignedGreaterThan
-            | Operation::Equal
-            | Operation::BitAnd
-            | Operation::BitOr
-            | Operation::BitXor
-            | Operation::Byte
-            | Operation::ShiftLeft
-            | Operation::ShiftRight
-            | Operation::SignedShiftRight),
+            op @ (Add()
+            | Sub()
+            | LessThan()
+            | GreaterThan()
+            | SignedLessThan()
+            | SignedGreaterThan()
+            | Equal()
+            | BitAnd()
+            | BitOr()
+            | BitXor()
+            | Byte()
+            | ShiftLeft()
+            | ShiftRight()
+            | SignedShiftRight()),
             ..
         ],
         word_stack: [_, _, ..],
@@ -2517,15 +2519,7 @@ k::rules! {
 
     /// Two-operand opcodes that cost 5 gas.
     begin_binary_low: {
-        k: [
-            op @ (Operation::Mul
-            | Operation::Div
-            | Operation::SignedDiv
-            | Operation::Mod
-            | Operation::SignedMod
-            | Operation::SignExtend),
-            ..
-        ],
+        k: [op @ (Mul() | Div() | SignedDiv() | Mod() | SignedMod() | SignExtend()), ..],
         word_stack: [_, _, ..],
         gas,
     } => {
@@ -2534,7 +2528,7 @@ k::rules! {
 
     /// Three-operand modular opcodes that cost 8 gas.
     begin_ternary_mid: {
-        k: [op @ (Operation::AddMod | Operation::MulMod), ..],
+        k: [op @ (AddMod() | MulMod()), ..],
         word_stack: [_, _, _, ..],
         gas,
     } => {
@@ -2543,7 +2537,7 @@ k::rules! {
 
     /// One-operand opcodes that cost 3 gas.
     begin_unary_very_low: {
-        k: [op @ (Operation::IsZero | Operation::BitNot | Operation::CallDataLoad), ..],
+        k: [op @ (IsZero() | BitNot() | CallDataLoad()), ..],
         word_stack: [_, ..],
         gas,
     } => {
@@ -2552,12 +2546,7 @@ k::rules! {
 
     /// One-operand account queries charged the warm or cold account-access cost.
     begin_account_access: {
-        k: [
-            op @ (Operation::AccountBalance
-            | Operation::ExternalCodeSize
-            | Operation::ExternalCodeHash),
-            ..
-        ],
+        k: [op @ (AccountBalance() | ExternalCodeSize() | ExternalCodeHash()), ..],
         word_stack: [account, ..],
         accessed_accounts: accessed,
         gas,
@@ -2567,7 +2556,7 @@ k::rules! {
 
     /// Copies from call data, code, or return data into memory, charged by width and memory expansion.
     begin_copy: {
-        k: [op @ (Operation::CallDataCopy | Operation::CodeCopy | Operation::ReturnDataCopy), ..],
+        k: [op @ (CallDataCopy() | CodeCopy() | ReturnDataCopy()), ..],
         word_stack: [destination, _, width, ..],
         memory_used: used,
         gas,
@@ -2577,7 +2566,7 @@ k::rules! {
 
     /// RETURN and REVERT, charged the memory expansion of their output range.
     begin_return_or_revert: {
-        k: [op @ (Operation::Return | Operation::Revert), ..],
+        k: [op @ (Return() | Revert()), ..],
         word_stack: [start, width, ..],
         memory_used: used,
         gas,
@@ -2588,61 +2577,67 @@ k::rules! {
 
 k::rules! {
     for Machine;
+    use ExecutionCommand::*;
+    use GasResult::*;
+    use Operation::*;
+    use PrecompileResult::*;
+    use JumpResult::*;
+    use CopyResult::*;
     exec_push: {
-        k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..],
+        k: [EnoughGas(Push { width, value }, remaining), ..],
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [Chop(value), ..stack],
         pc: pc + (width + 1),
         gas: remaining,
     };
 
     exec_push_zero: {
-        k: [GasResult::EnoughGas(Operation::PushZero, remaining), ..],
+        k: [EnoughGas(PushZero(), remaining), ..],
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [0, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_pop: {
-        k: [GasResult::EnoughGas(Operation::Pop, remaining), ..],
+        k: [EnoughGas(Pop(), remaining), ..],
         word_stack: [_, tail @ ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: tail,
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_duplicate: {
-        k: [GasResult::EnoughGas(Operation::Duplicate { depth }, remaining), ..],
+        k: [EnoughGas(Duplicate { depth }, remaining), ..],
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [StackAt { stack, index: depth - 1 }, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_swap: {
-        k: [GasResult::EnoughGas(Operation::Swap { depth }, remaining), ..],
+        k: [EnoughGas(Swap { depth }, remaining), ..],
         word_stack: [head, tail @ ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [
             StackAt { stack: tail, index: depth - 1 },
             ..StackSet { stack: tail, index: depth - 1, value: head }
@@ -2652,313 +2647,313 @@ k::rules! {
     };
 
     exec_add: {
-        k: [GasResult::EnoughGas(Operation::Add, remaining), ..],
+        k: [EnoughGas(Add(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [Chop(w0 + w1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_mul: {
-        k: [GasResult::EnoughGas(Operation::Mul, remaining), ..],
+        k: [EnoughGas(Mul(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [Chop(w0 * w1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_sub: {
-        k: [GasResult::EnoughGas(Operation::Sub, remaining), ..],
+        k: [EnoughGas(Sub(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [Chop(w0 - w1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_div: {
-        k: [GasResult::EnoughGas(Operation::Div, remaining), ..],
+        k: [EnoughGas(Div(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordDiv { dividend: w0, divisor: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_signed_div: {
-        k: [GasResult::EnoughGas(Operation::SignedDiv, remaining), ..],
+        k: [EnoughGas(SignedDiv(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [SignedWordDiv { dividend: w0, divisor: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_mod: {
-        k: [GasResult::EnoughGas(Operation::Mod, remaining), ..],
+        k: [EnoughGas(Mod(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordMod { dividend: w0, divisor: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_signed_mod: {
-        k: [GasResult::EnoughGas(Operation::SignedMod, remaining), ..],
+        k: [EnoughGas(SignedMod(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [SignedWordMod { dividend: w0, divisor: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_add_mod: {
-        k: [GasResult::EnoughGas(Operation::AddMod, remaining), ..],
+        k: [EnoughGas(AddMod(), remaining), ..],
         word_stack: [w0, w1, w2, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordMod { dividend: w0 + w1, divisor: w2 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_mul_mod: {
-        k: [GasResult::EnoughGas(Operation::MulMod, remaining), ..],
+        k: [EnoughGas(MulMod(), remaining), ..],
         word_stack: [w0, w1, w2, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordMod { dividend: w0 * w1, divisor: w2 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_exponent: {
-        k: [GasResult::EnoughGas(Operation::Exponent, remaining), ..],
+        k: [EnoughGas(Exponent(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [int::pow_mod(w0, w1, POW256), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_sign_extend: {
-        k: [GasResult::EnoughGas(Operation::SignExtend, remaining), ..],
+        k: [EnoughGas(SignExtend(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordSignExtend { index: w0, value: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_less_than: {
-        k: [GasResult::EnoughGas(Operation::LessThan, remaining), ..],
+        k: [EnoughGas(LessThan(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [BoolToWord(w0 < w1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_greater_than: {
-        k: [GasResult::EnoughGas(Operation::GreaterThan, remaining), ..],
+        k: [EnoughGas(GreaterThan(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [BoolToWord(w0 > w1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_signed_less_than: {
-        k: [GasResult::EnoughGas(Operation::SignedLessThan, remaining), ..],
+        k: [EnoughGas(SignedLessThan(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [SignedLess { left: w0, right: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_signed_greater_than: {
-        k: [GasResult::EnoughGas(Operation::SignedGreaterThan, remaining), ..],
+        k: [EnoughGas(SignedGreaterThan(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [SignedLess { left: w1, right: w0 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_equal: {
-        k: [GasResult::EnoughGas(Operation::Equal, remaining), ..],
+        k: [EnoughGas(Equal(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [BoolToWord(w0 == w1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_is_zero: {
-        k: [GasResult::EnoughGas(Operation::IsZero, remaining), ..],
+        k: [EnoughGas(IsZero(), remaining), ..],
         word_stack: [w0, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [BoolToWord(w0 == 0), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_bit_and: {
-        k: [GasResult::EnoughGas(Operation::BitAnd, remaining), ..],
+        k: [EnoughGas(BitAnd(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [w0 & w1, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_bit_or: {
-        k: [GasResult::EnoughGas(Operation::BitOr, remaining), ..],
+        k: [EnoughGas(BitOr(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [w0 | w1, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_bit_xor: {
-        k: [GasResult::EnoughGas(Operation::BitXor, remaining), ..],
+        k: [EnoughGas(BitXor(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [w0 ^ w1, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_bit_not: {
-        k: [GasResult::EnoughGas(Operation::BitNot, remaining), ..],
+        k: [EnoughGas(BitNot(), remaining), ..],
         word_stack: [w0, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [w0 ^ (POW256 - 1), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_byte: {
-        k: [GasResult::EnoughGas(Operation::Byte, remaining), ..],
+        k: [EnoughGas(Byte(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordByte { index: w0, value: w1 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_shift_left: {
-        k: [GasResult::EnoughGas(Operation::ShiftLeft, remaining), ..],
+        k: [EnoughGas(ShiftLeft(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordShiftLeft { value: w1, shift: w0 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_shift_right: {
-        k: [GasResult::EnoughGas(Operation::ShiftRight, remaining), ..],
+        k: [EnoughGas(ShiftRight(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordShiftRight { value: w1, shift: w0 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_signed_shift_right: {
-        k: [GasResult::EnoughGas(Operation::SignedShiftRight, remaining), ..],
+        k: [EnoughGas(SignedShiftRight(), remaining), ..],
         word_stack: [w0, w1, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [WordSignedShiftRight { value: w1, shift: w0 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_address: {
-        k: [GasResult::EnoughGas(Operation::Address, remaining), ..],
+        k: [EnoughGas(Address(), remaining), ..],
         word_stack: stack,
         address: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
@@ -2967,7 +2962,7 @@ k::rules! {
     #[k::requires(account == present_account)]
     #[k::rule(label = "balance-true")]
     exec_balance_present: {
-        k: [GasResult::EnoughGas(Operation::AccountBalance, remaining), ..],
+        k: [EnoughGas(AccountBalance(), remaining), ..],
         account_id: present_account,
         balance,
         accessed_accounts: accessed,
@@ -2975,7 +2970,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [balance, ..],
         pc: pc + 1,
@@ -2984,13 +2979,13 @@ k::rules! {
 
     #[k::rule(owise, label = "balance-false")]
     exec_balance_absent: {
-        k: [GasResult::EnoughGas(Operation::AccountBalance, remaining), ..],
+        k: [EnoughGas(AccountBalance(), remaining), ..],
         accessed_accounts: accessed,
         word_stack: [account, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [0, ..],
         pc: pc + 1,
@@ -2998,72 +2993,72 @@ k::rules! {
     };
 
     exec_origin: {
-        k: [GasResult::EnoughGas(Operation::TxOrigin, remaining), ..],
+        k: [EnoughGas(TxOrigin(), remaining), ..],
         word_stack: stack,
         origin: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_caller: {
-        k: [GasResult::EnoughGas(Operation::MsgCaller, remaining), ..],
+        k: [EnoughGas(MsgCaller(), remaining), ..],
         word_stack: stack,
         caller: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_call_value: {
-        k: [GasResult::EnoughGas(Operation::MsgCallValue, remaining), ..],
+        k: [EnoughGas(MsgCallValue(), remaining), ..],
         word_stack: stack,
         call_value: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_call_data_load: {
-        k: [GasResult::EnoughGas(Operation::CallDataLoad, remaining), ..],
+        k: [EnoughGas(CallDataLoad(), remaining), ..],
         call_data,
         word_stack: [index, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [ReadMemoryWord { memory: call_data, index, remaining: 32, value: 0 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_call_data_size: {
-        k: [GasResult::EnoughGas(Operation::CallDataSize, remaining), ..],
+        k: [EnoughGas(CallDataSize(), remaining), ..],
         word_stack: stack,
         call_data: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [bytes::length(value), ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_call_data_copy: {
-        k: [GasResult::EnoughGas(Operation::CallDataCopy, remaining), ..],
+        k: [EnoughGas(CallDataCopy(), remaining), ..],
         call_data,
         local_mem: memory,
         memory_used: used,
@@ -3071,7 +3066,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         local_mem: CopyBytes {
             memory: PrepareCopyMemory { memory, used, start: destination, width },
             destination,
@@ -3086,20 +3081,20 @@ k::rules! {
     };
 
     exec_code_size: {
-        k: [GasResult::EnoughGas(Operation::CodeSize, remaining), ..],
+        k: [EnoughGas(CodeSize(), remaining), ..],
         program: value,
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [bytes::length(value), ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_code_copy: {
-        k: [GasResult::EnoughGas(Operation::CodeCopy, remaining), ..],
+        k: [EnoughGas(CodeCopy(), remaining), ..],
         program,
         local_mem: memory,
         memory_used: used,
@@ -3107,7 +3102,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         local_mem: CopyBytes {
             memory: PrepareCopyMemory { memory, used, start: destination, width },
             destination,
@@ -3122,13 +3117,13 @@ k::rules! {
     };
 
     exec_gas_price: {
-        k: [GasResult::EnoughGas(Operation::TxGasPrice, remaining), ..],
+        k: [EnoughGas(TxGasPrice(), remaining), ..],
         word_stack: stack,
         gas_price: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
@@ -3137,7 +3132,7 @@ k::rules! {
     #[k::requires(account == present_account)]
     #[k::rule(label = "extcodesize-true")]
     exec_external_code_size_present: {
-        k: [GasResult::EnoughGas(Operation::ExternalCodeSize, remaining), ..],
+        k: [EnoughGas(ExternalCodeSize(), remaining), ..],
         account_id: present_account,
         code,
         accessed_accounts: accessed,
@@ -3145,7 +3140,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [bytes::length(code), ..],
         pc: pc + 1,
@@ -3154,13 +3149,13 @@ k::rules! {
 
     #[k::rule(owise, label = "extcodesize-false")]
     exec_external_code_size_absent: {
-        k: [GasResult::EnoughGas(Operation::ExternalCodeSize, remaining), ..],
+        k: [EnoughGas(ExternalCodeSize(), remaining), ..],
         accessed_accounts: accessed,
         word_stack: [account, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [0, ..],
         pc: pc + 1,
@@ -3170,7 +3165,7 @@ k::rules! {
     #[k::requires(account == present_account)]
     #[k::rule(label = "extcodecopy-true")]
     exec_external_code_copy_present: {
-        k: [GasResult::EnoughGas(Operation::ExternalCodeCopy, remaining), ..],
+        k: [EnoughGas(ExternalCodeCopy(), remaining), ..],
         account_id: present_account,
         code,
         accessed_accounts: accessed,
@@ -3180,7 +3175,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory { memory, used, start: destination, width },
@@ -3197,7 +3192,7 @@ k::rules! {
 
     #[k::rule(owise, label = "extcodecopy-false")]
     exec_external_code_copy_absent: {
-        k: [GasResult::EnoughGas(Operation::ExternalCodeCopy, remaining), ..],
+        k: [EnoughGas(ExternalCodeCopy(), remaining), ..],
         accessed_accounts: accessed,
         local_mem: memory,
         memory_used: used,
@@ -3205,7 +3200,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory { memory, used, start: destination, width },
@@ -3225,7 +3220,7 @@ k::rules! {
     )]
     #[k::rule(label = "extcodehash-true")]
     exec_external_code_hash_nonempty: {
-        k: [GasResult::EnoughGas(Operation::ExternalCodeHash, remaining), ..],
+        k: [EnoughGas(ExternalCodeHash(), remaining), ..],
         account_id: present_account,
         balance,
         code,
@@ -3235,7 +3230,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [Keccak(code), ..],
         pc: pc + 1,
@@ -3244,13 +3239,13 @@ k::rules! {
 
     #[k::rule(owise, label = "extcodehash-false")]
     exec_external_code_hash_empty_or_absent: {
-        k: [GasResult::EnoughGas(Operation::ExternalCodeHash, remaining), ..],
+        k: [EnoughGas(ExternalCodeHash(), remaining), ..],
         accessed_accounts: accessed,
         word_stack: [account, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [0, ..],
         pc: pc + 1,
@@ -3258,20 +3253,20 @@ k::rules! {
     };
 
     exec_return_data_size: {
-        k: [GasResult::EnoughGas(Operation::ReturnDataSize, remaining), ..],
+        k: [EnoughGas(ReturnDataSize(), remaining), ..],
         word_stack: stack,
         output: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [bytes::length(value), ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     inspect_return_data_copy: {
-        k: [GasResult::EnoughGas(Operation::ReturnDataCopy, remaining), ..],
+        k: [EnoughGas(ReturnDataCopy(), remaining), ..],
         output,
         word_stack: [_, source_index, width, ..],
     } => {
@@ -3279,7 +3274,7 @@ k::rules! {
     };
 
     exec_return_data_copy_valid: {
-        k: [CopyResult::ReturnDataCopyValid { remaining }, ..],
+        k: [ReturnDataCopyValid { remaining }, ..],
         output,
         local_mem: memory,
         memory_used: used,
@@ -3287,7 +3282,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         local_mem: CopyBytes {
             memory: PrepareCopyMemory { memory, used, start: destination, width },
             destination,
@@ -3302,7 +3297,7 @@ k::rules! {
     };
 
     exec_return_data_copy_invalid: {
-        k: [CopyResult::ReturnDataCopyInvalid { remaining }, ..],
+        k: [ReturnDataCopyInvalid { remaining }, ..],
         memory_used: used,
         word_stack: [destination, _, width, rest @ ..],
         gas: _,
@@ -3316,92 +3311,92 @@ k::rules! {
     };
 
     exec_block_hash: {
-        k: [GasResult::EnoughGas(Operation::BlockHash, remaining), ..],
+        k: [EnoughGas(BlockHash(), remaining), ..],
         block_hashes: hashes,
         number,
         word_stack: [requested, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [BlockHashLookup { hashes, requested, highest: number - 1, age: 0 }, ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_coinbase: {
-        k: [GasResult::EnoughGas(Operation::BlockCoinbase, remaining), ..],
+        k: [EnoughGas(BlockCoinbase(), remaining), ..],
         word_stack: stack,
         coinbase: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_timestamp: {
-        k: [GasResult::EnoughGas(Operation::BlockTimestamp, remaining), ..],
+        k: [EnoughGas(BlockTimestamp(), remaining), ..],
         word_stack: stack,
         timestamp: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_number: {
-        k: [GasResult::EnoughGas(Operation::BlockNumber, remaining), ..],
+        k: [EnoughGas(BlockNumber(), remaining), ..],
         word_stack: stack,
         number: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_prev_randao: {
-        k: [GasResult::EnoughGas(Operation::PrevRandao, remaining), ..],
+        k: [EnoughGas(PrevRandao(), remaining), ..],
         word_stack: stack,
         prev_randao: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_gas_limit: {
-        k: [GasResult::EnoughGas(Operation::BlockGasLimit, remaining), ..],
+        k: [EnoughGas(BlockGasLimit(), remaining), ..],
         word_stack: stack,
         gas_limit: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_chain_id: {
-        k: [GasResult::EnoughGas(Operation::NetworkChainId, remaining), ..],
+        k: [EnoughGas(NetworkChainId(), remaining), ..],
         word_stack: stack,
         chain_id: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
@@ -3409,7 +3404,7 @@ k::rules! {
 
     #[k::requires(account == present_account)]
     exec_self_balance: {
-        k: [GasResult::EnoughGas(Operation::SelfBalance, remaining), ..],
+        k: [EnoughGas(SelfBalance(), remaining), ..],
         address: account,
         account_id: present_account,
         balance,
@@ -3417,34 +3412,34 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [balance, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_base_fee: {
-        k: [GasResult::EnoughGas(Operation::BlockBaseFee, remaining), ..],
+        k: [EnoughGas(BlockBaseFee(), remaining), ..],
         word_stack: stack,
         base_fee: value,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [value, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_memory_load: {
-        k: [GasResult::EnoughGas(Operation::MemoryLoad, remaining), ..],
+        k: [EnoughGas(MemoryLoad(), remaining), ..],
         local_mem: memory,
         memory_used: used,
         word_stack: [index, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         memory_used: MemoryUsageUpdate { used, start: index, width: 32 },
         word_stack: [ReadMemoryWord { memory, index, remaining: 32, value: 0 }, ..],
         pc: pc + 1,
@@ -3452,14 +3447,14 @@ k::rules! {
     };
 
     exec_memory_store: {
-        k: [GasResult::EnoughGas(Operation::MemoryStore, remaining), ..],
+        k: [EnoughGas(MemoryStore(), remaining), ..],
         local_mem: memory,
         memory_used: used,
         word_stack: [index, value, rest @ ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         local_mem: WriteMemoryWord {
             memory: bytes::pad_right(
                 memory,
@@ -3477,14 +3472,14 @@ k::rules! {
     };
 
     exec_memory_store8: {
-        k: [GasResult::EnoughGas(Operation::MemoryStore8, remaining), ..],
+        k: [EnoughGas(MemoryStore8(), remaining), ..],
         local_mem: memory,
         memory_used: used,
         word_stack: [index, value, rest @ ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         local_mem: bytes::update(
             bytes::pad_right(memory, MemoryUsageUpdate { used, start: index, width: 1 } * 32, 0),
             index,
@@ -3497,14 +3492,14 @@ k::rules! {
     };
 
     exec_sha3: {
-        k: [GasResult::EnoughGas(Operation::Sha3, remaining), ..],
+        k: [EnoughGas(Sha3(), remaining), ..],
         local_mem: memory,
         memory_used: used,
         word_stack: [start, width, ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         memory_used: MemoryUsageUpdate { used, start, width },
         word_stack: [Keccak(ReturnBytes(memory, start, width)), ..],
         pc: pc + 1,
@@ -3513,7 +3508,7 @@ k::rules! {
 
     #[k::requires(current_account == account_id)]
     exec_storage_load: {
-        k: [GasResult::EnoughGas(Operation::StorageLoad, remaining), ..],
+        k: [EnoughGas(StorageLoad(), remaining), ..],
         address: current_account,
         account_id,
         storage,
@@ -3522,7 +3517,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         accessed_storage: MarkStorageAccess { accessed, account: current_account, index },
         word_stack: [StorageValue { storage, index }, ..],
         pc: pc + 1,
@@ -3531,7 +3526,7 @@ k::rules! {
 
     #[k::requires(current_account == account_id)]
     exec_storage_store: {
-        k: [GasResult::EnoughGas(Operation::StorageStore, remaining), ..],
+        k: [EnoughGas(StorageStore(), remaining), ..],
         address: current_account,
         account_id,
         storage,
@@ -3542,7 +3537,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         storage: map::update(storage, index, new),
         accessed_storage: MarkStorageAccess { accessed, account: current_account, index },
         refund: refund + StorageRefundDelta {
@@ -3556,7 +3551,7 @@ k::rules! {
     };
 
     exec_log: {
-        k: [GasResult::EnoughGas(Operation::LogOpcode { topics }, remaining), ..],
+        k: [EnoughGas(LogOpcode { topics }, remaining), ..],
         address,
         logs,
         local_mem: memory,
@@ -3565,7 +3560,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         logs: list::concat(
             logs,
             list::item(
@@ -3583,44 +3578,44 @@ k::rules! {
     };
 
     exec_memory_size: {
-        k: [GasResult::EnoughGas(Operation::MemorySize, remaining), ..],
+        k: [EnoughGas(MemorySize(), remaining), ..],
         memory_used: used,
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [Chop(32 * used), ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_gas_remaining: {
-        k: [GasResult::EnoughGas(Operation::GasRemaining, remaining), ..],
+        k: [EnoughGas(GasRemaining(), remaining), ..],
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [remaining, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_pc: {
-        k: [GasResult::EnoughGas(Operation::ProgramCounter, remaining), ..],
+        k: [EnoughGas(ProgramCounter(), remaining), ..],
         word_stack: stack,
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         word_stack: [pc, ..stack],
         pc: pc + 1,
         gas: remaining,
     };
 
     inspect_jump_destination: {
-        k: [GasResult::EnoughGas(Operation::Jump, remaining), ..],
+        k: [EnoughGas(Jump(), remaining), ..],
         program,
         word_stack: [destination, rest @ ..],
         gas: _,
@@ -3631,7 +3626,7 @@ k::rules! {
     };
 
     inspect_jump_if_destination: {
-        k: [GasResult::EnoughGas(Operation::JumpIf, remaining), ..],
+        k: [EnoughGas(JumpIf(), remaining), ..],
         program,
         word_stack: [destination, condition, rest @ ..],
         gas: _,
@@ -3642,23 +3637,23 @@ k::rules! {
     };
 
     exec_valid_jump: {
-        k: [JumpResult::JumpValid { destination }, ..],
+        k: [JumpValid { destination }, ..],
         pc: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         pc: destination,
     };
 
     exec_false_jump_if: {
-        k: [JumpResult::JumpFallthrough(), ..],
+        k: [JumpFallthrough(), ..],
         pc,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         pc: pc + 1,
     };
 
     exec_invalid_jump: {
-        k: [JumpResult::JumpInvalid(), ..],
+        k: [JumpInvalid(), ..],
         status_code: _,
     } => {
         k: [..],
@@ -3666,17 +3661,17 @@ k::rules! {
     };
 
     exec_jump_dest: {
-        k: [GasResult::EnoughGas(Operation::JumpDest, remaining), ..],
+        k: [EnoughGas(JumpDest(), remaining), ..],
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         pc: pc + 1,
         gas: remaining,
     };
 
     exec_return: {
-        k: [GasResult::EnoughGas(Operation::Return, remaining), ..],
+        k: [EnoughGas(Return(), remaining), ..],
         output: _,
         local_mem: memory,
         memory_used: used,
@@ -3693,7 +3688,7 @@ k::rules! {
     };
 
     exec_revert: {
-        k: [GasResult::EnoughGas(Operation::Revert, remaining), ..],
+        k: [EnoughGas(Revert(), remaining), ..],
         output: _,
         local_mem: memory,
         memory_used: used,
@@ -3710,7 +3705,7 @@ k::rules! {
     };
 
     begin_static_call_ecrec: {
-        k: [GasResult::EnoughEcrecPrecompileGas { remaining }, ..],
+        k: [EnoughEcrecPrecompileGas { remaining }, ..],
         word_stack: [
             gas_cap,
             1,
@@ -3725,7 +3720,7 @@ k::rules! {
     };
 
     exec_static_call_ecrec_success: {
-        k: [PrecompileResult::EcrecPrecompileSuccess { remaining }, ..],
+        k: [EcrecPrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -3736,7 +3731,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(1)
@@ -3782,7 +3777,7 @@ k::rules! {
     };
 
     exec_static_call_ecrec_exception: {
-        k: [PrecompileResult::EcrecPrecompileFailure { remaining }, ..],
+        k: [EcrecPrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -3793,7 +3788,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(1)
@@ -3824,7 +3819,7 @@ k::rules! {
     };
 
     begin_static_call_sha256: {
-        k: [GasResult::EnoughSha256PrecompileGas { remaining }, ..],
+        k: [EnoughSha256PrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -3847,7 +3842,7 @@ k::rules! {
     };
 
     exec_static_call_sha256_success: {
-        k: [PrecompileResult::Sha256PrecompileSuccess { remaining }, ..],
+        k: [Sha256PrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -3858,7 +3853,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(2)
@@ -3895,7 +3890,7 @@ k::rules! {
     };
 
     exec_static_call_sha256_exception: {
-        k: [PrecompileResult::Sha256PrecompileFailure { remaining }, ..],
+        k: [Sha256PrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -3906,7 +3901,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(2)
@@ -3937,7 +3932,7 @@ k::rules! {
     };
 
     begin_static_call_ripemd160: {
-        k: [GasResult::EnoughRipemd160PrecompileGas { remaining }, ..],
+        k: [EnoughRipemd160PrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -3960,7 +3955,7 @@ k::rules! {
     };
 
     exec_static_call_ripemd160_success: {
-        k: [PrecompileResult::Ripemd160PrecompileSuccess { remaining }, ..],
+        k: [Ripemd160PrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -3971,7 +3966,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(3)
@@ -4022,7 +4017,7 @@ k::rules! {
     };
 
     exec_static_call_ripemd160_exception: {
-        k: [PrecompileResult::Ripemd160PrecompileFailure { remaining }, ..],
+        k: [Ripemd160PrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4033,7 +4028,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(3)
@@ -4064,7 +4059,7 @@ k::rules! {
     };
 
     begin_static_call_identity: {
-        k: [GasResult::EnoughIdentityPrecompileGas { remaining }, ..],
+        k: [EnoughIdentityPrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -4087,7 +4082,7 @@ k::rules! {
     };
 
     exec_static_call_identity_success: {
-        k: [PrecompileResult::IdentityPrecompileSuccess { remaining }, ..],
+        k: [IdentityPrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4098,7 +4093,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(4)
@@ -4135,7 +4130,7 @@ k::rules! {
     };
 
     exec_static_call_identity_exception: {
-        k: [PrecompileResult::IdentityPrecompileFailure { remaining }, ..],
+        k: [IdentityPrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4146,7 +4141,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(4)
@@ -4177,7 +4172,7 @@ k::rules! {
     };
 
     begin_static_call_modexp: {
-        k: [GasResult::EnoughModExpPrecompileGas { remaining }, ..],
+        k: [EnoughModExpPrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -4200,7 +4195,7 @@ k::rules! {
     };
 
     exec_static_call_modexp_success: {
-        k: [PrecompileResult::ModExpPrecompileSuccess { remaining }, ..],
+        k: [ModExpPrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4211,7 +4206,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(5)
@@ -4259,7 +4254,7 @@ k::rules! {
     };
 
     exec_static_call_modexp_exception: {
-        k: [PrecompileResult::ModExpPrecompileFailure { remaining }, ..],
+        k: [ModExpPrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4270,7 +4265,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(5)
@@ -4301,7 +4296,7 @@ k::rules! {
     };
 
     begin_static_call_ecadd: {
-        k: [GasResult::EnoughEcAddPrecompileGas { remaining }, ..],
+        k: [EnoughEcAddPrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -4324,7 +4319,7 @@ k::rules! {
     };
 
     exec_static_call_ecadd_success: {
-        k: [PrecompileResult::EcAddPrecompileSuccess { remaining }, ..],
+        k: [EcAddPrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4335,7 +4330,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(6)
@@ -4374,7 +4369,7 @@ k::rules! {
     };
 
     exec_static_call_ecadd_exception: {
-        k: [PrecompileResult::EcAddPrecompileFailure { remaining }, ..],
+        k: [EcAddPrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4385,7 +4380,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(6)
@@ -4416,7 +4411,7 @@ k::rules! {
     };
 
     begin_static_call_ecmul: {
-        k: [GasResult::EnoughEcMulPrecompileGas { remaining }, ..],
+        k: [EnoughEcMulPrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -4439,7 +4434,7 @@ k::rules! {
     };
 
     exec_static_call_ecmul_success: {
-        k: [PrecompileResult::EcMulPrecompileSuccess { remaining }, ..],
+        k: [EcMulPrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4450,7 +4445,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(7)
@@ -4489,7 +4484,7 @@ k::rules! {
     };
 
     exec_static_call_ecmul_exception: {
-        k: [PrecompileResult::EcMulPrecompileFailure { remaining }, ..],
+        k: [EcMulPrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4500,7 +4495,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(7)
@@ -4531,7 +4526,7 @@ k::rules! {
     };
 
     begin_static_call_ecpairing: {
-        k: [GasResult::EnoughEcPairingPrecompileGas { remaining }, ..],
+        k: [EnoughEcPairingPrecompileGas { remaining }, ..],
         local_mem: memory,
         word_stack: [
             gas_cap,
@@ -4554,7 +4549,7 @@ k::rules! {
     };
 
     exec_static_call_ecpairing_success: {
-        k: [PrecompileResult::EcPairingPrecompileSuccess { remaining }, ..],
+        k: [EcPairingPrecompileSuccess { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4565,7 +4560,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(8)
@@ -4606,7 +4601,7 @@ k::rules! {
     };
 
     exec_static_call_ecpairing_exception: {
-        k: [PrecompileResult::EcPairingPrecompileFailure { remaining }, ..],
+        k: [EcPairingPrecompileFailure { remaining }, ..],
         touched_accounts,
         output: _,
         address,
@@ -4617,7 +4612,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
             set::item(8)
@@ -4653,7 +4648,7 @@ k::rules! {
             && !AccountEmpty { code, nonce, balance }
     )]
     exec_static_call_nonempty: {
-        k: [GasResult::EnoughGas(Operation::StaticCall, remaining), ..],
+        k: [EnoughGas(StaticCall(), remaining), ..],
         call_stack,
         interim_states,
         touched_accounts,
@@ -4689,11 +4684,7 @@ k::rules! {
             ..
         },
     } => {
-        k: [
-            ExecutionCommand::Run(),
-            ExecutionCommand::FinishStaticCall { return_start, return_width },
-            ..
-        ],
+        k: [Run(), FinishStaticCall { return_start, return_width }, ..],
         call_stack: list::concat(
             list::item(
                 k::fragment![
@@ -4776,7 +4767,7 @@ k::rules! {
     };
 
     finish_static_call_success: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
+        k: [FinishStaticCall { return_start, return_width }, ..],
         call_stack: k::term![
             list::concat(
                 list::item(
@@ -4799,7 +4790,7 @@ k::rules! {
         status_code: Status::Success(),
         call_state: CallState { gas: child_gas, .. },
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         call_stack: remaining_call_stack,
         interim_states: remaining_interim_states,
         status_code: Status::Running(),
@@ -4819,7 +4810,7 @@ k::rules! {
     where saved_world_state: WorldState;
 
     finish_static_call_revert: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
+        k: [FinishStaticCall { return_start, return_width }, ..],
         call_stack: k::term![
             list::concat(
                 list::item(
@@ -4867,7 +4858,7 @@ k::rules! {
         status_code: Status::Reverted(),
         call_state: CallState { gas: child_gas, .. },
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         call_stack: remaining_call_stack,
         interim_states: remaining_interim_states,
         account_id,
@@ -4900,7 +4891,7 @@ k::rules! {
     };
 
     finish_static_call_exceptional_halt: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
+        k: [FinishStaticCall { return_start, return_width }, ..],
         status_code: Status::StackUnderflow()
         | Status::StackOverflow()
         | Status::OutOfGas()
@@ -4909,11 +4900,11 @@ k::rules! {
         | Status::InvalidInstruction()
         | Status::StaticModeViolation(),
     } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
+        k: [FinishStaticCallExceptional { return_start, return_width }, ..],
     };
 
     finish_static_call_exception: {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
+        k: [FinishStaticCallExceptional { return_start, return_width }, ..],
         call_stack: k::term![
             list::concat(
                 list::item(caller_frame @ k::fragment![CallState { word_stack: caller_stack, .. }]),
@@ -4952,7 +4943,7 @@ k::rules! {
         status_code: _,
         call_state: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         call_stack: remaining_call_stack,
         interim_states: remaining_interim_states,
         account_id,
@@ -4982,7 +4973,7 @@ k::rules! {
     )]
     #[k::rule(owise)]
     exec_static_call_empty_or_absent: {
-        k: [GasResult::EnoughGas(Operation::StaticCall, remaining), ..],
+        k: [EnoughGas(StaticCall(), remaining), ..],
         account_id: present_account,
         balance,
         code,
@@ -5003,7 +4994,7 @@ k::rules! {
         pc,
         gas: _,
     } => {
-        k: [ExecutionCommand::Run(), ..],
+        k: [Run(), ..],
         output: bytes::empty(),
         memory_used: CallMemoryUsage {
             used,
@@ -5019,7 +5010,7 @@ k::rules! {
     };
 
     exec_stop: {
-        k: [GasResult::EnoughGas(Operation::Stop, remaining), ..],
+        k: [EnoughGas(Stop(), remaining), ..],
         gas: _,
         output: _,
         status_code: _,
@@ -5033,6 +5024,7 @@ k::rules! {
 
 k::rules! {
     for Machine;
+    use GasResult::*;
     use Operation::*;
 
     stack_underflow_no_words_arithmetic: {
@@ -5208,7 +5200,7 @@ k::rules! {
     };
 
     stack_underflow_three_words: {
-        k: [Operation::ExternalCodeCopy, ..],
+        k: [ExternalCodeCopy(), ..],
         word_stack: [_, _, _],
         status_code: _,
     } => {
@@ -5217,7 +5209,7 @@ k::rules! {
     };
 
     stack_operation_underflow: {
-        k: [GasResult::StackUnderflowResult(), ..],
+        k: [StackUnderflowResult(), ..],
         status_code: _,
     } => {
         k: [..],
@@ -5225,7 +5217,7 @@ k::rules! {
     };
 
     stack_operation_overflow: {
-        k: [GasResult::StackOverflowResult(), ..],
+        k: [StackOverflowResult(), ..],
         status_code: _,
     } => {
         k: [..],
@@ -5233,7 +5225,7 @@ k::rules! {
     };
 
     out_of_gas: {
-        k: [GasResult::InsufficientGas(), ..],
+        k: [InsufficientGas(), ..],
         status_code: _,
     } => {
         k: [..],
@@ -5241,7 +5233,7 @@ k::rules! {
     };
 
     static_mode_violation: {
-        k: [GasResult::StaticViolationResult(), ..],
+        k: [StaticViolationResult(), ..],
         status_code: _,
     } => {
         k: [..],
@@ -5249,7 +5241,7 @@ k::rules! {
     };
 
     invalid_instruction: {
-        k: [Operation::Invalid, ..],
+        k: [Invalid(), ..],
         status_code: _,
     } => {
         k: [..],
@@ -5257,7 +5249,7 @@ k::rules! {
     };
 
     end_of_program: {
-        k: [Operation::End, ..],
+        k: [End(), ..],
         status_code: _,
     } => {
         k: [..],
