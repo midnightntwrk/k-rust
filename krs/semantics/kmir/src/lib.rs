@@ -922,40 +922,20 @@ pub struct DecodeAllocatedReference {
     pub types: k::Term<Map>,
 }
 
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#intWidth({kind})"
-)]
-pub struct IntWidth {
-    pub kind: k::Term<IntTy>,
-}
+#[k::function(total, syntax = "#intWidth({kind})")]
+pub fn IntWidth(kind: k::Term<IntTy>) -> k::Term<Int>;
 
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#uintWidth({kind})"
-)]
-pub struct UintWidth {
-    pub kind: k::Term<UintTy>,
-}
+#[k::function(total, syntax = "#uintWidth({kind})")]
+pub fn UintWidth(kind: k::Term<UintTy>) -> k::Term<Int>;
 
-#[k::function(partial, sort = Int, syntax = "#floatWidth({kind})")]
-pub struct FloatWidth {
-    pub kind: k::Term<FloatTy>,
-}
+#[k::function(total, syntax = "#floatWidth({kind})")]
+pub fn FloatWidth(kind: k::Term<FloatTy>) -> k::Term<Int>;
 
-#[k::function(total, sort = Int, syntax = "#sizeOf({types}, {info})")]
-pub struct SizeOfTypeInfo {
-    pub types: k::Term<Map>,
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(total, syntax = "#sizeOf({types}, {info})")]
+pub fn SizeOfTypeInfo(types: k::Term<Map>, info: k::Term<TypeInfo>) -> k::Term<Int>;
 
-#[k::function(total, sort = Int, syntax = "#alignOf({types}, {info})")]
-pub struct AlignOfTypeInfo {
-    pub types: k::Term<Map>,
-    pub info: k::Term<TypeInfo>,
-}
+#[k::function(total, syntax = "#alignOf({types}, {info})")]
+pub fn AlignOfTypeInfo(types: k::Term<Map>, info: k::Term<TypeInfo>) -> k::Term<Int>;
 
 #[k::function(total, sort = Int, syntax = "#layoutSize({layout})")]
 pub struct LayoutSize {
@@ -1150,10 +1130,8 @@ pub struct NthVariantOffsets {
     pub index: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#byteLength({width})")]
-pub struct ByteLength {
-    pub width: k::Term<IntegerLength>,
-}
+#[k::function(total, syntax = "#byteLength({width})")]
+pub fn ByteLength(width: k::Term<IntegerLength>) -> k::Term<Int>;
 
 #[k::equation]
 #[k::requires(int::ge(index, bytes::length(value)))]
@@ -1186,148 +1164,32 @@ fn read_ty_const_int_byte(
     }]
 }
 
-#[k::equation]
-fn int_width_isize(
-    k::term![IntWidth {
-        kind: MirIntTy::Isize(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![64]
+k::equations! {
+    for IntWidth;
+    int_width_isize: MirIntTy::Isize() => 64;
+    int_width_i8   : MirIntTy::I8()    => 8;
+    int_width_i16  : MirIntTy::I16()   => 16;
+    int_width_i32  : MirIntTy::I32()   => 32;
+    int_width_i64  : MirIntTy::I64()   => 64;
+    int_width_i128 : MirIntTy::I128()  => 128;
 }
 
-#[k::equation]
-fn int_width_i8(
-    k::term![IntWidth {
-        kind: MirIntTy::I8(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![8]
+k::equations! {
+    for UintWidth;
+    uint_width_usize: MirUintTy::Usize() => 64;
+    uint_width_u8   : MirUintTy::U8()    => 8;
+    uint_width_u16  : MirUintTy::U16()   => 16;
+    uint_width_u32  : MirUintTy::U32()   => 32;
+    uint_width_u64  : MirUintTy::U64()   => 64;
+    uint_width_u128 : MirUintTy::U128()  => 128;
 }
 
-#[k::equation]
-fn int_width_i16(
-    k::term![IntWidth {
-        kind: MirIntTy::I16(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![16]
-}
-
-#[k::equation]
-fn int_width_i32(
-    k::term![IntWidth {
-        kind: MirIntTy::I32(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![32]
-}
-
-#[k::equation]
-fn int_width_i64(
-    k::term![IntWidth {
-        kind: MirIntTy::I64(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![64]
-}
-
-#[k::equation]
-fn int_width_i128(
-    k::term![IntWidth {
-        kind: MirIntTy::I128(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![128]
-}
-
-#[k::equation]
-fn uint_width_usize(
-    k::term![UintWidth {
-        kind: MirUintTy::Usize(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![64]
-}
-
-#[k::equation]
-fn uint_width_u8(
-    k::term![UintWidth {
-        kind: MirUintTy::U8(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![8]
-}
-
-#[k::equation]
-fn uint_width_u16(
-    k::term![UintWidth {
-        kind: MirUintTy::U16(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![16]
-}
-
-#[k::equation]
-fn uint_width_u32(
-    k::term![UintWidth {
-        kind: MirUintTy::U32(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![32]
-}
-
-#[k::equation]
-fn uint_width_u64(
-    k::term![UintWidth {
-        kind: MirUintTy::U64(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![64]
-}
-
-#[k::equation]
-fn uint_width_u128(
-    k::term![UintWidth {
-        kind: MirUintTy::U128(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![128]
-}
-
-#[k::equation]
-fn float_width_f16(
-    k::term![FloatWidth {
-        kind: MirFloatTy::F16(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![16]
-}
-
-#[k::equation]
-fn float_width_f32(
-    k::term![FloatWidth {
-        kind: MirFloatTy::F32(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![32]
-}
-
-#[k::equation]
-fn float_width_f64(
-    k::term![FloatWidth {
-        kind: MirFloatTy::F64(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![64]
-}
-
-#[k::equation]
-fn float_width_f128(
-    k::term![FloatWidth {
-        kind: MirFloatTy::F128(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![128]
+k::equations! {
+    for FloatWidth;
+    float_width_f16 : MirFloatTy::F16()  => 16;
+    float_width_f32 : MirFloatTy::F32()  => 32;
+    float_width_f64 : MirFloatTy::F64()  => 64;
+    float_width_f128: MirFloatTy::F128() => 128;
 }
 
 #[k::equation]
@@ -1413,411 +1275,43 @@ fn is_not_void_type(k::term![IsVoidType { info: _ }]: k::Term<Bool>) -> k::Term<
     k::term![false]
 }
 
-#[k::equation]
-fn size_of_boolean(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Bool(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![1]
+k::equations! {
+    for SizeOfTypeInfo;
+    size_of_boolean         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))                                                                                                           => 1;
+    size_of_char            : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))                                                                                                           => 4;
+    size_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))                                                                                              => int::div(IntWidth(kind), 8);
+    size_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))                                                                                            => int::div(UintWidth(kind), 8);
+    size_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))                                                                                                      => int::div(FloatWidth(kind), 8);
+    size_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                                                                                                            => 0;
+    size_of_enum            : (_, MirTypeInfo::EnumType(_, _, _, _, layout))                                                                                                                      => LayoutSize(layout);
+    size_of_struct          : (_, MirTypeInfo::StructType(_, _, _, layout))                                                                                                                       => LayoutSize(layout);
+    size_of_union           : (_, MirTypeInfo::UnionType(_, _, _, layout))                                                                                                                        => LayoutSize(layout);
+    size_of_tuple           : (_, MirTypeInfo::TupleType(_, layout))                                                                                                                              => LayoutSize(layout);
+    size_of_dynamic_array   : (_, MirTypeInfo::ArrayType(_, MirMaybeTyConst::NoTyConst()))                                                                                                        => 0;
+    size_of_static_array    : (types, MirTypeInfo::ArrayType(element, MirMaybeTyConst::SomeTyConst(MirTyConst::TyConst(MirTyConstKind::Value(_, MirAllocation::Allocation(bytes, _, _, _)), _)))) => int::mul(SizeOfTypeInfo(types, map::get(types, element)), ReadTyConstInt(bytes, 0, 1, 0));
+    size_of_pointer         : (types, MirTypeInfo::PointerType(pointee))                                                                                                                          => int::mul(SizeOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))), PointerWords(map::get(types, pointee)));
+    size_of_reference       : (types, MirTypeInfo::ReferenceType(pointee))                                                                                                                        => int::mul(SizeOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))), PointerWords(map::get(types, pointee)));
+    #[k::equation(priority = 60)]
+    size_of_other           : (_, _)                                                                                                                                                              => 0;
 }
 
-#[k::equation]
-fn size_of_char(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Char(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![4]
-}
-
-#[k::equation]
-fn size_of_signed_integer(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::SignedInteger { kind },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::div(IntWidth { kind }, 8)]
-}
-
-#[k::equation]
-fn size_of_unsigned_integer(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::UnsignedInteger { kind },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::div(UintWidth { kind }, 8)]
-}
-
-#[k::equation]
-fn size_of_float(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Float { kind },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::div(FloatWidth { kind }, 8)]
-}
-
-#[k::equation]
-fn size_of_str(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Str(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![0]
-}
-
-#[k::equation]
-fn size_of_enum(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::EnumType {
-            name: _,
-            adt_def: _,
-            discriminants: _,
-            fields: _,
-            layout,
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutSize { layout }]
-}
-
-#[k::equation]
-fn size_of_struct(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::StructType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout,
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutSize { layout }]
-}
-
-#[k::equation]
-fn size_of_union(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::UnionType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout,
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutSize { layout }]
-}
-
-#[k::equation]
-fn size_of_tuple(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::TupleType { fields: _, layout },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutSize { layout }]
-}
-
-#[k::equation]
-fn size_of_dynamic_array(
-    k::term![SizeOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::ArrayType {
-            element: _,
-            size: MirMaybeTyConst::NoTyConst(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![0]
-}
-
-#[k::equation]
-fn size_of_static_array(
-    k::term![SizeOfTypeInfo {
-        types,
-        info: MirTypeInfo::ArrayType {
-            element,
-            size: MirMaybeTyConst::SomeTyConst {
-                value: MirTyConst::TyConst {
-                    kind: MirTyConstKind::Value {
-                        ty: _,
-                        allocation: MirAllocation::Allocation {
-                            bytes,
-                            provenance: _,
-                            align: _,
-                            mutability: _,
-                        },
-                    },
-                    id: _,
-                },
-            },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::mul(
-        SizeOfTypeInfo {
-            types,
-            info: map::get(types, element),
-        },
-        ReadTyConstInt {
-            bytes,
-            index: 0,
-            multiplier: 1,
-            result: 0,
-        },
-    )]
-}
-
-#[k::equation]
-fn size_of_pointer(
-    k::term![SizeOfTypeInfo {
-        types,
-        info: MirTypeInfo::PointerType { pointee },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::mul(
-        SizeOfTypeInfo {
-            types,
-            info: MirTypeInfo::PrimitiveType {
-                primitive: MirPrimitiveType::UnsignedInteger {
-                    kind: MirUintTy::Usize(),
-                },
-            },
-        },
-        PointerWords {
-            info: map::get(types, pointee),
-        },
-    )]
-}
-
-#[k::equation]
-fn size_of_reference(
-    k::term![SizeOfTypeInfo {
-        types,
-        info: MirTypeInfo::ReferenceType { pointee },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::mul(
-        SizeOfTypeInfo {
-            types,
-            info: MirTypeInfo::PrimitiveType {
-                primitive: MirPrimitiveType::UnsignedInteger {
-                    kind: MirUintTy::Usize(),
-                },
-            },
-        },
-        PointerWords {
-            info: map::get(types, pointee),
-        },
-    )]
-}
-
-#[k::equation(priority = 60)]
-fn size_of_other(k::term![SizeOfTypeInfo { types: _, info: _ }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
-}
-
-#[k::equation]
-fn align_of_boolean(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Bool(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![1]
-}
-
-#[k::equation]
-fn align_of_char(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Char(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![4]
-}
-
-#[k::equation]
-fn align_of_signed_integer(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::SignedInteger { kind },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::div(IntWidth { kind }, 8)]
-}
-
-#[k::equation]
-fn align_of_unsigned_integer(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::UnsignedInteger { kind },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::div(UintWidth { kind }, 8)]
-}
-
-#[k::equation]
-fn align_of_float(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Float { kind },
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::div(FloatWidth { kind }, 8)]
-}
-
-#[k::equation]
-fn align_of_str(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::Str(),
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![4]
-}
-
-#[k::equation]
-fn align_of_enum(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::EnumType {
-            name: _,
-            adt_def: _,
-            discriminants: _,
-            fields: _,
-            layout,
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutAlign { layout }]
-}
-
-#[k::equation]
-fn align_of_struct(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::StructType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout,
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutAlign { layout }]
-}
-
-#[k::equation]
-fn align_of_union(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::UnionType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout,
-        },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutAlign { layout }]
-}
-
-#[k::equation]
-fn align_of_tuple(
-    k::term![AlignOfTypeInfo {
-        types: _,
-        info: MirTypeInfo::TupleType { fields: _, layout },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![LayoutAlign { layout }]
-}
-
-#[k::equation]
-fn align_of_array(
-    k::term![AlignOfTypeInfo {
-        types,
-        info: MirTypeInfo::ArrayType { element, size: _ },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![AlignOfTypeInfo {
-        types,
-        info: map::get(types, element),
-    }]
-}
-
-#[k::equation]
-fn align_of_pointer(
-    k::term![AlignOfTypeInfo {
-        types,
-        info: MirTypeInfo::PointerType { pointee: _ },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![AlignOfTypeInfo {
-        types,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::UnsignedInteger {
-                kind: MirUintTy::Usize(),
-            },
-        },
-    }]
-}
-
-#[k::equation]
-fn align_of_reference(
-    k::term![AlignOfTypeInfo {
-        types,
-        info: MirTypeInfo::ReferenceType { pointee: _ },
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![AlignOfTypeInfo {
-        types,
-        info: MirTypeInfo::PrimitiveType {
-            primitive: MirPrimitiveType::UnsignedInteger {
-                kind: MirUintTy::Usize(),
-            },
-        },
-    }]
-}
-
-#[k::equation(priority = 60)]
-fn align_of_other(k::term![AlignOfTypeInfo { types: _, info: _ }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+k::equations! {
+    for AlignOfTypeInfo;
+    align_of_boolean         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))                => 1;
+    align_of_char            : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))                => 4;
+    align_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))   => int::div(IntWidth(kind), 8);
+    align_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind))) => int::div(UintWidth(kind), 8);
+    align_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))           => int::div(FloatWidth(kind), 8);
+    align_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                 => 4;
+    align_of_enum            : (_, MirTypeInfo::EnumType(_, _, _, _, layout))                           => LayoutAlign(layout);
+    align_of_struct          : (_, MirTypeInfo::StructType(_, _, _, layout))                            => LayoutAlign(layout);
+    align_of_union           : (_, MirTypeInfo::UnionType(_, _, _, layout))                             => LayoutAlign(layout);
+    align_of_tuple           : (_, MirTypeInfo::TupleType(_, layout))                                   => LayoutAlign(layout);
+    align_of_array           : (types, MirTypeInfo::ArrayType(element, _))                              => AlignOfTypeInfo(types, map::get(types, element));
+    align_of_pointer         : (types, MirTypeInfo::PointerType(_))                                     => AlignOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize())));
+    align_of_reference       : (types, MirTypeInfo::ReferenceType(_))                                   => AlignOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize())));
+    #[k::equation(priority = 60)]
+    align_of_other           : (_, _)                                                                   => 0;
 }
 
 #[k::equation]
@@ -2262,49 +1756,13 @@ fn nth_variant_offsets_next(
     }]
 }
 
-#[k::equation]
-fn byte_length_i8(
-    k::term![ByteLength {
-        width: MirIntegerLength::LengthI8(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![1]
-}
-
-#[k::equation]
-fn byte_length_i16(
-    k::term![ByteLength {
-        width: MirIntegerLength::LengthI16(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![2]
-}
-
-#[k::equation]
-fn byte_length_i32(
-    k::term![ByteLength {
-        width: MirIntegerLength::LengthI32(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![4]
-}
-
-#[k::equation]
-fn byte_length_i64(
-    k::term![ByteLength {
-        width: MirIntegerLength::LengthI64(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![8]
-}
-
-#[k::equation]
-fn byte_length_i128(
-    k::term![ByteLength {
-        width: MirIntegerLength::LengthI128(),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![16]
+k::equations! {
+    for ByteLength;
+    byte_length_i8  : MirIntegerLength::LengthI8()   => 1;
+    byte_length_i16 : MirIntegerLength::LengthI16()  => 2;
+    byte_length_i32 : MirIntegerLength::LengthI32()  => 4;
+    byte_length_i64 : MirIntegerLength::LengthI64()  => 8;
+    byte_length_i128: MirIntegerLength::LengthI128() => 16;
 }
 
 #[k::equation]
