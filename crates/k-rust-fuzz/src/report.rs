@@ -226,6 +226,9 @@ pub struct SolveParameters {
     /// The most unsettled queries kept, one per query key: the best-ranked blocked case of each;
     /// beyond it the worst-ranked is dropped.
     pub pending_limit: u64,
+    /// The settled queries without a candidate after which a blocked rule and set of symbolic
+    /// holes is given up for the campaign.
+    pub futile_limit: u64,
     /// The hole sorts that are made symbolic: `Int` and `Bool`, which translate exactly to SMT.
     pub symbolic_sorts: Vec<String>,
     /// Which rules' condition entries the cases record: `target-and-keyed-chain`, the target,
@@ -253,6 +256,7 @@ impl SolveParameters {
             model_retries: SOLVE_MODEL_RETRIES,
             z3_version: k_rust::backend::z3_version().unwrap_or("none").to_owned(),
             pending_limit: SOLVE_PENDING_LIMIT,
+            futile_limit: SOLVE_FUTILE_LIMIT,
             symbolic_sorts: vec!["Int".into(), "Bool".into()],
             condition_rules: "target-and-keyed-chain".into(),
             chain_radius: SOLVE_CHAIN_RADIUS,
@@ -276,6 +280,8 @@ pub(crate) const SOLVE_RUN_RETRIES: u32 = 2;
 pub(crate) const SOLVE_MODEL_RETRIES: u32 = 2;
 /// [`SolveParameters::model_resource_units`].
 pub(crate) const SOLVE_MODEL_RESOURCE_UNITS: u32 = 2_000_000;
+/// [`SolveParameters::futile_limit`].
+pub(crate) const SOLVE_FUTILE_LIMIT: u64 = 4;
 /// [`SolveParameters::pending_limit`].
 pub(crate) const SOLVE_PENDING_LIMIT: u64 = 64;
 /// [`SolveParameters::chain_radius`].

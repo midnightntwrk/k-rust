@@ -267,20 +267,18 @@ fn the_solver_reaches_the_nonlinear_cell_and_no_unreachable_one() {
         (PINNED_ISOLATED_C7.to_vec(), PINNED_MAZE_C7.to_vec()),
         "the solver's case sequence moved; re-pin"
     );
-    // `u2`'s isolation leaves `D` free: a query on `c4`, its keyed predecessor, gives a
-    // candidate in `c4`'s window, and the query on `u2` itself then finds no path that applies
-    // it under `c4`'s guard. `u4`'s query finds no model of `C * C == 2`.
-    let (run, report) =
-        maze::run_isolated(maze::cell_named("u2"), &maze::blind_solve(), 1, CI_BUDGET);
-    assert_eq!(run.cases_to_hit, None);
-    let solve = report.totals.solve.expect("solve totals");
-    assert!(solve.no_path >= 1, "u2: {solve:?}");
-    let (run, report) =
-        maze::run_isolated(maze::cell_named("u4"), &maze::blind_solve(), 1, CI_BUDGET);
-    assert_eq!(run.cases_to_hit, None);
-    let solve = report.totals.solve.expect("solve totals");
-    assert!(solve.attempts > 0, "u4: {solve:?}");
-    assert_eq!(solve.candidates, 0, "u4: {solve:?}");
+    // Neither unreachable cell is hit. Queries on other rules of their keyed chains give
+    // candidates (on `u2`, `c4`'s window; the chain's fallback to every predecessor where none is
+    // keyed reaches side cells), and the queries on `u2` and `u4` themselves find no path
+    // (`proposers::solve::tests` asks them directly).
+    for label in ["u2", "u4"] {
+        let (run, report) =
+            maze::run_isolated(maze::cell_named(label), &maze::blind_solve(), 1, CI_BUDGET);
+        assert_eq!(run.cases_to_hit, None, "{label}");
+        let solve = report.totals.solve.expect("solve totals");
+        assert!(solve.no_path >= 1, "{label}: {solve:?}");
+        assert_eq!(solve.outside_determinism, 0, "{label}: {solve:?}");
+    }
 }
 
 /// A solving campaign records the solver's parameters and runs, and reports the same bytes

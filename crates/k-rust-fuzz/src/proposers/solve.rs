@@ -32,7 +32,12 @@
 //! budget. An asked query is settled, whatever it answered, and leaves the pending set, so a
 //! query that found no candidate (no path, no model, a candidate that missed) gives way to the
 //! next one at the next draw, with the stall still running. Only a run a stop ended (a
-//! cancellation, the per-case safety limit) leaves its query pending. A candidate that passes a
+//! cancellation, the per-case safety limit) leaves its query pending. A blocked rule and set of
+//! symbolic holes whose queries found no candidate [`SOLVE_FUTILE_LIMIT`] times (with other
+//! values of the other holes) is given up for the campaign: on the maze's unreachable `u4` the
+//! queries differ only in holes no guard on the path reads, and without the limit a campaign of
+//! 5000 cases asked about 1000 of them, each ~30 ms of backend construction and solving for one
+//! state's work. Other rules, other symbolic sets and other blocked cases stay available. A candidate that passes a
 //! chain rule's guard gives a blocked case one rule nearer the target, so on a corridor of guards
 //! the proposer solves them one by one.
 //!
@@ -141,9 +146,10 @@ use crate::{
         proposer::{Observation, Origin, Proposal, ProposalContext, Proposer},
     },
     report::{
-        SOLVE_BUDGET_SHARE, SOLVE_MAX_MODEL_QUERIES, SOLVE_MODEL_RESOURCE_UNITS,
-        SOLVE_MODEL_RETRIES, SOLVE_PENDING_LIMIT, SOLVE_RUN_RESOURCE_UNITS, SOLVE_RUN_RETRIES,
-        SOLVE_STALL_CASES, SOLVE_WORK_FACTOR, SOLVE_WORK_SLACK, SolveTotals, Totals,
+        SOLVE_BUDGET_SHARE, SOLVE_FUTILE_LIMIT, SOLVE_MAX_MODEL_QUERIES,
+        SOLVE_MODEL_RESOURCE_UNITS, SOLVE_MODEL_RETRIES, SOLVE_PENDING_LIMIT,
+        SOLVE_RUN_RESOURCE_UNITS, SOLVE_RUN_RETRIES, SOLVE_STALL_CASES, SOLVE_WORK_FACTOR,
+        SOLVE_WORK_SLACK, SolveTotals, Totals,
     },
     score::Score,
     spec::{CaseOptions, ProposerKind},
@@ -652,6 +658,9 @@ pub(crate) struct SolveProposer {
     pending: BTreeMap<Key, Pending>,
     /// The keys of the queries whose answer was decided.
     settled: BTreeSet<Key>,
+    /// Per blocked rule and set of symbolic holes, the settled queries that gave no candidate;
+    /// at [`SOLVE_FUTILE_LIMIT`] the pair is given up for the campaign.
+    futile: BTreeMap<(String, Vec<usize>), u64>,
     /// The observed cases, which orders the pending queries of equal rank.
     observed: u64,
     ready: Option<Query>,
@@ -697,6 +706,7 @@ impl SolveProposer {
             stalled: 0,
             pending: BTreeMap::new(),
             settled: BTreeSet::new(),
+            futile: BTreeMap::new(),
             observed: 0,
             ready: None,
             run_units: SOLVE_RUN_RESOURCE_UNITS,
@@ -720,7 +730,14 @@ impl SolveProposer {
             .map(|pending| pending.query.clone())
     }
 
-    /// Keep the query a blocked case asks, unless it is settled; a key already pending keeps the
+    /// Whether `query`'s blocked rule and symbolic holes were given up ([`SOLVE_FUTILE_LIMIT`]).
+    fn given_up(&self, query: &Query) -> bool {
+        self.futile
+            .get(&(query.rule.clone(), query.symbolic.clone()))
+            .is_some_and(|count| *count >= SOLVE_FUTILE_LIMIT)
+    }
+
+    /// Keep the query a blocked case asks, unless it is settled or given up; a key already pending keeps the
     /// better-ranked case. Beyond [`SOLVE_PENDING_LIMIT`] keys the worst-ranked (the last
     /// observed of equal ones) is dropped.
     fn keep(&mut self, blocked: &crate::score::Blocked, values: &[Value], work: u64) {
@@ -735,7 +752,7 @@ impl SolveProposer {
             work,
         };
         let key = query.key();
-        if self.settled.contains(&key) {
+        if self.settled.contains(&key) || self.given_up(&query) {
             return;
         }
         let rank = (blocked.distance, blocked.guard.clone());
@@ -937,6 +954,15 @@ impl Proposer for SolveProposer {
         if decided {
             self.pending.remove(&key);
             self.settled.insert(key);
+            if values.is_none() {
+                let pair = (query.rule.clone(), query.symbolic.clone());
+                let count = self.futile.entry(pair.clone()).or_insert(0);
+                *count += 1;
+                if *count >= SOLVE_FUTILE_LIMIT {
+                    self.pending
+                        .retain(|(rule, symbolic, _), _| (rule, symbolic) != (&pair.0, &pair.1));
+                }
+            }
         }
         let values = values?;
         Some(Proposal::plain(
