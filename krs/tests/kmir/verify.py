@@ -58,7 +58,7 @@ PORT = semantics.Port(
     label="KMIR",
     key="kmir",
     checkout=INSPIRATIONS / "runtimeverification/mir-semantics",
-    descriptors=1212,
+    descriptors=1162,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=600,
 )

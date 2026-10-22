@@ -622,22 +622,14 @@ pub struct LocalTy {
 }
 
 #[k::equation]
-fn local_ty_new(
+fn local_ty(
     k::term![LocalTy {
-        entry: LocalValue::NewLocal { ty, mutability: _ },
-    }]: k::Term<Ty>,
-) -> k::Term<Ty> {
-    ty
-}
-
-#[k::equation]
-fn local_ty_value(
-    k::term![LocalTy {
-        entry: LocalValue::TypedValue {
-            value: _,
-            ty,
-            mutability: _,
-        },
+        entry: LocalValue::NewLocal { ty, mutability: _ }
+            | LocalValue::TypedValue {
+                value: _,
+                ty,
+                mutability: _,
+            },
     }]: k::Term<Ty>,
 ) -> k::Term<Ty> {
     ty
@@ -649,18 +641,9 @@ pub struct PointeeTy {
 }
 
 #[k::equation]
-fn pointee_ty_pointer(
+fn pointee_ty(
     k::term![PointeeTy {
-        info: MirTypeInfo::PointerType { pointee },
-    }]: k::Term<MaybeTy>,
-) -> k::Term<MaybeTy> {
-    pointee
-}
-
-#[k::equation]
-fn pointee_ty_reference(
-    k::term![PointeeTy {
-        info: MirTypeInfo::ReferenceType { pointee },
+        info: MirTypeInfo::PointerType { pointee } | MirTypeInfo::ReferenceType { pointee },
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     pointee
@@ -762,12 +745,17 @@ fn get_ty_of_field(
 }
 
 #[k::equation]
-fn get_ty_of_index(
+fn get_ty_of_element(
     k::term![GetTyOf {
         types,
         ty,
         projections: Projections::ProjectionsCons {
-            head: Projection::Index { local: _ },
+            head: Projection::Index { local: _ }
+                | Projection::ConstantIndex {
+                    offset: _,
+                    min_length: _,
+                    from_end: _,
+                },
             tail,
         },
     }]: k::Term<MaybeTy>,
@@ -781,32 +769,9 @@ fn get_ty_of_index(
     }]
 }
 
+/// A subslice keeps its array type, and a downcast keeps its enum type.
 #[k::equation]
-fn get_ty_of_constant_index(
-    k::term![GetTyOf {
-        types,
-        ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset: _,
-                min_length: _,
-                from_end: _,
-            },
-            tail,
-        },
-    }]: k::Term<MaybeTy>,
-) -> k::Term<MaybeTy> {
-    k::term![GetTyOf {
-        types,
-        ty: ElemTy {
-            info: map::get(types, ty),
-        },
-        projections: tail,
-    }]
-}
-
-#[k::equation]
-fn get_ty_of_subslice(
+fn get_ty_of_same_type(
     k::term![GetTyOf {
         types,
         ty,
@@ -815,25 +780,7 @@ fn get_ty_of_subslice(
                 from: _,
                 to: _,
                 from_end: _,
-            },
-            tail,
-        },
-    }]: k::Term<MaybeTy>,
-) -> k::Term<MaybeTy> {
-    k::term![GetTyOf {
-        types,
-        ty,
-        projections: tail,
-    }]
-}
-
-#[k::equation]
-fn get_ty_of_downcast(
-    k::term![GetTyOf {
-        types,
-        ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Downcast { variant: _ },
+            } | Projection::Downcast { variant: _ },
             tail,
         },
     }]: k::Term<MaybeTy>,
@@ -1214,41 +1161,33 @@ fn is_not_void_type(k::term![IsVoidType { info: _ }]: k::Term<Bool>) -> k::Term<
 
 k::equations! {
     for SizeOfTypeInfo;
-    size_of_boolean         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))                                                                                                           => 1;
-    size_of_char            : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))                                                                                                           => 4;
-    size_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))                                                                                              => int::div(IntWidth(kind), 8);
-    size_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))                                                                                            => int::div(UintWidth(kind), 8);
-    size_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))                                                                                                      => int::div(FloatWidth(kind), 8);
-    size_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                                                                                                            => 0;
-    size_of_enum            : (_, MirTypeInfo::EnumType(_, _, _, _, layout))                                                                                                                      => LayoutSize(layout);
-    size_of_struct          : (_, MirTypeInfo::StructType(_, _, _, layout))                                                                                                                       => LayoutSize(layout);
-    size_of_union           : (_, MirTypeInfo::UnionType(_, _, _, layout))                                                                                                                        => LayoutSize(layout);
-    size_of_tuple           : (_, MirTypeInfo::TupleType(_, layout))                                                                                                                              => LayoutSize(layout);
-    size_of_dynamic_array   : (_, MirTypeInfo::ArrayType(_, MirMaybeTyConst::NoTyConst()))                                                                                                        => 0;
-    size_of_static_array    : (types, MirTypeInfo::ArrayType(element, MirMaybeTyConst::SomeTyConst(MirTyConst::TyConst(MirTyConstKind::Value(_, MirAllocation::Allocation(bytes, _, _, _)), _)))) => int::mul(SizeOfTypeInfo(types, map::get(types, element)), ReadTyConstInt(bytes, 0, 1, 0));
-    size_of_pointer         : (types, MirTypeInfo::PointerType(pointee))                                                                                                                          => int::mul(SizeOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))), PointerWords(map::get(types, pointee)));
-    size_of_reference       : (types, MirTypeInfo::ReferenceType(pointee))                                                                                                                        => int::mul(SizeOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))), PointerWords(map::get(types, pointee)));
+    size_of_boolean         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))                                                                                                               => 1;
+    size_of_char            : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))                                                                                                               => 4;
+    size_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))                                                                                                  => int::div(IntWidth(kind), 8);
+    size_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))                                                                                                => int::div(UintWidth(kind), 8);
+    size_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))                                                                                                          => int::div(FloatWidth(kind), 8);
+    size_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                                                                                                                => 0;
+    size_of_aggregate       : (_, MirTypeInfo::EnumType(_, _, _, _, layout) | MirTypeInfo::StructType(_, _, _, layout) | MirTypeInfo::UnionType(_, _, _, layout) | MirTypeInfo::TupleType(_, layout)) => LayoutSize(layout);
+    size_of_dynamic_array   : (_, MirTypeInfo::ArrayType(_, MirMaybeTyConst::NoTyConst()))                                                                                                            => 0;
+    size_of_static_array    : (types, MirTypeInfo::ArrayType(element, MirMaybeTyConst::SomeTyConst(MirTyConst::TyConst(MirTyConstKind::Value(_, MirAllocation::Allocation(bytes, _, _, _)), _))))     => int::mul(SizeOfTypeInfo(types, map::get(types, element)), ReadTyConstInt(bytes, 0, 1, 0));
+    size_of_pointer         : (types, MirTypeInfo::PointerType(pointee) | MirTypeInfo::ReferenceType(pointee))                                                                                        => int::mul(SizeOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))), PointerWords(map::get(types, pointee)));
     #[k::equation(priority = 60)]
-    size_of_other           : (_, _)                                                                                                                                                              => 0;
+    size_of_other           : (_, _)                                                                                                                                                                  => 0;
 }
 
 k::equations! {
     for AlignOfTypeInfo;
-    align_of_boolean         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))                => 1;
-    align_of_char            : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))                => 4;
-    align_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))   => int::div(IntWidth(kind), 8);
-    align_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind))) => int::div(UintWidth(kind), 8);
-    align_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))           => int::div(FloatWidth(kind), 8);
-    align_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                 => 4;
-    align_of_enum            : (_, MirTypeInfo::EnumType(_, _, _, _, layout))                           => LayoutAlign(layout);
-    align_of_struct          : (_, MirTypeInfo::StructType(_, _, _, layout))                            => LayoutAlign(layout);
-    align_of_union           : (_, MirTypeInfo::UnionType(_, _, _, layout))                             => LayoutAlign(layout);
-    align_of_tuple           : (_, MirTypeInfo::TupleType(_, layout))                                   => LayoutAlign(layout);
-    align_of_array           : (types, MirTypeInfo::ArrayType(element, _))                              => AlignOfTypeInfo(types, map::get(types, element));
-    align_of_pointer         : (types, MirTypeInfo::PointerType(_))                                     => AlignOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize())));
-    align_of_reference       : (types, MirTypeInfo::ReferenceType(_))                                   => AlignOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize())));
+    align_of_boolean         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))                                                                                                               => 1;
+    align_of_char            : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))                                                                                                               => 4;
+    align_of_signed_integer  : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))                                                                                                  => int::div(IntWidth(kind), 8);
+    align_of_unsigned_integer: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))                                                                                                => int::div(UintWidth(kind), 8);
+    align_of_float           : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))                                                                                                          => int::div(FloatWidth(kind), 8);
+    align_of_str             : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))                                                                                                                => 4;
+    align_of_aggregate       : (_, MirTypeInfo::EnumType(_, _, _, _, layout) | MirTypeInfo::StructType(_, _, _, layout) | MirTypeInfo::UnionType(_, _, _, layout) | MirTypeInfo::TupleType(_, layout)) => LayoutAlign(layout);
+    align_of_array           : (types, MirTypeInfo::ArrayType(element, _))                                                                                                                             => AlignOfTypeInfo(types, map::get(types, element));
+    align_of_pointer         : (types, MirTypeInfo::PointerType(_) | MirTypeInfo::ReferenceType(_))                                                                                                    => AlignOfTypeInfo(types, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize())));
     #[k::equation(priority = 60)]
-    align_of_other           : (_, _)                                                                   => 0;
+    align_of_other           : (_, _)                                                                                                                                                                  => 0;
 }
 
 #[k::function(partial, syntax = "#decodeInteger({bytes}, {width}, {signed})")]
@@ -2245,29 +2184,17 @@ fn decode_allocated_fieldless_enum(
 }
 
 #[k::equation]
-fn decode_zero_sized_struct(
+fn decode_zero_sized_aggregate(
     k::term![DecodeZeroSizedConstant {
         info: MirTypeInfo::StructType {
             name: _,
             adt_def: _,
             fields: _,
             layout: _,
-        },
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![Value::Aggregate {
-        variant: 0,
-        fields: list::empty(),
-    }]
-}
-
-#[k::equation]
-fn decode_zero_sized_tuple(
-    k::term![DecodeZeroSizedConstant {
-        info: MirTypeInfo::TupleType {
+        } | MirTypeInfo::TupleType {
             fields: _,
             layout: _,
-        },
+        } | MirTypeInfo::FunType { name: _ },
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Aggregate {
@@ -2287,18 +2214,6 @@ fn decode_zero_sized_array(
 ) -> k::Term<MirValue> {
     k::term![Value::Range {
         elements: list::empty(),
-    }]
-}
-
-#[k::equation]
-fn decode_zero_sized_function(
-    k::term![DecodeZeroSizedConstant {
-        info: MirTypeInfo::FunType { name: _ },
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![Value::Aggregate {
-        variant: 0,
-        fields: list::empty(),
     }]
 }
 
@@ -2360,76 +2275,38 @@ fn decode_allocated_reference_fat(
     }]
 }
 
+/// A pointer to any of these types carries no size metadata.
 #[k::equation]
-fn metadata_size_of_primitive(
+fn metadata_size_of_thin(
     k::term![MetadataSizeOf {
-        info: MirTypeInfo::PrimitiveType { primitive: _ },
-    }]: k::Term<MetadataSize>,
-) -> k::Term<MetadataSize> {
-    k::term![MirMetadataSize::NoMetadataSize()]
-}
-
-#[k::equation]
-fn metadata_size_of_pointer(
-    k::term![MetadataSizeOf {
-        info: MirTypeInfo::PointerType { pointee: _ },
-    }]: k::Term<MetadataSize>,
-) -> k::Term<MetadataSize> {
-    k::term![MirMetadataSize::NoMetadataSize()]
-}
-
-#[k::equation]
-fn metadata_size_of_reference(
-    k::term![MetadataSizeOf {
-        info: MirTypeInfo::ReferenceType { pointee: _ },
-    }]: k::Term<MetadataSize>,
-) -> k::Term<MetadataSize> {
-    k::term![MirMetadataSize::NoMetadataSize()]
-}
-
-#[k::equation]
-fn metadata_size_of_struct(
-    k::term![MetadataSizeOf {
-        info: MirTypeInfo::StructType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout: _,
-        },
-    }]: k::Term<MetadataSize>,
-) -> k::Term<MetadataSize> {
-    k::term![MirMetadataSize::NoMetadataSize()]
-}
-
-#[k::equation]
-fn metadata_size_of_void(
-    k::term![MetadataSizeOf {
-        info: MirTypeInfo::VoidType(),
-    }]: k::Term<MetadataSize>,
-) -> k::Term<MetadataSize> {
-    k::term![MirMetadataSize::NoMetadataSize()]
-}
-
-/// Enums, unions, tuples, and function items are sized, so a pointer to one
-/// carries no size metadata, as for the structs above.
-#[k::equation]
-fn metadata_size_of_sized(
-    k::term![MetadataSizeOf {
-        info: MirTypeInfo::EnumType {
-            name: _,
-            adt_def: _,
-            discriminants: _,
-            fields: _,
-            layout: _,
-        } | MirTypeInfo::UnionType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout: _,
-        } | MirTypeInfo::TupleType {
-            fields: _,
-            layout: _
-        } | MirTypeInfo::FunType { name: _ },
+        info: MirTypeInfo::PrimitiveType { primitive: _ }
+            | MirTypeInfo::PointerType { pointee: _ }
+            | MirTypeInfo::ReferenceType { pointee: _ }
+            | MirTypeInfo::StructType {
+                name: _,
+                adt_def: _,
+                fields: _,
+                layout: _,
+            }
+            | MirTypeInfo::UnionType {
+                name: _,
+                adt_def: _,
+                fields: _,
+                layout: _,
+            }
+            | MirTypeInfo::TupleType {
+                fields: _,
+                layout: _
+            }
+            | MirTypeInfo::EnumType {
+                name: _,
+                adt_def: _,
+                discriminants: _,
+                fields: _,
+                layout: _,
+            }
+            | MirTypeInfo::FunType { name: _ }
+            | MirTypeInfo::VoidType(),
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
     k::term![MirMetadataSize::NoMetadataSize()]
@@ -2551,36 +2428,18 @@ fn convert_pointer_metadata_thin(
 }
 
 #[k::equation]
-fn convert_pointer_metadata_thin_to_dynamic(
+fn convert_pointer_metadata_thin_to_sized(
     k::term![ConvertPointerMetadata {
         metadata: MirMetadata::Metadata {
             size: MirMetadataSize::NoMetadataSize(),
             offset,
             origin_size,
         },
-        target_size: MirMetadataSize::DynamicSize(size),
+        target_size: target_size @ (MirMetadataSize::DynamicSize(_) | MirMetadataSize::StaticSize(_)),
     }]: k::Term<Metadata>,
 ) -> k::Term<Metadata> {
     k::term![MirMetadata::Metadata {
-        size: MirMetadataSize::DynamicSize(size),
-        offset,
-        origin_size,
-    }]
-}
-
-#[k::equation]
-fn convert_pointer_metadata_thin_to_static(
-    k::term![ConvertPointerMetadata {
-        metadata: MirMetadata::Metadata {
-            size: MirMetadataSize::NoMetadataSize(),
-            offset,
-            origin_size,
-        },
-        target_size: MirMetadataSize::StaticSize(size),
-    }]: k::Term<Metadata>,
-) -> k::Term<Metadata> {
-    k::term![MirMetadata::Metadata {
-        size: MirMetadataSize::StaticSize(size),
+        size: target_size,
         offset,
         origin_size,
     }]
@@ -2791,35 +2650,16 @@ fn projection_metadata_size_field(
 }
 
 #[k::equation]
-fn projection_metadata_size_index(
+fn projection_metadata_size_element(
     k::term![ProjectionMetadataSize {
         ty,
         projections: Projections::ProjectionsCons {
-            head: Projection::Index { local: _ },
-            tail,
-        },
-        types,
-    }]: k::Term<MetadataSize>,
-) -> k::Term<MetadataSize> {
-    k::term![ProjectionMetadataSize {
-        ty: ArrayElementType {
-            info: map::get(types, ty),
-        },
-        projections: tail,
-        types,
-    }]
-}
-
-#[k::equation]
-fn projection_metadata_size_constant_index(
-    k::term![ProjectionMetadataSize {
-        ty,
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset: _,
-                min_length: _,
-                from_end: _,
-            },
+            head: Projection::Index { local: _ }
+                | Projection::ConstantIndex {
+                    offset: _,
+                    min_length: _,
+                    from_end: _,
+                },
             tail,
         },
         types,
@@ -2876,16 +2716,7 @@ pub struct ReferencePointeeType {
 #[k::equation]
 fn reference_pointee_type(
     k::term![ReferencePointeeType {
-        info: MirTypeInfo::ReferenceType { pointee },
-    }]: k::Term<Ty>,
-) -> k::Term<Ty> {
-    pointee
-}
-
-#[k::equation]
-fn pointer_pointee_type(
-    k::term![ReferencePointeeType {
-        info: MirTypeInfo::PointerType { pointee },
+        info: MirTypeInfo::ReferenceType { pointee } | MirTypeInfo::PointerType { pointee },
     }]: k::Term<Ty>,
 ) -> k::Term<Ty> {
     pointee
@@ -2953,26 +2784,7 @@ fn projections_for_field(
                 fields: _,
                 field,
                 ty,
-            },
-            tail,
-        },
-        projections,
-    }]: k::Term<ProjectionElems>,
-) -> k::Term<ProjectionElems> {
-    k::term![ProjectionsFor {
-        contexts: tail,
-        projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, ty },
-            tail: projections,
-        },
-    }]
-}
-
-#[k::equation]
-fn projections_for_union_field(
-    k::term![ProjectionsFor {
-        contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::UnionFieldContext {
+            } | MirProjectionContext::UnionFieldContext {
                 field,
                 value: _,
                 ty,
@@ -3348,23 +3160,11 @@ fn materialize_array(
 #[k::equation]
 fn materialize_tuple(
     k::term![MaterializeAggregate {
-        kind: MirAggregateKind::AggregateTuple(),
-        values,
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![Value::Aggregate {
-        variant: 0,
-        fields: values,
-    }]
-}
-
-#[k::equation]
-fn materialize_closure(
-    k::term![MaterializeAggregate {
-        kind: MirAggregateKind::AggregateClosure {
-            closure: _,
-            args: _,
-        },
+        kind: MirAggregateKind::AggregateTuple()
+            | MirAggregateKind::AggregateClosure {
+                closure: _,
+                args: _,
+            },
         values,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -4382,18 +4182,9 @@ fn origin_size_none(
 }
 
 #[k::equation]
-fn origin_size_static(
+fn origin_size_sized(
     k::term![OriginSize {
-        size: MirMetadataSize::StaticSize(size),
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![size]
-}
-
-#[k::equation]
-fn origin_size_dynamic(
-    k::term![OriginSize {
-        size: MirMetadataSize::DynamicSize(size),
+        size: MirMetadataSize::StaticSize(size) | MirMetadataSize::DynamicSize(size),
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![size]
@@ -4478,37 +4269,37 @@ fn freeze_projections_done(
     k::term![Projections::ProjectionsEmpty()]
 }
 
+/// These projections already name a fixed place, so freezing keeps them;
+/// only a dynamic index reads a local, which `freeze_projections_index`
+/// replaces by its value.
 #[k::equation]
-fn freeze_projections_field(
+fn freeze_projections_fixed(
     k::term![FreezeProjections {
         projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, ty },
+            head: head @ (Projection::Field { field: _, ty: _ }
+                | Projection::WrapStruct()
+                | Projection::ConstantIndex {
+                    offset: _,
+                    min_length: _,
+                    from_end: _,
+                }
+                | Projection::Subslice {
+                    from: _,
+                    to: _,
+                    from_end: _,
+                }
+                | Projection::Downcast { variant: _ }
+                | Projection::PointerOffset {
+                    offset: _,
+                    origin_size: _,
+                }),
             tail,
         },
         locals,
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     k::term![Projections::ProjectionsCons {
-        head: Projection::Field { field, ty },
-        tail: FreezeProjections {
-            projections: tail,
-            locals,
-        },
-    }]
-}
-
-#[k::equation]
-fn freeze_projections_wrap_struct(
-    k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: Projection::WrapStruct(),
-            tail,
-        },
-        locals,
-    }]: k::Term<ProjectionElems>,
-) -> k::Term<ProjectionElems> {
-    k::term![Projections::ProjectionsCons {
-        head: Projection::WrapStruct(),
+        head,
         tail: FreezeProjections {
             projections: tail,
             locals,
@@ -4533,96 +4324,6 @@ fn freeze_projections_index(
             },
             min_length: 0,
             from_end: false,
-        },
-        tail: FreezeProjections {
-            projections: tail,
-            locals,
-        },
-    }]
-}
-
-#[k::equation]
-fn freeze_projections_constant_index(
-    k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset,
-                min_length,
-                from_end,
-            },
-            tail,
-        },
-        locals,
-    }]: k::Term<ProjectionElems>,
-) -> k::Term<ProjectionElems> {
-    k::term![Projections::ProjectionsCons {
-        head: Projection::ConstantIndex {
-            offset,
-            min_length,
-            from_end,
-        },
-        tail: FreezeProjections {
-            projections: tail,
-            locals,
-        },
-    }]
-}
-
-#[k::equation]
-fn freeze_projections_subslice(
-    k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: Projection::Subslice { from, to, from_end },
-            tail,
-        },
-        locals,
-    }]: k::Term<ProjectionElems>,
-) -> k::Term<ProjectionElems> {
-    k::term![Projections::ProjectionsCons {
-        head: Projection::Subslice { from, to, from_end },
-        tail: FreezeProjections {
-            projections: tail,
-            locals,
-        },
-    }]
-}
-
-#[k::equation]
-fn freeze_projections_downcast(
-    k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: Projection::Downcast { variant },
-            tail,
-        },
-        locals,
-    }]: k::Term<ProjectionElems>,
-) -> k::Term<ProjectionElems> {
-    k::term![Projections::ProjectionsCons {
-        head: Projection::Downcast { variant },
-        tail: FreezeProjections {
-            projections: tail,
-            locals,
-        },
-    }]
-}
-
-#[k::equation]
-fn freeze_projections_pointer_offset(
-    k::term![FreezeProjections {
-        projections: Projections::ProjectionsCons {
-            head: Projection::PointerOffset {
-                offset,
-                origin_size,
-            },
-            tail,
-        },
-        locals,
-    }]: k::Term<ProjectionElems>,
-) -> k::Term<ProjectionElems> {
-    k::term![Projections::ProjectionsCons {
-        head: Projection::PointerOffset {
-            offset,
-            origin_size,
         },
         tail: FreezeProjections {
             projections: tail,
@@ -4814,30 +4515,7 @@ fn read_projection_deref(
             },
             mutability: _,
             metadata: _,
-        },
-        projections: Projections::ProjectionsCons {
-            head: Projection::Deref(),
-            tail,
-        },
-        locals,
-    }]: k::Term<MirValue>,
-) -> k::Term<MirValue> {
-    k::term![ReadProjection {
-        value: LocalValueOf {
-            entry: list::get(locals, local),
-        },
-        projections: AppendProjections {
-            first: referenced,
-            second: tail,
-        },
-        locals,
-    }]
-}
-
-#[k::equation]
-fn read_projection_pointer_deref(
-    k::term![ReadProjection {
-        value: Value::Pointer {
+        } | Value::Pointer {
             height: 0,
             place: MirPlace::Place {
                 local,
@@ -5696,41 +5374,23 @@ k::rules! {
     }
     where operand: Operand, place: Place;
 
-    eval_ptr_cast_copy: {
-        k: [Execution::EvalRvalue { value: MirRvalue::Cast { kind: MirCastKind::PtrToPtr(), operand: MirOperand::Copy(MirPlace::Place { local, projections }), target }, place }, ..],
+    eval_ptr_cast: {
+        k: [Execution::EvalRvalue { value: MirRvalue::Cast { kind: MirCastKind::PtrToPtr(), operand: operand @ (MirOperand::Copy(MirPlace::Place { local, projections }) | MirOperand::Move(MirPlace::Place { local, projections })), target }, place }, ..],
         locals: locals,
         types: types,
     } => {
-        k: [Execution::EvalOperand { operand: MirOperand::Copy(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishPtrCast { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
+        k: [Execution::EvalOperand { operand, continuation: EvaluationContinuation::FinishPtrCast { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
     }
-    where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
+    where operand: Operand, local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
 
-    eval_ptr_cast_move: {
-        k: [Execution::EvalRvalue { value: MirRvalue::Cast { kind: MirCastKind::PtrToPtr(), operand: MirOperand::Move(MirPlace::Place { local, projections }), target }, place }, ..],
+    eval_transmute: {
+        k: [Execution::EvalRvalue { value: MirRvalue::Cast { kind: MirCastKind::Transmute(), operand: operand @ (MirOperand::Copy(MirPlace::Place { local, projections }) | MirOperand::Move(MirPlace::Place { local, projections })), target }, place }, ..],
         locals: locals,
         types: types,
     } => {
-        k: [Execution::EvalOperand { operand: MirOperand::Move(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishPtrCast { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
+        k: [Execution::EvalOperand { operand, continuation: EvaluationContinuation::FinishTransmute { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
     }
-    where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
-
-    eval_transmute_copy: {
-        k: [Execution::EvalRvalue { value: MirRvalue::Cast { kind: MirCastKind::Transmute(), operand: MirOperand::Copy(MirPlace::Place { local, projections }), target }, place }, ..],
-        locals: locals,
-        types: types,
-    } => {
-        k: [Execution::EvalOperand { operand: MirOperand::Copy(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishTransmute { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
-    }
-    where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
-
-    eval_transmute_move: {
-        k: [Execution::EvalRvalue { value: MirRvalue::Cast { kind: MirCastKind::Transmute(), operand: MirOperand::Move(MirPlace::Place { local, projections }), target }, place }, ..],
-        locals: locals,
-        types: types,
-    } => {
-        k: [Execution::EvalOperand { operand: MirOperand::Move(MirPlace::Place { local, projections }), continuation: EvaluationContinuation::FinishTransmute { place, source: LookupMaybeTy { types, ty: GetTyOf { types, ty: LocalTy { entry: list::get(locals, local) }, projections } }, target: map::get(types, target) } }, ..],
-    }
-    where local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
+    where operand: Operand, local: Int, projections: ProjectionElems, target: Ty, place: Place, locals: List, types: Map;
 
     eval_ref: {
         k: [Execution::EvalRvalue { value: MirRvalue::Ref { region: _, kind, place: MirPlace::Place { local, projections } }, place }, ..],
@@ -6087,16 +5747,8 @@ k::rules! {
     where target: ProjectionTarget, elements: List, offset: Int, origin_size: Int, tail: ProjectionElems, contexts: ProjectionContexts, locals: List, action: ProjectionAction;
 
     #[k::requires(bool::and(int::ge(size, 0), int::le(size, list::size(elements))))]
-    traverse_projection_truncate_static: {
-        k: [Execution::TraverseProjection { target, value: Value::Range(elements), projections: Projections::ProjectionsCons { head: Projection::DerefTruncate { size: MirMetadataSize::StaticSize(size) }, tail }, contexts, locals, action }, ..],
-    } => {
-        k: [Execution::TraverseProjection { target, value: Value::Range { elements: list::range(elements, 0, int::sub(list::size(elements), size)) }, projections: tail, contexts, locals, action }, ..],
-    }
-    where target: ProjectionTarget, elements: List, size: Int, tail: ProjectionElems, contexts: ProjectionContexts, locals: List, action: ProjectionAction;
-
-    #[k::requires(bool::and(int::ge(size, 0), int::le(size, list::size(elements))))]
-    traverse_projection_truncate_dynamic: {
-        k: [Execution::TraverseProjection { target, value: Value::Range(elements), projections: Projections::ProjectionsCons { head: Projection::DerefTruncate { size: MirMetadataSize::DynamicSize(size) }, tail }, contexts, locals, action }, ..],
+    traverse_projection_truncate_size: {
+        k: [Execution::TraverseProjection { target, value: Value::Range(elements), projections: Projections::ProjectionsCons { head: Projection::DerefTruncate { size: MirMetadataSize::StaticSize(size) | MirMetadataSize::DynamicSize(size) }, tail }, contexts, locals, action }, ..],
     } => {
         k: [Execution::TraverseProjection { target, value: Value::Range { elements: list::range(elements, 0, int::sub(list::size(elements), size)) }, projections: tail, contexts, locals, action }, ..],
     }
@@ -6118,33 +5770,16 @@ k::rules! {
     where target: ProjectionTarget, value: MirValue, tail: ProjectionElems, contexts: ProjectionContexts, locals: List, action: ProjectionAction;
 
     #[k::rule(owise)]
-    traverse_projection_current_reference: {
-        k: [Execution::TraverseProjection { target: _, value: Value::Reference { height: 0, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } }, projections: Projections::ProjectionsCons { head: Projection::Deref(), tail }, contexts: _, locals, action }, ..],
+    traverse_projection_current_deref: {
+        k: [Execution::TraverseProjection { target: _, value: Value::Reference { height: 0, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } } | Value::Pointer { height: 0, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } }, projections: Projections::ProjectionsCons { head: Projection::Deref(), tail }, contexts: _, locals, action }, ..],
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToLocal(local), value: LocalValueOf { entry: list::get(locals, local) }, projections: DerefProjectionPath { referenced, size, offset, origin_size, tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action }, ..],
     }
     where local: Int, referenced: ProjectionElems, size: MetadataSize, offset: Int, origin_size: MetadataSize, tail: ProjectionElems, locals: List, action: ProjectionAction;
 
     #[k::requires(int::gt(height, 0))]
-    traverse_projection_stack_reference: {
-        k: [Execution::TraverseProjection { target: _, value: Value::Reference { height, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } }, projections: Projections::ProjectionsCons { head: Projection::Deref(), tail }, contexts: _, locals, action }, ..],
-        stack: stack,
-    } => {
-        k: [Execution::TraverseProjection { target: MirProjectionTarget::ToStack { height, local }, value: LocalFromFrame { frame: list::get(stack, int::sub(height, 1)), local, offset: height }, projections: DerefProjectionPath { referenced, size, offset, origin_size, tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action }, ..],
-    }
-    where height: Int, local: Int, referenced: ProjectionElems, size: MetadataSize, offset: Int, origin_size: MetadataSize, tail: ProjectionElems, locals: List, action: ProjectionAction, stack: List;
-
-    #[k::rule(owise)]
-    traverse_projection_current_pointer: {
-        k: [Execution::TraverseProjection { target: _, value: Value::Pointer { height: 0, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } }, projections: Projections::ProjectionsCons { head: Projection::Deref(), tail }, contexts: _, locals, action }, ..],
-    } => {
-        k: [Execution::TraverseProjection { target: MirProjectionTarget::ToLocal(local), value: LocalValueOf { entry: list::get(locals, local) }, projections: DerefProjectionPath { referenced, size, offset, origin_size, tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action }, ..],
-    }
-    where local: Int, referenced: ProjectionElems, size: MetadataSize, offset: Int, origin_size: MetadataSize, tail: ProjectionElems, locals: List, action: ProjectionAction;
-
-    #[k::requires(int::gt(height, 0))]
-    traverse_projection_stack_pointer: {
-        k: [Execution::TraverseProjection { target: _, value: Value::Pointer { height, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } }, projections: Projections::ProjectionsCons { head: Projection::Deref(), tail }, contexts: _, locals, action }, ..],
+    traverse_projection_stack_deref: {
+        k: [Execution::TraverseProjection { target: _, value: Value::Reference { height, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } } | Value::Pointer { height, place: MirPlace::Place { local, projections: referenced }, mutability: _, metadata: MirMetadata::Metadata { size, offset, origin_size } }, projections: Projections::ProjectionsCons { head: Projection::Deref(), tail }, contexts: _, locals, action }, ..],
         stack: stack,
     } => {
         k: [Execution::TraverseProjection { target: MirProjectionTarget::ToStack { height, local }, value: LocalFromFrame { frame: list::get(stack, int::sub(height, 1)), local, offset: height }, projections: DerefProjectionPath { referenced, size, offset, origin_size, tail }, contexts: MirProjectionContexts::ContextsEmpty(), locals, action }, ..],
@@ -6231,85 +5866,23 @@ k::rules! {
     }
     where allocation: AllocId, projections: ProjectionElems, size: Int, offset: Int, origin_size: MetadataSize, place: Place;
 
-    finish_reference_transmute_identity: {
-        k: [Execution::Continue { value: Value::Reference { height, place: referenced, mutability, metadata }, continuation: EvaluationContinuation::FinishTransmute { place, source: info, target: info } }, ..],
+    finish_transmute_identity: {
+        k: [Execution::Continue { value: value @ (Value::Reference { height: _, place: _, mutability: _, metadata: _ } | Value::Pointer { height: _, place: _, mutability: _, metadata: _ } | Value::AllocationReference { allocation: _, projections: _, metadata: _ }), continuation: EvaluationContinuation::FinishTransmute { place, source: info, target: info } }, ..],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Reference { height, place: referenced, mutability, metadata } }, ..],
+        k: [Execution::SetLocalValue { place, value }, ..],
     }
-    where height: Int, referenced: Place, mutability: Mutability, metadata: Metadata, place: Place, info: TypeInfo;
-
-    finish_pointer_transmute_identity: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishTransmute { place, source: info, target: info } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::Pointer { height, place: pointer_place, mutability, metadata } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, place: Place, info: TypeInfo;
-
-    finish_allocation_reference_transmute_identity: {
-        k: [Execution::Continue { value: Value::AllocationReference { allocation, projections, metadata }, continuation: EvaluationContinuation::FinishTransmute { place, source: info, target: info } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::AllocationReference { allocation, projections, metadata } }, ..],
-    }
-    where allocation: AllocId, projections: ProjectionElems, metadata: Metadata, place: Place, info: TypeInfo;
+    where value: MirValue, place: Place, info: TypeInfo;
 
     finish_same_pointee_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place, source: MirTypeInfo::PointerType { pointee }, target: MirTypeInfo::PointerType { pointee } } }, ..],
+        k: [Execution::Continue { value: value @ Value::Pointer { height: _, place: _, mutability: _, metadata: _ }, continuation: EvaluationContinuation::FinishPtrCast { place, source: MirTypeInfo::PointerType { pointee } | MirTypeInfo::ReferenceType { pointee }, target: MirTypeInfo::PointerType { pointee } | MirTypeInfo::ReferenceType { pointee } } }, ..],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Pointer { height, place: pointer_place, mutability, metadata } }, ..],
+        k: [Execution::SetLocalValue { place, value }, ..],
     }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, pointee: Ty, place: Place;
-
-    finish_same_pointee_ref_to_ref_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place, source: MirTypeInfo::ReferenceType { pointee }, target: MirTypeInfo::ReferenceType { pointee } } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::Pointer { height, place: pointer_place, mutability, metadata } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, pointee: Ty, place: Place;
-
-    finish_same_pointee_ref_to_ptr_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place, source: MirTypeInfo::ReferenceType { pointee }, target: MirTypeInfo::PointerType { pointee } } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::Pointer { height, place: pointer_place, mutability, metadata } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, pointee: Ty, place: Place;
-
-    finish_same_pointee_ptr_to_ref_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place, source: MirTypeInfo::PointerType { pointee }, target: MirTypeInfo::ReferenceType { pointee } } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::Pointer { height, place: pointer_place, mutability, metadata } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, pointee: Ty, place: Place;
+    where value: MirValue, pointee: Ty, place: Place;
 
     #[k::rule(owise)]
     begin_projected_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place: destination, source: MirTypeInfo::PointerType { pointee: source }, target: MirTypeInfo::PointerType { pointee: target } } }, ..],
-        types: types,
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
-
-    #[k::rule(owise)]
-    begin_projected_ref_to_ref_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place: destination, source: MirTypeInfo::ReferenceType { pointee: source }, target: MirTypeInfo::ReferenceType { pointee: target } } }, ..],
-        types: types,
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
-
-    #[k::rule(owise)]
-    begin_projected_ref_to_ptr_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place: destination, source: MirTypeInfo::ReferenceType { pointee: source }, target: MirTypeInfo::PointerType { pointee: target } } }, ..],
-        types: types,
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, source: Ty, target: Ty, types: Map;
-
-    #[k::rule(owise)]
-    begin_projected_ptr_to_ref_ptr_cast: {
-        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place: destination, source: MirTypeInfo::PointerType { pointee: source }, target: MirTypeInfo::ReferenceType { pointee: target } } }, ..],
+        k: [Execution::Continue { value: Value::Pointer { height, place: pointer_place, mutability, metadata }, continuation: EvaluationContinuation::FinishPtrCast { place: destination, source: MirTypeInfo::PointerType { pointee: source } | MirTypeInfo::ReferenceType { pointee: source }, target: MirTypeInfo::PointerType { pointee: target } | MirTypeInfo::ReferenceType { pointee: target } } }, ..],
         types: types,
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: map::get(types, source), target: map::get(types, target), projections: Projections::ProjectionsEmpty(), target_size: MetadataSizeOf { info: map::get(types, target) } }, ..],
@@ -6323,47 +5896,19 @@ k::rules! {
     }
     where height: Int, local: Int, pointer_projections: ProjectionElems, mutability: Mutability, metadata: Metadata, destination: Place, info: TypeInfo, projections: ProjectionElems, target_size: MetadataSize;
 
-    resolve_ptr_cast_primitive_to_zst: {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PrimitiveType { primitive: _ }, target: MirTypeInfo::VoidType(), projections, target_size }, ..],
+    resolve_ptr_cast_to_zst: {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PrimitiveType { primitive: _ } | MirTypeInfo::ArrayType { element: _, size: _ } | MirTypeInfo::PointerType { pointee: _ }, target: MirTypeInfo::VoidType(), projections, target_size }, ..],
     } => {
         k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: MirTypeInfo::VoidType(), projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::ToZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
     }
     where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, projections: ProjectionElems, target_size: MetadataSize;
 
-    resolve_ptr_cast_array_to_zst: {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::ArrayType { element: _, size: _ }, target: MirTypeInfo::VoidType(), projections, target_size }, ..],
+    resolve_ptr_cast_from_zst: {
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: target @ (MirTypeInfo::PrimitiveType { primitive: _ } | MirTypeInfo::ArrayType { element: _, size: _ } | MirTypeInfo::PointerType { pointee: _ }), projections, target_size }, ..],
     } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: MirTypeInfo::VoidType(), projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::ToZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
+        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: target, target, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::FromZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
     }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, projections: ProjectionElems, target_size: MetadataSize;
-
-    resolve_ptr_cast_pointer_to_zst: {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PointerType { pointee: _ }, target: MirTypeInfo::VoidType(), projections, target_size }, ..],
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: MirTypeInfo::VoidType(), projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::ToZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, projections: ProjectionElems, target_size: MetadataSize;
-
-    resolve_ptr_cast_zst_to_primitive: {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: MirTypeInfo::PrimitiveType { primitive }, projections, target_size }, ..],
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PrimitiveType { primitive }, target: MirTypeInfo::PrimitiveType { primitive }, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::FromZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, primitive: PrimitiveType, projections: ProjectionElems, target_size: MetadataSize;
-
-    resolve_ptr_cast_zst_to_array: {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: MirTypeInfo::ArrayType { element, size }, projections, target_size }, ..],
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::ArrayType { element, size }, target: MirTypeInfo::ArrayType { element, size }, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::FromZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, element: Ty, size: MaybeTyConst, projections: ProjectionElems, target_size: MetadataSize;
-
-    resolve_ptr_cast_zst_to_pointer: {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::VoidType(), target: MirTypeInfo::PointerType { pointee }, projections, target_size }, ..],
-    } => {
-        k: [Execution::ResolvePtrCast { phase: MirPtrCastPhase::Compare(), height, pointer_place, mutability, metadata, destination, source: MirTypeInfo::PointerType { pointee }, target: MirTypeInfo::PointerType { pointee }, projections: AppendCastProjections { first: projections, second: Projections::ProjectionsCons { head: Projection::FromZst(), tail: Projections::ProjectionsEmpty() } }, target_size }, ..],
-    }
-    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, pointee: Ty, projections: ProjectionElems, target_size: MetadataSize;
+    where height: Int, pointer_place: Place, mutability: Mutability, metadata: Metadata, destination: Place, target: TypeInfo, projections: ProjectionElems, target_size: MetadataSize;
 
     #[k::requires(bool::and(
     ZeroFieldOffset { layout },
@@ -6451,22 +5996,8 @@ k::rules! {
     }
     where value: Int, width: Int, signed: Bool, place: Place;
 
-    finish_pointer_metadata: {
-        k: [Execution::Continue { value: Value::Pointer { height: _, place: _, mutability: _, metadata: MirMetadata::Metadata { size: MirMetadataSize::DynamicSize(size), offset: _, origin_size: _ } }, continuation: EvaluationContinuation::FinishUnary { place, operation: MirUnaryOp::UnOpPtrMetadata() } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::Integer { value: size, width: 64, signed: false } }, ..],
-    }
-    where size: Int, place: Place;
-
-    finish_reference_metadata: {
-        k: [Execution::Continue { value: Value::Reference { height: _, place: _, mutability: _, metadata: MirMetadata::Metadata { size: MirMetadataSize::DynamicSize(size), offset: _, origin_size: _ } }, continuation: EvaluationContinuation::FinishUnary { place, operation: MirUnaryOp::UnOpPtrMetadata() } }, ..],
-    } => {
-        k: [Execution::SetLocalValue { place, value: Value::Integer { value: size, width: 64, signed: false } }, ..],
-    }
-    where size: Int, place: Place;
-
-    finish_allocation_reference_metadata: {
-        k: [Execution::Continue { value: Value::AllocationReference { allocation: _, projections: _, metadata: MirMetadata::Metadata { size: MirMetadataSize::DynamicSize(size), offset: _, origin_size: _ } }, continuation: EvaluationContinuation::FinishUnary { place, operation: MirUnaryOp::UnOpPtrMetadata() } }, ..],
+    finish_ptr_metadata: {
+        k: [Execution::Continue { value: Value::Pointer { height: _, place: _, mutability: _, metadata: MirMetadata::Metadata { size: MirMetadataSize::DynamicSize(size), offset: _, origin_size: _ } } | Value::Reference { height: _, place: _, mutability: _, metadata: MirMetadata::Metadata { size: MirMetadataSize::DynamicSize(size), offset: _, origin_size: _ } } | Value::AllocationReference { allocation: _, projections: _, metadata: MirMetadata::Metadata { size: MirMetadataSize::DynamicSize(size), offset: _, origin_size: _ } }, continuation: EvaluationContinuation::FinishUnary { place, operation: MirUnaryOp::UnOpPtrMetadata() } }, ..],
     } => {
         k: [Execution::SetLocalValue { place, value: Value::Integer { value: size, width: 64, signed: false } }, ..],
     }

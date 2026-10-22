@@ -328,6 +328,6 @@ The structured behavior SHA-256 is `e4bae64f34415d319cf2ac153f2972a8788cfefee66a
 The concrete all-path claim spans four builtin-list block lookups, ordered statements, constant and copied operands, integer addition, `Goto`, true `SwitchInt`, local `_0`, and top-level return.
 It remains pinned for `python3 tests/kmir/verify.py --java-reference` and is not run during routine development.
 
-The definition contains 250 equations, 180 machine rules, and one claim across 1,212 descriptors.
+The definition contains 219 equations, 161 machine rules, and one claim across 1,162 descriptors.
 The direct K-Rust `definition.kore` SHA-256 is `58b4971b8b0cb21aeddef634d3c814ca326568645df8dbd7acdf5da75dbc36bb`.
 Six focused definition and hover probes pass with zero rust-analyzer diagnostics.
