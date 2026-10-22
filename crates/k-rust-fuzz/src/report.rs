@@ -213,8 +213,9 @@ pub struct ClimbParameters {
     pub accept_equal: bool,
     /// The most draws of a move per changed hole before an inadmissible move is given up.
     pub max_attempts: u32,
-    /// Which rules' condition entries the cases record for the score: `target-and-predecessors`
-    /// (the target and its direct predecessors in the rule graph).
+    /// Which rules' condition entries the cases record for the score:
+    /// `target-and-keyed-predecessors` (the target and its direct predecessors in the rule graph
+    /// whose right-hand side keys the head of `<k>`, or all of them when none does).
     pub condition_rules: String,
     /// The most condition entries recorded per rule and run.
     pub condition_limit: u64,

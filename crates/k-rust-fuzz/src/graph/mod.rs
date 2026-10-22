@@ -105,6 +105,10 @@ pub(crate) struct RuleGraph {
     /// The nodes each node enables, and the nodes that enable it.
     successors: Vec<BTreeSet<usize>>,
     predecessors: Vec<BTreeSet<usize>>,
+    /// Per node, whether some right-hand side of its rules leaves the `<k>` cell unkeyed: its
+    /// head keys `Anything` (a bare continuation, a variable, a function application), or the
+    /// cells are not keyed at all. Such a node enables nearly every rule.
+    open: Vec<bool>,
     /// Some rule holds a `<k>` cell inside a collection or more than one `<k>` cell.
     shared_k: bool,
     /// The function-call edges of the definition's function theory.
@@ -144,6 +148,19 @@ struct Subject {
 }
 
 impl Subject {
+    /// Whether the subject keys the head of its `<k>` cell by something more specific than
+    /// `Anything`.
+    fn keys_k_head(&self) -> bool {
+        self.cells.as_ref().is_some_and(|(key, _)| {
+            key.cell_keys().iter().any(|cells| {
+                cells
+                    .cells()
+                    .first()
+                    .is_some_and(|head| *head != CellIndex::Anything)
+            })
+        })
+    }
+
     /// A subject that every rule may match.
     const OPEN: Self = Self {
         fixed_root: None,
@@ -261,9 +278,11 @@ impl RuleGraph {
         let mut selection = Selection::new(definition, shared_k);
         let mut successors = vec![BTreeSet::new(); ids.len()];
         let mut predecessors = vec![BTreeSet::new(); ids.len()];
+        let mut open = vec![false; ids.len()];
         for (node, node_rules) in rules.iter().enumerate() {
             for rule in node_rules {
                 for subject in right_hand_subjects(&selection, &rule.rhs) {
+                    open[node] |= !subject.keys_k_head();
                     for target in &targets {
                         if !successors[node].contains(&target.node)
                             && selection.enables(&subject, target)
@@ -282,6 +301,7 @@ impl RuleGraph {
             targets,
             successors,
             predecessors,
+            open,
             shared_k,
             calls: FunctionCalls::new(definition),
             equation_ids,
@@ -367,6 +387,24 @@ impl RuleGraph {
         self.nodes
             .get(id)
             .map(|node| self.named(&self.predecessors[*node]))
+            .unwrap_or_default()
+    }
+
+    /// The direct predecessors of `id` (without `id`) whose every right-hand side keys the head
+    /// of the `<k>` cell: the predecessors whose edge to `id` rests on what their step puts in
+    /// `<k>`, rather than on a continuation the graph cannot see, which keys `Anything` and so
+    /// enables nearly every rule.
+    pub(crate) fn keyed_enablers(&self, id: &str) -> BTreeSet<String> {
+        self.nodes
+            .get(id)
+            .map(|node| {
+                let keyed: BTreeSet<usize> = self.predecessors[*node]
+                    .iter()
+                    .copied()
+                    .filter(|predecessor| predecessor != node && !self.open[*predecessor])
+                    .collect();
+                self.named(&keyed)
+            })
             .unwrap_or_default()
     }
 

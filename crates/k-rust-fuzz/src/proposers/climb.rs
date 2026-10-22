@@ -123,7 +123,7 @@ pub(crate) fn parameters() -> ClimbParameters {
         read_probability: [READ_PROBABILITY.0, READ_PROBABILITY.1],
         accept_equal: ACCEPT_EQUAL,
         max_attempts: MAX_ATTEMPTS,
-        condition_rules: "target-and-predecessors".into(),
+        condition_rules: "target-and-keyed-predecessors".into(),
         condition_limit: u64::try_from(k_rust::k_rust_backend::coverage::DEFAULT_CONDITION_LIMIT)
             .unwrap_or(u64::MAX),
         condition_value_size: u64::try_from(

@@ -18,7 +18,9 @@
 //!   the rule graph (a rule a step of which may enable the target) whose condition failed, has
 //!   rule-graph distance 1, and its guard distance is the least distance of those failed
 //!   instances: the predecessor's guard is what kept the run from the target (in the terms of
-//!   search-based testing, the approach level and the branch distance of the critical branch);
+//!   search-based testing, the approach level and the branch distance of the critical branch).
+//!   The predecessors read are those whose right-hand side keys the head of `<k>`
+//!   (`RuleGraph::keyed_enablers`), when there are any;
 //! - any other case has the least rule-graph distance from a rule it applied or entered to the
 //!   target (none when the target is unreachable from all of them), and no guard distance.
 //!
@@ -28,10 +30,15 @@
 //! condition gives no distance (symbolic, undefined or undecided atoms, a `chosen` record) is
 //! no signal, never a distance of 0.
 //!
-//! The rule graph over-approximates enablement: on definitions whose rules end with a bare
-//! continuation (`=> .K ...`) most rules are direct predecessors of every rule (FZ-G8 review),
-//! so the predecessors' guards include some that do not lead to the target. The score is a
-//! heuristic for the proposer, never evidence.
+//! The rule graph over-approximates enablement: a rule whose right-hand side ends with a bare
+//! continuation (`=> .K ...`) keys nothing at the head of `<k>`, so it is a direct predecessor
+//! of every rule (FZ-G8 review), whatever its step puts in the continuation. Its guard says
+//! nothing about the target in particular, and following it leads elsewhere: on the stall
+//! benchmark, a side cell's guard pulled the climb towards the side cell, which ends the walk,
+//! and trapped it there (FZ-12 report). A predecessor that puts a rigid head in `<k>` that the
+//! target's left-hand side key covers is evidence-backed, so the score reads those when there
+//! are any, and every predecessor only when none keys `<k>`. The score stays a heuristic for
+//! the proposer, never evidence.
 //!
 //! Pattern, differential and observer targets are not scored yet: the signals they need are
 //! not reported (FZ-12 report, "Open: other target kinds"), and the climb proposer refuses them.
@@ -117,7 +124,9 @@ pub(crate) struct RuleScorer {
     target: String,
     /// The rule-graph distance from every rule that reaches the target.
     distances: BTreeMap<String, u64>,
-    /// The target's direct predecessors, without the target.
+    /// The target's direct predecessors whose guard the score reads, without the target: those
+    /// that key the head of `<k>` (`RuleGraph::keyed_enablers`), or every direct predecessor
+    /// when none does.
     predecessors: BTreeSet<String>,
 }
 
@@ -129,7 +138,12 @@ impl RuleScorer {
             .into_iter()
             .map(|(id, distance)| (id, u64::try_from(distance).unwrap_or(u64::MAX)))
             .collect();
-        let mut predecessors = graph.enablers(target);
+        let keyed = graph.keyed_enablers(target);
+        let mut predecessors = if keyed.is_empty() {
+            graph.enablers(target)
+        } else {
+            keyed
+        };
         predecessors.remove(target);
         Self {
             target: target.to_owned(),

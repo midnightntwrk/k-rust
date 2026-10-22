@@ -37,7 +37,7 @@ use super::{
     RuleGraph,
     entry::{AppliedCheck, Entry, ForeignEntry, hole_template},
 };
-use crate::support::{Compiled, GRAPH, IMP, RULES, SHAPE, VALUE};
+use crate::support::{Compiled, GRAPH, IMP, MAZE, RULES, SHAPE, VALUE};
 
 fn graph_of(compiled: &Compiled) -> (Backend, RuleGraph) {
     let mut backend = compiled.source_backend();
@@ -640,4 +640,26 @@ fn a_template_with_no_instance_gives_one_campaign_warning() {
     assert!(warning.starts_with("no-valid-cases"), "{warning}");
     let start = entry_of(compiled, &graph, &compiled.initial("graph/start.pgm"));
     assert_eq!(graph.vacuous_warning(&start), Ok(None));
+}
+
+/// On the maze, the corridor cell that produces a room keys the head of `<k>`, while every
+/// side cell and `owise` rule ends with a bare continuation (`=> .K ...`), which keys nothing
+/// and so is a direct predecessor of every rule: the keyed predecessors of `c4` are `c3` alone,
+/// among many predecessors (the climb's score reads the keyed ones, `crate::score`).
+#[test]
+fn the_keyed_predecessors_of_a_maze_cell_are_its_room_producer() {
+    let compiled = MAZE.compiled();
+    let (_, graph) = graph_of(compiled);
+    let label = |name: &str| labelled(compiled, &graph, name);
+    let c4 = label("c4");
+    assert_eq!(graph.keyed_enablers(&c4), BTreeSet::from([label("c3")]));
+    let all = graph.enablers(&c4);
+    for open in ["s2", "s3", "r2-out", "c7", "u3"] {
+        assert!(all.contains(&label(open)), "{open} is a predecessor of c4");
+    }
+    // The first room's cells are produced by `enter` (`walk(..) => r0 ...`).
+    assert_eq!(
+        graph.keyed_enablers(&label("c1")),
+        BTreeSet::from([label("enter")])
+    );
 }

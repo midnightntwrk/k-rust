@@ -829,6 +829,50 @@ fn a_witness_found_with_the_dictionary_replays() {
     assert!(!stdout.contains("forced"), "{stdout}");
 }
 
+/// A witness found with the climb replays on the build that found it: the climb's parameters
+/// (`identity.climb`) only choose cases, and the condition records a climbing campaign asks for
+/// change no other field of a result, so the replay, which asks for none, runs the same case.
+#[test]
+fn a_witness_found_with_the_climb_replays() {
+    let campaign = le_campaign().replace(
+        &format!("pattern = '{LE_VIOLATION}'\nnegated-property = true"),
+        "rule = \"if-false\"",
+    );
+    assert!(campaign.contains("if-false"), "{campaign}");
+    let campaign = format!("{campaign}\n[proposers]\nweights = {{ blind = 1, climb = 1 }}\n");
+    let le = IMP.program("imp/le.imp").text;
+    let directory = workspace(
+        "climb-replay",
+        &[("imp-kompiled", &IMP)],
+        &[("le.imp", le), ("le.toml", &campaign)],
+    );
+    let (status, report) = json_run(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--witness",
+            "witness.json",
+            "--json",
+        ],
+    );
+    assert_eq!(status, Some(0), "a witness exits 0");
+    assert!(
+        report.identity.climb.is_some(),
+        "the report records the climb"
+    );
+    let replay = krust_fuzz(&directory, &["--replay", "witness.json"]);
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+    assert!(!stdout.contains("forced"), "{stdout}");
+}
+
 /// A witness file is read only when its embedded report is a report this build reads: its
 /// schema and version, not only the witness file's own.
 #[test]
