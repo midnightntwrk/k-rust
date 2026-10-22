@@ -70,4 +70,9 @@ pub use values::{Constraints, Value};
 ///
 /// Version 2: map holes shrink by whole entries, which moves the shrunk witness of a map hole,
 /// and the dictionary proposer's parameters join the case sequence's inputs.
+/// The climb proposer (FZ-12) was added within version 2: no specification of an earlier build
+/// could weigh it (`Campaign::new` refused it), and the sequence of every other specification is
+/// unchanged, so it needed no bump; its parameters join the case sequence's inputs of a
+/// climbing campaign. A climbing campaign's sequence also depends on the condition records the
+/// k-rust revision reports.
 pub const ENGINE_VERSION: u32 = 2;
