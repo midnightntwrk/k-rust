@@ -88,10 +88,10 @@ k::equations! {
     for Chop;
     chop_i32:
         (IntegerType::I32, value)
-        => Value::Integer(IntegerType::I32, int::rem_euclid(value, 4_294_967_296));
+        => Value::Integer(IntegerType::I32, int::rem_euclid(value, 0x1_0000_0000));
     chop_i64:
         (IntegerType::I64, value)
-        => Value::Integer(IntegerType::I64, int::rem_euclid(value, 18_446_744_073_709_551_616));
+        => Value::Integer(IntegerType::I64, int::rem_euclid(value, 0x1_0000_0000_0000_0000));
 }
 
 k::equations! {
@@ -99,10 +99,10 @@ k::equations! {
     add       : (ty, IntegerBinOp::Add, lhs, rhs)  => Chop(ty, int::add(lhs, rhs));
     sub_i32:
         (IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I32, int::sub(int::add(lhs, 4_294_967_296), rhs));
+        => Chop(IntegerType::I32, int::sub(int::add(lhs, 0x1_0000_0000), rhs));
     sub_i64:
         (IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)
-        => Chop(IntegerType::I64, int::sub(int::add(lhs, 18_446_744_073_709_551_616), rhs));
+        => Chop(IntegerType::I64, int::sub(int::add(lhs, 0x1_0000_0000_0000_0000), rhs));
     mul       : (ty, IntegerBinOp::Mul, lhs, rhs)  => Chop(ty, int::mul(lhs, rhs));
     #[k::requires(int::ne(rhs, 0))]
     div_u     : (ty, IntegerBinOp::DivU, lhs, rhs) => Value::Integer(ty, int::div(lhs, rhs));
@@ -156,13 +156,13 @@ k::rules! {
     constant_i32: {
         instrs: [Const(IntegerType::I32, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I32, int::add(value, 4_294_967_296)), ..],
+        instrs: [Chop(IntegerType::I32, int::add(value, 0x1_0000_0000)), ..],
     };
 
     constant_i64: {
         instrs: [Const(IntegerType::I64, value), ..],
     } => {
-        instrs: [Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616)), ..],
+        instrs: [Chop(IntegerType::I64, int::add(value, 0x1_0000_0000_0000_0000)), ..],
     };
 
     undefined_traps: {
