@@ -628,7 +628,11 @@ fn render_tokens(tokens: &[TokenTree]) -> String {
             && !after_open
             && !call
             && !bit_range
-            && needs_space(&atoms[index - 1], atom)
+            && needs_space(
+                index.checked_sub(2).map(|before| &atoms[before]),
+                &atoms[index - 1],
+                atom,
+            )
         {
             output.push(' ');
         }
@@ -730,16 +734,17 @@ fn punctuation_pair(first: char, second: char) -> bool {
         (':', ':')
             | ('=' | '-', '>')
             | ('.', '.')
+            | ('<', '<' | '=')
+            | ('>', '>' | '=')
             | ('&', '&' | '=')
             | ('|', '|' | '=')
-            | (
-                '=' | '!' | '<' | '>' | '+' | '-' | '*' | '/' | '%' | '^',
-                '='
-            )
+            | ('=' | '!' | '+' | '-' | '*' | '/' | '%' | '^', '=')
     )
 }
 
-fn needs_space(previous: &Atom, current: &Atom) -> bool {
+/// Whether a space separates `current` from `previous`, which follows
+/// `before` (`None` at the start of a group).
+fn needs_space(before: Option<&Atom>, previous: &Atom, current: &Atom) -> bool {
     if matches!(&current.kind, AtomKind::Punctuation(value) if matches!(value.as_str(), "," | ";" | ":" | "::" | "." | "?"))
     {
         return false;
@@ -748,8 +753,9 @@ fn needs_space(previous: &Atom, current: &Atom) -> bool {
     {
         return false;
     }
+    // A macro's `!` follows its name; a unary `!` after an operator does not.
     if matches!(&current.kind, AtomKind::Punctuation(value) if value == "!") {
-        return false;
+        return matches!(previous.kind, AtomKind::Punctuation(_));
     }
     if matches!(
         (&previous.kind, &current.kind),
@@ -760,9 +766,12 @@ fn needs_space(previous: &Atom, current: &Atom) -> bool {
     ) {
         return false;
     }
-    if matches!(&previous.kind, AtomKind::Punctuation(value) if matches!(value.as_str(), "&" | "*"))
+    // A prefix `&`, `*`, or `-` hugs its operand; after an operand it is a
+    // binary operator, as in `a & 15`.
+    if matches!(&previous.kind, AtomKind::Punctuation(value) if matches!(value.as_str(), "&" | "*" | "-"))
     {
-        return false;
+        return before
+            .is_some_and(|before| matches!(before.kind, AtomKind::Word | AtomKind::Group(_)));
     }
     true
 }

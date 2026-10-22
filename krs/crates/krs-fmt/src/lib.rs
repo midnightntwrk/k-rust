@@ -292,6 +292,25 @@ k::rules! { for Exp; use ExpSyntax::*; pick:Pick(c,x,y)=>Choose::<Exp>{cond:c,th
         assert!(output.contains("Choose::<Exp> {"), "{output}");
     }
 
+    /// Operators in a rule table keep Rust's spelling, shifts included, and
+    /// formatting the output again changes nothing.
+    #[test]
+    fn operators_format_idempotently() {
+        let source = "k::equations! { for Mix; #[k::requires(a & 15 == 0 && !(a == b))]
+mix: (a, b) => -a * b + (a / b) % 3 - (a << 2 >> 1) ^ !b | 1; low: (a, b) => a - -1 <= b; }
+";
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        assert_eq!(
+            format_source(&output, &FormatOptions::default()).unwrap(),
+            output
+        );
+        assert!(
+            output.contains("mix: (a, b) => -a * b + (a / b) % 3 - (a << 2 >> 1) ^ !b | 1;"),
+            "{output}"
+        );
+        assert!(output.contains("low: (a, b) => a - -1 <= b;"), "{output}");
+    }
+
     /// Computation-cell patterns of several items, a whole cell, `[]`, and a
     /// read-only `k` format like `[head, ..]`, and formatting is idempotent.
     #[test]
