@@ -341,6 +341,70 @@ fn a_boolean_connective_is_undefined_where_an_operand_is() {
     assert_eq!(record["verdict"], "refuted");
 }
 
+/// The children of a node, by their truths.
+fn child_values(node: &Value) -> Vec<Value> {
+    node["children"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{node}"))
+        .iter()
+        .map(|child| child["value"].clone())
+        .collect()
+}
+
+/// FZ-12 review 2 N4: where the undefinedness of the discarded operand comes through an
+/// equation (`pd(X) = 10 /Int X >Int 3`, undefined at 0), the record still reads the strict
+/// connectives over it as undefined. An application of a symbol to an undefined argument is
+/// undefined, `andThenBool` too (the `_` of `false andThenBool _ => false` ranges over defined
+/// values), so `false andThenBool notBool pd(0)` and the `andBool` above it are undefined: the
+/// record has decided an operand undefined, and that decides its strict ancestors.
+#[test]
+fn a_strict_connective_over_an_operand_undefined_by_an_equation_is_undefined() {
+    let (record, applied) = shapes().only_record("lazyeqr", "lazyeq(0, 0)");
+    assert!(!applied);
+    let conjunct = &record["condition"][0];
+    let conjunction = &conjunct["child"];
+    assert_eq!(conjunction["connective"], "andBool", "{conjunction}");
+    let lazy = &conjunction["children"][1];
+    assert_eq!(lazy["connective"], "andThenBool", "{lazy}");
+    assert_eq!(
+        child_values(lazy),
+        [json!("false"), json!("undefined")],
+        "{lazy}"
+    );
+    assert_eq!(lazy["value"], "undefined", "{lazy}");
+    assert_eq!(
+        child_values(conjunction),
+        [json!("true"), json!("undefined")],
+        "{conjunction}"
+    );
+    assert_eq!(conjunction["value"], "undefined", "{conjunction}");
+    assert_eq!(conjunct["value"], "false", "{conjunct}");
+    assert_eq!(record["verdict"], "refuted");
+    // A defined instance next to it is decided as before.
+    let (record, applied) = shapes().only_record("lazyeqr", "lazyeq(1, 0)");
+    assert!(!applied);
+    assert_eq!(record["condition"][0]["child"]["value"], "false");
+    assert_eq!(record["verdict"], "refuted");
+}
+
+/// A Boolean atom whose operand the record found undefined is undefined by the same strictness:
+/// `pd(0) ==Bool false` applies `==Bool` to an undefined argument.
+#[test]
+fn a_boolean_atom_over_an_undefined_operand_is_undefined() {
+    let (record, applied) = shapes().only_record("eqatomr", "eqatom(0, 0)");
+    assert!(!applied);
+    let atom = &record["condition"][0]["child"];
+    assert_eq!(atom["hook"], "BOOL.eq", "{atom}");
+    assert_eq!(atom["operands"][0], json!({"kind": "undefined"}), "{atom}");
+    assert_eq!(atom["value"], "undefined", "{atom}");
+    assert_eq!(record["condition"][0]["value"], "false");
+    assert_eq!(record["verdict"], "refuted");
+    let (record, applied) = shapes().only_record("eqatomr", "eqatom(5, 0)");
+    assert!(applied);
+    assert_eq!(record["condition"][0]["child"]["value"], "true");
+    assert_eq!(record["verdict"], "held");
+}
+
 /// A partial Boolean function with no equation for its argument decides nothing: `pb(3)` is
 /// undecided, as are `notBool pb(3)` and the conjunct, and the attempt cannot decide it either.
 #[test]
@@ -434,6 +498,9 @@ fn records_change_nothing_else_and_are_deterministic() {
                 "neg(9, 2)",
                 "lazy(5, 0)",
                 "lazy(9, 2)",
+                "lazyeq(0, 0)",
+                "lazyeq(1, 0)",
+                "eqatom(0, 0)",
                 "strictneg(3, 0)",
                 "two(5, 20)",
                 "two(5, 3)",

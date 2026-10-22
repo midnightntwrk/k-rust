@@ -681,6 +681,16 @@ impl Evaluation<'_> {
     /// one more step: a hook on values, or the equations of a Boolean function). A `BOOL`
     /// connective is a node, anything else an atom; each has the truth of its own term
     /// ([`Self::truth`]). Returns the node and the term its parent is rebuilt from.
+    ///
+    /// An application one of whose operands the record found undefined is undefined, with no
+    /// evaluation of its own: a symbol applied to `\bottom` denotes `\bottom` (the application
+    /// is the pointwise image of its arguments' sets, and one of them is empty). This holds for
+    /// every Boolean function and connective, `andThenBool` and `orElseBool` too: the variable
+    /// their discarding equation (`false andThenBool _ => false`) leaves unread ranges over
+    /// defined elements, so the equation never applies to an undefined operand. The record
+    /// decides this from the operand's own undefinedness, also where reading the rebuilt term's
+    /// truth would leave it undecided (an operand undefined through a function's equation,
+    /// under the operand `andThenBool` discards).
     fn boolean(&self, term: &Term) -> (ConditionNode, Option<Term>) {
         let TermKind::Application {
             symbol,
@@ -720,7 +730,14 @@ impl Evaluation<'_> {
                 .iter()
                 .map(|argument| self.boolean(argument))
                 .unzip();
-            let (value, evaluated) = self.truth(&rebuild(terms));
+            let undefined = children
+                .iter()
+                .any(|child| child.value() == Truth::Undefined);
+            let (value, evaluated) = if undefined {
+                (Truth::Undefined, None)
+            } else {
+                self.truth(&rebuild(terms))
+            };
             let node = ConditionNode::Connective {
                 connective,
                 children,
@@ -735,7 +752,14 @@ impl Evaluation<'_> {
                 (evaluated.value, evaluated.term)
             })
             .unzip();
-        let (value, evaluated) = self.truth(&rebuild(terms));
+        let undefined = operands
+            .iter()
+            .any(|operand| matches!(operand, RecordedValue::Undefined));
+        let (value, evaluated) = if undefined {
+            (Truth::Undefined, None)
+        } else {
+            self.truth(&rebuild(terms))
+        };
         let node = ConditionNode::Atom(ConditionAtom {
             head: Some(symbol.name.to_string()),
             hook: hook.map(str::to_owned),
