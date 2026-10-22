@@ -394,6 +394,9 @@ provenance_roles! {
     ListSeparator => "list_separator",
     /// The `non_empty` flag of `#[k::syntax_list]`.
     ListNonEmpty => "list_non_empty",
+    /// The `#[k::cons_list]` marker of a constructors enum, on its cons
+    /// constructor (F6).
+    ConsListDeclaration => "cons_list_declaration",
     /// Console stream value of a fixed cell (`stream = "stdin"`).
     ConfigurationCellStream => "configuration_cell_stream",
     /// Bare `exit` flag of a fixed cell.

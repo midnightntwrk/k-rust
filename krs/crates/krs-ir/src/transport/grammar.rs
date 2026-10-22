@@ -22,9 +22,9 @@ use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinOperator, BuiltinSort, FormatFragment, GroupAssociativity,
-    HookOperation, ItemKind, ListOperation, MlConnective, ProductionFieldId, ProductionGroupId,
-    ProvenanceKey, ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation, SmtFragment,
-    StableItemId, StrictnessKind, TermMapOperation,
+    HookOperation, ItemKind, ListNotation, ListOperation, MlConnective, ProductionFieldId,
+    ProductionGroupId, ProvenanceKey, ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation,
+    SmtFragment, StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -114,6 +114,10 @@ pub enum DescriptorApplicationRef {
     /// A Rust operator (`a + b`), which denotes the builtin operation of the
     /// domain semantic analysis chooses from its operands' inferred sorts.
     Operator(BuiltinOperator),
+    /// One level of bracket list notation (`[head, ..tail]`, `[]`, F6),
+    /// which denotes the constructor of the cons list semantic analysis
+    /// finds at the position's expected sort.
+    ListNotation(ListNotation),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -375,6 +379,8 @@ pub struct HostBuiltinRegistry {
     pub ml_connectives: [HostTypeKey; MlConnective::ALL.len()],
     /// Registered operator markers in [`BuiltinOperator::ALL`] order.
     pub operators: [HostTypeKey; BuiltinOperator::ALL.len()],
+    /// Registered list-notation markers in [`ListNotation::ALL`] order (F6).
+    pub list_notation: [HostTypeKey; ListNotation::ALL.len()],
 }
 
 impl HostBuiltinRegistry {
@@ -395,6 +401,7 @@ impl HostBuiltinRegistry {
             .chain(&self.set_operations)
             .chain(&self.ml_connectives)
             .chain(&self.operators)
+            .chain(&self.list_notation)
         {
             if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
@@ -471,6 +478,16 @@ impl HostBuiltinRegistry {
             .zip(&self.operators)
             .find(|(_, key)| key.resolve() == target)
             .map(|(operator, _)| operator)
+    }
+
+    /// Resolves one build-local type as a list-notation marker (F6).
+    #[must_use]
+    pub fn resolve_list_notation(&self, target: TypeId) -> Option<ListNotation> {
+        ListNotation::ALL
+            .into_iter()
+            .zip(&self.list_notation)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(notation, _)| notation)
     }
 }
 
@@ -755,6 +772,15 @@ stage_shape! {
         ListTerminator {
             /// The cons variant of the same enum, keyed at the list attribute.
             cons: S::Application => [application],
+        },
+        /// The cons constructor of a `#[k::cons_list]` constructors enum
+        /// (F6): bracket list notation at its sort denotes it and `empty`.
+        /// It is notation only, so it reaches neither the semantic IR nor K.
+        ConsList {
+            /// `#[k::cons_list]` attribute provenance.
+            key: ProvenanceKey => [keep],
+            /// The empty constructor of the same enum, keyed at the attribute.
+            empty: S::Application => [application],
         },
         /// Quoted K hook name, checked against the pinned hook registry only.
         RawHook {
@@ -2336,7 +2362,8 @@ fn validate_collection_application_shape(
         DescriptorApplicationRef::Declared(_)
         | DescriptorApplicationRef::Builtin(_)
         | DescriptorApplicationRef::Ml(_)
-        | DescriptorApplicationRef::Operator(_) => {
+        | DescriptorApplicationRef::Operator(_)
+        | DescriptorApplicationRef::ListNotation(_) => {
             return Ok(());
         }
     };
@@ -3261,6 +3288,12 @@ impl DescriptorProduction {
                     cons.application.validate()?;
                     "list"
                 }
+                DescriptorProductionAttribute::ConsList { key, empty } => {
+                    require_key(key, provenance)?;
+                    require_key(&empty.key, provenance)?;
+                    empty.application.validate()?;
+                    "cons_list"
+                }
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
@@ -4106,6 +4139,10 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::ListTerminator { cons } => {
                     insert_exact(keys, &cons.key, ProvenanceRole::ListDeclaration, 0)?;
+                }
+                DescriptorProductionAttribute::ConsList { key, empty } => {
+                    insert_exact(keys, key, ProvenanceRole::ConsListDeclaration, 0)?;
+                    insert_exact(keys, &empty.key, ProvenanceRole::ConsListDeclaration, 0)?;
                 }
                 DescriptorProductionAttribute::Alias { key, recursive } => {
                     insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;

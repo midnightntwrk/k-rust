@@ -1102,6 +1102,16 @@ impl StructuredTermBuilder<'_> {
                     subject,
                 );
             }
+            DescriptorApplicationRef::ListNotation(notation) => {
+                let reference = self.list_constructor(reference, *notation, expected_sort)?;
+                return self.infer_application(
+                    &reference,
+                    arguments,
+                    instance,
+                    expected_sort,
+                    partial,
+                );
+            }
         };
         if let Some(expected) = expected_sort
             && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
@@ -1756,7 +1766,8 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Declared(_)
             | DescriptorApplicationRef::Builtin(_)
             | DescriptorApplicationRef::Ml(_)
-            | DescriptorApplicationRef::Operator(_) => false,
+            | DescriptorApplicationRef::Operator(_)
+            | DescriptorApplicationRef::ListNotation(_) => false,
         };
         projected.then(|| {
             self.k_item_sort
@@ -1865,6 +1876,17 @@ impl StructuredTermBuilder<'_> {
                     arguments,
                     expected_sort,
                     subject,
+                    head,
+                );
+            }
+            DescriptorApplicationRef::ListNotation(notation) => {
+                let reference = self.list_constructor(reference, *notation, expected_sort)?;
+                return self.lower_application(
+                    &reference,
+                    arguments,
+                    instance,
+                    expected_sort,
+                    record,
                     head,
                 );
             }
@@ -2963,6 +2985,7 @@ fn builtin_production_signature(operation: BuiltinOperation) -> Option<Productio
             .collect::<Option<_>>()?,
         token: false,
         parameters: Vec::new(),
+        cons_list_empty: None,
         function: true,
     })
 }

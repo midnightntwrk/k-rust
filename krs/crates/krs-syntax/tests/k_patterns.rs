@@ -92,10 +92,6 @@ fn unsupported_shapes_are_rejected_with_their_reason() {
             "`..` may only end a k pattern",
         ),
         (
-            "a: { k: [x, rest @ ..] } => { k: [..rest] };",
-            "a named rest is not supported",
-        ),
-        (
             "a: { k: [..], acc: 0 } => { k: [Op::Boundary, ..] };",
             "`[..]` matches any computation",
         ),

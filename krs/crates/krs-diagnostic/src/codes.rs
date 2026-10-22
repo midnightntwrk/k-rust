@@ -109,6 +109,7 @@ register_codes! {
         UNSUPPORTED_BUILTIN_TOKEN: "krs::reference::unsupported-builtin-token" => "A builtin token sort has no reference spelling.",
         UNSUPPORTED_STATE: "krs::reference::unsupported-state" => "A readable optional or collection entry has a shape with no reference spelling.",
         UNRESOLVED_OPERATOR: "krs::reference::unresolved-operator" => "Semantic lowering recorded no builtin operation for an operator the reference projection renders.",
+        UNRESOLVED_LIST_NOTATION: "krs::reference::unresolved-list-notation" => "Semantic lowering recorded no constructor for bracket list notation the reference projection renders.",
     }
     /// Diagnostics from native Definition compilation.
     native {
@@ -182,6 +183,8 @@ register_codes! {
         OVERLAPPING_EQUATIONS: "krs::analysis::overlapping-equations" => "Two equations of one function at one priority apply to one argument and give it different results, so the definition would state that the results are equal.",
         OVERLAPPING_MATCH_ARMS: "krs::analysis::overlapping-match-arms" => "Two arms of a function body's `match` apply to one argument and give it different results; each arm is an unordered equation, so the arms must not overlap.",
         AMBIGUOUS_OPERATOR: "krs::analysis::ambiguous-operator" => "The sorts of an operator's operands (`a + b`, `a == b`) choose no builtin domain, or choose two, so it denotes no one builtin operation.",
+        INVALID_LIST_NOTATION: "krs::analysis::invalid-list-notation" => "Bracket list notation (`[a, ..rest]`, `[]`) stands at a position whose sort is not a cons list, or a readable record's bracketed value names a cell that is neither the computation cell, a List collection, nor a cell of a cons-list sort.",
+        INVALID_CONS_LIST: "krs::analysis::invalid-cons-list" => "A `#[k::cons_list]` enum's two-field constructor does not take the enum's own sort as its second field, or two cons-list declarations construct one sort.",
         AMBIGUOUS_OR_PATTERN: "krs::analysis::ambiguous-or-pattern" => "Two alternatives of one `A | B` or-pattern can match the same term with different bindings.",
         NONDET_GROUP: "krs::analysis::nondet-group" => "A `nondet` group has one rule, mixes priorities, or names a rule that overlaps no other rule of the group.",
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a production's symbol is one K generates.",
@@ -333,6 +336,8 @@ register_codes! {
         INVALID_TURBOFISH: "krs::syntax::invalid-turbofish" => "A turbofish on a term head is not a list of sort markers (`Choose::<k::builtin::Int>`, `Choose::<dyn ExpSort>`): it has lifetimes, consts, or other types, or sits on a path segment other than the last.",
         INVALID_EXPRESSION_NOTATION: "krs::syntax::invalid-expression-notation" => "A domain method call (`recv.op::<Int>(..)`) has no domain turbofish, names a domain other than `Int`, `Bool`, `String`, `Float`, `Bytes`, or `K`, names an operation the domain's builtin module does not define or one with no operand; an operator is applied in a domain that does not define it (`&` on `Bool`); a Rust-only operator (`+=`, `as`, a range) occurs in a term; or a notation form (`&&`, `||`, an operator, or a method call) occurs in a pattern.",
         INVALID_ML_EXISTS: "krs::syntax::invalid-ml-exists" => "An `ml::exists` closure does not take exactly one typed parameter (`|x: Sort| predicate`), or a closure occurs anywhere but as the one argument of `ml::exists`.",
+        INVALID_LIST_NOTATION: "krs::syntax::invalid-list-notation" => "Bracket list notation is malformed: a `..` rest is not last, `[..]` or `[..rest]` names no element, a term result's rest `..` is anonymous outside a readable record cell, or a pattern's rest is not `..` or `name @ ..`.",
+        INVALID_CONS_LIST_ATTRIBUTE: "krs::syntax::invalid-cons-list" => "A `#[k::cons_list]` constructors enum does not have exactly one zero-field constructor and one two-field constructor, or carries an argument.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

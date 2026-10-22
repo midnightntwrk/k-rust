@@ -377,6 +377,16 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: &'static str,
     },
+    /// Bracket list notation (`[a, ..rest]`, F6) was malformed.
+    InvalidListNotation {
+        /// Specific restriction, naming the fix.
+        reason: String,
+    },
+    /// A `#[k::cons_list]` constructors enum was malformed (F6).
+    InvalidConsList {
+        /// Specific restriction, naming the constructor that breaks it.
+        reason: String,
+    },
     /// A `k::raw_k!` text is not exactly one rule, claim, or context sentence.
     RawKShape {
         /// Complete explanation.
@@ -522,6 +532,8 @@ impl SyntaxErrorKind {
             Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
             Self::InvalidLexicalMacro { .. } => codes::syntax::INVALID_LEXICAL_MACRO,
             Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
+            Self::InvalidListNotation { .. } => codes::syntax::INVALID_LIST_NOTATION,
+            Self::InvalidConsList { .. } => codes::syntax::INVALID_CONS_LIST_ATTRIBUTE,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
@@ -816,6 +828,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidSortParameter { reason }
             | SyntaxErrorKind::InvalidTurbofish { reason }
             | SyntaxErrorKind::InvalidExpressionNotation { reason }
+            | SyntaxErrorKind::InvalidListNotation { reason }
+            | SyntaxErrorKind::InvalidConsList { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason } => formatter.write_str(reason),
         }
     }

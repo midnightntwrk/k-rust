@@ -420,6 +420,26 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
+    /// Bracket list notation stands where no cons list is expected, or a
+    /// readable record's bracketed value names a cell no reading fits (F6).
+    InvalidListNotation {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position's sort and the fix.
+        reason: String,
+        /// Sole exact authored range of the brackets.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A `#[k::cons_list]` enum does not build a cons list of its own sort,
+    /// or two cons-list declarations construct one sort (F6).
+    InvalidConsList {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the constructor and the fix.
+        reason: String,
+        /// Sole exact authored range of the offending declaration.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `k::lexical!` name or a `{Name}` regex reference is invalid (KF-004).
     InvalidLexical {
         /// Which rule the definition breaks.
@@ -711,6 +731,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidConstant { reason, .. }
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
+            | Self::InvalidListNotation { reason, .. }
+            | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
             | Self::CellCollection { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
@@ -781,6 +803,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::ParametricInstance { .. } => codes::analysis::PARAMETRIC_INSTANCE,
             Self::NativeInstance { .. } => codes::analysis::NATIVE_INSTANCE,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
+            Self::InvalidListNotation { .. } => codes::analysis::INVALID_LIST_NOTATION,
+            Self::InvalidConsList { .. } => codes::analysis::INVALID_CONS_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
                 LexicalProblem::Undefined => codes::analysis::UNDEFINED_LEXICAL,
@@ -845,6 +869,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::ParametricInstance { range, .. }
             | Self::NativeInstance { range, .. }
             | Self::InvalidSyntaxList { range, .. }
+            | Self::InvalidListNotation { range, .. }
+            | Self::InvalidConsList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }
             | Self::InvalidEvaluationStep { range, .. }

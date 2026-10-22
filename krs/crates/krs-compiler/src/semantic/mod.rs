@@ -4,6 +4,7 @@ mod catalog;
 mod cell_states;
 mod configuration;
 mod configuration_rules;
+mod cons_lists;
 mod constants;
 mod error;
 mod evaluation;
@@ -100,6 +101,7 @@ pub fn lower_descriptor_bundle(
     validate_all_stable_references(&descriptors, &declarations)?;
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
+    cons_lists::check_cons_lists(&descriptors, &production_catalog)?;
     constants::check_constants(
         &inlined.constants,
         &declarations,

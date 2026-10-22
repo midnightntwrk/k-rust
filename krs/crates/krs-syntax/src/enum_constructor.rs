@@ -81,6 +81,8 @@ pub struct EnumConstructorVariant {
     precedence_group: Option<usize>,
     precedence_member_range: Option<TokenRange>,
     explicit_symbol: Option<SymbolAttribute>,
+    /// The enum's `#[k::cons_list]` marker, on its cons variant (F6).
+    cons_list_range: Option<TokenRange>,
 }
 
 impl EnumConstructorVariant {
@@ -226,6 +228,13 @@ impl EnumConstructorVariant {
                 range,
             ));
         }
+        if let Some(range) = self.cons_list_range {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConsListDeclaration,
+                0,
+                range,
+            ));
+        }
         if let Some(strictness) = &self.strictness {
             anchors.extend(strictness.provenance()?);
         }
@@ -291,6 +300,9 @@ pub struct EnumConstructorDeclaration {
     precedence_groups: Option<EnumPrecedenceGroups>,
     precedence_declaration_range: Option<TokenRange>,
     precedence_chain_range: Option<TokenRange>,
+    /// The indices of the cons and the empty variant of a `#[k::cons_list]`
+    /// enum (F6).
+    cons_list: Option<(usize, usize)>,
 }
 
 impl EnumConstructorDeclaration {
@@ -367,7 +379,10 @@ impl EnumConstructorDeclaration {
             ));
         }
         let reference_family = attribute.is_reference();
-        let precedence = take_enum_precedence(&mut item.attrs)?;
+        let EnumHelpers {
+            precedence,
+            cons_list,
+        } = take_enum_helpers(&mut item.attrs)?;
         if reference_family && precedence.is_some() {
             return Err(invalid_enum_precedence(
                 "a reference constructor family carries precedence in freestanding family-owned grammar blocks",
@@ -450,6 +465,7 @@ impl EnumConstructorDeclaration {
                 precedence_group: None,
                 precedence_member_range: None,
                 explicit_symbol: helpers.symbol,
+                cons_list_range: None,
             });
         }
         if variants.is_empty() {
@@ -483,6 +499,15 @@ impl EnumConstructorDeclaration {
                 }
             };
 
+        let cons_list = match cons_list {
+            Some(range) => {
+                let (cons, empty) = cons_list_shape(&item.ident, &variants, range)?;
+                variants[cons].cons_list_range = Some(range);
+                Some((cons, empty))
+            }
+            None => None,
+        };
+
         Ok(Self {
             item,
             sort: attribute.sort().clone(),
@@ -491,7 +516,15 @@ impl EnumConstructorDeclaration {
             precedence_groups,
             precedence_declaration_range,
             precedence_chain_range,
+            cons_list,
         })
+    }
+
+    /// Returns the indices, in [`Self::variants`], of the cons and the empty
+    /// variant of a `#[k::cons_list]` enum (F6).
+    #[must_use]
+    pub const fn cons_list(&self) -> Option<(usize, usize)> {
+        self.cons_list
     }
 
     /// Returns the span-preserving Rust enum after consuming only KRS helper
@@ -769,13 +802,33 @@ fn parse_enum_precedence_group(input: ParseStream<'_>) -> syn::Result<EnumPreced
     })
 }
 
-fn take_enum_precedence(
-    attributes: &mut Vec<Attribute>,
-) -> Result<Option<EnumPrecedenceChain>, SyntaxError> {
+/// The enum-level helpers `#[k::constructors]` consumes.
+struct EnumHelpers {
+    precedence: Option<EnumPrecedenceChain>,
+    /// The `#[k::cons_list]` marker's range (F6).
+    cons_list: Option<TokenRange>,
+}
+
+fn take_enum_helpers(attributes: &mut Vec<Attribute>) -> Result<EnumHelpers, SyntaxError> {
     let mut precedence = None;
+    let mut cons_list = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if let Some(marker) = helper_marker(&attribute, "precedence") {
+        if let Some(marker) = helper_marker(&attribute, "cons_list") {
+            if cons_list.is_some() {
+                return Err(invalid_cons_list(
+                    "an enum carries one `#[k::cons_list]` attribute",
+                    attribute.span(),
+                ));
+            }
+            if !matches!(attribute.meta, Meta::Path(_)) {
+                return Err(invalid_cons_list(
+                    "`#[k::cons_list]` takes no arguments: the constructors' shapes say which is the empty list and which the cons",
+                    attribute.span(),
+                ));
+            }
+            cons_list = Some(TokenRange::for_tokens(marker)?);
+        } else if let Some(marker) = helper_marker(&attribute, "precedence") {
             if precedence.is_some() {
                 return Err(invalid_enum_precedence(
                     "a readable constructor family may declare only one precedence chain",
@@ -797,7 +850,7 @@ fn take_enum_precedence(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                "readable constructor-family enums support only the invoking `constructors` attribute and one enum-level `precedence` chain",
+                "readable constructor-family enums support only the invoking `constructors` attribute, one enum-level `precedence` chain, and `cons_list`",
                 attribute.span(),
             ));
         } else {
@@ -805,7 +858,77 @@ fn take_enum_precedence(
         }
     }
     *attributes = retained;
-    Ok(precedence)
+    Ok(EnumHelpers {
+        precedence,
+        cons_list,
+    })
+}
+
+/// Checks the shape a `#[k::cons_list]` enum declares (F6): exactly two
+/// constructors, one with no field (the empty list) and one with two (the
+/// head and the tail), and returns their indices, cons first. That the tail
+/// has the enum's own sort is checked once sorts are resolved.
+fn cons_list_shape(
+    name: &Ident,
+    variants: &[EnumConstructorVariant],
+    range: TokenRange,
+) -> Result<(usize, usize), SyntaxError> {
+    const SHAPE: &str = "a cons list has one constructor with no field, the empty list, and one with two, the head and the tail";
+    if let Some(variant) = variants
+        .iter()
+        .find(|variant| !matches!(variant.fields.len(), 0 | 2))
+    {
+        let count = variant.fields.len();
+        return Err(invalid_cons_list(
+            format!(
+                "`{}` has {count} field{}: {SHAPE}",
+                variant.name(),
+                if count == 1 { "" } else { "s" }
+            ),
+            variant.name().span(),
+        ));
+    }
+    if let [_, _, third, ..] = variants {
+        return Err(invalid_cons_list(
+            format!(
+                "`{}` is a third constructor of `{name}`: {SHAPE}, and nothing else",
+                third.name()
+            ),
+            third.name().span(),
+        ));
+    }
+    match variants {
+        [first, second] if first.fields.len() == second.fields.len() => {
+            let shape = if first.fields.is_empty() {
+                "no field"
+            } else {
+                "two fields"
+            };
+            Err(invalid_cons_list(
+                format!(
+                    "`{}` and `{}` both have {shape}: {SHAPE}",
+                    first.name(),
+                    second.name()
+                ),
+                second.name().span(),
+            ))
+        }
+        [first, _] if first.fields.len() == 2 => Ok((0, 1)),
+        [_, _] => Ok((1, 0)),
+        _ => Err(invalid_cons_list(
+            format!("`{name}` has one constructor: {SHAPE}"),
+            range.first(),
+        )),
+    }
+}
+
+fn invalid_cons_list(reason: impl Into<String>, span: Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidConsList {
+            reason: reason.into(),
+        },
+        span,
+    )
 }
 
 /// A readable variant's group comes from the chain, so a family without one
@@ -1214,6 +1337,7 @@ fn is_k_helper(attribute: &Attribute) -> bool {
         "syntax",
         "format",
         "precedence",
+        "cons_list",
         "strict",
         "seqstrict",
         "constructors",

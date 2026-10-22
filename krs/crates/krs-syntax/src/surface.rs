@@ -239,7 +239,7 @@ impl Entry {
 
 /// Helpers that `#[k::constructors]` consumes from the enum it annotates,
 /// after the `constructors` attribute.
-pub const ENUM_HELPERS: &[&str] = &["precedence"];
+pub const ENUM_HELPERS: &[&str] = &["precedence", "cons_list"];
 
 /// Helpers that `#[k::constructors]` consumes from each enum variant.
 pub const VARIANT_HELPERS: &[&str] = &[

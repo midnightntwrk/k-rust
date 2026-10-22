@@ -376,7 +376,8 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Set(operation) => {
                 collection_result(operation.spec().result_sort)
             }
-            DescriptorApplicationRef::Ml(_) => None,
+            // A list's sort is the position's, which an operand does not have.
+            DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::ListNotation(_) => None,
             DescriptorApplicationRef::Operator(operator) => {
                 if let Some(result) = operator.uniform_result() {
                     return Some(SemanticSortRef::Builtin(result));

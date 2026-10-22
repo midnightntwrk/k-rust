@@ -505,7 +505,7 @@ fn malformed_blocks_fail_at_the_local_construct() {
         ),
         (
             "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
-            "an ordinary fixed cell's result is one term",
+            "an anonymous `..` keeps the rest only in a readable record cell",
         ),
         (
             "for Expr; x: Wrap(a) => a where update env = map::lookup(env, a);",

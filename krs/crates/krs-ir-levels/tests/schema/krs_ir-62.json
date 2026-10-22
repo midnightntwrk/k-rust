@@ -1271,6 +1271,16 @@
       }
     ]
   },
+  "ListNotation": {
+    "ENUM": {
+      "0": {
+        "cons": "UNIT"
+      },
+      "1": {
+        "empty": "UNIT"
+      }
+    }
+  },
   "ListOperation": {
     "ENUM": {
       "0": {

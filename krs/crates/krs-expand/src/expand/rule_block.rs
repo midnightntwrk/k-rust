@@ -173,6 +173,7 @@ fn expand_head_rule(
     let mut have_extras = Vec::new();
     let mut rewrite_befores = Vec::new();
     let mut state_befores = Vec::new();
+    let mut list_befores = Vec::new();
     // Optional and collection states (KF-023) number their sequence and
     // instance keys per side, as the parser numbers their anchors.
     let mut left_states = krs_syntax::ReadableStateCounters::default();
@@ -244,6 +245,36 @@ fn expand_head_rule(
                 })?;
                 state_befores.push((cell.unraw().to_string(), ordinal, before));
             }
+            krs_syntax::RuleExtra::RewriteList { cell, before, .. } => {
+                let mut items = Vec::with_capacity(before.items().len());
+                for item in before.items() {
+                    items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+                }
+                let rest = match before.rest() {
+                    krs_syntax::RuleListRest::Exact => krs_ir::ProtocolHeadRuleListRest::Exact,
+                    krs_syntax::RuleListRest::Shared(_) => krs_ir::ProtocolHeadRuleListRest::Shared,
+                    krs_syntax::RuleListRest::Named(rest) => {
+                        krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
+                            rest.tree(),
+                            TermSide::Left,
+                            &mut slots,
+                        )?)
+                    }
+                };
+                let ordinal = have_ordinal;
+                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        cell.span(),
+                        "too many readable cell reads",
+                    )
+                })?;
+                list_befores.push((
+                    cell.unraw().to_string(),
+                    ordinal,
+                    krs_ir::wire::WireHeadRuleList { items, rest },
+                ));
+            }
             krs_syntax::RuleExtra::UpdateMap { .. } => {}
         }
     }
@@ -272,6 +303,7 @@ fn expand_head_rule(
     let mut update_extras = Vec::new();
     let mut rewrite_index = 0_usize;
     let mut state_index = 0_usize;
+    let mut list_index = 0_usize;
     for extra in clause.extras() {
         match extra {
             krs_syntax::RuleExtra::RewriteState {
@@ -365,6 +397,65 @@ fn expand_head_rule(
                     (None, None)
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
+                    cell: krs_ir::wire::WireHeadRuleCellReference {
+                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        name: cell_name.clone(),
+                    },
+                    result_key,
+                    before: before.clone(),
+                    after,
+                });
+            }
+            krs_syntax::RuleExtra::RewriteList {
+                cell,
+                result_cell,
+                after,
+                ..
+            } => {
+                let (cell_name, left_ordinal, before) = &list_befores[list_index];
+                list_index += 1;
+                debug_assert_eq!(cell_name, &cell.unraw().to_string());
+                let (result_key, after) = match (result_cell, after) {
+                    (Some(result_cell), Some(after)) => {
+                        let mut items = Vec::with_capacity(after.items().len());
+                        for item in after.items() {
+                            items.push(builder.expand_wire(
+                                item.tree(),
+                                TermSide::Right,
+                                &mut slots,
+                            )?);
+                        }
+                        let rest = match after.rest() {
+                            krs_syntax::RuleListRest::Exact => {
+                                krs_ir::ProtocolHeadRuleListRest::Exact
+                            }
+                            krs_syntax::RuleListRest::Shared(_) => {
+                                krs_ir::ProtocolHeadRuleListRest::Shared
+                            }
+                            krs_syntax::RuleListRest::Named(rest) => {
+                                krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
+                                    rest.tree(),
+                                    TermSide::Right,
+                                    &mut slots,
+                                )?)
+                            }
+                        };
+                        let right_ordinal = update_ordinal;
+                        update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                            ExpandError::new(
+                                expand::DESCRIPTOR_CAPACITY,
+                                result_cell.span(),
+                                "too many readable cell updates",
+                            )
+                        })?;
+                        (
+                            Some(rule_right_cells_field_role.key(right_ordinal)),
+                            Some(krs_ir::wire::WireHeadRuleList { items, rest }),
+                        )
+                    }
+                    _ => (None, None),
+                };
+                update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteList {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
                         key: rule_left_cells_field_role.key(*left_ordinal),
                         name: cell_name.clone(),

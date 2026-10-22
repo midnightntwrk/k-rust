@@ -13,8 +13,9 @@ pub(crate) use bits::{
 };
 pub use block::{
     BracketAlternative, ClaimBlock, ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout,
-    RuleHead, RuleHeadItem, RuleHeadResult, RuleImport, RuleNarrowing,
-    parse_claim_block_source_with_trivia, parse_rule_block_source_with_trivia,
+    RuleHead, RuleHeadItem, RuleHeadResult, RuleImport, RuleListPattern, RuleListRest,
+    RuleListResult, RuleNarrowing, parse_claim_block_source_with_trivia,
+    parse_rule_block_source_with_trivia,
 };
 pub(crate) use condition::take_requires_helper;
 pub use condition::{RuleCondition, RuleExtra, RuleMapEntry, RuleMapUpdate};

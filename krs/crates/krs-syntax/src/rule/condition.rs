@@ -136,6 +136,20 @@ pub enum RuleExtra {
         /// The result state.
         after: Option<Box<crate::StateTerm>>,
     },
+    /// A cell of a cons-list sort in list notation (F6), `stack: [a, b, ..]`,
+    /// and its rewritten list when the result record restates the cell.
+    /// Whether the cell's sort is a cons list is checked once sorts resolve.
+    RewriteList {
+        /// Named cell, in the subject record.
+        cell: Ident,
+        /// The matched list.
+        before: Box<super::RuleListPattern>,
+        /// The same cell in the result record, absent when the result
+        /// leaves it out (the cell is then read only).
+        result_cell: Option<Ident>,
+        /// The rewritten list.
+        after: Option<Box<super::RuleListResult>>,
+    },
 }
 
 impl RuleExtra {
@@ -146,7 +160,8 @@ impl RuleExtra {
             Self::HaveMap { cell, .. }
             | Self::UpdateMap { cell, .. }
             | Self::RewriteCell { cell, .. }
-            | Self::RewriteState { cell, .. } => cell,
+            | Self::RewriteState { cell, .. }
+            | Self::RewriteList { cell, .. } => cell,
         }
     }
 }

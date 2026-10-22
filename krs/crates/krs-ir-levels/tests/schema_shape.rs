@@ -61,6 +61,7 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "ProtocolCellContent",
     "ProtocolContextAliasBindingKind",
     "ProtocolHeadRuleExtra",
+    "ProtocolHeadRuleListRest",
     "ProtocolHeadRuleResult",
     "ProtocolInitializerCellContent",
     "ProtocolInitializerStateTerm",
@@ -188,6 +189,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ProtocolContextAliasBinding",
     "ProtocolHeadRuleBracketAlternative",
     "ProtocolHeadRuleHead",
+    "ProtocolHeadRuleList",
     "ProtocolInitializerCell",
     "ProtocolMap",
     "ProtocolRuleBinding",
@@ -674,6 +676,7 @@ fn registry() -> Registry {
     }
     trace!(BuiltinOperation: BuiltinOperation);
     trace!(BuiltinOperator: BuiltinOperator);
+    trace!(ListNotation: ListNotation);
     trace!(BuiltinSort: BuiltinSort);
     trace!(SortedByKey: krs_ir::sorted::SortedByKey<ModuleId>);
     trace!(CellCollectionType: CellCollectionType);
@@ -1025,6 +1028,8 @@ fn registry() -> Registry {
     unsupported!(ProtocolHeadRuleResult: ProtocolHeadRuleResult<String>);
     unsupported!(ProtocolHeadRuleBracketAlternative: ProtocolHeadRuleBracketAlternative<String,String,String>);
     unsupported!(ProtocolHeadRuleHead: ProtocolHeadRuleHead<String>);
+    unsupported!(ProtocolHeadRuleList: ProtocolHeadRuleList<String>);
+    unsupported!(ProtocolHeadRuleListRest: ProtocolHeadRuleListRest<String>);
     unsupported!(ProtocolHeadRuleExtra: ProtocolHeadRuleExtra<String,String>);
     unsupported!(ProtocolRuleBindingKind: ProtocolRuleBindingKind<String>);
     unsupported!(ProtocolRuleBinding: ProtocolRuleBinding<String>);

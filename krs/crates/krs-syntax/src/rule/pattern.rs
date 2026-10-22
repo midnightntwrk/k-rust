@@ -612,6 +612,31 @@ fn validate_native_pattern(
                 update: None,
             }))
         }
+        // `[p1, .., pn, rest @ ..]` is a cons-list constructor (F6).
+        Pat::Slice(slice) => {
+            let (head, elements) = crate::list_notation::pattern_level(slice)?;
+            paths.push(head.clone());
+            nodes.push(TermNode::ApplicationHead(head.clone()));
+            let mut arguments = Vec::with_capacity(elements.len());
+            for element in &elements {
+                arguments.push(validate_native_pattern(
+                    element,
+                    false,
+                    allow_record_rest,
+                    paths,
+                    bindings,
+                    nodes,
+                    signs,
+                )?);
+            }
+            Ok(TermTree::Application(TermApplication {
+                head,
+                arguments: TermArguments::Positional(arguments),
+                instance: Vec::new(),
+                notation: true,
+                update: None,
+            }))
+        }
         Pat::Struct(record) => {
             if record.qself.is_some() || !record.attrs.is_empty() || !is_plain_path(&record.path) {
                 return Err(unsupported_pattern(

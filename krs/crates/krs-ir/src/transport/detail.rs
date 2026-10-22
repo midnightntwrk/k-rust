@@ -158,6 +158,7 @@ details! {
         MapReadCellProvenanceKey => "map read cell provenance key",
         MapUpdateCellProvenanceKey => "map update cell provenance key",
         OrdinaryCellRewriteProvenanceKey => "ordinary cell rewrite provenance key",
+        InvalidListCell => "a cons-list cell's provenance keys disagree, or its rests do not pair: the anonymous `..` is on both sides or neither",
         ResultFrameBindingKind => "result frame binding has the wrong structural kind",
         InvalidRuleApplicationKeysOrHeadClass => "rule application keys or head class are invalid",
         RuleProvenanceOrdinalExceedsU32 => "rule provenance ordinal exceeds u32",

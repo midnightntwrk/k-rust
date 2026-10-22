@@ -167,9 +167,12 @@ fn lower_grammar_production(
         .iter()
         .map(|item| lower_production_item(descriptor, item))
         .collect::<Result<Vec<_>, _>>()?;
+    // `#[k::cons_list]` is notation for terms, which semantic lowering has
+    // already replaced by constructors: the production itself is unchanged.
     let attributes = production
         .attributes
         .iter()
+        .filter(|attribute| !matches!(attribute, DescriptorProductionAttribute::ConsList { .. }))
         .map(|attribute| lower_production_attribute(descriptor, attribute))
         .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
     let parameters = production
@@ -509,6 +512,9 @@ fn lower_production_attribute(
                 origin: semantic_origin(descriptor, cons.key.clone(), "production-attribute")?,
                 cons: list_partner(descriptor, cons)?,
             }
+        }
+        DescriptorProductionAttribute::ConsList { .. } => {
+            unreachable!("cons-list notation metadata is filtered before lowering")
         }
         DescriptorProductionAttribute::RawHook {
             key,

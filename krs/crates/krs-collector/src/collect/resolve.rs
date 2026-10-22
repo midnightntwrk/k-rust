@@ -744,7 +744,8 @@ fn readable_group_terms(
                 }
             }
             krs_ir::ProtocolHeadRuleExtra::HaveMap { .. }
-            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { .. } => {}
+            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { .. }
+            | krs_ir::ProtocolHeadRuleExtra::RewriteList { .. } => {}
         }
     }
     rule
@@ -791,11 +792,160 @@ fn readable_bracket_reading(
     Ok(rule)
 }
 
+/// Gives a readable record's sequence values the readings their cells'
+/// declared types give (F6). `[a, b, ..] => [c, ..]` reads alike as the
+/// computation cell's items and as a cons list's elements, and only the
+/// configuration says which cell is which: the macro reads one such value
+/// as the head, a cell named `k` if there is one, and the others as list
+/// cells. The computation cell is the configuration's one `KCell` leaf, so a
+/// head on an ordinary leaf cell becomes that cell's list, and a list on the
+/// computation cell becomes the head. Both readings hold the same terms, so
+/// moving one to the other changes no binder. A cell of neither kind keeps
+/// its reading and is reported where it is checked.
+fn readable_list_reading(
+    mut rule: krs_ir::HostHeadRule,
+    targets: &[HeadRuleTarget],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> Result<krs_ir::HostHeadRule, CollectionError> {
+    let has_list = rule
+        .extras
+        .iter()
+        .any(|extra| matches!(extra, krs_ir::ProtocolHeadRuleExtra::RewriteList { .. }));
+    if rule.configuration.is_none() || (rule.computation_cell_name.is_none() && !has_list) {
+        return Ok(rule);
+    }
+    let target = select_head_rule_target(&rule, targets, declarations)?;
+    let wrapper = |name: &str| {
+        let named = target
+            .cells
+            .iter()
+            .filter(|cell| cell.names.iter().any(|candidate| candidate == name))
+            .collect::<Vec<_>>();
+        match named.as_slice() {
+            [cell] if !cell.collection => cell.wrapper,
+            _ => None,
+        }
+    };
+    if let Some(name) = &rule.computation_cell_name
+        && rule.head.is_some()
+        && wrapper(name) == Some(krs_ir::CellWrapper::Cell)
+    {
+        let head = rule.head.take().expect("checked above");
+        let name = rule.computation_cell_name.take().expect("checked above");
+        rule.extras
+            .push(head_list(head, name, &rule.pattern_key, &rule.result_key));
+    }
+    if rule.head.is_none()
+        && let Some(index) = rule.extras.iter().position(|extra| {
+            matches!(
+                extra,
+                krs_ir::ProtocolHeadRuleExtra::RewriteList { cell, .. }
+                    if wrapper(&cell.name) == Some(krs_ir::CellWrapper::KCell)
+            )
+        })
+    {
+        let krs_ir::ProtocolHeadRuleExtra::RewriteList {
+            cell,
+            before,
+            after,
+            ..
+        } = rule.extras.remove(index)
+        else {
+            unreachable!("the position matched a list cell");
+        };
+        rule.head = Some(list_head(&cell, before, after)?);
+        rule.computation_cell_name = Some(cell.name);
+    }
+    Ok(rule)
+}
+
+/// The list reading of the head `head` read on the ordinary cell `name`:
+/// the same items, with the anonymous `..` as the list's shared rest. The
+/// head carries no cell key, so the cell is keyed at the whole pattern and
+/// its result at the whole result.
+fn head_list(
+    head: krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>,
+    name: String,
+    pattern_key: &krs_ir::ProvenanceKey,
+    result_key: &krs_ir::ProvenanceKey,
+) -> krs_ir::HostHeadRuleExtra {
+    let rest = || {
+        if head.exact {
+            krs_ir::ProtocolHeadRuleListRest::Exact
+        } else {
+            krs_ir::ProtocolHeadRuleListRest::Shared
+        }
+    };
+    let after = head.result.map(|result| krs_ir::ProtocolHeadRuleList {
+        items: match result {
+            krs_ir::ProtocolHeadRuleResult::Replace(term) => vec![term],
+            krs_ir::ProtocolHeadRuleResult::Splice(terms) => terms,
+            krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
+        },
+        rest: rest(),
+    });
+    krs_ir::ProtocolHeadRuleExtra::RewriteList {
+        cell: krs_ir::HostHeadRuleCellReference {
+            key: pattern_key.clone(),
+            name,
+        },
+        result_key: after.as_ref().map(|_| result_key.clone()),
+        before: krs_ir::ProtocolHeadRuleList {
+            items: head.items,
+            rest: rest(),
+        },
+        after,
+    }
+}
+
+/// The head reading of a list read on the computation cell `cell`, whose
+/// rest is anonymous: K's sequence is matched from its front and its rest
+/// kept by `..`, never named.
+fn list_head(
+    cell: &krs_ir::HostHeadRuleCellReference,
+    before: krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>,
+    after: Option<krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>>,
+) -> Result<krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>, CollectionError> {
+    let named = || {
+        CollectionError::new(
+            CollectionErrorKind::InvalidConfiguration,
+            format!(
+                "`{}` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a cons-list cell",
+                cell.name
+            ),
+        )
+        .with_reference_key(cell.key.clone())
+    };
+    let exact = match before.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => true,
+        krs_ir::ProtocolHeadRuleListRest::Shared => false,
+        krs_ir::ProtocolHeadRuleListRest::Term(_) => return Err(named()),
+    };
+    let result = match after {
+        None => None,
+        Some(krs_ir::ProtocolHeadRuleList {
+            rest: krs_ir::ProtocolHeadRuleListRest::Term(_),
+            ..
+        }) => return Err(named()),
+        Some(after) => Some(match <[_; 1]>::try_from(after.items) {
+            Ok([term]) => krs_ir::ProtocolHeadRuleResult::Replace(term),
+            Err(items) if items.is_empty() => krs_ir::ProtocolHeadRuleResult::Erase,
+            Err(items) => krs_ir::ProtocolHeadRuleResult::Splice(items),
+        }),
+    };
+    Ok(krs_ir::ProtocolHeadRuleHead {
+        items: before.items,
+        exact,
+        result,
+    })
+}
+
 fn resolve_head_rule(
     rule: krs_ir::HostHeadRule,
     map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
     let rule = readable_bracket_reading(rule, map.head_targets, map.declarations)?;
+    let rule = readable_list_reading(rule, map.head_targets, map.declarations)?;
     let no_groups = HashMap::new();
     let children = select_head_rule_target(&rule, map.head_targets, map.declarations)
         .map_or(&no_groups, |target| &target.group_children);
@@ -1092,6 +1242,10 @@ fn resolve_application_reference(
             builtins.and_then(|registry| registry.resolve_operator(type_id))
         {
             DescriptorApplicationRef::Operator(operator)
+        } else if let Some(notation) =
+            builtins.and_then(|registry| registry.resolve_list_notation(type_id))
+        {
+            DescriptorApplicationRef::ListNotation(notation)
         } else {
             return Err(CollectionError::new(
                 CollectionErrorKind::UnresolvedTypeReference,
@@ -1164,7 +1318,8 @@ mod tests {
     const SET_OFFSET: usize = LIST_OFFSET + ListOperation::ALL.len();
     const ML_OFFSET: usize = SET_OFFSET + krs_ir::SetOperation::ALL.len();
     const OPERATOR_OFFSET: usize = ML_OFFSET + krs_ir::MlConnective::ALL.len();
-    const _: () = assert!(OPERATOR_OFFSET + krs_ir::BuiltinOperator::ALL.len() <= MARKER_COUNT);
+    const LIST_NOTATION_OFFSET: usize = OPERATOR_OFFSET + krs_ir::BuiltinOperator::ALL.len();
+    const _: () = assert!(LIST_NOTATION_OFFSET + krs_ir::ListNotation::ALL.len() <= MARKER_COUNT);
 
     fn keys<const N: usize>(offset: usize) -> [HostTypeKey; N] {
         let table = marker_table();
@@ -1204,6 +1359,7 @@ mod tests {
             set_operations: keys(SET_OFFSET),
             ml_connectives: keys(ML_OFFSET),
             operators: keys(OPERATOR_OFFSET),
+            list_notation: keys(LIST_NOTATION_OFFSET),
         }
     }
 

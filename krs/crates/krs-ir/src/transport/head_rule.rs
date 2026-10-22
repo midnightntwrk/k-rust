@@ -99,6 +99,60 @@ protocol_shape! {
 }
 
 protocol_shape! {
+    /// The rest of one side of a cons-list cell (F6).
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(
+        tag = "list_rest_kind",
+        content = "list_rest",
+        rename_all = "snake_case"
+    )]
+    pub enum ProtocolHeadRuleListRest<T => term_map => U> {
+        /// No rest: the list ends after the elements (`[a, b]`).
+        Exact,
+        /// The anonymous `..`: one rest, the same on both sides of the rule,
+        /// as the computation cell's.
+        Shared,
+        /// A named rest: the binder of `rest @ ..` in the pattern, the term
+        /// of `..t` in the result.
+        Term(value: T => [term_map]),
+    }
+}
+
+protocol_shape! {
+    /// One side of a cons-list cell (F6): the elements, front first, and
+    /// the rest of the list after them.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleList<T => term_map => U> {
+        /// The elements, front first.
+        pub items: Vec<T> => [vec term_map],
+        /// What follows the elements.
+        pub rest: ProtocolHeadRuleListRest<T> => [nested term_map],
+    }
+}
+
+impl<T> ProtocolHeadRuleList<T> {
+    /// The elements, then a named rest's term, in order.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&T> {
+        let rest = match &self.rest {
+            ProtocolHeadRuleListRest::Term(rest) => Some(rest),
+            ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => None,
+        };
+        self.items.iter().chain(rest).collect()
+    }
+
+    /// The elements, then a named rest's term, in order, for rewriting.
+    pub fn terms_mut(&mut self) -> Vec<&mut T> {
+        let rest = match &mut self.rest {
+            ProtocolHeadRuleListRest::Term(rest) => Some(rest),
+            ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => None,
+        };
+        self.items.iter_mut().chain(rest).collect()
+    }
+}
+
+protocol_shape! {
     /// One explicit gradual extra-cell clause.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(tag = "extra_kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -151,6 +205,23 @@ protocol_shape! {
             /// The rewritten state.
             #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
             after: Option<crate::ProtocolRuleStateTerm<T>> => [option nested term_map],
+        },
+        /// A cell of a cons-list sort written in list notation (F6),
+        /// `stack: [a, b, ..] => stack: [c, ..]`: matched, and rewritten
+        /// when the result restates it. Semantic lowering builds the cell's
+        /// constructor terms from the cell's declared sort.
+        RewriteList {
+            /// Selected cell, anchored at the authored subject field.
+            cell: I => [cell_map],
+            /// Authored result-field provenance, absent when the result
+            /// leaves the cell out (it is then read only).
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            result_key: Option<ProvenanceKey> => [keep],
+            /// The matched list.
+            before: ProtocolHeadRuleList<T> => [nested term_map],
+            /// The rewritten list.
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            after: Option<ProtocolHeadRuleList<T>> => [option nested term_map],
         },
     }
 }
@@ -527,6 +598,34 @@ fn readable_state_extra<T>(
     }
 }
 
+/// A cons-list cell (F6) has a result key exactly when it is rewritten, and
+/// its anonymous `..` is one rest on both sides: a rewritten list keeps it
+/// exactly when the matched one has it.
+fn list_extra<T>(
+    result_key: Option<&ProvenanceKey>,
+    before: &ProtocolHeadRuleList<T>,
+    after: Option<&ProtocolHeadRuleList<T>>,
+) -> bool {
+    let shared =
+        |list: &ProtocolHeadRuleList<T>| matches!(list.rest, ProtocolHeadRuleListRest::Shared);
+    result_key.is_some() == after.is_some()
+        && after.is_none_or(|after| shared(before) == shared(after))
+}
+
+/// Whether an extra that is a cons-list cell pairs its rests and its result
+/// key ([`list_extra`]); every other extra does.
+fn list_pairs<I, T>(extra: &ProtocolHeadRuleExtra<I, T>) -> bool {
+    match extra {
+        ProtocolHeadRuleExtra::RewriteList {
+            result_key,
+            before,
+            after,
+            ..
+        } => list_extra(result_key.as_ref(), before, after.as_ref()),
+        _ => true,
+    }
+}
+
 fn validate_bindings<S, I, T>(
     bindings: &[ProtocolHeadRuleBinding<S>],
     extras: &[ProtocolHeadRuleExtra<I, T>],
@@ -555,7 +654,8 @@ fn validate_bindings<S, I, T>(
             }
             ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => vec![base_binding.as_str()],
             ProtocolHeadRuleExtra::RewriteCell { .. }
-            | ProtocolHeadRuleExtra::RewriteState { .. } => continue,
+            | ProtocolHeadRuleExtra::RewriteState { .. }
+            | ProtocolHeadRuleExtra::RewriteList { .. } => continue,
         };
         if introduced.iter().any(|name| !names.contains(name)) {
             return Err(StateTransportError::InvalidTerm(
@@ -724,6 +824,24 @@ impl HostHeadRule {
                     }
                     cell
                 }
+                ProtocolHeadRuleExtra::RewriteList {
+                    cell,
+                    result_key,
+                    before,
+                    after,
+                } => {
+                    if cell.key.role() != ProvenanceRole::RuleLeftCellsField
+                        || result_key
+                            .as_ref()
+                            .is_some_and(|key| key.role() != ProvenanceRole::RuleRightCellsField)
+                        || !list_extra(result_key.as_ref(), before, after.as_ref())
+                    {
+                        return Err(StateTransportError::InvalidTerm(
+                            StateTermReason::InvalidListCell,
+                        ));
+                    }
+                    cell
+                }
             };
             if cell.name.is_empty() || !cells.insert(cell.name.as_str()) {
                 return Err(StateTransportError::DuplicateValue(
@@ -850,8 +968,14 @@ impl DescriptorHeadRule {
                 ProtocolHeadRuleExtra::HaveMap { cell, .. }
                 | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
                 | ProtocolHeadRuleExtra::RewriteCell { cell, .. }
-                | ProtocolHeadRuleExtra::RewriteState { cell, .. } => cell,
+                | ProtocolHeadRuleExtra::RewriteState { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteList { cell, .. } => cell,
             };
+            if !list_pairs(extra) {
+                return Err(StateTransportError::InvalidTerm(
+                    StateTermReason::InvalidListCell,
+                ));
+            }
             if cell.cell.owner != self.configuration
                 && cell.cell.owner.item_kind() != ItemKind::Cell
             {

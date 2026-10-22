@@ -110,6 +110,11 @@ impl Sample for BuiltinOperator {
         vec![Self::Add]
     }
 }
+impl Sample for krs_ir::ListNotation {
+    fn samples() -> Vec<Self> {
+        vec![Self::Cons]
+    }
+}
 impl Sample for BuiltinSort {
     fn samples() -> Vec<Self> {
         vec![Self::KSequence]
@@ -1230,8 +1235,9 @@ impl Sample for DescriptorApplicationRef {
                 Self::Set(sample::<SetOperation>()),
                 Self::Ml(sample::<MlConnective>()),
                 Self::Operator(sample::<BuiltinOperator>()),
+                Self::ListNotation(sample::<krs_ir::ListNotation>()),
             ],
-            7,
+            8,
             "DescriptorApplicationRef",
             |value| match value {
                 Self::Declared(..) => 0,
@@ -1241,6 +1247,7 @@ impl Sample for DescriptorApplicationRef {
                 Self::Set(..) => 4,
                 Self::Ml(..) => 5,
                 Self::Operator(..) => 6,
+                Self::ListNotation(..) => 7,
             },
         )
     }
@@ -1415,6 +1422,10 @@ impl Sample for DescriptorProductionAttribute {
                 Self::ListTerminator {
                     cons: sample::<DescriptorApplicationReference>(),
                 },
+                Self::ConsList {
+                    key: sample::<ProvenanceKey>(),
+                    empty: sample::<DescriptorApplicationReference>(),
+                },
                 Self::RawHook {
                     key: sample::<ProvenanceKey>(),
                     namespace: sample::<String>(),
@@ -1440,7 +1451,7 @@ impl Sample for DescriptorProductionAttribute {
                     reason: sample::<String>(),
                 },
             ],
-            26,
+            27,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1469,6 +1480,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
                 Self::Underspecified { .. } => 25,
+                Self::ConsList { .. } => 26,
             },
         )
     }
@@ -2162,14 +2174,39 @@ impl<
                         value: Box::new(ProtocolRuleStateTerm::Term(sample::<T>())),
                     }),
                 },
+                Self::RewriteList {
+                    cell: sample::<I>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
+                    before: ProtocolHeadRuleList {
+                        items: vec![sample::<T>()],
+                        rest: ProtocolHeadRuleListRest::Shared,
+                    },
+                    after: Some(ProtocolHeadRuleList {
+                        items: Vec::new(),
+                        rest: ProtocolHeadRuleListRest::Shared,
+                    }),
+                },
+                Self::RewriteList {
+                    cell: sample::<I>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
+                    before: ProtocolHeadRuleList {
+                        items: vec![sample::<T>()],
+                        rest: ProtocolHeadRuleListRest::Term(sample::<T>()),
+                    },
+                    after: Some(ProtocolHeadRuleList {
+                        items: vec![sample::<T>()],
+                        rest: ProtocolHeadRuleListRest::Exact,
+                    }),
+                },
             ],
-            4,
+            5,
             "ProtocolHeadRuleExtra",
             |value| match value {
                 Self::HaveMap { .. } => 0,
                 Self::UpdateMap { .. } => 1,
                 Self::RewriteCell { .. } => 2,
                 Self::RewriteState { .. } => 3,
+                Self::RewriteList { .. } => 4,
             },
         )
     }
@@ -2224,6 +2261,28 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
                 Self::Erase => 2,
             },
         )
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleListRest<T> {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![Self::Exact, Self::Shared, Self::Term(sample::<T>())],
+            3,
+            "ProtocolHeadRuleListRest",
+            |value| match value {
+                Self::Exact => 0,
+                Self::Shared => 1,
+                Self::Term(..) => 2,
+            },
+        )
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleList<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            items: vec![sample::<T>()],
+            rest: sample::<ProtocolHeadRuleListRest<T>>(),
+        }]
     }
 }
 impl<
@@ -2683,6 +2742,10 @@ impl Sample for WireProductionAttribute {
                 Self::ListTerminator {
                     cons: sample::<WireApplicationReference>(),
                 },
+                Self::ConsList {
+                    key: sample::<ProvenanceKey>(),
+                    empty: sample::<WireApplicationReference>(),
+                },
                 Self::RawHook {
                     key: sample::<ProvenanceKey>(),
                     namespace: sample::<String>(),
@@ -2708,7 +2771,7 @@ impl Sample for WireProductionAttribute {
                     reason: sample::<String>(),
                 },
             ],
-            26,
+            27,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2737,6 +2800,7 @@ impl Sample for WireProductionAttribute {
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
                 Self::Underspecified { .. } => 25,
+                Self::ConsList { .. } => 26,
             },
         )
     }
@@ -4173,6 +4237,8 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<ProtocolHeadRuleResult<DescriptorTerm>>(corpus, "ProtocolHeadRuleResult");
     insert::<WireHeadRuleBracketAlternative>(corpus, "ProtocolHeadRuleBracketAlternative");
     insert::<ProtocolHeadRuleHead<DescriptorTerm>>(corpus, "ProtocolHeadRuleHead");
+    insert::<ProtocolHeadRuleList<DescriptorTerm>>(corpus, "ProtocolHeadRuleList");
+    insert::<ProtocolHeadRuleListRest<DescriptorTerm>>(corpus, "ProtocolHeadRuleListRest");
     insert::<
         ProtocolInitializerCellContent<
             DescriptorCellReference,

@@ -31,6 +31,7 @@ pub mod host;
 pub mod identity;
 pub mod ir;
 pub mod json;
+mod list_notation;
 pub mod measure;
 mod operator;
 pub mod provenance;
@@ -96,6 +97,7 @@ pub use identity::{
     StableItemId, lower_hex,
 };
 pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
+pub use list_notation::ListNotation;
 pub use operator::{BuiltinOperator, OperatorDomain, OperatorReading};
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
@@ -164,7 +166,8 @@ pub use transport::head_rule::{
     HostHeadRuleBinding, HostHeadRuleBracketAlternative, HostHeadRuleCellReference,
     HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
     ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
-    ProtocolHeadRuleMapEntry, ProtocolHeadRuleResult, ResolvedHeadRule,
+    ProtocolHeadRuleList, ProtocolHeadRuleListRest, ProtocolHeadRuleMapEntry,
+    ProtocolHeadRuleResult, ResolvedHeadRule,
 };
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,

@@ -1209,6 +1209,9 @@ fn collect_rule_block(
                 krs_syntax::RuleExtra::RewriteState { cell, .. } => {
                     ("state".to_owned(), cell.unraw().to_string())
                 }
+                krs_syntax::RuleExtra::RewriteList { cell, .. } => {
+                    ("list".to_owned(), cell.unraw().to_string())
+                }
             })
             .partition(|(kind, _)| kind == "have");
         extras.extend(writes);
@@ -1386,6 +1389,9 @@ pub(super) fn validate_reparsed_payload(
                     }
                     krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. } => {
                         ("state".to_owned(), cell.name.clone())
+                    }
+                    krs_ir::ProtocolHeadRuleExtra::RewriteList { cell, .. } => {
+                        ("list".to_owned(), cell.name.clone())
                     }
                 })
                 .collect::<Vec<_>>();

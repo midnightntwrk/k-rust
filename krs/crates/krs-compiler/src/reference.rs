@@ -950,6 +950,113 @@ fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, bundle: &krs_ir::Descrip
     })
 }
 
+/// The constructors of the cons list a list cell holds (F6).
+struct CellConsList {
+    sort: StableItemId,
+    cons: StableItemId,
+    empty: StableItemId,
+}
+
+/// The cons list the leaf cell `cell` holds, when its sort is one.
+fn cell_cons_list(
+    cell: &krs_ir::DescriptorCellIdentity,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Option<CellConsList> {
+    let sort = bundle.descriptors().iter().find_map(|descriptor| {
+        if descriptor.id() != &cell.owner {
+            return None;
+        }
+        let declaration = match descriptor.payload() {
+            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
+            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
+            _ => return None,
+        };
+        declaration
+            .fields
+            .iter()
+            .find_map(|field| match &field.content {
+                krs_ir::ProtocolCellContent::Leaf { sort, .. }
+                    if field.rust_field == cell.field =>
+                {
+                    match &sort.sort {
+                        krs_ir::DescriptorSortRef::Declared(id) => Some(id.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+    })?;
+    bundle.descriptors().iter().find_map(|descriptor| {
+        let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
+            return None;
+        };
+        let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
+            return None;
+        };
+        if production.result_sort.sort != krs_ir::DescriptorSortRef::Declared(sort.clone()) {
+            return None;
+        }
+        let empty = production
+            .attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                krs_ir::DescriptorProductionAttribute::ListCons {
+                    terminator: empty, ..
+                }
+                | krs_ir::DescriptorProductionAttribute::ConsList { empty, .. } => {
+                    match &empty.application {
+                        DescriptorApplicationRef::Declared(id) => Some(id.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })?;
+        let krs_ir::DescriptorProductionOwner::Constructor { constructor } = &production.owner
+        else {
+            return None;
+        };
+        let DescriptorApplicationRef::Declared(cons) = &constructor.application else {
+            return None;
+        };
+        Some(CellConsList {
+            sort: sort.clone(),
+            cons: cons.clone(),
+            empty,
+        })
+    })
+}
+
+/// Renders one side of a list cell as the constructor term it denotes:
+/// `Cons(a, Cons(b, rest))`.
+fn render_list(
+    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    constructors: &CellConsList,
+    shared: Option<&Ident>,
+    pattern: bool,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let mut rendered = match &list.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => {
+            let empty = render_declared_application(&constructors.empty, package)?;
+            quote!(#empty())
+        }
+        krs_ir::ProtocolHeadRuleListRest::Shared => {
+            let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+            quote!(#rest)
+        }
+        krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+            render_term(rest, pattern, package, bundle)?
+        }
+    };
+    let cons = render_declared_application(&constructors.cons, package)?;
+    for item in list.items.iter().rev() {
+        let item = render_term(item, pattern, package, bundle)?;
+        rendered = quote!(#cons(#item, #rendered));
+    }
+    Ok(rendered)
+}
+
 /// Whether `id` is the closed sort of a `#[k::syntax_list]` enum, whose
 /// reference type is the enum itself.
 fn is_list_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
@@ -1619,6 +1726,39 @@ fn render_rule(
                     #cell: k::configuration::Cell(#update)
                 });
             }
+            ProtocolHeadRuleExtra::RewriteList {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                // A list cell is the constructor term it denotes (F6); its
+                // anonymous `..` is a parameter both sides name.
+                let list = cell_cons_list(&cell.cell, bundle)
+                    .ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+                let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
+                    .then(|| {
+                        let rest = fresh_ident("rest", &mut reserved);
+                        let ty = render_sort_type(
+                            &SemanticSortRef::Declared(list.sort.clone()),
+                            package,
+                        )?;
+                        parameters.push((rest.to_string(), quote!(#rest: #ty)));
+                        Ok::<_, ReferenceExpansionError>(rest)
+                    })
+                    .transpose()?;
+                let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                let before = render_list(before, &list, shared.as_ref(), true, package, bundle)?;
+                left_cells.push(quote! {
+                    #field: k::configuration::Cell(#before)
+                });
+                if let Some(after) = after {
+                    let after = render_list(after, &list, shared.as_ref(), false, package, bundle)?;
+                    right_cells.push(quote! {
+                        #field: k::configuration::Cell(#after)
+                    });
+                }
+            }
             ProtocolHeadRuleExtra::RewriteCell {
                 cell,
                 before,
@@ -2191,6 +2331,9 @@ fn render_term(
                         operator.symbol(),
                     ));
                 }
+                DescriptorApplicationRef::ListNotation(_) => {
+                    return Err(ReferenceExpansionError::UnresolvedListNotation);
+                }
             };
             if arguments.is_empty()
                 && matches!(
@@ -2539,34 +2682,46 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
     quote!(k::builtin::#name)
 }
 
-/// The calls the operators of one descriptor denote, read from the semantic
-/// rule lowered from it: each operator head becomes the operation semantic
-/// lowering applied at that head, found by the source-map key lowering gives
-/// the application there. `-x` on `Int` applies `int::sub` to an operand the
+/// The calls the operators and the list notation of one descriptor denote,
+/// read from the semantic rule lowered from it: each operator head becomes
+/// the operation semantic lowering applied at that head, and each bracket
+/// level the constructor, found by the source-map key lowering gives the
+/// application there. `-x` on `Int` applies `int::sub` to an operand the
 /// descriptor does not hold, so it stays the operator `-`, which
 /// [`render_term`] spells `int::sub(0, x)`.
 struct OperatorCalls<'a> {
     descriptor: &'a Descriptor,
     operations: BTreeMap<SourceMapKey, BuiltinOperation>,
+    constructors: BTreeMap<SourceMapKey, StableItemId>,
 }
 
 impl<'a> OperatorCalls<'a> {
     fn new(descriptor: &'a Descriptor, rule: &SemanticRule) -> Self {
         let mut operations = BTreeMap::new();
+        let mut constructors = BTreeMap::new();
         let mut pending = semantic_rule_terms(rule);
         while let Some(term) = pending.pop() {
-            if let IrTermKind::Application {
-                application: ApplicationRef::Builtin(operation),
-                ..
-            } = term.kind()
-            {
-                operations.insert(term.origin().key().clone(), *operation);
+            match term.kind() {
+                IrTermKind::Application {
+                    application: ApplicationRef::Builtin(operation),
+                    ..
+                } => {
+                    operations.insert(term.origin().key().clone(), *operation);
+                }
+                IrTermKind::Application {
+                    application: ApplicationRef::Declared(id),
+                    ..
+                } => {
+                    constructors.insert(term.origin().key().clone(), id.clone());
+                }
+                _ => {}
             }
             pending.extend(term.children());
         }
         Self {
             descriptor,
             operations,
+            constructors,
         }
     }
 }
@@ -2611,6 +2766,16 @@ impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
         &mut self,
         reference: DescriptorApplicationReference,
     ) -> Result<DescriptorApplicationReference, Self::Error> {
+        if let DescriptorApplicationRef::ListNotation(_) = reference.application {
+            let constructor =
+                crate::semantic::application_source_key(self.descriptor, &reference.key)
+                    .and_then(|key| self.constructors.get(&key).cloned())
+                    .ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+            return Ok(DescriptorApplicationReference {
+                key: reference.key,
+                application: DescriptorApplicationRef::Declared(constructor),
+            });
+        }
         let DescriptorApplicationRef::Operator(operator) = reference.application else {
             return Ok(reference);
         };
@@ -3047,6 +3212,8 @@ pub enum ReferenceExpansionError {
     UnsupportedState,
     /// Semantic lowering chose no operation for an operator.
     UnresolvedOperator(&'static str),
+    /// Semantic lowering recorded no constructor for bracket list notation.
+    UnresolvedListNotation,
 }
 
 impl ToDiagnostic for ReferenceExpansionError {
@@ -3084,6 +3251,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
             Self::UnsupportedState => codes::reference::UNSUPPORTED_STATE,
             Self::UnresolvedOperator(_) => codes::reference::UNRESOLVED_OPERATOR,
+            Self::UnresolvedListNotation => codes::reference::UNRESOLVED_LIST_NOTATION,
         };
         Diagnostic::error(code, self.to_string(), Location::None)
     }
@@ -3183,6 +3351,8 @@ impl fmt::Display for ReferenceExpansionError {
                 formatter,
                 "semantic lowering chose no builtin operation for an operator `{operator}`"
             ),
+            Self::UnresolvedListNotation => formatter
+                .write_str("semantic lowering chose no constructor for bracket list notation"),
         }
     }
 }
@@ -3214,7 +3384,8 @@ impl Error for ReferenceExpansionError {
             | Self::InvalidLiteral(_)
             | Self::UnsupportedBuiltinToken(_)
             | Self::UnsupportedState
-            | Self::UnresolvedOperator(_) => None,
+            | Self::UnresolvedOperator(_)
+            | Self::UnresolvedListNotation => None,
         }
     }
 }

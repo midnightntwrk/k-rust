@@ -21,6 +21,11 @@ pub(super) struct ProductionSignature {
     /// Whether the production is a function, whose applications denote
     /// equation results rather than values of their own.
     pub(super) function: bool,
+    /// The empty constructor of the cons list whose cons constructor this
+    /// production is (F6): the cons of a `#[k::syntax_list]` sort or of a
+    /// `#[k::cons_list]` enum. Bracket list notation at the production's
+    /// result sort denotes the two.
+    pub(super) cons_list_empty: Option<StableItemId>,
 }
 
 pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
@@ -167,6 +172,23 @@ pub(super) fn build_production_catalog(
                                 attribute,
                                 krs_ir::DescriptorProductionAttribute::Function { .. }
                             )
+                        }),
+                        cons_list_empty: production.attributes.iter().find_map(|attribute| {
+                            match attribute {
+                                krs_ir::DescriptorProductionAttribute::ListCons {
+                                    terminator: empty,
+                                    ..
+                                }
+                                | krs_ir::DescriptorProductionAttribute::ConsList {
+                                    empty, ..
+                                } => match &empty.application {
+                                    krs_ir::DescriptorApplicationRef::Declared(id) => {
+                                        Some(id.clone())
+                                    }
+                                    _ => None,
+                                },
+                                _ => None,
+                            }
                         }),
                     },
                 )

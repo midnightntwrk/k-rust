@@ -275,6 +275,10 @@ pub(super) fn head_rule_terms(rule: &krs_ir::DescriptorHeadRule) -> Vec<&Descrip
                 terms.extend(before.terms());
                 terms.extend(after.iter().flat_map(krs_ir::ProtocolRuleStateTerm::terms));
             }
+            krs_ir::ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
+                terms.extend(before.terms());
+                terms.extend(after.iter().flat_map(krs_ir::ProtocolHeadRuleList::terms));
+            }
         }
     }
     terms.extend(rule.requires.iter().map(|condition| &condition.term));
@@ -287,7 +291,8 @@ fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellRefer
         krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
         | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
         | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. }
-        | krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. } => cell,
+        | krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. }
+        | krs_ir::ProtocolHeadRuleExtra::RewriteList { cell, .. } => cell,
     }
 }
 
@@ -963,6 +968,20 @@ fn infer_head_rule(
                         infer_readable_state(builder, declarations, field, after, false)?;
                     }
                 }
+                krs_ir::ProtocolHeadRuleExtra::RewriteList {
+                    cell,
+                    before,
+                    after,
+                    ..
+                } => {
+                    let sort = seeds.cell_sorts.get(&cell.cell);
+                    let list = builder.list_cell(cell, sort)?;
+                    let sort = sort.expect("a cons-list cell is a leaf of its sort");
+                    builder.infer_list(before, sort, &list, true)?;
+                    if let Some(after) = after {
+                        builder.infer_list(after, sort, &list, false)?;
+                    }
+                }
             }
         }
         infer_rule_conditions(
@@ -1335,6 +1354,19 @@ fn lower_head_rule_fixed_extra(
             *wrapper,
             sort,
         ),
+        krs_ir::ProtocolHeadRuleExtra::RewriteList {
+            cell,
+            result_key,
+            before,
+            after,
+        } => lower_head_rule_list_rewrite(
+            builder,
+            cell,
+            result_key.as_ref(),
+            before,
+            after.as_ref(),
+            sort,
+        ),
         krs_ir::ProtocolHeadRuleExtra::RewriteState { .. } => {
             unreachable!("optional and collection extras are lowered by cell_states")
         }
@@ -1490,6 +1522,48 @@ fn lower_head_rule_cell_rewrite(
         )?;
     }
     Ok(clause)
+}
+
+/// Lowers a readable record's list cell (F6), `stack: [a, b, ..] => stack:
+/// [c, ..]`, to the cell rewrite of the constructor terms it denotes; an
+/// anonymous `..` is one rest variable on both sides.
+fn lower_head_rule_list_rewrite(
+    builder: &mut StructuredTermBuilder<'_>,
+    cell: &DescriptorCellReference,
+    result_key: Option<&ProvenanceKey>,
+    before: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    after: Option<&krs_ir::ProtocolHeadRuleList<DescriptorTerm>>,
+    sort: &DescriptorSortReference,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    let expected = semantic_sort_ref(&sort.sort);
+    let list = builder.list_cell(cell, Some(&expected))?;
+    let before = builder.lower_list(before, &expected, &list, cell, "before", true)?;
+    let post = match after {
+        None => CellPost::Preserve,
+        Some(after) => {
+            let after = builder.lower_list(after, &expected, &list, cell, "after", false)?;
+            if same_term(&before, &after) {
+                CellPost::Preserve
+            } else {
+                CellPost::Replace { term: after }
+            }
+        }
+    };
+    if let Some(result_key) = result_key {
+        let _ = semantic_origin(
+            descriptor,
+            result_key.clone(),
+            "completed-cell-rewrite-result",
+        )?;
+    }
+    Ok(FixedCellClause::new(
+        semantic_origin(descriptor, cell.key.clone(), "completed-cell-rewrite")?,
+        semantic_cell_id(&cell.cell)?,
+        before,
+        post,
+        CellContentFrame::Exact,
+    ))
 }
 
 /// The post-state of a readable record's cell entry: unchanged when the

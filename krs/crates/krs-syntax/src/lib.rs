@@ -16,6 +16,7 @@ mod initializer;
 mod item;
 pub mod keyword;
 mod lexical;
+mod list_notation;
 mod notation;
 pub mod parse;
 mod path;
@@ -77,9 +78,10 @@ pub use rule::{
     BINDER_LIST_CONTRACT, BracketAlternative, ClaimBlock, EquationRow, EquationTable,
     ReadableStateCounters, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
     RuleExistentials, RuleExtra, RuleHead, RuleHeadItem, RuleHeadResult, RuleImport, RuleItem,
-    RuleMapEntry, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern, desugar_bit_templates,
-    is_hidden_binder, parse_claim_block_source_with_trivia,
-    parse_equation_table_source_with_trivia, parse_rule_block_source_with_trivia,
+    RuleListPattern, RuleListRest, RuleListResult, RuleMapEntry, RuleMapUpdate, RuleNarrowing,
+    RuleParameter, RulePattern, desugar_bit_templates, is_hidden_binder,
+    parse_claim_block_source_with_trivia, parse_equation_table_source_with_trivia,
+    parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{

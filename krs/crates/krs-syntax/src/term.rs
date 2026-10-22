@@ -1001,6 +1001,8 @@ impl TermExpression {
             // `a && b`, `a + b`, `!a`, `-a`, and `recv.op::<D>(..)` denote
             // builtin calls.
             other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
+            // `[a, ..rest]` denotes a cons-list constructor (F6).
+            Expr::Array(_) => TermRootKind::Call,
             // The minus of a literal, which `validate_expression` checks.
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_), ..
@@ -1407,7 +1409,7 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
         }) => return pattern_root_kind(subpattern),
         Pat::Path(path) if float_constant_path(&path.path).is_some() => TermRootKind::Literal,
         Pat::Path(_) | Pat::Ident(_) => TermRootKind::Named,
-        Pat::TupleStruct(_) => TermRootKind::Call,
+        Pat::TupleStruct(_) | Pat::Slice(_) => TermRootKind::Call,
         Pat::Struct(_) => TermRootKind::Record,
         Pat::Lit(_) => TermRootKind::Literal,
         Pat::Wild(_) => TermRootKind::Wildcard,
@@ -1686,6 +1688,25 @@ fn validate_pattern(
         }
         Pat::Path(path) => validate_path_expression(path, symbols, nodes),
         Pat::TupleStruct(tuple) => validate_tuple_struct_pattern(tuple, signs, symbols, nodes),
+        Pat::Slice(slice) => {
+            let (head, elements) = crate::list_notation::pattern_level(slice)?;
+            symbols.push(TermSymbol {
+                path: head.clone(),
+                kind: TermSymbolKind::ApplicationHead,
+            });
+            nodes.push(TermNode::ApplicationHead(head.clone()));
+            let mut arguments = Vec::with_capacity(elements.len());
+            for element in &elements {
+                arguments.push(validate_pattern(element, signs, symbols, nodes)?);
+            }
+            Ok(TermTree::Application(TermApplication {
+                head,
+                arguments: TermArguments::Positional(arguments),
+                instance: Vec::new(),
+                notation: true,
+                update: None,
+            }))
+        }
         Pat::Struct(record) => validate_struct_pattern(record, signs, symbols, nodes),
         Pat::Paren(paren) => {
             reject_attributes(&paren.attrs, paren.span())?;

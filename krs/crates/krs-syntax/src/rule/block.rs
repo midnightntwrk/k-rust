@@ -154,6 +154,95 @@ pub struct RuleHeadItem {
     pub(super) tree: TermTree,
 }
 
+/// The rest of one side of a cons-list cell in a readable record (F6).
+#[derive(Clone, Debug)]
+pub enum RuleListRest<T> {
+    /// No rest: the list ends after the elements (`[a, b]`).
+    Exact,
+    /// The anonymous `..`, one rest that both sides share.
+    Shared(TokenRange),
+    /// A named rest: the binder of `rest @ ..` in the pattern, the term of
+    /// `..t` (or a whole term) in the result.
+    Named(T),
+}
+
+impl<T> RuleListRest<T> {
+    /// Whether this is the anonymous `..`.
+    #[must_use]
+    pub const fn is_shared(&self) -> bool {
+        matches!(self, Self::Shared(_))
+    }
+}
+
+/// The matched side of a cons-list cell in a readable record (F6):
+/// `stack: [a, b, ..]`.
+#[derive(Clone, Debug)]
+pub struct RuleListPattern {
+    pub(super) items: Vec<RuleHeadItem>,
+    pub(super) rest: RuleListRest<RuleHeadItem>,
+}
+
+impl RuleListPattern {
+    /// The matched elements, front first.
+    #[must_use]
+    pub fn items(&self) -> &[RuleHeadItem] {
+        &self.items
+    }
+
+    /// What the pattern matches after the elements.
+    #[must_use]
+    pub const fn rest(&self) -> &RuleListRest<RuleHeadItem> {
+        &self.rest
+    }
+
+    /// The element patterns, then the named rest's binder, in expansion
+    /// order.
+    pub(super) fn patterns(&self) -> impl Iterator<Item = &RuleHeadItem> {
+        let rest = match &self.rest {
+            RuleListRest::Named(rest) => Some(rest),
+            RuleListRest::Exact | RuleListRest::Shared(_) => None,
+        };
+        self.items.iter().chain(rest)
+    }
+
+    /// The binders the pattern introduces, in order.
+    pub(super) fn bindings(&self) -> impl Iterator<Item = &Ident> {
+        self.patterns().flat_map(|item| item.pattern.bindings())
+    }
+}
+
+/// The rewritten side of a cons-list cell in a readable record (F6):
+/// `stack: [c, ..]`.
+#[derive(Clone, Debug)]
+pub struct RuleListResult {
+    pub(super) items: Vec<TermExpression>,
+    pub(super) rest: RuleListRest<TermExpression>,
+}
+
+impl RuleListResult {
+    /// The written elements, front first.
+    #[must_use]
+    pub fn items(&self) -> &[TermExpression] {
+        &self.items
+    }
+
+    /// What follows the elements.
+    #[must_use]
+    pub const fn rest(&self) -> &RuleListRest<TermExpression> {
+        &self.rest
+    }
+
+    /// The element terms, then the named rest's term, in expansion order.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&TermExpression> {
+        let rest = match &self.rest {
+            RuleListRest::Named(rest) => Some(rest),
+            RuleListRest::Exact | RuleListRest::Shared(_) => None,
+        };
+        self.items.iter().chain(rest).collect()
+    }
+}
+
 impl RuleHead {
     /// Whether the clause's rule subject is the first matched item; it is a
     /// placeholder for `[]`, which matches no item.
@@ -284,6 +373,9 @@ impl RuleClause {
                 RuleExtra::UpdateMap { update, .. } => written.push(update.term()),
                 RuleExtra::RewriteCell { after, .. } => written.extend(after.as_deref()),
                 RuleExtra::RewriteState { after, .. } => {
+                    written.extend(after.iter().flat_map(|after| after.terms()));
+                }
+                RuleExtra::RewriteList { after, .. } => {
                     written.extend(after.iter().flat_map(|after| after.terms()));
                 }
                 RuleExtra::HaveMap { .. } => {}
@@ -658,6 +750,54 @@ impl RuleClause {
                         )?;
                     }
                 }
+                RuleExtra::RewriteList {
+                    cell,
+                    before,
+                    result_cell,
+                    after,
+                } => {
+                    let left_ordinal = checked_ordinal(
+                        have_cell,
+                        ProvenanceRole::RuleLeftCellsField,
+                        cell.span(),
+                    )?;
+                    have_cell += 1;
+                    anchors.push(ProvenanceAnchor::new(
+                        ProvenanceRole::RuleLeftCellsField,
+                        left_ordinal,
+                        TokenRange::for_tokens(cell)?,
+                    ));
+                    for item in before.patterns() {
+                        append_rule_pattern_anchors(
+                            &mut anchors,
+                            &item.pattern,
+                            &item.tree,
+                            &mut left,
+                        )?;
+                        append_wildcard_anchors(&mut anchors, &item.tree, &mut wildcard)?;
+                    }
+                    if let (Some(result_cell), Some(after)) = (result_cell, after) {
+                        let right_ordinal = checked_ordinal(
+                            update_cell,
+                            ProvenanceRole::RuleRightCellsField,
+                            result_cell.span(),
+                        )?;
+                        update_cell += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleRightCellsField,
+                            right_ordinal,
+                            TokenRange::for_tokens(result_cell)?,
+                        ));
+                        for term in after.terms() {
+                            append_rule_term_anchors(
+                                &mut anchors,
+                                term,
+                                RuleTermSide::Right,
+                                &mut right,
+                            )?;
+                        }
+                    }
+                }
                 RuleExtra::RewriteCell {
                     cell,
                     before,
@@ -814,6 +954,9 @@ impl RuleClause {
                 RuleExtra::RewriteState { before, .. } => {
                     terms.extend(before.terms().into_iter().map(TermExpression::nodes));
                 }
+                RuleExtra::RewriteList { before, .. } => {
+                    terms.extend(before.patterns().map(|item| item.pattern.nodes()));
+                }
                 RuleExtra::UpdateMap { .. } => {}
             }
         }
@@ -831,6 +974,12 @@ impl RuleClause {
                     terms.extend(after.iter().map(|after| after.nodes()));
                 }
                 RuleExtra::RewriteState { after, .. } => terms.extend(
+                    after
+                        .iter()
+                        .flat_map(|after| after.terms())
+                        .map(TermExpression::nodes),
+                ),
+                RuleExtra::RewriteList { after, .. } => terms.extend(
                     after
                         .iter()
                         .flat_map(|after| after.terms())

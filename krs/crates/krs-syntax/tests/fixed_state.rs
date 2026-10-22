@@ -1109,22 +1109,19 @@ fn machine_records_may_leave_the_computation_cell_out() {
         "the placeholder subject contributes no wildcard"
     );
 
-    for (source, expected) in [
-        (
-            "for Machine; idle: {} => {};",
-            "a machine rule selects at least one cell",
-        ),
-        (
-            "for Machine; two: { k: [A, ..], k2: [B, ..] } => { k: [..], k2: [..] };",
-            "a machine rule must match at most one computation-cell sequence",
-        ),
-    ] {
-        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
-        assert!(
-            error.to_string().contains(expected),
-            "expected {expected:?} in {error}"
-        );
-    }
+    let error = krs_syntax::RuleBlock::parse_source("for Machine; idle: {} => {};").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("a machine rule selects at least one cell"),
+        "{error}"
+    );
+    // Two bracketed values read as one computation cell and one cons list
+    // (F6); the collector checks the configuration declares them so.
+    krs_syntax::RuleBlock::parse_source(
+        "for Machine; two: { k: [A, ..], k2: [B, ..] } => { k: [..], k2: [..] };",
+    )
+    .unwrap();
 }
 
 #[test]

@@ -6605,6 +6605,10 @@
     {
       "application": "add",
       "application_source": "operator"
+    },
+    {
+      "application": "cons",
+      "application_source": "list_notation"
     }
   ],
   "DescriptorApplicationReference": [
@@ -10933,6 +10937,36 @@
           "ordinal": 0,
           "role": "sort_declaration"
         }
+      }
+    },
+    {
+      "attribute_kind": "cons_list",
+      "empty": {
+        "application": {
+          "application": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          },
+          "application_source": "declared"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
       }
     },
     {
@@ -20043,6 +20077,141 @@
         "ordinal": 0,
         "role": "sort_declaration"
       }
+    },
+    {
+      "after": {
+        "items": [],
+        "rest": {
+          "list_rest_kind": "shared"
+        }
+      },
+      "before": {
+        "items": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "path_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "term_kind": "variable"
+          }
+        ],
+        "rest": {
+          "list_rest_kind": "shared"
+        }
+      },
+      "cell": {
+        "cell": {
+          "field": "sample",
+          "owner": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          }
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
+      "extra_kind": "rewrite_list",
+      "result_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      }
+    },
+    {
+      "after": {
+        "items": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "path_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "term_kind": "variable"
+          }
+        ],
+        "rest": {
+          "list_rest_kind": "exact"
+        }
+      },
+      "before": {
+        "items": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "path_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "term_kind": "variable"
+          }
+        ],
+        "rest": {
+          "list_rest": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "path_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "term_kind": "variable"
+          },
+          "list_rest_kind": "term"
+        }
+      },
+      "cell": {
+        "cell": {
+          "field": "sample",
+          "owner": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          }
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
+      "extra_kind": "rewrite_list",
+      "result_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      }
     }
   ],
   "ProtocolHeadRuleHead": [
@@ -20080,6 +20249,50 @@
     {
       "exact": true,
       "items": []
+    }
+  ],
+  "ProtocolHeadRuleList": [
+    {
+      "items": [
+        {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "path_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "term_kind": "variable"
+        }
+      ],
+      "rest": {
+        "list_rest_kind": "exact"
+      }
+    }
+  ],
+  "ProtocolHeadRuleListRest": [
+    {
+      "list_rest_kind": "exact"
+    },
+    {
+      "list_rest_kind": "shared"
+    },
+    {
+      "list_rest": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
+      },
+      "list_rest_kind": "term"
     }
   ],
   "ProtocolHeadRuleResult": [
@@ -21369,6 +21582,7 @@
     "list_declaration",
     "list_separator",
     "list_non_empty",
+    "cons_list_declaration",
     "configuration_cell_stream",
     "configuration_cell_exit",
     "raw_k_declaration",
@@ -32642,6 +32856,21 @@
           "role": "sort_declaration"
         },
         "target": 1
+      }
+    },
+    {
+      "attribute_kind": "cons_list",
+      "empty": {
+        "authored_path": "sample",
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "target": 1
+      },
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
       }
     },
     {

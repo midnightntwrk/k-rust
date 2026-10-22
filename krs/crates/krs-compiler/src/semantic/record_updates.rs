@@ -773,6 +773,15 @@ pub(crate) fn head_rule_long_form(
                     long_state(after, &long)?;
                 }
             }
+            krs_ir::ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
+                for term in before.terms_mut().into_iter().chain(
+                    after
+                        .iter_mut()
+                        .flat_map(krs_ir::ProtocolHeadRuleList::terms_mut),
+                ) {
+                    *term = long(term)?;
+                }
+            }
         }
     }
     for condition in rule.requires.iter_mut().chain(&mut rule.ensures) {

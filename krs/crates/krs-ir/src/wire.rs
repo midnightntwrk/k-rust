@@ -247,6 +247,10 @@ pub type WireTypedBinding = crate::ProtocolTypedBinding<WireSortReference>;
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
 /// Static wire-stage computation-cell head and rewrite in a readable head rule.
 pub type WireHeadRuleHead = ProtocolHeadRuleHead<WireTerm>;
+/// Wire side of a cons-list cell (F6).
+pub type WireHeadRuleList = crate::ProtocolHeadRuleList<WireTerm>;
+/// Wire rest of a cons-list cell side (F6).
+pub type WireHeadRuleListRest = crate::ProtocolHeadRuleListRest<WireTerm>;
 /// Static wire-stage map entry of a map read in a readable head rule.
 pub type WireHeadRuleMapEntry = ProtocolHeadRuleMapEntry<WireTerm>;
 /// Static wire-stage extra-cell clause in a readable head rule.

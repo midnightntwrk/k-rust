@@ -346,6 +346,13 @@ macro_rules! operator_registry {
 
 krs_ir::__krs_builtin_operator_catalog!(operator_registry);
 
+fn list_notation_registry() -> [HostTypeKey; krs_ir::ListNotation::ALL.len()] {
+    [
+        HostTypeKey(TypeId::of::<builtin::__list::Cons>),
+        HostTypeKey(TypeId::of::<builtin::__list::Empty>),
+    ]
+}
+
 /// Constructs the complete process-local registry of builtin Rust markers.
 ///
 /// The registry joins rustc-resolved [`TypeId`] values to closed semantic
@@ -355,8 +362,8 @@ krs_ir::__krs_builtin_operator_catalog!(operator_registry);
 ///
 /// The returned registry has one entry for every [`BuiltinSort::ALL`],
 /// [`BuiltinOperation::ALL`], [`TermMapOperation::ALL`], [`ListOperation::ALL`],
-/// [`SetOperation::ALL`], [`krs_ir::MlConnective::ALL`], and
-/// [`krs_ir::BuiltinOperator::ALL`] member and passes
+/// [`SetOperation::ALL`], [`krs_ir::MlConnective::ALL`],
+/// [`krs_ir::BuiltinOperator::ALL`], and [`krs_ir::ListNotation::ALL`] member and passes
 /// [`HostBuiltinRegistry::validate`].
 #[must_use]
 pub fn builtin_registry() -> HostBuiltinRegistry {
@@ -368,6 +375,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         set_operations: set_operation_registry(),
         ml_connectives: ml_connective_registry(),
         operators: operator_registry(),
+        list_notation: list_notation_registry(),
     }
 }
 

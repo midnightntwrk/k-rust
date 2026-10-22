@@ -1410,6 +1410,13 @@ fn registry() -> HostBuiltinRegistry {
                 + krs_ir::SetOperation::ALL.len()
                 + krs_ir::MlConnective::ALL.len(),
         ),
+        list_notation: filler(
+            list_offset
+                + ListOperation::ALL.len()
+                + krs_ir::SetOperation::ALL.len()
+                + krs_ir::MlConnective::ALL.len()
+                + krs_ir::BuiltinOperator::ALL.len(),
+        ),
     }
 }
 

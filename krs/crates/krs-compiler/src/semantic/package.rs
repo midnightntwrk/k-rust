@@ -491,6 +491,15 @@ fn collect_head_rule_packages(
                     collect_term_packages(term, packages);
                 }
             }
+            krs_ir::ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
+                for term in before
+                    .terms()
+                    .into_iter()
+                    .chain(after.iter().flat_map(krs_ir::ProtocolHeadRuleList::terms))
+                {
+                    collect_term_packages(term, packages);
+                }
+            }
         }
     }
     if let Some(requires) = &rule.requires {

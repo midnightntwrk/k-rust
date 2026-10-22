@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use krs_ir::wire::{
     WireApplicationReference, WireConstructorDescriptor, WireConstructorFieldDescriptor,
-    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionOwner, WireSortReference,
-    WireTypeReference,
+    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionAttribute,
+    WireProductionOwner, WireSortReference, WireTypeReference,
 };
 use krs_ir::{
     DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
@@ -451,6 +451,23 @@ fn expand_enum_variant(
         &mut grammar_slots,
     ) {
         attributes.push(strictness);
+    }
+    // The cons of a `#[k::cons_list]` enum names its empty sibling (F6).
+    if let Some((cons, empty)) = declaration.cons_list()
+        && cons == index
+    {
+        let empty_key = format_ident!("__krs_enum_variant_{nonce:016x}_{empty}");
+        attributes.push(WireProductionAttribute::ConsList {
+            key: wire_key(ProvenanceRole::ConsListDeclaration, 0),
+            empty: WireApplicationReference {
+                key: wire_key(ProvenanceRole::ConsListDeclaration, 0),
+                target: grammar_slots.variant_slot_for_grammar(
+                    &quote!(#facade::HostTypeKey(#enum_key)),
+                    &quote!(#facade::HostTypeKey(#empty_key)),
+                ),
+                authored_path: format!("{enum_name}::{}", declaration.variants()[empty].name()),
+            },
+        });
     }
     let template_key = variant
         .syntax()
