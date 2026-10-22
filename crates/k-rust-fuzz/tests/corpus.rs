@@ -1,0 +1,326 @@
+//! The corpus proposer (FZ-14; ARCHITECTURE 8.5) measured on the list-shaped stall benchmark
+//! (the lock, `tests/data/lock/`) and on the maze (FZ-13).
+//!
+//! Two modes, as in `tests/stall_maze.rs`: the CI mode (the tests that run by default) and the
+//! measurement mode (`--ignored --nocapture measure_`), which prints the lines
+//! `research/stall-benchmark.md` records. Seeds 1-10 tune; seeds 11-20 are held out.
+
+#[path = "data/lock/harness.rs"]
+mod lock;
+#[path = "data/maze/harness.rs"]
+mod maze;
+mod support;
+
+use std::{collections::BTreeMap, thread};
+
+use k_rust_fuzz::{
+    Campaign, CampaignError, ProposerConfig, report::CorpusParameters, spec::ProposerKind,
+};
+use maze::Configuration;
+
+/// The seeds the corpus's parameters were tuned on.
+const TUNING_SEEDS: [u64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+/// The held-out seeds.
+const HELD_OUT_SEEDS: [u64; 10] = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+
+/// The measurement budget per cell, the stall benchmark's.
+const MEASURE_BUDGET: u64 = 5000;
+
+/// Every cell of the lock.
+const LOCK_CELLS: [&str; 6] = ["l1", "l2", "l3", "l4", "l5", "lu"];
+
+/// The CI comparison's seeds: tuning seeds, so the pins below are regression pins of the
+/// corpus's case sequence, not evidence; the evidence is the measurement mode's held-out seeds.
+const CI_SEEDS: [u64; 5] = [1, 2, 3, 4, 5];
+
+/// blind+dictionary+climb on the lock at [`CI_SEEDS`] within 5000 cases (the gate
+/// measurement, `research/stall-benchmark.md`, FZ-14): `l2` at none of them, `l5` never.
+const GATE_LOCK_L2: [Option<u64>; 5] = [None, None, None, None, None];
+
+/// blind+corpus's cases to the lock's last cell `l5` at [`CI_SEEDS`] within 5000 cases:
+/// regression pins. They move whenever the corpus's case sequence moves (its parameters, its
+/// mutations or its harvest), as `tests/golden.rs`'s corpus fingerprint does.
+const PINNED_LOCK_L5: [Option<u64>; 5] =
+    [Some(1094), Some(3452), Some(2546), Some(1310), Some(1987)];
+
+/// Run `measure` at every seed, one thread per seed.
+fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let measure = &measure;
+    thread::scope(|scope| {
+        let handles: Vec<_> = seeds
+            .iter()
+            .map(|&seed| scope.spawn(move || measure(seed)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("a seed's measurement panicked"))
+            .collect()
+    })
+}
+
+fn configuration(name: &'static str, weights: &[(ProposerKind, u32)]) -> Configuration {
+    Configuration {
+        name,
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: Vec::new(),
+            weights: weights.iter().copied().collect::<BTreeMap<_, _>>(),
+        },
+        target_blind: false,
+    }
+}
+
+/// Blind sampling and the dictionary at equal weights (FZ-11).
+fn blind_dictionary() -> Configuration {
+    configuration(
+        "blind+dictionary",
+        &[(ProposerKind::Blind, 1), (ProposerKind::Dictionary, 1)],
+    )
+}
+
+/// Blind sampling and the corpus at equal weights (FZ-14).
+fn blind_corpus() -> Configuration {
+    configuration(
+        "blind+corpus",
+        &[(ProposerKind::Blind, 1), (ProposerKind::Corpus, 1)],
+    )
+}
+
+/// Every proposer of this build at equal weights.
+fn blind_dictionary_climb_corpus() -> Configuration {
+    configuration(
+        "blind+dictionary+climb+corpus",
+        &[
+            (ProposerKind::Blind, 1),
+            (ProposerKind::Dictionary, 1),
+            (ProposerKind::Climb, 1),
+            (ProposerKind::Corpus, 1),
+        ],
+    )
+}
+
+/// The configurations with the corpus proposer.
+fn corpus_configurations() -> Vec<Configuration> {
+    vec![blind_corpus(), blind_dictionary_climb_corpus()]
+}
+
+/// The maze's cells measured with the corpus: every cell but `c7` (the solver's).
+const MAZE_CELLS: [&str; 15] = [
+    "c1", "c2", "c3", "c4", "c5", "c6", "s1", "s2", "s3", "s4", "s5", "u1", "u2", "u3", "u4",
+];
+
+/// The configurations before the corpus proposer: the gate's evidence.
+fn gate_configurations() -> Vec<Configuration> {
+    vec![
+        maze::blind(),
+        blind_dictionary(),
+        maze::blind_climb(),
+        maze::blind_dictionary_climb(),
+    ]
+}
+
+#[test]
+fn every_reachable_lock_cell_has_a_witness_and_lu_none() {
+    for cell in &lock::CELLS {
+        let witness = cell.reachable().then(|| lock::keys(cell.witness));
+        // Every witness of a reachable cell, as the one explicit assignment.
+        for other in lock::CELLS.iter().filter(|other| other.reachable()) {
+            let configuration = Configuration {
+                name: "witness",
+                proposers: ProposerConfig {
+                    anchors_first: false,
+                    explicit: vec![BTreeMap::from([(
+                        "KEYS".to_owned(),
+                        lock::keys(other.witness),
+                    )])],
+                    weights: BTreeMap::new(),
+                },
+                target_blind: true,
+            };
+            let (hit, _) = lock::run_cell(cell, &configuration, 1, 1);
+            // A list fires cell k exactly when its first k keys are the corridor's: the
+            // witness of a deeper cell fires every shallower one.
+            let fires = witness.is_some() && other.witness.starts_with(cell.witness);
+            assert_eq!(
+                hit.is_some(),
+                fires,
+                "cell {} under {:?}",
+                cell.label,
+                other.witness
+            );
+        }
+    }
+    // The anchor `ListItem(0)` reaches no cell.
+    let (hit, report) = lock::run_cell(lock::cell_named("l1"), &maze::blind(), 1, 1);
+    assert_eq!((hit, report.totals.cases), (None, 1));
+}
+
+#[test]
+fn the_corpus_opens_the_lock_where_blind_sampling_the_dictionary_and_the_climb_stall() {
+    let l5 = per_seed(&CI_SEEDS, |seed| {
+        lock::run_cell(
+            lock::cell_named("l5"),
+            &blind_corpus(),
+            seed,
+            MEASURE_BUDGET,
+        )
+        .0
+    });
+    assert!(l5.iter().all(Option::is_some), "{l5:?}");
+    assert!(GATE_LOCK_L2.iter().all(Option::is_none));
+    assert_eq!(
+        l5, PINNED_LOCK_L5,
+        "the corpus's case sequence moved; re-pin"
+    );
+}
+
+#[test]
+fn a_corpus_campaign_reports_the_same_bytes_twice_and_records_its_parameters() {
+    let cell = lock::cell_named("l2");
+    let (first_hit, first) = lock::run_cell(cell, &blind_corpus(), 1, 400);
+    let (second_hit, second) = lock::run_cell(cell, &blind_corpus(), 1, 400);
+    assert!(first_hit.is_some());
+    assert_eq!(first_hit, second_hit);
+    assert_eq!(first.to_canonical_json(), second.to_canonical_json());
+    assert_eq!(first.identity.corpus, Some(CorpusParameters::current()));
+    assert!(
+        first
+            .to_canonical_json()
+            .contains("\"corpus\":{\"budget-share\":[1,2]")
+    );
+    // A campaign without the corpus records no corpus parameters.
+    let (_, blind) = lock::run_cell(cell, &maze::blind(), 1, 4);
+    assert_eq!(blind.identity.corpus, None);
+    assert!(!blind.to_canonical_json().contains("\"corpus\":{"));
+}
+
+#[test]
+fn a_corpus_weight_of_zero_changes_no_case_of_the_other_proposers() {
+    // The climb's isolated window cell, as `tests/climb.rs` runs it, with and without an
+    // explicit corpus weight of 0: every case and the witness are the same; the identity
+    // differs only in the weights it records.
+    let cell = maze::cell_named("c4");
+    let without = maze::blind_dictionary_climb();
+    let mut with_zero = without.clone();
+    with_zero.proposers.weights.insert(ProposerKind::Corpus, 0);
+    let (first_run, first) = maze::run_isolated(cell, &without, 3, 300);
+    let (second_run, second) = maze::run_isolated(cell, &with_zero, 3, 300);
+    assert_eq!(first_run, second_run);
+    assert_eq!(first.totals, second.totals);
+    assert_eq!(first.outcome, second.outcome);
+    assert_eq!(second.identity.corpus, None);
+    let mut identity = second.identity.clone();
+    identity.proposers.weights.remove(&ProposerKind::Corpus);
+    assert_eq!(identity, first.identity);
+}
+
+#[test]
+fn the_corpus_needs_blind_sampling_or_the_dictionary() {
+    let alone = configuration("corpus", &[(ProposerKind::Corpus, 1)]);
+    let refused = Campaign::new(lock::spec(lock::cell_named("l1"), &alone, 1));
+    assert!(
+        matches!(&refused, Err(CampaignError::InvalidOptions { message }) if message.contains("corpus")),
+        "{:?}",
+        refused.err()
+    );
+    let with_dictionary = configuration(
+        "dictionary+corpus",
+        &[(ProposerKind::Dictionary, 1), (ProposerKind::Corpus, 1)],
+    );
+    assert!(Campaign::new(lock::spec(lock::cell_named("l1"), &with_dictionary, 1)).is_ok());
+}
+
+/// Print each configuration's lines and per-cell summaries over `seeds`.
+fn measure_lock(configurations: &[Configuration], seeds: &[u64]) {
+    for configuration in configurations {
+        let runs = per_seed(seeds, |seed| {
+            lock::run_line(configuration, &LOCK_CELLS, seed, MEASURE_BUDGET)
+        });
+        for (line, _) in &runs {
+            println!("{line}");
+        }
+        let mut table = format!("lock {}:", configuration.name);
+        for (index, label) in LOCK_CELLS.iter().enumerate() {
+            let cases: Vec<Option<u64>> = runs.iter().map(|(_, cases)| cases[index]).collect();
+            table.push_str(&format!(
+                " {label} {};",
+                lock::summary(&cases, MEASURE_BUDGET)
+            ));
+        }
+        println!("{table}");
+    }
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_gate_lock_tuning() {
+    measure_lock(&gate_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_gate_lock_held_out() {
+    measure_lock(&gate_configurations(), &HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_corpus_lock_tuning() {
+    measure_lock(&corpus_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_corpus_lock_held_out() {
+    measure_lock(&corpus_configurations(), &HELD_OUT_SEEDS);
+}
+
+/// Print each configuration's maze lines over `seeds` (`maze::MazeRun::line`, unreached cells
+/// left out) and the summary of each cell.
+fn measure_maze(configurations: &[Configuration], seeds: &[u64]) {
+    for configuration in configurations {
+        let runs = per_seed(seeds, |seed| {
+            let cells = maze::CELLS
+                .iter()
+                .map(|cell| {
+                    if MAZE_CELLS.contains(&cell.label) {
+                        maze::run_cell(cell, configuration, seed, MEASURE_BUDGET).0
+                    } else {
+                        maze::CellRun {
+                            cell: cell.label,
+                            cases_to_hit: None,
+                            cases: 0,
+                            work: 0,
+                        }
+                    }
+                })
+                .collect();
+            maze::MazeRun {
+                configuration: configuration.name,
+                isolated: false,
+                target_blind: false,
+                seed,
+                budget: MEASURE_BUDGET,
+                cells,
+            }
+        });
+        for run in &runs {
+            maze::check(run);
+            println!("{}", run.line());
+        }
+        println!("{}", maze::summary(&runs));
+    }
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_corpus_maze_tuning() {
+    measure_maze(&corpus_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_corpus_maze_held_out() {
+    measure_maze(&corpus_configurations(), &HELD_OUT_SEEDS);
+}

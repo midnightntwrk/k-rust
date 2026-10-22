@@ -74,5 +74,6 @@ pub use values::{Constraints, Value};
 /// could weigh it (`Campaign::new` refused it), and the sequence of every other specification is
 /// unchanged, so it needed no bump; its parameters join the case sequence's inputs of a
 /// climbing campaign. A climbing campaign's sequence also depends on the condition records the
-/// k-rust revision reports.
+/// k-rust revision reports. The corpus proposer (FZ-14) was added within version 2 on the same
+/// grounds; its parameters join the case sequence's inputs of a campaign that weighs it.
 pub const ENGINE_VERSION: u32 = 2;

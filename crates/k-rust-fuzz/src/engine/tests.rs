@@ -240,6 +240,7 @@ fn identity() -> ReportIdentity {
         solver: "none".into(),
         dictionary: None,
         climb: None,
+        corpus: None,
     }
 }
 

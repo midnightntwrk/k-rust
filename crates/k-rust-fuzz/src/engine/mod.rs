@@ -28,11 +28,13 @@ use crate::{
     holes::ResolvedHole,
     proposers::{
         climb::{ClimbHole, ClimbProposer},
-        dictionary::{self, DictionaryProposer, HolePool},
+        corpus::{CorpusHole, CorpusProposer},
+        dictionary::{self, DictionaryProposer, Harvest, HolePool},
     },
     report::{
-        CampaignOutcome, ClimbParameters, DefinitionIdentity, DefinitionRole, DictionaryParameters,
-        FuzzReport, GenerationCaps, HitLabel, ReportIdentity, Totals, digest_hex,
+        CampaignOutcome, ClimbParameters, CorpusParameters, DefinitionIdentity, DefinitionRole,
+        DictionaryParameters, FuzzReport, GenerationCaps, HitLabel, ReportIdentity, Totals,
+        digest_hex,
     },
     score::{RuleScorer, Scorer},
     spec::{
@@ -66,6 +68,9 @@ pub struct Campaign {
     /// The dictionary's pool of each hole (ARCHITECTURE 8.3), harvested once in
     /// [`Campaign::new`] when the dictionary has a positive weight.
     dictionary: Option<Arc<Vec<HolePool>>>,
+    /// The harvest the corpus draws its literals from (ARCHITECTURE 8.3, 8.5), made once in
+    /// [`Campaign::new`] when the corpus has a positive weight.
+    corpus: Option<Arc<Harvest>>,
 }
 
 impl Campaign {
@@ -159,9 +164,22 @@ impl Campaign {
             None => false,
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
-        let dictionary = (weight(&spec.proposers, ProposerKind::Dictionary) > 0)
-            .then(|| dictionary_pools(&spec, &cases, graph.as_deref()))
-            .transpose()?
+        let harvest = (weight(&spec.proposers, ProposerKind::Dictionary) > 0
+            || weight(&spec.proposers, ProposerKind::Corpus) > 0)
+            .then(|| campaign_harvest(&spec, &cases, graph.as_deref()))
+            .transpose()?;
+        let dictionary = harvest
+            .as_ref()
+            .filter(|_| weight(&spec.proposers, ProposerKind::Dictionary) > 0)
+            .map(|harvest| {
+                Arc::new(dictionary::pools(
+                    harvest,
+                    &spec,
+                    &cases.baseline.holes.holes,
+                ))
+            });
+        let corpus = harvest
+            .filter(|_| weight(&spec.proposers, ProposerKind::Corpus) > 0)
             .map(Arc::new);
         let scorer = climb_scorer(&spec, &cases, graph.as_deref())?;
         let settings = LoopSettings {
@@ -197,6 +215,7 @@ impl Campaign {
             definition_cache: Arc::new(OnceLock::new()),
             graph,
             dictionary,
+            corpus,
         })
     }
 
@@ -305,6 +324,27 @@ impl Campaign {
                 Box::new(proposer),
             ));
         }
+        if let Some(harvest) = &self.corpus {
+            let generators =
+                self::generators(&cases, &self.spec).expect("Campaign::new built them");
+            let holes = cases
+                .baseline
+                .holes
+                .holes
+                .iter()
+                .zip(generators)
+                .map(|(hole, generator)| CorpusHole {
+                    sort: hole.sort.clone(),
+                    constraints: hole.decl.constraints.clone(),
+                    generator,
+                })
+                .collect();
+            let proposer = CorpusProposer::new(holes, harvest, self.spec.bounds, self.spec.seed);
+            proposers.push((
+                weight(&self.spec.proposers, ProposerKind::Corpus),
+                Box::new(proposer),
+            ));
+        }
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
         // One assembler per side for the whole run, so that every case reuses its parsers.
         let parts = cases.assembly_parts();
@@ -324,23 +364,21 @@ impl Campaign {
     }
 }
 
-/// The dictionary's pool of each hole (ARCHITECTURE 8.3), harvested from the campaign's rule
-/// graph `graph`, or from a graph of the campaign's one internalization when there is no graph
-/// check (a differential campaign, a template that does not build); only the
-/// `from-definition` route makes the dictionary build a backend and graph of its own.
-fn dictionary_pools(
+/// The harvest of the dictionary and the corpus (ARCHITECTURE 8.3, 8.5), from the campaign's
+/// rule graph `graph`, or from a graph of the campaign's one internalization when there is no
+/// graph check (a differential campaign, a template that does not build); only the
+/// `from-definition` route makes the harvest build a backend and graph of its own.
+fn campaign_harvest(
     spec: &CampaignSpec,
     cases: &LiveCases,
     graph: Option<&GraphCheck>,
-) -> Result<Vec<HolePool>, CampaignError> {
-    let holes = &cases.baseline.holes.holes;
+) -> Result<Harvest, CampaignError> {
     let target = cases.target_rule_id();
-    let harvest = match (graph, cases.baseline_internalized()) {
-        (Some(check), _) => dictionary::harvest(spec, check.graph(), target)?,
-        (None, Some(definition)) => dictionary::harvest(spec, &RuleGraph::new(definition), target)?,
-        (None, None) => return dictionary::hole_pools(spec, holes),
-    };
-    Ok(dictionary::pools(&harvest, spec, holes))
+    match (graph, cases.baseline_internalized()) {
+        (Some(check), _) => dictionary::harvest(spec, check.graph(), target),
+        (None, Some(definition)) => dictionary::harvest(spec, &RuleGraph::new(definition), target),
+        (None, None) => Harvest::for_campaign(spec),
+    }
 }
 
 /// The scorer of a climbing campaign's target (ARCHITECTURE 6.4; `crate::score`), or `None`
@@ -401,10 +439,21 @@ fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
 }
 
 /// Every proposer with a positive weight is one this build provides: blind sampling, the
-/// dictionary and the climb (ARCHITECTURE 8, 11); and the climb, which climbs from cases other
-/// proposers make and spends at most half of the budget, comes with blind sampling or the
-/// dictionary.
+/// dictionary, the climb and the corpus (ARCHITECTURE 8, 11); and the climb and the corpus,
+/// which work from cases other proposers make and spend at most half of the budget, come with
+/// blind sampling or the dictionary.
 fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
+    if weight(config, ProposerKind::Corpus) > 0
+        && weight(config, ProposerKind::Blind) == 0
+        && weight(config, ProposerKind::Dictionary) == 0
+    {
+        return Err(CampaignError::InvalidOptions {
+            message: "the corpus proposer mutates the cases of blind sampling or the \
+                      dictionary and spends at most half of the budget: give one of them a \
+                      positive weight"
+                .into(),
+        });
+    }
     if weight(config, ProposerKind::Climb) > 0
         && weight(config, ProposerKind::Blind) == 0
         && weight(config, ProposerKind::Dictionary) == 0
@@ -420,7 +469,10 @@ fn check_proposers(config: &ProposerConfig) -> Result<(), CampaignError> {
         if *weight > 0
             && !matches!(
                 kind,
-                ProposerKind::Blind | ProposerKind::Dictionary | ProposerKind::Climb
+                ProposerKind::Blind
+                    | ProposerKind::Dictionary
+                    | ProposerKind::Climb
+                    | ProposerKind::Corpus
             )
         {
             let name = serde_json::to_value(kind)
@@ -532,6 +584,7 @@ fn identity(
             .then(DictionaryParameters::current),
         climb: (weight(&spec.proposers, ProposerKind::Climb) > 0)
             .then(|| ClimbParameters::for_target(&spec.target.kind)),
+        corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0).then(CorpusParameters::current),
     })
 }
 

@@ -183,6 +183,51 @@ pub struct ReportIdentity {
     /// a positive weight; absent from the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub climb: Option<ClimbParameters>,
+    /// The corpus proposer's parameters (ARCHITECTURE 8.5), present exactly when the corpus
+    /// has a positive weight; absent from the JSON otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corpus: Option<CorpusParameters>,
+}
+
+/// The fixed parameters of the corpus proposer (ARCHITECTURE 8.5), which with the definitions,
+/// the target, the dictionary's harvest and the other proposers' cases decide its mutations.
+/// They are constants of this build; a change of any of them changes the case sequence of a
+/// campaign that weighs the corpus.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CorpusParameters {
+    /// The most share of the campaign's cases and of its work the corpus spends, as
+    /// `[numerator, denominator]`.
+    pub budget_share: [u32; 2],
+    /// The probability, as `[numerator, denominator]`, that a proposal mutates the newest kept
+    /// case rather than one chosen uniformly.
+    pub newest_probability: [u32; 2],
+    /// The probability, as `[numerator, denominator]`, that a proposal applies a second
+    /// mutation.
+    pub second_mutation_probability: [u32; 2],
+    /// The weights of a new value's sources: a harvested literal, a fresh draw, a nudge of the
+    /// current value, a splice from another kept case.
+    pub source_weights: [u32; 4],
+    /// The weights of a collection mutation: replace, insert, delete, keep a prefix, append,
+    /// cross over.
+    pub collection_weights: [u32; 6],
+    /// An integer nudge moves by `±2^e` with `e` below this bound.
+    pub nudge_exponents: u32,
+    /// The most cases the corpus keeps.
+    pub max_entries: u32,
+    /// The most draws of a mutation before it is given up.
+    pub max_attempts: u32,
+    /// The harvest the literals come from: the dictionary's radius, expansion, distance
+    /// weights and exact-value probability (its draw probability does not apply).
+    pub harvest: DictionaryParameters,
+}
+
+impl CorpusParameters {
+    /// The parameters of this build.
+    #[must_use]
+    pub fn current() -> Self {
+        crate::proposers::corpus::parameters()
+    }
 }
 
 /// The fixed parameters of the climb proposer (ARCHITECTURE 8.4), which with the definitions,
@@ -793,6 +838,7 @@ mod tests {
                 solver: "none".into(),
                 dictionary: None,
                 climb: None,
+                corpus: None,
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {

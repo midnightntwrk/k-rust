@@ -26,7 +26,7 @@ use k_rust_fuzz::{
     values::{Constraints, ElementSorts, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, DICT, IMP, MAZE, UNSIGNED, VALUES};
+use support::{COIN, COIN_KILL, DICT, IMP, LOCK, MAZE, UNSIGNED, VALUES};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -61,13 +61,26 @@ const PINNED_CLIMB: Option<(u32, &str)> = Some((
     "3c303ba31b916d33bbbc0b21039aafc2dfbd0d0432376466e8bf7e8adfe10f28",
 ));
 
+/// The pinned fingerprint of the corpus campaign's case sequence (FZ-14). The corpus is new in
+/// this version, so pinning it moved no other fingerprint and `ENGINE_VERSION` stays 2. A
+/// change of the corpus's parameters (`report::CorpusParameters`), of its mutations or of the
+/// harvest it draws literals from moves it: bump `ENGINE_VERSION` and re-pin every fingerprint.
+const PINNED_CORPUS: Option<(u32, &str)> = Some((
+    2,
+    "1e9597915ba51098bf768737d4e1b87bfd3dc862e8501fa1a45dc346f2a58181",
+));
+
 /// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the
-/// dictionary campaigns follow, fingerprinted by [`PINNED_DICTIONARY`], and the climb campaigns
-/// last ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`].
+/// dictionary campaigns follow, fingerprinted by [`PINNED_DICTIONARY`], then the climb campaigns
+/// ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`], and the corpus campaigns last
+/// ([`CORPUS_CAMPAIGNS`]), fingerprinted by [`PINNED_CORPUS`].
 const BLIND_CAMPAIGNS: usize = 5;
 
-/// How many of [`golden_reports`], at the end, enable the climb.
+/// How many of [`golden_reports`], before the corpus campaigns, enable the climb.
 const CLIMB_CAMPAIGNS: usize = 1;
+
+/// How many of [`golden_reports`], at the end, enable the corpus.
+const CORPUS_CAMPAIGNS: usize = 1;
 
 /// The index of the map campaign in [`golden_reports`].
 const MAP_CAMPAIGN: usize = 4;
@@ -151,7 +164,9 @@ fn violation(pattern: &str) -> Target {
 ///   constant;
 /// - COIN against COIN-KILL with the dictionary: the rules that differ come first;
 /// - the maze's window cell `c4` with blind sampling and the climb: a witness the climb walks
-///   into the window `1000 < D < 1100`, shrunk by moves.
+///   into the window `1000 < D < 1100`, shrunk by moves;
+/// - the lock's third cell with blind sampling and the corpus: a list of keys the corpus builds
+///   one key at a time, shrunk by collection-length moves.
 fn golden_reports() -> Vec<FuzzReport> {
     let le = spec(
         "imp/le.imp",
@@ -222,6 +237,7 @@ fn golden_reports() -> Vec<FuzzReport> {
     .into_iter()
     .chain(dictionary_campaigns(&coin_spec))
     .chain([(climb_campaign(), Budget::Cases(200))])
+    .chain([(corpus_campaign(), Budget::Cases(1500))])
     .map(|(spec, budget)| {
         Campaign::new(spec)
             .expect("the golden campaign is valid")
@@ -378,6 +394,44 @@ fn climb_campaign() -> CampaignSpec {
     spec
 }
 
+/// The lock's `List` hole `KEYS` and the target `l3` (its first three keys `17`, a key in
+/// `1000 < X < 1100`, `31337`), with blind sampling and the corpus at equal weights.
+fn corpus_campaign() -> CampaignSpec {
+    let compiled = LOCK.compiled();
+    let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0c0d_0e01);
+    spec.definitions = Definitions {
+        baseline: Arc::new(compiled.definition()),
+        mutant: None,
+    };
+    spec.program = ProgramInput::Source(compiled.program_source("lock/open.pgm"));
+    spec.holes = vec![HoleDecl {
+        name: "KEYS".into(),
+        sort: "List".into(),
+        location: HoleLocation::ConfigVar {
+            name: "KEYS".into(),
+        },
+        constraints: Constraints {
+            elements: Some(ElementSorts::Elements {
+                element: "Int".into(),
+            }),
+            ..Constraints::default()
+        },
+        allow_refused_sort: false,
+    }];
+    spec.target = Target {
+        kind: TargetKind::Rule(RuleTarget {
+            rule: RuleRef::Label("LOCK.l3".into()),
+            mode: RuleMode::Fired,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+    };
+    spec.proposers.weights = [(ProposerKind::Blind, 1), (ProposerKind::Corpus, 1)]
+        .into_iter()
+        .collect();
+    spec
+}
+
 fn render(reports: &[FuzzReport]) -> String {
     reports
         .iter()
@@ -515,15 +569,35 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     assert!(entries(&map.first) > 3, "{:?}", map.first.holes[0].value);
     assert_eq!(entries(shrunk), 3, "{:?}", shrunk.holes[0].value);
 
-    let climbing = reports.len() - CLIMB_CAMPAIGNS;
+    let corpus_start = reports.len() - CORPUS_CAMPAIGNS;
+    let climbing = corpus_start - CLIMB_CAMPAIGNS;
     let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
     let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..climbing]);
-    let climb = fingerprint(&reports[climbing..]);
+    let climb = fingerprint(&reports[climbing..corpus_start]);
+    let corpus = fingerprint(&reports[corpus_start..]);
     if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
         eprintln!("golden fingerprint at engine version {ENGINE_VERSION}: {computed}");
         eprintln!("dictionary fingerprint at engine version {ENGINE_VERSION}: {dictionary}");
         eprintln!("climb fingerprint at engine version {ENGINE_VERSION}: {climb}");
+        eprintln!("corpus fingerprint at engine version {ENGINE_VERSION}: {corpus}");
     }
+    // The corpus campaign finds its witness within its budget, and its report records the
+    // corpus's parameters.
+    assert!(
+        reports[corpus_start].witness().is_some(),
+        "{:?}",
+        reports[corpus_start].outcome
+    );
+    assert_eq!(
+        reports[corpus_start].identity.corpus,
+        Some(k_rust_fuzz::report::CorpusParameters::current())
+    );
+    check_pin(
+        "corpus",
+        PINNED_CORPUS,
+        &corpus,
+        "its parameters, its mutations or its harvest",
+    );
     // The climb campaign finds its witness within its budget.
     assert!(
         reports[climbing].witness().is_some(),

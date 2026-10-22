@@ -721,7 +721,7 @@ impl HolePool {
 
     /// One draw: a base by weight, then the base itself with probability 1/2 (or always, when
     /// it has no variant) and otherwise one of its variants uniformly. `None` for an empty pool.
-    fn draw(&self, rng: &mut ChaCha20Rng) -> Option<Value> {
+    pub(crate) fn draw(&self, rng: &mut ChaCha20Rng) -> Option<Value> {
         if self.total == 0 {
             return None;
         }
@@ -749,21 +749,9 @@ impl HolePool {
     }
 }
 
-/// The pools of a campaign's holes, in hole order: the harvest for `spec`
-/// ([`Harvest::for_campaign`]) turned into each hole's values.
-///
-/// # Errors
-///
-/// As [`Harvest::for_campaign`].
-pub(crate) fn hole_pools(
-    spec: &CampaignSpec,
-    holes: &[ResolvedHole],
-) -> Result<Vec<HolePool>, CampaignError> {
-    Ok(pools(&Harvest::for_campaign(spec)?, spec, holes))
-}
-
-/// The pool of each hole from `harvest`, in hole order: [`hole_pools`] with a harvest the
-/// caller made, for example from the campaign's own rule graph ([`Harvest::from_graph`]).
+/// The pool of each hole from `harvest`, in hole order: a harvest the caller made, from the
+/// campaign's own rule graph ([`Harvest::from_graph`]) or for the campaign
+/// ([`Harvest::for_campaign`]).
 pub(crate) fn pools(
     harvest: &Harvest,
     spec: &CampaignSpec,

@@ -1,10 +1,11 @@
 //! The internal proposer interface and the M1 proposers (ARCHITECTURE 8, 10.1). Owner: FZ-06.
 //!
-//! It is shaped like `LibAFL`'s decomposition so that the corpus proposer can move onto `LibAFL` at
-//! M5 if the adoption criterion of ARCHITECTURE 10.1 is met: the *input* is a [`Proposal`], the
-//! *observer* output is an [`Observation`], [`Feedback`] decides whether an observation is
-//! interesting, a [`Score`] ranks it, and each proposer is a *stage* that proposes the next
-//! input. No `LibAFL` type appears here.
+//! It is shaped like `LibAFL`'s decomposition: the *input* is a [`Proposal`], the *observer*
+//! output is an [`Observation`], [`Feedback`] decides whether an observation is interesting, a
+//! [`Score`] ranks it, and each proposer is a *stage* that proposes the next input. The corpus
+//! proposer (`crate::proposers::corpus`) was measured against `LibAFL` by the adoption criterion
+//! of ARCHITECTURE 10.1 and built on this interface instead (FZ-14). No `LibAFL` type appears
+//! here.
 //!
 //! M1 has two proposers: the explicit one (anchors, then the author's assignments), which the
 //! schedule runs first and which is not weighted ([`super::schedule::Schedule`]), and
@@ -86,12 +87,13 @@ impl Proposal {
 
 /// What the engine observed of one case (the `LibAFL` *observer* output; ARCHITECTURE 6.1).
 ///
-/// The feedback reads the class and the coverage, the climb proposer the score; the case
-/// number and the work are for the corpus proposer (ARCHITECTURE 6.4, 8.4, 8.5).
+/// The feedback and the corpus proposer read the class and the coverage, the climb proposer and
+/// the corpus the score (ARCHITECTURE 6.4, 8.4, 8.5).
 #[derive(Clone, Debug)]
 #[expect(
     dead_code,
-    reason = "`case` and `work` are read by the corpus proposer, which this build does not provide"
+    reason = "`case` and `work` are for proposers that weigh kept cases by age or cost; the \
+              corpus proposer keeps cases by coverage and score only"
 )]
 pub(crate) struct Observation {
     /// The case number.
@@ -121,8 +123,8 @@ pub(crate) trait Feedback {
 }
 
 /// The M1 feedback: a `miss` case is interesting when it reaches a rule, in `applied` or
-/// `matched`, that no earlier `miss` case reached (ARCHITECTURE 6.2, R-18). No M1 proposer
-/// learns from it; the corpus proposer will (M5).
+/// `matched`, that no earlier `miss` case reached (ARCHITECTURE 6.2, R-18). The corpus proposer
+/// (`crate::proposers::corpus`) applies the same rule to every case it observes.
 #[derive(Debug, Default)]
 pub(crate) struct CoverageFeedback {
     applied: BTreeSet<String>,
