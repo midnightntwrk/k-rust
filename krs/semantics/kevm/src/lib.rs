@@ -5622,7 +5622,60 @@ fn execution_context_tranche_stop(
         gas_limit: k::configuration::Cell(19),
         chain_id: k::configuration::Cell(20),
         base_fee: k::configuration::Cell(21),
-        CallState::word_stack: k::configuration::Cell([0, 99, 21, 20, 19, 18, 17, 16, 15, 2, 14, 20, 3, 13, 12, 11, 10]),
+        // Constructors, not [0, 99, ..]: list notation this long overflows the
+        // default 2 MiB test-thread stack of the unoptimized in-process collector.
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
+            0,
+            Stack::StackCons(
+                99,
+                Stack::StackCons(
+                    21,
+                    Stack::StackCons(
+                        20,
+                        Stack::StackCons(
+                            19,
+                            Stack::StackCons(
+                                18,
+                                Stack::StackCons(
+                                    17,
+                                    Stack::StackCons(
+                                        16,
+                                        Stack::StackCons(
+                                            15,
+                                            Stack::StackCons(
+                                                2,
+                                                Stack::StackCons(
+                                                    14,
+                                                    Stack::StackCons(
+                                                        20,
+                                                        Stack::StackCons(
+                                                            3,
+                                                            Stack::StackCons(
+                                                                13,
+                                                                Stack::StackCons(
+                                                                    12,
+                                                                    Stack::StackCons(
+                                                                        11,
+                                                                        Stack::StackCons(
+                                                                            10,
+                                                                            Stack::StackEmpty(),
+                                                                        ),
+                                                                    ),
+                                                                ),
+                                                            ),
+                                                        ),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )),
         CallState::pc: k::configuration::Cell(19),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5790,10 +5843,11 @@ mod tests {
         let descriptors_json = first.to_canonical_json().unwrap();
         let semantic_json = semantic.to_canonical_json().unwrap();
         let definition_json = definition.definition().to_canonical_json().unwrap();
+        // `<<` and `^` stay operators until the semantic lowering chooses their domain.
         assert!(descriptors_json.contains(r#""application": "int_mod""#));
         assert!(descriptors_json.contains(r#""application": "int_pow_mod""#));
-        assert!(descriptors_json.contains(r#""application": "int_shift_left""#));
-        assert!(descriptors_json.contains(r#""application": "int_bit_xor""#));
+        assert!(descriptors_json.contains(r#""application": "shift_left""#));
+        assert!(descriptors_json.contains(r#""application": "bit_xor""#));
         assert!(semantic_json.contains(r#""application": "int_mod""#));
         assert!(semantic_json.contains(r#""application": "int_pow_mod""#));
         assert!(semantic_json.contains(r#""application": "int_shift_left""#));
