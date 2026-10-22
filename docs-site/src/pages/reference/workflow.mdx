@@ -25,6 +25,20 @@ so fixtures beside a target are left alone unless named explicitly.
 Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
 The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
 
+`fmt` lays `k::rules!`, `k::equations!`, and `k::claims!` bodies out within the Rust formatter's `max_width` (100 unless a `rustfmt.toml` sets it), indentation included.
+The one-line rows of a block align their labels, `=>`, and `where` in columns.
+A row too long for its line is laid out on its own and widens no column: its label on one line, then its pattern and `=> result` indented, and `where` on a line of its own.
+A row that fits only without the alignment's padding stays on one line, unaligned.
+Cell records put one cell per line.
+Inside a term, a group too long for its line breaks from the outside in, as the Rust formatter breaks calls and struct literals: one argument, field, or element per line, indented, and an inner group breaks only when it still does not fit.
+An or-pattern too long for its line puts one alternative per line with a leading `|` under the first; in parentheses, as in `op @ (A | B)`, it hugs them.
+A condition breaks before `||`, else before `&&`, one level deeper.
+A `where` list too long for its line puts one binder per line under `where`.
+A one-line attribute too long for its line breaks inside its arguments; one written over several lines keeps its layout.
+`fmt` never adds, removes, or reorders a token, so a broken list keeps the commas its source has: a trailing comma appears only where the author wrote one.
+A line comment inside a delimited group keeps its place and breaks the group; any other comment of a clause moves to the lines before the clause, and so do all of the clause's comments when one of them would otherwise move before a comment kept in place.
+Only a doc comment, a literal, or another token longer than the line leaves a line of a KRS body over the width.
+
 `check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and then judges the definition as every later command that needs no K toolchain would: it renders what `emit-k` writes, and for each native route it consults the route's capability table and runs k-rust's preparation, definition checks, and compilation exactly as `build` does.
 On the `native-rust` route, which `build --backend haskell`, `run`, `search`, and `prove` share, it also loads the compiled definition as the run commands do, including each spec module's proof definition.
 It reports the same errors and warnings those commands report, but writes no artifacts.
