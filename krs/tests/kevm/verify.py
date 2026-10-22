@@ -16,21 +16,21 @@ from kevm import native  # noqa: E402
 PROBES = (
     (
         "program lookup",
-        "k: [crate::Lookup { program, pc }, ..]",
+        "k: [Lookup { program, pc }, ..]",
         "Lookup",
-        "pub struct Lookup {",
+        "pub fn Lookup(program: k::Term<Bytes>, pc: k::Term<Int>) -> k::Term<OpCode> {",
     ),
     (
-        "stack result constructor",
-        "word_stack: Stack::StackCons(crate::Chop(value), stack)",
-        "StackCons",
-        "    StackCons { head: Int, tail: WordStack },",
+        "stack result function",
+        "word_stack: [Chop(value), ..stack]",
+        "Chop",
+        "pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {",
     ),
     (
         "push preparation function",
-        "k: [crate::PreparePush { op: Operation::Push { width, value }, stack, gas, cost: 3 }, ..]",
+        "k: [PreparePush { op: Operation::Push { width, value }, stack, gas, cost: 3 }, ..]",
         "PreparePush",
-        "pub struct PreparePush {",
+        "pub fn PreparePush(",
     ),
     (
         "configuration target",
@@ -40,7 +40,7 @@ PROBES = (
     ),
     (
         "width binding",
-        "pc: int::add(pc, int::add(width, 1))",
+        "pc: pc + (width + 1)",
         "width",
         "k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..]",
     ),

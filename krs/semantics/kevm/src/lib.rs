@@ -549,7 +549,7 @@ k::equations! {
     ))]
     block_hash_continue:
         (hashes, requested, highest, age)
-        => BlockHashLookup { hashes, requested, highest: highest - 1, age: age + 1, };
+        => BlockHashLookup { hashes, requested, highest: highest - 1, age: age + 1 };
 }
 
 #[k::function(total, syntax = "#kevmMemoryUsageUpdate({used}, {start}, {width})")]
