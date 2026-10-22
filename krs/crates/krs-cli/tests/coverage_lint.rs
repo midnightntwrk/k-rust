@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 const LANGUAGE: &str = r##"
-use k::builtin::{Bool, Bytes, Int, KSequence, int};
+use k::builtin::{Bool, Bytes, Int, KSequence, List, int, list};
 use k::{KItem, KItemSort, Term};
 
 k::sorts! {
@@ -78,6 +78,21 @@ k::equations! {
     signed_truncate_low: (value, width) => value;
     #[k::requires(int::gt(width, 0) && int::ge(value, int::shift_left(1, int::sub(width, 1))))]
     signed_truncate_high: (value, width) => int::sub(value, int::shift_left(1, width));
+}
+
+/// Guards that read an element only where its index is in range: the
+/// three cover every argument.
+#[k::function(total, internal)]
+pub fn Element(items: Term<List>, index: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Element;
+    #[k::requires(int::ge(index, 0) && int::lt(index, list::size(items)) && int::eq(list::get(items, index), 0))]
+    element_clear: (items, index) => 0;
+    #[k::requires(int::ge(index, 0) && int::lt(index, list::size(items)) && int::ne(list::get(items, index), 0))]
+    element_set: (items, index) => 1;
+    #[k::requires(int::lt(index, 0) || int::ge(index, list::size(items)))]
+    element_outside: (items, index) => 2;
 }
 
 /// Guards that divide by `divisor`: neither holds where it is 0.

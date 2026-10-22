@@ -820,6 +820,41 @@ fn templates_cover_their_cubes_and_nothing_outside_their_range() {
     ));
 }
 
+#[test]
+fn orders_no_integers_realize_together_are_skipped() {
+    // No integers make `a == b`, `b == c` and `a != c` hold, nor `a == b`,
+    // `a < 0` and `0 < b`: read together, the orders and bounds make each
+    // conjunction's negation valid.
+    let equal = |left: &str, right: &str| order(left, right, Order::Equal);
+    let chain = and(
+        equal("$0", "$1"),
+        and(equal("$1", "$2"), equal("$0", "$2").not()),
+    );
+    let verdict = decide(&[&chain.not()], &BTreeMap::new(), &Projections::new());
+    assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+    let bounded = and(
+        equal("$0", "$1"),
+        and(bound("$0", Bound::Below, 0), bound("$1", Bound::Above, 0)),
+    );
+    let verdict = decide(&[&bounded.not()], &BTreeMap::new(), &Projections::new());
+    assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+}
+
+#[test]
+fn a_size_is_never_negative() {
+    // `pc < 0` and `size <= pc` cannot both hold when `size` is a size.
+    let size = "list:Size($1)";
+    let both = and(
+        bound("$0", Bound::Below, 0),
+        order("$0", size, Order::Less).not(),
+    );
+    let projections = Projections::from([(size.to_owned(), (size.to_owned(), Projection::Size))]);
+    let verdict = decide(&[&both.clone().not()], &BTreeMap::new(), &projections);
+    assert!(matches!(verdict, Verdict::Valid), "{verdict:?}");
+    let verdict = decide(&[&both.not()], &BTreeMap::new(), &Projections::new());
+    assert!(matches!(verdict, Verdict::Refuted(_)), "{verdict:?}");
+}
+
 // ---------------------------------------------------------------------------
 // Reading guards with partial operations
 

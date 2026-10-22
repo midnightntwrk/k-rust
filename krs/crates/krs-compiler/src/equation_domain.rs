@@ -33,7 +33,10 @@ use krs_ir_levels::{
     SemanticTerm, SemanticTermKind,
 };
 
-use crate::coverage::{binder_text, display_name, instantiate, production_argument_sorts};
+use crate::coverage::{
+    EquationSignature, binder_text, display_name, instantiate, production_argument_sorts,
+    symbolic_overlap,
+};
 use crate::int_facts::{IntFact, IntFacts, evaluate_int};
 
 /// The argument vectors one analysis may enumerate.
@@ -617,6 +620,40 @@ impl<'a> Domain<'a> {
     }
 }
 
+/// Whether a guard holds, exactly, with its Int binders at the given
+/// values: `Some(true)` only when it evaluates to `true` (every operation in
+/// it then is defined, so a lazy and a strict reading agree), `Some(false)`
+/// when it is false or undefined, `None` when the evaluation cannot tell.
+pub(crate) fn guard_holds(
+    guard: &SemanticTerm,
+    environment: &BTreeMap<&SemanticId, i128>,
+) -> Option<bool> {
+    if conjuncts(guard)
+        .iter()
+        .any(|conjunct| evaluate(conjunct, environment) == Some(Ground::Bool(false)))
+    {
+        return Some(false);
+    }
+    match evaluate(guard, environment)? {
+        Ground::Bool(holds) => Some(holds),
+        Ground::Undefined => Some(false),
+        Ground::Int(_) => None,
+    }
+}
+
+/// The literal a ground Int or Bool term evaluates to, with its Int binders
+/// at the given values.
+pub(crate) fn ground_literal(
+    term: &SemanticTerm,
+    environment: &BTreeMap<&SemanticId, i128>,
+) -> Option<String> {
+    match evaluate(term, environment)? {
+        Ground::Int(value) => Some(value.to_string()),
+        Ground::Bool(value) => Some(value.to_string()),
+        Ground::Undefined => None,
+    }
+}
+
 /// A term with its Int binders replaced and its ground builtins evaluated:
 /// a key in which every binder of a free argument is named by its position,
 /// and a rendering.
@@ -791,12 +828,15 @@ pub(crate) fn render_point(head: &str, domain: &Domain<'_>, point: &[i128]) -> S
     format!("{head}({})", arguments.join(", "))
 }
 
-/// The first overlap of two equations at one priority whose results differ,
-/// over every function whose equations at that priority the analysis can
-/// enumerate (see the module documentation). Results that are identical
-/// once the argument is substituted agree, so their overlap is no
-/// violation: the equations are confluent there.
+/// The first overlap of two equations at one priority whose results differ.
+/// Equations at one priority that the analysis can enumerate (see the
+/// module documentation) are decided on every argument; the others pair by
+/// pair, by unification and the guard decision of the coverage lint
+/// (`coverage::overlap`), which reports only an overlap it can exhibit.
+/// Results that are identical once the argument is substituted agree, so
+/// their overlap is no violation: the equations are confluent there.
 pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<EquationOverlap> {
+    let signature = EquationSignature::new(modules);
     for (production, instance, rules) in function_equations(modules) {
         let columns = instantiate(
             &production_argument_sorts(production),
@@ -818,35 +858,39 @@ pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<Equat
                 continue;
             }
             rules.sort_by(|left, right| left.id().cmp(right.id()));
-            let Some(views) = rules
+            let ground = rules
                 .iter()
                 .map(|rule| equation_view(rule))
                 .collect::<Option<Vec<_>>>()
-            else {
-                continue;
+                .ok_or(Undecided)
+                .and_then(|views| overlap_among(production, &columns, &views));
+            let overlap = match ground {
+                Ok(overlap) => overlap,
+                Err(Undecided) => symbolic_overlap(&signature, production, &rules),
             };
-            if let Some(overlap) = overlap_among(production, &columns, &views) {
-                return Some(overlap);
+            if overlap.is_some() {
+                return overlap;
             }
         }
     }
     None
 }
 
-/// The first overlap among equations at one priority, sorted by identity.
+/// The first overlap among equations at one priority, sorted by identity,
+/// or [`Undecided`] when the analysis cannot enumerate them.
 fn overlap_among(
     production: &SemanticProduction,
     columns: &[Sort],
     views: &[EquationView<'_>],
-) -> Option<EquationOverlap> {
-    let domain = Domain::new(columns, views)?;
+) -> Result<Option<EquationOverlap>, Undecided> {
+    let domain = Domain::new(columns, views).ok_or(Undecided)?;
     for point in domain.points() {
         let mut applying = Vec::new();
         for index in 0..views.len() {
             match domain.applies(index, &point) {
                 Ok(true) => applying.push(index),
                 Ok(false) => {}
-                Err(Undecided) => return None,
+                Err(Undecided) => return Err(Undecided),
             }
         }
         for (position, &first) in applying.iter().enumerate() {
@@ -861,18 +905,18 @@ fn overlap_among(
                 // Both equations hold here, evaluated exactly, so the
                 // overlap is genuine whatever other points hold.
                 if left.0 != right.0 {
-                    return Some(EquationOverlap {
+                    return Ok(Some(EquationOverlap {
                         function: display_name(production.id()),
                         first: views[first].id.clone(),
                         second: views[second].id.clone(),
                         application: render_point(&display_name(production.id()), &domain, &point),
                         results: (left.1, right.1),
-                    });
+                    }));
                 }
             }
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
