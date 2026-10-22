@@ -355,10 +355,11 @@ fn collect_function_shorthand(
         &visibility,
         output,
     )?;
-    if let Some(equation) = shorthand.equation() {
-        let attribute = krs_syntax::EquationAttribute::parse_tokens(TokenStream::new())
+    for equation in shorthand.equations() {
+        let attribute = krs_syntax::EquationAttribute::parse_tokens(equation.equation_keys())
             .map_err(source_syntax)?;
-        push_equation_invocation(equation, &attribute, output)?;
+        let rule = equation.rule().map_err(source_syntax)?;
+        push_rule_equation_invocation(&rule, equation.item(), &attribute, output)?;
     }
     Ok(true)
 }
@@ -1545,6 +1546,15 @@ fn push_equation_invocation(
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
     let rule = RuleItem::from_equation_item(item_fn.clone()).map_err(source_syntax)?;
+    push_rule_equation_invocation(&rule, item_fn, equation, output)
+}
+
+fn push_rule_equation_invocation(
+    rule: &RuleItem,
+    item_fn: &syn::ItemFn,
+    equation: &krs_syntax::EquationAttribute,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
     let bindings = rule
         .parameter()
         .pattern

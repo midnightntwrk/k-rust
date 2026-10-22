@@ -194,6 +194,18 @@ pub fn Byte(value: Term<k::builtin::int::Int>) -> Term<k::builtin::int::Int> {
 ",
     ),
     (
+        "function_shorthand_branching",
+        r"
+#[k::function(total, internal)]
+pub fn Clamp(value: Term<k::builtin::int::Int>) -> Term<k::builtin::int::Int> {
+    match value {
+        n if int::lt(n, 0) => 0,
+        _ => value,
+    }
+}
+",
+    ),
+    (
         "function_shorthand_declaration",
         r##"
 #[k::function(partial, syntax = "#r({index})")]

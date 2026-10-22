@@ -48,7 +48,8 @@ impl NegativeLiteralSpans {
         Self::default()
     }
 
-    fn next(&mut self) -> Option<(Span, Span)> {
+    /// The next negative literal's `-` and digit spans, in token order.
+    pub(crate) fn next(&mut self) -> Option<(Span, Span)> {
         self.0.pop_front()
     }
 
@@ -67,7 +68,7 @@ impl NegativeLiteralSpans {
 }
 
 /// Parses one pattern with the spans of its negative literals.
-pub(super) fn parse_pattern_with_signs(
+pub(crate) fn parse_pattern_with_signs(
     input: syn::parse::ParseStream<'_>,
 ) -> syn::Result<(Pat, NegativeLiteralSpans)> {
     let start = input.cursor();

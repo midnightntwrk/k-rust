@@ -624,24 +624,83 @@ fn materialize_function_shorthand(
         .attrs
         .push(sibling_attribute(&function, "function", &keys));
     let mut items = vec![syn::Item::Struct(structure)];
-    if let Some(equation) = lowered.equation() {
-        let mut equation = equation.clone();
-        equation.attrs.insert(
-            0,
-            sibling_attribute(&function, "equation", &TokenStream::new()),
-        );
+    for equation in lowered.equations() {
+        let mut item = equation.item().clone();
+        // A branch's guard tests a term with `k::matches!`; write it with the
+        // author's facade path.
+        for attribute in &mut item.attrs {
+            if let syn::Meta::List(list) = &mut attribute.meta {
+                list.tokens = with_facade_matches(list.tokens.clone(), function.path());
+                // The guard the lowering writes for an unguarded fn names
+                // `k::requires`; write it with the facade path too.
+                let synthesized = list.path.segments.len() == 2
+                    && list.path.segments[0].ident == "k"
+                    && list.path.segments[1].ident == "requires";
+                if synthesized {
+                    *attribute = sibling_attribute(&function, "requires", &list.tokens);
+                }
+            }
+        }
+        let keys = equation.equation_keys();
+        item.attrs
+            .insert(0, sibling_attribute(&function, "equation", &keys));
         // The subject reads as a hand-written equation's, `k::term![F(x)]`.
         let mut term_path = function.path().clone();
         if let Some(last) = term_path.segments.last_mut() {
             last.ident = Ident::new("term", Span::call_site());
         }
-        if let Some(syn::FnArg::Typed(subject)) = equation.sig.inputs.first_mut() {
+        if let Some(syn::FnArg::Typed(subject)) = item.sig.inputs.first_mut() {
             let pattern = &subject.pat;
             *subject.pat = syn::parse_quote!(#term_path![#pattern]);
         }
-        items.push(syn::Item::Fn(equation));
+        items.push(syn::Item::Fn(item));
     }
     Ok(Some(items))
+}
+
+/// Rewrites `k::matches!` in `tokens` to the facade path of `template`, an
+/// attribute path such as `facade::function`.
+fn with_facade_matches(tokens: TokenStream, template: &syn::Path) -> TokenStream {
+    let facade = template
+        .segments
+        .iter()
+        .take(template.segments.len().saturating_sub(1))
+        .map(|segment| segment.ident.clone())
+        .collect::<Vec<_>>();
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut output = TokenStream::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let is_matches = matches!(
+            &tokens[index..],
+            [
+                proc_macro2::TokenTree::Ident(k),
+                proc_macro2::TokenTree::Punct(first),
+                proc_macro2::TokenTree::Punct(second),
+                proc_macro2::TokenTree::Ident(name),
+                proc_macro2::TokenTree::Punct(bang),
+                ..
+            ] if k == "k" && first.as_char() == ':' && second.as_char() == ':' && name == "matches" && bang.as_char() == '!'
+        );
+        if is_matches && !facade.is_empty() {
+            output.extend(quote!(#(#facade::)*matches!));
+            index += 5;
+            continue;
+        }
+        match &tokens[index] {
+            proc_macro2::TokenTree::Group(group) => {
+                let mut inner = proc_macro2::Group::new(
+                    group.delimiter(),
+                    with_facade_matches(group.stream(), template),
+                );
+                inner.set_span(group.span());
+                output.extend([proc_macro2::TokenTree::Group(inner)]);
+            }
+            other => output.extend([other.clone()]),
+        }
+        index += 1;
+    }
+    output
 }
 
 fn materialize_constructor_flags(item: &mut syn::ItemStruct) {

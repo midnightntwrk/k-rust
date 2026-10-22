@@ -128,6 +128,25 @@ impl RuleItem {
         Self::from_item_with_signs(item, NegativeLiteralSpans::default(), ClauseForm::Equation)
     }
 
+    /// Validates an equation that a function shorthand's body defines, with
+    /// the negative-literal spans of the patterns its subject takes from the
+    /// body's match arms; an arm may leave a record's other fields out with
+    /// `..`, as a match arm does.
+    pub(crate) fn from_shorthand_item(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(
+            &mut item,
+            parse_rule_term_sort,
+            true,
+            false,
+            signs,
+            false,
+            ClauseForm::Equation,
+        )
+    }
+
     /// Parses an equation's tokens, which may end with a function context.
     ///
     /// # Errors

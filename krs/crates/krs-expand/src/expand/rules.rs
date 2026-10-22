@@ -144,15 +144,15 @@ pub(crate) fn equation(
     )
 }
 
-/// An equation the shared parser synthesized from authored tokens, such as
-/// the one a function shorthand's body defines; it carries no
-/// `#[k::equation]` keys.
+/// An equation the shared parser synthesized from authored tokens: one a
+/// function shorthand's body defines, whose only `#[k::equation]` key is
+/// the `owise` of a catch-all arm.
 pub(crate) fn equation_item(
     env: &dyn MacroEnvironment,
-    item: syn::ItemFn,
+    shorthand: &krs_syntax::ShorthandEquation,
 ) -> crate::Result<TokenStream> {
-    let equation = krs_syntax::EquationAttribute::parse_tokens(TokenStream::new())?;
-    let rule = krs_syntax::RuleItem::from_equation_item(item)?;
+    let equation = krs_syntax::EquationAttribute::parse_tokens(shorthand.equation_keys())?;
+    let rule = shorthand.rule()?;
     expand_ordinary_rule(
         env,
         &rule,

@@ -106,8 +106,9 @@ pub(crate) fn function(
 }
 
 /// `#[k::function(..)]` on a `fn`: the function struct, and with a body its
-/// one equation, lowered by the shared parser so that the collector's
-/// reparse sees the same authored tokens.
+/// equations (one per branch of an `if` or `match` body), lowered by the
+/// shared parser so that the collector's reparse sees the same authored
+/// tokens.
 fn function_shorthand(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -119,13 +120,14 @@ fn function_shorthand(
         shorthand.attribute(),
         shorthand.structure().to_token_stream(),
     )?;
-    let equation = shorthand
-        .equation()
-        .map(|equation| super::rules::equation_item(env, equation.clone()))
-        .transpose()?;
+    let equations = shorthand
+        .equations()
+        .iter()
+        .map(|equation| super::rules::equation_item(env, equation))
+        .collect::<crate::Result<Vec<_>>>()?;
     Ok(quote! {
         #production
-        #equation
+        #(#equations)*
     })
 }
 

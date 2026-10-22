@@ -50,7 +50,7 @@ pub use enum_constructor::{
     EnumPrecedenceGroup,
 };
 pub use error::{SyntaxError, SyntaxErrorKind};
-pub use function_shorthand::{FunctionShorthand, ShorthandItem, equation_name};
+pub use function_shorthand::{FunctionShorthand, ShorthandEquation, ShorthandItem, equation_name};
 pub use grammar::{
     AssociativityDeclaration, AssociativitySentence, BracketAttribute, GroupAssociativity,
     PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, SmtTemplate, SmtTemplateFragment,
