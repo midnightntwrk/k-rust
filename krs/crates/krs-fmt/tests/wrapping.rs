@@ -276,6 +276,32 @@ call: {
     .assert_eq(&format(source, 100));
 }
 
+/// A comment beside an operator keeps its side of it: one before `|` ends
+/// the previous alternative's line, one after it ends the operator's.
+#[test]
+fn comments_beside_operators_keep_their_side() {
+    let source = "k::equations! { for Size;
+size: (_, Enum(a) // before the bar
+| Struct(a) | // after the bar
+Union(a)) => a;
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Size;
+            size:
+                (
+                    _,
+                    Enum(a) // before the bar
+                    | Struct(a)
+                    | // after the bar
+                    Union(a)
+                ) => a;
+        }
+    "]]
+    .assert_eq(&format(source, 100));
+}
+
 /// A one-line attribute too long for the width breaks inside its
 /// arguments; one written over several lines keeps its layout.
 #[test]

@@ -833,8 +833,14 @@ fn operands(
         if first.is_none() {
             first = Some(part);
         } else {
+            // A comment before the operator ends the previous operand's line
+            // or takes a line of its own.
+            rest.extend(comments_before(stray.get(start - 1)));
             rest.push(Doc::Line(" "));
-            rest.push(Doc::text(format!("{} ", atoms[start - 1].text)));
+            rest.push(Doc::text(&atoms[start - 1].text));
+            if stray.get(start).is_none_or(Vec::is_empty) {
+                rest.push(Doc::text(" "));
+            }
             rest.push(part);
         }
         start = split + 1;
@@ -850,6 +856,22 @@ fn operands(
     ]))
 }
 
+/// The layout of the comments inside an item before one of its atoms: a
+/// trailing one ends the line, a leading one takes a line of its own.
+fn comments_before(placed: Option<&Vec<Placed>>) -> Vec<Doc> {
+    let mut docs = Vec::new();
+    for placed in placed.into_iter().flatten() {
+        if placed.trailing {
+            docs.push(Doc::Comment(format!(" {}", placed.text)));
+        } else {
+            docs.push(Doc::Hard);
+            docs.push(Doc::Comment(placed.text.clone()));
+        }
+        docs.push(Doc::Hard);
+    }
+    docs
+}
+
 fn run(
     atoms: &[Atom],
     spaces: &[bool],
@@ -859,17 +881,9 @@ fn run(
     let mut docs = Vec::new();
     let first = range.start;
     for index in range {
-        let mut fresh = false;
-        for placed in stray.get(index).into_iter().flatten() {
-            if placed.trailing {
-                docs.push(Doc::Comment(format!(" {}", placed.text)));
-            } else {
-                docs.push(Doc::Hard);
-                docs.push(Doc::Comment(placed.text.clone()));
-            }
-            docs.push(Doc::Hard);
-            fresh = true;
-        }
+        let comments = comments_before(stray.get(index));
+        let fresh = !comments.is_empty();
+        docs.extend(comments);
         if index > first && spaces[index] && !fresh {
             docs.push(Doc::text(" "));
         }
