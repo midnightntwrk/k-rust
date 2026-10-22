@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CollectionApplication, CollectionOperandSort,
     CollectionResultSort, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorIndex, DescriptorPayload, DescriptorTerm, GeneratedOperation, ListOperation,
-    OperationSort, ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId, SortTestKind,
-    StableItemId,
+    DescriptorIndex, DescriptorPayload, DescriptorTerm, GeneratedOperation, ListNotation,
+    ListOperation, OperationSort, ProductionFieldId, ProtocolCellContent, ProvenanceKey,
+    SemanticId, SortTestKind, StableItemId,
 };
 use krs_ir_levels::{
     ListOperands, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
@@ -1112,6 +1112,9 @@ impl StructuredTermBuilder<'_> {
                     subject,
                 );
             }
+            DescriptorApplicationRef::ListNotation(ListNotation::Cons) => {
+                return self.infer_list_spine(reference, arguments, expected_sort, subject);
+            }
             DescriptorApplicationRef::ListNotation(notation) => {
                 let reference = self.list_constructor(reference, *notation, expected_sort)?;
                 return self.infer_application(
@@ -1891,6 +1894,9 @@ impl StructuredTermBuilder<'_> {
                     subject,
                     head,
                 );
+            }
+            DescriptorApplicationRef::ListNotation(ListNotation::Cons) if !head => {
+                return self.lower_list_spine(reference, arguments, expected_sort, subject);
             }
             DescriptorApplicationRef::ListNotation(notation) => {
                 let reference = self.list_constructor(reference, *notation, expected_sort)?;

@@ -760,3 +760,82 @@ k::rules! {
     "#]]
     .assert_debug_eq(&rules);
 }
+
+/// A pattern and a claim over a list of `length` elements, in list notation
+/// or as the nested constructors it denotes.
+fn long_lists(length: usize, lists: bool) -> String {
+    let binders = (0..length)
+        .map(|index| format!("w{index}"))
+        .collect::<Vec<_>>();
+    let words = (0..length)
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>();
+    let nest = |elements: &[String], tail: &str| {
+        elements
+            .iter()
+            .rev()
+            .fold(tail.to_owned(), |list, element| {
+                format!("Stack::StackCons({element}, {list})")
+            })
+    };
+    let (pattern, words) = if lists {
+        (
+            format!("[{}, ..]", binders.join(", ")),
+            format!("[{}]", words.join(", ")),
+        )
+    } else {
+        (nest(&binders, "_"), nest(&words, "Stack::StackEmpty()"))
+    };
+    let last = &binders[length - 1];
+    format!(
+        r#"
+#[k::function(partial, internal)]
+pub fn Deepest(stack: Term<WordStack>) -> Term<Int>;
+
+#[k::equation]
+fn deepest(k::term![Deepest({pattern})]: Term<Int>) -> Term<Int> {{
+    {last}
+}}
+
+#[k::claim(all_paths, label = "long-stack")]
+fn long_stack(
+    k::cells! {{
+        k: k::configuration::KCell(Instr::Add()),
+        word_stack: k::configuration::Cell({words}),
+        state @ ..
+    }}: Machine,
+) -> Machine {{
+    k::cells! {{
+        k: k::configuration::KCell(.K),
+        ..state
+    }}
+}}
+"#
+    )
+}
+
+/// A long list is the constructors it denotes: semantic lowering walks a
+/// bracket list's spine in a loop, so a list's length does not drive the
+/// stack depth of inference and lowering, which recurse only into its
+/// elements.
+#[test]
+fn a_long_list_is_the_constructors_it_denotes() {
+    let target = shared_fixture_target();
+    let constructors = temp_dir();
+    let lists = temp_dir();
+    let constructor_k = definition_k(
+        target.path(),
+        constructors.path(),
+        "lists",
+        &format!("{}{}", spelled(false), long_lists(40, false)),
+    );
+    let list_k = definition_k(
+        target.path(),
+        lists.path(),
+        "lists",
+        &format!("{}{}", spelled(true), long_lists(40, true)),
+    );
+    assert_eq!(list_k, constructor_k);
+    assert!(list_k.contains("<wordStack> 0 : 1 : 2 : "), "{list_k}");
+    assert!(list_k.contains(": W39:Int : _ ) => W39:Int"), "{list_k}");
+}

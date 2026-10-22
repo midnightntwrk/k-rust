@@ -48,6 +48,26 @@ pub(super) struct ConsListConstructors {
     pub(super) element: SemanticSortRef,
 }
 
+/// One level of a bracket list's spine (see `list_spine`).
+struct SpineLevel<'t> {
+    /// The cons constructor, at the level's key.
+    constructor: DescriptorApplicationReference,
+    /// The list sort the constructor builds.
+    result_sort: SemanticSortRef,
+    /// The sort of the constructor's head field.
+    element: SemanticSortRef,
+    /// The level's head.
+    head: &'t krs_ir::DescriptorTerm,
+}
+
+/// A bracket list's spine: its levels, front first, and the term the last
+/// level conses onto, with that term's sort.
+struct ListSpine<'t> {
+    levels: Vec<SpineLevel<'t>>,
+    tail: &'t krs_ir::DescriptorTerm,
+    tail_sort: SemanticSortRef,
+}
+
 /// Why brackets holding elements denote nothing at the builtin `List`.
 const BUILTIN_LIST_ELEMENTS: &str = "brackets holding elements build a cons list, but this position has the builtin sort `List`, whose only bracket is the empty list `[]`: build its elements with `list::item(..)` and `list::concat(..)`";
 
@@ -118,6 +138,127 @@ impl StructuredTermBuilder<'_> {
             key: reference.key.clone(),
             application,
         })
+    }
+
+    /// The levels of a bracket list's spine, `[e1, .., en, ..rest]`: each
+    /// level's cons constructor at the sort its position expects, its
+    /// signature, and its head, in order, then the tail the last level
+    /// conses onto (the empty list, a rest, or any other term) and the
+    /// tail's sort. Walking the spine in a loop keeps the stack depth of
+    /// inference and lowering independent of the list's length: a level
+    /// recurses only into its head.
+    fn list_spine<'t>(
+        &self,
+        reference: &DescriptorApplicationReference,
+        arguments: &'t krs_ir::Arguments<krs_ir::DescriptorStage>,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<ListSpine<'t>, DescriptorLoweringError> {
+        let mut levels = Vec::new();
+        let mut reference = reference.clone();
+        let mut arguments = arguments;
+        let mut expected = expected_sort.cloned();
+        loop {
+            let constructor =
+                self.list_constructor(&reference, ListNotation::Cons, expected.as_ref())?;
+            let DescriptorApplicationRef::Declared(id) = &constructor.application else {
+                return Err(self.invalid_term("list notation chose no cons constructor"));
+            };
+            let signature = self.catalog.get(id).cloned().ok_or_else(|| {
+                self.invalid_term(format!(
+                    "declared application {id} has no grammar production"
+                ))
+            })?;
+            let (krs_ir::Arguments::Positional(values), [(_, element), (_, tail_sort)]) =
+                (arguments, signature.fields.as_slice())
+            else {
+                return Err(
+                    self.invalid_term("a list notation level is a cons of a head and a tail")
+                );
+            };
+            let [head, tail] = values.as_slice() else {
+                return Err(
+                    self.invalid_term("a list notation level is a cons of a head and a tail")
+                );
+            };
+            let (element, tail_sort) = (element.clone(), tail_sort.clone());
+            levels.push(SpineLevel {
+                constructor,
+                result_sort: signature.result_sort,
+                element,
+                head,
+            });
+            match tail.as_ref() {
+                krs_ir::DescriptorTerm::Application {
+                    reference: next,
+                    arguments: next_arguments,
+                    instance,
+                    update: None,
+                    ..
+                } if instance.is_empty()
+                    && next.application
+                        == DescriptorApplicationRef::ListNotation(ListNotation::Cons) =>
+                {
+                    reference = next.clone();
+                    arguments = next_arguments;
+                    expected = Some(tail_sort);
+                }
+                tail => {
+                    return Ok(ListSpine {
+                        levels,
+                        tail,
+                        tail_sort,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Infers a bracket list's spine (F6): each head at its list's element
+    /// sort, in order, then the tail at the list's sort, as the nested
+    /// constructor terms would be inferred.
+    pub(super) fn infer_list_spine(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let spine = self.list_spine(reference, arguments, expected_sort)?;
+        for level in &spine.levels {
+            self.infer(level.head, Some(&level.element), subject)?;
+        }
+        self.infer(spine.tail, Some(&spine.tail_sort), subject)
+    }
+
+    /// Lowers a bracket list's spine (F6) to the nested cons constructor
+    /// terms it denotes, lowering the heads in order and then the tail, the
+    /// order the nested terms would be lowered in.
+    pub(super) fn lower_list_spine(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let spine = self.list_spine(reference, arguments, expected_sort)?;
+        let heads = spine
+            .levels
+            .iter()
+            .map(|level| self.lower(level.head, Some(&level.element), subject))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut list = self.lower(spine.tail, Some(&spine.tail_sort), subject)?;
+        for (level, head) in spine.levels.into_iter().zip(heads).rev() {
+            let DescriptorApplicationRef::Declared(id) = level.constructor.application else {
+                unreachable!("a spine level is a declared cons constructor");
+            };
+            list = SemanticTerm::application(
+                semantic_origin(self.descriptor, level.constructor.key, "term-application")?,
+                level.result_sort,
+                ApplicationRef::Declared(id),
+                vec![head, list],
+            );
+        }
+        Ok(list)
     }
 
     pub(super) fn invalid_list_notation(
