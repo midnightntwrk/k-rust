@@ -1302,6 +1302,15 @@ export interface FuzzReportIdentity {
   solver: 'z3' | 'none'
   /** The dictionary proposer's fixed parameters; present exactly when its weight is positive. */
   dictionary?: FuzzDictionaryParameters
+  /** The climb's fixed parameters; present exactly when its weight is positive. */
+  climb?: FuzzClimbParameters
+  /** The corpus proposer's fixed parameters; present exactly when its weight is positive. */
+  corpus?: FuzzCorpusParameters
+  /**
+   * The solve proposer's fixed parameters; present exactly when its weight is positive (never in
+   * the WebAssembly package, which refuses that weight).
+   */
+  solve?: FuzzSolveParameters
 }
 
 /** Probabilities are `[numerator, denominator]`. */
@@ -1311,6 +1320,73 @@ export interface FuzzDictionaryParameters {
   expansion: number
   'distance-weight-base': number
   'exact-probability': [number, number]
+}
+
+/** Probabilities and shares are `[numerator, denominator]`. */
+export interface FuzzClimbParameters {
+  'budget-share': [number, number]
+  'initial-exponent': number
+  'jump-probability': [number, number]
+  'keep-direction-probability': [number, number]
+  'second-hole-probability': [number, number]
+  'read-probability': [number, number]
+  'accept-equal': boolean
+  'max-attempts': number
+  /** `target-and-keyed-predecessors` for a rule target, `none` for an observer target. */
+  'condition-rules': string
+  'condition-limit': number
+  'condition-value-size': number
+}
+
+/** Probabilities and shares are `[numerator, denominator]`. */
+export interface FuzzCorpusParameters {
+  'budget-share': [number, number]
+  'newest-probability': [number, number]
+  'second-mutation-probability': [number, number]
+  /** Harvested literal, fresh draw, nudge, splice. */
+  'source-weights': [number, number, number, number]
+  /** Replace, insert, delete, keep a prefix, append, cross over. */
+  'collection-weights': [number, number, number, number, number, number]
+  'nudge-exponents': number
+  'max-entries': number
+  'max-attempts': number
+  /** The harvest its literals come from (its draw probability does not apply). */
+  harvest: FuzzDictionaryParameters
+}
+
+/** The solve proposer's fixed parameters; its share is `[numerator, denominator]`. */
+export interface FuzzSolveParameters {
+  'budget-share': [number, number]
+  'stall-cases': number
+  'work-factor': number
+  'work-slack': number
+  'max-model-queries': number
+  'run-resource-units': number
+  'run-retries': number
+  'model-resource-units': number
+  'model-retries': number
+  /** The Z3 library whose search counts the resource units. */
+  'z3-version': string
+  'pending-limit': number
+  'futile-limit': number
+  'symbolic-sorts': string[]
+  'condition-rules': string
+  'chain-radius': number
+}
+
+/** What the solve proposer's symbolic runs gave. */
+export interface FuzzSolveTotals {
+  attempts: number
+  candidates: number
+  'no-path': number
+  unsatisfiable: number
+  unknown: number
+  inadmissible: number
+  failed: number
+  /** The work of its runs and model queries, included in `totals.work`. */
+  work: number
+  'outside-determinism': number
+  'first-failure'?: string
 }
 
 export interface FuzzHoleValue {
@@ -1377,9 +1453,11 @@ export interface FuzzTotals {
   'outside-determinism': number
   unconfirmed: number
   'case-sequence-digest': string
+  /** The solve proposer's runs; present exactly when its weight is positive. */
+  solve?: FuzzSolveTotals
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 2 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 3 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number

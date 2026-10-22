@@ -887,7 +887,7 @@ fn a_witness_whose_report_has_another_schema_or_version_is_refused() {
         serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
             .expect("the witness file is JSON");
     for (field, value, expected) in [
-        ("version", serde_json::json!(1), "version 1"),
+        ("version", serde_json::json!(2), "version 2"),
         (
             "schema",
             serde_json::json!("something-else"),

@@ -31,7 +31,11 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// Version 2 adds `reaching.step` to an observer target's witness cases and
 /// `identity.dictionary` to a campaign whose dictionary proposer has a positive weight; a
 /// version-1 reader, which refuses unknown fields, refuses both.
-pub const REPORT_VERSION: u32 = 2;
+///
+/// Version 3 adds the guided proposers' parameters, `identity.climb`, `identity.corpus` and
+/// `identity.solve`, and the solve proposer's `totals.solve`, each present exactly when its
+/// proposer has a positive weight; a version-2 reader refuses them as unknown fields.
+pub const REPORT_VERSION: u32 = 3;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1066,7 +1070,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":2,"identity":{"engine-version":2,"#,
+            r#"{"schema":"krust-fuzz-report","version":3,"identity":{"engine-version":2,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
