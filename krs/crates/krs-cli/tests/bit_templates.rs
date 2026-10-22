@@ -19,7 +19,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((FieldOf, AliasOf, PairOf, SpliceOf, CodeOf, FlagOf, PageOf, KindOf))]
+#[k::precedence((FieldOf, AliasOf, PairOf, SpliceOf, CodeOf, FlagOf, PageOf, KindOf, ImmOf, BranchOf, UpperOf))]
 pub enum ExpSyntax {
     #[k::syntax("fieldOf({n})")]
     FieldOf { n: Int },
@@ -37,6 +37,12 @@ pub enum ExpSyntax {
     PageOf { n: Int },
     #[k::syntax("kindOf({n})")]
     KindOf { n: Int },
+    #[k::syntax("immOf({n})")]
+    ImmOf { n: Int },
+    #[k::syntax("branchOf({n})")]
+    BranchOf { n: Int },
+    #[k::syntax("upperOf({n})")]
+    UpperOf { n: Int },
 }
 
 #[k::configuration]
@@ -80,6 +86,9 @@ k::rules! {
     code_of  : CodeOf(n)                                      => crate::Code(n);
     page_of  : PageOf(n)                                      => crate::Page(n);
     kind_of  : KindOf(n)                                      => crate::Kind(n);
+    imm_of   : ImmOf(k::bits!("iiii 0011", i: signed))        => i;
+    branch_of: BranchOf(k::bits!("bbb 0 b_", b: signed[4 | 2:1 | 3])) => b;
+    upper_of : UpperOf(k::bits!("uuu 1", u: [6:4]))           => u;
 }
 
 k::equations! {
@@ -144,6 +153,39 @@ pub fn kind_of_high(
     k::cells! { k: k::configuration::KCell(ExpSyntax::KindOf(i), tail @ ..), state @ .. }: Machine,
 ) -> Machine {
     k::cells! { k: k::configuration::KCell(0, ..tail), ..state }
+}
+
+#[k::claim(all_paths, label = "imm-of-negative")]
+#[k::requires(k::bits!(i, "1___ 0011"))]
+pub fn imm_of_negative(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::ImmOf(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(i.sub::<Int>(259).div::<Int>(16), ..tail), ..state }
+}
+
+#[k::claim(all_paths, label = "branch-of-negative")]
+#[k::requires(k::bits!(i, "1__ 0 __"))]
+pub fn branch_of_negative(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::BranchOf(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(
+        i.bit_range::<Int>(4, 1).mul::<Int>(4)
+            .add::<Int>(i.bit_range::<Int>(3, 1).mul::<Int>(2))
+            .add::<Int>(i.bit_range::<Int>(1, 1).mul::<Int>(8))
+            .sub::<Int>(16),
+        ..tail
+    ), ..state }
+}
+
+#[k::claim(all_paths, label = "upper-of-odd")]
+#[k::requires(k::bits!(i, "___1"))]
+pub fn upper_of_odd(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::UpperOf(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(i.sub::<Int>(1).mul::<Int>(8), ..tail), ..state }
 }
 
 #[k::claim(all_paths, label = "field-of-low")]
@@ -242,6 +284,12 @@ fn templates_and_tests_check_run_and_prove() {
         "kindOf(6)",
         "kindOf(2)",
         "kindOf(7)",
+        "immOf(243)",
+        "immOf(115)",
+        "immOf(131)",
+        "branchOf(42)",
+        "branchOf(16)",
+        "upperOf(11)",
     ]
     .map(|program| format!("{program} => {}", run(target.path(), &manifest, program)));
     expect_test::expect![[r#"
@@ -262,12 +310,25 @@ fn templates_and_tests_check_run_and_prove() {
             "kindOf(6) => 1",
             "kindOf(2) => 2",
             "kindOf(7) => 0",
+            "immOf(243) => -1",
+            "immOf(115) => 7",
+            "immOf(131) => -8",
+            "branchOf(42) => -6",
+            "branchOf(16) => 4",
+            "upperOf(11) => 80",
         ]
     "#]]
     .assert_debug_eq(&outcomes);
     let (proven, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
     assert!(proven, "{stdout}\n{stderr}");
-    for label in ["field-of-low", "field-of-arith", "kind-of-high"] {
+    for label in [
+        "field-of-low",
+        "field-of-arith",
+        "kind-of-high",
+        "imm-of-negative",
+        "branch-of-negative",
+        "upper-of-odd",
+    ] {
         assert!(stdout.contains(&format!("{label}: proven")), "{stdout}");
     }
 }
