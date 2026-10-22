@@ -2037,71 +2037,71 @@ fn lookup_after_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k:
 k::equations! {
     for Decode;
     use Operation::*;
-    decode_stop               : (0, _, _)                     => Stop();
-    decode_add                : (1, _, _)                     => Add();
-    decode_mul                : (2, _, _)                     => Mul();
-    decode_sub                : (3, _, _)                     => Sub();
-    decode_div                : (4, _, _)                     => Div();
-    decode_signed_div         : (5, _, _)                     => SignedDiv();
-    decode_mod                : (6, _, _)                     => Mod();
-    decode_signed_mod         : (7, _, _)                     => SignedMod();
-    decode_add_mod            : (8, _, _)                     => AddMod();
-    decode_mul_mod            : (9, _, _)                     => MulMod();
-    decode_exponent           : (10, _, _)                    => Exponent();
-    decode_sign_extend        : (11, _, _)                    => SignExtend();
-    decode_less_than          : (16, _, _)                    => LessThan();
-    decode_greater_than       : (17, _, _)                    => GreaterThan();
-    decode_signed_less_than   : (18, _, _)                    => SignedLessThan();
-    decode_signed_greater_than: (19, _, _)                    => SignedGreaterThan();
-    decode_equal              : (20, _, _)                    => Equal();
-    decode_is_zero            : (21, _, _)                    => IsZero();
-    decode_bit_and            : (22, _, _)                    => BitAnd();
-    decode_bit_or             : (23, _, _)                    => BitOr();
-    decode_bit_xor            : (24, _, _)                    => BitXor();
-    decode_bit_not            : (25, _, _)                    => BitNot();
-    decode_byte               : (26, _, _)                    => Byte();
-    decode_shift_left         : (27, _, _)                    => ShiftLeft();
-    decode_shift_right        : (28, _, _)                    => ShiftRight();
-    decode_signed_shift_right : (29, _, _)                    => SignedShiftRight();
-    decode_sha3               : (32, _, _)                    => Sha3();
-    decode_address            : (48, _, _)                    => Address();
-    decode_balance            : (49, _, _)                    => AccountBalance();
-    decode_origin             : (50, _, _)                    => TxOrigin();
-    decode_caller             : (51, _, _)                    => MsgCaller();
-    decode_call_value         : (52, _, _)                    => MsgCallValue();
-    decode_call_data_load     : (53, _, _)                    => CallDataLoad();
-    decode_call_data_size     : (54, _, _)                    => CallDataSize();
-    decode_call_data_copy     : (55, _, _)                    => CallDataCopy();
-    decode_code_size          : (56, _, _)                    => CodeSize();
-    decode_code_copy          : (57, _, _)                    => CodeCopy();
-    decode_gas_price          : (58, _, _)                    => TxGasPrice();
-    decode_external_code_size : (59, _, _)                    => ExternalCodeSize();
-    decode_external_code_copy : (60, _, _)                    => ExternalCodeCopy();
-    decode_return_data_size   : (61, _, _)                    => ReturnDataSize();
-    decode_return_data_copy   : (62, _, _)                    => ReturnDataCopy();
-    decode_external_code_hash : (63, _, _)                    => ExternalCodeHash();
-    decode_block_hash         : (64, _, _)                    => BlockHash();
-    decode_coinbase           : (65, _, _)                    => BlockCoinbase();
-    decode_timestamp          : (66, _, _)                    => BlockTimestamp();
-    decode_number             : (67, _, _)                    => BlockNumber();
-    decode_prev_randao        : (68, _, _)                    => PrevRandao();
-    decode_gas_limit          : (69, _, _)                    => BlockGasLimit();
-    decode_chain_id           : (70, _, _)                    => NetworkChainId();
-    decode_self_balance       : (71, _, _)                    => SelfBalance();
-    decode_base_fee           : (72, _, _)                    => BlockBaseFee();
-    decode_pop                : (80, _, _)                    => Pop();
-    decode_memory_load        : (81, _, _)                    => MemoryLoad();
-    decode_memory_store       : (82, _, _)                    => MemoryStore();
-    decode_memory_store8      : (83, _, _)                    => MemoryStore8();
-    decode_storage_load       : (84, _, _)                    => StorageLoad();
-    decode_storage_store      : (85, _, _)                    => StorageStore();
-    decode_jump               : (86, _, _)                    => Jump();
-    decode_jump_if            : (87, _, _)                    => JumpIf();
-    decode_pc                 : (88, _, _)                    => ProgramCounter();
-    decode_memory_size        : (89, _, _)                    => MemorySize();
-    decode_gas_remaining      : (90, _, _)                    => GasRemaining();
-    decode_jump_dest          : (91, _, _)                    => JumpDest();
-    decode_push_zero          : (95, _, _)                    => PushZero();
+    decode_stop               : (0x00, _, _)                  => Stop();
+    decode_add                : (0x01, _, _)                  => Add();
+    decode_mul                : (0x02, _, _)                  => Mul();
+    decode_sub                : (0x03, _, _)                  => Sub();
+    decode_div                : (0x04, _, _)                  => Div();
+    decode_signed_div         : (0x05, _, _)                  => SignedDiv();
+    decode_mod                : (0x06, _, _)                  => Mod();
+    decode_signed_mod         : (0x07, _, _)                  => SignedMod();
+    decode_add_mod            : (0x08, _, _)                  => AddMod();
+    decode_mul_mod            : (0x09, _, _)                  => MulMod();
+    decode_exponent           : (0x0A, _, _)                  => Exponent();
+    decode_sign_extend        : (0x0B, _, _)                  => SignExtend();
+    decode_less_than          : (0x10, _, _)                  => LessThan();
+    decode_greater_than       : (0x11, _, _)                  => GreaterThan();
+    decode_signed_less_than   : (0x12, _, _)                  => SignedLessThan();
+    decode_signed_greater_than: (0x13, _, _)                  => SignedGreaterThan();
+    decode_equal              : (0x14, _, _)                  => Equal();
+    decode_is_zero            : (0x15, _, _)                  => IsZero();
+    decode_bit_and            : (0x16, _, _)                  => BitAnd();
+    decode_bit_or             : (0x17, _, _)                  => BitOr();
+    decode_bit_xor            : (0x18, _, _)                  => BitXor();
+    decode_bit_not            : (0x19, _, _)                  => BitNot();
+    decode_byte               : (0x1A, _, _)                  => Byte();
+    decode_shift_left         : (0x1B, _, _)                  => ShiftLeft();
+    decode_shift_right        : (0x1C, _, _)                  => ShiftRight();
+    decode_signed_shift_right : (0x1D, _, _)                  => SignedShiftRight();
+    decode_sha3               : (0x20, _, _)                  => Sha3();
+    decode_address            : (0x30, _, _)                  => Address();
+    decode_balance            : (0x31, _, _)                  => AccountBalance();
+    decode_origin             : (0x32, _, _)                  => TxOrigin();
+    decode_caller             : (0x33, _, _)                  => MsgCaller();
+    decode_call_value         : (0x34, _, _)                  => MsgCallValue();
+    decode_call_data_load     : (0x35, _, _)                  => CallDataLoad();
+    decode_call_data_size     : (0x36, _, _)                  => CallDataSize();
+    decode_call_data_copy     : (0x37, _, _)                  => CallDataCopy();
+    decode_code_size          : (0x38, _, _)                  => CodeSize();
+    decode_code_copy          : (0x39, _, _)                  => CodeCopy();
+    decode_gas_price          : (0x3A, _, _)                  => TxGasPrice();
+    decode_external_code_size : (0x3B, _, _)                  => ExternalCodeSize();
+    decode_external_code_copy : (0x3C, _, _)                  => ExternalCodeCopy();
+    decode_return_data_size   : (0x3D, _, _)                  => ReturnDataSize();
+    decode_return_data_copy   : (0x3E, _, _)                  => ReturnDataCopy();
+    decode_external_code_hash : (0x3F, _, _)                  => ExternalCodeHash();
+    decode_block_hash         : (0x40, _, _)                  => BlockHash();
+    decode_coinbase           : (0x41, _, _)                  => BlockCoinbase();
+    decode_timestamp          : (0x42, _, _)                  => BlockTimestamp();
+    decode_number             : (0x43, _, _)                  => BlockNumber();
+    decode_prev_randao        : (0x44, _, _)                  => PrevRandao();
+    decode_gas_limit          : (0x45, _, _)                  => BlockGasLimit();
+    decode_chain_id           : (0x46, _, _)                  => NetworkChainId();
+    decode_self_balance       : (0x47, _, _)                  => SelfBalance();
+    decode_base_fee           : (0x48, _, _)                  => BlockBaseFee();
+    decode_pop                : (0x50, _, _)                  => Pop();
+    decode_memory_load        : (0x51, _, _)                  => MemoryLoad();
+    decode_memory_store       : (0x52, _, _)                  => MemoryStore();
+    decode_memory_store8      : (0x53, _, _)                  => MemoryStore8();
+    decode_storage_load       : (0x54, _, _)                  => StorageLoad();
+    decode_storage_store      : (0x55, _, _)                  => StorageStore();
+    decode_jump               : (0x56, _, _)                  => Jump();
+    decode_jump_if            : (0x57, _, _)                  => JumpIf();
+    decode_pc                 : (0x58, _, _)                  => ProgramCounter();
+    decode_memory_size        : (0x59, _, _)                  => MemorySize();
+    decode_gas_remaining      : (0x5A, _, _)                  => GasRemaining();
+    decode_jump_dest          : (0x5B, _, _)                  => JumpDest();
+    decode_push_zero          : (0x5F, _, _)                  => PushZero();
     decode_push:
         (k::bits!("011 nnnnn"), program, pc)
         => Push(int::add(n, 1), ReadImmediate(program, int::add(pc, 1), int::add(n, 1), 0));
@@ -2109,9 +2109,9 @@ k::equations! {
     decode_swap               : (k::bits!("1001 dddd"), _, _) => Swap(int::add(d, 1));
     #[k::requires(t.le::<Int>(4))]
     decode_log                : (k::bits!("10100 ttt"), _, _) => LogOpcode(t);
-    decode_return             : (243, _, _)                   => Return();
-    decode_static_call        : (250, _, _)                   => StaticCall();
-    decode_revert             : (253, _, _)                   => Revert();
+    decode_return             : (0xF3, _, _)                  => Return();
+    decode_static_call        : (0xFA, _, _)                  => StaticCall();
+    decode_revert             : (0xFD, _, _)                  => Revert();
     #[k::equation(owise)]
     decode_invalid            : (_, _, _)                     => Invalid();
 }
@@ -2452,14 +2452,14 @@ fn scan_jump_destination_found(
             memory: program,
             index: cursor,
         },
-        91,
+        0x5B,
     )
 }
 
 #[k::requires(
     int::lt(cursor, destination)
-        && int::ge(MemoryByte { memory: program, index: cursor }, 96)
-        && int::le(MemoryByte { memory: program, index: cursor }, 127)
+        && int::ge(MemoryByte { memory: program, index: cursor }, 0x60)
+        && int::le(MemoryByte { memory: program, index: cursor }, 0x7F)
 )]
 #[k::equation]
 fn scan_jump_destination_past_push(
@@ -2487,7 +2487,7 @@ fn scan_jump_destination_past_push(
 
 #[k::requires(
     int::lt(cursor, destination)
-        && (int::lt(MemoryByte { memory: program, index: cursor }, 96) || int::gt(MemoryByte { memory: program, index: cursor }, 127))
+        && (int::lt(MemoryByte { memory: program, index: cursor }, 0x60) || int::gt(MemoryByte { memory: program, index: cursor }, 0x7F))
 )]
 #[k::equation]
 fn scan_jump_destination_past_opcode(
