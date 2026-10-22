@@ -55,6 +55,7 @@ Without a chain the variants belong to no production group; a family that needs 
 A variant's `group` comes from the chain, so it is rejected without one; a reference family names a `group` on every variant or on none.
 Declaration order never supplies precedence.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
+Enum helper `#[k::cons_list]`, written after `#[k::constructors(..)]`, declares the family's sort a [cons list](#cons-lists), which bracket notation then builds.
 
 Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` and `prefer` syntax flags.
 `avoid` and `prefer` are one pair of parse-forest filters: where a program has several parses, K drops those whose top production is `avoid` or keeps those whose top production is `prefer`; an unambiguous program is unaffected, and they are not first-match ordering.
@@ -115,6 +116,58 @@ The result has the pattern's shape: it ends in `..` exactly when the pattern doe
 Discarding the rest of the computation, or capturing it as a value, needs the `cells!` form.
 A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`, and so does a result that restates the matched items unchanged, `k: [Boundary(), ..]`.
 `krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
+
+### Cons lists
+
+An object-language stack or list is often a right-recursive constructor pair, an empty list and a cons whose second field is the list itself, and every access to it nests the cons: KEVM's word stack is `Stack::StackCons(a, Stack::StackCons(b, rest))`.
+Such a sort is a *cons list* when it is declared one: every `#[k::syntax_list]` sort is, and so is the sort of a constructors enum marked `#[k::cons_list]`:
+
+```rust
+#[k::constructors(sort = WordStack, result = KResult)]
+#[k::cons_list]
+#[k::precedence((StackEmpty, StackCons))]
+pub enum Stack {
+    #[k::syntax(".WordStack")]
+    StackEmpty(),
+    #[k::syntax("{head} : {tail}")]
+    StackCons { head: Int, tail: WordStack },
+}
+```
+
+The enum has exactly one constructor with no field, the empty list, and one with two fields, the head and the tail, whose sort is the enum's own sort (`krs::syntax::invalid-cons-list` for the shape, `krs::analysis::invalid-cons-list` for the tail's sort); no other sort may be built by a second cons list.
+The marker is opt-in, not inferred from the shape: a binary tree with a leaf, or a pair with a tail, has the same two constructors and should not read as a list.
+
+For a cons-list sort, brackets are list notation, read like Rust's slice pattern from the front:
+
+| Position | Form | Meaning |
+| --- | --- | --- |
+| pattern | `[]` | the empty constructor |
+| pattern | `[p1, p2]` | `Cons(p1, Cons(p2, Empty()))` |
+| pattern | `[p1, p2, rest @ ..]` | `Cons(p1, Cons(p2, rest))` |
+| pattern | `[p1, ..]` | `Cons(p1, _)` |
+| result | `[e1, e2]` | `Cons(e1, Cons(e2, Empty()))` |
+| result | `[e1, e2, ..rest]` | `Cons(e1, Cons(e2, rest))` |
+
+The brackets are notation for those constructor terms and nothing more: inference, the overlap and coverage checks, and the emitted K see the constructors, so `[]` and `[_, ..]` cover the sort and a rule matching `[a, ..]` overlaps one matching `Stack::StackCons(a, _)`.
+The brackets do not name the list; the position's sort does, so they stand wherever a constructor field, a cell, a function parameter, or a result declares a cons-list sort: in a function body's `match` (`[a, b, rest @ ..] => ..`), a `k::equations!` row, an equation result, a `k::term!`, a constructor field (`Store { at: [Deref(), ..] }`), and a claim.
+A position whose sort is not a cons list, or is not known, such as a `KItem` or an operator's operand, has no constructor for them to denote (`krs::analysis::invalid-list-notation`).
+Elements are ordinary terms: an element may be a [constant](#named-constants) (`[WORD, ..]`), use [operators](#operator-and-method-notation) (`[a + b, ..rest]`), or [update a matched record](#updating-a-matched-record) (`[Field { index: i + 1, ..f }, ..rest]`).
+Rust has no spread in an array expression, so `[e1, ..rest]` in a result, where `..rest` would be a range, is KRS notation chosen for symmetry with the pattern; a range is no term anywhere else.
+A cons list is matched and built from its front, so `..` may only end the brackets: `[.., x]` and `[x, .., y]` are rejected (`krs::syntax::invalid-list-notation`), since matching a list's back is no constructor pattern, as are `[..]`, which matches any list (write `_`), and `[..rest]`, which is `rest`.
+
+In a readable `for Machine` record, a cell whose sort is a cons list reads a bracketed value as the computation cell does, so the common stack step names no rest:
+
+```rust
+add: { k: [Add(), ..], word_stack: [a, b, ..] } => { k: [..], word_stack: [Chop(a + b), ..] };
+```
+
+emits `<wordStack> A:Int : B:Int : Krs_RestWordStack:WordStack => chop ( A:Int +Int B:Int ) : Krs_RestWordStack:WordStack </wordStack>`.
+`..` is one rest on both sides, exactly as for `k`: the pattern ends in `..` exactly when the result does, and the result's `..` keeps what the pattern's matched.
+A named rest, `[a, b, rest @ ..] => [b, a, ..rest]`, may be used elsewhere, and a result may also be one term, `[_, rest @ ..] => rest` or `s => [v, ..s]`.
+A bracketed value reads by the cell's declared type: the computation cell reads items, a List collection instances, and a cons-list cell elements.
+The macro cannot see declared types, so it reads one bracketed value of a record as the computation cell's, a cell named `k` if there is one, and the collector moves that reading to the configuration's computation cell; a record may therefore name the stack first, `{ word_stack: [a, ..], k: [Pop(), ..] }`, and a configuration may call its computation cell anything.
+A bracketed value on a cell that is none of the three is `krs::analysis::invalid-list-notation`, and a named rest on the computation cell, whose rest is always anonymous, is rejected where the collector finds it.
+`krs expand` writes a readable rule's lists as the constructor terms they denote, `word_stack: k::configuration::Cell(crate::Stack::StackCons(a, crate::Stack::StackCons(b, rest)))`, with a parameter `rest` for an anonymous `..`; the reference layer accepts the notation too, so a fn body keeps it as written.
 
 ### Cells a rule only reads
 
