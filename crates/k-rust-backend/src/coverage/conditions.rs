@@ -16,7 +16,8 @@
 //! nothing else in the result. It runs inside the run's step but off its clock: the step deadline
 //! neither stops it nor is charged with its time, and its own work is bounded by a budget of polls
 //! ([`ConditionCollection::record_polls`]); what a stop of its own (that budget, its stack, a
-//! cancellation) interrupted is reported as such ([`Truth::Undecided`], [`RecordedValue::Stopped`]).
+//! cancellation) interrupted is reported as such ([`Truth::Undecided`], [`RecordedValue::Stopped`]),
+//! except that a Boolean node with another operand found undefined is [`Truth::Undefined`].
 //! It evaluates each subterm of the condition once, bottom-up, so it costs about one more
 //! evaluation of the condition per recorded entry, in wall time only.
 
@@ -169,10 +170,13 @@ pub enum Verdict {
 /// `True` and `False` are decisions: the node holds, or does not, for the instance, in every
 /// model of the definition (unless the record is [`ConditionRecord::chosen`]). `Undefined`, only
 /// on a K Boolean node, says the node's term denotes no value (`\bottom`) for the instance: a
-/// partial operation it does not discard is outside its domain. `Undecided` decides nothing: the
-/// node may be true, false or (for a Boolean node) undefined; the evaluation left an application
-/// it cannot evaluate, the instance is symbolic, or a stop interrupted it. The attempt itself may
-/// decide what the record left undecided, with the solver ([`ConditionRecord::verdict`]).
+/// partial operation in it is outside its domain, or the path and match conditions have no model
+/// (then `\equals(b, true)` and `\equals(b, false)` are both refuted for any `b`). `Undecided`
+/// decides nothing: the node may be true, false or (for a Boolean node) undefined; the evaluation
+/// left an application it cannot evaluate, the instance is symbolic, or a stop interrupted it
+/// (unless another operand is undefined, which makes a Boolean node `Undefined` by strictness).
+/// The attempt itself may decide what the record left undecided, with the solver
+/// ([`ConditionRecord::verdict`]).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Truth {
     True,

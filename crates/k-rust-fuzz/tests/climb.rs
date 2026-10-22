@@ -185,12 +185,12 @@ fn a_climb_campaign_reports_the_same_bytes_twice_and_records_its_parameters() {
     let (second_run, second) = maze::run_isolated(cell, &maze::blind_climb(), 1, 200);
     assert_eq!(first_run, second_run);
     assert_eq!(first.to_canonical_json(), second.to_canonical_json());
-    let parameters = first
-        .identity
-        .climb
-        .clone()
-        .expect("the climb's parameters");
+    let target = maze::isolated_spec(cell, &maze::blind_climb(), 1)
+        .target
+        .kind;
+    let parameters = ClimbParameters::for_target(&target);
     assert_eq!(parameters.condition_rules, "target-and-keyed-predecessors");
+    assert_eq!(first.identity.climb, Some(parameters));
     assert!(
         first
             .to_canonical_json()

@@ -580,7 +580,8 @@ export type ConditionVerdict = 'held' | 'refuted' | 'undecided' | 'stopped' | 'r
 
 /**
  * A node's truth without a solver: 'true' and 'false' are decisions; 'undefined' (Boolean nodes
- * only) says the node's term denotes no value; 'undecided' decides nothing.
+ * only) says the node's term denotes no value (a partial operation outside its domain, or path
+ * conditions without a model); 'undecided' decides nothing.
  */
 export type ConditionTruth = 'true' | 'false' | 'undefined' | 'undecided'
 

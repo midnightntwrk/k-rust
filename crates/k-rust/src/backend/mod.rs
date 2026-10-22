@@ -807,8 +807,9 @@ pub enum TruthOutput {
     True,
     /// The node does not hold (a Boolean node evaluates to `false`; a predicate is refuted).
     False,
-    /// A Boolean node denotes no value for the instance: a partial operation it does not discard
-    /// is outside its domain. Never on a predicate, which is two-valued.
+    /// A Boolean node denotes no value for the instance: a partial operation in it is outside its
+    /// domain (also in an operand `andThenBool` or `orElseBool` discards), or the path and match
+    /// conditions have no model. Never on a predicate, which is two-valued.
     Undefined,
     /// Not decided: the node may be true, false or (if Boolean) undefined.
     Undecided,
