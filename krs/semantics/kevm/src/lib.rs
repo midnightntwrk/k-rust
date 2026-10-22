@@ -530,10 +530,7 @@ pub fn AccountEmpty(
     nonce: k::Term<Int>,
     balance: k::Term<Int>,
 ) -> k::Term<Bool> {
-    bool::and(
-        int::eq(bytes::length(code), 0),
-        bool::and(int::eq(nonce, 0), int::eq(balance, 0)),
-    )
+    int::eq(bytes::length(code), 0) && int::eq(nonce, 0) && int::eq(balance, 0)
 }
 
 #[k::function(
@@ -1769,10 +1766,7 @@ fn storage_store_cost_unchanged(
     int::add(100, ColdStorageSurcharge(warm))
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(int::eq(original, current), int::eq(original, 0)),
-))]
+#[k::requires(int::ne(current, new) && int::eq(original, current) && int::eq(original, 0))]
 #[k::equation]
 fn storage_store_cost_set(
     k::term![StorageStoreCost {
@@ -1785,10 +1779,7 @@ fn storage_store_cost_set(
     int::add(20000, ColdStorageSurcharge(warm))
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(int::eq(original, current), int::ne(original, 0)),
-))]
+#[k::requires(int::ne(current, new) && int::eq(original, current) && int::ne(original, 0))]
 #[k::equation]
 fn storage_store_cost_reset(
     k::term![StorageStoreCost {
@@ -1801,7 +1792,7 @@ fn storage_store_cost_reset(
     int::add(2900, ColdStorageSurcharge(warm))
 }
 
-#[k::requires(bool::and(int::ne(current, new), int::ne(original, current)))]
+#[k::requires(int::ne(current, new) && int::ne(original, current))]
 #[k::equation]
 fn storage_store_cost_dirty(
     k::term![StorageStoreCost {
@@ -1826,13 +1817,9 @@ fn storage_refund_unchanged(
     0
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(
-        int::eq(original, current),
-        bool::and(int::ne(original, 0), int::eq(new, 0)),
-    ),
-))]
+#[k::requires(
+    int::ne(current, new) && int::eq(original, current) && int::ne(original, 0) && int::eq(new, 0)
+)]
 #[k::equation]
 fn storage_refund_clean_clear(
     k::term![StorageRefundDelta {
@@ -1844,13 +1831,9 @@ fn storage_refund_clean_clear(
     4800
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(
-        int::eq(original, current),
-        bool::or(int::eq(original, 0), int::ne(new, 0)),
-    ),
-))]
+#[k::requires(
+    int::ne(current, new) && int::eq(original, current) && (int::eq(original, 0) || int::ne(new, 0))
+)]
 #[k::equation]
 fn storage_refund_clean_no_clear(
     k::term![StorageRefundDelta {
@@ -1862,10 +1845,7 @@ fn storage_refund_clean_no_clear(
     0
 }
 
-#[k::requires(bool::and(
-    int::ne(original, current),
-    bool::and(int::eq(original, 0), int::eq(new, original)),
-))]
+#[k::requires(int::ne(original, current) && int::eq(original, 0) && int::eq(new, original))]
 #[k::equation]
 fn storage_refund_restore_new_slot(
     k::term![StorageRefundDelta {
@@ -1877,13 +1857,12 @@ fn storage_refund_restore_new_slot(
     19900
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(
-        int::ne(original, current),
-        bool::and(int::eq(original, 0), int::ne(new, original)),
-    ),
-))]
+#[k::requires(
+    int::ne(current, new)
+        && int::ne(original, current)
+        && int::eq(original, 0)
+        && int::ne(new, original)
+)]
 #[k::equation]
 fn storage_refund_dirty_new_slot(
     k::term![StorageRefundDelta {
@@ -1895,13 +1874,12 @@ fn storage_refund_dirty_new_slot(
     0
 }
 
-#[k::requires(bool::and(
-    int::ne(original, current),
-    bool::and(
-        int::ne(original, 0),
-        bool::and(int::eq(current, 0), int::eq(new, original)),
-    ),
-))]
+#[k::requires(
+    int::ne(original, current)
+        && int::ne(original, 0)
+        && int::eq(current, 0)
+        && int::eq(new, original)
+)]
 #[k::equation]
 fn storage_refund_restore_cleared_slot(
     k::term![StorageRefundDelta {
@@ -1913,16 +1891,13 @@ fn storage_refund_restore_cleared_slot(
     -2000
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(
-        int::ne(original, current),
-        bool::and(
-            int::ne(original, 0),
-            bool::and(int::eq(current, 0), int::ne(new, original)),
-        ),
-    ),
-))]
+#[k::requires(
+    int::ne(current, new)
+        && int::ne(original, current)
+        && int::ne(original, 0)
+        && int::eq(current, 0)
+        && int::ne(new, original)
+)]
 #[k::equation]
 fn storage_refund_rewrite_cleared_slot(
     k::term![StorageRefundDelta {
@@ -1934,10 +1909,9 @@ fn storage_refund_rewrite_cleared_slot(
     -4800
 }
 
-#[k::requires(bool::and(
-    int::ne(original, current),
-    bool::and(int::ne(original, 0), bool::and(int::ne(current, 0), int::eq(new, 0)),),
-))]
+#[k::requires(
+    int::ne(original, current) && int::ne(original, 0) && int::ne(current, 0) && int::eq(new, 0)
+)]
 #[k::equation]
 fn storage_refund_clear_dirty_slot(
     k::term![StorageRefundDelta {
@@ -1949,13 +1923,12 @@ fn storage_refund_clear_dirty_slot(
     4800
 }
 
-#[k::requires(bool::and(
-    int::ne(original, current),
-    bool::and(
-        int::ne(original, 0),
-        bool::and(int::ne(current, 0), int::eq(new, original)),
-    ),
-))]
+#[k::requires(
+    int::ne(original, current)
+        && int::ne(original, 0)
+        && int::ne(current, 0)
+        && int::eq(new, original)
+)]
 #[k::equation]
 fn storage_refund_restore_dirty_slot(
     k::term![StorageRefundDelta {
@@ -1967,19 +1940,14 @@ fn storage_refund_restore_dirty_slot(
     2800
 }
 
-#[k::requires(bool::and(
-    int::ne(current, new),
-    bool::and(
-        int::ne(original, current),
-        bool::and(
-            int::ne(original, 0),
-            bool::and(
-                int::ne(current, 0),
-                bool::and(int::ne(new, 0), int::ne(new, original)),
-            ),
-        ),
-    ),
-))]
+#[k::requires(
+    int::ne(current, new)
+        && int::ne(original, current)
+        && int::ne(original, 0)
+        && int::ne(current, 0)
+        && int::ne(new, 0)
+        && int::ne(new, original)
+)]
 #[k::equation]
 fn storage_refund_other_dirty_slot(
     k::term![StorageRefundDelta {
@@ -2044,7 +2012,7 @@ fn prepare_storage_store_allowed(
     }
 }
 
-#[k::requires(bool::and(int::ge(pc, 0), int::lt(pc, bytes::length(program))))]
+#[k::requires(int::ge(pc, 0) && int::lt(pc, bytes::length(program)))]
 #[k::equation]
 fn lookup_opcode(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
     Decode {
@@ -2193,10 +2161,9 @@ fn memory_usage_nonpositive_width(
     used
 }
 
-#[k::requires(bool::and(
-    int::gt(width, 0),
-    int::ge(used, int::div(int::add(int::add(start, width), 31), 32)),
-))]
+#[k::requires(
+    int::gt(width, 0) && int::ge(used, int::div(int::add(int::add(start, width), 31), 32))
+)]
 #[k::equation]
 fn memory_usage_unchanged(
     k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
@@ -2204,10 +2171,9 @@ fn memory_usage_unchanged(
     used
 }
 
-#[k::requires(bool::and(
-    int::gt(width, 0),
-    int::lt(used, int::div(int::add(int::add(start, width), 31), 32)),
-))]
+#[k::requires(
+    int::gt(width, 0) && int::lt(used, int::div(int::add(int::add(start, width), 31), 32))
+)]
 #[k::equation]
 fn memory_usage_grows(
     k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
@@ -2261,19 +2227,19 @@ fn prepare_copy_memory_positive_width(
     )
 }
 
-#[k::requires(bool::and(int::ge(index, 0), int::lt(index, bytes::length(memory)),))]
+#[k::requires(int::ge(index, 0) && int::lt(index, bytes::length(memory)))]
 #[k::equation]
 fn memory_byte_present(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k::Term<Int> {
     bytes::get(memory, index)
 }
 
-#[k::requires(bool::or(int::lt(index, 0), int::ge(index, bytes::length(memory)),))]
+#[k::requires(int::lt(index, 0) || int::ge(index, bytes::length(memory)))]
 #[k::equation]
 fn memory_byte_absent(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k::Term<Int> {
     0
 }
 
-#[k::requires(bool::or(int::lt(index, 0), int::ge(index, bytes::length(value)),))]
+#[k::requires(int::lt(index, 0) || int::ge(index, bytes::length(value)))]
 #[k::equation]
 fn bytes_to_int_done(
     k::term![BytesToInt {
@@ -2285,7 +2251,7 @@ fn bytes_to_int_done(
     result
 }
 
-#[k::requires(bool::and(int::ge(index, 0), int::lt(index, bytes::length(value)),))]
+#[k::requires(int::ge(index, 0) && int::lt(index, bytes::length(value)))]
 #[k::equation]
 fn bytes_to_int_byte(
     k::term![BytesToInt {
@@ -2434,7 +2400,7 @@ fn resolve_return_data_copy_invalid(
     CopyResult::ReturnDataCopyInvalid { remaining }
 }
 
-#[k::requires(bool::or(int::lt(destination, 0), int::ge(destination, bytes::length(program)),))]
+#[k::requires(int::lt(destination, 0) || int::ge(destination, bytes::length(program)))]
 #[k::equation]
 fn invalid_jump_destination_outside_program(
     k::term![ValidJumpDestination {
@@ -2445,7 +2411,7 @@ fn invalid_jump_destination_outside_program(
     false
 }
 
-#[k::requires(bool::and(int::ge(destination, 0), int::lt(destination, bytes::length(program)),))]
+#[k::requires(int::ge(destination, 0) && int::lt(destination, bytes::length(program)))]
 #[k::equation]
 fn scan_jump_destination(
     k::term![ValidJumpDestination {
@@ -2490,19 +2456,11 @@ fn scan_jump_destination_found(
     )
 }
 
-#[k::requires(bool::and(
-    int::lt(cursor, destination),
-    bool::and(
-        int::ge(MemoryByte {
-            memory: program,
-            index: cursor
-        }, 96),
-        int::le(MemoryByte {
-            memory: program,
-            index: cursor
-        }, 127),
-    ),
-))]
+#[k::requires(
+    int::lt(cursor, destination)
+        && int::ge(MemoryByte { memory: program, index: cursor }, 96)
+        && int::le(MemoryByte { memory: program, index: cursor }, 127)
+)]
 #[k::equation]
 fn scan_jump_destination_past_push(
     k::term![ScanJumpDestination {
@@ -2527,19 +2485,10 @@ fn scan_jump_destination_past_push(
     }
 }
 
-#[k::requires(bool::and(
-    int::lt(cursor, destination),
-    bool::or(
-        int::lt(MemoryByte {
-            memory: program,
-            index: cursor
-        }, 96),
-        int::gt(MemoryByte {
-            memory: program,
-            index: cursor
-        }, 127),
-    ),
-))]
+#[k::requires(
+    int::lt(cursor, destination)
+        && (int::lt(MemoryByte { memory: program, index: cursor }, 96) || int::gt(MemoryByte { memory: program, index: cursor }, 127))
+)]
 #[k::equation]
 fn scan_jump_destination_past_opcode(
     k::term![ScanJumpDestination {
@@ -2640,58 +2589,55 @@ fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k:
     int::rem_euclid(dividend, divisor)
 }
 
-#[k::requires(bool::and(
-    int::le(
-        57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968,
-        value,
-    ),
-    int::lt(
-        value,
-        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-    ),
-))]
+#[k::requires(
+    int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value)
+        && int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)
+)]
 #[k::equation]
 fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     -1
 }
 
-#[k::requires(bool::and(
-    int::le(0, value),
-    int::lt(
-        value,
-        57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968,
-    ),
-))]
+#[k::requires(
+    int::le(0, value)
+        && int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)
+)]
 #[k::equation]
 fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     1
 }
 
-#[k::requires(bool::or(
-    int::lt(value, 0),
-    int::le(
-        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-        value,
-    ),
-))]
+#[k::requires(
+    int::lt(value, 0)
+        || int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)
+)]
 #[k::equation]
 fn sign_outside_word(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     0
 }
 
-#[k::requires(bool::and(int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value), int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)))]
+#[k::requires(
+    int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value)
+        && int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)
+)]
 #[k::equation]
 fn magnitude_negative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     Chop(int::sub(0, value))
 }
 
-#[k::requires(bool::and(int::le(0, value), int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)))]
+#[k::requires(
+    int::le(0, value)
+        && int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)
+)]
 #[k::equation]
 fn magnitude_nonnegative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     value
 }
 
-#[k::requires(bool::or(int::lt(value, 0), int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)))]
+#[k::requires(
+    int::lt(value, 0)
+        || int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)
+)]
 #[k::equation]
 fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     0
@@ -2747,13 +2693,13 @@ fn signed_word_mod_negative(
     ))
 }
 
-#[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), 1),))]
+#[k::requires(int::eq(Sign(left), 1) && int::eq(Sign(right), 1))]
 #[k::equation]
 fn signed_less_nonnegative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
     BoolToWord(int::lt(left, right))
 }
 
-#[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), -1),))]
+#[k::requires(int::eq(Sign(left), 1) && int::eq(Sign(right), -1))]
 #[k::equation]
 fn signed_less_positive_negative(
     k::term![SignedLess { left, right }]: k::Term<Int>,
@@ -2761,7 +2707,7 @@ fn signed_less_positive_negative(
     BoolToWord(false)
 }
 
-#[k::requires(bool::and(int::eq(Sign(left), -1), int::eq(Sign(right), 1),))]
+#[k::requires(int::eq(Sign(left), -1) && int::eq(Sign(right), 1))]
 #[k::equation]
 fn signed_less_negative_positive(
     k::term![SignedLess { left, right }]: k::Term<Int>,
@@ -2769,10 +2715,7 @@ fn signed_less_negative_positive(
     BoolToWord(true)
 }
 
-#[k::requires(bool::and(
-    int::eq(Sign(left), -1),
-    int::eq(Sign(right), -1),
-))]
+#[k::requires(int::eq(Sign(left), -1) && int::eq(Sign(right), -1))]
 #[k::equation]
 fn signed_less_negative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
     BoolToWord(int::lt(Magnitude(right), Magnitude(left)))
@@ -2793,25 +2736,25 @@ fn exp_cost_positive(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> 
     )
 }
 
-#[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
+#[k::requires(int::ge(value, 0) && int::ge(shift, 0) && int::lt(shift, 256))]
 #[k::equation]
 fn shift_left_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
     Chop(int::shift_left(value, shift))
 }
 
-#[k::requires(bool::or(int::lt(value, 0), bool::or(int::lt(shift, 0), int::ge(shift, 256)),))]
+#[k::requires(int::lt(value, 0) || int::lt(shift, 0) || int::ge(shift, 256))]
 #[k::equation]
 fn shift_left_outside_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
     0
 }
 
-#[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
+#[k::requires(int::ge(value, 0) && int::ge(shift, 0) && int::lt(shift, 256))]
 #[k::equation]
 fn shift_right_word(k::term![WordShiftRight { value, shift }]: k::Term<Int>) -> k::Term<Int> {
     int::shift_right(value, shift)
 }
 
-#[k::requires(bool::or(int::lt(value, 0), bool::or(int::lt(shift, 0), int::ge(shift, 256)),))]
+#[k::requires(int::lt(value, 0) || int::lt(shift, 0) || int::ge(shift, 256))]
 #[k::equation]
 fn shift_right_outside_word(
     k::term![WordShiftRight { value, shift }]: k::Term<Int>,
@@ -2819,7 +2762,7 @@ fn shift_right_outside_word(
     0
 }
 
-#[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
+#[k::requires(int::ge(value, 0) && int::ge(shift, 0) && int::lt(shift, 256))]
 #[k::equation]
 fn signed_shift_right_word(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
@@ -2830,10 +2773,7 @@ fn signed_shift_right_word(
     ))
 }
 
-#[k::requires(bool::and(
-    bool::and(int::ge(value, 0), int::ge(shift, 256)),
-    int::eq(Sign(value), -1),
-))]
+#[k::requires(int::ge(value, 0) && int::ge(shift, 256) && int::eq(Sign(value), -1))]
 #[k::equation]
 fn signed_shift_right_large_negative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
@@ -2844,10 +2784,7 @@ fn signed_shift_right_large_negative(
     )
 }
 
-#[k::requires(bool::and(
-    bool::and(int::ge(value, 0), int::ge(shift, 256)),
-    int::ne(Sign(value), -1),
-))]
+#[k::requires(int::ge(value, 0) && int::ge(shift, 256) && int::ne(Sign(value), -1))]
 #[k::equation]
 fn signed_shift_right_large_nonnegative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
@@ -2855,7 +2792,7 @@ fn signed_shift_right_large_nonnegative(
     0
 }
 
-#[k::requires(bool::or(int::lt(value, 0), int::lt(shift, 0)))]
+#[k::requires(int::lt(value, 0) || int::lt(shift, 0))]
 #[k::equation]
 fn signed_shift_right_outside_word(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
@@ -2863,7 +2800,7 @@ fn signed_shift_right_outside_word(
     0
 }
 
-#[k::requires(bool::and(int::ge(index, 0), int::lt(index, 32)))]
+#[k::requires(int::ge(index, 0) && int::lt(index, 32))]
 #[k::equation]
 fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
     int::rem_euclid(
@@ -2872,20 +2809,20 @@ fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<In
     )
 }
 
-#[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
+#[k::requires(int::lt(index, 0) || int::ge(index, 32))]
 #[k::equation]
 fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
     0
 }
 
-#[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
+#[k::requires(int::lt(index, 0) || int::ge(index, 32))]
 #[k::equation]
 fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     value
 }
 
 #[k::requires(
-    bool::and(int::ge(index, 0), int::lt(index, 32))
+    int::ge(index, 0) && int::lt(index, 32)
         && int::lt(SignExtendByte { index, value }, 128)
 )]
 #[k::equation]
@@ -2897,7 +2834,7 @@ fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>)
 }
 
 #[k::requires(
-    bool::and(int::ge(index, 0), int::lt(index, 32))
+    int::ge(index, 0) && int::lt(index, 32)
         && int::ge(SignExtendByte { index, value }, 128)
 )]
 #[k::equation]
@@ -2927,7 +2864,7 @@ fn block_hash_future(
     0
 }
 
-#[k::requires(bool::and(int::le(requested, highest), int::ge(age, 256)))]
+#[k::requires(int::le(requested, highest) && int::ge(age, 256))]
 #[k::equation]
 fn block_hash_too_old(
     k::term![BlockHashLookup {
@@ -2941,7 +2878,7 @@ fn block_hash_too_old(
 }
 
 #[k::requires(bool::and(
-    bool::and(int::le(requested, highest), int::lt(age, 256)),
+    int::le(requested, highest) && int::lt(age, 256),
     int::lt(age, list::size(hashes)) && int::eq(list::get(hashes, age), 0),
 ))]
 #[k::equation]
@@ -2957,7 +2894,7 @@ fn block_hash_zero_sentinel(
 }
 
 #[k::requires(bool::and(
-    bool::and(int::eq(requested, highest), int::lt(age, 256)),
+    int::eq(requested, highest) && int::lt(age, 256),
     int::lt(age, list::size(hashes)) && int::ne(list::get(hashes, age), 0),
 ))]
 #[k::equation]
@@ -2973,7 +2910,7 @@ fn block_hash_found(
 }
 
 #[k::requires(bool::and(
-    bool::and(int::lt(requested, highest), int::lt(age, 256)),
+    int::lt(requested, highest) && int::lt(age, 256),
     int::lt(age, list::size(hashes)) && int::ne(list::get(hashes, age), 0),
 ))]
 #[k::equation]
@@ -3176,7 +3113,7 @@ fn prepare_duplicate_underflow(
     GasResult::StackUnderflowResult()
 }
 
-#[k::requires(bool::and(int::ge(StackSize(stack), depth), int::lt(StackSize(stack), 1024),))]
+#[k::requires(int::ge(StackSize(stack), depth) && int::lt(StackSize(stack), 1024))]
 #[k::equation]
 fn prepare_duplicate(
     k::term![PrepareStack {
@@ -3192,7 +3129,7 @@ fn prepare_duplicate(
     }
 }
 
-#[k::requires(bool::and(int::ge(StackSize(stack), depth), int::ge(StackSize(stack), 1024),))]
+#[k::requires(int::ge(StackSize(stack), depth) && int::ge(StackSize(stack), 1024))]
 #[k::equation]
 fn prepare_duplicate_overflow(
     k::term![PrepareStack {
@@ -3704,17 +3641,11 @@ fn bn128_point_bytes(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(StaticCallGas { requested, available }, 150),
-    bool::and(
-        Bn128PointValid {
-            point: EcAddFirstPoint { data }
-        },
-        Bn128PointValid {
-            point: EcAddSecondPoint { data }
-        },
-    ),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, 150)
+        && Bn128PointValid { point: EcAddFirstPoint { data } }
+        && Bn128PointValid { point: EcAddSecondPoint { data } }
+)]
 #[k::equation]
 fn resolve_ecadd_precompile_success(
     k::term![ResolveEcAddPrecompile {
@@ -3748,12 +3679,10 @@ fn resolve_ecadd_precompile_out_of_gas(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(StaticCallGas { requested, available }, 150),
-    bool::not(Bn128PointValid {
-        point: EcAddFirstPoint { data }
-    }),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, 150)
+        && bool::not(Bn128PointValid { point: EcAddFirstPoint { data } })
+)]
 #[k::equation]
 fn resolve_ecadd_precompile_invalid_first_point(
     k::term![ResolveEcAddPrecompile {
@@ -3773,17 +3702,11 @@ fn resolve_ecadd_precompile_invalid_first_point(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(StaticCallGas { requested, available }, 150),
-    bool::and(
-        Bn128PointValid {
-            point: EcAddFirstPoint { data }
-        },
-        bool::not(Bn128PointValid {
-            point: EcAddSecondPoint { data }
-        }),
-    ),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, 150)
+        && Bn128PointValid { point: EcAddFirstPoint { data } }
+        && bool::not(Bn128PointValid { point: EcAddSecondPoint { data } })
+)]
 #[k::equation]
 fn resolve_ecadd_precompile_invalid_second_point(
     k::term![ResolveEcAddPrecompile {
@@ -3803,12 +3726,10 @@ fn resolve_ecadd_precompile_invalid_second_point(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(StaticCallGas { requested, available }, 6000),
-    Bn128PointValid {
-        point: EcMulPoint { data }
-    },
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, 6000)
+        && Bn128PointValid { point: EcMulPoint { data } }
+)]
 #[k::equation]
 fn resolve_ecmul_precompile_success(
     k::term![ResolveEcMulPrecompile {
@@ -3842,12 +3763,10 @@ fn resolve_ecmul_precompile_out_of_gas(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(StaticCallGas { requested, available }, 6000),
-    bool::not(Bn128PointValid {
-        point: EcMulPoint { data }
-    }),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, 6000)
+        && bool::not(Bn128PointValid { point: EcMulPoint { data } })
+)]
 #[k::equation]
 fn resolve_ecmul_precompile_invalid_point(
     k::term![ResolveEcMulPrecompile {
@@ -3950,37 +3869,22 @@ fn ecpairing_points_valid_next(
         length
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    bool::and(
-        Bn128PointValid {
-            point: EcPairingG1Point { data, index },
-        },
-        bool::and(
-            Bn128G2PointValid {
-                point: EcPairingG2Point { data, index },
-            },
-            EcPairingPointsValid {
-                data,
-                index: int::add(index, 192),
-                length,
-            },
-        ),
-    )
+    Bn128PointValid {
+        point: EcPairingG1Point { data, index },
+    } && Bn128G2PointValid {
+        point: EcPairingG2Point { data, index },
+    } && EcPairingPointsValid {
+        data,
+        index: int::add(index, 192),
+        length,
+    }
 }
 
-#[k::requires(bool::and(
-    int::ge(
-        StaticCallGas { requested, available },
-        EcPairingPrecompileCost { data }
-    ),
-    bool::and(
-        int::eq(int::rem_euclid(bytes::length(data), 192), 0),
-        EcPairingPointsValid {
-            data,
-            index: 0,
-            length: bytes::length(data)
-        },
-    ),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, EcPairingPrecompileCost { data })
+        && int::eq(int::rem_euclid(bytes::length(data), 192), 0)
+        && EcPairingPointsValid { data, index: 0, length: bytes::length(data) }
+)]
 #[k::equation]
 fn resolve_ecpairing_precompile_success(
     k::term![ResolveEcPairingPrecompile {
@@ -4017,13 +3921,10 @@ fn resolve_ecpairing_precompile_out_of_gas(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(
-        StaticCallGas { requested, available },
-        EcPairingPrecompileCost { data }
-    ),
-    int::ne(int::rem_euclid(bytes::length(data), 192), 0),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, EcPairingPrecompileCost { data })
+        && int::ne(int::rem_euclid(bytes::length(data), 192), 0)
+)]
 #[k::equation]
 fn resolve_ecpairing_precompile_malformed_length(
     k::term![ResolveEcPairingPrecompile {
@@ -4043,20 +3944,11 @@ fn resolve_ecpairing_precompile_malformed_length(
     }
 }
 
-#[k::requires(bool::and(
-    int::ge(
-        StaticCallGas { requested, available },
-        EcPairingPrecompileCost { data }
-    ),
-    bool::and(
-        int::eq(int::rem_euclid(bytes::length(data), 192), 0),
-        bool::not(EcPairingPointsValid {
-            data,
-            index: 0,
-            length: bytes::length(data)
-        }),
-    ),
-))]
+#[k::requires(
+    int::ge(StaticCallGas { requested, available }, EcPairingPrecompileCost { data })
+        && int::eq(int::rem_euclid(bytes::length(data), 192), 0)
+        && bool::not(EcPairingPointsValid { data, index: 0, length: bytes::length(data) })
+)]
 #[k::equation]
 fn resolve_ecpairing_precompile_invalid_point(
     k::term![ResolveEcPairingPrecompile {
@@ -5441,10 +5333,9 @@ k::rules! {
         gas: remaining,
     };
 
-    #[k::requires(bool::and(
-    int::eq(account, present_account),
-    bool::not(crate::AccountEmpty { code, nonce, balance }),
-    ))]
+    #[k::requires(
+        int::eq(account, present_account) && bool::not(crate::AccountEmpty { code, nonce, balance })
+    )]
     #[k::rule(label = "extcodehash-true")]
     exec_external_code_hash_nonempty: {
         k: [GasResult::EnoughGas(Operation::ExternalCodeHash, remaining), ..],
@@ -7174,13 +7065,11 @@ k::rules! {
         gas: remaining,
     };
 
-    #[k::requires(bool::and(
-    int::gt(account, 9),
-    bool::and(
-    int::eq(account, present_account),
-    bool::not(crate::AccountEmpty { code, nonce, balance }),
-    ),
-    ))]
+    #[k::requires(
+        int::gt(account, 9)
+            && int::eq(account, present_account)
+            && bool::not(crate::AccountEmpty { code, nonce, balance })
+    )]
     exec_static_call_nonempty: {
         k: [GasResult::EnoughGas(Operation::StaticCall, remaining), ..],
         call_stack: call_stack,
@@ -7644,16 +7533,12 @@ k::rules! {
         code_address: caller_code_address,
     };
 
-    #[k::requires(bool::and(
-    int::gt(account, 9),
-    bool::or(
-    int::ne(account, present_account),
-    bool::and(
-    int::eq(account, present_account),
-    crate::AccountEmpty { code, nonce, balance },
-    ),
-    ),
-    ))]
+    #[k::requires(
+        int::gt(account, 9)
+            && (int::ne(account, present_account)
+                || (int::eq(account, present_account)
+                    && crate::AccountEmpty { code, nonce, balance }))
+    )]
     #[k::rule(owise)]
     exec_static_call_empty_or_absent: {
         k: [GasResult::EnoughGas(Operation::StaticCall, remaining), ..],
