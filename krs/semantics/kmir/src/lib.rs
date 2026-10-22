@@ -5175,8 +5175,8 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
-        types: types,
+        locals,
+        types,
     } => {
         k: [
             Execution::EvalOperand {
@@ -5211,8 +5211,8 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
-        types: types,
+        locals,
+        types,
     } => {
         k: [
             Execution::EvalOperand {
@@ -5242,8 +5242,8 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
-        types: types,
+        locals,
+        types,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -5281,7 +5281,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::ResolveAddressOf {
@@ -5334,7 +5334,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::SetLocalValue {
@@ -5387,7 +5387,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::SetLocalValue {
@@ -5411,7 +5411,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::SetLocalValue {
@@ -5571,8 +5571,8 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
-        types: types,
+        locals,
+        types,
     } => {
         k: [
             Execution::EvalOperand {
@@ -5618,8 +5618,8 @@ k::rules! {
             },
             ..
         ],
-        types: types,
-        memory: memory,
+        types,
+        memory,
     } => {
         k: [
             Execution::Continue {
@@ -5652,7 +5652,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::Continue {
@@ -5671,7 +5671,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::Continue {
@@ -5692,7 +5692,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::ReadLocal {
@@ -5718,7 +5718,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::ReadProjectedLocal {
@@ -5741,7 +5741,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::ReadLocal {
@@ -5767,7 +5767,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::ReadMovedProjectedLocal {
@@ -5804,7 +5804,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [Execution::Continue { value, continuation }, ..],
         locals: list::update(
@@ -5824,7 +5824,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -5849,7 +5849,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -6030,7 +6030,7 @@ k::rules! {
             },
             ..
         ],
-        stack: stack,
+        stack,
     } => {
         k: [..],
         stack: list::update(
@@ -6084,7 +6084,7 @@ k::rules! {
             },
             ..
         ],
-        stack: stack,
+        stack,
     } => {
         k: [Execution::Continue { value, continuation }, ..],
         stack: list::update(
@@ -6608,7 +6608,7 @@ k::rules! {
             },
             ..
         ],
-        stack: stack,
+        stack,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -6642,7 +6642,7 @@ k::rules! {
             },
             ..
         ],
-        memory: memory,
+        memory,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -6678,7 +6678,7 @@ k::rules! {
             },
             ..
         ],
-        memory: memory,
+        memory,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -6990,7 +6990,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7158,7 +7158,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7204,7 +7204,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7253,7 +7253,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7335,7 +7335,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7376,7 +7376,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7504,7 +7504,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -7551,7 +7551,7 @@ k::rules! {
             },
             ..
         ],
-        types: types,
+        types,
     } => {
         k: [
             Execution::ResolvePtrCast {
@@ -8695,7 +8695,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [Execution::WriteLocal { entry: list::get(locals, local), index: local, value }, ..],
     };
@@ -8711,7 +8711,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::WriteProjectedLocal {
@@ -8734,7 +8734,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [
             Execution::TraverseProjection {
@@ -8758,7 +8758,7 @@ k::rules! {
             },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [..],
         locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
@@ -8769,7 +8769,7 @@ k::rules! {
             Execution::WriteLocal { entry: LocalValue::NewLocal { ty, mutability }, index, value },
             ..
         ],
-        locals: locals,
+        locals,
     } => {
         k: [..],
         locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
@@ -8810,15 +8810,15 @@ k::rules! {
             ),
             ..
         ],
-        current_func: current_func,
-        current_body: current_body,
+        current_func,
+        current_body,
         caller: old_caller,
         dest: old_dest,
         target: old_target,
         unwind: old_unwind,
         locals: caller_locals,
-        stack: stack,
-        functions: functions,
+        stack,
+        functions,
     } => {
         k: [Execution::SetArgsFromStack { index: 1, args }, Execution::ExecBlockIdx(0), ..],
         current_func: callee,
@@ -8826,7 +8826,7 @@ k::rules! {
         caller: current_func,
         dest: destination,
         target: MirMaybeBasicBlockIdx::SomeBasicBlockIdx(target),
-        unwind: unwind,
+        unwind,
         locals: FunctionLocals { function: map::get(functions, callee) },
         stack: list::concat(
             list::item(
@@ -9207,7 +9207,7 @@ k::rules! {
         k: [Execution::ExecTerminator(MirTerminator::Return()), ..],
         current_func: callee,
         current_body: callee_body,
-        caller: caller,
+        caller,
         dest: destination,
         target: MirMaybeBasicBlockIdx::SomeBasicBlockIdx(target),
         unwind: callee_unwind,
@@ -9230,7 +9230,7 @@ k::rules! {
             ),
             remaining_stack
         ),
-        functions: functions,
+        functions,
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [
@@ -9252,7 +9252,7 @@ k::rules! {
         k: [Execution::ExecTerminator(MirTerminator::Return()), ..],
         current_func: callee,
         current_body: callee_body,
-        caller: caller,
+        caller,
         dest: destination,
         target: MirMaybeBasicBlockIdx::SomeBasicBlockIdx(target),
         unwind: callee_unwind,
@@ -9273,7 +9273,7 @@ k::rules! {
             ),
             remaining_stack
         ),
-        functions: functions,
+        functions,
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
@@ -9290,7 +9290,7 @@ k::rules! {
     top_level_return: {
         k: [Execution::ExecTerminator(MirTerminator::Return()), ..],
         target: MirMaybeBasicBlockIdx::NoBasicBlockIdx(),
-        locals: locals,
+        locals,
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [Execution::ReturnLocal { entry: list::get(locals, 0) }, ..],
