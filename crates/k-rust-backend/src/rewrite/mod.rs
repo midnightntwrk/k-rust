@@ -635,13 +635,15 @@ pub struct ExecutionOptions {
     pub collect_offered: bool,
     /// With [`Self::collect_coverage`], also record the condition entries of the rewrite rules it
     /// names ([`crate::coverage::RunCoverage::conditions`]): for each entry into a named rule's
-    /// `requires` for a matched instance, the bindings of the variables the condition reads and
-    /// its atoms evaluated under the instance, up to the collection's caps
+    /// `requires` for a matched instance, the bindings of the variables the condition reads, the
+    /// condition with every node's truth and its atoms' operands evaluated under the instance, and
+    /// the attempt's verdict, up to the collection's caps
     /// ([`crate::coverage::ConditionCollection`]). Off by default (`None`); ignored without
-    /// `collect_coverage`. Each new entry of a named rule costs one isolated simplification of each
-    /// atom and of each of its operands, without a solver; an entry equal to one recorded costs a
-    /// lookup, and a run that names no rule entered pays nothing. Recording changes nothing else
-    /// in the result.
+    /// `collect_coverage`. Each new entry of a named rule costs about one more evaluation of the
+    /// condition, isolated, without a solver, off the run's clock (the step deadline is not
+    /// charged with it) and bounded by its own budget of polls; an entry equal to one recorded
+    /// costs a lookup, and a run that names no rule entered pays nothing. Recording changes
+    /// nothing else in the result, also under a step timeout.
     pub collect_conditions: Option<crate::coverage::ConditionCollection>,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///

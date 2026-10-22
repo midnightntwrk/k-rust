@@ -276,7 +276,8 @@ export interface ExecuteOptions {
   /**
    * With `collectCoverage`, also report `RunCoverage.conditions`: for each rewrite rule named
    * (by id or label) whose `requires` the run began to decide, the bindings of the variables the
-   * condition reads and the condition's atoms with their operands evaluated under the instance.
+   * condition reads, the condition with every node's truth and its atoms' operands evaluated
+   * under the instance, and the attempt's verdict.
    * A request that sets it without `collectCoverage` is refused; asking changes no other field
    * (docs/compatibility.md, "Run coverage").
    */
@@ -544,10 +545,12 @@ export interface RunCoverage {
 export interface ConditionCollection {
   /** Rewrite rules by `UNIQUE_ID` or label. */
   rules: string[]
-  /** The most records kept per rule, the first distinct entries in the run's order (default 32). */
+  /** The most records kept per rule: the first distinct entries in the run's order, with no preference among them (default 32). */
   limit?: number
   /** The largest value a record holds, in term nodes (default 256); larger ones are 'omitted'. */
   maxValueSize?: number
+  /** The most polls one record's evaluation may make (default 1000000); what it stops is 'stopped' or 'undecided'. */
+  recordPolls?: number
 }
 
 export interface RuleConditions {
@@ -559,15 +562,30 @@ export interface RuleConditions {
   truncated?: boolean
 }
 
-/** One entry into a rule's `requires`, recorded before the condition was decided. */
+/** One entry into a rule's `requires`: its bindings, the condition with every node's truth, and the attempt's verdict. */
 export interface ConditionRecord {
   /** The bindings of the condition's variables, named as the rule is written, sorted. */
   bindings: RecordedBinding[]
-  /** The `requires` as written, one node per conjunct. */
+  /** The `requires` as written, one predicate node per conjunct; it holds exactly when every conjunct is 'true'. */
   condition: ConditionNode[]
+  /** What the attempt decided about the condition, with the run's solver. */
+  verdict?: ConditionVerdict
   /** Present (true) when the run had read an implementation-chosen value: terms may be one model's. */
   chosen?: boolean
 }
+
+/**
+ * 'held' (the rule's successor is built), 'refuted' (false, undefined or contradicted by the path),
+ * 'undecided', 'stopped', or 'reentered' (the condition bound variables the match left unbound; the
+ * rule's next record is the complete entry).
+ */
+export type ConditionVerdict = 'held' | 'refuted' | 'undecided' | 'stopped' | 'reentered'
+
+/**
+ * A node's truth without a solver: 'true' and 'false' are decisions; 'undefined' (Boolean nodes
+ * only) says the node's term denotes no value; 'undecided' decides nothing.
+ */
+export type ConditionTruth = 'true' | 'false' | 'undefined' | 'undecided'
 
 export interface RecordedBinding {
   variable: Kore
@@ -575,24 +593,43 @@ export interface RecordedBinding {
 }
 
 /**
- * A term of a record: 'value' (constructors and domain values only), 'ground' (variable-free with
- * an unevaluated application), 'symbolic' (with variables), 'undefined', or 'omitted' (larger than
- * `maxValueSize`).
+ * A term of a record: 'value' (constructors and domain values only), 'unevaluated' (variable-free
+ * with an application left as it is), 'symbolic' (with variables), 'undefined', 'stopped' (its
+ * evaluation was interrupted), or 'omitted' (larger than `maxValueSize`).
  */
 export type RecordedValue =
-  | { kind: 'value' | 'ground' | 'symbolic'; term: Kore }
-  | { kind: 'undefined' | 'omitted' }
+  | { kind: 'value' | 'unevaluated' | 'symbolic'; term: Kore }
+  | { kind: 'undefined' | 'stopped' | 'omitted' }
 
-/** The Boolean structure of a condition as written; every other subterm is an atom. */
+/**
+ * The K Boolean connectives (strict functions on Bool) and the matching-logic ones (on two-valued
+ * predicates).
+ */
+export type ConditionConnective =
+  | 'notBool'
+  | 'andBool'
+  | 'andThenBool'
+  | 'orBool'
+  | 'orElseBool'
+  | 'impliesBool'
+  | 'xorBool'
+  | '\\not'
+  | '\\and'
+  | '\\or'
+  | '\\implies'
+  | '\\iff'
+
+/**
+ * A node of a condition as written, with its truth: a connective, `\equals(b, literal)` of a Boolean
+ * term ('equals': 'true' exactly where `b` is defined and equal to `literal`), or an atom.
+ */
 export type ConditionNode =
-  | { and: ConditionNode[] }
-  | { or: ConditionNode[] }
-  | { not: ConditionNode }
-  | { implies: [ConditionNode, ConditionNode] }
-  | { atom: ConditionAtom }
+  | { node: 'connective'; connective: ConditionConnective; children: ConditionNode[]; value: ConditionTruth }
+  | { node: 'equals'; literal: boolean; child: ConditionNode; value: ConditionTruth }
+  | ({ node: 'atom' } & ConditionAtom)
 
 export interface ConditionAtom {
-  /** The KORE symbol, a matching-logic connective such as `\equals`, or absent for a variable or literal. */
+  /** The KORE symbol, a matching-logic connective such as `\equals`, 'absent', or absent for a variable or literal. */
   head?: string
   /** The symbol's hook, such as 'INT.lt'. */
   hook?: string
@@ -600,8 +637,8 @@ export interface ConditionAtom {
   operands: RecordedValue[]
   /** The positions in the record's `bindings` of the variables the atom mentions; absent when none. */
   reads?: number[]
-  /** The atom's truth without a solver: true, false (refuted), absent (undecided). */
-  value?: boolean
+  /** The atom's truth. */
+  value: ConditionTruth
 }
 
 export interface TransitionId {

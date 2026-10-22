@@ -2087,6 +2087,7 @@ fn rule_conditions_output<K: WireKore>(
                         .into_iter()
                         .map(condition_node_output)
                         .collect::<Result<_, _>>()?,
+                    verdict: record.verdict.map(Into::into),
                     chosen: record.chosen,
                 })
             })
@@ -2107,15 +2108,24 @@ fn condition_node_output<K: WireKore>(
             .collect::<Result<Vec<_>, _>>()
     };
     Ok(match node {
-        ConditionNode::And(conjuncts) => ConditionNodeOutput::And(nodes(conjuncts)?),
-        ConditionNode::Or(disjuncts) => ConditionNodeOutput::Or(nodes(disjuncts)?),
-        ConditionNode::Not(operand) => {
-            ConditionNodeOutput::Not(Box::new(condition_node_output(*operand)?))
-        }
-        ConditionNode::Implies(left, right) => ConditionNodeOutput::Implies(
-            Box::new(condition_node_output(*left)?),
-            Box::new(condition_node_output(*right)?),
-        ),
+        ConditionNode::Connective {
+            connective,
+            children,
+            value,
+        } => ConditionNodeOutput::Connective {
+            connective: connective.into(),
+            children: nodes(children)?,
+            value: value.into(),
+        },
+        ConditionNode::Equals {
+            literal,
+            child,
+            value,
+        } => ConditionNodeOutput::Equals {
+            literal,
+            child: Box::new(condition_node_output(*child)?),
+            value: value.into(),
+        },
         ConditionNode::Atom(atom) => ConditionNodeOutput::Atom(ConditionAtomOutput {
             head: atom.head,
             hook: atom.hook,
@@ -2125,7 +2135,7 @@ fn condition_node_output<K: WireKore>(
                 .map(recorded_value_output)
                 .collect::<Result<_, _>>()?,
             reads: atom.reads,
-            value: atom.value,
+            value: atom.value.into(),
         }),
     })
 }
@@ -2138,13 +2148,14 @@ fn recorded_value_output<K: WireKore>(
         RecordedValue::Value(term) => RecordedValueOutput::Value {
             term: encode_term(&term)?,
         },
-        RecordedValue::Ground(term) => RecordedValueOutput::Ground {
+        RecordedValue::Unevaluated(term) => RecordedValueOutput::Unevaluated {
             term: encode_term(&term)?,
         },
         RecordedValue::Symbolic(term) => RecordedValueOutput::Symbolic {
             term: encode_term(&term)?,
         },
         RecordedValue::Undefined => RecordedValueOutput::Undefined,
+        RecordedValue::Stopped => RecordedValueOutput::Stopped,
         RecordedValue::Omitted => RecordedValueOutput::Omitted,
     })
 }

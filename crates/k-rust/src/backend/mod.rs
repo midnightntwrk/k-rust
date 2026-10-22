@@ -356,12 +356,13 @@ pub struct ExecuteRequest {
     pub collect_offered: bool,
     /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::conditions`] (wire
     /// `collectConditions`): for each rewrite rule it names whose `requires` the run began to
-    /// decide for a matched instance, the bindings of the variables the condition reads and the
-    /// condition's atoms with their operands evaluated under the instance, up to its caps
-    /// ([`ConditionCollection`]). Off by default; a request that sets it without
-    /// `collect_coverage` is refused. Asking changes no other field of the result; each new entry
-    /// of a named rule costs one simplification of each atom and of each operand
-    /// (docs/compatibility.md, "Run coverage").
+    /// decide for a matched instance, the bindings of the variables the condition reads, the
+    /// condition with every node's truth and its atoms' operands evaluated under the instance, and
+    /// the attempt's verdict, up to its caps ([`ConditionCollection`]). Off by default; a request
+    /// that sets it without `collect_coverage` is refused. Asking changes no other field of the
+    /// result, also under a step timeout: the records are evaluated off the run's clock, each
+    /// bounded by its own budget of polls, and cost about one more evaluation of the condition
+    /// per new entry, in wall time (docs/compatibility.md, "Run coverage").
     #[serde(default)]
     pub collect_conditions: Option<ConditionCollection>,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
@@ -656,14 +657,20 @@ pub struct ConditionCollection {
     /// names an equation, records nothing.
     pub rules: Vec<String>,
     /// The most records kept per rule: the first `limit` distinct entries in the run's order
-    /// (default 32); a rule with a further distinct entry is marked
-    /// [`RuleConditionsOutput::truncated`].
+    /// (default 32), with no preference among them, so an entry closer to satisfying the
+    /// condition that the run makes later can be left out; a rule with a further distinct entry
+    /// is marked [`RuleConditionsOutput::truncated`].
     #[serde(default = "default_condition_limit")]
     pub limit: usize,
     /// The largest value a record holds, in term nodes (default 256); a larger one is reported
     /// as [`RecordedValueOutput::Omitted`].
     #[serde(default = "default_max_value_size")]
     pub max_value_size: usize,
+    /// The most polls the evaluation of one record may make (default 1,000,000): its work bound,
+    /// since it runs off the run's clock. What the bound stops is reported as
+    /// [`RecordedValueOutput::Stopped`] and [`TruthOutput::Undecided`].
+    #[serde(default = "default_record_polls")]
+    pub record_polls: u64,
 }
 
 impl ConditionCollection {
@@ -673,6 +680,7 @@ impl ConditionCollection {
             rules: rules.into_iter().map(Into::into).collect(),
             limit: default_condition_limit(),
             max_value_size: default_max_value_size(),
+            record_polls: default_record_polls(),
         }
     }
 }
@@ -685,11 +693,16 @@ fn default_max_value_size() -> usize {
     k_rust_backend::coverage::DEFAULT_MAX_VALUE_SIZE
 }
 
+fn default_record_polls() -> u64 {
+    k_rust_backend::coverage::DEFAULT_RECORD_POLLS
+}
+
 impl From<ConditionCollection> for k_rust_backend::coverage::ConditionCollection {
     fn from(collection: ConditionCollection) -> Self {
         let mut converted = Self::new(collection.rules);
         converted.limit = collection.limit;
         converted.max_value_size = collection.max_value_size;
+        converted.record_polls = collection.record_polls;
         converted
     }
 }
@@ -711,8 +724,8 @@ pub struct RuleConditionsOutput<K = Value> {
     pub truncated: bool,
 }
 
-/// One entry into a rule's `requires` for a matched instance, recorded before the condition
-/// was decided, whatever it then decided.
+/// One entry into a rule's `requires` for a matched instance: the bindings, the condition with
+/// every node's truth as the record's evaluation decides it, and the attempt's verdict.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -721,8 +734,13 @@ pub struct ConditionRecordOutput<K = Value> {
     /// match bound it, sorted by variable; each variable is named as the rule is written in the
     /// definition's KORE.
     pub bindings: Vec<RecordedBindingOutput<K>>,
-    /// The `requires` as written, one node per conjunct, each atom evaluated under the instance.
+    /// The `requires` as written, one predicate node per conjunct: it holds exactly when every
+    /// conjunct is `true`.
     pub condition: Vec<ConditionNodeOutput<K>>,
+    /// What the attempt decided about the condition, with the run's solver (wire: absent only
+    /// when the attempt ended otherwise, by a panic).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<VerdictOutput>,
     /// Whether a value the definition leaves open (`implementation-chosen-value`) was read by the
     /// run before the entry, on any path, or by the record's evaluation, so that the record's
     /// terms may be one model's (wire: present only when true).
@@ -738,47 +756,170 @@ pub struct RecordedBindingOutput<K = Value> {
     pub value: RecordedValueOutput<K>,
 }
 
-/// The Boolean structure of a condition as written (wire: an object with one key). A conjunct
-/// `\equals(b, true)` of a Boolean term is read as `b`, and `\equals(b, false)` as `not b`; the
-/// K connectives `andBool`, `andThenBool`, `orBool`, `orElseBool`, `notBool` and `impliesBool`
-/// (by their `BOOL` hooks) and the matching-logic `\and`, `\or`, `\not` and `\implies` are
-/// nodes; everything else is an atom.
+/// What a rule attempt decided about its instantiated `requires`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VerdictOutput {
+    /// It holds for the instance: the attempt builds the rule's successor.
+    Held,
+    /// It does not hold (false, undefined, or contradicted by the path): the rule does not
+    /// apply to the instance.
+    Refuted,
+    /// The attempt could not decide it (no solver, an undecided or untranslatable query): the
+    /// attempt is indeterminate or applies the rule under the condition left open.
+    Undecided,
+    /// A stop (lack of stack, a step deadline, a cancellation) ended the attempt while it
+    /// decided the condition.
+    Stopped,
+    /// The condition bound variables of the left-hand side the match left unbound, and the
+    /// attempt re-entered with them: the next record of the rule with those bindings is the
+    /// complete entry, and this one's operands over them are symbolic.
+    Reentered,
+}
+
+impl From<k_rust_backend::coverage::Verdict> for VerdictOutput {
+    fn from(verdict: k_rust_backend::coverage::Verdict) -> Self {
+        use k_rust_backend::coverage::Verdict;
+        match verdict {
+            Verdict::Held => Self::Held,
+            Verdict::Refuted => Self::Refuted,
+            Verdict::Undecided => Self::Undecided,
+            Verdict::Stopped => Self::Stopped,
+            Verdict::Reentered => Self::Reentered,
+        }
+    }
+}
+
+/// The truth of a node under the instance, as the record's evaluation decides it under the
+/// path and match conditions, without a solver.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TruthOutput {
+    /// The node holds for the instance (a Boolean node evaluates to `true`), in every model
+    /// unless the record is `chosen`.
+    True,
+    /// The node does not hold (a Boolean node evaluates to `false`; a predicate is refuted).
+    False,
+    /// A Boolean node denotes no value for the instance: a partial operation it does not discard
+    /// is outside its domain. Never on a predicate, which is two-valued.
+    Undefined,
+    /// Not decided: the node may be true, false or (if Boolean) undefined.
+    Undecided,
+}
+
+impl From<k_rust_backend::coverage::Truth> for TruthOutput {
+    fn from(truth: k_rust_backend::coverage::Truth) -> Self {
+        use k_rust_backend::coverage::Truth;
+        match truth {
+            Truth::True => Self::True,
+            Truth::False => Self::False,
+            Truth::Undefined => Self::Undefined,
+            Truth::Undecided => Self::Undecided,
+        }
+    }
+}
+
+/// A connective of a condition. The K Boolean connectives (`notBool` .. `xorBool`) are functions
+/// on `Bool` and strict, undefined wherever an operand is (also one `andThenBool` or
+/// `orElseBool` does not evaluate); the matching-logic ones (`\not` ..
+/// `\iff`) combine two-valued predicates.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum ConnectiveOutput {
+    #[serde(rename = "notBool")]
+    NotBool,
+    #[serde(rename = "andBool")]
+    AndBool,
+    #[serde(rename = "andThenBool")]
+    AndThenBool,
+    #[serde(rename = "orBool")]
+    OrBool,
+    #[serde(rename = "orElseBool")]
+    OrElseBool,
+    #[serde(rename = "impliesBool")]
+    ImpliesBool,
+    #[serde(rename = "xorBool")]
+    XorBool,
+    #[serde(rename = "\\not")]
+    Not,
+    #[serde(rename = "\\and")]
+    And,
+    #[serde(rename = "\\or")]
+    Or,
+    #[serde(rename = "\\implies")]
+    Implies,
+    #[serde(rename = "\\iff")]
+    Iff,
+}
+
+impl From<k_rust_backend::coverage::Connective> for ConnectiveOutput {
+    fn from(connective: k_rust_backend::coverage::Connective) -> Self {
+        use k_rust_backend::coverage::Connective;
+        match connective {
+            Connective::NotBool => Self::NotBool,
+            Connective::AndBool => Self::AndBool,
+            Connective::AndThenBool => Self::AndThenBool,
+            Connective::OrBool => Self::OrBool,
+            Connective::OrElseBool => Self::OrElseBool,
+            Connective::ImpliesBool => Self::ImpliesBool,
+            Connective::XorBool => Self::XorBool,
+            Connective::Not => Self::Not,
+            Connective::And => Self::And,
+            Connective::Or => Self::Or,
+            Connective::Implies => Self::Implies,
+            Connective::Iff => Self::Iff,
+        }
+    }
+}
+
+/// A node of a condition as written, with its truth (wire: `node` names the shape, and every
+/// node has `value`). A conjunct is a predicate: a matching-logic connective, an `equals`, or a
+/// predicate atom; below `equals` and the K Boolean connectives the nodes are `Bool` terms.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(tag = "node", rename_all = "kebab-case")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub enum ConditionNodeOutput<K = Value> {
-    And(Vec<ConditionNodeOutput<K>>),
-    Or(Vec<ConditionNodeOutput<K>>),
-    Not(Box<ConditionNodeOutput<K>>),
-    Implies(Box<ConditionNodeOutput<K>>, Box<ConditionNodeOutput<K>>),
+    /// A connective and its operands, in order.
+    Connective {
+        connective: ConnectiveOutput,
+        children: Vec<ConditionNodeOutput<K>>,
+        value: TruthOutput,
+    },
+    /// The predicate `\equals(b, literal)` of a Boolean term `b` (a K `requires b` is
+    /// `\equals(b, true)`): `true` exactly where `b` is defined and equal to `literal`, so an
+    /// undefined `b` makes it `false`.
+    Equals {
+        literal: bool,
+        child: Box<ConditionNodeOutput<K>>,
+        value: TruthOutput,
+    },
+    /// Anything else.
     Atom(ConditionAtomOutput<K>),
 }
 
 /// An atom of a condition, evaluated under the instance.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub struct ConditionAtomOutput<K = Value> {
-    /// The KORE symbol of a Boolean application, the matching-logic connective of a predicate
-    /// atom (`\equals`, `\ceil`, `\floor`, `\in`, `\iff`, `\exists`, `\forall`, `\top`,
-    /// `\bottom`), or absent for a Boolean term that is no application (a variable, a literal).
+    /// The KORE symbol of a Boolean application; the matching-logic connective of a predicate
+    /// atom (`\equals` of two terms other than a Boolean term and a literal, `\ceil`, `\floor`,
+    /// `\in`, `\exists`, `\forall`, `\top`, `\bottom`) or `absent` (a key's absence from a map or
+    /// set, operands the key and the collection); absent for a Boolean variable or literal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub head: Option<String>,
     /// The symbol's `hook`, when it has one (such as `INT.lt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook: Option<String>,
     /// The operands, each simplified under the instance and the path and match conditions: the
-    /// arguments of an application, the terms of `\equals`, `\ceil`, `\floor` and `\in`, the
-    /// term itself when it is no application, none for the other connectives.
+    /// arguments of an application, the terms of `\equals`, `\ceil`, `\floor`, `\in` and
+    /// `absent`, the term itself when it is no application, none for the other connectives.
     pub operands: Vec<RecordedValueOutput<K>>,
     /// The positions in the record's `bindings` of the variables the atom mentions: the bound
     /// values its operands depend on (wire: absent when empty).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reads: Vec<usize>,
-    /// The atom's truth under the instance as the simplifier decides it without a solver: true,
-    /// false (refuted: false or undefined), or absent (undecided).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<bool>,
+    /// The atom's truth.
+    pub value: TruthOutput,
 }
 
 /// A term of a record, marked by what it denotes (wire: `kind`, and `term` for the first three).
@@ -790,13 +931,17 @@ pub enum RecordedValueOutput<K = Value> {
     /// them, with no function application left. Its KORE means the same in every model of the
     /// definition, unless the record is `chosen`.
     Value { term: K },
-    /// Variable-free, but holding an application the evaluation left as it is: its meaning
-    /// depends on the definition.
-    Ground { term: K },
+    /// Variable-free, but holding an application the evaluation left as it is (a function with
+    /// no applicable equation, an operation the simplification failed on): not a value, and its
+    /// meaning depends on the definition.
+    Unevaluated { term: K },
     /// A term with variables.
     Symbolic { term: K },
     /// Found undefined (`\bottom`) under the instance.
     Undefined,
+    /// A stop interrupted its evaluation (the record's budget or stack, or a cancellation):
+    /// nothing is known of its value.
+    Stopped,
     /// Larger than the request's `maxValueSize` nodes.
     Omitted,
 }
@@ -2829,11 +2974,13 @@ mod tests {
         assert_typescript_member("ConditionCollection", "rules: string[]");
         assert_typescript_member("ConditionCollection", "limit?: number");
         assert_typescript_member("ConditionCollection", "maxValueSize?: number");
+        assert_typescript_member("ConditionCollection", "recordPolls?: number");
         assert_typescript_member("RuleConditions", "rule: string");
         assert_typescript_member("RuleConditions", "records: ConditionRecord[]");
         assert_typescript_member("RuleConditions", "truncated?: boolean");
         assert_typescript_member("ConditionRecord", "bindings: RecordedBinding[]");
         assert_typescript_member("ConditionRecord", "condition: ConditionNode[]");
+        assert_typescript_member("ConditionRecord", "verdict?: ConditionVerdict");
         assert_typescript_member("ConditionRecord", "chosen?: boolean");
         assert_typescript_member("RecordedBinding", "variable: Kore");
         assert_typescript_member("RecordedBinding", "value: RecordedValue");
@@ -2841,8 +2988,78 @@ mod tests {
         assert_typescript_member("ConditionAtom", "hook?: string");
         assert_typescript_member("ConditionAtom", "operands: RecordedValue[]");
         assert_typescript_member("ConditionAtom", "reads?: number[]");
-        assert_typescript_member("ConditionAtom", "value?: boolean");
+        assert_typescript_member("ConditionAtom", "value: ConditionTruth");
         assert_typescript_member("BackendCapabilities", "coverageConditions: boolean");
+        // Every wire spelling of the unions is declared in both packages.
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let spellings = |values: Vec<serde_json::Value>| {
+                values
+                    .into_iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()
+            };
+            let verdicts = spellings(
+                [
+                    VerdictOutput::Held,
+                    VerdictOutput::Refuted,
+                    VerdictOutput::Undecided,
+                    VerdictOutput::Stopped,
+                    VerdictOutput::Reentered,
+                ]
+                .map(|verdict| serde_json::to_value(verdict).unwrap())
+                .to_vec(),
+            );
+            let truths = spellings(
+                [
+                    TruthOutput::True,
+                    TruthOutput::False,
+                    TruthOutput::Undefined,
+                    TruthOutput::Undecided,
+                ]
+                .map(|truth| serde_json::to_value(truth).unwrap())
+                .to_vec(),
+            );
+            let connectives = spellings(
+                [
+                    ConnectiveOutput::NotBool,
+                    ConnectiveOutput::AndBool,
+                    ConnectiveOutput::AndThenBool,
+                    ConnectiveOutput::OrBool,
+                    ConnectiveOutput::OrElseBool,
+                    ConnectiveOutput::ImpliesBool,
+                    ConnectiveOutput::XorBool,
+                    ConnectiveOutput::Not,
+                    ConnectiveOutput::And,
+                    ConnectiveOutput::Or,
+                    ConnectiveOutput::Implies,
+                    ConnectiveOutput::Iff,
+                ]
+                .map(|connective| serde_json::to_value(connective).unwrap())
+                .to_vec(),
+            );
+            for spelling in verdicts.iter().chain(&truths).chain(&connectives) {
+                let quoted = format!("'{}'", spelling.replace('\\', "\\\\"));
+                assert!(declaration.contains(&quoted), "{path} lacks {quoted}");
+            }
+            for kind in [
+                "value",
+                "unevaluated",
+                "symbolic",
+                "undefined",
+                "stopped",
+                "omitted",
+            ] {
+                assert!(
+                    declaration.contains(&format!("'{kind}'")),
+                    "{path} lacks {kind}"
+                );
+            }
+        }
         let backend = Backend::new(
             r#"[] module MAIN sort SortK{} [] endmodule []"#,
             "MAIN",
@@ -2853,21 +3070,36 @@ mod tests {
         assert_eq!(capabilities["coverageConditions"], true);
         // The wire tags of a recorded value and of a condition node.
         let value: RecordedValueOutput = serde_json::from_value(serde_json::json!({
-            "kind": "value",
+            "kind": "unevaluated",
             "term": {"format": "KORE", "version": 1, "term": null},
         }))
         .unwrap();
-        assert!(matches!(value, RecordedValueOutput::Value { .. }));
-        for kind in ["undefined", "omitted"] {
+        assert!(matches!(value, RecordedValueOutput::Unevaluated { .. }));
+        for kind in ["undefined", "stopped", "omitted"] {
             let value: RecordedValueOutput =
                 serde_json::from_value(serde_json::json!({ "kind": kind })).unwrap();
             assert_eq!(serde_json::to_value(&value).unwrap()["kind"], kind);
         }
         let node: ConditionNodeOutput = serde_json::from_value(serde_json::json!({
-            "implies": [{"not": {"atom": {"operands": []}}}, {"and": []}],
+            "node": "connective",
+            "connective": "\\implies",
+            "children": [
+                {"node": "equals", "literal": false, "value": "true", "child": {
+                    "node": "atom", "operands": [], "value": "false",
+                }},
+                {"node": "connective", "connective": "notBool", "children": [], "value": "undefined"},
+            ],
+            "value": "undecided",
         }))
         .unwrap();
-        assert!(matches!(node, ConditionNodeOutput::Implies(..)));
+        assert!(matches!(
+            node,
+            ConditionNodeOutput::Connective {
+                connective: ConnectiveOutput::Implies,
+                value: TruthOutput::Undecided,
+                ..
+            }
+        ));
     }
 
     /// The run-level records are declared where the facade writes them: the optional lists of

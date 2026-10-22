@@ -54,11 +54,12 @@ use rustc_hash::FxHashSet;
 
 mod conditions;
 
-pub(crate) use conditions::record as record_condition;
 pub use conditions::{
-    ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, DEFAULT_CONDITION_LIMIT,
-    DEFAULT_MAX_VALUE_SIZE, RecordedValue, RuleConditions,
+    ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, Connective,
+    DEFAULT_CONDITION_LIMIT, DEFAULT_MAX_VALUE_SIZE, DEFAULT_RECORD_POLLS, RecordedValue,
+    RuleConditions, Truth, Verdict,
 };
+pub(crate) use conditions::{record as record_condition, verdict as condition_verdict};
 
 /// The axioms a run used, by `UNIQUE_ID`.
 ///
@@ -330,7 +331,8 @@ pub(crate) fn note_applied(id: &str) {
 }
 
 /// Whether the open collection records condition entries and no [`suspend`] is in effect: P11
-/// of a rule attempt then calls [`record_condition`].
+/// of a rule attempt then calls [`record_condition`], and P11 and P12 report the attempt's
+/// verdict ([`condition_verdict`]).
 #[inline]
 pub(crate) fn records_conditions() -> bool {
     OPEN.get() && conditions::recording()
@@ -349,9 +351,14 @@ pub(crate) fn records_conditions() -> bool {
 /// computes, emits and notes what it would without this one; and a stop for lack of native stack
 /// inside it is counted by no scope (`stop::uncounted_stack_stops`). It takes nothing from the
 /// run's `FreshCounter`, which it is not given, and no solver. A stop of its own simplifications
-/// (a cancellation, a passed step deadline) is answered inside it by its caller, and is raised
-/// again by the run's next poll.
-pub(crate) fn isolated<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
+/// is dismissed inside it by its caller (`Stop::forgo_refinement`), which reports what it did not
+/// finish as such: a cancellation stays raised and stops the run at its next poll, and a lack of
+/// stack or a spent budget is the evaluation's own. It runs off the run's clock
+/// (`stop::off_the_clock`): the step deadline does not stop it and is moved later by the time it
+/// takes, and a step's moving-average measurement leaves that time out, so the run meets its
+/// deadline at the same point of its own work; its own work is bounded by `polls` polls instead,
+/// a function of the work alone.
+pub(crate) fn isolated<T>(polls: u64, evaluation: impl FnOnce() -> T) -> (T, bool) {
     suspend(|| {
         measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
@@ -360,7 +367,9 @@ pub(crate) fn isolated<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
                         crate::rule::with_apart_names_restored(|| {
                             crate::deferred::hook_values_aside(|| {
                                 crate::simplify::unspecified_values_aside(|| {
-                                    crate::stop::uncounted_stack_stops(evaluation)
+                                    crate::stop::uncounted_stack_stops(|| {
+                                        crate::stop::off_the_clock(polls, evaluation).0
+                                    })
                                 })
                             })
                         })
