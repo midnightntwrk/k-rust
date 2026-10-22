@@ -22,5 +22,6 @@ pub use existentials::RuleExistentials;
 pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;
 pub(crate) use pattern::{
-    NegativeLiteralSpans, parse_pattern_with_signs, push_term_node_anchors, validate_pattern_literal,
+    NegativeLiteralSpans, parse_pattern_with_signs, push_term_node_anchors,
+    validate_pattern_literal,
 };
