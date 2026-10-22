@@ -209,10 +209,11 @@ fn a_bracket_that_reads_both_ways_carries_its_list_reading() {
     assert_eq!(head.computation_cell().unwrap(), "k");
     assert!(head.bracket_alternative().is_some());
 
-    // A labelled front record cannot be a whole head: it reads as a List
-    // collection only.
+    // A labelled front record reads both ways as well: as the computation
+    // cell's head, `first` aliases the item; as a List collection's front,
+    // it labels the instance. The collector keeps the cell's own reading.
     let labelled = &clauses[4];
-    assert!(labelled.head_result().is_none());
-    assert!(labelled.bracket_alternative().is_none());
-    assert!(labelled.bindings().is_empty());
+    assert!(labelled.head_result().is_some());
+    assert!(labelled.bracket_alternative().is_some());
+    assert_eq!(labelled.bindings(), ["first"]);
 }

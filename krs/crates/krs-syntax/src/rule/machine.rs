@@ -1197,10 +1197,21 @@ fn assemble_machine_clause(
         let has_first = !pattern.items.is_empty();
         let mut items = pattern.items.into_iter();
         let rule = if let Some((first, signs)) = items.next() {
-            let item: ItemFn = syn::parse2(quote! {
+            // A fn parameter takes `A | B` only in parentheses; the item
+            // keeps the authored pattern, as in a readable clause.
+            let top_level_or = matches!(first, Pat::Or(_));
+            let parameter = if top_level_or {
+                quote!((#first))
+            } else {
+                quote!(#first)
+            };
+            let mut item: ItemFn = syn::parse2(quote! {
                 #(#retained)*
-                pub fn #name(#first: #configuration_type) -> #configuration_type { #placeholder }
+                pub fn #name(#parameter: #configuration_type) -> #configuration_type { #placeholder }
             })?;
+            if top_level_or && let Some(syn::FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
+                *typed.pat = first;
+            }
             RuleItem::from_readable_item(item, signs)?
         } else {
             // `[]` matches the empty computation: like a record without

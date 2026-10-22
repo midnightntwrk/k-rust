@@ -440,9 +440,20 @@ pub(super) fn parse_rule_pattern(
             let mut nodes = Vec::new();
             let tree = if root_identifier_is_binding {
                 match &pattern {
-                    Pat::Ident(identifier) => {
+                    Pat::Ident(identifier) if identifier.subpat.is_none() => {
                         validate_native_binding(identifier, &mut paths, &mut bindings, &mut nodes)?
                     }
+                    // A cell value is not a rule subject, so `name @ pattern`
+                    // at its root aliases the value, as below a constructor.
+                    Pat::Ident(_) => validate_native_pattern(
+                        &pattern,
+                        false,
+                        allow_record_rest,
+                        &mut paths,
+                        &mut bindings,
+                        &mut nodes,
+                        &mut signs,
+                    )?,
                     _ => validate_native_pattern(
                         &pattern,
                         true,

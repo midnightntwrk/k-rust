@@ -116,3 +116,24 @@ fn unsupported_shapes_are_rejected_with_their_reason() {
         assert!(message.contains(reason), "{clause}: {message}");
     }
 }
+
+#[test]
+fn an_item_may_be_an_alias_or_alternatives() {
+    for (clause, bindings) in [
+        (
+            "a: { k: [op @ (Push() | Pop()), ..] } => { k: [Wrap(op), ..] };",
+            &["op"][..],
+        ),
+        (
+            "a: { k: [x, op @ (Push() | Pop()), ..] } => { k: [op, ..] };",
+            &["x", "op"][..],
+        ),
+        ("a: { k: [Push() | Pop(), ..] } => { k: [..] };", &[][..]),
+        (
+            "a: { k: [Run { n }, ..], acc: v @ Pair(_, _) } => { k: [v, ..] };",
+            &["n", "v"][..],
+        ),
+    ] {
+        assert_eq!(block(clause).clauses()[0].bindings(), bindings, "{clause}");
+    }
+}
