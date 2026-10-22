@@ -543,6 +543,10 @@ fn trusted_claims_are_pinned() {
 /// cites; such a run carries the record on its `contradictedClaims` list, which excludes it
 /// since re-pin adoption A-1, whatever leaf it ends on, so the change moves no verdict.
 ///
+/// Re-pin FZ-15 (fz26/solve): the `smt-lemma` passage of compatibility.md is byte-identical and
+/// moved down 2 lines, by the "Clock-free solver mode" paragraph of "Determinism and
+/// concurrency", which precedes it. Only its lines are re-pinned.
+///
 /// Re-pin of smt.rs's second passage (`smt_lemmas`): byte-identical, moved down 78 lines by the
 /// translation of `bitRangeInt`, `>>Int` and low-bit masks of `&Int` by literal amounts, which
 /// precedes it in the file. Only its lines are re-pinned.
@@ -603,8 +607,8 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     ),
     (
         "docs/compatibility.md",
-        2801,
-        2802,
+        2803,
+        2804,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (
