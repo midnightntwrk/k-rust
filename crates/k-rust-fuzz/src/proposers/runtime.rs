@@ -45,9 +45,11 @@
 //! from crowding out the other comparisons. A set stays sorted and distinct and a map's keys
 //! distinct (a change that would merge two is not proposed), and the proposer checks the hole's
 //! sort, constraints and size rules (`values::admissible`) and draws again, up to
-//! [`MAX_ATTEMPTS`] times. Each case's pool remembers the candidates it has drawn, so a change
-//! that was proposed (or refused) is not proposed again from the same case; when none is left
-//! the proposer makes its ordinary move or mutation. An occurrence that is equal by coincidence
+//! [`MAX_ATTEMPTS`] times. The climb's incumbent remembers the candidates drawn from its pool,
+//! so a change that scored worse (or was refused) is not proposed again from the same
+//! incumbent; when none is left the climb makes its ordinary move. The corpus keeps no such
+//! memory: a change of a kept case that reached nothing new is not kept, and only a follow-up
+//! of it can finish what it started (`super::corpus`), so drawing it again is another chance. An occurrence that is equal by coincidence
 //! (a `0` elsewhere in the case) gives a wrong change, which costs one case and is judged like
 //! any other.
 //!

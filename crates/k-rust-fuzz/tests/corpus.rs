@@ -49,7 +49,7 @@ const GATE_LOCK_L2: [Option<u64>; 5] = [None, None, None, None, None];
 /// Before the run-time literals (FZ-16) they were 1094, 3452, 2546, 1310 and 1987: a key a
 /// guard compared with a constant now takes the passing value from the comparison (118, 107,
 /// 72, 62, 75 before FZ-16's fix round).
-const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(55), Some(96), Some(189), Some(52), Some(47)];
+const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(55), Some(96), Some(169), Some(52), Some(47)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
@@ -516,6 +516,15 @@ fn measure_runtime_bank_tuning() {
 #[ignore = "measurement mode: run with --ignored --nocapture measure_"]
 fn measure_runtime_bank_held_out() {
     measure_bank(&runtime_configurations(), &HELD_OUT_SEEDS);
+}
+
+/// Seeds the run-time literals' parameters and their fix round never saw (FZ-16 review).
+const FRESH_SEEDS: [u64; 10] = [21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_bank_fresh() {
+    measure_bank(&runtime_configurations(), &FRESH_SEEDS);
 }
 
 #[test]

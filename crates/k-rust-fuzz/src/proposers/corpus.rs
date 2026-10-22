@@ -263,8 +263,6 @@ struct Entry {
     score_only: bool,
     /// Its pool of run-time literals (module documentation, "Run-time literals").
     comparisons: Vec<Compared>,
-    /// The changes already drawn from its pool.
-    tried: BTreeSet<runtime::Candidate>,
 }
 
 /// The corpus's last case, to follow up from its pool of run-time literals.
@@ -381,7 +379,6 @@ impl CorpusProposer {
             values,
             score_only,
             comparisons,
-            tried: BTreeSet::new(),
         });
     }
 
@@ -870,16 +867,14 @@ impl Proposer for CorpusProposer {
                 .runtime
                 .random_ratio(RUNTIME_PROBABILITY.0, RUNTIME_PROBABILITY.1)
         {
-            let (values, comparisons, mut tried) = {
-                let entry = &mut self.entries[entry];
-                (
-                    entry.values.clone(),
-                    entry.comparisons.clone(),
-                    std::mem::take(&mut entry.tried),
-                )
+            // No memory of the changes drawn from a kept case: a change that reached nothing new
+            // is not kept, and only its follow-up can finish what it started, so the same change
+            // is worth drawing again for another follow-up.
+            let (values, comparisons) = {
+                let entry = &self.entries[entry];
+                (entry.values.clone(), entry.comparisons.clone())
             };
-            let change = self.runtime_change(&values, &comparisons, &mut tried);
-            self.entries[entry].tried = tried;
+            let change = self.runtime_change(&values, &comparisons, &mut BTreeSet::new());
             if let Some(values) = change {
                 return Some(Proposal::plain(
                     Origin::Scheduled(ProposerKind::Corpus),
