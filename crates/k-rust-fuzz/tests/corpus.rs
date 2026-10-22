@@ -46,8 +46,9 @@ const GATE_LOCK_L2: [Option<u64>; 5] = [None, None, None, None, None];
 /// blind+corpus's cases to the lock's last cell `l5` at [`CI_SEEDS`] within 5000 cases:
 /// regression pins. They move whenever the corpus's case sequence moves (its parameters, its
 /// mutations or its harvest), as `tests/golden.rs`'s corpus fingerprint does.
-const PINNED_LOCK_L5: [Option<u64>; 5] =
-    [Some(1094), Some(3452), Some(2546), Some(1310), Some(1987)];
+/// Before the run-time literals (FZ-16) they were 1094, 3452, 2546, 1310 and 1987: a key a
+/// guard compared with a constant now takes the passing value from the comparison.
+const PINNED_LOCK_L5: [Option<u64>; 5] = [Some(118), Some(107), Some(72), Some(62), Some(75)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {
@@ -232,6 +233,36 @@ fn the_corpus_opens_the_lock_where_blind_sampling_the_dictionary_and_the_climb_s
     );
 }
 
+/// blind+dictionary+climb's cases to the bank's `double` at [`CI_SEEDS`] within
+/// [`BANK_CI_BUDGET`] cases, with the run-time literals (FZ-16): regression pins of tuning
+/// seeds. Without them no configuration reached `double` at any of seeds 1-20 within 5000 cases
+/// but one (`research/stall-benchmark.md`, FZ-14 round 2 and FZ-16).
+const PINNED_BANK_DOUBLE: [Option<u64>; 5] = [Some(705), Some(56), Some(155), Some(191), Some(203)];
+
+/// The CI budget of the bank's `double`.
+const BANK_CI_BUDGET: u64 = 1000;
+
+#[test]
+fn the_run_time_literals_open_the_bank_s_state_relative_cell() {
+    // `double` needs an amount equal to the balance after the earlier transactions of the same
+    // list: no harvest holds it, and a nudge hits it by chance. The guard `A ==Int B` compares
+    // it with the balance, and the climb takes the value from the comparison.
+    let double = per_seed(&CI_SEEDS, |seed| {
+        bank::run_cell(
+            bank::cell_named("double"),
+            &maze::blind_dictionary_climb(),
+            seed,
+            BANK_CI_BUDGET,
+        )
+        .0
+    });
+    assert!(double.iter().all(Option::is_some), "{double:?}");
+    assert_eq!(
+        double, PINNED_BANK_DOUBLE,
+        "the climb's case sequence moved; re-pin"
+    );
+}
+
 #[test]
 fn a_corpus_campaign_reports_the_same_bytes_twice_and_records_its_parameters() {
     let cell = lock::cell_named("l2");
@@ -240,7 +271,12 @@ fn a_corpus_campaign_reports_the_same_bytes_twice_and_records_its_parameters() {
     assert!(first_hit.is_some());
     assert_eq!(first_hit, second_hit);
     assert_eq!(first.to_canonical_json(), second.to_canonical_json());
-    assert_eq!(first.identity.corpus, Some(CorpusParameters::current()));
+    assert_eq!(
+        first.identity.corpus,
+        Some(CorpusParameters::for_target(
+            &lock::spec(cell, &blind_corpus(), 1).target.kind
+        ))
+    );
     assert!(
         first
             .to_canonical_json()
@@ -455,4 +491,65 @@ fn measure_bank_tuning() {
 #[ignore = "measurement mode: run with --ignored --nocapture measure_"]
 fn measure_bank_held_out() {
     measure_bank(&bank_configurations(), &HELD_OUT_SEEDS);
+}
+
+/// The configurations whose cases the run-time literals change (FZ-16): those with the climb or
+/// the corpus.
+fn runtime_configurations() -> Vec<Configuration> {
+    vec![
+        maze::blind_climb(),
+        maze::blind_dictionary_climb(),
+        blind_corpus(),
+        blind_dictionary_corpus(),
+        blind_dictionary_climb_corpus(),
+    ]
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_bank_tuning() {
+    measure_bank(&runtime_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_bank_held_out() {
+    measure_bank(&runtime_configurations(), &HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_maze_tuning() {
+    measure_maze(&runtime_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_maze_held_out() {
+    measure_maze(&runtime_configurations(), &HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_lock_tuning() {
+    measure_lock(&runtime_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_runtime_lock_held_out() {
+    measure_lock(&runtime_configurations(), &HELD_OUT_SEEDS);
+}
+
+/// A quick look at the bank under one configuration (`RUNTIME_PROBE` = its index in
+/// [`runtime_configurations`], `RUNTIME_SEEDS` = a count of tuning seeds).
+#[test]
+#[ignore = "probe: run with --ignored --nocapture probe_"]
+fn probe_runtime_bank() {
+    let index: usize =
+        std::env::var("RUNTIME_PROBE").map_or(1, |text| text.parse().expect("index"));
+    let seeds: usize =
+        std::env::var("RUNTIME_SEEDS").map_or(3, |text| text.parse().expect("count"));
+    let configuration = runtime_configurations().swap_remove(index);
+    measure_bank(&[configuration], &TUNING_SEEDS[..seeds]);
 }

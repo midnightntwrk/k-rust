@@ -47,6 +47,13 @@
 //!   value afresh from the hole's generator.
 //! - a hole with a choice set: another member.
 //!
+//! When the incumbent's pool of run-time literals is not empty (the comparisons its refuted
+//! guards needed the other way round, with the values the run compared; `super::runtime`), a
+//! proposal is, with probability [`RUNTIME_PROBABILITY`], a change from that pool instead: one
+//! occurrence of a compared value in the incumbent takes the value that passes the comparison,
+//! such as a transaction's amount the running balance it was compared with. Its stream
+//! (`climb-runtime`) is drawn from only when the pool is not empty.
+//!
 //! Every candidate value must be admissible before it is proposed (`values::admissible`, the
 //! rule the dictionary also uses): a value of
 //! the hole's sort that satisfies its constraints (`values::check_constraints`) and the
@@ -80,7 +87,7 @@ use rand_chacha::ChaCha20Rng;
 use crate::{
     engine::proposer::{Observation, Origin, Proposal, ProposalContext, Proposer},
     report::ClimbParameters,
-    score::{Operand, Score},
+    score::{Operand, Score, records::Compared},
     spec::ProposerKind,
     target::TargetKind,
     values::{
@@ -118,6 +125,10 @@ pub(crate) const ACCEPT_EQUAL: bool = true;
 /// proposes the incumbent's values changed in whichever holes did move.
 pub(crate) const MAX_ATTEMPTS: u32 = 64;
 
+/// The probability, as (numerator, denominator), that a proposal from an incumbent whose pool
+/// of run-time literals is not empty is a change from that pool (`super::runtime`).
+pub(crate) const RUNTIME_PROBABILITY: (u32, u32) = (1, 4);
+
 /// The climb's parameters for a campaign whose target is `target`, as the report records them
 /// ([`ClimbParameters`]): an observer target's score reads no condition records, so its cases
 /// request none (`condition-rules` is `none`).
@@ -144,6 +155,15 @@ pub(crate) fn parameters(target: &TargetKind) -> ClimbParameters {
             k_rust::k_rust_backend::coverage::DEFAULT_MAX_VALUE_SIZE,
         )
         .unwrap_or(u64::MAX),
+        runtime_probability: [RUNTIME_PROBABILITY.0, RUNTIME_PROBABILITY.1],
+        max_comparisons: u32::try_from(super::runtime::MAX_COMPARISONS).unwrap_or(u32::MAX),
+        runtime_condition_rules: match target {
+            TargetKind::Rule(_) => "dictionary-guard-rules",
+            TargetKind::Observer(_) | TargetKind::Pattern(_) | TargetKind::Differential(_) => {
+                "none"
+            }
+        }
+        .into(),
     }
 }
 
@@ -178,6 +198,8 @@ pub(crate) struct Incumbent {
     pub(crate) score: Score,
     pub(crate) values: Vec<Value>,
     reads: Vec<Operand>,
+    /// Its pool of run-time literals.
+    comparisons: Vec<Compared>,
 }
 
 impl Incumbent {
@@ -186,6 +208,7 @@ impl Incumbent {
             score: observation.score.clone()?,
             values: proposal.values.clone(),
             reads: observation.reads.clone(),
+            comparisons: observation.comparisons.clone(),
         })
     }
 }
@@ -206,6 +229,8 @@ pub(crate) struct ClimbProposer {
     directions: Vec<bool>,
     /// The integer moves of the last proposal.
     pending: Vec<Step>,
+    /// The stream of the run-time literals' choices.
+    runtime: ChaCha20Rng,
 }
 
 impl ClimbProposer {
@@ -254,6 +279,7 @@ impl ClimbProposer {
             exponents: vec![INITIAL_EXPONENT; count],
             directions: vec![true; count],
             pending: Vec::new(),
+            runtime: ChaCha20Rng::from_seed(crate::engine::derive_seed(seed, "climb-runtime")),
         }
     }
 
@@ -599,6 +625,29 @@ impl Proposer for ClimbProposer {
     }
 
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
+        let incumbent = self.incumbent.as_ref()?;
+        if !incumbent.comparisons.is_empty()
+            && self
+                .runtime
+                .random_ratio(RUNTIME_PROBABILITY.0, RUNTIME_PROBABILITY.1)
+        {
+            let (holes, bounds) = (&self.holes, &self.bounds);
+            if let Some(values) = super::runtime::propose(
+                &incumbent.values,
+                &incumbent.comparisons,
+                &mut self.runtime,
+                |hole, value| {
+                    let hole = &holes[hole];
+                    values::admissible(value, &hole.sort, &hole.constraints, bounds)
+                },
+            ) {
+                self.pending.clear();
+                return Some(Proposal::plain(
+                    Origin::Scheduled(ProposerKind::Climb),
+                    values,
+                ));
+            }
+        }
         let mut values = self.incumbent.as_ref()?.values.clone();
         let first = self.pick_hole(None)?;
         let mut holes = vec![first];

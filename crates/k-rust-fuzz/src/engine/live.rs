@@ -755,11 +755,15 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         .map_or_else(Default::default, |coverage| {
             (coverage.applied.clone(), coverage.matched.clone())
         });
-    let guards = covered
+    let conditions = covered
         .coverage
         .as_ref()
-        .and_then(|coverage| coverage.conditions.as_deref())
-        .map(score::records::guards)
+        .and_then(|coverage| coverage.conditions.as_deref());
+    let guards = conditions.map(score::records::guards).unwrap_or_default();
+    let comparisons = conditions
+        .map(|conditions| {
+            score::records::comparisons(conditions, crate::proposers::runtime::MAX_COMPARISONS)
+        })
         .unwrap_or_default();
     let mut load_records = Vec::new();
     for side in sides {
@@ -775,6 +779,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         matched,
         blocked: false,
         guards,
+        comparisons,
         progress: None,
         outside_determinism: sides
             .iter()

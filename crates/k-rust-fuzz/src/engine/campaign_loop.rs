@@ -201,6 +201,7 @@ fn observation(
         score,
         reads,
         blocked,
+        comparisons: run.comparisons,
     }
 }
 

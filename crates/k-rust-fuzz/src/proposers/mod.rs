@@ -11,6 +11,7 @@
 pub(crate) mod climb;
 pub(crate) mod corpus;
 pub(crate) mod dictionary;
+pub(crate) mod runtime;
 #[cfg(feature = "z3")]
 pub(crate) mod solve;
 #[cfg(test)]

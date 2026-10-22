@@ -69,7 +69,7 @@ pub(crate) enum Comparison {
 
 impl Comparison {
     /// The comparison that holds exactly when this one does not.
-    fn negated(self) -> Self {
+    pub(crate) fn negated(self) -> Self {
         match self {
             Self::IntEq => Self::IntNe,
             Self::IntNe => Self::IntEq,

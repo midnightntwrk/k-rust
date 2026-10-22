@@ -93,6 +93,115 @@ fn guard_values(record: &ConditionRecordOutput) -> Vec<Value> {
         .collect()
 }
 
+/// A comparison a refuted condition record holds with the wrong truth for its guard, and its two
+/// ground operands, as the run compared them: had the comparison held, that atom would not have
+/// refuted the guard (the run-time dictionary, `crate::proposers::runtime`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Compared {
+    /// The catalog id of the rule whose condition holds the atom.
+    pub(crate) rule: String,
+    /// The comparison the guard needs to hold: the atom's own, or its negation where the atom
+    /// is under a negation.
+    pub(crate) comparison: Comparison,
+    /// The left operand's value.
+    pub(crate) left: Operand,
+    /// The right operand's value.
+    pub(crate) right: Operand,
+}
+
+/// The comparisons of the last refuted complete record of each rule of `conditions` that its
+/// guard needed the other way round ([`Compared`]), in the rules' order, each once, at most
+/// `limit` of them.
+///
+/// Only each guard's last refuted entry is read: a run went on after the earlier ones (another
+/// rule took the step, or the next attempt came), so the last is where the guard last stopped
+/// the run, which on a run over a list is the element where it ended.
+///
+/// An atom is taken when it is a comparison over two ground `Int` or two ground `String` values
+/// (the comparisons the distance measures, [`atom`]), its truth is decided, and the truth is the
+/// one that refutes the guard at the atom's polarity: false under an even number of negations,
+/// true under an odd number. A `notBool`, `\not` or `\equals(b, false)` flips the polarity, the
+/// premise of an implication is under a negation, and the operands of `xorBool` and `\iff`,
+/// which a guard needs either way, are not read. `chosen` records, whose operands may be one
+/// model's values of something the definition leaves open, are not read either.
+pub(crate) fn comparisons(conditions: &[RuleConditionsOutput], limit: usize) -> Vec<Compared> {
+    let mut found = Vec::new();
+    for rule in conditions {
+        let last = rule
+            .records
+            .iter()
+            .rev()
+            .find(|record| record.verdict == Some(VerdictOutput::Refuted) && !record.chosen);
+        for conjunct in last.into_iter().flat_map(|record| &record.condition) {
+            wrong_atoms(conjunct, true, &rule.rule, limit, &mut found);
+        }
+    }
+    found
+}
+
+/// Push onto `found` the comparisons below `node` whose truth refutes it at `positive` polarity
+/// ([`comparisons`]), up to `limit`.
+fn wrong_atoms(
+    node: &ConditionNodeOutput,
+    positive: bool,
+    rule: &str,
+    limit: usize,
+    found: &mut Vec<Compared>,
+) {
+    use ConnectiveOutput as C;
+    if found.len() >= limit {
+        return;
+    }
+    match node {
+        ConditionNodeOutput::Connective {
+            connective,
+            children,
+            ..
+        } => match (connective, &children[..]) {
+            (C::NotBool | C::Not, [child]) => wrong_atoms(child, !positive, rule, limit, found),
+            (C::AndBool | C::AndThenBool | C::And | C::OrBool | C::OrElseBool | C::Or, _) => {
+                for child in children {
+                    wrong_atoms(child, positive, rule, limit, found);
+                }
+            }
+            (C::ImpliesBool | C::Implies, [premise, consequent]) => {
+                wrong_atoms(premise, !positive, rule, limit, found);
+                wrong_atoms(consequent, positive, rule, limit, found);
+            }
+            _ => {}
+        },
+        ConditionNodeOutput::Equals { literal, child, .. } => {
+            wrong_atoms(child, positive == *literal, rule, limit, found);
+        }
+        ConditionNodeOutput::Atom(atom) => {
+            let refuting = if positive {
+                TruthOutput::False
+            } else {
+                TruthOutput::True
+            };
+            if atom.value != refuting {
+                return;
+            }
+            let Cond::Compare(comparison, Some((left, right))) = self::atom(atom) else {
+                return;
+            };
+            let compared = Compared {
+                rule: rule.to_owned(),
+                comparison: if positive {
+                    comparison
+                } else {
+                    comparison.negated()
+                },
+                left,
+                right,
+            };
+            if !found.contains(&compared) {
+                found.push(compared);
+            }
+        }
+    }
+}
+
 /// An `Int` or `Bool` domain value in KORE JSON (in its envelope or not, under injections).
 fn int_or_bool(term: &Json) -> Option<Value> {
     let term = term.get("term").unwrap_or(term);
@@ -623,6 +732,149 @@ mod tests {
         assert_eq!(
             entry.reads,
             vec![Operand::Int(5.into()), Operand::Str("open".into())]
+        );
+    }
+
+    #[test]
+    fn the_comparisons_are_the_atoms_that_refuted_the_last_refuted_entry() {
+        use Comparison::{IntEq, IntLe};
+        let compared = |comparison, left: i64, right: i64| Compared {
+            rule: "r".into(),
+            comparison,
+            left: Operand::Int(left.into()),
+            right: Operand::Int(right.into()),
+        };
+        // `N ==Int M andBool A <=Int B andBool notBool (A ==Int 0)`: the first atom refutes it
+        // (false), the second holds, and the negated third refutes it by holding.
+        let entry_at = |nonce: i64, amount: i64| {
+            entry(
+                vec![requires(connective(
+                    ConnectiveOutput::AndBool,
+                    vec![
+                        atom(
+                            "INT.eq",
+                            vec![int(nonce), int(2)],
+                            if nonce == 2 { True } else { False },
+                        ),
+                        atom("INT.le", vec![int(amount), int(400)], True),
+                        connective(
+                            ConnectiveOutput::NotBool,
+                            vec![atom(
+                                "INT.eq",
+                                vec![int(amount), int(0)],
+                                if amount == 0 { True } else { False },
+                            )],
+                            if amount == 0 { False } else { True },
+                        ),
+                    ],
+                    False,
+                ))],
+                Some(Refuted),
+            )
+        };
+        let records = vec![
+            entry_at(1, 0),
+            entry_at(1, 0),
+            entry_at(5, 0),
+            entry(
+                vec![requires(atom("INT.eq", vec![int(9), int(9)], True))],
+                Some(Held),
+            ),
+        ];
+        // Only the last refuted entry is read; the held entry after it has nothing to change.
+        assert_eq!(
+            comparisons(&[rule(records.clone())], 64),
+            vec![compared(IntEq, 5, 2), compared(Comparison::IntNe, 0, 0)]
+        );
+        assert_eq!(
+            comparisons(&[rule(records)], 1),
+            vec![compared(IntEq, 5, 2)]
+        );
+        // The premise of an implication is under a negation: `A >Int 3 impliesBool B ==Int 1`
+        // refuted at A = 5, B = 4 needs B ==Int 1, or A >Int 3 false, which is A <=Int 3.
+        let implication = entry(
+            vec![requires(connective(
+                ConnectiveOutput::ImpliesBool,
+                vec![
+                    atom("INT.gt", vec![int(5), int(3)], True),
+                    atom("INT.eq", vec![int(4), int(1)], False),
+                ],
+                False,
+            ))],
+            Some(Refuted),
+        );
+        assert_eq!(
+            comparisons(&[rule(vec![implication])], 64),
+            vec![compared(IntLe, 5, 3), compared(IntEq, 4, 1)]
+        );
+    }
+
+    #[test]
+    fn negations_flip_the_comparison_and_unread_atoms_give_none() {
+        use Comparison::{IntGt, IntLe};
+        let compared = |comparison, left: i64, right: i64| Compared {
+            rule: "r".into(),
+            comparison,
+            left: Operand::Int(left.into()),
+            right: Operand::Int(right.into()),
+        };
+        // `\equals(b, false)` flips the polarity, `xorBool` is not read, nor a chosen record,
+        // nor operands that are not values, nor an undefined atom.
+        let flipped = entry(
+            vec![ConditionNodeOutput::Equals {
+                literal: false,
+                child: Box::new(atom("INT.gt", vec![int(8), int(1)], True)),
+                value: False,
+            }],
+            Some(Refuted),
+        );
+        assert_eq!(
+            comparisons(&[rule(vec![flipped])], 64),
+            vec![compared(IntLe, 8, 1)]
+        );
+        let xor = entry(
+            vec![requires(connective(
+                ConnectiveOutput::XorBool,
+                vec![
+                    atom("INT.eq", vec![int(3), int(1)], False),
+                    atom("INT.eq", vec![int(3), int(1)], False),
+                ],
+                False,
+            ))],
+            Some(Refuted),
+        );
+        let mut chosen = entry(
+            vec![requires(atom("INT.eq", vec![int(3), int(1)], False))],
+            Some(Refuted),
+        );
+        chosen.chosen = true;
+        let symbolic = entry(
+            vec![requires(atom(
+                "INT.eq",
+                vec![int(3), RecordedValueOutput::Symbolic { term: json!({}) }],
+                False,
+            ))],
+            Some(Refuted),
+        );
+        let undefined = entry(
+            vec![requires(atom(
+                "INT.eq",
+                vec![int(3), RecordedValueOutput::Undefined],
+                Undefined,
+            ))],
+            Some(Refuted),
+        );
+        for record in [xor, chosen, symbolic, undefined] {
+            assert_eq!(comparisons(&[rule(vec![record])], 64), Vec::new());
+        }
+        // `IntGt` keeps its direction: `X >Int 4096` refuted at X = 7.
+        let window = entry(
+            vec![requires(atom("INT.gt", vec![int(7), int(4096)], False))],
+            Some(Refuted),
+        );
+        assert_eq!(
+            comparisons(&[rule(vec![window])], 64),
+            vec![compared(IntGt, 7, 4096)]
         );
     }
 

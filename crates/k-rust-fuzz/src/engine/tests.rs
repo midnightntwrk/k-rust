@@ -51,6 +51,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         matched: Vec::new(),
         blocked: false,
         guards: std::collections::BTreeMap::new(),
+        comparisons: Vec::new(),
         progress: None,
         outside_determinism: false,
         rejection: None,
@@ -1284,6 +1285,7 @@ fn the_coverage_feedback_finds_new_rules_only_in_misses() {
         score: None,
         reads: Vec::new(),
         blocked: None,
+        comparisons: Vec::new(),
     };
     let mut feedback = CoverageFeedback::default();
     assert!(!feedback.is_interesting(&observation(OutcomeClass::DepthBound, &["a"])));
@@ -1781,6 +1783,7 @@ fn observed(work: u64) -> Observation {
         score: None,
         reads: Vec::new(),
         blocked: None,
+        comparisons: Vec::new(),
     }
 }
 

@@ -63,12 +63,16 @@ const BLIND_ISOLATED_S3: [Option<u64>; 5] =
 
 /// Blind sampling and the climb's cases at [`CI_SEEDS`] with [`CI_BUDGET`]: regression pins.
 /// They move whenever the climb's case sequence moves (its parameters, moves, the score or the
-/// condition records it reads), as `tests/golden.rs`'s climb fingerprint does.
-const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(50), Some(75), Some(151), Some(83), Some(65)];
-const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(47), Some(193), Some(175), Some(213), Some(141)];
+/// condition records it reads), as `tests/golden.rs`'s climb fingerprint does. The run-time
+/// literals (FZ-16) moved them from `c4` 50, 75, 151, 83, 65; `s3` 47, 193, 175, 213, 141;
+/// `c6` 781, 188, 239, 456, 252; whole-maze `c4` 921, 286, 411, 484, 934: a window's bound or
+/// `D ==Int C` gives the passing value at once, while `c6` (`3F ==Int G +Int 1000001`) compares
+/// no hole's value as it is.
+const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(12), Some(3), Some(4), Some(6), Some(10)];
+const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(12), Some(3), Some(11), Some(6), Some(10)];
 const PINNED_ISOLATED_C6: [Option<u64>; 5] =
-    [Some(781), Some(188), Some(239), Some(456), Some(252)];
-const PINNED_MAZE_C4: [Option<u64>; 5] = [Some(921), Some(286), Some(411), Some(484), Some(934)];
+    [Some(681), Some(288), Some(239), Some(410), Some(418)];
+const PINNED_MAZE_C4: [Option<u64>; 5] = [Some(227), Some(46), Some(67), Some(40), Some(74)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {

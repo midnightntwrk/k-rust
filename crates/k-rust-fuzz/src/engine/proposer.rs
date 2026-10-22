@@ -115,6 +115,10 @@ pub(crate) struct Observation {
     /// The rule whose refuted condition the score measures, with the values the condition read
     /// (`crate::score::Scored::blocked`); `None` without one.
     pub(crate) blocked: Option<crate::score::Blocked>,
+    /// The comparisons the case's refuted guards needed the other way round, with the values
+    /// the run compared (`crate::score::records::comparisons`): the run-time dictionary's
+    /// literals (`crate::proposers::runtime`). Empty when the case recorded no conditions.
+    pub(crate) comparisons: Vec<crate::score::records::Compared>,
 }
 
 /// Decides whether an observation is interesting (the `LibAFL` *feedback*): new coverage or a

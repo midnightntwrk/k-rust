@@ -73,6 +73,9 @@ pub struct Campaign {
     /// The harvest the corpus draws its literals from (ARCHITECTURE 8.3, 8.5), made once in
     /// [`Campaign::new`] when the corpus has a positive weight.
     corpus: Option<Arc<Harvest>>,
+    /// The rules whose condition entries every case records ([`condition_rules`]); empty when
+    /// no weighted proposer reads them.
+    condition_rules: Vec<String>,
 }
 
 impl Campaign {
@@ -168,6 +171,7 @@ impl Campaign {
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
         let (dictionary, corpus) = harvests(&spec, &cases, graph.as_deref())?;
         let scorer = climb_scorer(&spec, &cases, graph.as_deref())?;
+        let condition_rules = condition_rules(&spec, &cases, graph.as_deref(), scorer.as_ref())?;
         let settings = LoopSettings {
             identity: identity(&spec, &initial)?,
             rejection_cap: spec.rejection_cap,
@@ -202,6 +206,7 @@ impl Campaign {
             graph,
             dictionary,
             corpus,
+            condition_rules,
         })
     }
 
@@ -262,13 +267,11 @@ impl Campaign {
                 }
             },
         };
-        // The climb's score reads the condition entries of the target and its predecessors;
-        // only a climbing campaign asks for them, so no other campaign's cases change.
-        if let Some(scorer) = &self.settings.scorer {
-            let rules = scorer.condition_rules();
-            if !rules.is_empty() {
-                cases.request_conditions(rules);
-            }
+        // The climb's and the solve proposer's scores and the corpus's pools of run-time
+        // literals read condition entries; only a campaign that weighs one of them asks for
+        // them, so no other campaign's cases change.
+        if !self.condition_rules.is_empty() {
+            cases.request_conditions(self.condition_rules.clone());
         }
         let generators = generators(&cases, &self.spec).expect("Campaign::new built them");
         // Campaign::new refused every other weighted proposer; the schedule takes them in
@@ -467,22 +470,72 @@ fn climb_scorer(
             scorer
         }
     };
-    Ok(Some(Scorer::Rule(
-        match (graph, cases.baseline_internalized()) {
-            (Some(check), _) => scorer(check.graph()),
-            (None, Some(definition)) => scorer(&RuleGraph::new(definition)),
-            (None, None) => {
-                let mut backend =
-                    build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
-                let graph = RuleGraph::of_backend(&mut backend).map_err(|error| {
-                    CampaignError::Definition {
-                        message: format!("the rule graph is not available: {error}"),
-                    }
+    Ok(Some(Scorer::Rule(on_rule_graph(
+        spec, cases, graph, scorer,
+    )?)))
+}
+
+/// `use_graph` applied to the campaign's rule graph `graph`, or to a graph of the campaign's one
+/// internalization when there is no graph check, or, on the `from-definition` route without
+/// one, to a graph of a backend of its own.
+///
+/// # Errors
+///
+/// [`CampaignError::Definition`] when the rule graph cannot be built.
+fn on_rule_graph<T>(
+    spec: &CampaignSpec,
+    cases: &LiveCases,
+    graph: Option<&GraphCheck>,
+    use_graph: impl FnOnce(&RuleGraph) -> T,
+) -> Result<T, CampaignError> {
+    Ok(match (graph, cases.baseline_internalized()) {
+        (Some(check), _) => use_graph(check.graph()),
+        (None, Some(definition)) => use_graph(&RuleGraph::new(definition)),
+        (None, None) => {
+            let mut backend =
+                build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
+            let graph =
+                RuleGraph::of_backend(&mut backend).map_err(|error| CampaignError::Definition {
+                    message: format!("the rule graph is not available: {error}"),
                 })?;
-                scorer(&graph)
-            }
-        },
-    )))
+            use_graph(&graph)
+        }
+    })
+}
+
+/// The rules whose condition entries every case of the campaign records, sorted: those the
+/// score of `scorer` reads (the climb's and the solve proposer's), and, when the corpus has a
+/// positive weight and the target is a rule, the target and its direct predecessors that key
+/// the head of `<k>` (all of them when none does), as the climb's score reads them: their
+/// refuted guards give the corpus's pools of run-time literals (ARCHITECTURE 8.3, 8.5;
+/// `crate::proposers::runtime`). Empty when no weighted proposer reads condition entries, so
+/// that such a campaign records none and its cases do not change.
+///
+/// # Errors
+///
+/// [`CampaignError::Definition`] when the rule graph cannot be built.
+fn condition_rules(
+    spec: &CampaignSpec,
+    cases: &LiveCases,
+    graph: Option<&GraphCheck>,
+    scorer: Option<&Scorer>,
+) -> Result<Vec<String>, CampaignError> {
+    let mut rules: std::collections::BTreeSet<String> = scorer
+        .map(Scorer::condition_rules)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let pools = weight(&spec.proposers, ProposerKind::Corpus) > 0
+        || weight(&spec.proposers, ProposerKind::Climb) > 0;
+    if pools
+        && let (TargetKind::Rule(_), Some(target)) = (&spec.target.kind, cases.target_rule_id())
+    {
+        let guards = on_rule_graph(spec, cases, graph, |graph| {
+            Harvest::guard_rules(graph, target, dictionary::RADIUS)
+        })?;
+        rules.extend(guards);
+    }
+    Ok(rules.into_iter().collect())
 }
 
 /// A mutant is given exactly when the target is differential.
@@ -664,7 +717,8 @@ fn identity(
             .then(DictionaryParameters::current),
         climb: (weight(&spec.proposers, ProposerKind::Climb) > 0)
             .then(|| ClimbParameters::for_target(&spec.target.kind)),
-        corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0).then(CorpusParameters::current),
+        corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0)
+            .then(|| CorpusParameters::for_target(&spec.target.kind)),
         solve: (weight(&spec.proposers, ProposerKind::Solve) > 0).then(SolveParameters::current),
     })
 }

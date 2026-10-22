@@ -83,6 +83,7 @@ fn observation(class: OutcomeClass, applied: &[&str], score: Option<Score>) -> O
         score,
         reads: Vec::new(),
         blocked: None,
+        comparisons: Vec::new(),
     }
 }
 
@@ -434,4 +435,103 @@ fn a_record_inside_a_list_changes_one_field_at_a_time() {
         one_field >= 10,
         "{one_field} proposals changed one field of one record"
     );
+}
+
+/// The comparison `left == right` of rule `r`, as the condition records give it.
+fn equal(left: i64, right: i64) -> Compared {
+    Compared {
+        rule: "r".into(),
+        comparison: crate::score::distance::Comparison::IntEq,
+        left: crate::score::Operand::Int(left.into()),
+        right: crate::score::Operand::Int(right.into()),
+    }
+}
+
+#[test]
+fn a_kept_case_is_changed_from_its_pool_of_run_time_literals() {
+    // A list whose second key 7 a guard compared with the state's 200 (`A ==Int B`).
+    let start = vec![Value::List(vec![int(100), int(7)])];
+    let fixed = vec![Value::List(vec![int(100), int(200)])];
+    let mut found = 0;
+    for seed in 0..8 {
+        let mut corpus = CorpusProposer::new(
+            vec![hole(list_of_ints(), Constraints::default())],
+            &harvest(&[]),
+            bounds(),
+            seed,
+        );
+        let mut seen = observation(OutcomeClass::Miss, &["a"], None);
+        seen.comparisons = vec![equal(7, 200)];
+        corpus.observe_all(&Proposal::plain(Origin::Explicit, start.clone()), &seen);
+        found += (0..8)
+            .filter(|_| propose(&mut corpus).values == fixed)
+            .count();
+    }
+    assert!((4..=40).contains(&found), "{found}");
+}
+
+#[test]
+fn the_corpus_follows_up_its_own_missed_case_from_that_case_s_pool() {
+    let mut followed = 0;
+    for seed in 0..16 {
+        let mut corpus = CorpusProposer::new(
+            vec![hole(list_of_ints(), Constraints::default())],
+            &harvest(&[]),
+            bounds(),
+            seed,
+        );
+        corpus.observe_all(
+            &Proposal::plain(Origin::Explicit, vec![Value::List(vec![int(1)])]),
+            &observation(OutcomeClass::Miss, &["a"], None),
+        );
+        // The corpus's case missed, reached nothing new, and its guard compared its last key
+        // with 42: the next proposal may repair that key, though the case was not kept.
+        let child = propose(&mut corpus);
+        let Value::List(keys) = &child.values[0] else {
+            panic!("a list")
+        };
+        let Some(Value::Int(last)) = keys.last() else {
+            continue;
+        };
+        let last = i64::try_from(last).unwrap_or(0);
+        if last == 42 || keys.iter().filter(|key| **key == int(last)).count() > 1 {
+            continue;
+        }
+        let mut seen = observation(OutcomeClass::Miss, &["a"], None);
+        seen.comparisons = vec![equal(last, 42)];
+        corpus.observe(&child, &seen, false);
+        corpus.observe_all(&child, &seen);
+        assert_eq!(corpus.entries().len(), 1, "not kept");
+        let mut repaired = keys.clone();
+        *repaired.last_mut().expect("a key") = int(42);
+        if propose(&mut corpus).values == [Value::List(repaired)] {
+            followed += 1;
+        }
+    }
+    // Half of the time, give or take.
+    assert!((3..=15).contains(&followed), "{followed}");
+}
+
+#[test]
+fn a_pool_without_candidates_leaves_the_mutations_unchanged() {
+    let run = |comparisons: Vec<Compared>| {
+        let mut corpus = CorpusProposer::new(
+            vec![hole(list_of_ints(), Constraints::default())],
+            &harvest(&[31_337]),
+            bounds(),
+            5,
+        );
+        let mut seen = observation(OutcomeClass::Miss, &["a"], None);
+        seen.comparisons = comparisons;
+        corpus.observe_all(
+            &Proposal::plain(Origin::Explicit, vec![Value::List(vec![int(0)])]),
+            &seen,
+        );
+        (0..64)
+            .map(|_| propose(&mut corpus).values)
+            .collect::<Vec<_>>()
+    };
+    // A pool whose compared values occur nowhere in the case gives no change, and the
+    // mutations are those of a case without a pool.
+    assert_eq!(run(Vec::new()), run(vec![equal(99, 100)]));
 }

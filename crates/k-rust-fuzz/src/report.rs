@@ -336,7 +336,7 @@ pub struct SolveTotals {
 /// the target, the dictionary's harvest and the other proposers' cases decide its mutations.
 /// They are constants of this build; a change of any of them changes the case sequence of a
 /// campaign that weighs the corpus.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CorpusParameters {
     /// The most share of the campaign's cases and of its work the corpus spends, as
@@ -363,13 +363,31 @@ pub struct CorpusParameters {
     /// The harvest the literals come from: the dictionary's radius, expansion, distance
     /// weights and exact-value probability (its draw probability does not apply).
     pub harvest: DictionaryParameters,
+    /// The probability, as `[numerator, denominator]`, that a proposal from a kept case whose
+    /// pool of run-time literals is not empty is a change from that pool (ARCHITECTURE 8.3,
+    /// 8.5).
+    pub runtime_probability: [u32; 2],
+    /// The probability, as `[numerator, denominator]`, that the proposal after a corpus case
+    /// that was a `miss` with a pool of run-time literals is a change of that case.
+    pub follow_probability: [u32; 2],
+    /// The most such follow-up changes chained after one mutation.
+    pub follow_depth: u32,
+    /// The most comparisons the pool of run-time literals of one case holds.
+    pub max_comparisons: u32,
+    /// Which rules' condition entries the cases record for the pools of run-time literals:
+    /// `dictionary-guard-rules` for a rule target (the rules whose guards the dictionary's
+    /// harvest reads: those at most `harvest.radius` rule-graph edges before the target and the
+    /// higher-priority rules they compete with; a campaign that also climbs or solves records
+    /// the union with the score's rules), `none` for another target, whose cases then carry no
+    /// pool.
+    pub runtime_condition_rules: String,
 }
 
 impl CorpusParameters {
-    /// The parameters of this build.
+    /// The parameters of this build for a campaign whose target is `target`.
     #[must_use]
-    pub fn current() -> Self {
-        crate::proposers::corpus::parameters()
+    pub fn for_target(target: &crate::target::TargetKind) -> Self {
+        crate::proposers::corpus::parameters(target)
     }
 }
 
@@ -412,6 +430,16 @@ pub struct ClimbParameters {
     pub condition_limit: u64,
     /// The largest recorded value, in term nodes; a larger one gives no signal.
     pub condition_value_size: u64,
+    /// The probability, as `[numerator, denominator]`, that a proposal from a best case whose
+    /// pool of run-time literals is not empty is a change from that pool (ARCHITECTURE 8.3,
+    /// 8.4).
+    pub runtime_probability: [u32; 2],
+    /// The most comparisons the pool of run-time literals of one case holds.
+    pub max_comparisons: u32,
+    /// Which rules' condition entries the cases also record for the pools of run-time literals
+    /// (`CorpusParameters::runtime_condition_rules`): `dictionary-guard-rules` for a rule
+    /// target, `none` for an observer target.
+    pub runtime_condition_rules: String,
 }
 
 impl ClimbParameters {

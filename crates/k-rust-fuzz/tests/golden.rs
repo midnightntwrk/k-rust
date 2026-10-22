@@ -58,16 +58,19 @@ const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
 /// it climbs moves it: bump `ENGINE_VERSION` and re-pin every fingerprint.
 const PINNED_CLIMB: Option<(u32, &str)> = Some((
     2,
-    "3c303ba31b916d33bbbc0b21039aafc2dfbd0d0432376466e8bf7e8adfe10f28",
+    "6eb85cd6236f429162d72aeae7aec0797c19d654f7a68314f1165e1d490656a8",
 ));
 
 /// The pinned fingerprint of the corpus campaign's case sequence (FZ-14). The corpus is new in
 /// this version, so pinning it moved no other fingerprint and `ENGINE_VERSION` stays 2. A
 /// change of the corpus's parameters (`report::CorpusParameters`), of its mutations or of the
 /// harvest it draws literals from moves it: bump `ENGINE_VERSION` and re-pin every fingerprint.
+/// FZ-16 (run-time literals) moved this and the climb fingerprint, and neither the blind nor the
+/// dictionary one; they are re-pinned at version 2 on its branch, and the wave's integration
+/// bumps `ENGINE_VERSION` to 3 and re-pins once (D25).
 const PINNED_CORPUS: Option<(u32, &str)> = Some((
     2,
-    "1e9597915ba51098bf768737d4e1b87bfd3dc862e8501fa1a45dc346f2a58181",
+    "4ee3ae3f9632faac34ee64bc7696c02ccbb3dee99c369c68a09d52a1a45af367",
 ));
 
 /// The pinned fingerprint of the solve campaign's case sequence (FZ-15), in builds with the `z3`
@@ -669,7 +672,9 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     );
     assert_eq!(
         reports[corpus_start].identity.corpus,
-        Some(k_rust_fuzz::report::CorpusParameters::current())
+        Some(k_rust_fuzz::report::CorpusParameters::for_target(
+            &corpus_campaign().target.kind
+        ))
     );
     check_pin(
         "corpus",
