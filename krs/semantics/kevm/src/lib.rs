@@ -5288,7 +5288,7 @@ fn push_add_pc_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(11),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5315,7 +5315,7 @@ fn push_add_pc_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(5, Stack::StackCons(5, Stack::StackEmpty()))),
+        CallState::word_stack: k::configuration::Cell([5, 5]),
         CallState::pc: k::configuration::Cell(6),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5346,7 +5346,7 @@ fn arithmetic_comparison_tranches_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(107),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5373,34 +5373,7 @@ fn arithmetic_comparison_tranches_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            1,
-            Stack::StackCons(
-                1,
-                Stack::StackCons(
-                    1,
-                    Stack::StackCons(
-                        1,
-                        Stack::StackCons(
-                            1,
-                            Stack::StackCons(
-                                1,
-                                Stack::StackCons(
-                                    4,
-                                    Stack::StackCons(
-                                        0,
-                                        Stack::StackCons(
-                                            1,
-                                            Stack::StackCons(3, Stack::StackEmpty()),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        )),
+        CallState::word_stack: k::configuration::Cell([1, 1, 1, 1, 1, 1, 4, 0, 1, 3]),
         CallState::pc: k::configuration::Cell(52),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5431,7 +5404,7 @@ fn pure_word_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(149),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5458,34 +5431,18 @@ fn pure_word_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
+        CallState::word_stack: k::configuration::Cell([
             0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF,
-            Stack::StackCons(
-                16,
-                Stack::StackCons(
-                    48,
-                    Stack::StackCons(
-                        171,
-                        Stack::StackCons(
-                            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF,
-                            Stack::StackCons(
-                                60,
-                                Stack::StackCons(
-                                    63,
-                                    Stack::StackCons(
-                                        3,
-                                        Stack::StackCons(
-                                            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FF80,
-                                            Stack::StackCons(256, Stack::StackEmpty()),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        )),
+            16,
+            48,
+            171,
+            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF,
+            60,
+            63,
+            3,
+            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FF80,
+            256,
+        ]),
         CallState::pc: k::configuration::Cell(50),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5516,7 +5473,7 @@ fn stack_manipulation_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(17),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5543,10 +5500,7 @@ fn stack_manipulation_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            3,
-            Stack::StackCons(1, Stack::StackCons(1, Stack::StackEmpty())),
-        )),
+        CallState::word_stack: k::configuration::Cell([3, 1, 1]),
         CallState::pc: k::configuration::Cell(9),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5577,7 +5531,7 @@ fn control_flow_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(45),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5604,7 +5558,7 @@ fn control_flow_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(19),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5638,7 +5592,7 @@ fn execution_context_tranche_stop(
         gas_limit: k::configuration::Cell(19),
         chain_id: k::configuration::Cell(20),
         base_fee: k::configuration::Cell(21),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(55),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5668,58 +5622,7 @@ fn execution_context_tranche_stop(
         gas_limit: k::configuration::Cell(19),
         chain_id: k::configuration::Cell(20),
         base_fee: k::configuration::Cell(21),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            0,
-            Stack::StackCons(
-                99,
-                Stack::StackCons(
-                    21,
-                    Stack::StackCons(
-                        20,
-                        Stack::StackCons(
-                            19,
-                            Stack::StackCons(
-                                18,
-                                Stack::StackCons(
-                                    17,
-                                    Stack::StackCons(
-                                        16,
-                                        Stack::StackCons(
-                                            15,
-                                            Stack::StackCons(
-                                                2,
-                                                Stack::StackCons(
-                                                    14,
-                                                    Stack::StackCons(
-                                                        20,
-                                                        Stack::StackCons(
-                                                            3,
-                                                            Stack::StackCons(
-                                                                13,
-                                                                Stack::StackCons(
-                                                                    12,
-                                                                    Stack::StackCons(
-                                                                        11,
-                                                                        Stack::StackCons(
-                                                                            10,
-                                                                            Stack::StackEmpty(),
-                                                                        ),
-                                                                    ),
-                                                                ),
-                                                            ),
-                                                        ),
-                                                    ),
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        )),
+        CallState::word_stack: k::configuration::Cell([0, 99, 21, 20, 19, 18, 17, 16, 15, 2, 14, 20, 3, 13, 12, 11, 10]),
         CallState::pc: k::configuration::Cell(19),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5750,7 +5653,7 @@ fn memory_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(20),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5777,7 +5680,7 @@ fn memory_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(32, Stack::StackCons(170, Stack::StackEmpty()))),
+        CallState::word_stack: k::configuration::Cell([32, 170]),
         CallState::pc: k::configuration::Cell(9),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
@@ -5808,7 +5711,7 @@ fn load_copy_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackEmpty()),
+        CallState::word_stack: k::configuration::Cell([]),
         CallState::pc: k::configuration::Cell(0),
         CallState::gas: k::configuration::Cell(54),
         status_code: k::configuration::Cell(Status::Running()),
@@ -5835,10 +5738,7 @@ fn load_copy_tranche_stop(
         gas_limit: k::configuration::Cell(0),
         chain_id: k::configuration::Cell(0),
         base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            0xAABB_CCDD_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-            Stack::StackEmpty(),
-        )),
+        CallState::word_stack: k::configuration::Cell([0xAABB_CCDD_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000]),
         CallState::pc: k::configuration::Cell(24),
         CallState::gas: k::configuration::Cell(0),
         status_code: k::configuration::Cell(Status::Success()),
