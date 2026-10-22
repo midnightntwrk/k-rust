@@ -4770,7 +4770,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..],
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::Chop(value), stack),
@@ -4782,7 +4782,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::PushZero, remaining), ..],
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(0, stack),
@@ -4794,7 +4794,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Pop, remaining), ..],
         word_stack: Stack::StackCons(head, tail),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: tail,
@@ -4806,7 +4806,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Duplicate { depth }, remaining), ..],
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::StackAt { stack, index: int::sub(depth, 1) }, stack),
@@ -4818,7 +4818,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Swap { depth }, remaining), ..],
         word_stack: Stack::StackCons(head, tail),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -4833,7 +4833,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Add, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::Chop(int::add(w0, w1)), rest),
@@ -4845,7 +4845,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Mul, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::Chop(int::mul(w0, w1)), rest),
@@ -4857,7 +4857,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Sub, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::Chop(int::sub(w0, w1)), rest),
@@ -4869,7 +4869,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Div, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordDiv { dividend: w0, divisor: w1 }, rest),
@@ -4881,7 +4881,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::SignedDiv, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::SignedWordDiv { dividend: w0, divisor: w1 }, rest),
@@ -4893,7 +4893,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Mod, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordMod { dividend: w0, divisor: w1 }, rest),
@@ -4905,7 +4905,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::SignedMod, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::SignedWordMod { dividend: w0, divisor: w1 }, rest),
@@ -4917,7 +4917,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::AddMod, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -4932,7 +4932,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::MulMod, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -4947,7 +4947,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Exponent, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -4966,7 +4966,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::SignExtend, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordSignExtend { index: w0, value: w1 }, rest),
@@ -4978,7 +4978,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::LessThan, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::BoolToWord(int::lt(w0, w1)), rest),
@@ -4990,7 +4990,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::GreaterThan, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::BoolToWord(int::gt(w0, w1)), rest),
@@ -5002,7 +5002,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::SignedLessThan, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::SignedLess { left: w0, right: w1 }, rest),
@@ -5014,7 +5014,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::SignedGreaterThan, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::SignedLess { left: w1, right: w0 }, rest),
@@ -5026,7 +5026,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Equal, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::BoolToWord(int::eq(w0, w1)), rest),
@@ -5038,7 +5038,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::IsZero, remaining), ..],
         word_stack: Stack::StackCons(w0, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::BoolToWord(int::eq(w0, 0)), rest),
@@ -5050,7 +5050,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::BitAnd, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(int::bit_and(w0, w1), rest),
@@ -5062,7 +5062,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::BitOr, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(int::bit_or(w0, w1), rest),
@@ -5074,7 +5074,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::BitXor, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(int::bit_xor(w0, w1), rest),
@@ -5086,7 +5086,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::BitNot, remaining), ..],
         word_stack: Stack::StackCons(w0, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -5107,7 +5107,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Byte, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordByte { index: w0, value: w1 }, rest),
@@ -5119,7 +5119,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::ShiftLeft, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordShiftLeft { value: w1, shift: w0 }, rest),
@@ -5131,7 +5131,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::ShiftRight, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordShiftRight { value: w1, shift: w0 }, rest),
@@ -5143,7 +5143,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::SignedShiftRight, remaining), ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::WordSignedShiftRight { value: w1, shift: w0 }, rest),
@@ -5156,7 +5156,7 @@ k::rules! {
         word_stack: stack,
         address: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5173,7 +5173,7 @@ k::rules! {
         accessed_accounts: accessed,
         word_stack: Stack::StackCons(account, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5188,7 +5188,7 @@ k::rules! {
         accessed_accounts: accessed,
         word_stack: Stack::StackCons(account, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5202,7 +5202,7 @@ k::rules! {
         word_stack: stack,
         origin: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5215,7 +5215,7 @@ k::rules! {
         word_stack: stack,
         caller: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5228,7 +5228,7 @@ k::rules! {
         word_stack: stack,
         call_value: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5241,7 +5241,7 @@ k::rules! {
         call_data: call_data,
         word_stack: Stack::StackCons(index, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -5257,7 +5257,7 @@ k::rules! {
         word_stack: stack,
         call_data: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(bytes::length(value), stack),
@@ -5275,7 +5275,7 @@ k::rules! {
             Stack::StackCons(source_index, Stack::StackCons(width, rest))
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         local_mem: crate::CopyBytes {
@@ -5296,7 +5296,7 @@ k::rules! {
         program: value,
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(bytes::length(value), stack),
@@ -5314,7 +5314,7 @@ k::rules! {
             Stack::StackCons(source_index, Stack::StackCons(width, rest))
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         local_mem: crate::CopyBytes {
@@ -5335,7 +5335,7 @@ k::rules! {
         word_stack: stack,
         gas_price: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5352,7 +5352,7 @@ k::rules! {
         accessed_accounts: accessed,
         word_stack: Stack::StackCons(account, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5367,7 +5367,7 @@ k::rules! {
         accessed_accounts: accessed,
         word_stack: Stack::StackCons(account, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5393,7 +5393,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5424,7 +5424,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5455,7 +5455,7 @@ k::rules! {
         accessed_accounts: accessed,
         word_stack: Stack::StackCons(account, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5470,7 +5470,7 @@ k::rules! {
         accessed_accounts: accessed,
         word_stack: Stack::StackCons(account, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_accounts: crate::MarkAccountAccess { accessed, account },
@@ -5484,7 +5484,7 @@ k::rules! {
         word_stack: stack,
         output: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(bytes::length(value), stack),
@@ -5513,7 +5513,7 @@ k::rules! {
             Stack::StackCons(source_index, Stack::StackCons(width, rest))
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         local_mem: crate::CopyBytes {
@@ -5536,8 +5536,8 @@ k::rules! {
             destination,
             Stack::StackCons(source_index, Stack::StackCons(width, rest))
         ),
-        gas: gas,
-        status_code: status,
+        gas: _,
+        status_code: _,
     } => {
         k: [..],
         memory_used: crate::MemoryUsageUpdate { used, start: destination, width },
@@ -5552,7 +5552,7 @@ k::rules! {
         number: number,
         word_stack: Stack::StackCons(requested, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
@@ -5568,7 +5568,7 @@ k::rules! {
         word_stack: stack,
         coinbase: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5581,7 +5581,7 @@ k::rules! {
         word_stack: stack,
         timestamp: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5594,7 +5594,7 @@ k::rules! {
         word_stack: stack,
         number: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5607,7 +5607,7 @@ k::rules! {
         word_stack: stack,
         prev_randao: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5620,7 +5620,7 @@ k::rules! {
         word_stack: stack,
         gas_limit: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5633,7 +5633,7 @@ k::rules! {
         word_stack: stack,
         chain_id: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5649,7 +5649,7 @@ k::rules! {
         balance: balance,
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(balance, stack),
@@ -5662,7 +5662,7 @@ k::rules! {
         word_stack: stack,
         base_fee: value,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(value, stack),
@@ -5676,7 +5676,7 @@ k::rules! {
         memory_used: used,
         word_stack: Stack::StackCons(index, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         memory_used: crate::MemoryUsageUpdate { used, start: index, width: 32 },
@@ -5694,7 +5694,7 @@ k::rules! {
         memory_used: used,
         word_stack: Stack::StackCons(index, Stack::StackCons(value, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         local_mem: crate::WriteMemoryWord {
@@ -5719,7 +5719,7 @@ k::rules! {
         memory_used: used,
         word_stack: Stack::StackCons(index, Stack::StackCons(value, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         local_mem: bytes::update(
@@ -5743,7 +5743,7 @@ k::rules! {
         memory_used: used,
         word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         memory_used: crate::MemoryUsageUpdate { used, start, width },
@@ -5764,7 +5764,7 @@ k::rules! {
         accessed_storage: accessed,
         word_stack: Stack::StackCons(index, rest),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         accessed_storage: crate::MarkStorageAccess { accessed, account: current_account, index },
@@ -5784,7 +5784,7 @@ k::rules! {
         refund: refund,
         word_stack: Stack::StackCons(index, Stack::StackCons(new, rest)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         storage: map::update(storage, index, new),
@@ -5810,7 +5810,7 @@ k::rules! {
         memory_used: used,
         word_stack: Stack::StackCons(start, Stack::StackCons(width, topic_stack)),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         logs: list::concat(
@@ -5834,7 +5834,7 @@ k::rules! {
         memory_used: used,
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(crate::Chop(int::mul(32, used)), stack),
@@ -5846,7 +5846,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::GasRemaining, remaining), ..],
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(remaining, stack),
@@ -5858,7 +5858,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::ProgramCounter, remaining), ..],
         word_stack: stack,
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(pc, stack),
@@ -5870,7 +5870,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::Jump, remaining), ..],
         program: program,
         word_stack: Stack::StackCons(destination, rest),
-        gas: gas,
+        gas: _,
     } => {
         k: [crate::ResolveJump { program, destination }, ..],
         word_stack: rest,
@@ -5881,7 +5881,7 @@ k::rules! {
         k: [GasResult::EnoughGas(Operation::JumpIf, remaining), ..],
         program: program,
         word_stack: Stack::StackCons(destination, Stack::StackCons(condition, rest)),
-        gas: gas,
+        gas: _,
     } => {
         k: [crate::ResolveJumpIf { program, destination, condition }, ..],
         word_stack: rest,
@@ -5890,7 +5890,7 @@ k::rules! {
 
     exec_valid_jump: {
         k: [JumpResult::JumpValid { destination }, ..],
-        pc: pc,
+        pc: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         pc: destination,
@@ -5906,7 +5906,7 @@ k::rules! {
 
     exec_invalid_jump: {
         k: [JumpResult::JumpInvalid(), ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::BadJumpDestination(),
@@ -5915,7 +5915,7 @@ k::rules! {
     exec_jump_dest: {
         k: [GasResult::EnoughGas(Operation::JumpDest, remaining), ..],
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         pc: int::add(pc, 1),
@@ -5924,12 +5924,12 @@ k::rules! {
 
     exec_return: {
         k: [GasResult::EnoughGas(Operation::Return, remaining), ..],
-        output: output,
+        output: _,
         local_mem: memory,
         memory_used: used,
         word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
-        gas: gas,
-        status_code: status,
+        gas: _,
+        status_code: _,
     } => {
         k: [..],
         output: crate::ReturnBytes { memory, start, width },
@@ -5941,12 +5941,12 @@ k::rules! {
 
     exec_revert: {
         k: [GasResult::EnoughGas(Operation::Revert, remaining), ..],
-        output: output,
+        output: _,
         local_mem: memory,
         memory_used: used,
         word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
-        gas: gas,
-        status_code: status,
+        gas: _,
+        status_code: _,
     } => {
         k: [..],
         output: crate::ReturnBytes { memory, start, width },
@@ -5978,7 +5978,7 @@ k::rules! {
     exec_static_call_ecrec_success: {
         k: [PrecompileResult::EcrecPrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -5997,7 +5997,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6057,7 +6057,7 @@ k::rules! {
     exec_static_call_ecrec_exception: {
         k: [PrecompileResult::EcrecPrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6076,7 +6076,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6138,7 +6138,7 @@ k::rules! {
     exec_static_call_sha256_success: {
         k: [PrecompileResult::Sha256PrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6157,7 +6157,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6206,7 +6206,7 @@ k::rules! {
     exec_static_call_sha256_exception: {
         k: [PrecompileResult::Sha256PrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6225,7 +6225,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6287,7 +6287,7 @@ k::rules! {
     exec_static_call_ripemd160_success: {
         k: [PrecompileResult::Ripemd160PrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6306,7 +6306,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6371,7 +6371,7 @@ k::rules! {
     exec_static_call_ripemd160_exception: {
         k: [PrecompileResult::Ripemd160PrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6390,7 +6390,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6452,7 +6452,7 @@ k::rules! {
     exec_static_call_identity_success: {
         k: [PrecompileResult::IdentityPrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6471,7 +6471,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6516,7 +6516,7 @@ k::rules! {
     exec_static_call_identity_exception: {
         k: [PrecompileResult::IdentityPrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6535,7 +6535,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6597,7 +6597,7 @@ k::rules! {
     exec_static_call_modexp_success: {
         k: [PrecompileResult::ModExpPrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6616,7 +6616,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6676,7 +6676,7 @@ k::rules! {
     exec_static_call_modexp_exception: {
         k: [PrecompileResult::ModExpPrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6695,7 +6695,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6757,7 +6757,7 @@ k::rules! {
     exec_static_call_ecadd_success: {
         k: [PrecompileResult::EcAddPrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6776,7 +6776,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6825,7 +6825,7 @@ k::rules! {
     exec_static_call_ecadd_exception: {
         k: [PrecompileResult::EcAddPrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6844,7 +6844,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6906,7 +6906,7 @@ k::rules! {
     exec_static_call_ecmul_success: {
         k: [PrecompileResult::EcMulPrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6925,7 +6925,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -6974,7 +6974,7 @@ k::rules! {
     exec_static_call_ecmul_exception: {
         k: [PrecompileResult::EcMulPrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -6993,7 +6993,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -7055,7 +7055,7 @@ k::rules! {
     exec_static_call_ecpairing_success: {
         k: [PrecompileResult::EcPairingPrecompileSuccess { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -7074,7 +7074,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -7123,7 +7123,7 @@ k::rules! {
     exec_static_call_ecpairing_exception: {
         k: [PrecompileResult::EcPairingPrecompileFailure { remaining }, ..],
         touched_accounts: touched_accounts,
-        output: output,
+        output: _,
         address: address,
         local_mem: memory,
         memory_used: used,
@@ -7142,7 +7142,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         touched_accounts: set::union(
@@ -7192,8 +7192,8 @@ k::rules! {
         nonce: nonce,
         storage: storage,
         original_storage: original_storage,
-        output: output,
-        status_code: status,
+        output: _,
+        status_code: _,
         program: program,
         jump_dests: jump_dests,
         address: address,
@@ -7222,8 +7222,8 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
-        call_gas: old_call_gas,
+        gas: _,
+        call_gas: _,
         static_mode: static_mode,
         call_depth: call_depth,
         code_address: code_address,
@@ -7661,7 +7661,7 @@ k::rules! {
         balance: balance,
         code: code,
         nonce: nonce,
-        output: output,
+        output: _,
         local_mem: memory,
         memory_used: used,
         accessed_accounts: accessed,
@@ -7679,7 +7679,7 @@ k::rules! {
             )
         ),
         pc: pc,
-        gas: gas,
+        gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
         output: bytes::empty(),
@@ -7698,9 +7698,9 @@ k::rules! {
 
     exec_stop: {
         k: [GasResult::EnoughGas(Operation::Stop, remaining), ..],
-        gas: gas,
-        output: output,
-        status_code: status,
+        gas: _,
+        output: _,
+        status_code: _,
     } => {
         k: [..],
         gas: remaining,
@@ -7729,7 +7729,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackEmpty(),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7754,7 +7754,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackEmpty(),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7774,7 +7774,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackEmpty(),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7795,7 +7795,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackEmpty(),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7817,7 +7817,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7840,7 +7840,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7862,7 +7862,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackCons(_, Stack::StackEmpty()),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7879,7 +7879,7 @@ k::rules! {
             ..
         ],
         word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty())),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7891,7 +7891,7 @@ k::rules! {
             _,
             Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty()))
         ),
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7899,7 +7899,7 @@ k::rules! {
 
     stack_operation_underflow: {
         k: [GasResult::StackUnderflowResult(), ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
@@ -7907,7 +7907,7 @@ k::rules! {
 
     stack_operation_overflow: {
         k: [GasResult::StackOverflowResult(), ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StackOverflow(),
@@ -7915,7 +7915,7 @@ k::rules! {
 
     out_of_gas: {
         k: [GasResult::InsufficientGas(), ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::OutOfGas(),
@@ -7923,7 +7923,7 @@ k::rules! {
 
     static_mode_violation: {
         k: [GasResult::StaticViolationResult(), ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::StaticModeViolation(),
@@ -7931,7 +7931,7 @@ k::rules! {
 
     invalid_instruction: {
         k: [Operation::Invalid, ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::InvalidInstruction(),
@@ -7939,7 +7939,7 @@ k::rules! {
 
     end_of_program: {
         k: [Operation::End, ..],
-        status_code: status,
+        status_code: _,
     } => {
         k: [..],
         status_code: Status::Success(),
