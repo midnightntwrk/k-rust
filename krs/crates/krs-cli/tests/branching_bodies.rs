@@ -90,6 +90,11 @@ pub fn ElementSize(types: Term<Map>, info: Term<TypeInfo>) -> Term<Int> {
 }
 
 #[k::function(total, internal)]
+pub fn Outside(value: Term<Int>) -> Term<Int> {
+    if int::lt(value, 0) || int::ge(value, 32) { 0 } else { value }
+}
+
+#[k::function(total, internal)]
 pub fn Flip(value: Term<Int>) -> Term<Int> {
     match value {
         2 | -1 => 1,
@@ -196,6 +201,21 @@ fn element_size_3(k::term![ElementSize(_, Info::TupleInfo { count: 0, size: _ })
 #[k::equation]
 fn element_size_4(k::term![ElementSize(_, Info::TupleInfo { count: _, size })]: Term<Int>) -> Term<Int> {
     int::div(size, 8)
+}
+
+#[k::function(total, internal)]
+pub fn Outside(value: Term<Int>) -> Term<Int>;
+
+#[k::requires(int::lt(value, 0) || int::ge(value, 32))]
+#[k::equation]
+fn outside_1(k::term![Outside(value)]: Term<Int>) -> Term<Int> {
+    0
+}
+
+#[k::requires((int::lt(value, 0) || int::ge(value, 32)).not::<Bool>())]
+#[k::equation]
+fn outside_2(k::term![Outside(value)]: Term<Int>) -> Term<Int> {
+    value
 }
 
 #[k::function(total, internal)]
@@ -375,8 +395,8 @@ fn branches_emit_the_equations_written_by_hand() {
     assert!(success, "{stderr}");
     let branching = rules(&branching);
     assert_eq!(branching, rules(&long_form));
-    // `Magnitude`'s one equation, and the nineteen that branches define.
-    assert_eq!(branching.len(), 20, "{branching:#?}");
+    // `Magnitude`'s one equation, and the twenty-one that branches define.
+    assert_eq!(branching.len(), 22, "{branching:#?}");
 }
 
 /// Shapes whose equations the macro and the collector must anchor alike,

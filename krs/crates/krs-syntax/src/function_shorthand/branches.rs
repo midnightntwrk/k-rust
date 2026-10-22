@@ -865,7 +865,13 @@ fn parenthesized_tokens(tokens: TokenStream) -> Result<TokenStream, SyntaxError>
 fn conjunct(expression: &Expr) -> Result<TokenStream, SyntaxError> {
     match expression {
         Expr::Binary(binary) if matches!(binary.op, syn::BinOp::Or(_)) => {
-            let span = binary.op.span();
+            // The span of `||`'s first `|`: the joined span of both differs
+            // between the macro host, which cannot join spans, and the
+            // collector's reparse, which can.
+            let syn::BinOp::Or(or) = binary.op else {
+                unreachable!("the guard matched `||`");
+            };
+            let span = or.spans[0];
             let left = receiver(&binary.left)?;
             let right = binary.right.to_token_stream();
             let last = TokenRange::for_tokens(&right)?.last();
