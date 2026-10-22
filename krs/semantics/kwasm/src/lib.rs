@@ -140,8 +140,7 @@ k::rules! {
         instrs: [InstrCons(head, tail), ..],
     } => {
         instrs: [head, tail, ..],
-    }
-    where head: Instr, tail: Instrs;
+    };
 
     sequence_empty: {
         instrs: [InstrEmpty(), ..],
@@ -150,7 +149,6 @@ k::rules! {
     };
 }
 
-#[rustfmt::skip]
 k::rules! {
     for Machine;
     use Instruction::*;
@@ -159,15 +157,13 @@ k::rules! {
         instrs: [Const(IntegerType::I32, value), ..],
     } => {
         instrs: [crate::Chop(IntegerType::I32, int::add(value, 4_294_967_296)), ..],
-    }
-    where value: Int;
+    };
 
     constant_i64: {
         instrs: [Const(IntegerType::I64, value), ..],
     } => {
-        instrs: [crate::Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616),), ..],
-    }
-    where value: Int;
+        instrs: [crate::Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616)), ..],
+    };
 
     undefined_traps: {
         instrs: [Value::Undefined(), ..],
@@ -177,12 +173,11 @@ k::rules! {
 
     load_binary: {
         instrs: [Binary(ty, op), ..],
-        valstack: Stack::Cons(Value::Integer(ty, rhs), Stack::Cons(Value::Integer(ty, lhs), rest),),
+        valstack: Stack::Cons(Value::Integer(ty, rhs), Stack::Cons(Value::Integer(ty, lhs), rest)),
     } => {
         instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..],
         valstack: rest,
-    }
-    where ty: IValType, op: IBinOp, lhs: Int, rhs: Int, rest: ValStack;
+    };
 
     push_value: {
         instrs: [Value::Integer(ty, value), ..],
@@ -190,8 +185,7 @@ k::rules! {
     } => {
         instrs: [..],
         valstack: Stack::Cons(Value::Integer(ty, value), stack),
-    }
-    where ty: IValType, value: Int, stack: ValStack;
+    };
 }
 
 /// Executable all-path claim corresponding to `KWasm`'s simple-addition claim shape.
