@@ -312,19 +312,7 @@ impl Campaign {
         }
         proposers.extend(self.corpus_proposer(&cases));
         #[cfg(feature = "z3")]
-        if weight(&self.spec.proposers, ProposerKind::Solve) > 0 {
-            let proposer = crate::proposers::solve::SolveProposer::new(
-                cases.configuration_builder(),
-                self.spec.options.clone(),
-                self.spec.bounds,
-                self.spec.identity.thread_stack_size,
-                cancel.clone(),
-            );
-            proposers.push((
-                weight(&self.spec.proposers, ProposerKind::Solve),
-                Box::new(proposer),
-            ));
-        }
+        proposers.extend(self.solve_proposer(&cases, cancel.as_ref()));
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
         // One assembler per side for the whole run, so that every case reuses its parsers.
         let parts = cases.assembly_parts();
@@ -367,6 +355,28 @@ impl Campaign {
             weight(&self.spec.proposers, ProposerKind::Corpus),
             Box::new(proposer),
         ))
+    }
+
+    /// The solve proposer of a run on `cases` with its weight, when it has a positive weight
+    /// (ARCHITECTURE 8.6); its symbolic runs stop when `cancel` is cancelled.
+    #[cfg(feature = "z3")]
+    fn solve_proposer(
+        &self,
+        cases: &LiveCases,
+        cancel: Option<&CancellationToken>,
+    ) -> Option<(u32, Box<dyn Proposer>)> {
+        let weight = weight(&self.spec.proposers, ProposerKind::Solve);
+        if weight == 0 {
+            return None;
+        }
+        let proposer = crate::proposers::solve::SolveProposer::new(
+            cases.configuration_builder(),
+            self.spec.options.clone(),
+            self.spec.bounds,
+            self.spec.identity.thread_stack_size,
+            cancel.cloned(),
+        );
+        Some((weight, Box::new(proposer)))
     }
 }
 
