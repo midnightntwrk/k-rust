@@ -472,6 +472,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
             },
             path_key: path_key.clone(),
             arguments: crate::Arguments::default(),
+            update: None,
         }),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidApplicationTarget
@@ -490,6 +491,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
             },
             path_key,
             arguments: crate::Arguments::default(),
+            update: None,
         }),
         Ok(())
     );
@@ -562,6 +564,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         path_key: key(ProvenanceRole::InitializerTermPath),
         reference: reference.clone(),
         arguments: crate::Arguments::try_from(arguments).unwrap(),
+        update: None,
     };
     assert_eq!(
         initializer_term::<S>(application(vec![named()])),

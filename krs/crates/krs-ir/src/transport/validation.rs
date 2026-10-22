@@ -145,11 +145,14 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         text: &str,
     ) -> Result<(), Self::Error>;
 
+    /// A complete cell term; `partial` when it names only some children (a
+    /// pattern ending in `..` or a group update).
     fn cell(
         &mut self,
         key: &ProvenanceKey,
         declaration: &S::Nominal,
         fields: &[CellTermField<S>],
+        partial: bool,
     ) -> Result<(), Self::Error>;
 
     fn sort_test(
@@ -237,6 +240,10 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         field: &CellTermField<S>,
         names: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error>;
+
+    /// The base of a record update `Ctor { f: e, ..t }` (F5), validated
+    /// after the record's fields: a variable, outside a pattern.
+    fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error>;
 }
 
 #[expect(
@@ -259,12 +266,16 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             path_key,
             arguments,
             instance,
+            update,
         } => {
             context.application(*head_class, reference, path_key, arguments)?;
             for sort in instance {
                 context.application_instance(sort)?;
             }
-            validate_arguments(arguments, context)
+            validate_arguments(arguments, context)?;
+            update
+                .as_deref()
+                .map_or(Ok(()), |base| context.record_update(base))
         }
         Term::Literal { key, literal } => context.literal(key, literal),
         Term::Wildcard { key } => context.wildcard(key),
@@ -286,14 +297,19 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             key,
             declaration,
             fields,
+            open,
+            update,
         } => {
-            context.cell(key, declaration, fields)?;
+            // A pattern ending in `..` or an update names some children only.
+            context.cell(key, declaration, fields, *open || update.is_some())?;
             let mut names = BTreeSet::new();
             for field in fields {
                 context.cell_field(field, &mut names)?;
                 validate_term(&field.value, context)?;
             }
-            Ok(())
+            update
+                .as_deref()
+                .map_or(Ok(()), |base| context.record_update(base))
         }
         Term::SortTest {
             key,
@@ -445,16 +461,23 @@ pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut 
 /// The direct subterms of `term`, in source order.
 pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
     match term {
-        Term::Application { arguments, .. } => arguments
+        Term::Application {
+            arguments, update, ..
+        } => arguments
             .into_iter()
             .map(|argument| match argument {
                 crate::TermArgumentRef::Positional { value }
                 | crate::TermArgumentRef::Named { value, .. } => value,
             })
+            .chain(update.as_deref())
             .collect(),
         Term::OrBool { arguments, .. } => arguments.iter().collect(),
         Term::Or { alternatives, .. } => alternatives.iter().collect(),
-        Term::Cell { fields, .. } => fields.iter().map(|field| &*field.value).collect(),
+        Term::Cell { fields, update, .. } => fields
+            .iter()
+            .map(|field| &*field.value)
+            .chain(update.as_deref())
+            .collect(),
         Term::SortTest { operand, .. } => vec![&**operand],
         Term::As { pattern, .. } => vec![&**pattern],
         Term::Matches {

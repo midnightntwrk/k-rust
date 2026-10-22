@@ -1450,6 +1450,12 @@ stage_shape! {
             /// when none was written.
             #[serde(default, skip_serializing_if = "Vec::is_empty")]
             instance: Vec<S::Sort> => [vec sort],
+            /// The base of a record update `Ctor { f: e, ..t }` (F5), a
+            /// variable: the record is the one matched as `t @ Ctor { .. }`
+            /// with the listed fields replaced. Absent for every other
+            /// application.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            update: Option<Box<Term<S>>> => [option box nested],
         },
         /// Exact Int/Bool literal.
         Literal {
@@ -1498,6 +1504,15 @@ stage_shape! {
             declaration: S::Nominal => [nominal],
             /// Authored child values; semantic lowering validates completeness and order.
             fields: Vec<CellTermField<S>> => [vec nested],
+            /// Whether a pattern ends in `..`: the children it does not name
+            /// are unconstrained.
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            open: bool => [keep],
+            /// The base of a group update `Group { f: e, ..t }` (F5), a
+            /// variable: the children it does not list are the matched
+            /// group `t`'s.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            update: Option<Box<Term<S>>> => [option box nested],
         },
         /// `k::lexeme!(Sort, "text")`: one token of a user token sort, never
         /// re-lexed.
@@ -4764,6 +4779,7 @@ mod traversal_tests {
                     }]
                     .try_into()
                     .unwrap(),
+                    update: None,
                 },
                 Term::Literal {
                     key: key(4),
@@ -4788,6 +4804,8 @@ mod traversal_tests {
                         field: field(),
                         value: Box::new(anonymous()),
                     }],
+                    open: false,
+                    update: None,
                 },
             ]
             .try_into()

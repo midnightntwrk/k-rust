@@ -599,6 +599,7 @@ fn lower_initializer_term(
         operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
+        record_updates: super::record_updates::RecordUpdateState::default(),
     };
     builder.infer_sentence(|builder| builder.infer(term, expected_sort, false))?;
     builder.resolve_binding_sorts()?;

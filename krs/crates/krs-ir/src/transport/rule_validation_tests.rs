@@ -155,6 +155,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
         },
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         arguments: crate::Arguments::default(),
+        update: None,
     };
     let host: Term<HostStage> = Term::Application {
         instance: Vec::new(),
@@ -165,6 +166,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
         },
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         arguments: crate::Arguments::default(),
+        update: None,
     };
     assert_eq!(
         check_term(&descriptor),
@@ -212,6 +214,7 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
         ]
         .try_into()
         .unwrap(),
+        update: None,
     };
     assert_eq!(
         check_term(&term),
@@ -288,11 +291,15 @@ fn fragments_preserve_stage_specific_declaration_and_empty_errors() {
         key: key(ProvenanceRole::RuleLeftApplicationHead),
         declaration: item("Target", ItemKind::Sort),
         fields: Vec::new(),
+        open: false,
+        update: None,
     };
     let mut host: Term<HostStage> = Term::Cell {
         key: key(ProvenanceRole::RuleLeftApplicationHead),
         declaration: host_type::<()>(),
         fields: Vec::new(),
+        open: false,
+        update: None,
     };
     assert_eq!(
         check_term(&descriptor),

@@ -67,6 +67,7 @@ impl StateRuleTerms<'_> {
             operators: super::operators::OperatorInference::default(),
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
+            record_updates: super::record_updates::RecordUpdateState::default(),
         };
         builder.infer_sentence(|builder| builder.infer(term, expected_sort, subject))?;
         builder.resolve_binding_sorts()?;
@@ -106,6 +107,7 @@ impl StateRuleTerms<'_> {
             operators: super::operators::OperatorInference::default(),
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
+            record_updates: super::record_updates::RecordUpdateState::default(),
         };
         super::ml::check_condition_placement(&builder, kind, condition, ensures)?;
         builder.infer_sentence(|builder| super::ml::infer_condition(builder, condition))?;

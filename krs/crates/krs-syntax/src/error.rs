@@ -272,6 +272,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction, naming the alias where known.
         reason: String,
     },
+    /// A record update `Ctor { f: e, ..t }` is malformed or outside a term
+    /// (F5).
+    InvalidRecordUpdate {
+        /// Specific restriction.
+        reason: String,
+    },
     /// An `A | B` or-pattern (K's `#Or`) is malformed or outside a
     /// left-hand side (KF-030).
     InvalidPatternOr {
@@ -497,6 +503,7 @@ impl SyntaxErrorKind {
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
             Self::InvalidPatternAs { .. } => codes::syntax::INVALID_PATTERN_AS,
+            Self::InvalidRecordUpdate { .. } => codes::syntax::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::syntax::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::syntax::INVALID_LET,
@@ -800,6 +807,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }
             | SyntaxErrorKind::InvalidPatternAs { reason }
+            | SyntaxErrorKind::InvalidRecordUpdate { reason }
             | SyntaxErrorKind::InvalidPatternOr { reason }
             | SyntaxErrorKind::InvalidMatches { reason }
             | SyntaxErrorKind::InvalidLet { reason }

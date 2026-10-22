@@ -90,7 +90,6 @@ fn out_of_scope_rust_expressions_are_rejected() {
         "*pointer",
         "lhs = rhs",
         "if test { A } else { B }",
-        "Ctor { field, ..base }",
         "42u32",
         "1.0f16",
         "'x'",
@@ -102,6 +101,63 @@ fn out_of_scope_rust_expressions_are_rejected() {
             SyntaxErrorKind::UnsupportedTermExpression { .. } | SyntaxErrorKind::UnsupportedPath
         ));
     }
+}
+
+#[test]
+fn a_record_update_names_its_base_after_its_fields() {
+    let update = krs_syntax::TermExpression::parse_source("Ctor { field: value, ..base }").unwrap();
+    let krs_syntax::TermTree::Application(application) = update.tree() else {
+        panic!("a record update is an application");
+    };
+    assert!(matches!(
+        application.update(),
+        Some(krs_syntax::TermTree::Reference(path)) if path.is_ident("base")
+    ));
+    // The base is read after the fields, where it is written.
+    let anchors = update.full_provenance().unwrap();
+    let references = anchors
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::TermReference)
+        .count();
+    assert_eq!(references, 2);
+    let fragment =
+        krs_syntax::TermExpression::parse_source("k::fragment![Frame { pc: p, ..saved }]").unwrap();
+    let krs_syntax::TermTree::Cell(cell) = fragment.tree() else {
+        panic!("a fragment is a cell term");
+    };
+    assert!(cell.update().is_some() && !cell.is_open());
+}
+
+#[test]
+fn a_record_update_has_one_binder_as_its_base_and_lists_each_field_once() {
+    for (source, expected) in [
+        (
+            "Ctor { field: value, ..base.inner }",
+            "the base of a record update is one binder",
+        ),
+        (
+            "Ctor { field: value, ..int::add(a, b) }",
+            "the base of a record update is one binder",
+        ),
+        (
+            "Ctor { field: 1, field: 2, ..base }",
+            "the record names the field `field` twice",
+        ),
+    ] {
+        let error = krs_syntax::TermExpression::parse_source(source).unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::InvalidRecordUpdate { .. })
+                && error.to_string().contains(expected),
+            "{source}: {error}"
+        );
+    }
+    // A Rust pattern has no base: `..` only leaves fields out.
+    assert!(
+        krs_syntax::TermExpression::parse_pattern_tokens(
+            "Ctor { field: value, ..base }".parse().unwrap(),
+        )
+        .is_err()
+    );
 }
 
 /// The call a notation tree denotes, spelled with the operation paths that

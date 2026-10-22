@@ -1558,6 +1558,7 @@ impl Sample for DescriptorTerm {
                     reference: sample::<DescriptorApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<DescriptorTermArgument>>().try_into().unwrap(),
+                    update: None,
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -1588,6 +1589,8 @@ impl Sample for DescriptorTerm {
                     key: sample::<ProvenanceKey>(),
                     declaration: sample::<StableItemId>(),
                     fields: sample::<Vec<DescriptorCellTermField>>(),
+                    open: false,
+                    update: None,
                 },
                 Self::Lexeme {
                     key: sample::<ProvenanceKey>(),
@@ -2803,6 +2806,7 @@ impl Sample for WireTerm {
                     reference: sample::<WireApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<WireTermArgument>>().try_into().unwrap(),
+                    update: None,
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -2833,6 +2837,8 @@ impl Sample for WireTerm {
                     key: sample::<ProvenanceKey>(),
                     declaration: sample::<WireTypeReference>(),
                     fields: sample::<Vec<WireCellTermField>>(),
+                    open: false,
+                    update: None,
                 },
                 Self::Lexeme {
                     key: sample::<ProvenanceKey>(),

@@ -193,6 +193,9 @@ fn head_rule_cell_target(
 pub(super) struct HeadRuleTarget {
     configuration: StableItemId,
     cells: Vec<HeadRuleCellTarget>,
+    /// The number of children of each nested `#[k::cell]` struct, by its
+    /// resolved type: a group record that names fewer leaves some out.
+    group_children: HashMap<TypeId, usize>,
 }
 
 struct HeadRuleSelection<'a> {
@@ -208,6 +211,7 @@ fn collect_head_rule_cells(
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     visiting: &mut HashSet<TypeId>,
     cells: &mut Vec<HeadRuleCellTarget>,
+    group_children: &mut HashMap<TypeId, usize>,
 ) -> Result<(), CollectionError> {
     for field in &declaration.fields {
         match &field.content {
@@ -238,7 +242,15 @@ fn collect_head_rule_cells(
                         ),
                     )
                 })?;
-                collect_head_rule_cells(nested, declarations, cell_fields, visiting, cells)?;
+                group_children.insert(key, nested.fields.len());
+                collect_head_rule_cells(
+                    nested,
+                    declarations,
+                    cell_fields,
+                    visiting,
+                    cells,
+                    group_children,
+                )?;
                 visiting.remove(&key);
             }
         }
@@ -301,16 +313,19 @@ pub(super) fn resolve_head_rule_targets(
         .into_iter()
         .map(|(descriptor, configuration)| {
             let mut cells = Vec::new();
+            let mut group_children = HashMap::new();
             collect_head_rule_cells(
                 &configuration.declaration,
                 &cell_declarations,
                 cell_fields,
                 &mut HashSet::new(),
                 &mut cells,
+                &mut group_children,
             )?;
             Ok(HeadRuleTarget {
                 configuration: descriptor.id.clone(),
                 cells,
+                group_children,
             })
         })
         .collect::<Result<Vec<_>, CollectionError>>()?;
@@ -610,16 +625,34 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
 /// when rustc resolved its head to a `#[k::cell]` struct (KF-016): `frame:
 /// Frame { pc: p, gas: g }` is `k::fragment![crate::Frame { .. }]`. The
 /// application's head and field keys become the cell term's, as the
-/// `fragment!` spelling numbers them.
+/// `fragment!` spelling numbers them. An alias `saved @ Frame { .. }` names
+/// the group it matches, and a result's `Frame { pc: e, ..saved }` updates
+/// it (F5). A subject record, like a constructor record in a pattern, leaves
+/// the children it does not name unconstrained.
 fn readable_group_term(
     term: krs_ir::HostTerm,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    subject: bool,
+    groups: &GroupRecords<'_>,
 ) -> krs_ir::HostTerm {
     use krs_ir::{Arguments, HostApplicationTarget, Term};
+    if let Term::As {
+        key,
+        binding_key,
+        name,
+        pattern,
+    } = term
+    {
+        return Term::As {
+            key,
+            binding_key,
+            name,
+            pattern: Box::new(readable_group_term(*pattern, subject, groups)),
+        };
+    }
     let Term::Application {
         head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
         reference,
-        arguments: Arguments::Named(arguments),
+        arguments,
         instance,
         ..
     } = &term
@@ -630,59 +663,84 @@ fn readable_group_term(
         return term;
     };
     if !instance.is_empty()
+        || !matches!(arguments, Arguments::Named(_))
         || !matches!(
-            declarations.get(&HostApplicationIdentity::Nominal(target.key.resolve())),
+            groups
+                .declarations
+                .get(&HostApplicationIdentity::Nominal(target.key.resolve())),
             Some((_, ItemKind::Cell))
         )
     {
         return term;
     }
-    let declaration = target.clone();
-    let key = reference.key.clone();
+    let children = groups.children.get(&target.key.resolve()).copied();
+    let Term::Application {
+        reference,
+        arguments: Arguments::Named(arguments),
+        update,
+        ..
+    } = term
+    else {
+        unreachable!("the record was matched above");
+    };
+    let HostApplicationTarget::Nominal(declaration) = reference.target else {
+        unreachable!("the record head was matched above");
+    };
     let fields = arguments
-        .iter()
+        .into_iter()
         .map(|argument| krs_ir::CellTermField {
-            key: argument.key.clone(),
-            field: argument.field.clone(),
-            value: argument.value.clone(),
+            key: argument.key,
+            field: argument.field,
+            value: argument.value,
         })
-        .collect();
+        .collect::<Vec<_>>();
     Term::Cell {
-        key,
+        key: reference.key,
         declaration,
+        open: subject && children.is_some_and(|children| fields.len() < children),
         fields,
+        update,
     }
+}
+
+/// What [`readable_group_term`] reads a record's head and children against.
+struct GroupRecords<'a> {
+    declarations: &'a HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    children: &'a HashMap<TypeId, usize>,
 }
 
 /// Applies [`readable_group_term`] to the cell values of a readable rule:
 /// fixed-cell entries and the inside of `Some(..)`.
 fn readable_group_terms(
     mut rule: krs_ir::HostHeadRule,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    groups: &GroupRecords<'_>,
 ) -> krs_ir::HostHeadRule {
     fn present(
         state: &mut krs_ir::ProtocolRuleStateTerm<krs_ir::HostTerm>,
-        declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+        subject: bool,
+        groups: &GroupRecords<'_>,
     ) {
         if let krs_ir::ProtocolRuleStateTerm::Present { value } = state
             && let krs_ir::ProtocolRuleStateTerm::Term(term) = value.as_mut()
         {
             let taken = std::mem::replace(term, placeholder_term());
-            *term = readable_group_term(taken, declarations);
+            *term = readable_group_term(taken, subject, groups);
         }
     }
     for extra in &mut rule.extras {
         match extra {
             krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
-                for term in std::iter::once(before).chain(after) {
-                    let taken = std::mem::replace(term, placeholder_term());
-                    *term = readable_group_term(taken, declarations);
+                let taken = std::mem::replace(before, placeholder_term());
+                *before = readable_group_term(taken, true, groups);
+                if let Some(after) = after {
+                    let taken = std::mem::replace(after, placeholder_term());
+                    *after = readable_group_term(taken, false, groups);
                 }
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
-                present(before, declarations);
+                present(before, true, groups);
                 if let Some(after) = after {
-                    present(after, declarations);
+                    present(after, false, groups);
                 }
             }
             krs_ir::ProtocolHeadRuleExtra::HaveMap { .. }
@@ -738,7 +796,16 @@ fn resolve_head_rule(
     map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
     let rule = readable_bracket_reading(rule, map.head_targets, map.declarations)?;
-    let rule = readable_group_terms(rule, map.declarations);
+    let no_groups = HashMap::new();
+    let children = select_head_rule_target(&rule, map.head_targets, map.declarations)
+        .map_or(&no_groups, |target| &target.group_children);
+    let rule = readable_group_terms(
+        rule,
+        &GroupRecords {
+            declarations: map.declarations,
+            children,
+        },
+    );
     map.head_selection = Some(resolve_head_rule_target(
         &rule,
         map.head_targets,
@@ -1431,6 +1498,7 @@ mod tests {
                 wrapper: Some(krs_ir::CellWrapper::KCell),
                 collection: false,
             }],
+            group_children: HashMap::new(),
         };
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));
         let error = payload_error(&payload(rule.clone()), &[]);
@@ -1708,15 +1776,30 @@ mod tests {
                 value: Box::new(unresolved_term("p")),
             }]),
             instance: Vec::new(),
+            update: None,
+        };
+        // The struct has two children, so a subject record naming one leaves
+        // the other unconstrained.
+        let children = HashMap::from([(boolean_key(), 2)]);
+        let groups = GroupRecords {
+            declarations: &declarations,
+            children: &children,
         };
         let krs_ir::HostTerm::Cell {
             key,
             declaration,
             fields,
-        } = readable_group_term(record(boolean_key), &declarations)
+            open,
+            update,
+        } = readable_group_term(record(boolean_key), true, &groups)
         else {
             panic!("a record naming a cell struct is a group term");
         };
+        assert!(open && update.is_none());
+        assert!(matches!(
+            readable_group_term(record(boolean_key), false, &groups),
+            krs_ir::HostTerm::Cell { open: false, .. }
+        ));
         assert_eq!(
             key,
             ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftApplicationHead, 3)
@@ -1728,7 +1811,7 @@ mod tests {
             ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftRecordFieldName, 1)
         );
         assert!(matches!(
-            readable_group_term(record(other_boolean_key), &declarations),
+            readable_group_term(record(other_boolean_key), true, &groups),
             krs_ir::HostTerm::Application { .. }
         ));
     }

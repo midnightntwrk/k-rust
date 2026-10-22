@@ -609,6 +609,7 @@ fn validate_native_pattern(
                 arguments: TermArguments::Positional(arguments),
                 instance: Vec::new(),
                 notation: false,
+                update: None,
             }))
         }
         Pat::Struct(record) => {
@@ -658,6 +659,7 @@ fn validate_native_pattern(
                 arguments: TermArguments::Named(arguments),
                 instance: Vec::new(),
                 notation: false,
+                update: None,
             }))
         }
         Pat::Paren(paren) => validate_native_pattern(

@@ -257,7 +257,8 @@ impl RuleItem {
 
     /// Validates one `k::equations!` row, lowered to `fn label(F(args): F)
     /// -> F { result }`: its sort is the result sort of the header's function
-    /// `F`.
+    /// `F`. A row is readable notation, so its records may end in `..`, as a
+    /// readable rule's do; `krs expand` writes the omitted fields as `_`.
     pub(super) fn from_table_item(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
@@ -265,7 +266,7 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             crate::term_sort::parse_function_result_sort,
-            false,
+            true,
             false,
             signs,
             false,

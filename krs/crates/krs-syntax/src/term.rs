@@ -394,6 +394,8 @@ pub struct TermApplication {
     pub(crate) arguments: TermArguments,
     pub(crate) instance: Vec<crate::TermSort>,
     pub(crate) notation: bool,
+    /// The base `t` of a record update `Ctor { f: e, ..t }`, a reference.
+    pub(crate) update: Option<Box<TermTree>>,
 }
 
 /// One compiler-owned complete parent-cell term.
@@ -402,6 +404,11 @@ pub struct CellTerm {
     pub(crate) range: TokenRange,
     pub(crate) owner: Path,
     pub(crate) fields: Vec<TermNamedArgument>,
+    /// Whether a pattern ends in `..`, leaving the children it does not
+    /// name unconstrained.
+    pub(crate) open: bool,
+    /// The base `t` of a group update `Group { f: e, ..t }`, a reference.
+    pub(crate) update: Option<Box<TermTree>>,
 }
 
 impl CellTerm {
@@ -421,6 +428,19 @@ impl CellTerm {
     #[must_use]
     pub fn fields(&self) -> &[TermNamedArgument] {
         &self.fields
+    }
+
+    /// Whether the pattern ends in `..`: the children it does not name are
+    /// unconstrained.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Returns the base `t` of a group update `Group { f: e, ..t }`.
+    #[must_use]
+    pub fn update(&self) -> Option<&TermTree> {
+        self.update.as_deref()
     }
 }
 
@@ -453,6 +473,13 @@ impl TermApplication {
     #[must_use]
     pub const fn is_notation(&self) -> bool {
         self.notation
+    }
+
+    /// Returns the base `t` of a record update `Ctor { f: e, ..t }`: the
+    /// record is the matched record `t` with the listed fields replaced.
+    #[must_use]
+    pub fn update(&self) -> Option<&TermTree> {
+        self.update.as_deref()
     }
 }
 
@@ -1734,6 +1761,7 @@ fn validate_tuple_struct_pattern(
         arguments: TermArguments::Positional(arguments),
         instance,
         notation: false,
+        update: None,
     }))
 }
 
@@ -1771,6 +1799,7 @@ fn validate_struct_pattern(
         arguments: TermArguments::Named(arguments),
         instance,
         notation: false,
+        update: None,
     }))
 }
 
@@ -3050,13 +3079,9 @@ fn validate_cell_term(
             record.path.span(),
         ));
     }
-    if let Some(rest) = &record.rest {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "complete cell terms do not admit record update/rest syntax",
-            },
-            rest.span(),
-        ));
+    let base = record_update_base(&record, context)?;
+    if base.is_some() {
+        reject_repeated_fields(record.fields.iter().map(|field| &field.member))?;
     }
     symbols.push(TermSymbol {
         path: record.path.clone(),
@@ -3086,7 +3111,11 @@ fn validate_cell_term(
             value: validate_expression(&field.expr, context, symbols, nodes)?,
         });
     }
-    if fields.is_empty() {
+    // An update takes the children it does not list from its base.
+    let update = base
+        .map(|base| validate_path_expression(base, symbols, nodes).map(Box::new))
+        .transpose()?;
+    if fields.is_empty() && update.is_none() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "complete cell terms require at least one child field",
@@ -3098,6 +3127,8 @@ fn validate_cell_term(
         range: TokenRange::for_tokens(value)?,
         owner: record.path,
         fields,
+        open: false,
+        update,
     }))
 }
 
@@ -3125,14 +3156,14 @@ fn validate_cell_pattern(
             record.path.span(),
         ));
     }
-    if let Some(rest) = &record.rest {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "complete cell terms do not admit record update/rest syntax",
-            },
-            rest.span(),
-        ));
-    }
+    // `..` leaves the children the pattern does not name unconstrained.
+    let open = match &record.rest {
+        Some(rest) => {
+            reject_attributes(&rest.attrs, rest.span())?;
+            true
+        }
+        None => false,
+    };
     symbols.push(TermSymbol {
         path: record.path.clone(),
         kind: TermSymbolKind::ApplicationHead,
@@ -3145,7 +3176,7 @@ fn validate_cell_pattern(
         symbols,
         nodes,
     )?;
-    if fields.is_empty() {
+    if fields.is_empty() && !open {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "complete cell terms require at least one child field",
@@ -3157,6 +3188,8 @@ fn validate_cell_pattern(
         range: TokenRange::for_tokens(value)?,
         owner: record.path,
         fields,
+        open,
+        update: None,
     }))
 }
 
@@ -3243,6 +3276,7 @@ fn validate_call(
         arguments: TermArguments::Positional(arguments),
         instance,
         notation,
+        update: None,
     }))
 }
 
@@ -3336,13 +3370,9 @@ fn validate_record(
         ));
     }
     let (head, instance) = application_head(&record.path)?;
-    if let Some(rest) = &record.rest {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "record update/rest syntax is not supported in term construction",
-            },
-            rest.span(),
-        ));
+    let base = record_update_base(record, context)?;
+    if base.is_some() {
+        reject_repeated_fields(record.fields.iter().map(|field| &field.member))?;
     }
     symbols.push(TermSymbol {
         path: record.path.clone(),
@@ -3372,12 +3402,74 @@ fn validate_record(
             value: validate_expression(&field.expr, context, symbols, nodes)?,
         });
     }
+    // The base is read after the fields, where it is written.
+    let update = base
+        .map(|base| validate_path_expression(base, symbols, nodes).map(Box::new))
+        .transpose()?;
     Ok(TermTree::Application(TermApplication {
         head,
         arguments: TermArguments::Named(arguments),
         instance,
         notation: false,
+        update,
     }))
+}
+
+/// The base `t` of a record update `Ctor { f: e, ..t }` (F5): one binder,
+/// in a term. A pattern's `..` is written as a pattern, never with a base.
+fn record_update_base(
+    record: &ExprStruct,
+    context: TermExpressionContext,
+) -> Result<Option<&ExprPath>, SyntaxError> {
+    let Some(rest) = &record.rest else {
+        return Ok(None);
+    };
+    let invalid = |reason: &str, span| {
+        SyntaxError::new(
+            SyntaxErrorKind::InvalidRecordUpdate {
+                reason: reason.to_owned(),
+            },
+            span,
+        )
+    };
+    if context == TermExpressionContext::Pattern {
+        return Err(invalid(
+            "`..base` builds a record from a matched one, so it occurs in a result or condition, not in a pattern; a pattern leaves fields out with `..`",
+            rest.span(),
+        ));
+    }
+    match rest.as_ref() {
+        Expr::Path(path)
+            if path.attrs.is_empty() && path.qself.is_none() && path.path.get_ident().is_some() =>
+        {
+            Ok(Some(path))
+        }
+        _ => Err(invalid(
+            "the base of a record update is one binder, the alias `t` of a record matched as `t @ Ctor { .. }`",
+            rest.span(),
+        )),
+    }
+}
+
+/// Rejects a record that names one field twice: a field has one value.
+fn reject_repeated_fields<'a>(
+    members: impl IntoIterator<Item = &'a Member>,
+) -> Result<(), SyntaxError> {
+    let mut seen = Vec::<&syn::Ident>::new();
+    for member in members {
+        if let Member::Named(name) = member {
+            if seen.contains(&name) {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidRecordUpdate {
+                        reason: format!("the record names the field `{name}` twice"),
+                    },
+                    name.span(),
+                ));
+            }
+            seen.push(name);
+        }
+    }
+    Ok(())
 }
 
 /// The reason given for a unary minus that is not part of an Int literal.

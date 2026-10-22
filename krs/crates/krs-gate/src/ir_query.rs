@@ -2090,6 +2090,10 @@ mod tests {
         assert_eq!(normalized["sentence"]["variables"], json!([]));
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The head-rule descriptor is spelled out field by field."
+    )]
     fn head_rule_artifacts() -> krs_test_support::TempDir {
         use krs_ir::{
             Arguments, DescriptorApplicationRef, DescriptorApplicationReference,
@@ -2114,6 +2118,7 @@ mod tests {
             },
             path_key: key(ProvenanceRole::RuleLeftReference),
             arguments: args,
+            update: None,
         };
         let config = item("machine", "Machine", ItemKind::Configuration);
         descriptor.id = item("rules", "eval_add", ItemKind::Rule);

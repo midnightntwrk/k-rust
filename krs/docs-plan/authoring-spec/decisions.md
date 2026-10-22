@@ -393,6 +393,20 @@ bug — report it, don't guess.
   subject entry binds and reads the cell, a result entry writes the
   binder, `{ gas } => { gas }` is a read, and a group cell's name binds the
   whole nested cell.
+  *E7 note: updating a matched record (2026-10, F5).* `t @ Ctor { f: p,
+  .. }` then `Ctor { f: e, ..t }` (Rust's struct update, extended to enum
+  variants with the meaning "same constructor, these fields replaced") and
+  the same for `#[k::cell]` group records. K has no field projection, so
+  the update is defined by expansion in semantic lowering: each field an
+  update of `t` leaves out is bound in `t`'s record pattern, to the binder
+  the pattern gives it or to a hidden binder (`( p #as Hidden )` when the
+  pattern constrains it), and the update writes that binder back; an alias
+  used only as a base carries no `#as`. The base must be the alias of one
+  record of the same constructor or cell, bound once outside `|`, which
+  makes the meaning total and static. A subject group record may leave
+  children out, as a constructor record may. `krs expand` writes the long
+  form, so the reference `cells!` surface gains nothing and rejects the
+  notation.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the

@@ -2065,6 +2065,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         _: &ProvenanceKey,
         _: &S::Nominal,
         _: &[CellTermField<S>],
+        _: bool,
     ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerFragment,
@@ -2091,6 +2092,12 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
     ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerFragment,
+        ))
+    }
+
+    fn record_update(&mut self, _: &Term<S>) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerRecordUpdate,
         ))
     }
 }

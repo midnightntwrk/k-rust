@@ -161,6 +161,7 @@ fn machine_configuration(start: StableItemId) -> DescriptorInputs {
                                         },
                                         path_key: key(ProvenanceRole::InitializerTermPath, 0),
                                         arguments: vec![].try_into().unwrap(),
+                                        update: None,
                                     },
                                 },
                             }],
@@ -560,6 +561,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 ]
                 .try_into()
                 .unwrap(),
+                update: None,
             },
             result: Some(DescriptorTerm::Application {
                 instance: Vec::new(),
@@ -570,6 +572,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 },
                 path_key: key(ProvenanceRole::RuleRightPath, 0),
                 arguments: vec![].try_into().unwrap(),
+                update: None,
             }),
             existentials: Vec::new(),
             ensures: None,
@@ -707,6 +710,7 @@ fn replace_rule_result_with_builtin(
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: arguments.try_into().unwrap(),
+        update: None,
     });
     bundle.descriptors = descriptors;
 }
@@ -856,6 +860,7 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundleInputs) {
             }]
             .try_into()
             .unwrap(),
+            update: None,
         },
     });
     bundle.descriptors = descriptors;
@@ -991,6 +996,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInput
         ]
         .try_into()
         .unwrap(),
+        update: None,
     };
     rule.result = Some(DescriptorTerm::Application {
         instance: Vec::new(),
@@ -1010,6 +1016,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInput
         ]
         .try_into()
         .unwrap(),
+        update: None,
     });
     bundle.descriptors = descriptors;
 }
@@ -1716,6 +1723,7 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
             ]
             .try_into()
             .unwrap(),
+            update: None,
         },
     });
 

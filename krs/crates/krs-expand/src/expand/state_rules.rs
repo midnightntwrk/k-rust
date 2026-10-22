@@ -929,6 +929,9 @@ impl<'a> StateRuleBuilder<'a> {
                         krs_ir::Arguments::named(arguments)
                     }
                 };
+                if let Some(base) = application.update() {
+                    return Err(reference_record_update(base_span(base)));
+                }
                 Ok(WireTerm::Application {
                     instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -939,6 +942,7 @@ impl<'a> StateRuleBuilder<'a> {
                     },
                     path_key: key,
                     arguments,
+                    update: None,
                 })
             }
             TermTree::Reference(path) => {
@@ -962,6 +966,7 @@ impl<'a> StateRuleBuilder<'a> {
                         },
                         path_key: key,
                         arguments: krs_ir::Arguments::default(),
+                        update: None,
                     })
                 }
             }
@@ -1158,10 +1163,18 @@ impl<'a> StateRuleBuilder<'a> {
                         value: Box::new(self.expand_term(field.value(), slots)?),
                     });
                 }
+                // A reference `cells!` term names every child: the readable
+                // forms that leave some out are written in full by `krs
+                // expand`.
+                if cell.is_open() || cell.update().is_some() {
+                    return Err(reference_record_update(cell.range().first()));
+                }
                 Ok(WireTerm::Cell {
                     key,
                     declaration,
                     fields,
+                    open: false,
+                    update: None,
                 })
             }
         }
@@ -1176,5 +1189,23 @@ pub(super) fn instance_rest(rest: &krs_syntax::InstanceRest) -> krs_ir::Protocol
         krs_syntax::InstanceRest::Update { label, .. } => krs_ir::ProtocolInstanceRest::Update {
             label: label.to_string(),
         },
+    }
+}
+
+/// A record update or a `..` group pattern in a reference `cells!` term,
+/// which names every field: the readable spellings are written in full by
+/// `krs expand`.
+fn reference_record_update(span: proc_macro2::Span) -> ExpandError {
+    ExpandError::new(
+        expand::INVALID_RECORD_UPDATE,
+        span,
+        "a `cells!` term names every field: write each one (`_` for a field a pattern leaves unconstrained); `Ctor { f: e, ..t }` and a `..` group pattern are readable-record notation",
+    )
+}
+
+fn base_span(base: &TermTree) -> proc_macro2::Span {
+    match base {
+        TermTree::Reference(path) => syn::spanned::Spanned::span(path),
+        _ => proc_macro2::Span::call_site(),
     }
 }

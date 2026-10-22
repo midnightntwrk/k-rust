@@ -744,6 +744,7 @@ impl<'a> TermBuilder<'a> {
                         krs_ir::Arguments::named(arguments)
                     }
                 };
+                let update = self.expand_record_update(application.update(), side, slots)?;
                 Ok(WireTerm::Application {
                     instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -754,6 +755,7 @@ impl<'a> TermBuilder<'a> {
                     },
                     path_key,
                     arguments,
+                    update,
                 })
             }
             TermTree::Reference(path) => {
@@ -794,6 +796,7 @@ impl<'a> TermBuilder<'a> {
                         },
                         path_key,
                         arguments: krs_ir::Arguments::default(),
+                        update: None,
                     })
                 }
             }
@@ -1010,13 +1013,47 @@ impl<'a> TermBuilder<'a> {
                         value: Box::new(self.expand_wire(field.value(), side, slots)?),
                     });
                 }
+                let update = self.expand_record_update(cell.update(), side, slots)?;
                 Ok(WireTerm::Cell {
                     key,
                     declaration,
                     fields,
+                    open: cell.is_open(),
+                    update,
                 })
             }
         }
+    }
+
+    /// Expands the base `t` of a record update `Ctor { f: e, ..t }` (F5),
+    /// after the record's fields, as a reference to the binder `t`. A name
+    /// that binds nothing would resolve as a constructor, which has no
+    /// fields to take, so it is rejected here.
+    fn expand_record_update(
+        &mut self,
+        base: Option<&TermTree>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<Option<Box<WireTerm>>> {
+        let Some(base) = base else {
+            return Ok(None);
+        };
+        if let TermTree::Reference(path) = base
+            && !self.is_local_binder(path)
+            && !is_bound_ident_path(path, self.bindings)
+        {
+            return Err(ExpandError::new(
+                expand::INVALID_RECORD_UPDATE,
+                syn::spanned::Spanned::span(path),
+                format!(
+                    "`..{}` takes the other fields from a record the left-hand side matched, but `{}` is not a binder of this rule; bind the record with `{} @ Ctor {{ .. }}`",
+                    spelling(path),
+                    spelling(path),
+                    spelling(path)
+                ),
+            ));
+        }
+        Ok(Some(Box::new(self.expand_wire(base, side, slots)?)))
     }
 
     /// Numbers one `name @ pattern` (K's `#as`) in left-hand-side preorder

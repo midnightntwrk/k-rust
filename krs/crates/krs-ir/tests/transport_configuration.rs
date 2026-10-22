@@ -744,6 +744,7 @@ fn configuration_requires_is_exact_and_term_binding_only() {
             ]
             .try_into()
             .unwrap(),
+            update: None,
         },
     });
 

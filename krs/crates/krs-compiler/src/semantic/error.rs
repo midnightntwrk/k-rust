@@ -263,6 +263,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the `name @ pattern`.
         range: Option<Box<SourceRange>>,
     },
+    /// A record update `Ctor { f: e, ..t }` (F5) whose base is not the alias
+    /// of one record of the same constructor or cell in the left-hand side.
+    InvalidRecordUpdate {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the base.
+        reason: String,
+        /// Sole exact authored range of the base or the alias.
+        range: Option<Box<SourceRange>>,
+    },
     /// An `A | B` or-pattern (K's `#Or`) reaches a position that is not a
     /// pattern, or its alternatives bind a name at different sorts (KF-030).
     InvalidPatternOr {
@@ -679,6 +689,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::BitTemplateSort { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
+            | Self::InvalidRecordUpdate { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
             | Self::InvalidOperator { reason, .. }
             | Self::InvalidMatches { reason, .. }
@@ -752,6 +763,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::BitTemplateSort { .. } => codes::analysis::BIT_TEMPLATE_SORT,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
+            Self::InvalidRecordUpdate { .. } => codes::analysis::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
             Self::InvalidOperator { problem, .. } => match problem {
                 OperatorProblem::Ambiguous => codes::analysis::AMBIGUOUS_OPERATOR,
@@ -820,6 +832,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidTerm { range, .. }
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidPatternAs { range, .. }
+            | Self::InvalidRecordUpdate { range, .. }
             | Self::InvalidPatternOr { range, .. }
             | Self::InvalidOperator { range, .. }
             | Self::InvalidMatches { range, .. }

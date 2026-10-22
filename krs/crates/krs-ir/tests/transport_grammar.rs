@@ -337,6 +337,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
                 ]
                 .try_into()
                 .unwrap(),
+                update: None,
             },
             result: Some(DescriptorTerm::Variable {
                 key: key(ProvenanceRole::RuleRightReference, 0),
@@ -475,6 +476,7 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
             ]
             .try_into()
             .unwrap(),
+            update: None,
         },
     });
 
@@ -646,6 +648,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: vec![].try_into().unwrap(),
+        update: None,
     });
     descriptors[1].build().unwrap();
     let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
@@ -673,6 +676,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         }]
         .try_into()
         .unwrap(),
+        update: None,
     });
     assert!(matches!(
         descriptors[1].build(),
@@ -701,6 +705,10 @@ fn builtin_references_are_typed_and_raw_labels_are_unrepresentable() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each map operation's closed wire shape is spelled out in full."
+)]
 fn ordinary_map_references_have_closed_wire_shapes() {
     let variable = |name: &str| DescriptorTerm::Variable {
         key: key(ProvenanceRole::RuleRightReference, 0),
@@ -726,6 +734,7 @@ fn ordinary_map_references_have_closed_wire_shapes() {
                 .map(|name| Box::new(variable(name)))
                 .collect(),
         ),
+        update: None,
     };
     let bindings = ["map", "key", "value"]
         .into_iter()
@@ -751,6 +760,7 @@ fn ordinary_map_references_have_closed_wire_shapes() {
                     .map(|name| Box::new(variable(name)))
                     .collect(),
             ),
+            update: None,
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -846,6 +856,7 @@ fn ordinary_set_references_have_closed_wire_shapes_and_exact_arities() {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
+            update: None,
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -894,6 +905,7 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
+            update: None,
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -912,6 +924,7 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
         }]
         .try_into()
         .unwrap(),
+        update: None,
     };
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::new(), false),

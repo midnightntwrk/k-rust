@@ -22,6 +22,8 @@ mod origin;
 mod overload;
 mod package;
 mod raw_k;
+mod record_updates;
+pub(crate) use record_updates::{head_rule_long_form, structured_rule_long_form};
 mod references;
 mod restriction;
 mod rules;

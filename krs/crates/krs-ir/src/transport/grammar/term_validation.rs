@@ -161,6 +161,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         _: &ProvenanceKey,
         _: &StableItemId,
         _: &[CellTermField<DescriptorStage>],
+        _: bool,
     ) -> Result<(), Self::Error> {
         unsupported_cell_term()
     }
@@ -338,6 +339,20 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     ) -> Result<(), Self::Error> {
         unsupported_cell_term()
     }
+
+    fn record_update(&mut self, base: &DescriptorTerm) -> Result<(), Self::Error> {
+        let DescriptorTerm::Variable {
+            key,
+            path_key,
+            name,
+        } = base
+        else {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::RecordUpdateBase,
+            ));
+        };
+        self.variable(key, path_key, name)
+    }
 }
 
 pub(super) struct TermProvenanceValidation<'a> {
@@ -504,6 +519,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         _: &ProvenanceKey,
         _: &StableItemId,
         _: &[CellTermField<DescriptorStage>],
+        _: bool,
     ) -> Result<(), Self::Error> {
         unsupported_cell_term()
     }
@@ -714,6 +730,25 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     ) -> Result<(), Self::Error> {
         unsupported_cell_term()
     }
+
+    fn record_update(&mut self, base: &DescriptorTerm) -> Result<(), Self::Error> {
+        let DescriptorTerm::Variable {
+            key,
+            path_key,
+            name,
+        } = base
+        else {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::RecordUpdateBase,
+            ));
+        };
+        if matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::RecordUpdateBase,
+            ));
+        }
+        self.variable(key, path_key, name)
+    }
 }
 
 fn unsupported_claim_term() -> Result<(), GrammarTransportError> {
@@ -754,6 +789,7 @@ mod tests {
             },
             path_key: key(ProvenanceRole::RuleLeftPath, 0),
             arguments: arguments.try_into().unwrap(),
+            update: None,
         }
     }
 

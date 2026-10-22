@@ -152,6 +152,8 @@ As in K, every generated cell sort is a subsort of `KItem`, so the binder may al
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
 rustc resolves the record's path with the block's `use Cmd::*` in scope, as it resolves every unqualified path in the block, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
+In the subject, a group record leaves the children it does not name unconstrained, as a constructor record does: `frame: Frame { pc: p, .. }` emits `<frame> <pc> P:Int </pc> <gas> _ </gas> </frame>`; `k::fragment![Frame { pc: p, .. }]` reads the same, and a fragment pattern without `..` names every child.
+A result group record names every child, or [updates a matched group](#updating-a-matched-record).
 Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
 A rule that names a group and a cell inside it is rejected (`krs::analysis::group-and-descendant`), and so is a configuration in which one `#[k::cell]` struct is the content of two fields, because its K cell sort would name two cells (`krs::analysis::ambiguous-cell-sort`).
 A repeated (`*`) cell is a collection, not one nested cell: its entry is an instance list, described in [optional cells and cell collections](#optional-cells-and-cell-collections).
@@ -218,6 +220,45 @@ An alias may name any subterm of a `k::term![..]` subject, a `cells!` cell value
 A readable `for Machine` record's computation items and cell values are not rule subjects, so an alias may name a whole one: `charge: { k: [op @ (Push() | Pop()), ..], gas: g } => { k: [Charged(op), ..], gas: int::sub(g, 3) }` emits `<k> ( ( push #Or pop ) #as Op:Op ) => charged ( Op:Op ) ... </k>`.
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
 `@` in a result, a requires or ensures condition, or an initializer is a syntax error (K's `#as` is left-hand-side only), as are `ref` or `mut` on the alias, an alias inside its own pattern (rustc's E0416), and `name @ ..` outside a sequence, collection, or `cells!` pattern.
+
+### Updating a matched record
+
+A rule that rewrites a term into the same constructor with a few fields changed writes Rust's struct update: `t @ Ctor { f: p, .. }` in the left-hand side, then `Ctor { f: e, ..t }` in the result, which is the record `t` matched with the listed fields replaced.
+KMIR's projection traversal drops one projection and keeps the other five fields:
+
+```rust
+deref_truncate: {
+    k: [t @ Execution::TraverseProjection {
+        projections: Projections::ProjectionsCons { head: Projection::DerefTruncate { .. }, tail },
+        ..
+    }, ..],
+} => {
+    k: [Execution::TraverseProjection { projections: tail, ..t }, ..],
+};
+```
+
+K has no field projection on a term, so `..t` is defined by expansion: every field an update of `t` leaves out is bound in `t`'s pattern, to the binder the pattern gives it (`tail` above) or to a hidden binder, and the update writes that binder back.
+A field the pattern leaves out or writes `_` is matched by the hidden binder instead of a wildcard, and one it matches with another pattern `p` by `( p #as Hidden )`.
+Nothing new reaches K: the rule is the one written with every field named, and an alias used only as a base is matched without `#as`; `krs expand` writes that long form, naming each hidden binder after its alias and field (`t_target`).
+The base is a matched record, not a field projection, so it must be an alias `t @ Ctor { .. }` or `t @ Ctor(..)` of one record of the update's constructor, bound once and outside `|`: a binder of the whole term (`t` matched as `t`), an alias of another constructor, and a name bound by `let` or `k::matches!` are rejected (`krs::analysis::invalid-record-update`), and so are a base that is not one binder and a field listed twice (`krs::syntax::invalid-record-update`).
+An update may nest, `Outer { inner: Inner { x: 1, ..i }, ..o }`, and stands in readable rules and claims, `k::equations!` rows (whose records may end in `..` like a readable rule's), and `#[k::rule]` and `#[k::equation]` fns; a reference `cells!` term names every field (`krs::expand::invalid-record-update`).
+
+A nested `#[k::cell]` group is a record too.
+In a readable record, `frame: saved @ Frame { pc: p, .. }` matches the group and leaves its other children unconstrained, and `frame: Frame { pc: int::add(p, 1), ..saved }` writes it back with `pc` changed; a group saved as a value updates the same way, so KEVM's return from a call restores the caller's frame from the call stack with three cells changed:
+
+```rust
+return_from_call: {
+    k: [Return { gas_left }, ..],
+    call_stack: k::term![list::concat(list::item(saved @ k::fragment![CallState { word_stack: s, gas: g, .. }]), rest)],
+    call_state: _,
+} => {
+    k: [..],
+    call_stack: rest,
+    call_state: CallState { word_stack: Stack::StackCons(1, s), gas: int::add(g, gas_left), local_mem: bytes::empty(), ..saved },
+};
+```
+
+The alias is written outside `k::fragment![..]`, as any alias of a fragment is.
 
 ### Pattern alternatives
 

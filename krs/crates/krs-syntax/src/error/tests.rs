@@ -96,6 +96,9 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidPatternAs {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::InvalidRecordUpdate {
+            reason: String::from("example"),
+        },
         SyntaxErrorKind::InvalidPatternOr {
             reason: String::from("example"),
         },

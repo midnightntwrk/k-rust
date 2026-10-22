@@ -297,8 +297,9 @@ pub fn expand_reference_source(
                 let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
                     ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
                 })?;
-                let rule = (*rule)
-                    .clone()
+                // A record update is written in full, as its fields (F5).
+                let rule = crate::semantic::structured_rule_long_form(descriptor, rule, bundle)
+                    .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
                     .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
                 items.push(syn::Item::Fn(render_equation_row(
                     row, &rule, package, bundle,
@@ -336,8 +337,9 @@ pub fn expand_reference_source(
             let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
                 ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
             })?;
-            let rule = (*rule)
-                .clone()
+            // A record update is written in full, as its fields (F5).
+            let rule = crate::semantic::head_rule_long_form(descriptor, rule, bundle)
+                .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
                 .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
             items.push(syn::Item::Fn(render_rule(
                 clause,
@@ -2724,7 +2726,16 @@ fn rename_hidden_tokens(tokens: TokenStream) -> (TokenStream, BTreeMap<String, I
         .filter(|name| krs_syntax::is_hidden_binder(name))
         .cloned()
         .collect::<Vec<_>>();
-    if hidden.is_empty() {
+    // A record update's hidden binder (F5) is named after its alias and
+    // field, `saved_gas` for the field `gas` of `saved`.
+    let updates = spelled
+        .iter()
+        .filter_map(|name| {
+            name.strip_prefix(RECORD_UPDATE_BINDER)
+                .map(|readable| (name.clone(), readable.to_owned()))
+        })
+        .collect::<Vec<_>>();
+    if hidden.is_empty() && updates.is_empty() {
         return (tokens, BTreeMap::new());
     }
     hidden.sort_by_key(|name| {
@@ -2732,15 +2743,22 @@ fn rename_hidden_tokens(tokens: TokenStream) -> (TokenStream, BTreeMap<String, I
             .parse::<u64>()
             .unwrap_or(u64::MAX)
     });
-    let names = hidden
+    let mut names = hidden
         .into_iter()
         .map(|name| {
             let fresh = fresh_ident("bits", &mut spelled);
             (name, fresh)
         })
         .collect::<BTreeMap<_, _>>();
+    for (name, readable) in updates {
+        let fresh = fresh_ident(&readable, &mut spelled);
+        names.insert(name, fresh);
+    }
     (rename(tokens, &names), names)
 }
+
+/// The spelling prefix of a record update's hidden binder (F5).
+const RECORD_UPDATE_BINDER: &str = "__krs_update_";
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {
     if !reserved.contains(base) {
@@ -2885,6 +2903,8 @@ pub enum ReferenceExpansionError {
     RustSyntax(syn::Error),
     /// One readable KRS island is malformed.
     KrsSyntax(krs_syntax::SyntaxError),
+    /// A readable sentence's long form could not be read from its descriptor.
+    Lowering(Box<crate::DescriptorLoweringError>),
     /// Generated Rust unexpectedly failed to parse.
     GeneratedRust(syn::Error),
     /// One rule name occurred in more than one readable table.
@@ -2996,6 +3016,7 @@ impl ToDiagnostic for ReferenceExpansionError {
                 diagnostic.message = self.to_string();
                 return diagnostic;
             }
+            Self::Lowering(error) => return error.to_diagnostic(),
             Self::GeneratedRust(_) => codes::reference::GENERATED_RUST,
             Self::DuplicateRule(_) => codes::reference::DUPLICATE_RULE,
             Self::RuleCoverage { .. } => codes::reference::RULE_COVERAGE,
@@ -3031,6 +3052,7 @@ impl fmt::Display for ReferenceExpansionError {
             Self::Source(error) => error.fmt(formatter),
             Self::RustSyntax(error) => write!(formatter, "invalid Rust source: {error}"),
             Self::KrsSyntax(error) => write!(formatter, "invalid readable KRS source: {error}"),
+            Self::Lowering(error) => write!(formatter, "{error}"),
             Self::GeneratedRust(error) => write!(formatter, "invalid generated Rust: {error}"),
             Self::DuplicateRule(name) => write!(formatter, "readable rule `{name}` occurs twice"),
             Self::RuleCoverage { name, found } => write!(
@@ -3128,6 +3150,7 @@ impl Error for ReferenceExpansionError {
             Self::Source(error) => error.source(),
             Self::RustSyntax(error) | Self::GeneratedRust(error) => Some(error),
             Self::KrsSyntax(error) => Some(error),
+            Self::Lowering(error) => Some(error.as_ref()),
             Self::DuplicateRule(_)
             | Self::RuleCoverage { .. }
             | Self::ConstructorCoverage { .. }
@@ -3273,6 +3296,7 @@ mod tests {
                 Box::new(variable("program", 0)),
                 Box::new(variable("index", 1)),
             ]),
+            update: None,
         };
         let rendered = render_term(
             &lookup,

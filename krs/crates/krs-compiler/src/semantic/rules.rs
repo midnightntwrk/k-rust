@@ -249,6 +249,39 @@ struct HeadRuleSeeds {
     cell_sorts: BTreeMap<DescriptorCellIdentity, SemanticSortRef>,
 }
 
+/// Every term of a head rule: its matched items and result, its cells'
+/// patterns and results, and its conditions.
+pub(super) fn head_rule_terms(rule: &krs_ir::DescriptorHeadRule) -> Vec<&DescriptorTerm> {
+    let mut terms = Vec::new();
+    if let Some(head) = &rule.head {
+        terms.extend(&head.items);
+        match &head.result {
+            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => terms.push(term),
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => terms.extend(items),
+            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
+        }
+    }
+    for extra in &rule.extras {
+        match extra {
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                terms.extend(entries.iter().map(|entry| &entry.key));
+            }
+            krs_ir::ProtocolHeadRuleExtra::UpdateMap { update, .. } => terms.push(update),
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
+                terms.push(before);
+                terms.extend(after);
+            }
+            krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                terms.extend(before.terms());
+                terms.extend(after.iter().flat_map(krs_ir::ProtocolRuleStateTerm::terms));
+            }
+        }
+    }
+    terms.extend(rule.requires.iter().map(|condition| &condition.term));
+    terms.extend(rule.ensures.iter().map(|condition| &condition.term));
+    terms
+}
+
 fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellReference {
     match extra {
         krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
@@ -308,7 +341,14 @@ pub(super) fn lower_head_rule_descriptor(
         operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
+        record_updates: super::record_updates::RecordUpdateState::default(),
     };
+    builder.record_updates.updates = super::record_updates::RecordUpdates::scan(
+        descriptor,
+        &head_rule_terms(rule),
+        catalog,
+        Some(declarations),
+    )?;
     let head_sort = rule
         .head_sort
         .as_ref()
@@ -394,10 +434,13 @@ pub(super) fn lower_head_rule_descriptor(
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
     let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
+    // An alias used only as a record update's base is matched without
+    // `#as`, so it names no variable (F5).
     let mut variables = rule
         .bindings
         .iter()
         .map(|binding| &binding.name)
+        .filter(|name| !builder.record_updates.updates.is_dropped(name))
         .chain(
             rule.existentials
                 .iter()
@@ -1600,10 +1643,21 @@ pub(super) fn lower_structured_rule_descriptor(
         operators: super::operators::OperatorInference::default(),
         declared_binders,
         subject_keys: BTreeMap::new(),
+        record_updates: super::record_updates::RecordUpdateState::default(),
     };
     if rule.predicate {
         return lower_predicate_rule(descriptor, rule, builder, &binding_names_in_order(rule));
     }
+    builder.record_updates.updates = super::record_updates::RecordUpdates::scan(
+        descriptor,
+        &std::iter::once(&rule.subject)
+            .chain(&rule.result)
+            .chain(rule.requires.iter().map(|condition| &condition.term))
+            .chain(rule.ensures.iter().map(|condition| &condition.term))
+            .collect::<Vec<_>>(),
+        catalog,
+        Some(declarations),
+    )?;
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
     // A single-body rule (KF-011) has no result: its subject's rewrites
     // say what changes, and the rule's sort is the subject's.
@@ -1659,6 +1713,7 @@ pub(super) fn lower_structured_rule_descriptor(
     for binding in rule
         .bindings
         .iter()
+        .filter(|name| !builder.record_updates.updates.is_dropped(name))
         .chain(&context_names)
         .chain(
             rule.existentials
