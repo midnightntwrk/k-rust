@@ -654,11 +654,19 @@ fixture!(
     &[program!("bank/run.pgm", "TXS" = "bank/run.txs")]
 );
 
+// The loop-shaped stall benchmark (FZ-17); `tests/data/tally/harness.rs` holds its cells.
+fixture!(
+    TALLY,
+    "tally/tally.k",
+    "TALLY",
+    &[program!("tally/run.pgm", "KEYS" = "tally/run.keys")]
+);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 34] = [
+pub static ALL: [&Fixture; 35] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -693,4 +701,5 @@ pub static ALL: [&Fixture; 34] = [
     &GUARD,
     &LOCK,
     &BANK,
+    &TALLY,
 ];

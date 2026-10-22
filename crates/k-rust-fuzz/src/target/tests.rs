@@ -223,6 +223,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
             matched: ids(matched),
             offered: None,
             conditions: None,
+            applied_counts: None,
         }),
         stack_stops: 0,
         smt_unknowns: 0,

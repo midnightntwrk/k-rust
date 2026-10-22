@@ -11,7 +11,7 @@
 //! schedule runs first and which is not weighted ([`super::schedule::Schedule`]), and
 //! [`BlindProposer`], proptest generation from each hole's generator (ARCHITECTURE 8.1, 8.2).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rand_chacha::ChaCha20Rng;
 
@@ -104,6 +104,9 @@ pub(crate) struct Observation {
     pub(crate) applied: Vec<String>,
     /// Rule ids in coverage `matched`.
     pub(crate) matched: Vec<String>,
+    /// Each rule id of `applied` with how many times the run applied it, when the campaign asks
+    /// for counts (a campaign that weighs the corpus); empty otherwise.
+    pub(crate) applied_counts: BTreeMap<String, u64>,
     /// The case's work.
     pub(crate) work: u64,
     /// The case's score: only a `miss` case of a campaign whose target kind scores has one

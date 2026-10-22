@@ -5,6 +5,8 @@
 //! value admissible. [`super::live::LiveCases`] implements it over holes, assembly, execution
 //! and the target judge; the engine's unit tests implement it with scripted results.
 
+use std::collections::BTreeMap;
+
 use k_rust::backend::CancellationToken;
 
 use crate::{
@@ -25,6 +27,10 @@ pub(crate) struct CaseRun {
     pub(crate) applied: Vec<String>,
     /// Rule ids in coverage `matched`.
     pub(crate) matched: Vec<String>,
+    /// Each rule id of `applied` with how many times the run applied it (coverage
+    /// `appliedCounts`), when the campaign asks for counts (a campaign that weighs the corpus);
+    /// empty otherwise.
+    pub(crate) applied_counts: BTreeMap<String, u64>,
     /// The target rule was blocked (ARCHITECTURE 6.2).
     pub(crate) blocked: bool,
     /// Per rule whose condition entries the run recorded (only when the climb asks for them),
@@ -74,6 +80,7 @@ impl CaseRun {
             work,
             applied: Vec::new(),
             matched: Vec::new(),
+            applied_counts: BTreeMap::new(),
             blocked: false,
             guards: Guards::new(),
             progress: None,

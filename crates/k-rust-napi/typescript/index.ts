@@ -1365,6 +1365,8 @@ export interface FuzzCorpusParameters {
   'nudge-exponents': number
   'max-entries': number
   'max-attempts': number
+  /** Applied counts below it are buckets of their own; above, one bucket per power of two. */
+  'count-exact-below': number
   /** The harvest its literals come from (its draw probability does not apply). */
   harvest: FuzzDictionaryParameters
 }

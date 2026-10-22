@@ -360,6 +360,10 @@ pub struct CorpusParameters {
     pub max_entries: u32,
     /// The most draws of a mutation before it is given up.
     pub max_attempts: u32,
+    /// The buckets of a rule's applied count: each count below this bound is a bucket of its
+    /// own, and from it on the counts of one power of two share one; a case that applies a rule
+    /// a number of times in a bucket no earlier case applied it in is kept.
+    pub count_exact_below: u64,
     /// The harvest the literals come from: the dictionary's radius, expansion, distance
     /// weights and exact-value probability (its draw probability does not apply).
     pub harvest: DictionaryParameters,
