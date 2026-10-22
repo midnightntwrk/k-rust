@@ -365,6 +365,95 @@ fn expand_writes_an_equation_guard_with_equality_as_calls() {
     .assert_eq(&guard("fn one("));
 }
 
+/// Guards and ensures conditions holding `==`, written in a claim fn, a rule
+/// fn, and a readable claim.
+const GUARDS: &str = r#"
+#[k::claim(all_paths, label = "settle")]
+#[k::requires(n == 1 && p <= 9)]
+#[k::exists(q: Int)]
+#[k::ensures(q == p + n)]
+fn settle(
+    n: Term<Int>,
+    p: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Step(n), tail @ ..),
+        pc: k::configuration::Cell(p),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        pc: k::configuration::Cell(q),
+        ..state
+    }
+}
+
+#[k::rule(label = "jump", priority = 60)]
+#[k::requires(n == 2 || n >= 7)]
+fn jump(
+    n: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Step(n), tail @ ..),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), ..state }
+}
+
+k::claims! {
+    for Machine;
+    use ExpSyntax::*;
+
+    #[k::claim(all_paths)]
+    #[k::exists(q: Int)]
+    #[k::ensures(q == p + n)]
+    readable_settle: { k: [Step(n), ..], pc: p } => { k: [..], pc: q };
+}
+"#;
+
+/// `krs expand` writes an attribute's comparisons and connectives as Rust,
+/// `n == 1 && p <= 9`, where printing a list attribute's tokens would
+/// separate the two `=` of `==`: a claim fn's `requires` and `ensures`, a
+/// rule fn's `requires`, and a readable claim's `ensures`, which it keeps as
+/// written. The expanded crate checks.
+#[test]
+fn expand_writes_comparisons_in_attributes_as_rust() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "operators",
+        &format!("{}{GUARDS}", spelled(true)),
+    );
+    let (success, stdout, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let attributes = |function: &str| {
+        let at = stdout.find(function).expect("the item is written");
+        let start = stdout[..at].rfind("}\n").unwrap() + 2;
+        stdout[start..at]
+            .lines()
+            .filter(|line| line.starts_with("#[k::requires") || line.starts_with("#[k::ensures"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    expect_test::expect![[r##"
+        [
+            "#[k::requires(n == 1 && p <= 9)]\n#[k::ensures(q == p + n)]",
+            "#[k::requires(n == 2 || n >= 7)]",
+            "#[k::ensures(q == p + n)]",
+        ]
+    "##]]
+    .assert_debug_eq(&[
+        attributes("fn settle("),
+        attributes("fn jump("),
+        attributes("fn readable_settle("),
+    ]);
+    let expanded = package(temporary.path(), "expanded", "");
+    fs::write(expanded.with_file_name("src").join("lib.rs"), &stdout).unwrap();
+    let (success, _, stderr) = krs(target.path(), &expanded, "check", &[]);
+    assert!(success, "the expanded crate does not check:\n{stderr}");
+}
+
 /// The first `error[..]` headline and its message of `krs check` on a
 /// package whose last item is `item`.
 fn check_error(target: &Path, item: &str) -> String {
