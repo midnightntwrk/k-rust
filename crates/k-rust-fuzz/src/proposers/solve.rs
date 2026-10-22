@@ -108,10 +108,11 @@
 //!
 //! # Determinism
 //!
-//! Each query runs on a thread of its own with backends of its own, so no solver state is
-//! shared with the cases, with the confirmations or with earlier queries: Z3's context is per
-//! thread in this build (finding Z3-THREAD-CONTEXT), and the backend's cache of decided answers
-//! is per backend. With the clock-free budgets every answer of a query, `unknown` included, is
+//! Each query runs on backends of its own, so no solver state is shared with the cases, with
+//! the confirmations or with earlier queries: the backend's cache of decided answers is per
+//! backend, and k-rust runs every Z3 query on a Z3 context of its own (`docs/compatibility.md`,
+//! the clock-free solver mode), so an answer does not depend on earlier Z3 work on the thread.
+//! With the clock-free budgets every answer of a query, `unknown` included, is
 //! then a function of the query, the budgets and the Z3 version, so a solving campaign's report
 //! is a function of the same inputs as any campaign's plus the Z3 version (ARCHITECTURE 5.4).
 //! What stays outside: a run with a stack stop, and one a cancellation or the per-case safety
@@ -584,9 +585,11 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
     }
 }
 
-/// [`run_query`] on a thread of its own with a stack of `stack_size` bytes, so that its solver
-/// work shares no Z3 context with the campaign's thread (module documentation,
-/// "Determinism"). A cancellation of `cancel`, or the passing of `limit`, stops it.
+/// [`run_query`] on a thread of its own with a stack of `stack_size` bytes, while this thread
+/// watches it: a cancellation of `cancel`, or the passing of `limit`, stops it through its own
+/// token, which needs a thread other than the one running the query, and a panic of the query
+/// becomes a failed answer instead of ending the campaign. (The thread no longer isolates Z3
+/// state: each Z3 query has a context of its own, module documentation, "Determinism".)
 fn run_isolated(
     input: RunInput<'_>,
     rule: String,
