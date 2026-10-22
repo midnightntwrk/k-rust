@@ -539,17 +539,16 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
         );
     }
     // The rule's pattern and result are not emitted as tokens; the rule reaches
-    // rustc only through variant witnesses spanned at the authored heads.
-    for (text, authored, head, witness) in [
-        ("Foo()", 786..791, 786..789, "__krs_variant_type_id_Foo"),
-        ("Bar()", 795..800, 795..798, "__krs_variant_type_id_Bar"),
-    ] {
+    // rustc only through the name-resolution witnesses of its heads, which
+    // repeat each authored head, exactly, in the block's import scope.
+    for (text, authored, head) in [("Foo()", 786..791, 786..789), ("Bar()", 795..800, 795..798)] {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(exact_generated_ranges(&printed, &authored).is_empty());
-        assert!(printed.source.map.segments.iter().any(|segment| {
-            segment.respanned == Some(br(head.clone()))
-                && printed.source.text[Range::<usize>::from(segment.generated)] == *witness
-        }));
+        let witnesses = exact_generated_ranges(&printed, &head);
+        assert!(!witnesses.is_empty(), "{text}");
+        for witness in witnesses {
+            assert_eq!(printed.source.text[witness], TOUR_MINIMAL[head.clone()]);
+        }
     }
     // The initializer body contains the nested `k::k!`; rustc spans it as
     // authored code, and so does the map.

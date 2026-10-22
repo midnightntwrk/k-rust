@@ -270,11 +270,12 @@ pub(super) struct TermBuilder<'a> {
     let_scopes: Vec<Vec<Ident>>,
     /// `ml::exists` closure ordinals, side-neutral (KF-039).
     pub(super) ml_binder_ordinal: u32,
-    enum_glob: Option<&'a Path>,
-    enum_variant: Option<&'a Ident>,
-    /// The block's authored `use Enum::*;` (or `use Enum::Variant;`), which
-    /// a witness for a readable record root repeats so that rustc resolves
-    /// the record's path as the author's Rust would (KF-016, KF-023).
+    /// The block's authored `use Enum::*;` (or `use Enum::Variant;`). Every
+    /// one-segment path in the block resolves through rustc with it in
+    /// scope, as the author's Rust would: the import supplies only the names
+    /// it imports, so `Frame { .. }` names a variant when the enum has one
+    /// and the `#[k::cell]` struct otherwise (KF-016, KF-023), and a crate
+    /// function the enum lacks resolves in the enclosing module.
     enum_import_item: Option<&'a syn::ItemUse>,
     lexical_rule_head: bool,
     /// The `use` items of a `k::equations!` table: rustc resolves every
@@ -326,8 +327,6 @@ impl<'a> TermBuilder<'a> {
             let_pattern_binders: None,
             let_scopes: Vec::new(),
             ml_binder_ordinal: 0,
-            enum_glob: None,
-            enum_variant: None,
             enum_import_item: None,
             lexical_rule_head: false,
             lexical_imports: None,
@@ -410,21 +409,6 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
-    pub(super) fn with_enum_glob(mut self, owner: Option<&'a Path>) -> Self {
-        self.enum_glob = owner;
-        self
-    }
-
-    pub(super) fn with_enum_import(
-        mut self,
-        owner: Option<&'a Path>,
-        variant: Option<&'a Ident>,
-    ) -> Self {
-        self.enum_glob = owner;
-        self.enum_variant = variant;
-        self
-    }
-
     /// Rejects turbofish instances on application heads (KF-027): an
     /// initializer builds a concrete value, whose syntax numbers no instance.
     pub(super) const fn without_application_instances(mut self) -> Self {
@@ -455,44 +439,11 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
-    /// Records the block's authored enum import for record-root witnesses.
+    /// Records the block's authored enum import, through which rustc
+    /// resolves every one-segment path of the block.
     pub(super) const fn with_enum_import_item(mut self, item: Option<&'a syn::ItemUse>) -> Self {
         self.enum_import_item = item;
         self
-    }
-
-    /// Lets rustc resolve the head of a readable record root, such as the
-    /// value of a cell entry, instead of qualifying it by the block's enum
-    /// import: `Frame { .. }` may name a `#[k::cell]` struct rather than a
-    /// variant, which the collector learns from the resolved type (KF-016,
-    /// KF-023). Only a one-segment record head the import would qualify is
-    /// affected; every other root keeps its ordinary slot.
-    pub(super) fn arm_record_root(&mut self, tree: &TermTree) {
-        let mut root = tree;
-        while let TermTree::As { pattern, .. } = root {
-            root = pattern;
-        }
-        let TermTree::Application(application) = root else {
-            return;
-        };
-        let head = application.head();
-        if !matches!(application.arguments(), TermArguments::Named(_))
-            || !application.instance().is_empty()
-            || head.leading_colon.is_some()
-            || head.segments.len() != 1
-        {
-            return;
-        }
-        let Some(segment) = head.segments.first() else {
-            return;
-        };
-        if self.enum_glob.is_some()
-            && self
-                .enum_variant
-                .is_none_or(|variant| variant == &segment.ident)
-        {
-            self.lexical_rule_head = true;
-        }
     }
 
     /// The per-side ordinals of this side so far, as `[application,
@@ -749,18 +700,14 @@ impl<'a> TermBuilder<'a> {
                 let application_ordinal = take_counter(&mut self.counters.application)?;
                 let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
                 let key = wire_key(side.role(TermRole::ApplicationHead), application_ordinal);
-                let lexical = if self.lexical_imports.is_some() {
+                let lexical = if self.lexical_imports.is_some() || self.enum_import_item.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
                         && application.head().segments.len() == 1
                 } else {
                     self.take_lexical_rule_head(application.head())
                 };
-                let authored_path = if lexical {
-                    spelling(application.head())
-                } else {
-                    self.application_authored_path(application.head())
-                };
+                let authored_path = spelling(application.head());
                 let target = if lexical {
                     let expression = self.lexical_rule_application_target(
                         &turbofish_path(application),
@@ -831,11 +778,7 @@ impl<'a> TermBuilder<'a> {
                         name: spelling(path),
                     })
                 } else {
-                    let authored_path = if lexical {
-                        spelling(path)
-                    } else {
-                        self.application_authored_path(path)
-                    };
+                    let authored_path = spelling(path);
                     let target = if lexical {
                         let expression = self.lexical_rule_application_target(path, None);
                         slots.target_slot_unique(&expression)
@@ -1248,18 +1191,6 @@ impl<'a> TermBuilder<'a> {
             // whether or not the author imported its module.
             let facade = self.facade;
             (syn::parse_quote!(#facade::builtin::#authored), None)
-        } else if authored.leading_colon.is_none()
-            && authored.segments.len() == 1
-            && let Some(imported_owner) = self.enum_glob
-            && let Some(imported_variant) = authored.segments.first()
-            && self
-                .enum_variant
-                .is_none_or(|variant| variant == &imported_variant.ident)
-        {
-            (
-                call_site_path(imported_owner)?,
-                Some(imported_variant.ident.clone()),
-            )
         } else if let Some((owner, variant)) = enum_variant_parts(authored) {
             (owner, Some(variant))
         } else {
@@ -1441,20 +1372,6 @@ impl<'a> TermBuilder<'a> {
         });
     }
 
-    pub(super) fn application_authored_path(&self, path: &Path) -> String {
-        if path.leading_colon.is_none()
-            && path.segments.len() == 1
-            && let Some(owner) = self.enum_glob
-            && let Some(variant) = path.segments.first()
-            && self
-                .enum_variant
-                .is_none_or(|imported| imported == &variant.ident)
-        {
-            return format!("{}::{}", spelling(owner), variant.ident);
-        }
-        spelling(path)
-    }
-
     /// The `use` items of a `k::equations!` table, to open a block or fn
     /// body that resolves a row's paths; empty outside a table.
     fn lexical_import_items(&self) -> TokenStream {
@@ -1467,7 +1384,7 @@ impl<'a> TermBuilder<'a> {
     }
 
     fn take_lexical_rule_head(&mut self, path: &Path) -> bool {
-        if self.lexical_imports.is_some() {
+        if self.lexical_imports.is_some() || self.enum_import_item.is_some() {
             return path.leading_colon.is_none() && path.segments.len() == 1;
         }
         let enabled = ::core::mem::take(&mut self.lexical_rule_head);
@@ -1494,12 +1411,11 @@ impl<'a> TermBuilder<'a> {
             None => quote!(#path),
         };
         let facade = self.facade;
-        // A record root under the block's enum import repeats the import, so
-        // `Frame { .. }` names the variant when the enum has one and the
-        // struct in scope otherwise, as in the author's Rust.
+        // A path under the block's enum import repeats the import, so `Frame`
+        // names the variant when the enum has one and the item in scope
+        // otherwise, as in the author's Rust.
         let import = self
             .enum_import_item
-            .filter(|_| self.enum_glob.is_some())
             .into_iter()
             .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
         let imports = self.lexical_import_items();

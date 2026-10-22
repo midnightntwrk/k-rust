@@ -904,7 +904,7 @@ impl<'a> StateRuleBuilder<'a> {
                     application.is_notation(),
                     slots,
                 )?;
-                let authored_path = self.terms.application_authored_path(application.head());
+                let authored_path = spelling(application.head());
                 let instance = self.terms.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
@@ -957,7 +957,7 @@ impl<'a> StateRuleBuilder<'a> {
                         reference: WireApplicationReference {
                             key: key.clone(),
                             target,
-                            authored_path: self.terms.application_authored_path(path),
+                            authored_path: spelling(path),
                         },
                         path_key: key,
                         arguments: krs_ir::Arguments::default(),

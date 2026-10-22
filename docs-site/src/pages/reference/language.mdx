@@ -34,6 +34,9 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::symbol("public::Name")]` | pinned public identity and K symbol for a sort, a standalone constructor, or a family variant; on a struct or trait place it immediately before that KRS declaration attribute, on a variant anywhere among its helpers | [Composition](/advanced/composition) |
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
+A `k::rules!` block's `use Enum::*;` (or `use Enum::Variant;`) is a Rust import in the block's scope: rustc resolves every unqualified path of the block through it and the enclosing module, so the import supplies the names the enum defines and nothing else.
+A crate function, a constructor the module imports, or a builtin operation the module renames (`use k::builtin::map::update as set;`) is written bare, without `crate::`, and a variant of the enum wins over a crate item of the same name, as an inner glob import shadows an outer item in Rust.
+
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
 Constructor families put `#[k::constructors(sort = ..., result = ...)]` (readable) or `#[k::constructors(sort = ..., reference)]` on an enum and attach syntax to its variants; every variant constructs `sort` itself, and the enum is not a sort.
 A family whose productions need a sort of their own declares that sort in `k::sorts!`, for example `Freezer: KItem;`, and names it with `sort = Freezer`.
@@ -142,7 +145,7 @@ The group clause is written bare, never inside `<frame>...</frame>`, and a group
 As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: list::concat(list::item(Held { saved: f }), s)` emits `ListItem(held ( F:FrameCell ))`.
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
-rustc resolves the record's path with the block's `use Cmd::*` in scope, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
+rustc resolves the record's path with the block's `use Cmd::*` in scope, as it resolves every unqualified path in the block, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
 Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
 A rule that names a group and a cell inside it is rejected (`krs::analysis::group-and-descendant`), and so is a configuration in which one `#[k::cell]` struct is the content of two fields, because its K cell sort would name two cells (`krs::analysis::ambiguous-cell-sort`).
 A repeated (`*`) cell is a collection, not one nested cell: its entry is an instance list, described in [optional cells and cell collections](#optional-cells-and-cell-collections).
@@ -273,7 +276,7 @@ fn bar_plus(
 ```
 
 It emits K's function-context rule, the rewrite in `[[ .. ]]` and the cells it reads on the following lines: `rule [[ barPlus ( N:Int ) => B:Int +Int N:Int ]]`, then `<bar> B:Int </bar>` and `<baz> 0 </baz>`, then `requires 0 <=Int B:Int`.
-The caller never passes the configuration: `read: ReadBar() => crate::BarPlus(1);` stays `barPlus ( 1 )`, and K adds a hidden configuration argument to `barPlus` and threads it through every function that needs it, including a function such as `barTwice`, whose own equation has no context but calls `barPlus`.
+The caller never passes the configuration: `read: ReadBar() => BarPlus(1);` stays `barPlus ( 1 )`, and K adds a hidden configuration argument to `barPlus` and threads it through every function that needs it, including a function such as `barTwice`, whose own equation has no context but calls `barPlus`.
 K's warning for a total function whose context may not match shows that argument: `Non exhaustive match detected: barPlus(_,<generatedTop>(_,<bar>(_),<baz>(#token("1","Int")),_))`; KRS's [coverage lint](#coverage-of-total-functions) does not count an equation with a context, so it reports `barPlus` as having no equation at all.
 The context is read-only: an equation returns a term, never the configuration, so this is not a multi-cell rule, which is a transition.
 Because a rule that calls such a function reads those cells, the overlap check counts them in the rule's footprint (as unconstrained cells): a rule that writes `<bar>` and a rule on `<k>` that calls `barPlus` are reported as overlapping.
@@ -445,10 +448,10 @@ k::equations! {
     use Instruction::*;
     decode_nop   : 0                           => Nop;
     decode_jr_cc : k::bits!("00 1cc 000")      => Jr(c);
-    decode_inc_r : k::bits!("00 yyy 100")      => Inc(crate::R8(y));
+    decode_inc_r : k::bits!("00 yyy 100")      => Inc(R8(y));
     decode_halt  : k::bits!("01 110 110")      => Halt;
     #[k::requires(op.ne::<Int>(118))]
-    decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld(crate::R8(y), crate::R8(z));
+    decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld(R8(y), R8(z));
     #[k::equation(owise)]
     decode_other : opcode                      => Unknown(opcode);
 }

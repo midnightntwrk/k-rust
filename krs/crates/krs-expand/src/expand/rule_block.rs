@@ -7,7 +7,6 @@ use krs_syntax::{ProvenanceRole, TokenRange};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
-use syn::{Ident, Path};
 
 use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
@@ -20,11 +19,6 @@ use crate::provenance::host_provenance;
 /// Expands a readable block into independent ordinary rule declarations.
 pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let block = krs_syntax::RuleBlock::parse_tokens(input)?;
-    let enum_owner = block.imports().first().map(krs_syntax::RuleImport::owner);
-    let enum_variant = block
-        .imports()
-        .first()
-        .and_then(krs_syntax::RuleImport::variant);
     let enum_import_item = block.imports().first().map(krs_syntax::RuleImport::item);
     let import_checks = block.imports().iter().map(|import| {
         let item = import.item();
@@ -40,11 +34,7 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         clauses.push(expand_head_rule(
             env,
             clause,
-            EnumImport {
-                owner: enum_owner,
-                variant: enum_variant,
-                item: enum_import_item,
-            },
+            enum_import_item,
             block.is_configuration(),
         )?);
     }
@@ -54,15 +44,6 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
     })
 }
 
-/// The block's enum import: the owner that qualifies unqualified heads, the
-/// one imported variant if any, and the authored `use` item.
-#[derive(Clone, Copy)]
-struct EnumImport<'a> {
-    owner: Option<&'a Path>,
-    variant: Option<&'a Ident>,
-    item: Option<&'a syn::ItemUse>,
-}
-
 #[expect(
     clippy::too_many_lines,
     reason = "The complete rule clause is lowered in one ordered pass."
@@ -70,14 +51,9 @@ struct EnumImport<'a> {
 fn expand_head_rule(
     env: &dyn MacroEnvironment,
     clause: &krs_syntax::RuleClause,
-    import: EnumImport<'_>,
+    enum_import_item: Option<&syn::ItemUse>,
     configuration_owned: bool,
 ) -> crate::Result<TokenStream> {
-    let EnumImport {
-        owner: enum_owner,
-        variant: enum_variant,
-        item: enum_import_item,
-    } = import;
     let rule_left_cells_field_role = ProvenanceRole::RuleLeftCellsField;
     let rule_right_cells_field_role = ProvenanceRole::RuleRightCellsField;
     let rule_requires_role = ProvenanceRole::RuleRequires;
@@ -109,9 +85,8 @@ fn expand_head_rule(
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
-        .with_enum_import(enum_owner, enum_variant)
         .with_enum_import_item(enum_import_item)
-        .with_lexical_rule_head(enum_owner.is_none())
+        .with_lexical_rule_head(enum_import_item.is_none())
         .with_readable_instances();
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
@@ -171,17 +146,11 @@ fn expand_head_rule(
     let alternative = clause.bracket_alternative();
     let mut items = Vec::new();
     if clause.head().is_some_and(krs_syntax::RuleHead::subject) {
-        if alternative.is_some() {
-            builder.arm_record_root(rule.subject_tree());
-        }
         items.push(builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?);
     }
     // The computation items after the first are expanded before the other
     // cells, as the parser numbers their anchors.
     for item in clause.head().iter().flat_map(|head| head.following()) {
-        if alternative.is_some() {
-            builder.arm_record_root(item.tree());
-        }
         items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
     }
 
@@ -230,7 +199,6 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::RewriteCell {
                 cell, before_tree, ..
             } => {
-                builder.arm_record_root(before_tree);
                 let before = builder.expand_wire(before_tree, TermSide::Left, &mut slots)?;
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
@@ -270,21 +238,13 @@ fn expand_head_rule(
     let result = match clause.head_result() {
         None => None,
         Some(krs_syntax::RuleHeadResult::Replace(term)) => {
-            if alternative.is_some() {
-                builder.arm_record_root(term.tree());
-            }
             let term = builder.expand_wire(term.tree(), TermSide::Right, &mut slots)?;
             Some(krs_ir::wire::WireHeadRuleResult::Replace(term))
         }
         Some(krs_syntax::RuleHeadResult::Splice { items, .. }) => {
             let items = items
                 .iter()
-                .map(|item| {
-                    if alternative.is_some() {
-                        builder.arm_record_root(item.tree());
-                    }
-                    builder.expand_wire(item.tree(), TermSide::Right, &mut slots)
-                })
+                .map(|item| builder.expand_wire(item.tree(), TermSide::Right, &mut slots))
                 .collect::<Result<Vec<_>, _>>()?;
             Some(krs_ir::wire::WireHeadRuleResult::Splice(items))
         }
@@ -374,7 +334,6 @@ fn expand_head_rule(
                 // A cell the result leaves out is read only: it has no
                 // result term and no result-field key.
                 let (result_key, after) = if let Some(after) = after {
-                    builder.arm_record_root(after.tree());
                     let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
                     let right_ordinal = update_ordinal;
                     update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
@@ -641,15 +600,9 @@ fn readable_state_wire(
     };
     let side = context.side;
     Ok(match state {
-        StateTerm::Present(inner) => {
-            // `Some(Mark { .. })` names a group the way a fixed entry does.
-            if let StateTerm::Term(term) = inner.as_ref() {
-                context.builder.arm_record_root(term.tree());
-            }
-            State::Present {
-                value: Box::new(readable_state_wire(inner, context)?),
-            }
-        }
+        StateTerm::Present(inner) => State::Present {
+            value: Box::new(readable_state_wire(inner, context)?),
+        },
         StateTerm::Absent(_) => State::Absent,
         StateTerm::Term(term) | StateTerm::Group(term) => State::Term(
             context

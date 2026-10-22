@@ -104,7 +104,6 @@ pub(crate) fn context(
         &attribute,
         krs_ir::SentenceKind::Context,
         OrdinaryRuleKeys::default(),
-        None,
         &[],
     )
 }
@@ -164,7 +163,6 @@ pub(crate) fn equation_item(
             desugar: None,
             lexical_imports: None,
         },
-        None,
         &[],
     )
 }
@@ -189,7 +187,6 @@ pub(crate) fn equation_row(
             desugar: None,
             lexical_imports: Some(imports),
         },
-        None,
         &[],
     )?;
     let facade = env.facade_path()?;
@@ -317,7 +314,6 @@ pub(crate) fn desugar(
                 desugar: Some(&desugar),
                 ..OrdinaryRuleKeys::default()
             },
-            None,
             &[],
         );
     }
@@ -372,7 +368,6 @@ fn ordinary_rule(
             desugar: None,
             lexical_imports: None,
         },
-        None,
         &[],
     )
 }
@@ -399,7 +394,6 @@ fn expand_ordinary_rule(
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
     keys: OrdinaryRuleKeys<'_>,
-    enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
     let OrdinaryRuleKeys {
@@ -586,7 +580,6 @@ fn expand_ordinary_rule(
     // subject and requires never do (the parser rejects such a use).
     let binding_idents = rule.result_bindings();
     let mut term_builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
-        .with_enum_glob(enum_glob)
         .with_lexical_imports(lexical_imports);
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) =

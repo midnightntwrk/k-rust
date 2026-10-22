@@ -28,18 +28,6 @@ fn __krs_head_rule_sort_3d3454cc60ba3825() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Exp>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_3d3454cc60ba3825_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ExpSyntax>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_3d3454cc60ba3825_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ExpSyntax>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_3d3454cc60ba3825_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ExpSyntax>()
-}
-#[doc(hidden)]
 fn __krs_head_rule_descriptor_3d3454cc60ba3825() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -58,29 +46,41 @@ fn __krs_head_rule_descriptor_3d3454cc60ba3825() -> ::core::result::Result<
             .expect("Cargo and Rust macro context form a valid host identity"),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"swap\"},\"priority\":null,\"nondet\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Exp\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"e\"}],\"head\":{\"items\":[{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":0,\"authored_path\":\"ExpSyntax::Swap\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"e\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"e\"}}]}],\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"let\",\"key\":{\"role\":\"let\",\"ordinal\":0},\"pattern\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"ExpSyntax::Pair\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"x\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":2},\"name\":\"y\"}}]},\"sort\":null,\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":3},\"name\":\"e\"},\"body\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":1},\"target\":2,\"authored_path\":\"ExpSyntax::Pair\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":4},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":3},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":5},\"name\":\"y\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":4},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":6},\"name\":\"x\"}}]}}}},\"requires\":null,\"extras\":[]}}",
+            "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"swap\"},\"priority\":null,\"nondet\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Exp\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"e\"}],\"head\":{\"items\":[{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Swap\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"e\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"e\"}}]}],\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"let\",\"key\":{\"role\":\"let\",\"ordinal\":0},\"pattern\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Pair\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"x\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":2},\"name\":\"y\"}}]},\"sort\":null,\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":3},\"name\":\"e\"},\"body\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":1},\"target\":2,\"authored_path\":\"Pair\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":4},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":3},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":5},\"name\":\"y\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":4},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":6},\"name\":\"x\"}}]}}}},\"requires\":null,\"extras\":[]}}",
             ::k::__KrsSlots {
                 types: &[::k::HostTypeKey(__krs_head_rule_sort_3d3454cc60ba3825)],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Variant {
-                        owner: ::k::HostTypeKey(
-                            __krs_rule_application_3d3454cc60ba3825_0,
-                        ),
-                        marker: ::k::HostTypeKey(ExpSyntax::__krs_variant_type_id_Swap),
-                    },
-                    ::k::__KrsTargetSlot::Variant {
-                        owner: ::k::HostTypeKey(
-                            __krs_rule_application_3d3454cc60ba3825_1,
-                        ),
-                        marker: ::k::HostTypeKey(ExpSyntax::__krs_variant_type_id_Pair),
-                    },
-                    ::k::__KrsTargetSlot::Variant {
-                        owner: ::k::HostTypeKey(
-                            __krs_rule_application_3d3454cc60ba3825_2,
-                        ),
-                        marker: ::k::HostTypeKey(ExpSyntax::__krs_variant_type_id_Pair),
-                    },
+                    ::k::__KrsTargetSlot::Target({
+                        #[allow(unused_imports, clippy::enum_glob_use)]
+                        use ExpSyntax::*;
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Swap { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            14927233900805041646u64,
+                        >(&__krs_rule_application_witness, "Swap")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        #[allow(unused_imports, clippy::enum_glob_use)]
+                        use ExpSyntax::*;
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Pair { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3312157943746072081u64,
+                        >(&__krs_rule_application_witness, "Pair")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        #[allow(unused_imports, clippy::enum_glob_use)]
+                        use ExpSyntax::*;
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Pair { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3312157943746072081u64,
+                        >(&__krs_rule_application_witness, "Pair")
+                    }),
                 ],
             },
         ),
@@ -422,15 +422,11 @@ fn __krs_head_rule_sort_8bbc915b1758017d() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Exp>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_8bbc915b1758017d_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ExpSyntax>()
-}
-#[doc(hidden)]
-fn __krs_let_sort_8bbc915b1758017d_1() -> ::core::any::TypeId {
+fn __krs_let_sort_8bbc915b1758017d_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_8bbc915b1758017d_2() -> ::core::any::TypeId {
+fn __krs_rule_application_8bbc915b1758017d_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::gt>()
 }
 #[doc(hidden)]
@@ -452,24 +448,26 @@ fn __krs_head_rule_descriptor_8bbc915b1758017d() -> ::core::result::Result<
             .expect("Cargo and Rust macro context form a valid host identity"),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"positive\"},\"priority\":null,\"nondet\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Exp\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"e\"}],\"head\":{\"items\":[{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":0,\"authored_path\":\"ExpSyntax::Positive\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"e\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"e\"}}]}],\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"1\"}}}},\"requires\":{\"key\":{\"role\":\"rule_requires\",\"ordinal\":0},\"term\":{\"term_kind\":\"let\",\"key\":{\"role\":\"let\",\"ordinal\":0},\"pattern\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":0},\"name\":\"m\"},\"sort\":{\"key\":{\"role\":\"let_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Int\"}},\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":1},\"name\":\"e\"},\"body\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_requires_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"int :: gt\"},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":2},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":3},\"name\":\"m\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_requires_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"0\"}}}]}}},\"extras\":[]}}",
+            "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"positive\"},\"priority\":null,\"nondet\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Exp\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"e\"}],\"head\":{\"items\":[{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Positive\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"e\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"e\"}}]}],\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"1\"}}}},\"requires\":{\"key\":{\"role\":\"rule_requires\",\"ordinal\":0},\"term\":{\"term_kind\":\"let\",\"key\":{\"role\":\"let\",\"ordinal\":0},\"pattern\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":0},\"name\":\"m\"},\"sort\":{\"key\":{\"role\":\"let_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Int\"}},\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":1},\"name\":\"e\"},\"body\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_requires_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"int :: gt\"},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":2},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_requires_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_requires_path\",\"ordinal\":3},\"name\":\"m\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_requires_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"0\"}}}]}}},\"extras\":[]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_head_rule_sort_8bbc915b1758017d),
-                    ::k::HostTypeKey(__krs_let_sort_8bbc915b1758017d_1),
+                    ::k::HostTypeKey(__krs_let_sort_8bbc915b1758017d_0),
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Variant {
-                        owner: ::k::HostTypeKey(
-                            __krs_rule_application_8bbc915b1758017d_0,
-                        ),
-                        marker: ::k::HostTypeKey(
-                            ExpSyntax::__krs_variant_type_id_Positive,
-                        ),
-                    },
+                    ::k::__KrsTargetSlot::Target({
+                        #[allow(unused_imports, clippy::enum_glob_use)]
+                        use ExpSyntax::*;
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Positive { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            13958422183370494778u64,
+                        >(&__krs_rule_application_witness, "Positive")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_8bbc915b1758017d_2),
+                        ::k::HostTypeKey(__krs_rule_application_8bbc915b1758017d_1),
                     ),
                 ],
             },

@@ -1101,7 +1101,7 @@ impl RuleImport {
         &self.item
     }
 
-    /// Returns the enum owner used to qualify unqualified clause heads.
+    /// Returns the enum the import names.
     #[must_use]
     pub const fn owner(&self) -> &Path {
         &self.owner

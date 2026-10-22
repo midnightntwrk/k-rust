@@ -575,7 +575,7 @@ impl<'a> InitializerBuilder<'a> {
                     application.is_notation(),
                     &mut self.slots,
                 )?;
-                let authored_path = self.terms.application_authored_path(application.head());
+                let authored_path = spelling(application.head());
                 // An initializer admits no turbofish (KF-027); this rejects one.
                 self.terms
                     .application_instance_wire(application, &mut self.slots)?;
@@ -619,7 +619,7 @@ impl<'a> InitializerBuilder<'a> {
                     let target = self
                         .terms
                         .application_wire_slot(path, false, &mut self.slots)?;
-                    let authored_path = self.terms.application_authored_path(path);
+                    let authored_path = spelling(path);
                     Ok(WireTerm::Application {
                         instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,

@@ -214,6 +214,27 @@ macro_rules! builtin_sort_registry {
 
 krs_ir::__krs_builtin_sort_catalog!(builtin_sort_registry);
 
+/// Lets a one-segment path that names a builtin operation, such as
+/// `set(m, k, v)` under `use k::builtin::map::update as set;`, resolve
+/// through the same rustc witness as a constructor in a readable block or a
+/// table: the witness's `set { .. }` pattern infers the operation's marker,
+/// whose one impl fixes its defaulted parameters, and the target is the
+/// marker's registry identity.
+macro_rules! builtin_rule_applications {
+    ($($module:ident::$name:ident),* $(,)?) => {
+        $(
+            impl<const SELECTOR: u64> __KrsRuleApplication<SELECTOR> for builtin::$module::$name {
+                fn __krs_rule_application(authored_path: &str) -> HostApplicationTarget {
+                    HostApplicationTarget::Nominal(HostTypeReference {
+                        key: HostTypeKey(TypeId::of::<builtin::$module::$name>),
+                        authored_path: authored_path.to_owned(),
+                    })
+                }
+            }
+        )*
+    };
+}
+
 macro_rules! builtin_operation_registry {
     ($(
         $(#[$meta:meta])*
@@ -223,6 +244,7 @@ macro_rules! builtin_operation_registry {
             $($fact:tt)*
         }
     )*) => {
+        builtin_rule_applications!($($module::$name),*);
         fn builtin_operation_registry() -> [HostTypeKey; BuiltinOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -245,6 +267,7 @@ macro_rules! map_operation_registry {
             )*
         }
     ) => {
+        builtin_rule_applications!($($module::$name),*);
         fn map_operation_registry() -> [HostTypeKey; TermMapOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -264,6 +287,7 @@ macro_rules! list_operation_registry {
             }
         )*
     ) => {
+        builtin_rule_applications!($($module::$name),*);
         fn list_operation_registry() -> [HostTypeKey; ListOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -283,6 +307,7 @@ macro_rules! set_operation_registry {
             }
         )*
     ) => {
+        builtin_rule_applications!($($module::$name),*);
         fn set_operation_registry() -> [HostTypeKey; SetOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
