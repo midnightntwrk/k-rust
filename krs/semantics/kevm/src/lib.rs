@@ -5265,173 +5265,110 @@ k::rules! {
     };
 }
 
-/// All-path claim spanning PUSH widths, ADD, PC observation, gas, and STOP.
-#[k::claim(all_paths, label = "push-add-pc-stop")]
-fn push_add_pc_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x03\x01\x58\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(11),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x03\x01\x58\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([5, 5]),
-        CallState::pc: k::configuration::Cell(6),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+k::claims! {
+    for Machine;
 
-/// All-path claim spanning the selected arithmetic and comparison tranches.
-#[k::claim(all_paths, label = "arithmetic-comparison-tranches-stop")]
-fn arithmetic_comparison_tranches_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(107),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([1, 1, 1, 1, 1, 1, 4, 0, 1, 3]),
-        CallState::pc: k::configuration::Cell(52),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+    /// All-path claim spanning PUSH widths, ADD, PC observation, gas, and STOP.
+    #[k::claim(all_paths)]
+    push_add_pc_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(b"\x60\x02\x60\x03\x01\x58\x00"),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b""),
+        gas_price: 0,
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 11,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        word_stack: [5, 5],
+        pc: 6,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 
-/// All-path claim spanning every Shanghai-active pure-word expression opcode.
-#[k::claim(all_paths, label = "pure-word-tranche-stop")]
-fn pure_word_tranche_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(149),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([
+    /// All-path claim spanning the selected arithmetic and comparison tranches.
+    #[k::claim(all_paths)]
+    arithmetic_comparison_tranches_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(
+            b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00"
+        ),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b""),
+        gas_price: 0,
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 107,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        word_stack: [1, 1, 1, 1, 1, 1, 4, 0, 1, 3],
+        pc: 52,
+        gas: 0,
+        status_code: Status::Success(),
+    };
+
+    /// All-path claim spanning every Shanghai-active pure-word expression opcode.
+    #[k::claim(all_paths)]
+    pure_word_tranche_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(
+            b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00"
+        ),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b""),
+        gas_price: 0,
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 149,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        word_stack: [
             0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF,
             16,
             48,
@@ -5442,361 +5379,199 @@ fn pure_word_tranche_stop(
             3,
             0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FF80,
             256,
-        ]),
-        CallState::pc: k::configuration::Cell(50),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+        ],
+        pc: 50,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 
-/// All-path claim spanning POP and depth-indexed DUP/SWAP execution.
-#[k::claim(all_paths, label = "stack-manipulation-stop")]
-fn stack_manipulation_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x01\x60\x02\x60\x03\x82\x91\x50\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(17),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x01\x60\x02\x60\x03\x82\x91\x50\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([3, 1, 1]),
-        CallState::pc: k::configuration::Cell(9),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+    /// All-path claim spanning POP and depth-indexed DUP/SWAP execution.
+    #[k::claim(all_paths)]
+    stack_manipulation_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(b"\x60\x01\x60\x02\x60\x03\x82\x91\x50\x00"),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b""),
+        gas_price: 0,
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 17,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        word_stack: [3, 1, 1],
+        pc: 9,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 
-/// All-path claim spanning false and true JUMPI, JUMP, and JUMPDEST execution.
-#[k::claim(all_paths, label = "control-flow-tranche-stop")]
-fn control_flow_tranche_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(45),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(19),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+    /// All-path claim spanning false and true JUMPI, JUMP, and JUMPDEST execution.
+    #[k::claim(all_paths)]
+    control_flow_tranche_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(
+            b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"
+        ),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b""),
+        gas_price: 0,
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 45,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        pc: 19,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 
-/// All-path claim spanning Shanghai execution-context observations and block history.
-#[k::claim(all_paths, label = "execution-context-tranche-stop")]
-fn execution_context_tranche_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00")),
-        CallState::address: k::configuration::Cell(10),
-        origin: k::configuration::Cell(11),
-        CallState::caller: k::configuration::Cell(12),
-        CallState::call_value: k::configuration::Cell(13),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"\xaa\xbb\xcc")),
-        gas_price: k::configuration::Cell(14),
-        output: k::configuration::Cell(k::bytes!(b"\xdd\xee")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::concat(
-            list::item(99),
-            list::concat(list::item(0), list::empty()),
-        )),
-        coinbase: k::configuration::Cell(15),
-        timestamp: k::configuration::Cell(16),
-        number: k::configuration::Cell(17),
-        prev_randao: k::configuration::Cell(18),
-        gas_limit: k::configuration::Cell(19),
-        chain_id: k::configuration::Cell(20),
-        base_fee: k::configuration::Cell(21),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(55),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00")),
-        CallState::address: k::configuration::Cell(10),
-        origin: k::configuration::Cell(11),
-        CallState::caller: k::configuration::Cell(12),
-        CallState::call_value: k::configuration::Cell(13),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"\xaa\xbb\xcc")),
-        gas_price: k::configuration::Cell(14),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::concat(
-            list::item(99),
-            list::concat(list::item(0), list::empty()),
-        )),
-        coinbase: k::configuration::Cell(15),
-        timestamp: k::configuration::Cell(16),
-        number: k::configuration::Cell(17),
-        prev_randao: k::configuration::Cell(18),
-        gas_limit: k::configuration::Cell(19),
-        chain_id: k::configuration::Cell(20),
-        base_fee: k::configuration::Cell(21),
-        // Constructors, not [0, 99, ..]: list notation this long overflows the
-        // default 2 MiB test-thread stack of the unoptimized in-process collector.
-        CallState::word_stack: k::configuration::Cell(Stack::StackCons(
-            0,
-            Stack::StackCons(
-                99,
-                Stack::StackCons(
-                    21,
-                    Stack::StackCons(
-                        20,
-                        Stack::StackCons(
-                            19,
-                            Stack::StackCons(
-                                18,
-                                Stack::StackCons(
-                                    17,
-                                    Stack::StackCons(
-                                        16,
-                                        Stack::StackCons(
-                                            15,
-                                            Stack::StackCons(
-                                                2,
-                                                Stack::StackCons(
-                                                    14,
-                                                    Stack::StackCons(
-                                                        20,
-                                                        Stack::StackCons(
-                                                            3,
-                                                            Stack::StackCons(
-                                                                13,
-                                                                Stack::StackCons(
-                                                                    12,
-                                                                    Stack::StackCons(
-                                                                        11,
-                                                                        Stack::StackCons(
-                                                                            10,
-                                                                            Stack::StackEmpty(),
-                                                                        ),
-                                                                    ),
-                                                                ),
-                                                            ),
-                                                        ),
-                                                    ),
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        )),
-        CallState::pc: k::configuration::Cell(19),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+    /// All-path claim spanning Shanghai execution-context observations and block history.
+    #[k::claim(all_paths)]
+    execution_context_tranche_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(
+            b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00"
+        ),
+        address: 10,
+        origin: 11,
+        caller: 12,
+        call_value: 13,
+        call_data: k::bytes!(b"\xaa\xbb\xcc"),
+        gas_price: 14,
+        output: k::bytes!(b"\xdd\xee"),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: list::concat(list::item(99), list::concat(list::item(0), list::empty())),
+        coinbase: 15,
+        timestamp: 16,
+        number: 17,
+        prev_randao: 18,
+        gas_limit: 19,
+        chain_id: 20,
+        base_fee: 21,
+        word_stack: [],
+        pc: 0,
+        gas: 55,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        output: k::bytes!(b""),
+        word_stack: [0, 99, 21, 20, 19, 18, 17, 16, 15, 2, 14, 20, 3, 13, 12, 11, 10],
+        pc: 19,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 
-/// All-path claim spanning memory writes, reads, size observation, and STOP.
-#[k::claim(all_paths, label = "memory-tranche-stop")]
-fn memory_tranche_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\xaa\x60\x00\x52\x60\x00\x51\x59\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"\xdd")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(20),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\xaa\x60\x00\x52\x60\x00\x51\x59\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xaa")),
-        CallState::memory_used: k::configuration::Cell(1),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([32, 170]),
-        CallState::pc: k::configuration::Cell(9),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
-}
+    /// All-path claim spanning memory writes, reads, size observation, and STOP.
+    #[k::claim(all_paths)]
+    memory_tranche_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(b"\x60\xaa\x60\x00\x52\x60\x00\x51\x59\x00"),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b""),
+        gas_price: 0,
+        output: k::bytes!(b"\xdd"),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 20,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xaa"
+        ),
+        memory_used: 1,
+        word_stack: [32, 170],
+        pc: 9,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 
-/// All-path claim spanning calldata load and all selected byte-copy sources.
-#[k::claim(all_paths, label = "load-copy-tranche-stop")]
-fn load_copy_tranche_stop(
-    k::cells! {
-        k: k::configuration::KCell(ExecutionCommand::Run()),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"\xaa\xbb\xcc\xdd")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"\x11\x22\x33")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"")),
-        CallState::memory_used: k::configuration::Cell(0),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([]),
-        CallState::pc: k::configuration::Cell(0),
-        CallState::gas: k::configuration::Cell(54),
-        status_code: k::configuration::Cell(Status::Running()),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(.K),
-        CallState::program: k::configuration::Cell(k::bytes!(b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00")),
-        CallState::address: k::configuration::Cell(0),
-        origin: k::configuration::Cell(0),
-        CallState::caller: k::configuration::Cell(0),
-        CallState::call_value: k::configuration::Cell(0),
-        CallState::call_data: k::configuration::Cell(k::bytes!(b"\xaa\xbb\xcc\xdd")),
-        gas_price: k::configuration::Cell(0),
-        output: k::configuration::Cell(k::bytes!(b"")),
-        CallState::local_mem: k::configuration::Cell(k::bytes!(b"\xbb\xcc\xdd\x60\x00\x22\x33\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")),
-        CallState::memory_used: k::configuration::Cell(1),
-        block_hashes: k::configuration::Cell(list::empty()),
-        coinbase: k::configuration::Cell(0),
-        timestamp: k::configuration::Cell(0),
-        number: k::configuration::Cell(0),
-        prev_randao: k::configuration::Cell(0),
-        gas_limit: k::configuration::Cell(0),
-        chain_id: k::configuration::Cell(0),
-        base_fee: k::configuration::Cell(0),
-        CallState::word_stack: k::configuration::Cell([0xAABB_CCDD_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000]),
-        CallState::pc: k::configuration::Cell(24),
-        CallState::gas: k::configuration::Cell(0),
-        status_code: k::configuration::Cell(Status::Success()),
-        ..state
-    }
+    /// All-path claim spanning calldata load and all selected byte-copy sources.
+    #[k::claim(all_paths)]
+    load_copy_tranche_stop: {
+        k: [ExecutionCommand::Run()],
+        program: k::bytes!(
+            b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00"
+        ),
+        address: 0,
+        origin: 0,
+        caller: 0,
+        call_value: 0,
+        call_data: k::bytes!(b"\xaa\xbb\xcc\xdd"),
+        gas_price: 0,
+        output: k::bytes!(b"\x11\x22\x33"),
+        local_mem: k::bytes!(b""),
+        memory_used: 0,
+        block_hashes: [],
+        coinbase: 0,
+        timestamp: 0,
+        number: 0,
+        prev_randao: 0,
+        gas_limit: 0,
+        chain_id: 0,
+        base_fee: 0,
+        word_stack: [],
+        pc: 0,
+        gas: 54,
+        status_code: Status::Running(),
+    } => {
+        k: [],
+        output: k::bytes!(b""),
+        local_mem: k::bytes!(
+            b"\xbb\xcc\xdd\x60\x00\x22\x33\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        ),
+        memory_used: 1,
+        word_stack: [
+            0xAABB_CCDD_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+        ],
+        pc: 24,
+        gas: 0,
+        status_code: Status::Success(),
+    };
 }
 
 #[cfg(test)]
