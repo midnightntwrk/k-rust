@@ -2153,7 +2153,13 @@ fn read_immediate_byte(
         program,
         at: int::add(at, 1),
         remaining: int::sub(remaining, 1),
-        value: int::add(int::mul(value, 256), bytes::get(program, at))
+        value: int::add(
+            int::mul(value, 256),
+            MemoryByte {
+                memory: program,
+                index: at
+            }
+        )
     }]
 }
 
