@@ -101,6 +101,11 @@ pub(crate) struct GuardEntry {
     /// where a hole's value reaches the guard unchanged, it is among them (input-to-state
     /// correspondence; ARCHITECTURE 10.2, Redqueen).
     pub(crate) reads: Vec<Operand>,
+    /// The ground `Int` and `Bool` values bound to the variables the condition's atoms read
+    /// (the records' atom `reads`), in binding order: where a hole's value reaches the guard
+    /// unchanged, the guard depends on that hole. The solve proposer makes such holes symbolic
+    /// (ARCHITECTURE 8.6).
+    pub(crate) guard_values: Vec<crate::values::Value>,
 }
 
 /// Per rule id, the entries into its `requires` a run recorded, in the run's order.
@@ -115,6 +120,28 @@ pub(crate) struct Scored {
     /// component (an entry of least distance); empty without a guard distance. A climb prefers
     /// moving the holes whose values are among them.
     pub(crate) reads: Vec<Operand>,
+}
+
+/// A rule whose condition a case entered and refuted, nearest the target: what the solve
+/// proposer solves for (ARCHITECTURE 8.6; [`RuleScorer::blocked`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Blocked {
+    /// The rule's catalog id.
+    pub(crate) rule: String,
+    /// The rule's distance to the target along the keyed chain (0: the target).
+    pub(crate) distance: u64,
+    /// The entry's guard distance.
+    pub(crate) guard: Guard,
+    /// [`GuardEntry::guard_values`] of the entry.
+    pub(crate) values: Vec<crate::values::Value>,
+}
+
+impl Blocked {
+    /// The rank of a blocked case, smaller being nearer: the rule's distance to the target, then
+    /// the entry's guard distance.
+    pub(crate) fn rank(&self) -> (u64, &Guard) {
+        (self.distance, &self.guard)
+    }
 }
 
 /// What a case's run reports that a score reads: its coverage and the guard distance of each
@@ -166,6 +193,15 @@ impl Scorer {
             },
         }
     }
+
+    /// The case's blocked rule nearest the target ([`RuleScorer::blocked`]); none for an
+    /// observer target.
+    pub(crate) fn blocked(&self, signals: Signals<'_>) -> Option<Blocked> {
+        match self {
+            Self::Rule(rule) => rule.blocked(signals),
+            Self::Observer => None,
+        }
+    }
 }
 
 /// The scorer of a rule target (module documentation, "The rule score"), built once per
@@ -179,6 +215,10 @@ pub(crate) struct RuleScorer {
     /// that key the head of `<k>` (`RuleGraph::keyed_enablers`), or every direct predecessor
     /// when none does.
     predecessors: BTreeSet<String>,
+    /// For the solve proposer, the keyed chain to the target ([`Self::with_chain`]): each rule's
+    /// distance to the target over predecessors chosen as [`Self::predecessors`] are; empty
+    /// otherwise.
+    chain: BTreeMap<String, u64>,
 }
 
 impl RuleScorer {
@@ -200,7 +240,69 @@ impl RuleScorer {
             target: target.to_owned(),
             distances,
             predecessors,
+            chain: BTreeMap::new(),
         }
+    }
+
+    /// This scorer, also recording the keyed chain to the target up to `radius` edges, for the
+    /// solve proposer (ARCHITECTURE 8.6): the target at 0, its direct predecessors chosen as
+    /// [`Self::predecessors`] (those whose right-hand side keys the head of `<k>`, or all when
+    /// none does) at 1, theirs at 2, and so on. The chain is what [`Self::blocked`] looks for a
+    /// refuted guard on, and its rules join [`Self::condition_rules`].
+    pub(crate) fn with_chain(mut self, graph: &RuleGraph, radius: u64) -> Self {
+        let mut chain = BTreeMap::from([(self.target.clone(), 0)]);
+        let mut frontier = vec![self.target.clone()];
+        for distance in 1..=radius {
+            let mut next = Vec::new();
+            for rule in &frontier {
+                let keyed = graph.keyed_enablers(rule);
+                let enablers = if keyed.is_empty() {
+                    graph.enablers(rule)
+                } else {
+                    keyed
+                };
+                for enabler in enablers {
+                    if !chain.contains_key(&enabler) {
+                        chain.insert(enabler.clone(), distance);
+                        next.push(enabler);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        self.chain = chain;
+        self
+    }
+
+    /// The case's refuted guard nearest the target along the keyed chain ([`Self::with_chain`]):
+    /// among the refuted entries of chain rules, the one of least (chain distance, guard
+    /// distance), the first of equal ones, a missing guard distance after every distance.
+    /// `None` without a chain or a refuted chain entry.
+    pub(crate) fn blocked(&self, signals: Signals<'_>) -> Option<Blocked> {
+        let mut best: Option<Blocked> = None;
+        for (rule, &distance) in &self.chain {
+            for entry in signals.guards.get(rule).into_iter().flatten() {
+                if !entry.refuted {
+                    continue;
+                }
+                let candidate = Blocked {
+                    rule: rule.clone(),
+                    distance,
+                    guard: entry
+                        .distance
+                        .clone()
+                        .map_or(Guard::Unknown, Guard::Defined),
+                    values: entry.guard_values.clone(),
+                };
+                if best
+                    .as_ref()
+                    .is_none_or(|best| candidate.rank() < best.rank())
+                {
+                    best = Some(candidate);
+                }
+            }
+        }
+        best
     }
 
     /// The rules whose condition entries the score reads: the target and its direct
@@ -208,13 +310,14 @@ impl RuleScorer {
     pub(crate) fn condition_rules(&self) -> Vec<String> {
         let mut rules: BTreeSet<String> = self.predecessors.clone();
         rules.insert(self.target.clone());
+        rules.extend(self.chain.keys().cloned());
         rules.into_iter().collect()
     }
 
     /// The score of a `miss` case with `signals`, and the values its guard read.
     pub(crate) fn score(&self, signals: Signals<'_>) -> Scored {
-        let scored = |level, found: Option<(&Distance, &GuardEntry)>| match found {
-            Some((distance, entry)) => Scored {
+        let scored = |level, found: Option<(&Distance, &str, &GuardEntry)>| match found {
+            Some((distance, _, entry)) => Scored {
                 score: Score {
                     level,
                     guard: Guard::Defined(distance.clone()),
@@ -239,15 +342,20 @@ impl RuleScorer {
             let applied = signals.applied.contains(&self.target);
             return scored(
                 Level::At(0),
-                least(entries.iter().filter(|entry| applied || entry.refuted)),
+                least(
+                    entries
+                        .iter()
+                        .filter(|entry| applied || entry.refuted)
+                        .map(|entry| (self.target.as_str(), entry)),
+                ),
             );
         }
         let blocked = self
             .predecessors
             .iter()
-            .filter_map(|rule| signals.guards.get(rule))
-            .flatten()
-            .filter(|entry| entry.refuted);
+            .filter_map(|rule| signals.guards.get(rule).map(|entries| (rule, entries)))
+            .flat_map(|(rule, entries)| entries.iter().map(move |entry| (rule.as_str(), entry)))
+            .filter(|(_, entry)| entry.refuted);
         if let Some(found) = least(blocked) {
             return scored(Level::At(1), Some(found));
         }
@@ -275,20 +383,22 @@ impl RuleScorer {
                 .map(|(id, distance)| ((*id).to_owned(), *distance))
                 .collect(),
             predecessors: predecessors.iter().map(|id| (*id).to_owned()).collect(),
+            chain: BTreeMap::new(),
         }
     }
 }
 
-/// The entry of least distance among `entries` (the first of equal ones), with its distance.
+/// The entry of least distance among `entries` (the first of equal ones), with its distance
+/// and its rule.
 fn least<'a>(
-    entries: impl Iterator<Item = &'a GuardEntry>,
-) -> Option<(&'a Distance, &'a GuardEntry)> {
-    let mut best: Option<(&Distance, &GuardEntry)> = None;
-    for entry in entries {
+    entries: impl Iterator<Item = (&'a str, &'a GuardEntry)>,
+) -> Option<(&'a Distance, &'a str, &'a GuardEntry)> {
+    let mut best: Option<(&Distance, &str, &GuardEntry)> = None;
+    for (rule, entry) in entries {
         if let Some(distance) = &entry.distance
-            && best.is_none_or(|(least, _)| distance < least)
+            && best.is_none_or(|(least, _, _)| distance < least)
         {
-            best = Some((distance, entry));
+            best = Some((distance, rule, entry));
         }
     }
     best
@@ -328,6 +438,7 @@ mod tests {
                         distance: distance.clone(),
                         refuted: distance.as_ref().is_none_or(|distance| !distance.is_zero()),
                         reads: Vec::new(),
+                        guard_values: Vec::new(),
                     })
                     .collect();
                 ((*rule).to_owned(), entries)
@@ -449,6 +560,7 @@ mod tests {
             distance: Some(d(raw)),
             refuted: true,
             reads: vec![Operand::Int(read.into())],
+            guard_values: Vec::new(),
         };
         let guards: Guards = [(
             "t".to_owned(),
@@ -460,6 +572,7 @@ mod tests {
                     distance: None,
                     refuted: true,
                     reads: vec![Operand::Int(4.into())],
+                    guard_values: Vec::new(),
                 },
             ],
         )]

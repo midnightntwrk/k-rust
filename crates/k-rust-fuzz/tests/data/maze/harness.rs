@@ -390,6 +390,40 @@ pub fn blind_dictionary_climb() -> Configuration {
     }
 }
 
+/// Blind sampling and the solve proposer at equal weights (FZ-15): the anchors, then blind
+/// cases, and after a stall on a blocked cell a model query for the holes its guard reads, on at
+/// most a quarter of the cases and work. Target-directed. Needs the `z3` feature.
+pub fn blind_solve() -> Configuration {
+    Configuration {
+        name: "blind+solve",
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: Vec::new(),
+            weights: BTreeMap::from([(ProposerKind::Blind, 1), (ProposerKind::Solve, 1)]),
+        },
+        target_blind: false,
+    }
+}
+
+/// Blind sampling, the dictionary, the climb and the solve proposer at equal weights (FZ-11,
+/// FZ-12, FZ-15). Needs the `z3` feature.
+pub fn blind_dictionary_climb_solve() -> Configuration {
+    Configuration {
+        name: "blind+dictionary+climb+solve",
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: Vec::new(),
+            weights: BTreeMap::from([
+                (ProposerKind::Blind, 1),
+                (ProposerKind::Dictionary, 1),
+                (ProposerKind::Climb, 1),
+                (ProposerKind::Solve, 1),
+            ]),
+        },
+        target_blind: false,
+    }
+}
+
 /// Only `cell`'s witness, without the anchors and without generation: the positive control
 /// that the cell is reachable and its target is judged as a hit.
 ///

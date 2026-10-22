@@ -78,7 +78,12 @@ pub(crate) fn run_loop(
         if !state.may_start_case() {
             break Ending::Budget;
         }
-        let Some(proposal) = schedule.next() else {
+        let proposal = schedule.next();
+        // Work a proposer spent to make the proposal (the solve proposer's symbolic run) is
+        // charged before the case runs; the case still runs when it spent the rest of a work
+        // budget, so a solved candidate is never dropped unrun.
+        state.charge_extra(schedule.take_extra_work());
+        let Some(proposal) = proposal else {
             break Ending::Exhausted;
         };
         let case = state.totals.cases;
@@ -101,6 +106,7 @@ pub(crate) fn run_loop(
                     let witness = finish_witness(
                         runner, &mut state, settings, case, proposal, *detail, cancel,
                     );
+                    schedule.contribute(&mut state.totals);
                     return state.report(
                         settings,
                         budget,
@@ -141,6 +147,7 @@ pub(crate) fn run_loop(
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
     };
+    schedule.contribute(&mut state.totals);
     let no_witness = no_witness(
         ending,
         &state.totals_snapshot(),
@@ -170,19 +177,19 @@ fn observation(
     class: OutcomeClass,
     run: CaseRun,
 ) -> Observation {
-    let scored = settings
+    let signals = Signals {
+        applied: &run.applied,
+        matched: &run.matched,
+        guards: &run.guards,
+        progress: run.progress,
+    };
+    let scorer = settings
         .scorer
         .as_ref()
-        .filter(|_| class == OutcomeClass::Miss)
-        .map(|scorer| {
-            scorer.score(Signals {
-                applied: &run.applied,
-                matched: &run.matched,
-                guards: &run.guards,
-                progress: run.progress,
-            })
-        });
-    let (score, reads) = scored.map_or((None, Vec::new()), |scored| {
+        .filter(|_| class == OutcomeClass::Miss);
+    let blocked = scorer.and_then(|scorer| scorer.blocked(signals));
+    let (score, reads) = scorer.map_or((None, Vec::new()), |scorer| {
+        let scored = scorer.score(signals);
         (Some(scored.score), scored.reads)
     });
     Observation {
@@ -193,6 +200,7 @@ fn observation(
         work: run.work,
         score,
         reads,
+        blocked,
     }
 }
 
@@ -532,6 +540,11 @@ impl State {
     /// Charge one execution's work, at least 1 (a failed run reports none).
     fn charge(&mut self, work: u64) {
         self.totals.work = self.totals.work.saturating_add(work.max(1));
+    }
+
+    /// Charge work a proposer spent outside cases ([`Schedule::take_extra_work`]), as it is.
+    fn charge_extra(&mut self, work: u64) {
+        self.totals.work = self.totals.work.saturating_add(work);
     }
 
     /// Chain one case's values into [`Totals::case_sequence_digest`].

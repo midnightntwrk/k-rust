@@ -41,6 +41,8 @@ struct Slot {
     weight: u32,
     proposer: Box<dyn Proposer>,
     exhausted: bool,
+    /// The proposer answered no proposal but may propose later: it waits for the next case.
+    idle: bool,
     /// The cases this proposer proposed and their work, as observed.
     cases: u64,
     work: u64,
@@ -51,6 +53,7 @@ impl Slot {
     /// and `work`.
     fn eligible(&self, cases: u64, work: u64) -> bool {
         !self.exhausted
+            && !self.idle
             && self.proposer.ready()
             && self
                 .proposer
@@ -69,9 +72,12 @@ pub(crate) struct Schedule {
     explicit: VecDeque<Vec<Value>>,
     slots: Vec<Slot>,
     rng: ChaCha20Rng,
-    /// Every observed case and its work, explicit proposals included.
+    /// Every observed case and its work, explicit proposals included, and the proposers' work
+    /// outside cases.
     cases: u64,
     work: u64,
+    /// Work the proposers spent outside cases that the loop has not charged yet.
+    extra_work: u64,
 }
 
 impl Schedule {
@@ -93,6 +99,7 @@ impl Schedule {
                     weight,
                     proposer,
                     exhausted: false,
+                    idle: false,
                     cases: 0,
                     work: 0,
                 })
@@ -100,6 +107,7 @@ impl Schedule {
             rng: ChaCha20Rng::from_seed(derive_seed(seed, "schedule")),
             cases: 0,
             work: 0,
+            extra_work: 0,
         }
     }
 
@@ -140,8 +148,14 @@ impl Schedule {
                 .expect("the draw is below the total weight of the eligible slots");
             let slot = &mut self.slots[index];
             let mut context = ProposalContext { rng: &mut self.rng };
-            match slot.proposer.propose(&mut context) {
+            let proposal = slot.proposer.propose(&mut context);
+            let extra = slot.proposer.take_extra_work();
+            slot.work = slot.work.saturating_add(extra);
+            self.work = self.work.saturating_add(extra);
+            self.extra_work = self.extra_work.saturating_add(extra);
+            match proposal {
                 Some(proposal) => return Some(proposal),
+                None if slot.proposer.may_propose_later() => slot.idle = true,
                 None => slot.exhausted = true,
             }
         }
@@ -170,7 +184,21 @@ impl Schedule {
             slot.proposer.observe(proposal, observation, interesting);
         }
         for slot in &mut self.slots {
+            slot.idle = false;
             slot.proposer.observe_all(proposal, observation);
+        }
+    }
+
+    /// The work the proposers spent outside cases since the last call, for the loop to charge
+    /// to the budget.
+    pub(crate) fn take_extra_work(&mut self) -> u64 {
+        std::mem::take(&mut self.extra_work)
+    }
+
+    /// Add every scheduled proposer's own counts to `totals` ([`Proposer::contribute`]).
+    pub(crate) fn contribute(&self, totals: &mut crate::report::Totals) {
+        for slot in &self.slots {
+            slot.proposer.contribute(totals);
         }
     }
 }

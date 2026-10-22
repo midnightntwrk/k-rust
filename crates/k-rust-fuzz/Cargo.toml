@@ -51,8 +51,9 @@ z3 = ["k-rust/z3-inference"]
 # The `krust-fuzz` executable (ARCHITECTURE.md 9.4). It loads compiled directories as `krust krun`
 # does, which needs k-rust's `cli` feature (and with it Z3). Not a default feature: the library's
 # portable build is its primary build, and clients such as the bindings and kink take it with
-# default features.
-cli = ["k-rust/cli", "dep:clap", "dep:toml"]
+# default features. It implies `z3`: k-rust's `cli` feature links Z3, so the executable offers the
+# solve proposer.
+cli = ["z3", "k-rust/cli", "dep:clap", "dep:toml"]
 
 [[bin]]
 name = "krust-fuzz"

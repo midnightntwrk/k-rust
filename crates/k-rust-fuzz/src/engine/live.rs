@@ -182,36 +182,150 @@ impl Side {
         values: &[Value],
         check_constraints: bool,
     ) -> Result<Prepared, RejectionReason> {
-        let mut printed = Vec::with_capacity(values.len());
-        for (hole, value) in self.holes.holes.iter().zip(values) {
-            if check_constraints {
-                values::check_constraints(value, &hole.sort, &hole.decl.constraints)
-                    .map_err(|_| RejectionReason::Constraint)?;
-            }
-            // A template hole substitutes the KORE alone, so its K text is only the witness's,
-            // and a value that has none is not refused for it.
-            let k_text = print::print_k_text(value, &hole.sort);
-            let k_text = if matches!(hole.site, HoleSite::KoreVariable(_)) {
-                k_text.ok()
-            } else {
-                Some(k_text.map_err(|_| RejectionReason::Print)?)
-            };
-            let (kore, sort) =
-                print::to_kore_with_sort(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
-            printed.push(PrintedValue { k_text, kore, sort });
+        prepare_values(
+            &self.holes,
+            &self.round_trip,
+            assembler,
+            program,
+            values,
+            check_constraints,
+            &[],
+        )
+    }
+}
+
+/// Print, instantiate, assemble with `assembler` and round-trip-check `values` for `holes`; the
+/// rejection reason when a step refuses them. The constraint check is optional (see
+/// [`Side::prepare_checked`]). `replacements`, when not empty, holds one entry per hole: a hole
+/// with `Some(kore)` has `kore` in the configuration instead of its value's KORE, placed after
+/// the round-trip check at the hole's position (a template hole: substituted for its variable).
+/// [`Prepared::printed`] keeps the values' own KORE.
+fn prepare_values(
+    holes: &ResolvedHoles,
+    round_trip: &RoundTripCheck,
+    assembler: &mut CaseAssembler<'_>,
+    program: &ProgramInput,
+    values: &[Value],
+    check_constraints: bool,
+    replacements: &[Option<KorePattern>],
+) -> Result<Prepared, RejectionReason> {
+    let mut printed = Vec::with_capacity(values.len());
+    for (hole, value) in holes.holes.iter().zip(values) {
+        if check_constraints {
+            values::check_constraints(value, &hole.sort, &hole.decl.constraints)
+                .map_err(|_| RejectionReason::Constraint)?;
         }
-        let instantiated = holes::instantiate(program, &self.holes, &printed);
-        let configuration = assembler
-            .assemble(&instantiated)
-            .map_err(|_| RejectionReason::Assembly)?;
-        self.round_trip
-            .check(&configuration, &printed)
-            .map_err(|_| RejectionReason::RoundTrip)?;
-        Ok(Prepared {
-            printed,
-            instantiated,
-            assembled: configuration,
-        })
+        // A template hole substitutes the KORE alone, so its K text is only the witness's,
+        // and a value that has none is not refused for it.
+        let k_text = print::print_k_text(value, &hole.sort);
+        let k_text = if matches!(hole.site, HoleSite::KoreVariable(_)) {
+            k_text.ok()
+        } else {
+            Some(k_text.map_err(|_| RejectionReason::Print)?)
+        };
+        let (kore, sort) =
+            print::to_kore_with_sort(value, &hole.sort).map_err(|_| RejectionReason::Print)?;
+        printed.push(PrintedValue { k_text, kore, sort });
+    }
+    let replaced = |index: usize| replacements.get(index).and_then(Option::as_ref);
+    let substituted: Vec<PrintedValue> = printed
+        .iter()
+        .enumerate()
+        .map(
+            |(index, value)| match (&holes.holes[index].site, replaced(index)) {
+                (HoleSite::KoreVariable(_), Some(kore)) => PrintedValue {
+                    kore: kore.clone(),
+                    ..value.clone()
+                },
+                _ => value.clone(),
+            },
+        )
+        .collect();
+    let instantiated = holes::instantiate(program, holes, &substituted);
+    let mut configuration = assembler
+        .assemble(&instantiated)
+        .map_err(|_| RejectionReason::Assembly)?;
+    round_trip
+        .check(&configuration, &printed)
+        .map_err(|_| RejectionReason::RoundTrip)?;
+    for (index, position) in round_trip.positions().iter().enumerate() {
+        if let (Some(kore), Some(path)) = (replaced(index), position)
+            && !replace_subterm(&mut configuration, path, kore.clone())
+        {
+            return Err(RejectionReason::RoundTrip);
+        }
+    }
+    Ok(Prepared {
+        printed,
+        instantiated,
+        assembled: configuration,
+    })
+}
+
+/// `holes::replace_at`, in the builds that have it (the solve proposer's, `z3`); no build
+/// without it passes a replacement.
+fn replace_subterm(pattern: &mut KorePattern, path: &[usize], kore: KorePattern) -> bool {
+    #[cfg(feature = "z3")]
+    {
+        holes::replace_at(pattern, path, kore)
+    }
+    #[cfg(not(feature = "z3"))]
+    {
+        let _ = (pattern, path, kore);
+        false
+    }
+}
+
+/// What the solve proposer needs to build the baseline's configurations itself
+/// (ARCHITECTURE 8.6): the baseline's definition, program assembly, hole resolution and
+/// round-trip positions, and its internalized definition, from which the proposer builds a
+/// backend of its own. Every part is shared, not copied, and immutable.
+#[cfg(feature = "z3")]
+pub(crate) struct ConfigurationBuilder {
+    definition: Arc<CompiledDefinition>,
+    assembly: Arc<ProgramAssembly>,
+    holes: ResolvedHoles,
+    round_trip: Arc<RoundTripCheck>,
+    program: ProgramInput,
+    internalized: Option<Arc<BackendDefinition>>,
+}
+
+#[cfg(feature = "z3")]
+impl ConfigurationBuilder {
+    /// The baseline's resolved holes.
+    pub(crate) fn holes(&self) -> &ResolvedHoles {
+        &self.holes
+    }
+
+    /// The baseline's compiled definition.
+    pub(crate) fn definition(&self) -> &Arc<CompiledDefinition> {
+        &self.definition
+    }
+
+    /// The baseline's internalized definition on the `source-execution` route
+    /// ([`LiveCases::baseline_internalized`]).
+    pub(crate) fn internalized(&self) -> Option<&Arc<BackendDefinition>> {
+        self.internalized.as_ref()
+    }
+
+    /// The configuration of `values` (constraints checked, assembled, round-trip-checked) with
+    /// `replacements` in place of the values of the holes that have one ([`prepare_values`]).
+    pub(crate) fn configuration(
+        &self,
+        values: &[Value],
+        replacements: &[Option<KorePattern>],
+    ) -> Result<KorePattern, RejectionReason> {
+        let mut assembler = self.assembly.assembler(&self.definition);
+        prepare_values(
+            &self.holes,
+            &self.round_trip,
+            &mut assembler,
+            &self.program,
+            values,
+            true,
+            replacements,
+        )
+        .map(|prepared| prepared.assembled)
     }
 }
 
@@ -338,6 +452,21 @@ impl LiveCases {
     /// other field of a result, so the class, the coverage and the witness are unchanged.
     pub(crate) fn request_conditions(&mut self, rules: Vec<String>) {
         self.baseline.shape = self.baseline.shape.with_conditions(rules);
+    }
+
+    /// What the solve proposer builds the baseline's configurations from
+    /// ([`ConfigurationBuilder`]).
+    #[cfg(feature = "z3")]
+    pub(crate) fn configuration_builder(&self) -> ConfigurationBuilder {
+        let side = &self.baseline;
+        ConfigurationBuilder {
+            definition: Arc::clone(&side.definition),
+            assembly: Arc::clone(&side.assembly),
+            holes: side.holes.clone(),
+            round_trip: Arc::clone(&side.round_trip),
+            program: self.spec.program.clone(),
+            internalized: side.internalized.clone(),
+        }
     }
 
     /// What a run's [`RunAssemblers`] borrow: each side's program assembly and definition.

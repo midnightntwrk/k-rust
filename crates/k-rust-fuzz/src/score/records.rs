@@ -35,13 +35,16 @@ use k_rust::backend::{
 use num_bigint::BigInt;
 use serde_json::Value as Json;
 
+use crate::values::Value;
+
 use super::{
     GuardEntry, Guards,
     distance::{Comparison, Cond, Distance, Operand, Truth, distance},
 };
 
 /// Each complete record of each rule in `conditions`, by rule id, in the records' order: its
-/// guard distance (`None` when it gives none) and the ground `Int` and `String` values it binds.
+/// guard distance (`None` when it gives none), the ground `Int` and `String` values it binds, and
+/// the ground `Int` and `Bool` values its condition's atoms read.
 pub(crate) fn guards(conditions: &[RuleConditionsOutput]) -> Guards {
     conditions
         .iter()
@@ -61,11 +64,57 @@ pub(crate) fn guards(conditions: &[RuleConditionsOutput]) -> Guards {
                             _ => None,
                         })
                         .collect(),
+                    guard_values: guard_values(record),
                 })
                 .collect();
             (rule.rule.clone(), entries)
         })
         .collect()
+}
+
+/// The ground `Int` and `Bool` values of the bindings that some atom of `record`'s condition
+/// reads (each atom's `reads` names positions in the record's bindings), in binding order, each
+/// once: the values the condition depends on.
+fn guard_values(record: &ConditionRecordOutput) -> Vec<Value> {
+    let mut read = std::collections::BTreeSet::new();
+    let mut work: Vec<&ConditionNodeOutput> = record.condition.iter().collect();
+    while let Some(node) = work.pop() {
+        match node {
+            ConditionNodeOutput::Connective { children, .. } => work.extend(children),
+            ConditionNodeOutput::Equals { child, .. } => work.push(child),
+            ConditionNodeOutput::Atom(atom) => read.extend(atom.reads.iter().copied()),
+        }
+    }
+    read.into_iter()
+        .filter_map(|index| match &record.bindings.get(index)?.value {
+            RecordedValueOutput::Value { term } => int_or_bool(term),
+            _ => None,
+        })
+        .collect()
+}
+
+/// An `Int` or `Bool` domain value in KORE JSON (in its envelope or not, under injections).
+fn int_or_bool(term: &Json) -> Option<Value> {
+    let term = term.get("term").unwrap_or(term);
+    match term.get("tag")?.as_str()? {
+        "DV" => {
+            let value = term.get("value")?.as_str()?;
+            match term.get("sort")?.get("name")?.as_str()? {
+                "SortInt" => value.parse::<BigInt>().ok().map(Value::Int),
+                "SortBool" => match value {
+                    "true" => Some(Value::Bool(true)),
+                    "false" => Some(Value::Bool(false)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        "App" if term.get("name")?.as_str()? == "inj" => match term.get("args")?.as_array()?[..] {
+            [ref inner] => int_or_bool(inner),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The guard distance of one complete record (module documentation).

@@ -240,6 +240,7 @@ fn identity() -> ReportIdentity {
         solver: "none".into(),
         dictionary: None,
         climb: None,
+        solve: None,
     }
 }
 
@@ -1281,6 +1282,7 @@ fn the_coverage_feedback_finds_new_rules_only_in_misses() {
         work: 1,
         score: None,
         reads: Vec::new(),
+        blocked: None,
     };
     let mut feedback = CoverageFeedback::default();
     assert!(!feedback.is_interesting(&observation(OutcomeClass::DepthBound, &["a"])));
@@ -1777,6 +1779,7 @@ fn observed(work: u64) -> Observation {
         work,
         score: None,
         reads: Vec::new(),
+        blocked: None,
     }
 }
 
@@ -2030,6 +2033,7 @@ fn the_climb_spends_at_most_half_of_the_cases_and_of_the_work() {
                         )),
                         refuted: true,
                         reads: Vec::new(),
+                        guard_values: Vec::new(),
                     }],
                 );
                 let work = if (0..=10_000).contains(&x) {

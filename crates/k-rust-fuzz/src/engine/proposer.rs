@@ -110,6 +110,9 @@ pub(crate) struct Observation {
     /// The values the scored guard read (`crate::score::Scored::reads`); empty without a
     /// score's guard distance.
     pub(crate) reads: Vec<crate::score::Operand>,
+    /// The rule whose refuted condition the score measures, with the values the condition read
+    /// (`crate::score::Scored::blocked`); `None` without one.
+    pub(crate) blocked: Option<crate::score::Blocked>,
 }
 
 /// Decides whether an observation is interesting (the `LibAFL` *feedback*): new coverage or a
@@ -187,6 +190,26 @@ pub(crate) trait Proposer {
     fn budget_share(&self) -> Option<(u32, u32)> {
         None
     }
+
+    /// Whether a [`Self::propose`] that answered `None` leaves the proposer in the schedule:
+    /// `false` (the default) makes `None` final; `true` makes the proposer wait for the next
+    /// observed case, after which it is drawn again whenever it is [`Self::ready`]. A proposer
+    /// whose proposals rest on work that may come to nothing (the solve proposer's symbolic run)
+    /// answers `true`.
+    fn may_propose_later(&self) -> bool {
+        false
+    }
+
+    /// The work the proposer spent outside cases since the last call (the solve proposer's
+    /// symbolic runs and model queries), which the schedule counts in its share and the campaign
+    /// charges to its budget; 0 by default.
+    fn take_extra_work(&mut self) -> u64 {
+        0
+    }
+
+    /// Add the proposer's own counts to the report's totals (the solve proposer's
+    /// `crate::report::SolveTotals`); nothing by default.
+    fn contribute(&self, _totals: &mut crate::report::Totals) {}
 }
 
 /// Blind sampling (ARCHITECTURE 8.2): one draw from every hole's generator, in hole order, from

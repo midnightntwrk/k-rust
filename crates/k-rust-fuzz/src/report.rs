@@ -183,6 +183,102 @@ pub struct ReportIdentity {
     /// a positive weight; absent from the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub climb: Option<ClimbParameters>,
+    /// The solve proposer's parameters (ARCHITECTURE 8.6), present exactly when the solve
+    /// proposer has a positive weight; absent from the JSON otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solve: Option<SolveParameters>,
+}
+
+/// The fixed parameters of the solve proposer (ARCHITECTURE 8.6), which with the definitions,
+/// the target and the other proposers' cases decide when it runs and what it asks. They are
+/// constants of this build; a change of any of them changes the case sequence of a solving
+/// campaign.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct SolveParameters {
+    /// The most share of the campaign's cases and of its work (its symbolic runs and model
+    /// queries included) the solve proposer spends, as `[numerator, denominator]`.
+    pub budget_share: [u32; 2],
+    /// The stall that triggers a symbolic run: this many consecutive cases without a better
+    /// score.
+    pub stall_cases: u64,
+    /// A symbolic run's work bound is `work-factor` times the blocked case's work plus
+    /// `work-slack` states, and the case options' depth bound.
+    pub work_factor: u64,
+    /// See `work-factor`.
+    pub work_slack: u64,
+    /// The most model queries per symbolic run, one per leaf that arrived by the blocked rule.
+    pub max_model_queries: u32,
+    /// The hole sorts that are made symbolic: `Int` and `Bool`, which translate exactly to SMT.
+    pub symbolic_sorts: Vec<String>,
+    /// Which rules' condition entries the cases record: `target-and-keyed-chain`, the target,
+    /// its direct predecessors as the climb reads them (`ClimbParameters::condition_rules`), and
+    /// the chain of predecessors that key the head of `<k>` (or all, where none does) up to
+    /// `chain-radius` edges before the target, on which the proposer looks for a refuted guard.
+    pub condition_rules: String,
+    /// See `condition-rules`.
+    pub chain_radius: u64,
+}
+
+impl SolveParameters {
+    /// The parameters of this build.
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            budget_share: [SOLVE_BUDGET_SHARE.0, SOLVE_BUDGET_SHARE.1],
+            stall_cases: SOLVE_STALL_CASES,
+            work_factor: SOLVE_WORK_FACTOR,
+            work_slack: SOLVE_WORK_SLACK,
+            max_model_queries: SOLVE_MAX_MODEL_QUERIES,
+            symbolic_sorts: vec!["Int".into(), "Bool".into()],
+            condition_rules: "target-and-keyed-chain".into(),
+            chain_radius: SOLVE_CHAIN_RADIUS,
+        }
+    }
+}
+
+/// The solve proposer's share of cases and work (ARCHITECTURE 8.6; [`SolveParameters`]).
+pub(crate) const SOLVE_BUDGET_SHARE: (u32, u32) = (1, 4);
+/// The stall, in cases, that triggers a symbolic run ([`SolveParameters::stall_cases`]).
+pub(crate) const SOLVE_STALL_CASES: u64 = 8;
+/// [`SolveParameters::work_factor`].
+pub(crate) const SOLVE_WORK_FACTOR: u64 = 4;
+/// [`SolveParameters::work_slack`].
+pub(crate) const SOLVE_WORK_SLACK: u64 = 64;
+/// [`SolveParameters::chain_radius`].
+pub(crate) const SOLVE_CHAIN_RADIUS: u64 = 8;
+/// [`SolveParameters::max_model_queries`].
+pub(crate) const SOLVE_MAX_MODEL_QUERIES: u32 = 4;
+
+/// What the solve proposer did (ARCHITECTURE 8.6): its symbolic runs and what each gave.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct SolveTotals {
+    /// Symbolic runs started.
+    pub attempts: u64,
+    /// Runs whose model gave admissible hole values, proposed as a case (counted in `cases`).
+    pub candidates: u64,
+    /// Runs in which no leaf arrived by the blocked rule within the bounds.
+    pub no_path: u64,
+    /// Runs in which every leaf's model query answered unsatisfiable.
+    pub unsatisfiable: u64,
+    /// Runs in which some model query answered unknown and none satisfiable.
+    pub unknown: u64,
+    /// Runs whose model gave a value its hole does not admit (its generation bounds).
+    pub inadmissible: u64,
+    /// Runs that failed: the symbolic configuration did not build, the backend refused it or
+    /// answered an error, or a stop ended it.
+    pub failed: u64,
+    /// The work of the symbolic runs (states visited) and their model queries (1 each), which
+    /// [`Totals::work`] includes.
+    pub work: u64,
+    /// Runs outside the determinism contract (ARCHITECTURE 5.4): an unknown solver answer, a
+    /// stack stop or a stop by the clock or a cancellation, whose occurrence decides whether the
+    /// run gives a candidate, so the case sequence after it may differ in a re-run.
+    pub outside_determinism: u64,
+    /// The message of the first failed run, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_failure: Option<String>,
 }
 
 /// The fixed parameters of the climb proposer (ARCHITECTURE 8.4), which with the definitions,
@@ -423,6 +519,10 @@ pub struct Totals {
     /// campaign has the digest of the empty input). It pins the case sequence itself, so a
     /// client can detect two runs that diverged even when every case had the same class.
     pub case_sequence_digest: String,
+    /// The solve proposer's counts, present exactly when it has a positive weight; absent from
+    /// the JSON otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solve: Option<SolveTotals>,
 }
 
 /// The rules the campaign's cases reached (ARCHITECTURE 6.1, 9.3).
@@ -793,6 +893,7 @@ mod tests {
                 solver: "none".into(),
                 dictionary: None,
                 climb: None,
+                solve: None,
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {
@@ -825,6 +926,7 @@ mod tests {
                 outside_determinism: 0,
                 unconfirmed: 1,
                 case_sequence_digest: digest_hex(b"cases"),
+                solve: None,
             },
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),

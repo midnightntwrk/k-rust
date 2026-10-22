@@ -6,7 +6,7 @@ Generating whole programs is out of scope: random or grammar-driven program gene
 Crafting inputs that reach a target is in scope: the author marks the program's input holes beside the unmodified program (typed spans of data, such as an `Int` literal), names the target, and the crate chooses hole values, runs the program with k-rust, and reports.
 The report holds either a witness that a concrete re-run confirmed (the hole values, the initial and final configurations, the outcome), or a bounded "no witness found" with the budget, the cases run, the coverage reached and the outcome counts, which is never a proof that no witness exists.
 
-The library builds without k-rust's `cli` and Z3 features; the `z3` feature enables the solver-backed proposer.
+The library builds without k-rust's `cli` and Z3 features; the `z3` feature enables the solver-backed proposer (solve).
 The design is in the fz26 programme's `ARCHITECTURE.md`; the rustdoc of each item cites its section.
 
 ## Outcome classes
@@ -85,6 +85,12 @@ The default `ProposerConfig` weighs blind generation alone; a positive `dictiona
 It also provides the climb (`ProposerKind::Climb`) for rule and observer targets: targeted hill climbing, which keeps the best-scored `miss` case and proposes typed moves of one or two of its holes (integers by `±2^e` with an exponent that grows after an improvement and shrinks after a rejection, Boolean negation, single edits of strings, byte strings and collections, constructor swaps), preferring the holes whose values the scored guard read, and spends at most half of the cases, and of the work up to its last case's work (ARCHITECTURE 6.4, 8.4; the rustdoc of `proposers::climb` and `score`).
 A rule target's case is scored by its rule-graph distance to the target and the branch distance of the guard that stopped it, read from the condition records the backend reports (`collectConditions`), which only a climbing campaign requests; an observer target's case by the greatest progress (`ObserverVerdict::Progress`) its observer reported.
 A positive `climb` weight needs a positive `blind` or `dictionary` weight beside it, and the report then records the climb's parameters (`identity.climb`); pattern and differential targets are refused with the climb.
+With the `z3` feature (native builds; the `cli` feature implies it) it also provides the solve proposer (`ProposerKind::Solve`) for rule targets (ARCHITECTURE 8.6; the rustdoc of `proposers::solve`).
+When the score has not improved for 8 cases, it takes the case whose refuted guard is nearest the target along the target's keyed chain (the target, its predecessors whose right-hand side keys `<k>`, theirs, up to 8 edges; the cases then record those rules' condition entries), makes symbolic the `Int` and `Bool` holes whose values that guard read, keeps the other holes' values, runs the configuration under strategy `all` on a backend of its own, on a thread of its own, within 4 times the case's work plus 64 states, and asks `Backend::get_model` for a model of the constraint of a leaf whose path applied the blocked rule, with the holes' declared constraints conjoined.
+A model is a candidate case like any other: admissible values, the round-trip check, and confirmation on a fresh backend.
+The proposer asks each query once and spends at most a quarter of the cases and of the work; the work of its symbolic runs and model queries (1 each) counts in its share and in `totals.work`, before its candidate runs, so a work budget may be exceeded by one run's bound.
+A positive `solve` weight needs a positive `blind` or `dictionary` weight beside it; the report then records its parameters (`identity.solve`) and its runs (`totals.solve`), with the runs outside the determinism contract (an unknown solver answer, a stack stop, a stop by the clock or a cancellation).
+A build without the `z3` feature, and the WebAssembly package, refuse a positive `solve` weight.
 A candidate hit becomes a witness only after a confirmation on a fresh backend agrees.
 Each run starts from fresh proposer state, so a second run reports exactly what a fresh campaign with the same spec and budget reports.
 The `FuzzReport` (`to_canonical_json` gives its canonical bytes) is a function of the definitions, program, holes, target, options, budget, seed, the k-rust revision and `ENGINE_VERSION`.
@@ -163,7 +169,7 @@ The exit status is 0 when a witness was found and confirmed, 1 when not (includi
 
 A witness file (`schema: "krust-fuzz-witness"`, `version: 1`) holds the campaign as resolved (absolute paths, every option) and the report; `--replay` refuses a witness whose report is not a `krust-fuzz-report` of the `REPORT_VERSION` this build writes.
 `--replay FILE` loads the recorded definitions and program, rebuilds the specification and checks that its identity is the witness's.
-It compares every field of the report's identity except six: the proposers and the budget, which the replay sets itself, `options.shrink`, and the engine version and the dictionary's and the climb's parameters (`dictionary`, `climb`), which cover only the code that chooses cases.
+It compares every field of the report's identity except seven: the proposers and the budget, which the replay sets itself, `options.shrink`, and the engine version and the dictionary's, the climb's and the solve proposer's parameters (`dictionary`, `climb`, `solve`), which cover only the code that chooses cases.
 That includes the k-rust revision, each definition's modules, execution digest, route, rewrite order, frontend, execution-definition and syntax-and-macro digests and initial configuration, the program, overlay and target digests, the options, the bounds and the solver.
 On a mismatch it lists every difference by its path in the report (for example `definitions[0].syntax-definition-digest`) and refuses (exit status 2) unless `--force` is given.
 A forced replay prints each mismatch and a `forced: replayed despite N identity mismatches` line; its exit status still says whether the cases reproduced.
