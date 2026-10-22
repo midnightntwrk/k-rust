@@ -332,5 +332,5 @@ The concrete all-path claim spans four builtin-list block lookups, ordered state
 It remains pinned for `python3 tests/kmir/verify.py --java-reference` and is not run during routine development.
 
 The definition contains 220 equations, 164 machine rules, and one claim across 1,166 descriptors.
-The direct K-Rust `definition.kore` SHA-256 is `58b4971b8b0cb21aeddef634d3c814ca326568645df8dbd7acdf5da75dbc36bb`.
+The direct K-Rust `definition.kore` SHA-256 is `42bf508cb27188f41204c4767270448563f4367495613fc80a63aa28706841f3`.
 Six focused definition and hover probes pass with zero rust-analyzer diagnostics.
