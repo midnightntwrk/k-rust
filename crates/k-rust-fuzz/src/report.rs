@@ -32,9 +32,10 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// `identity.dictionary` to a campaign whose dictionary proposer has a positive weight; a
 /// version-1 reader, which refuses unknown fields, refuses both.
 ///
-/// Version 3 adds the guided proposers' parameters, `identity.climb`, `identity.corpus` and
+/// Version 3 adds the corpus's and the solve proposer's parameters, `identity.corpus` and
 /// `identity.solve`, and the solve proposer's `totals.solve`, each present exactly when its
-/// proposer has a positive weight; a version-2 reader refuses them as unknown fields.
+/// proposer has a positive weight; a version-2 reader refuses them as unknown fields. The
+/// climb's `identity.climb` came in under version 2 without a bump.
 pub const REPORT_VERSION: u32 = 3;
 
 /// A campaign's report (ARCHITECTURE 9.3).

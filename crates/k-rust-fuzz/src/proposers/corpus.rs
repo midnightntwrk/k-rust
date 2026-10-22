@@ -19,8 +19,8 @@
 //! The proposer observes every case, whichever proposer made it. A `miss` case enters the
 //! corpus when its coverage holds a rule, in `applied` or `matched`, that no earlier `miss`
 //! case's did (the engine's coverage feedback, ARCHITECTURE 6.2), or, in a campaign that
-//! scores its cases (one with the climb), when its score is strictly better than every earlier
-//! case's. Only `miss` cases count, as for the score: a bounded or unclean case's coverage
+//! scores its cases (one with the climb or the solve proposer), when its score is strictly
+//! better than every earlier case's. Only `miss` cases count, as for the score: a bounded or unclean case's coverage
 //! stops early (R-18). The corpus holds at most [`MAX_ENTRIES`] cases; beyond that a new entry
 //! replaces the oldest one that entered for its score alone, or the oldest when every entry
 //! entered for coverage. Until the corpus has an entry the proposer is not drawn
