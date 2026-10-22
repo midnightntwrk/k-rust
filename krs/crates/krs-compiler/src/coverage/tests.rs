@@ -10,8 +10,8 @@ use krs_ir_levels::SortParameterId;
 use num_bigint::BigInt;
 
 use super::{
-    Atom, Bound, Column, ConstructorInfo, Counterexample, Fact, Formula, Order, Pattern, Row,
-    Search, Signature, Verdict, decide, points, render,
+    Atom, Bound, Column, ConstructorInfo, Counterexample, Fact, Formula, Order, Pattern,
+    Projection, Projections, Row, Search, Signature, Verdict, decide, points, render,
 };
 
 const INT: Sort = Sort::Builtin(BuiltinSort::Int);
@@ -144,8 +144,10 @@ fn columns(sorts: &[Sort]) -> Vec<Column> {
 
 /// The uncovered argument vectors, each rendered `(a, b)`.
 fn gaps(signature: &Signature, rows: &[Row], sorts: &[Sort]) -> Vec<String> {
+    let projections = Projections::new();
     let mut search = Search {
         signature,
+        projections: &projections,
         nodes: 0,
         valuations: 0,
         exhausted: false,
@@ -628,7 +630,7 @@ fn the_decider_is_exact_on_bounds_and_propositions() {
         let guards = formulas.iter().collect::<Vec<_>>();
         let facts = random_facts(&mut random);
         let brute = brute_counterexample(&guards, &facts);
-        match decide(&guards, &facts) {
+        match decide(&guards, &facts, &Projections::new()) {
             Verdict::Valid => {
                 verdicts[0] += 1;
                 assert!(
@@ -664,7 +666,7 @@ fn the_decider_never_calls_an_invalid_disjunction_valid() {
             .collect::<Vec<_>>();
         let guards = formulas.iter().collect::<Vec<_>>();
         let facts = random_facts(&mut random);
-        if let Verdict::Valid = decide(&guards, &facts) {
+        if let Verdict::Valid = decide(&guards, &facts, &Projections::new()) {
             valid += 1;
             assert!(
                 brute_counterexample(&guards, &facts).is_none(),
@@ -674,4 +676,146 @@ fn the_decider_never_calls_an_invalid_disjunction_valid() {
     }
     // The property is not vacuous.
     assert!(valid > 100, "only {valid} valid disjunctions generated");
+}
+
+// ---------------------------------------------------------------------------
+// Bit facts between a subject and its projections
+
+/// `$0`, `bitRangeInt($0, 0, 2)`, `bitRangeInt($0, 2, 2)` and `$0 &Int 5`.
+const BIT_SUBJECTS: [&str; 4] = ["$0", "low", "high", "masked"];
+
+fn bit_projections() -> Projections {
+    let range = |offset: i64, length: i64| Projection::BitRange {
+        offset: BigInt::from(offset),
+        length: BigInt::from(length),
+    };
+    [
+        ("low", range(0, 2)),
+        ("high", range(2, 2)),
+        ("masked", Projection::Mask(BigInt::from(5))),
+    ]
+    .into_iter()
+    .map(|(subject, projection)| (subject.to_owned(), ("$0".to_owned(), projection)))
+    .collect()
+}
+
+/// The value of each bit subject at `x`.
+fn bit_values(x: i64) -> [i64; 4] {
+    [x, x.rem_euclid(4), (x >> 2).rem_euclid(4), x & 5]
+}
+
+fn bit_truth(formula: &Formula, x: i64) -> bool {
+    let values = bit_values(x);
+    match formula {
+        Formula::Atom(Atom::Bound {
+            subject,
+            bound,
+            constant,
+        }) => {
+            let index = BIT_SUBJECTS
+                .iter()
+                .position(|name| name == subject)
+                .unwrap();
+            let value = BigInt::from(values[index]);
+            match bound {
+                Bound::Below => value < *constant,
+                Bound::At => value == *constant,
+                Bound::Above => *constant < value,
+            }
+        }
+        Formula::Not(inner) => !bit_truth(inner, x),
+        Formula::And(left, right) => bit_truth(left, x) && bit_truth(right, x),
+        Formula::Or(left, right) => bit_truth(left, x) || bit_truth(right, x),
+        Formula::Constant(value) => *value,
+        Formula::Atom(_) => unreachable!("bit formulas have bounds only"),
+    }
+}
+
+fn random_bit_formula(random: &mut Random, depth: u32) -> Formula {
+    if depth == 0 || random.below(3) == 0 {
+        let subject = BIT_SUBJECTS[random.below(4)];
+        let constant = if subject == "$0" {
+            i64::try_from(random.below(24)).unwrap() - 4
+        } else {
+            i64::try_from(random.below(8)).unwrap() - 1
+        };
+        let bound = [Bound::Below, Bound::At, Bound::At, Bound::Above][random.below(4)];
+        return super::Formula::Atom(Atom::Bound {
+            subject: subject.to_owned(),
+            bound,
+            constant: BigInt::from(constant),
+        });
+    }
+    match random.below(3) {
+        0 => random_bit_formula(random, depth - 1).not(),
+        1 => and(
+            random_bit_formula(random, depth - 1),
+            random_bit_formula(random, depth - 1),
+        ),
+        _ => or(
+            random_bit_formula(random, depth - 1),
+            random_bit_formula(random, depth - 1),
+        ),
+    }
+}
+
+#[test]
+fn bit_facts_never_make_an_invalid_disjunction_valid() {
+    let projections = bit_projections();
+    let mut random = Random(0x0BAD_5EED_1234_5678);
+    let mut valid = 0;
+    for _ in 0..6000 {
+        let count = 1 + random.below(5);
+        let formulas = (0..count)
+            .map(|_| random_bit_formula(&mut random, 3))
+            .collect::<Vec<_>>();
+        let guards = formulas.iter().collect::<Vec<_>>();
+        let facts = BTreeMap::new();
+        if let Verdict::Valid = decide(&guards, &facts, &projections) {
+            valid += 1;
+            // Every constant lies in [-4, 20), so [-64, 64) has a
+            // representative of every region the guards distinguish.
+            let gap = (-64..64).find(|x| !guards.iter().any(|guard| bit_truth(guard, *x)));
+            assert!(
+                gap.is_none(),
+                "decided valid, but {gap:?} falsifies every guard of {guards:?}"
+            );
+        }
+    }
+    assert!(valid > 100, "only {valid} valid disjunctions generated");
+}
+
+#[test]
+fn templates_cover_their_cubes_and_nothing_outside_their_range() {
+    let projections = bit_projections();
+    let in_range = || and(bound("$0", Bound::Above, -1), bound("$0", Bound::Below, 16));
+    // `k::bits!("hh __")` for each of the four values of the high run.
+    let rows = (0..4)
+        .map(|value| and(in_range(), bound("high", Bound::At, value)))
+        .collect::<Vec<_>>();
+    let guards = rows.iter().collect::<Vec<_>>();
+    match decide(&guards, &BTreeMap::new(), &projections) {
+        Verdict::Refuted(counterexample) => {
+            let x = counterexample.values["$0"].clone();
+            assert!(x == BigInt::from(16) || x < BigInt::from(0), "{x}");
+        }
+        verdict => panic!("{verdict:?}"),
+    }
+    let outside = [bound("$0", Bound::Below, 0), bound("$0", Bound::Above, 15)];
+    let guards = rows.iter().chain(&outside).collect::<Vec<_>>();
+    assert!(matches!(
+        decide(&guards, &BTreeMap::new(), &projections),
+        Verdict::Valid
+    ));
+    // Without the facts, `high` is an independent unknown and may be 4.
+    assert!(matches!(
+        decide(&guards, &BTreeMap::new(), &Projections::new()),
+        Verdict::Refuted(_)
+    ));
+    // Three of the four cubes leave `high == 3` uncovered.
+    let guards = rows[..3].iter().chain(&outside).collect::<Vec<_>>();
+    assert!(matches!(
+        decide(&guards, &BTreeMap::new(), &projections),
+        Verdict::Refuted(_)
+    ));
 }

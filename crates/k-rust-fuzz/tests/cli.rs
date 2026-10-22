@@ -786,3 +786,77 @@ fn a_witness_holding_a_deeply_nested_value_reads_back() {
         "the witness file reads: {stderr}"
     );
 }
+
+/// A witness found with the dictionary replays on the build that found it: the dictionary's
+/// parameters (`identity.dictionary`) only choose cases, as the proposers do, and a replay runs
+/// the recorded case alone.
+#[test]
+fn a_witness_found_with_the_dictionary_replays() {
+    let campaign = format!(
+        "{}\n[proposers]\nweights = {{ blind = 1, dictionary = 1 }}\n",
+        le_campaign()
+    );
+    let le = IMP.program("imp/le.imp").text;
+    let directory = workspace(
+        "dictionary-replay",
+        &[("imp-kompiled", &IMP)],
+        &[("le.imp", le), ("le.toml", &campaign)],
+    );
+    let (status, report) = json_run(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--witness",
+            "witness.json",
+            "--json",
+        ],
+    );
+    assert_eq!(status, Some(0), "a witness exits 0");
+    assert!(
+        report.identity.dictionary.is_some(),
+        "the report records the dictionary"
+    );
+    let replay = krust_fuzz(&directory, &["--replay", "witness.json"]);
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+    assert!(!stdout.contains("forced"), "{stdout}");
+}
+
+/// A witness file is read only when its embedded report is a report this build reads: its
+/// schema and version, not only the witness file's own.
+#[test]
+fn a_witness_whose_report_has_another_schema_or_version_is_refused() {
+    let directory = le_workspace("report-version");
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--witness", "witness.json"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
+            .expect("the witness file is JSON");
+    for (field, value, expected) in [
+        ("version", serde_json::json!(1), "version 1"),
+        (
+            "schema",
+            serde_json::json!("something-else"),
+            "something-else",
+        ),
+    ] {
+        let mut tampered = recorded.clone();
+        tampered["report"][field] = value;
+        fs::write(directory.join("tampered.json"), tampered.to_string()).unwrap();
+        let replay = krust_fuzz(&directory, &["--replay", "tampered.json", "--force"]);
+        let stderr = text(&replay.stderr);
+        assert_eq!(replay.status.code(), Some(2), "{field}: {stderr}");
+        assert!(stderr.contains(expected), "{field}: {stderr}");
+        assert!(stderr.contains("krust-fuzz-report"), "{field}: {stderr}");
+    }
+}

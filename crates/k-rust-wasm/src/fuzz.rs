@@ -25,20 +25,49 @@ use crate::{
     display_error, format_compile_error, implicit_sources,
 };
 
-/// The options of `runFuzzCampaignWasm`: the baseline definition's sources, the mutant's for a
-/// differential target, and the campaign.
+/// The options of `runFuzzCampaignWasm`: the baseline definition's sources (the fields of
+/// [`FuzzDefinitionOptions`], spelled out because serde cannot refuse unknown fields beside a
+/// flattened struct), the mutant's for a differential target, and the campaign. An unknown
+/// field is refused: a misspelt option would otherwise take its default silently.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FuzzCampaignOptions {
-    #[serde(flatten)]
-    baseline: FuzzDefinitionOptions,
+    definition: String,
+    module_name: String,
+    syntax_module: Option<String>,
+    source_name: Option<String>,
+    sources: Option<Vec<Source>>,
+    markdown_selector: Option<String>,
+    include_prelude: Option<bool>,
     mutant: Option<FuzzDefinitionOptions>,
     campaign: CampaignJson,
 }
 
+impl FuzzCampaignOptions {
+    /// The baseline definition's options, the mutant's and the campaign.
+    fn split(
+        self,
+    ) -> (
+        FuzzDefinitionOptions,
+        Option<FuzzDefinitionOptions>,
+        CampaignJson,
+    ) {
+        let baseline = FuzzDefinitionOptions {
+            definition: self.definition,
+            module_name: self.module_name,
+            syntax_module: self.syntax_module,
+            source_name: self.source_name,
+            sources: self.sources,
+            markdown_selector: self.markdown_selector,
+            include_prelude: self.include_prelude,
+        };
+        (baseline, self.mutant, self.campaign)
+    }
+}
+
 /// One definition's sources, loaded and compiled for the Rust backend as `krust kcompile` does.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FuzzDefinitionOptions {
     definition: String,
     module_name: String,
@@ -66,10 +95,11 @@ fn build() -> String {
 /// its report, whatever its outcome.
 pub(crate) fn run_fuzz_campaign(options: &str) -> Result<String, String> {
     let options: FuzzCampaignOptions = serde_json::from_str(options).map_err(display_error)?;
-    let campaign = options.campaign.parts(&build())?;
+    let (baseline, mutant, campaign) = options.split();
+    let campaign = campaign.parts(&build())?;
     refuse_unavailable_options(&campaign)?;
-    let baseline = compile(options.baseline)?;
-    let mutant = options.mutant.map(compile).transpose()?;
+    let baseline = compile(baseline)?;
+    let mutant = mutant.map(compile).transpose()?;
     campaign.run(baseline, mutant)
 }
 
@@ -252,6 +282,7 @@ mod tests {
     /// JSON's typed parts, `proposers` and `seed`, and the library defaults for the rest.
     fn library_report(options: Value, proposers: ProposerConfig, seed: u64) -> FuzzReport {
         let options: FuzzCampaignOptions = serde_json::from_value(options).unwrap();
+        let (baseline, mutant, campaign) = options.split();
         let CampaignJson {
             program,
             holes,
@@ -259,13 +290,11 @@ mod tests {
             identity,
             budget,
             ..
-        } = options.campaign;
+        } = campaign;
         let spec = CampaignSpec {
             definitions: Definitions {
-                baseline: Arc::new(compile(options.baseline).unwrap()),
-                mutant: options
-                    .mutant
-                    .map(|mutant| Arc::new(compile(mutant).unwrap())),
+                baseline: Arc::new(compile(baseline).unwrap()),
+                mutant: mutant.map(|mutant| Arc::new(compile(mutant).unwrap())),
             },
             program: ProgramInput::Source(program.unwrap()),
             holes,
@@ -412,5 +441,27 @@ mod tests {
             let error = run_fuzz_campaign(&imp_campaign(campaign).to_string()).unwrap_err();
             assert!(error.contains(expected), "{error}");
         }
+    }
+
+    /// A misspelt option beside the campaign is refused, at the top level and in the mutant's
+    /// options, rather than leaving the option at its default (a misspelt `syntaxModule` would
+    /// parse the program with another grammar). The definition below does not even parse: the
+    /// options are read first.
+    #[test]
+    fn refuses_unknown_top_level_and_mutant_options() {
+        let mut misspelt = imp_campaign(json!({}));
+        misspelt["syntaxModul"] = json!("IMP-SYNTAX");
+        let error = run_fuzz_campaign(&misspelt.to_string()).unwrap_err();
+        assert!(error.contains("unknown field `syntaxModul`"), "{error}");
+
+        let mut mutant = imp_campaign(json!({}));
+        mutant["definition"] = json!("not a definition");
+        mutant["mutant"] = json!({
+            "definition": "not a definition",
+            "moduleName": "IMP",
+            "includePrelud": true,
+        });
+        let error = run_fuzz_campaign(&mutant.to_string()).unwrap_err();
+        assert!(error.contains("unknown field `includePrelud`"), "{error}");
     }
 }

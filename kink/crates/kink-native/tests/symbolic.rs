@@ -2107,7 +2107,7 @@ fn symbolic_stuck_leaf_is_complete_in_both_profiles() {
 
 /// SYM-3B-05 (README R19): `&Int` is `smtlib(andInt)`, which k-rust declares as an
 /// uninterpreted SMT function, and k-rust 347f693e's `smt::translates_exactly` did not count
-/// that. Z3 answers `Sat` for `X &Int 1 ==Int 2` although no integer satisfies it, so k-rust
+/// that. Z3 answers `Sat` for `X &Int 6 ==Int 1` although no integer satisfies it, so k-rust
 /// takes `gate` under that condition, and the leaf after the load was `Solver`-feasible,
 /// complete and a witness: WL-after was a wrong `match` (every instance is stuck at `gate`
 /// after the write). `translates_exactly` now rejects `smtlib` symbols (k-rust KK-48), so that

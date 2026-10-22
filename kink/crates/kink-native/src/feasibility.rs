@@ -1460,14 +1460,14 @@ mod tests {
                 };
                 let x_ge = at_least_zero(&x);
                 let y_ge = at_least_zero(&y);
-                // `X &Int 1 ==Int 2`: no instance, but `&Int` is uninterpreted in SMT (R19).
+                // `X &Int 6 ==Int 1`: no instance, but `&Int` is uninterpreted in SMT (R19).
                 let uninterpreted = equals(
                     "SortInt",
                     support::app(
                         &hooked(definition, "INT.and"),
-                        vec![x.clone(), support::int(1)],
+                        vec![x.clone(), support::int(6)],
                     ),
-                    support::int(2),
+                    support::int(1),
                 );
                 let foreign_ge = at_least_zero(&int("Q"));
                 // A predicate over `Address`, which Z3 abstracts.
@@ -1735,15 +1735,15 @@ mod tests {
                     addr(x.clone()),
                     addr(support::var("Y", "SortInt")),
                 );
-                // `X &Int 1 ==Int 2`: `&Int` is `smtlib(andInt)`, an uninterpreted SMT function
+                // `X &Int 6 ==Int 1`: `&Int` is `smtlib(andInt)`, an uninterpreted SMT function
                 // (SYM-3B-05, README R19).
                 let uninterpreted = equals(
                     "SortInt",
                     support::app(
                         &hooked(definition, "INT.and"),
-                        vec![x.clone(), support::int(1)],
+                        vec![x.clone(), support::int(6)],
                     ),
-                    support::int(2),
+                    support::int(1),
                 );
                 let states = [
                     (

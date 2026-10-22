@@ -555,6 +555,15 @@ test('refuses a misspelt field inside a hole', () => {
   assert.throws(() => runFuzzCampaign(options), /unknown field `constraint`/)
 })
 
+test('refuses a misspelt option beside the campaign and in the mutant', () => {
+  const options = impCampaign()
+  options.syntaxModul = 'IMP-SYNTAX'
+  assert.throws(() => runFuzzCampaign(options), /unknown field `syntaxModul`/)
+  const coin = coinCampaign()
+  coin.mutant.includePrelud = true
+  assert.throws(() => runFuzzCampaign(coin), /unknown field `includePrelud`/)
+})
+
 test('names this build when the campaign gives no identity', () => {
   const options = impCampaign({ budget: { cases: '1' } })
   delete options.campaign.identity
