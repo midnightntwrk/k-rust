@@ -327,9 +327,16 @@ fn render_clause(
         clause_source.name_start,
         comments,
     );
+    // An attribute is kept as written: its continuation lines keep their
+    // indentation relative to the clause, so a multi-line `requires` keeps
+    // its layout at the table's indentation.
+    let line_start = source[..clause_source.start]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let column = clause_source.start - line_start;
     let attribute_lines = attributes
         .lines()
-        .map(str::trim)
+        .map(|line| strip_indentation(line, column).trim_end())
         .filter(|line| !line.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
@@ -539,6 +546,18 @@ fn render_gap(source: &str, start: usize, end: usize, comments: &[SourceRange]) 
         line_start = line_end + 1;
     }
     layout
+}
+
+/// `line` without up to `column` leading whitespace characters.
+fn strip_indentation(line: &str, column: usize) -> &str {
+    let mut rest = line;
+    for _ in 0..column {
+        match rest.strip_prefix(char::is_whitespace) {
+            Some(stripped) => rest = stripped,
+            None => break,
+        }
+    }
+    rest
 }
 
 fn source_without_comments(
@@ -788,6 +807,40 @@ mod tests {
                 #[k::equation(owise)]
                 r8_other: _       => HlIndirect;  // fallback
                 pair    : (0, -1) => Reg(A);"]]
+        .assert_eq(&actual);
+    }
+
+    /// A multi-line attribute keeps its own layout: its continuation lines
+    /// keep their indentation relative to the row, at the table's.
+    #[test]
+    fn multi_line_attributes_keep_their_layout() {
+        let source = r"
+            for Code;
+            #[k::requires(
+                a.gt::<Int>(2)
+                    || a.eq::<Int>(0)
+            )]
+            code_row: k::bits!('10 aa') => a;
+            #[k::equation(owise)]
+            code_other: n => 100;
+        "
+        .replace('\'', "\"");
+        let output = format_equation_body(&source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let again = format_equation_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(output, again, "attribute layout is idempotent");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r#"
+            body:
+                for Code;
+                #[k::requires(
+                    a.gt::<Int>(2)
+                        || a.eq::<Int>(0)
+                )]
+                code_row  : k::bits!("10 aa") => a;
+                #[k::equation(owise)]
+                code_other: n                 => 100;"#]]
         .assert_eq(&actual);
     }
 
