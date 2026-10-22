@@ -829,6 +829,14 @@ pub(crate) fn time_off_the_clock() -> std::time::Duration {
 /// `action`'s work instead, as a function of the work alone. A cancellation of the request and a
 /// failed solver prelude stay visible inside it: such a stop ends the run at its next poll in
 /// any case. Restored on every exit.
+///
+/// It moves only the registry's current deadline, which is one level deep: a [`DeadlineGuard`]
+/// saves the deadline it replaces and restores that saved value when it drops. A record never
+/// runs under nested step deadlines, since records are taken only inside `execute`, which arms
+/// one deadline per step (`rewrite::execute`, `StepTimeoutController::begin_step`), and nothing
+/// a step runs arms another. If one did, the enclosing step's restored deadline would not be
+/// moved, so that step would be charged the time spent here: it would meet its deadline that
+/// much earlier in its own work than without `action`.
 pub(crate) fn off_the_clock<T>(polls: u64, action: impl FnOnce() -> T) -> (T, bool) {
     #[cfg(not(target_arch = "wasm32"))]
     struct Restore {

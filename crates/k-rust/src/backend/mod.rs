@@ -321,6 +321,9 @@ pub struct ExecuteRequest {
     pub cut_point_rules: Vec<String>,
     #[serde(default)]
     pub terminal_rules: Vec<String>,
+    /// The deadline of each step, in milliseconds (module documentation, point 5). Condition
+    /// records ([`Self::collect_conditions`]) run off this clock, so a recorded run is not
+    /// bounded in wall time by it alone ([`ConditionCollection::record_polls`]).
     #[serde(default)]
     pub step_timeout_ms: Option<u64>,
     #[serde(default)]
@@ -668,7 +671,10 @@ pub struct ConditionCollection {
     pub max_value_size: usize,
     /// The most polls the evaluation of one record may make (default 1,000,000): its work bound,
     /// since it runs off the run's clock. What the bound stops is reported as
-    /// [`RecordedValueOutput::Stopped`] and [`TruthOutput::Undecided`].
+    /// [`RecordedValueOutput::Stopped`] and [`TruthOutput::Undecided`]. A run with a step timeout
+    /// may exceed it in wall time by at most (rules recorded × `limit`) records of up to this
+    /// many polls each; a caller that uses the step timeout as an overall wall-clock guard lowers
+    /// this bound, names fewer rules, or cancels the request.
     #[serde(default = "default_record_polls")]
     pub record_polls: u64,
 }
@@ -760,7 +766,8 @@ pub struct RecordedBindingOutput<K = Value> {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum VerdictOutput {
-    /// It holds for the instance: the attempt builds the rule's successor.
+    /// It holds for the instance, and the attempt goes on to build the rule's successor, which
+    /// can still fail (an indeterminate instantiation, no successor, an error).
     Held,
     /// It does not hold (false, undefined, or contradicted by the path): the rule does not
     /// apply to the instance.

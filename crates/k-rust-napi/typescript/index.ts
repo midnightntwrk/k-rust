@@ -541,7 +541,11 @@ export interface ConditionCollection {
   limit?: number
   /** The largest value a record holds, in term nodes (default 256); larger ones are 'omitted'. */
   maxValueSize?: number
-  /** The most polls one record's evaluation may make (default 1000000); what it stops is 'stopped' or 'undecided'. */
+  /**
+   * The most polls one record's evaluation may make (default 1000000); what it stops is 'stopped' or
+   * 'undecided'. Records run off the step clock: with a step timeout, a run may exceed it in wall
+   * time by up to (rules recorded x `limit`) records of this many polls each.
+   */
   recordPolls?: number
 }
 
@@ -567,9 +571,10 @@ export interface ConditionRecord {
 }
 
 /**
- * 'held' (the rule's successor is built), 'refuted' (false, undefined or contradicted by the path),
- * 'undecided', 'stopped', or 'reentered' (the condition bound variables the match left unbound; the
- * rule's next record is the complete entry).
+ * 'held' (the condition holds; the attempt goes on to build the successor, which can still fail),
+ * 'refuted' (false, undefined or contradicted by the path), 'undecided', 'stopped', or 'reentered'
+ * (the condition bound variables the match left unbound; the rule's next record is the complete
+ * entry).
  */
 export type ConditionVerdict = 'held' | 'refuted' | 'undecided' | 'stopped' | 'reentered'
 

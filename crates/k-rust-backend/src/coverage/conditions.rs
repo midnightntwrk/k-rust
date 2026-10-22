@@ -69,6 +69,12 @@ pub struct ConditionCollection {
     /// its steps): a bound on the record's work that is a function of the work alone, since the
     /// record runs off the run's clock (`coverage::isolated`). An operand or node whose
     /// evaluation the bound stops is [`RecordedValue::Stopped`] or [`Truth::Undecided`].
+    ///
+    /// Since the step deadline does not stop a record, a run with a step timeout may exceed
+    /// it in wall time by at most (rules recorded × [`Self::limit`]) records of up to this many
+    /// polls each, with the work between polls. A caller that uses the step timeout as an
+    /// overall wall-clock guard lowers this bound, names fewer rules, or cancels the request,
+    /// which still interrupts a record.
     pub record_polls: u64,
 }
 
@@ -135,8 +141,10 @@ pub struct ConditionRecord {
 /// What a rule attempt decided about its instantiated `requires`, with the solver the run uses.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Verdict {
-    /// The condition holds for the instance (on the path, under the match conditions): the
-    /// attempt goes on to build the rule's successor.
+    /// The condition holds for the instance (on the path, under the match conditions), and the
+    /// attempt goes on to build the rule's successor, which can still fail: the instantiation of
+    /// the right-hand side can be indeterminate, give no successor, or meet an error, and the
+    /// rule is then in `matched` but not `applied`.
     Held,
     /// The condition does not hold for the instance: false, undefined, or contradicted by the
     /// path. The rule does not apply to the instance.
