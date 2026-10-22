@@ -212,7 +212,7 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// `0068938b1` (`docs/compatibility.md`; re-pin P-1 of `draft/tasks/repin-0068938b`: the seven
 /// passages are byte-identical to 8f8ad57c5's, and every one but 92 moved down 6 to 124 lines,
 /// with round D's text and the correctness sweep's above them, so only the lines are re-pinned;
-/// fz26 FZ-G7 then added 16 lines to "Run coverage", above two of them, which only moved again):
+/// fz26 FZ-G7 then added 22 lines to "Run coverage", above two of them, which only moved again):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
 /// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
@@ -223,9 +223,9 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// - 1901-1924: a mark is noted where the evaluator takes the value, kept through undone work and
 ///   memos; the run's list holds every mark, absorbed and vanished work included; the guarantee
 ///   for a run whose list is empty;
-/// - 2475: a run under another allowance is outside the determinism contract when a bounded
+/// - 2481: a run under another allowance is outside the determinism contract when a bounded
 ///   `Bytes` hook may refuse;
-/// - 2362-2365 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
+/// - 2368-2371 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
 ///   of every run with a larger budget, at the same position, which the one-sided kill rests on;
 /// - 2129-2134 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
 ///   leaves were all merged into an earlier stuck leaf of their configuration is complete, which
@@ -252,13 +252,13 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "309b843d88518f4bdec637057d724ba4726130237eedd1e63d228bba075c800c",
     ),
     (
-        2475,
-        2475,
+        2481,
+        2481,
         "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
     ),
     (
-        2362,
-        2365,
+        2368,
+        2371,
         "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
     ),
     (

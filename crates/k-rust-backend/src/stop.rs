@@ -804,6 +804,62 @@ pub fn operation<T>(solver: &dyn SmtSolver, body: impl FnOnce() -> T) -> Stoppab
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    /// The time this thread spent off the clock ([`off_the_clock`]) so far.
+    static OFF_THE_CLOCK: Cell<std::time::Duration> =
+        const { Cell::new(std::time::Duration::ZERO) };
+}
+
+/// The time this thread has spent off the clock so far ([`off_the_clock`]): a step's measured
+/// time leaves out what it spent there (`timeout::StepTimer`).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn time_off_the_clock() -> std::time::Duration {
+    OFF_THE_CLOCK.get()
+}
+
+/// Runs `action`, work that only describes a run to its caller, off the run's clock, with a
+/// budget of `polls` polls of its own ([`with_poll_budget`]); returns its value and whether it
+/// spent the budget.
+///
+/// While it runs the step deadline is lifted, so the clock never stops it; afterwards the
+/// deadline is restored moved later by the time it took, and that time is added to
+/// [`time_off_the_clock`], which a step's moving-average measurement leaves out. So the step
+/// meets its deadline at the same point of its own work as without `action`. The budget bounds
+/// `action`'s work instead, as a function of the work alone. A cancellation of the request and a
+/// failed solver prelude stay visible inside it: such a stop ends the run at its next poll in
+/// any case. Restored on every exit.
+pub(crate) fn off_the_clock<T>(polls: u64, action: impl FnOnce() -> T) -> (T, bool) {
+    #[cfg(not(target_arch = "wasm32"))]
+    struct Restore {
+        started: Instant,
+        deadline: Option<(Instant, StepTimeoutMode)>,
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let elapsed = self.started.elapsed();
+            let deadline = self
+                .deadline
+                .map(|(deadline, mode)| (deadline.checked_add(elapsed).unwrap_or(deadline), mode));
+            REGISTRY.with(|registry| registry.borrow_mut().deadline = deadline);
+            OFF_THE_CLOCK.set(OFF_THE_CLOCK.get().saturating_add(elapsed));
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _restore = Restore {
+        started: Instant::now(),
+        deadline: REGISTRY.with(|registry| registry.borrow_mut().deadline.take()),
+    };
+    // The budget's stop is the record's own and is dismissed inside it; the mode is not read.
+    let (value, record) = with_poll_budget(
+        polls,
+        StepTimeoutMode::Manual(std::time::Duration::ZERO),
+        action,
+    );
+    (value, record.budget_exhausted)
+}
+
 /// Runs `action` with no count of stack stops open, and restores the enclosing count afterwards,
 /// also when `action` unwinds: a stop for lack of native stack minted inside is counted by no
 /// [`counting_stack_stops`] scope around it. For work that only describes a run to its caller

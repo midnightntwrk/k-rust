@@ -11,8 +11,8 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use crate::{
     coverage::{
         ConditionAtom, ConditionCollection, ConditionNode, ConditionRecord, RecordedValue,
-        RuleConditions, RunCoverage, collect, collect_offering, note_applied, note_matched,
-        note_offered, offer, replay, suspend,
+        RuleConditions, RunCoverage, Truth, Verdict, collect, collect_offering, note_applied,
+        note_matched, note_offered, offer, replay, suspend,
     },
     definition::BackendDefinition,
     rewrite::{
@@ -1133,6 +1133,17 @@ fn conditions(result: &ExecutionResult) -> &[RuleConditions] {
         .expect("the run recorded condition entries")
 }
 
+/// The one record of the one rule the run recorded.
+fn only_record(result: &ExecutionResult) -> &ConditionRecord {
+    let [rule] = conditions(result) else {
+        panic!("{:?}", conditions(result))
+    };
+    let [record] = &rule.records[..] else {
+        panic!("{rule:?}")
+    };
+    record
+}
+
 fn int_value(definition: &BackendDefinition, value: i64) -> RecordedValue {
     RecordedValue::Value(term(definition, &int(value)))
 }
@@ -1146,7 +1157,7 @@ fn atom(
     head: &str,
     hook: Option<&str>,
     operands: Vec<RecordedValue>,
-    value: Option<bool>,
+    value: Truth,
 ) -> ConditionNode {
     ConditionNode::Atom(ConditionAtom {
         head: Some(head.to_owned()),
@@ -1157,10 +1168,24 @@ fn atom(
     })
 }
 
+/// The conjunct `\equals(child, true)` of a K `requires child`.
+fn holds(child: ConditionNode) -> ConditionNode {
+    let value = match child.value() {
+        Truth::True => Truth::True,
+        Truth::False | Truth::Undefined => Truth::False,
+        Truth::Undecided => Truth::Undecided,
+    };
+    ConditionNode::Equals {
+        literal: true,
+        child: Box::new(child),
+        value,
+    }
+}
+
 /// G-7: the entry into a blocked rule's `requires` is recorded with the bindings of the
-/// variables the condition reads, as the rule names them, and the condition's atom with its
-/// operands evaluated under the instance and its truth: `rejHigh`'s `normR(A) <Int 0` at
-/// `A = 5` is `5 <Int 0`, false.
+/// variables the condition reads, as the rule names them, the condition with every node's truth
+/// (`rejHigh`'s `normR(A) <Int 0` at `A = 5` is `5 <Int 0`, false, so the conjunct is false),
+/// and the attempt's verdict, refuted.
 #[test]
 fn a_blocked_rules_bindings_and_failing_atom_are_recorded() {
     let definition = definition();
@@ -1178,12 +1203,13 @@ fn a_blocked_rules_bindings_and_failing_atom_are_recorded() {
             rule: "rejHigh".to_owned(),
             records: vec![ConditionRecord {
                 bindings: vec![(variable_a(), int_value(&definition, 5))],
-                condition: vec![atom(
+                condition: vec![holds(atom(
                     "ltInt",
                     Some("INT.lt"),
                     vec![int_value(&definition, 5), int_value(&definition, 0)],
-                    Some(false),
-                )],
+                    Truth::False,
+                ))],
+                verdict: Some(Verdict::Refuted),
                 chosen: false,
             }],
             truncated: false,
@@ -1191,8 +1217,8 @@ fn a_blocked_rules_bindings_and_failing_atom_are_recorded() {
     );
 }
 
-/// A condition that holds is recorded alike, with its atom true; a rule not asked for, or whose
-/// condition was never entered, has no entry.
+/// A condition that holds is recorded alike, true, with the verdict held; a rule not asked for,
+/// or whose condition was never entered, has no entry.
 #[test]
 fn a_holding_condition_is_recorded_and_unrequested_rules_are_not() {
     let definition = definition();
@@ -1204,12 +1230,13 @@ fn a_holding_condition_is_recorded_and_unrequested_rules_are_not() {
             rule: "load".to_owned(),
             records: vec![ConditionRecord {
                 bindings: vec![(variable_a(), int_value(&definition, 4))],
-                condition: vec![atom(
+                condition: vec![holds(atom(
                     "eqInt",
                     Some("INT.eq"),
                     vec![int_value(&definition, 4), int_value(&definition, 4)],
-                    Some(true),
-                )],
+                    Truth::True,
+                ))],
+                verdict: Some(Verdict::Held),
                 chosen: false,
             }],
             truncated: false,
@@ -1218,35 +1245,32 @@ fn a_holding_condition_is_recorded_and_unrequested_rules_are_not() {
 }
 
 /// A matching-logic atom of a condition (`\equals(pi(A), 0)`) is recorded with its operands and
-/// its truth; an operand left as an application of a function is marked ground, not a value.
+/// its truth; an operand left as an application of a function is marked unevaluated.
 #[test]
 fn a_predicate_atom_is_recorded_with_its_operands() {
     let definition = definition();
     let initial = ground(&definition, &format!("rp{{}}({})", int(3)));
     let result = execute(&definition, initial, recording(&["rp"]));
-    let [rule] = conditions(&result) else {
-        panic!("{:?}", conditions(&result))
-    };
-    let [record] = &rule.records[..] else {
-        panic!("{rule:?}")
-    };
+    let record = only_record(&result);
     assert_eq!(
         record.condition,
         [atom(
             r"\equals",
             None,
             vec![
-                RecordedValue::Ground(term(&definition, &format!("pi{{}}({})", int(3)))),
+                RecordedValue::Unevaluated(term(&definition, &format!("pi{{}}({})", int(3)))),
                 int_value(&definition, 0),
             ],
-            Some(true),
+            Truth::True,
         )]
     );
+    assert_eq!(record.verdict, Some(Verdict::Held));
 }
 
-/// On a symbolic state the bindings and operands are marked symbolic and an atom the evaluation
-/// does not decide has no truth; the rule's variable is named as the rule names it, also where
-/// the attempt renamed it apart from a state variable spelled like it (`Rule#A`).
+/// On a symbolic state the bindings and operands are marked symbolic and the atom the
+/// evaluation does not decide is undecided, as is the attempt without a solver; the rule's
+/// variable is named as the rule names it, also where the attempt renamed it apart from a state
+/// variable spelled like it (`Rule#A`).
 #[test]
 fn symbolic_values_are_marked_and_variables_named_as_written() {
     let definition = definition();
@@ -1265,12 +1289,7 @@ fn symbolic_values_are_marked_and_variables_named_as_written() {
             constraints: Vec::new(),
         };
         let result = execute(&definition, initial, recording(&["rejHigh"]));
-        let [rule] = conditions(&result) else {
-            panic!("{:?}", conditions(&result))
-        };
-        let [record] = &rule.records[..] else {
-            panic!("{rule:?}")
-        };
+        let record = only_record(&result);
         assert_eq!(
             record.bindings,
             [(variable_a(), RecordedValue::Symbolic(subject.clone()))],
@@ -1278,21 +1297,22 @@ fn symbolic_values_are_marked_and_variables_named_as_written() {
         );
         assert_eq!(
             record.condition,
-            [atom(
+            [holds(atom(
                 "ltInt",
                 Some("INT.lt"),
                 vec![
                     RecordedValue::Symbolic(subject.clone()),
                     int_value(&definition, 0)
                 ],
-                None,
-            )],
+                Truth::Undecided,
+            ))],
             "{state_variable}"
         );
+        assert_eq!(record.verdict, Some(Verdict::Undecided), "{state_variable}");
     }
 }
 
-/// A value larger than `max_value_size` nodes is omitted; the atom's truth is still recorded.
+/// A value larger than `max_value_size` nodes is omitted; the truths are still recorded.
 #[test]
 fn values_above_the_size_cap_are_omitted() {
     let definition = definition();
@@ -1300,16 +1320,16 @@ fn values_above_the_size_cap_are_omitted() {
     let mut options = recording(&["rejHigh"]);
     options.collect_conditions.as_mut().unwrap().max_value_size = 0;
     let result = execute(&definition, initial, options);
-    let record = &conditions(&result)[0].records[0];
+    let record = only_record(&result);
     assert_eq!(record.bindings, [(variable_a(), RecordedValue::Omitted)]);
     assert_eq!(
         record.condition,
-        [atom(
+        [holds(atom(
             "ltInt",
             Some("INT.lt"),
             vec![RecordedValue::Omitted, RecordedValue::Omitted],
-            Some(false),
-        )]
+            Truth::False,
+        ))]
     );
 }
 
@@ -1330,6 +1350,256 @@ fn conditions_are_recorded_only_when_asked_with_coverage() {
         },
     );
     assert_eq!(without_coverage.coverage, None);
+}
+
+/// The definition of the stack-stop and budget regressions: `deep(N)` recurses `N` levels, not in
+/// tail position, and `state => done(0) requires deep(depth) ==Int depth`.
+fn deep_definition(depth: i64) -> BackendDefinition {
+    let one = int(1);
+    let zero = int(0);
+    let requires = |requires: &str| format!(r"\equals{{SortBool{{}}, R}}({requires}, {TRUE})");
+    let source = format!(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            hooked-symbol subInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.sub"), smt-hook{{}}("-")]
+            hooked-symbol addInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+            hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+            hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.eq"), smt-hook{{}}("=")]
+            symbol deep{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            sort SortS{{}} []
+            symbol state{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+            symbol done{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, {zero}), \top{{R}}())),
+                \equals{{SortInt{{}}, R}}(deep{{}}(X0:SortInt{{}}), \and{{SortInt{{}}}}({zero}, \top{{SortInt{{}}}}()))
+            ) [label{{}}("deep0")]
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}({positive}, \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, N:SortInt{{}}), \top{{R}}())),
+                \equals{{SortInt{{}}, R}}(
+                    deep{{}}(X0:SortInt{{}}),
+                    \and{{SortInt{{}}}}(addInt{{}}(deep{{}}(subInt{{}}(N:SortInt{{}}, {one})), {one}), \top{{SortInt{{}}}}())
+                )
+            ) [label{{}}("deepN")]
+            {advance}
+        endmodule []"#,
+        positive = requires(&format!("gtInt{{}}(N:SortInt{{}}, {zero})")),
+        advance = rule(
+            "advance",
+            "state{}()",
+            &format!("done{{}}({zero})"),
+            &format!("eqInt{{}}(deep{{}}({}), {})", int(depth), int(depth)),
+            "",
+            "",
+        ),
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// Run `state` on an 8 MiB thread, with the simplifier's stack segments allowed or not, recording
+/// `advance`'s entries or not, with a poll budget per record.
+fn run_deep(segments: bool, record_polls: Option<u64>) -> ExecutionResult {
+    run_deep_with(100_000, segments, record_polls, None)
+}
+
+/// [`run_deep`] at `depth`, with a step timeout or none.
+fn run_deep_with(
+    depth: i64,
+    segments: bool,
+    record_polls: Option<u64>,
+    step_timeout: Option<std::time::Duration>,
+) -> ExecutionResult {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let work = || {
+                let definition = deep_definition(depth);
+                let initial = ground(&definition, "state{}()");
+                let options = ExecutionOptions {
+                    max_depth: 1,
+                    step_timeout,
+                    collect_conditions: record_polls.map(|polls| {
+                        let mut collection = ConditionCollection::new(["advance"]);
+                        collection.record_polls = polls;
+                        collection
+                    }),
+                    ..collecting()
+                };
+                execute(&definition, initial, options)
+            };
+            if segments {
+                work()
+            } else {
+                crate::nesting::with_simplification_stack_budget(0, work)
+            }
+        })
+        .expect("the thread starts")
+        .join()
+        .expect("the run does not panic")
+}
+
+/// FZ-G7 review B1: a stop the record's own evaluation meets (here a lack of stack, with no
+/// segment budget) is dismissed and reported, not dropped (which panics in a debug build), and
+/// changes nothing in the run: the result is the unrecorded one, with the same stack-stop count,
+/// and the record says which operand and nodes the stop left unknown and that the attempt
+/// stopped.
+#[test]
+fn a_stop_in_a_records_evaluation_is_reported_and_changes_nothing_else() {
+    let definition = deep_definition(100_000);
+    let mut on = run_deep(false, Some(crate::coverage::DEFAULT_RECORD_POLLS));
+    let off = run_deep(false, None);
+    assert!(
+        matches!(
+            halt_reasons(&off)[..],
+            [HaltReason::Stopped(crate::stop::StopCause::StackExhausted(
+                _
+            ))]
+        ),
+        "{:?}",
+        halt_reasons(&off)
+    );
+    let record = only_record(&on).clone();
+    assert_eq!(
+        record.condition,
+        [holds(ConditionNode::Atom(ConditionAtom {
+            head: Some("eqInt".to_owned()),
+            hook: Some("INT.eq".to_owned()),
+            operands: vec![RecordedValue::Stopped, int_value(&definition, 100_000)],
+            reads: Vec::new(),
+            value: Truth::Undecided,
+        }))]
+    );
+    assert_eq!(record.verdict, Some(Verdict::Stopped));
+    on.coverage.as_mut().unwrap().conditions = None;
+    assert_eq!(on, off);
+}
+
+/// FZ-G7 review S2: the record's evaluation runs off the run's clock and is bounded by its own
+/// budget of polls, a function of its work: a budget too small to evaluate the operand leaves it
+/// stopped (and, a spent budget staying spent, every later operand too) and the node undecided,
+/// while the run, which the budget does not bound, decides the condition and applies the rule
+/// exactly as without the record.
+#[test]
+fn a_records_own_budget_bounds_it_and_not_the_run() {
+    let definition = deep_definition(100_000);
+    let mut on = run_deep(true, Some(10));
+    let off = run_deep(true, None);
+    let record = only_record(&on).clone();
+    assert_eq!(
+        record.condition,
+        [holds(ConditionNode::Atom(ConditionAtom {
+            head: Some("eqInt".to_owned()),
+            hook: Some("INT.eq".to_owned()),
+            operands: vec![RecordedValue::Stopped, RecordedValue::Stopped],
+            reads: Vec::new(),
+            value: Truth::Undecided,
+        }))]
+    );
+    assert_eq!(record.verdict, Some(Verdict::Held));
+    assert!(coverage(&off).applied.contains("advance"));
+    on.coverage.as_mut().unwrap().conditions = None;
+    assert_eq!(on, off);
+    // With the default budget the record evaluates the operand.
+    let full = run_deep(true, Some(crate::coverage::DEFAULT_RECORD_POLLS));
+    assert_eq!(
+        only_record(&full).condition,
+        [holds(ConditionNode::Atom(ConditionAtom {
+            head: Some("eqInt".to_owned()),
+            hook: Some("INT.eq".to_owned()),
+            operands: vec![
+                int_value(&definition, 100_000),
+                int_value(&definition, 100_000)
+            ],
+            reads: Vec::new(),
+            value: Truth::True,
+        }))]
+    );
+}
+
+/// FZ-G7 review N13: where the condition completes an incomplete match (`re(plus(A, 1))` against
+/// `re(3)` leaves `A` to the condition `\equals(A, 2)`), the attempt re-enters with the binding
+/// it found: its first record, without `A`, is marked re-entered, and the re-entered attempt's
+/// record has `A` and the attempt's own verdict.
+#[test]
+fn an_entry_completed_by_its_condition_is_marked_reentered() {
+    let source = format!(
+        r#"[]
+        module MAIN
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            hooked-symbol plus{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+            sort SortS{{}} []
+            symbol re{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol done{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            {rule}
+        endmodule []"#,
+        rule = rule(
+            "reent",
+            &format!("re{{}}(plus{{}}({A}, {}))", int(1)),
+            &format!("done{{}}({A})"),
+            &format!(r"\equals{{SortInt{{}}, SortS{{}}}}({A}, {})", int(2)),
+            "",
+            "",
+        ),
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("internalizes");
+    let initial = ground(&definition, &format!("re{{}}({})", int(3)));
+    // The match condition `plus(A, 1) = 3` needs a satisfiability answer before the `requires`.
+    let result = execute_with_solver(
+        &definition,
+        initial,
+        recording(&["reent"]),
+        &SatisfiableSolver,
+    );
+    let [rule] = conditions(&result) else {
+        panic!("{:?}", conditions(&result))
+    };
+    let verdicts = rule
+        .records
+        .iter()
+        .map(|record| (record.bindings.len(), record.verdict))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        verdicts,
+        [(0, Some(Verdict::Reentered)), (1, Some(Verdict::Held))]
+    );
+}
+
+/// FZ-G7 review S2 (the reviewer's probe): with a step timeout 1.6 times the unrecorded step's
+/// time, the recorded run ends as the unrecorded one does, since the record's work is not charged
+/// to the step. Timing-dependent, so ignored by default; run it in an optimized build on a quiet
+/// host (`a_records_own_budget_bounds_it_and_not_the_run` and the `timeout` tests check the
+/// mechanism deterministically).
+#[test]
+#[ignore = "timing-dependent: run on a quiet host"]
+fn a_step_deadline_meets_the_same_work_with_or_without_records() {
+    let depth = 200_000;
+    let polls = Some(crate::coverage::DEFAULT_RECORD_POLLS);
+    let timed = |record_polls: Option<u64>, timeout| {
+        let started = std::time::Instant::now();
+        let result = run_deep_with(depth, true, record_polls, timeout);
+        (result, started.elapsed())
+    };
+    let (_, off_time) = timed(None, None);
+    let timeout = off_time.mul_f64(1.6);
+    for round in 0..3 {
+        let (off, _) = timed(None, Some(timeout));
+        let (mut on, _) = timed(polls, Some(timeout));
+        on.coverage.as_mut().unwrap().conditions = None;
+        assert_eq!(
+            halt_reasons(&on),
+            halt_reasons(&off),
+            "round {round}, timeout {timeout:?}"
+        );
+    }
 }
 
 /// Recording the condition entries of every rule changes nothing else in any result, on the
