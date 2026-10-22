@@ -421,7 +421,10 @@ pub(super) fn check_constants(
             descriptor,
             catalog,
             declarations: Some(declarations),
-            k_item_sort: Some(super::rules::framework_k_item_sort(declarations)?),
+            // Only a cell fragment needs it, and a value naming one fails at
+            // the fragment, so a definition without it may still declare
+            // constants.
+            k_item_sort: super::rules::framework_k_item_sort(declarations).ok(),
             sort_parents,
             binding_names: &binding_names,
             pattern_key: None,
@@ -434,6 +437,7 @@ pub(super) fn check_constants(
             head_pending: false,
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
+            operators: super::operators::OperatorInference::default(),
         };
         builder.infer(
             &constant.value,
