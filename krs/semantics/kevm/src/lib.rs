@@ -4753,123 +4753,6 @@ k::rules! {
     }
     where width: Int, value: Int, stack: WordStack, gas: Int;
 
-    begin_push_zero: {
-        k: [Operation::PushZero, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::PushZero, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_pop: {
-        k: [Operation::Pop, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PrepareStack { op: Operation::Pop, stack, gas }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_duplicate: {
-        k: [Operation::Duplicate { depth }, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PrepareStack { op: Operation::Duplicate { depth }, stack, gas }, ..],
-    }
-    where depth: Int, stack: WordStack, gas: Int;
-
-    begin_swap: {
-        k: [Operation::Swap { depth }, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PrepareStack { op: Operation::Swap { depth }, stack, gas }, ..],
-    }
-    where depth: Int, stack: WordStack, gas: Int;
-
-    begin_add: {
-        k: [Operation::Add, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Add, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_mul: {
-        k: [Operation::Mul, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Mul, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_sub: {
-        k: [Operation::Sub, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Sub, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_div: {
-        k: [Operation::Div, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Div, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_div: {
-        k: [Operation::SignedDiv, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignedDiv, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_mod: {
-        k: [Operation::Mod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Mod, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_mod: {
-        k: [Operation::SignedMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignedMod, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_add_mod: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::AddMod, gas, cost: 8 }, ..],
-    }
-    where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
-
-    begin_mul_mod: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, rest))),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::MulMod, gas, cost: 8 }, ..],
-    }
-    where w0: Int, w1: Int, w2: Int, rest: WordStack, gas: Int;
-
     begin_exponent: {
         k: [Operation::Exponent, ..],
         word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
@@ -4878,253 +4761,6 @@ k::rules! {
         k: [crate::ChargeFixed { op: Operation::Exponent, gas, cost: crate::ExpCost(w1) }, ..],
     }
     where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_sign_extend: {
-        k: [Operation::SignExtend, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignExtend, gas, cost: 5 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_less_than: {
-        k: [Operation::LessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::LessThan, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_greater_than: {
-        k: [Operation::GreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::GreaterThan, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_less_than: {
-        k: [Operation::SignedLessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignedLessThan, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_greater_than: {
-        k: [Operation::SignedGreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignedGreaterThan, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_equal: {
-        k: [Operation::Equal, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Equal, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_is_zero: {
-        k: [Operation::IsZero, ..],
-        word_stack: Stack::StackCons(w0, rest),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::IsZero, gas, cost: 3 }, ..],
-    }
-    where w0: Int, rest: WordStack, gas: Int;
-
-    begin_bit_and: {
-        k: [Operation::BitAnd, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitAnd, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_bit_or: {
-        k: [Operation::BitOr, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitOr, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_bit_xor: {
-        k: [Operation::BitXor, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitXor, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_bit_not: {
-        k: [Operation::BitNot, ..],
-        word_stack: Stack::StackCons(w0, rest),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::BitNot, gas, cost: 3 }, ..],
-    }
-    where w0: Int, rest: WordStack, gas: Int;
-
-    begin_byte: {
-        k: [Operation::Byte, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Byte, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_shift_left: {
-        k: [Operation::ShiftLeft, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ShiftLeft, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_shift_right: {
-        k: [Operation::ShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ShiftRight, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_signed_shift_right: {
-        k: [Operation::SignedShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, rest)),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::SignedShiftRight, gas, cost: 3 }, ..],
-    }
-    where w0: Int, w1: Int, rest: WordStack, gas: Int;
-
-    begin_address: {
-        k: [Operation::Address, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::Address, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_balance: {
-        k: [Operation::AccountBalance, ..],
-        word_stack: Stack::StackCons(account, rest),
-        accessed_accounts: accessed,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::AccountBalance, gas, cost: crate::AccountAccessCost { accessed, account } }, ..],
-    }
-    where account: Int, rest: WordStack, accessed: Set, gas: Int;
-
-    begin_origin: {
-        k: [Operation::TxOrigin, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::TxOrigin, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_caller: {
-        k: [Operation::MsgCaller, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::MsgCaller, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_call_value: {
-        k: [Operation::MsgCallValue, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::MsgCallValue, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_call_data_load: {
-        k: [Operation::CallDataLoad, ..],
-        word_stack: Stack::StackCons(index, rest),
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::CallDataLoad, gas, cost: 3 }, ..],
-    }
-    where index: Int, rest: WordStack, gas: Int;
-
-    begin_call_data_size: {
-        k: [Operation::CallDataSize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::CallDataSize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_call_data_copy: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::CallDataCopy, gas, cost: crate::CopyGasCost { used, start: destination, width } }, ..],
-    }
-    where destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_code_size: {
-        k: [Operation::CodeSize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::CodeSize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_code_copy: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::CodeCopy, gas, cost: crate::CopyGasCost { used, start: destination, width } }, ..],
-    }
-    where destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_gas_price: {
-        k: [Operation::TxGasPrice, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::TxGasPrice, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_external_code_size: {
-        k: [Operation::ExternalCodeSize, ..],
-        word_stack: Stack::StackCons(account, rest),
-        accessed_accounts: accessed,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ExternalCodeSize, gas, cost: crate::AccountAccessCost { accessed, account } }, ..],
-    }
-    where account: Int, rest: WordStack, accessed: Set, gas: Int;
 
     begin_external_code_copy: {
         k: [Operation::ExternalCodeCopy, ..],
@@ -5136,35 +4772,6 @@ k::rules! {
         k: [crate::ChargeFixed { op: Operation::ExternalCodeCopy, gas, cost: crate::ExternalCopyGasCost { accessed, account, used, start: destination, width } }, ..],
     }
     where account: Int, destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, accessed: Set, gas: Int;
-
-    begin_return_data_size: {
-        k: [Operation::ReturnDataSize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::ReturnDataSize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_return_data_copy: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackCons(destination, Stack::StackCons(source_index, Stack::StackCons(width, rest))),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ReturnDataCopy, gas, cost: crate::CopyGasCost { used, start: destination, width } }, ..],
-    }
-    where destination: Int, source_index: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_external_code_hash: {
-        k: [Operation::ExternalCodeHash, ..],
-        word_stack: Stack::StackCons(account, rest),
-        accessed_accounts: accessed,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::ExternalCodeHash, gas, cost: crate::AccountAccessCost { accessed, account } }, ..],
-    }
-    where account: Int, rest: WordStack, accessed: Set, gas: Int;
 
     begin_block_hash: {
         k: [Operation::BlockHash, ..],
@@ -5181,69 +4788,6 @@ k::rules! {
         gas: gas,
     } => {
         k: [crate::PreparePush { op: Operation::SelfBalance, stack, gas, cost: 5 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_coinbase: {
-        k: [Operation::BlockCoinbase, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockCoinbase, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_timestamp: {
-        k: [Operation::BlockTimestamp, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockTimestamp, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_number: {
-        k: [Operation::BlockNumber, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockNumber, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_prev_randao: {
-        k: [Operation::PrevRandao, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::PrevRandao, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_gas_limit: {
-        k: [Operation::BlockGasLimit, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockGasLimit, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_chain_id: {
-        k: [Operation::NetworkChainId, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::NetworkChainId, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_base_fee: {
-        k: [Operation::BlockBaseFee, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::BlockBaseFee, stack, gas, cost: 2 }, ..],
     }
     where stack: WordStack, gas: Int;
 
@@ -5328,33 +4872,6 @@ k::rules! {
     }
     where topics: Int, stack: WordStack, used: Int, static_mode: Bool, gas: Int;
 
-    begin_memory_size: {
-        k: [Operation::MemorySize, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::MemorySize, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_gas_remaining: {
-        k: [Operation::GasRemaining, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::GasRemaining, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
-    begin_pc: {
-        k: [Operation::ProgramCounter, ..],
-        word_stack: stack,
-        gas: gas,
-    } => {
-        k: [crate::PreparePush { op: Operation::ProgramCounter, stack, gas, cost: 2 }, ..],
-    }
-    where stack: WordStack, gas: Int;
-
     begin_jump: {
         k: [Operation::Jump, ..],
         word_stack: Stack::StackCons(destination, rest),
@@ -5381,26 +4898,6 @@ k::rules! {
     }
     where gas: Int;
 
-    begin_return: {
-        k: [Operation::Return, ..],
-        word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Return, gas, cost: crate::MemoryExpansionCost { used, start, width } }, ..],
-    }
-    where start: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
-    begin_revert: {
-        k: [Operation::Revert, ..],
-        word_stack: Stack::StackCons(start, Stack::StackCons(width, rest)),
-        memory_used: used,
-        gas: gas,
-    } => {
-        k: [crate::ChargeFixed { op: Operation::Revert, gas, cost: crate::MemoryExpansionCost { used, start, width } }, ..],
-    }
-    where start: Int, width: Int, rest: WordStack, used: Int, gas: Int;
-
     begin_static_call: {
         k: [Operation::StaticCall, ..],
         word_stack: stack,
@@ -5419,6 +4916,200 @@ k::rules! {
         k: [crate::ChargeFixed { op: Operation::Stop, gas, cost: 0 }, ..],
     }
     where gas: Int;
+}
+
+/// Opcodes that push one word of the call, transaction, or machine state for the base cost of 2 gas.
+#[k::rule(label = "begin-push-base-cost-execution")]
+fn begin_push_base_cost_execution(
+    op: k::Term<OpCode>,
+    stack: k::Term<WordStack>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::PushZero | Operation::Address | Operation::TxOrigin | Operation::MsgCaller | Operation::MsgCallValue | Operation::CallDataSize | Operation::CodeSize | Operation::TxGasPrice | Operation::ReturnDataSize | Operation::MemorySize | Operation::GasRemaining | Operation::ProgramCounter), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(stack),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::PreparePush(op, stack, gas, 2), ..tail),
+        ..state
+    }
+}
+
+/// Opcodes that push one word of the block header for the base cost of 2 gas.
+#[k::rule(label = "begin-push-base-cost-block")]
+fn begin_push_base_cost_block(
+    op: k::Term<OpCode>,
+    stack: k::Term<WordStack>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::BlockCoinbase | Operation::BlockTimestamp | Operation::BlockNumber | Operation::PrevRandao | Operation::BlockGasLimit | Operation::NetworkChainId | Operation::BlockBaseFee), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(stack),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::PreparePush(op, stack, gas, 2), ..tail),
+        ..state
+    }
+}
+
+/// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
+#[k::rule(label = "begin-stack-operation")]
+fn begin_stack_operation(
+    op: k::Term<OpCode>,
+    stack: k::Term<WordStack>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::Pop | Operation::Duplicate(_) | Operation::Swap(_)), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(stack),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::PrepareStack(op, stack, gas), ..tail),
+        ..state
+    }
+}
+
+/// Two-operand opcodes that cost 3 gas.
+#[k::rule(label = "begin-binary-very-low")]
+fn begin_binary_very_low(
+    op: k::Term<OpCode>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::Add | Operation::Sub | Operation::LessThan | Operation::GreaterThan | Operation::SignedLessThan | Operation::SignedGreaterThan | Operation::Equal | Operation::BitAnd | Operation::BitOr | Operation::BitXor | Operation::Byte | Operation::ShiftLeft | Operation::ShiftRight | Operation::SignedShiftRight), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, Stack::StackCons(_, _))),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 3), ..tail),
+        ..state
+    }
+}
+
+/// Two-operand opcodes that cost 5 gas.
+#[k::rule(label = "begin-binary-low")]
+fn begin_binary_low(
+    op: k::Term<OpCode>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::Mul | Operation::Div | Operation::SignedDiv | Operation::Mod | Operation::SignedMod | Operation::SignExtend), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, Stack::StackCons(_, _))),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 5), ..tail),
+        ..state
+    }
+}
+
+/// Three-operand modular opcodes that cost 8 gas.
+#[k::rule(label = "begin-ternary-mid")]
+fn begin_ternary_mid(
+    op: k::Term<OpCode>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::AddMod | Operation::MulMod), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, _)))),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 8), ..tail),
+        ..state
+    }
+}
+
+/// One-operand opcodes that cost 3 gas.
+#[k::rule(label = "begin-unary-very-low")]
+fn begin_unary_very_low(
+    op: k::Term<OpCode>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::IsZero | Operation::BitNot | Operation::CallDataLoad), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(_, _)),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, 3), ..tail),
+        ..state
+    }
+}
+
+/// One-operand account queries charged the warm or cold account-access cost.
+#[k::rule(label = "begin-account-access")]
+fn begin_account_access(
+    op: k::Term<OpCode>,
+    account: k::Term<Int>,
+    accessed: k::Term<Set>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::AccountBalance | Operation::ExternalCodeSize | Operation::ExternalCodeHash), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(account, _)),
+        Substate::accessed_accounts: k::configuration::Cell(accessed),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, crate::AccountAccessCost(accessed, account)), ..tail),
+        ..state
+    }
+}
+
+/// Copies from call data, code, or return data into memory, charged by width and memory expansion.
+#[k::rule(label = "begin-copy")]
+fn begin_copy(
+    op: k::Term<OpCode>,
+    destination: k::Term<Int>,
+    width: k::Term<Int>,
+    used: k::Term<Int>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::CallDataCopy | Operation::CodeCopy | Operation::ReturnDataCopy), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(destination, Stack::StackCons(_, Stack::StackCons(width, _)))),
+        CallState::memory_used: k::configuration::Cell(used),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, crate::CopyGasCost(used, destination, width)), ..tail),
+        ..state
+    }
+}
+
+/// RETURN and REVERT, charged the memory expansion of their output range.
+#[k::rule(label = "begin-return-or-revert")]
+fn begin_return_or_revert(
+    op: k::Term<OpCode>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+    used: k::Term<Int>,
+    gas: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(op @ (Operation::Return | Operation::Revert), tail @ ..),
+        CallState::word_stack: k::configuration::Cell(Stack::StackCons(start, Stack::StackCons(width, _))),
+        CallState::memory_used: k::configuration::Cell(used),
+        CallState::gas: k::configuration::Cell(gas),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(crate::ChargeFixed(op, gas, crate::MemoryExpansionCost(used, start, width)), ..tail),
+        ..state
+    }
 }
 
 k::rules! {
