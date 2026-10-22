@@ -354,12 +354,19 @@ pub enum SavedWorldState {
     },
 }
 
+/// 2^256, the number of 256-bit words: word arithmetic is modulo it.
+#[k::constant]
+pub const POW256: Int =
+    0x1_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+
+/// 2^255, the least word whose sign bit is set.
+#[k::constant]
+pub const POW255: Int =
+    0x8000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+
 #[k::function(total, syntax = "#kevmChop({value})")]
 pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
-    int::rem_euclid(
-        value,
-        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-    )
+    int::rem_euclid(value, POW256)
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmWordDiv({dividend}, {divisor})")]
@@ -2589,61 +2596,43 @@ fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k:
     int::rem_euclid(dividend, divisor)
 }
 
-#[k::requires(
-    int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value)
-        && int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)
-)]
+#[k::requires(int::le(POW255, value) && int::lt(value, POW256))]
 #[k::equation]
 fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     -1
 }
 
-#[k::requires(
-    int::le(0, value)
-        && int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)
-)]
+#[k::requires(int::le(0, value) && int::lt(value, POW255))]
 #[k::equation]
 fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     1
 }
 
-#[k::requires(
-    int::lt(value, 0)
-        || int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)
-)]
+#[k::requires(int::lt(value, 0) || int::le(POW256, value))]
 #[k::equation]
 fn sign_outside_word(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     0
 }
 
-#[k::requires(
-    int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value)
-        && int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)
-)]
+#[k::requires(int::le(POW255, value) && int::lt(value, POW256))]
 #[k::equation]
 fn magnitude_negative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     Chop(int::sub(0, value))
 }
 
-#[k::requires(
-    int::le(0, value)
-        && int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)
-)]
+#[k::requires(int::le(0, value) && int::lt(value, POW255))]
 #[k::equation]
 fn magnitude_nonnegative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     value
 }
 
-#[k::requires(
-    int::lt(value, 0)
-        || int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)
-)]
+#[k::requires(int::lt(value, 0) || int::le(POW256, value))]
 #[k::equation]
 fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     0
 }
 
-#[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), 1,))]
+#[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), 1))]
 #[k::equation]
 fn signed_word_div_same_sign(
     k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
@@ -2654,7 +2643,7 @@ fn signed_word_div_same_sign(
     }
 }
 
-#[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), -1,))]
+#[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), -1))]
 #[k::equation]
 fn signed_word_div_different_sign(
     k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
@@ -2778,10 +2767,7 @@ fn signed_shift_right_word(
 fn signed_shift_right_large_negative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::sub(
-        115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-        1,
-    )
+    int::sub(POW256, 1)
 }
 
 #[k::requires(int::ge(value, 0) && int::ge(shift, 256) && int::ne(Sign(value), -1))]
@@ -2822,8 +2808,7 @@ fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) 
 }
 
 #[k::requires(
-    int::ge(index, 0) && int::lt(index, 32)
-        && int::lt(SignExtendByte { index, value }, 128)
+    int::ge(index, 0) && int::lt(index, 32) && int::lt(SignExtendByte { index, value }, 128)
 )]
 #[k::equation]
 fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
@@ -2834,17 +2819,13 @@ fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>)
 }
 
 #[k::requires(
-    int::ge(index, 0) && int::lt(index, 32)
-        && int::ge(SignExtendByte { index, value }, 128)
+    int::ge(index, 0) && int::lt(index, 32) && int::ge(SignExtendByte { index, value }, 128)
 )]
 #[k::equation]
 fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
     Chop(int::bit_or(
         int::bit_xor(
-            int::sub(
-                115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-                1,
-            ),
+            int::sub(POW256, 1),
             int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
         ),
         value,
@@ -3195,7 +3176,7 @@ fn prepare_push_overflow(
     GasResult::StackOverflowResult()
 }
 
-#[k::requires(int::lt(StackSize(stack), int::add(topics, 2),))]
+#[k::requires(int::lt(StackSize(stack), int::add(topics, 2)))]
 #[k::equation]
 fn prepare_log_underflow(
     k::term![PrepareLog {
@@ -3247,7 +3228,7 @@ fn prepare_static_call(
     }
 }
 
-#[k::requires(int::le(requested, int::sub(available, int::div(available, 64)),))]
+#[k::requires(int::le(requested, int::sub(available, int::div(available, 64))))]
 #[k::equation]
 fn static_call_gas_requested(
     k::term![StaticCallGas {
@@ -3258,7 +3239,7 @@ fn static_call_gas_requested(
     requested
 }
 
-#[k::requires(int::gt(requested, int::sub(available, int::div(available, 64)),))]
+#[k::requires(int::gt(requested, int::sub(available, int::div(available, 64))))]
 #[k::equation]
 fn static_call_gas_capped(
     k::term![StaticCallGas {
@@ -3992,7 +3973,7 @@ fn maximum_right(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int
     right
 }
 
-#[k::requires(int::ge(StackSize(stack), int::add(topics, 2),))]
+#[k::requires(int::ge(StackSize(stack), int::add(topics, 2)))]
 #[k::equation]
 fn prepare_log_static(
     k::term![PrepareLog {
@@ -4006,7 +3987,7 @@ fn prepare_log_static(
     GasResult::StaticViolationResult()
 }
 
-#[k::requires(int::ge(StackSize(stack), int::add(topics, 2),))]
+#[k::requires(int::ge(StackSize(stack), int::add(topics, 2)))]
 #[k::equation]
 fn prepare_log_allowed(
     k::term![PrepareLog {
@@ -4830,14 +4811,7 @@ k::rules! {
         gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(
-            int::pow_mod(
-                w0,
-                w1,
-                115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-            ),
-            rest,
-        ),
+        word_stack: Stack::StackCons(int::pow_mod(w0, w1, POW256), rest),
         pc: int::add(pc, 1),
         gas: remaining,
     };
@@ -4969,16 +4943,7 @@ k::rules! {
         gas: _,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        word_stack: Stack::StackCons(
-            int::bit_xor(
-                w0,
-                int::sub(
-                    115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
-                    1,
-                ),
-            ),
-            rest,
-        ),
+        word_stack: Stack::StackCons(int::bit_xor(w0, int::sub(POW256, 1)), rest),
         pc: int::add(pc, 1),
         gas: remaining,
     };
@@ -5435,7 +5400,7 @@ k::rules! {
     } => {
         k: [ExecutionCommand::Run(), ..],
         word_stack: Stack::StackCons(
-            BlockHashLookup { hashes, requested, highest: int::sub(number, 1), age: 0, },
+            BlockHashLookup { hashes, requested, highest: int::sub(number, 1), age: 0 },
             rest
         ),
         pc: int::add(pc, 1),
@@ -5848,7 +5813,7 @@ k::rules! {
             )
         ),
     } => {
-        k: [ResolveEcrecPrecompile { requested: gas_cap, available: remaining, }, ..],
+        k: [ResolveEcrecPrecompile { requested: gas_cap, available: remaining }, ..],
     };
 
     exec_static_call_ecrec_success: {
