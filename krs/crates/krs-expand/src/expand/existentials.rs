@@ -9,6 +9,7 @@ use krs_ir::wire::{WireClaimBinder, WireEvaluationStep, WireRuleCondition};
 use krs_syntax::{ClaimBinder, ProvenanceRole, RuleExistentials};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Attribute, Path};
 
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
@@ -139,7 +140,7 @@ fn scoped_binders(
         binders.push(WireClaimBinder {
             declaration_key: wire_key(declaration_role, ordinal),
             name_key: wire_key(name_role, ordinal),
-            name: binder.name().to_string(),
+            name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,

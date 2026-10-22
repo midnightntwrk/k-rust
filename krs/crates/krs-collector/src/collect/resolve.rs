@@ -166,7 +166,13 @@ fn head_rule_cell_target(
                 ),
             )
         })?;
-    let mut names = vec![field.rust_field.clone()];
+    // A readable record names a cell by its field identifier without `r#`,
+    // as Rust names a field.
+    let rust_name = field
+        .rust_field
+        .strip_prefix("r#")
+        .unwrap_or(&field.rust_field);
+    let mut names = vec![rust_name.to_owned()];
     if let Some(emitted) = &field.emitted_name
         && !names.contains(&emitted.value)
     {

@@ -14,6 +14,7 @@ use krs_syntax::surface::path_text;
 use krs_syntax::{ProvenanceRole, TermArguments, TermTree};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Attribute, Ident, Path};
 
 use super::nonce::rule_application_selector;
@@ -625,7 +626,7 @@ impl<'a> TermBuilder<'a> {
         Ok(WireTerm::Closure {
             key: wire_key(ProvenanceRole::MlConnective, ordinal),
             binder_key: wire_key(ProvenanceRole::MlBinder, ordinal),
-            name: binder.to_string(),
+            name: binder.unraw().to_string(),
             sort,
             body: Box::new(body?),
         })
@@ -766,14 +767,14 @@ impl<'a> TermBuilder<'a> {
                     Ok(WireTerm::Variable {
                         key,
                         path_key,
-                        name: spelling(path),
+                        name: binder_spelling(path),
                     })
                 } else if is_bound_ident_path(path, self.bindings) {
                     self.tooling_binding_references.push(path.clone());
                     Ok(WireTerm::Variable {
                         key,
                         path_key,
-                        name: spelling(path),
+                        name: binder_spelling(path),
                     })
                 } else {
                     let authored_path = spelling(path);
@@ -922,7 +923,7 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::As {
                     key,
                     binding_key,
-                    name: binding.to_string(),
+                    name: binding.unraw().to_string(),
                     pattern: Box::new(self.expand_wire(pattern, side, slots)?),
                 })
             }
@@ -1550,4 +1551,13 @@ fn edit_distance(left: &str, right: &str) -> usize {
         previous = current;
     }
     previous[right.len()]
+}
+
+/// A binder's name as a rule binding: its identifier without `r#`, as Rust
+/// names it, so `r#type` and `type` are one binding.
+pub(super) fn binder_spelling(path: &Path) -> String {
+    match path.get_ident() {
+        Some(ident) => ident.unraw().to_string(),
+        None => spelling(path),
+    }
 }

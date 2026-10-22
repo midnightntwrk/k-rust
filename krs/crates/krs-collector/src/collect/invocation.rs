@@ -15,6 +15,7 @@ use krs_syntax::{
     TokenRange, parse_seqstrict_attribute, parse_strict_attribute,
 };
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, ImplItem, Item, Meta, TraitItem};
 
@@ -833,7 +834,7 @@ fn collect_fn_invocations(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.push(ProvenanceAnchor::new(
@@ -919,7 +920,7 @@ fn collect_fn_rules(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.extend(desugar.provenance().map_err(source_syntax)?);
@@ -959,7 +960,7 @@ fn collect_fn_rules(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
@@ -1005,7 +1006,7 @@ fn collect_fn_contexts(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
@@ -1095,7 +1096,7 @@ fn collect_macro_invocations(
                     .pattern
                     .bindings()
                     .iter()
-                    .map(ToString::to_string)
+                    .map(|binding| binding.unraw().to_string())
                     .collect();
                 output.push(parsed_invocation(
                     ProvenanceRole::RuleDeclaration,
@@ -1175,7 +1176,13 @@ fn collect_rules_macro(
         .map_err(source_syntax)?;
     for clause in block.clauses() {
         let rule = clause.rule();
-        let bindings = clause.bindings().iter().map(ToString::to_string).collect();
+        // The macro names a binding or cell by its identifier without `r#`,
+        // as Rust does, so `r#type` and `type` are one name.
+        let bindings = clause
+            .bindings()
+            .iter()
+            .map(|binding| binding.unraw().to_string())
+            .collect();
         // The descriptor lists the map reads first, then the writes and
         // rewrites in clause order.
         let (mut extras, writes): (Vec<_>, Vec<_>) = clause
@@ -1183,16 +1190,16 @@ fn collect_rules_macro(
             .iter()
             .map(|extra| match extra {
                 krs_syntax::RuleExtra::HaveMap { cell, .. } => {
-                    ("have".to_owned(), cell.to_string())
+                    ("have".to_owned(), cell.unraw().to_string())
                 }
                 krs_syntax::RuleExtra::UpdateMap { cell, .. } => {
-                    ("update".to_owned(), cell.to_string())
+                    ("update".to_owned(), cell.unraw().to_string())
                 }
                 krs_syntax::RuleExtra::RewriteCell { cell, .. } => {
-                    ("rewrite".to_owned(), cell.to_string())
+                    ("rewrite".to_owned(), cell.unraw().to_string())
                 }
                 krs_syntax::RuleExtra::RewriteState { cell, .. } => {
-                    ("state".to_owned(), cell.to_string())
+                    ("state".to_owned(), cell.unraw().to_string())
                 }
             })
             .partition(|(kind, _)| kind == "have");
@@ -1590,7 +1597,7 @@ fn push_rule_equation_invocation(
         .pattern
         .bindings()
         .iter()
-        .map(ToString::to_string)
+        .map(|binding| binding.unraw().to_string())
         .collect();
     let mut anchors = rule.full_provenance().map_err(source_syntax)?;
     anchors.extend(equation.provenance().map_err(source_syntax)?);

@@ -14,6 +14,7 @@ use krs_syntax::{
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
@@ -86,7 +87,7 @@ fn configuration_claim(
     let mut universal_metadata = Vec::new();
     let mut term_ordinal = 0_u32;
     for binding in rule.bindings() {
-        let name = binding.name().to_string();
+        let name = binding.name().unraw().to_string();
         let kind = match binding.kind() {
             StateRuleBindingKind::Term => {
                 let sort = binding.term_sort().expect("term binding sort");
@@ -149,7 +150,7 @@ fn configuration_claim(
         let key_fn = format_ident!("__krs_claim_existential_sort_{nonce:016x}_{ordinal}");
         key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
         let authored = spelling(binder.sort());
-        let name = binder.name().to_string();
+        let name = binder.name().unraw().to_string();
         let sort_ref = wire_sort_reference(
             &mut slots,
             &facade,

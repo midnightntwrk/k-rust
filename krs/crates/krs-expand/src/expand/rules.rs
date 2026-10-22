@@ -555,7 +555,7 @@ fn expand_ordinary_rule(
         .pattern
         .bindings()
         .iter()
-        .map(ToString::to_string)
+        .map(|binding| binding.unraw().to_string())
         .collect::<Vec<_>>();
     let mut binding_checks = Vec::new();
     for binding in &rule.condition_bindings() {
@@ -906,7 +906,7 @@ fn function_context(
             }
         };
         context_bindings.push(krs_ir::ProtocolRuleBinding {
-            name: binding.name().to_string(),
+            name: binding.name().unraw().to_string(),
             kind,
         });
     }
@@ -984,7 +984,7 @@ fn typed_binders(
         });
         bindings.push(krs_ir::wire::WireTypedBinding {
             key: wire_key(ProvenanceRole::RuleBindingParameter, ordinal),
-            name: binder.name().to_string(),
+            name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,

@@ -24,6 +24,7 @@ use krs_syntax::{
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
@@ -79,7 +80,7 @@ pub(crate) fn context_alias(
     let mut key_functions = Vec::new();
     let mut term_ordinal = 0_u32;
     for binding in alias.bindings() {
-        let binding_name = binding.name().to_string();
+        let binding_name = binding.name().unraw().to_string();
         let kind = if binding.name() == alias.here() {
             ProtocolContextAliasBindingKind::Here
         } else {
@@ -275,7 +276,7 @@ pub(super) fn configuration_rule(
     let mut binding_key_functions = Vec::new();
     let mut term_ordinal = 0_u32;
     for binding in rule.bindings() {
-        let name = binding.name().to_string();
+        let name = binding.name().unraw().to_string();
         let kind = match binding.kind() {
             StateRuleBindingKind::Term => {
                 let sort = binding
@@ -876,14 +877,14 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(counter)?;
                 Ok(ProtocolRuleFrame::Bind {
                     key: wire_key(side_role, ordinal),
-                    binding: binding.to_string(),
+                    binding: binding.unraw().to_string(),
                 })
             }
             StateMacroRemainder::Reuse { binding, .. } => {
                 let ordinal = take_counter(counter)?;
                 Ok(ProtocolRuleFrame::Reuse {
                     key: wire_key(side_role, ordinal),
-                    binding: binding.to_string(),
+                    binding: binding.unraw().to_string(),
                 })
             }
         }
@@ -947,7 +948,7 @@ impl<'a> StateRuleBuilder<'a> {
                     Ok(WireTerm::Variable {
                         key: key.clone(),
                         path_key: key,
-                        name: spelling(path),
+                        name: super::terms::binder_spelling(path),
                     })
                 } else {
                     let target = self.terms.application_wire_slot(path, false, slots)?;
@@ -1043,7 +1044,7 @@ impl<'a> StateRuleBuilder<'a> {
                 Ok(WireTerm::As {
                     key,
                     binding_key,
-                    name: binding.to_string(),
+                    name: binding.unraw().to_string(),
                     pattern: Box::new(self.expand_term(pattern, slots)?),
                 })
             }
