@@ -102,8 +102,7 @@ The readable machine table now permits a non-computation leaf to carry an ordina
 The implementation preserves the existing explicit `cells!` layer, sort inference, stable identities, provenance, deterministic expansion, and overlap rejection.
 The KWasm fixture uses the real recursive value stack; it does not encode the value stack as a map or move it into `<instrs>`.
 
-The first use also demonstrates that repeated symbolic equality is not part of the readable pattern surface.
-The width-preserving operand rule is therefore split into explicit `i32` and `i64` cases instead of weakening the KWasm same-type invariant.
+The width-preserving operand rule repeats its type binder across `<instrs>` and both stacked values, so it applies only when the instruction and its operands share one type; a readable record treats a binder repeated across cells as nonlinear matching, as K does.
 
 ### W2 — wraparound uses K's Euclidean modulus
 

@@ -14,7 +14,7 @@ from kwasm import native  # noqa: E402
 PROBES = (
     (
         "ordinary cell constructor",
-        "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
+        "valstack: Stack::Cons(Value::Integer(ty, rhs)",
         "Cons",
         "    Cons { head: Val, tail: ValStack },",
     ),
@@ -26,7 +26,7 @@ PROBES = (
     ),
     (
         "function application",
-        "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
+        "instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..]",
         "IntBinOp",
         "pub fn IntBinOp(",
     ),
@@ -38,9 +38,9 @@ PROBES = (
     ),
     (
         "binding reference",
-        "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
+        "instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..]",
         "rhs",
-        "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
+        "valstack: Stack::Cons(Value::Integer(ty, rhs)",
     ),
     (
         "trap constructor",
@@ -55,7 +55,7 @@ PORT = semantics.Port(
     label="KWasm",
     key="kwasm",
     checkout=INSPIRATIONS / "runtimeverification/wasm-semantics",
-    descriptors=60,
+    descriptors=59,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=90,
 )

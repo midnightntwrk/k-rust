@@ -167,23 +167,14 @@ k::rules! {
         instrs: [Trap(), ..],
     };
 
-    load_binary_i32: {
-        instrs: [Binary(IntegerType::I32, op), ..],
-        valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs), Stack::Cons(Value::Integer(IntegerType::I32, lhs), rest),),
+    load_binary: {
+        instrs: [Binary(ty, op), ..],
+        valstack: Stack::Cons(Value::Integer(ty, rhs), Stack::Cons(Value::Integer(ty, lhs), rest),),
     } => {
-        instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..],
+        instrs: [crate::IntBinOp(ty, op, lhs, rhs), ..],
         valstack: rest,
     }
-    where op: IBinOp, lhs: Int, rhs: Int, rest: ValStack;
-
-    load_binary_i64: {
-        instrs: [Binary(IntegerType::I64, op), ..],
-        valstack: Stack::Cons(Value::Integer(IntegerType::I64, rhs), Stack::Cons(Value::Integer(IntegerType::I64, lhs), rest),),
-    } => {
-        instrs: [crate::IntBinOp(IntegerType::I64, op, lhs, rhs), ..],
-        valstack: rest,
-    }
-    where op: IBinOp, lhs: Int, rhs: Int, rest: ValStack;
+    where ty: IValType, op: IBinOp, lhs: Int, rhs: Int, rest: ValStack;
 
     push_value: {
         instrs: [Value::Integer(ty, value), ..],
@@ -263,8 +254,8 @@ mod tests {
         let source = emitted.source();
         assert!(source.contains("<instrs>"));
         assert!(source.contains("<valstack>"));
-        assert!(source.contains("load-binary-i32"));
-        assert!(source.contains("load-binary-i64"));
+        assert!(source.contains("load-binary"));
+        assert!(source.contains("< Ty:IValType > Rhs:Int : < Ty:IValType > Lhs:Int"));
         assert!(source.contains("# kwasmIntBinOp"));
         assert!(source.contains("div_u"));
         assert!(source.contains("=> undefined"));
