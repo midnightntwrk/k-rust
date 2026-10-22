@@ -41,7 +41,7 @@ PROBES = (
     ),
     (
         "local binding",
-        "value: int::add(lhs, rhs)",
+        "value: lhs + rhs",
         "lhs",
         "lhs: Value::Integer { value: lhs, width, signed }",
     ),

@@ -997,7 +997,7 @@ pub struct NthVariantOffsets {
 pub fn ByteLength(width: k::Term<IntegerLength>) -> k::Term<Int>;
 
 #[k::equation]
-#[k::requires(int::ge(index, bytes::length(value)))]
+#[k::requires(index >= bytes::length(value))]
 fn read_ty_const_int_done(
     k::term![ReadTyConstInt {
         bytes: value,
@@ -1010,7 +1010,7 @@ fn read_ty_const_int_done(
 }
 
 #[k::equation]
-#[k::requires(int::ge(index, 0) && int::lt(index, bytes::length(value)))]
+#[k::requires(index >= 0 && index < bytes::length(value))]
 fn read_ty_const_int_byte(
     k::term![ReadTyConstInt {
         bytes: value,
@@ -1021,9 +1021,9 @@ fn read_ty_const_int_byte(
 ) -> k::Term<Int> {
     ReadTyConstInt {
         bytes: value,
-        index: int::add(index, 1),
-        multiplier: int::mul(multiplier, 256),
-        result: int::add(result, int::mul(bytes::get(value, index), multiplier)),
+        index: index + 1,
+        multiplier: multiplier * 256,
+        result: result + bytes::get(value, index) * multiplier,
     }
 }
 
@@ -1066,7 +1066,7 @@ fn layout_size_known(
         },
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::div(bits, 8)
+    bits / 8
 }
 
 #[k::equation]
@@ -1141,13 +1141,12 @@ k::equations! {
     size_of_char         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))    => 4;
     size_of_signed_integer:
         (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))
-        => int::div(IntWidth(kind), 8);
+        => IntWidth(kind) / 8;
     size_of_unsigned_integer:
         (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))
-        => int::div(UintWidth(kind), 8);
+        => UintWidth(kind) / 8;
     size_of_float:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))
-        => int::div(FloatWidth(kind), 8);
+        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind))) => FloatWidth(kind) / 8;
     size_of_str          : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))     => 0;
     size_of_aggregate:
         (
@@ -1170,19 +1169,13 @@ k::equations! {
                     )
                 )
             )
-        ) => int::mul(
-            SizeOfTypeInfo(types, map::get(types, element)),
-            ReadTyConstInt(bytes, 0, 1, 0)
-        );
+        ) => SizeOfTypeInfo(types, map::get(types, element)) * ReadTyConstInt(bytes, 0, 1, 0);
     size_of_pointer:
         (types, MirTypeInfo::PointerType(pointee) | MirTypeInfo::ReferenceType(pointee))
-        => int::mul(
-            SizeOfTypeInfo(
-                types,
-                MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))
-            ),
-            PointerWords(map::get(types, pointee))
-        );
+        => SizeOfTypeInfo(
+            types,
+            MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))
+        ) * PointerWords(map::get(types, pointee));
     #[k::equation(priority = 60)]
     size_of_other        : (_, _)                                                       => 0;
 }
@@ -1193,13 +1186,12 @@ k::equations! {
     align_of_char   : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char())) => 4;
     align_of_signed_integer:
         (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))
-        => int::div(IntWidth(kind), 8);
+        => IntWidth(kind) / 8;
     align_of_unsigned_integer:
         (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))
-        => int::div(UintWidth(kind), 8);
+        => UintWidth(kind) / 8;
     align_of_float:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind)))
-        => int::div(FloatWidth(kind), 8);
+        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind))) => FloatWidth(kind) / 8;
     align_of_str    : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))  => 1;
     align_of_aggregate:
         (
@@ -1222,7 +1214,7 @@ k::equations! {
 }
 
 #[k::function(partial, syntax = "#decodeInteger({bytes}, {width}, {signed})")]
-#[k::requires(int::eq(bytes::length(bytes), int::div(width, 8)))]
+#[k::requires(bytes::length(bytes) == width / 8)]
 pub fn DecodeInteger(
     bytes: k::Term<Bytes>,
     width: k::Term<Int>,
@@ -1245,7 +1237,9 @@ pub fn DecodeInteger(
 }
 
 #[k::equation]
-#[k::requires(int::eq(bytes::length(bytes), 1) && int::eq(ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 }, 0))]
+#[k::requires(
+    bytes::length(bytes) == 1 && ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 0
+)]
 fn decode_allocated_boolean_false(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -1259,7 +1253,9 @@ fn decode_allocated_boolean_false(
 }
 
 #[k::equation]
-#[k::requires(int::eq(bytes::length(bytes), 1) && int::eq(ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 }, 1))]
+#[k::requires(
+    bytes::length(bytes) == 1 && ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 1
+)]
 fn decode_allocated_boolean_true(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -1349,7 +1345,7 @@ pub fn FindVariantIndex(tag: k::Term<Int>, discriminants: k::Term<Discriminants>
 }
 
 #[k::equation]
-#[k::requires(int::eq(tag, discriminant))]
+#[k::requires(tag == discriminant)]
 fn find_variant_index_match(
     k::term![FindVariantIndexAux {
         tag,
@@ -1366,7 +1362,7 @@ fn find_variant_index_match(
 }
 
 #[k::equation]
-#[k::requires(int::ne(tag, discriminant))]
+#[k::requires(tag != discriminant)]
 fn find_variant_index_continue(
     k::term![FindVariantIndexAux {
         tag,
@@ -1382,12 +1378,12 @@ fn find_variant_index_continue(
     FindVariantIndexAux {
         tag,
         discriminants: tail,
-        index: int::add(index, 1),
+        index: index + 1,
     }
 }
 
 #[k::equation]
-#[k::requires(int::eq(index, 0))]
+#[k::requires(index == 0)]
 fn lookup_discriminant_head(
     k::term![LookupDiscriminant {
         discriminants: MirDiscriminants::DiscriminantsCons {
@@ -1401,7 +1397,7 @@ fn lookup_discriminant_head(
 }
 
 #[k::equation]
-#[k::requires(int::gt(index, 0))]
+#[k::requires(index > 0)]
 fn lookup_discriminant_tail(
     k::term![LookupDiscriminant {
         discriminants: MirDiscriminants::DiscriminantsCons { tail, .. },
@@ -1410,12 +1406,12 @@ fn lookup_discriminant_tail(
 ) -> k::Term<Int> {
     LookupDiscriminant {
         discriminants: tail,
-        index: int::sub(index, 1),
+        index: index - 1,
     }
 }
 
 #[k::equation]
-#[k::requires(bool::eq(NoFields { fields }, false))]
+#[k::requires(NoFields { fields } == false)]
 fn decode_allocated_direct_enum(
     k::term![DecodeAllocatedValue {
         types,
@@ -1463,15 +1459,7 @@ fn decode_allocated_direct_enum(
 }
 
 #[k::equation]
-#[k::requires(int::eq(
-    ReadTyConstInt {
-        bytes,
-        index: 0,
-        multiplier: 1,
-        result: 0,
-    },
-    0,
-))]
+#[k::requires(ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 0)]
 fn decode_allocated_niche_pointer_none(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -1537,7 +1525,7 @@ fn decode_allocated_niche_pointer_none(
     partial,
     syntax = "#decodeEnumDirectFields({types}, {bytes}, {index}, {fields}, {layouts})"
 )]
-#[k::requires(int::ge(index, 0))]
+#[k::requires(index >= 0)]
 pub fn DecodeEnumDirectFields(
     types: k::Term<Map>,
     bytes: k::Term<Bytes>,
@@ -1557,7 +1545,7 @@ pub fn DecodeEnumDirectFields(
 }
 
 #[k::function(partial, syntax = "#decodeEnumDirectTag({bytes}, {width})")]
-#[k::requires(int::ge(bytes::length(bytes), ByteLength { width }))]
+#[k::requires(bytes::length(bytes) >= ByteLength { width })]
 pub fn DecodeEnumDirectTag(bytes: k::Term<Bytes>, width: k::Term<IntegerLength>) -> k::Term<Int> {
     ReadTyConstInt {
         bytes: bytes::substr(bytes, 0, ByteLength { width }),
@@ -1578,7 +1566,7 @@ fn nth_tys_first(
 }
 
 #[k::equation]
-#[k::requires(int::gt(index, 0))]
+#[k::requires(index > 0)]
 fn nth_tys_next(
     k::term![NthTys {
         fields: MirTyss::TyssCons { tail, .. },
@@ -1587,7 +1575,7 @@ fn nth_tys_next(
 ) -> k::Term<Tys> {
     NthTys {
         fields: tail,
-        index: int::sub(index, 1),
+        index: index - 1,
     }
 }
 
@@ -1610,7 +1598,7 @@ fn nth_variant_offsets_first(
 }
 
 #[k::equation]
-#[k::requires(int::gt(index, 0))]
+#[k::requires(index > 0)]
 fn nth_variant_offsets_next(
     k::term![NthVariantOffsets {
         layouts: MirLayoutShapes::LayoutShapesCons { tail, .. },
@@ -1619,7 +1607,7 @@ fn nth_variant_offsets_next(
 ) -> k::Term<MachineSizes> {
     NthVariantOffsets {
         layouts: tail,
-        index: int::sub(index, 1),
+        index: index - 1,
     }
 }
 
@@ -1653,7 +1641,7 @@ fn element_size_signed_integer(
         ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::div(IntWidth { kind }, 8)
+    IntWidth { kind } / 8
 }
 
 #[k::equation]
@@ -1665,7 +1653,7 @@ fn element_size_unsigned_integer(
         ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::div(UintWidth { kind }, 8)
+    UintWidth { kind } / 8
 }
 
 #[k::equation]
@@ -1683,7 +1671,7 @@ fn element_size_struct(
         ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::div(bits, 8)
+    bits / 8
 }
 
 #[k::equation]
@@ -1701,7 +1689,7 @@ fn element_size_tuple_layout(
         ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::div(bits, 8)
+    bits / 8
 }
 
 #[k::equation]
@@ -1735,28 +1723,25 @@ fn element_size_static_array(
         },
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::mul(
-        ElementSize {
-            types,
-            info: map::get(types, element),
-        },
-        ReadTyConstInt {
-            bytes,
-            index: 0,
-            multiplier: 1,
-            result: 0,
-        },
-    )
+    ElementSize {
+        types,
+        info: map::get(types, element),
+    } * ReadTyConstInt {
+        bytes,
+        index: 0,
+        multiplier: 1,
+        result: 0,
+    }
 }
 
 #[k::equation]
-#[k::requires(int::ge(first, second))]
+#[k::requires(first >= second)]
 fn maximum_first(k::term![Maximum { first, second }]: k::Term<Int>) -> k::Term<Int> {
     first
 }
 
 #[k::equation]
-#[k::requires(int::lt(first, second))]
+#[k::requires(first < second)]
 fn maximum_second(k::term![Maximum { first, second }]: k::Term<Int>) -> k::Term<Int> {
     second
 }
@@ -1787,13 +1772,11 @@ fn needed_bytes_for_offsets_cons(
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     Maximum {
-        first: int::add(
-            int::div(bits, 8),
-            ElementSize {
+        first: bits / 8
+            + ElementSize {
                 types,
                 info: map::get(types, field),
             },
-        ),
         second: NeededBytesForOffsets {
             types,
             fields,
@@ -1814,16 +1797,9 @@ fn decode_fields_with_offsets_done(
 }
 
 #[k::equation]
-#[k::requires(int::ge(
-    bytes::length(bytes),
-    int::add(
-        int::div(bits, 8),
-        ElementSize {
-            types,
-            info: map::get(types, field),
-        },
-    ),
-))]
+#[k::requires(
+    bytes::length(bytes) >= bits / 8 + ElementSize { types, info: map::get(types, field) }
+)]
 fn decode_fields_with_offsets_cons(
     k::term![DecodeFieldsWithOffsets {
         types,
@@ -1842,14 +1818,12 @@ fn decode_fields_with_offsets_cons(
         list::item(DecodeAllocatedValue {
             bytes: bytes::substr(
                 bytes,
-                int::div(bits, 8),
-                int::add(
-                    int::div(bits, 8),
-                    ElementSize {
+                bits / 8,
+                bits / 8
+                    + ElementSize {
                         types,
                         info: map::get(types, field),
                     },
-                ),
             ),
             info: map::get(types, field),
             types,
@@ -1885,7 +1859,10 @@ pub fn DecodeArrayAllocation(
 }
 
 #[k::equation]
-#[k::requires(bool::and(int::gt(remaining, 0), int::gt(ElementSize { types, info }, 0) && int::ge(bytes::length(bytes), ElementSize { types, info })))]
+#[k::requires(bool::and(
+    remaining > 0,
+    ElementSize { types, info } > 0 && bytes::length(bytes) >= ElementSize { types, info },
+))]
 fn decode_array_elements_cons(
     k::term![DecodeArrayElements {
         types,
@@ -1899,7 +1876,7 @@ fn decode_array_elements_cons(
         types,
         bytes: bytes::substr(bytes, ElementSize { types, info }, bytes::length(bytes)),
         info,
-        remaining: int::sub(remaining, 1),
+        remaining: remaining - 1,
         accumulated: list::concat(
             accumulated,
             list::item(DecodeAllocatedValue {
@@ -1912,7 +1889,7 @@ fn decode_array_elements_cons(
 }
 
 #[k::equation]
-#[k::requires(int::le(remaining, 0) && int::eq(bytes::length(bytes), 0))]
+#[k::requires(remaining <= 0 && bytes::length(bytes) == 0)]
 fn decode_array_elements_done(
     k::term![DecodeArrayElements {
         bytes,
@@ -1926,8 +1903,8 @@ fn decode_array_elements_done(
 
 #[k::function(partial, syntax = "#decodeSliceAllocation({types}, {bytes}, {info})")]
 #[k::requires(
-    int::gt(ElementSize { types, info }, 0)
-        && int::eq(int::rem_euclid(bytes::length(bytes), ElementSize { types, info }), 0)
+    ElementSize { types, info } > 0
+        && int::rem_euclid(bytes::length(bytes), ElementSize { types, info }) == 0
 )]
 pub fn DecodeSliceAllocation(
     types: k::Term<Map>,
@@ -1938,7 +1915,7 @@ pub fn DecodeSliceAllocation(
         types,
         bytes,
         info,
-        length: int::div(bytes::length(bytes), ElementSize { types, info }),
+        length: bytes::length(bytes) / ElementSize { types, info },
     }
 }
 
@@ -1996,7 +1973,10 @@ fn decode_allocated_slice(
 }
 
 #[k::equation]
-#[k::requires(int::ge(NeededBytesForOffsets { types, fields, offsets }, 0) && int::ge(bytes::length(bytes), NeededBytesForOffsets { types, fields, offsets }))]
+#[k::requires(
+    NeededBytesForOffsets { types, fields, offsets } >= 0
+        && bytes::length(bytes) >= NeededBytesForOffsets { types, fields, offsets }
+)]
 fn decode_allocated_struct(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -2027,7 +2007,7 @@ fn decode_allocated_struct(
 }
 
 #[k::equation]
-#[k::requires(int::eq(bytes::length(bytes), 0))]
+#[k::requires(bytes::length(bytes) == 0)]
 fn decode_allocated_empty_tuple(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -2045,7 +2025,10 @@ fn decode_allocated_empty_tuple(
 }
 
 #[k::equation]
-#[k::requires(int::ge(NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets }, 0) && int::ge(bytes::length(bytes), NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets }))]
+#[k::requires(
+    NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets } >= 0
+        && bytes::length(bytes) >= NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets }
+)]
 fn decode_allocated_tuple(
     k::term![DecodeAllocatedValue {
         types,
@@ -2081,7 +2064,7 @@ fn decode_allocated_tuple(
 }
 
 #[k::equation]
-#[k::requires(bool::eq(NoFields { fields }, true))]
+#[k::requires(NoFields { fields } == true)]
 fn decode_allocated_fieldless_enum(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -2133,7 +2116,7 @@ fn decode_zero_sized_array(
 }
 
 #[k::equation]
-#[k::requires(int::eq(bytes::length(bytes), 8))]
+#[k::requires(bytes::length(bytes) == 8)]
 fn decode_allocated_reference_thin(
     k::term![DecodeAllocatedReference {
         allocation,
@@ -2159,7 +2142,7 @@ fn decode_allocated_reference_thin(
 }
 
 #[k::equation]
-#[k::requires(int::eq(bytes::length(bytes), 16))]
+#[k::requires(bytes::length(bytes) == 16)]
 fn decode_allocated_reference_fat(
     k::term![DecodeAllocatedReference {
         allocation,
@@ -3399,7 +3382,7 @@ pub struct TruncateInteger {
     pub signed: k::Term<Bool>,
 }
 
-#[k::requires(int::le(width, 0))]
+#[k::requires(width <= 0)]
 #[k::equation]
 fn truncate_unsigned_nonpositive(
     k::term![TruncateUnsigned { value, width }]: k::Term<Int>,
@@ -3407,15 +3390,15 @@ fn truncate_unsigned_nonpositive(
     value
 }
 
-#[k::requires(int::gt(width, 0))]
+#[k::requires(width > 0)]
 #[k::equation]
 fn truncate_unsigned_positive(
     k::term![TruncateUnsigned { value, width }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::rem_euclid(value, int::shift_left(1, width))
+    int::rem_euclid(value, 1 << width)
 }
 
-#[k::requires(int::le(width, 0))]
+#[k::requires(width <= 0)]
 #[k::equation]
 fn truncate_signed_nonpositive(
     k::term![TruncateSigned { value, width }]: k::Term<Int>,
@@ -3424,8 +3407,8 @@ fn truncate_signed_nonpositive(
 }
 
 #[k::requires(
-    int::gt(width, 0)
-        && int::lt(TruncateUnsigned { value, width }, int::shift_left(1, int::sub(width, 1)))
+    width > 0
+        && TruncateUnsigned { value, width } < 1 << (width - 1)
 )]
 #[k::equation]
 fn truncate_signed_nonnegative(
@@ -3435,14 +3418,14 @@ fn truncate_signed_nonnegative(
 }
 
 #[k::requires(
-    int::gt(width, 0)
-        && int::ge(TruncateUnsigned { value, width }, int::shift_left(1, int::sub(width, 1)))
+    width > 0
+        && TruncateUnsigned { value, width } >= 1 << (width - 1)
 )]
 #[k::equation]
 fn truncate_signed_negative(
     k::term![TruncateSigned { value, width }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    int::sub(TruncateUnsigned { value, width }, int::shift_left(1, width))
+    TruncateUnsigned { value, width } - (1 << width)
 }
 
 #[k::equation]
@@ -3613,7 +3596,7 @@ fn adjust_ref_reference(
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     Value::Reference {
-        height: int::add(height, offset),
+        height: height + offset,
         place,
         mutability,
         metadata,
@@ -3633,7 +3616,7 @@ fn adjust_ref_pointer(
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     Value::Pointer {
-        height: int::add(height, offset),
+        height: height + offset,
         place,
         mutability,
         metadata,
@@ -4047,7 +4030,7 @@ pub struct DerefProjectionPath {
 }
 
 #[k::equation]
-#[k::requires(int::eq(offset, 0))]
+#[k::requires(offset == 0)]
 fn deref_projection_path_zero_offset(
     k::term![DerefProjectionPath {
         referenced,
@@ -4067,7 +4050,7 @@ fn deref_projection_path_zero_offset(
 }
 
 #[k::equation]
-#[k::requires(int::gt(offset, 0))]
+#[k::requires(offset > 0)]
 fn deref_projection_path_positive_offset(
     k::term![DerefProjectionPath {
         referenced,
@@ -4229,10 +4212,7 @@ fn range_elements(
     partial,
     syntax = "#replaceSubslice({elements}, {start}, {from_back}, {replacement})"
 )]
-#[k::requires(int::eq(
-    list::size(replacement),
-    int::sub(list::size(elements), int::add(start, from_back)),
-))]
+#[k::requires(list::size(replacement) == list::size(elements) - (start + from_back))]
 pub fn ReplaceSubslice(
     elements: k::Term<List>,
     start: k::Term<Int>,
@@ -4373,7 +4353,7 @@ fn read_projection_deref(
 }
 
 #[k::equation]
-#[k::requires(int::ge(offset, 0) && int::lt(offset, list::size(elements)))]
+#[k::requires(offset >= 0 && offset < list::size(elements))]
 fn read_projection_constant_index_front(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4396,7 +4376,7 @@ fn read_projection_constant_index_front(
 }
 
 #[k::equation]
-#[k::requires(int::gt(offset, 0) && int::le(offset, min_length) && int::eq(min_length, list::size(elements)))]
+#[k::requires(offset > 0 && offset <= min_length && min_length == list::size(elements))]
 fn read_projection_constant_index_end(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4412,14 +4392,16 @@ fn read_projection_constant_index_end(
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     ReadProjection {
-        value: list::get(elements, int::sub(min_length, offset)),
+        value: list::get(elements, min_length - offset),
         projections: tail,
         locals,
     }
 }
 
 #[k::equation]
-#[k::requires(int::ge(from, 0) && int::le(from, list::size(elements)) && int::gt(to, 0) && int::le(to, list::size(elements)) && int::lt(from, to))]
+#[k::requires(
+    from >= 0 && from <= list::size(elements) && to > 0 && to <= list::size(elements) && from < to
+)]
 fn read_projection_subslice_front(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4436,7 +4418,7 @@ fn read_projection_subslice_front(
 ) -> k::Term<MirValue> {
     ReadProjection {
         value: Value::Range {
-            elements: list::range(elements, from, int::sub(list::size(elements), to)),
+            elements: list::range(elements, from, list::size(elements) - to),
         },
         projections: tail,
         locals,
@@ -4444,7 +4426,9 @@ fn read_projection_subslice_front(
 }
 
 #[k::equation]
-#[k::requires(int::ge(from, 0) && int::ge(to, 0) && int::lt(to, list::size(elements)) && int::le(from, int::sub(list::size(elements), to)))]
+#[k::requires(
+    from >= 0 && to >= 0 && to < list::size(elements) && from <= list::size(elements) - to
+)]
 fn read_projection_subslice_end(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4560,7 +4544,7 @@ fn write_projection_index(
 }
 
 #[k::equation]
-#[k::requires(int::ge(offset, 0) && int::lt(offset, list::size(elements)))]
+#[k::requires(offset >= 0 && offset < list::size(elements))]
 fn write_projection_constant_index_front(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -4591,7 +4575,7 @@ fn write_projection_constant_index_front(
 }
 
 #[k::equation]
-#[k::requires(int::gt(offset, 0) && int::le(offset, min_length) && int::eq(min_length, list::size(elements)))]
+#[k::requires(offset > 0 && offset <= min_length && min_length == list::size(elements))]
 fn write_projection_constant_index_end(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -4610,9 +4594,9 @@ fn write_projection_constant_index_end(
     Value::Range {
         elements: list::update(
             elements,
-            int::sub(min_length, offset),
+            min_length - offset,
             WriteProjection {
-                value: list::get(elements, int::sub(min_length, offset)),
+                value: list::get(elements, min_length - offset),
                 projections: tail,
                 replacement,
                 locals,
@@ -4622,7 +4606,9 @@ fn write_projection_constant_index_end(
 }
 
 #[k::equation]
-#[k::requires(int::ge(from, 0) && int::le(from, list::size(elements)) && int::gt(to, 0) && int::le(to, list::size(elements)) && int::lt(from, to))]
+#[k::requires(
+    from >= 0 && from <= list::size(elements) && to > 0 && to <= list::size(elements) && from < to
+)]
 fn write_projection_subslice_front(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -4642,11 +4628,11 @@ fn write_projection_subslice_front(
         elements: ReplaceSubslice {
             elements,
             start: from,
-            from_back: int::sub(list::size(elements), to),
+            from_back: list::size(elements) - to,
             replacement: RangeElements {
                 value: WriteProjection {
                     value: Value::Range {
-                        elements: list::range(elements, from, int::sub(list::size(elements), to)),
+                        elements: list::range(elements, from, list::size(elements) - to),
                     },
                     projections: tail,
                     replacement,
@@ -4658,7 +4644,9 @@ fn write_projection_subslice_front(
 }
 
 #[k::equation]
-#[k::requires(int::ge(from, 0) && int::ge(to, 0) && int::lt(to, list::size(elements)) && int::le(from, int::sub(list::size(elements), to)))]
+#[k::requires(
+    from >= 0 && to >= 0 && to < list::size(elements) && from <= list::size(elements) - to
+)]
 fn write_projection_subslice_end(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -5390,7 +5378,7 @@ k::rules! {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(false) }, ..],
     };
 
-    #[k::requires(bool::not(IsVoidType { info: map::get(types, ty) }))]
+    #[k::requires(!IsVoidType { info: map::get(types, ty) })]
     eval_size_of: {
         k: [
             Execution::EvalRvalue {
@@ -5414,7 +5402,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::not(IsVoidType { info: map::get(types, ty) }))]
+    #[k::requires(!IsVoidType { info: map::get(types, ty) })]
     eval_align_of: {
         k: [
             Execution::EvalRvalue {
@@ -6047,14 +6035,14 @@ k::rules! {
         k: [..],
         stack: list::update(
             stack,
-            int::sub(height, 1),
+            height - 1,
             UpdateProjectedStackLocal {
-                frame: list::get(stack, int::sub(height, 1)),
+                frame: list::get(stack, height - 1),
                 local,
                 projections: Projections::ProjectionsEmpty(),
                 value: AdjustRef {
                     value: BuildProjectionUpdate { value: replacement, contexts },
-                    offset: int::sub(0, height)
+                    offset: -height
                 },
                 locals
             }
@@ -6101,14 +6089,14 @@ k::rules! {
         k: [Execution::Continue { value, continuation }, ..],
         stack: list::update(
             stack,
-            int::sub(height, 1),
+            height - 1,
             UpdateProjectedStackLocal {
-                frame: list::get(stack, int::sub(height, 1)),
+                frame: list::get(stack, height - 1),
                 local,
                 projections: Projections::ProjectionsEmpty(),
                 value: AdjustRef {
                     value: BuildProjectionUpdate { value: Value::Moved(), contexts },
-                    offset: int::sub(0, height)
+                    offset: -height
                 },
                 locals
             }
@@ -6275,7 +6263,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::ge(offset, 0) && int::lt(offset, list::size(elements)))]
+    #[k::requires(offset >= 0 && offset < list::size(elements))]
     traverse_projection_constant_index_front: {
         k: [
             Execution::TraverseProjection {
@@ -6309,7 +6297,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::gt(offset, 0) && int::le(offset, min_length) && int::eq(min_length, list::size(elements))
+        offset > 0 && offset <= min_length && min_length == list::size(elements)
     )]
     traverse_projection_constant_index_end: {
         k: [
@@ -6330,12 +6318,12 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 target,
-                value: list::get(elements, int::sub(min_length, offset)),
+                value: list::get(elements, min_length - offset),
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
                     head: MirProjectionContext::IndexContext {
                         elements,
-                        index: int::sub(min_length, offset)
+                        index: min_length - offset
                     },
                     tail: contexts
                 },
@@ -6347,7 +6335,11 @@ k::rules! {
     };
 
     #[k::requires(
-        int::ge(from, 0) && int::le(from, list::size(elements)) && int::gt(to, 0) && int::le(to, list::size(elements)) && int::lt(from, to)
+        from >= 0
+            && from <= list::size(elements)
+            && to > 0
+            && to <= list::size(elements)
+            && from < to
     )]
     traverse_projection_subslice_front: {
         k: [
@@ -6369,14 +6361,14 @@ k::rules! {
             Execution::TraverseProjection {
                 target,
                 value: Value::Range {
-                    elements: list::range(elements, from, int::sub(list::size(elements), to))
+                    elements: list::range(elements, from, list::size(elements) - to)
                 },
                 projections: tail,
                 contexts: MirProjectionContexts::ContextsCons {
                     head: MirProjectionContext::SubsliceContext {
                         elements,
                         start: from,
-                        from_back: int::sub(list::size(elements), to)
+                        from_back: list::size(elements) - to
                     },
                     tail: contexts
                 },
@@ -6388,7 +6380,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::ge(from, 0) && int::ge(to, 0) && int::lt(to, list::size(elements)) && int::le(from, int::sub(list::size(elements), to))
+        from >= 0 && to >= 0 && to < list::size(elements) && from <= list::size(elements) - to
     )]
     traverse_projection_subslice_end: {
         k: [
@@ -6426,7 +6418,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::ge(offset, 0) && int::le(offset, list::size(elements)))]
+    #[k::requires(offset >= 0 && offset <= list::size(elements))]
     traverse_projection_pointer_offset: {
         k: [
             Execution::TraverseProjection {
@@ -6463,7 +6455,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::ge(size, 0) && int::le(size, list::size(elements)))]
+    #[k::requires(size >= 0 && size <= list::size(elements))]
     traverse_projection_truncate_size: {
         k: [
             Execution::TraverseProjection {
@@ -6486,7 +6478,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target,
                 value: Value::Range {
-                    elements: list::range(elements, 0, int::sub(list::size(elements), size))
+                    elements: list::range(elements, 0, list::size(elements) - size)
                 },
                 projections: tail,
                 contexts,
@@ -6593,7 +6585,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::gt(height, 0))]
+    #[k::requires(height > 0)]
     traverse_projection_stack_deref: {
         k: [
             Execution::TraverseProjection {
@@ -6622,7 +6614,7 @@ k::rules! {
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToStack { height, local },
                 value: LocalFromFrame {
-                    frame: list::get(stack, int::sub(height, 1)),
+                    frame: list::get(stack, height - 1),
                     local,
                     offset: height
                 },
@@ -6770,7 +6762,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::ge(count, 0))]
+    #[k::requires(count >= 0)]
     finish_repeat: {
         k: [
             Execution::Continue {
@@ -7600,7 +7592,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateSigned { value: int::sub(0, value), width },
+                    value: TruncateSigned { value: -value, width },
                     width,
                     signed: true
                 }
@@ -7621,7 +7613,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::not(value)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(!value) }, ..],
     };
 
     finish_int_not: {
@@ -7640,7 +7632,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::bit_xor(value, -1), width, signed },
+                    value: TruncateInteger { value: value ^ -1, width, signed },
                     width,
                     signed
                 }
@@ -7714,7 +7706,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::eq(TruncateInteger { value: int::add(lhs, rhs), width, signed }, int::add(lhs, rhs))
+        TruncateInteger { value: lhs + rhs, width, signed } == lhs + rhs
     )]
     finish_add: {
         k: [
@@ -7734,7 +7726,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::add(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs + rhs, width, signed },
                     width,
                     signed
                 }
@@ -7744,7 +7736,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::eq(TruncateInteger { value: int::add(lhs, rhs), width, signed }, int::add(lhs, rhs))
+        TruncateInteger { value: lhs + rhs, width, signed } == lhs + rhs
     )]
     finish_add_unchecked: {
         k: [
@@ -7764,7 +7756,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::add(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs + rhs, width, signed },
                     width,
                     signed
                 }
@@ -7795,7 +7787,7 @@ k::rules! {
                     fields: list::concat(
                         list::item(
                             Value::Integer {
-                                value: TruncateInteger { value: int::add(lhs, rhs), width, signed },
+                                value: TruncateInteger { value: lhs + rhs, width, signed },
                                 width,
                                 signed
                             }
@@ -7803,14 +7795,7 @@ k::rules! {
                         list::concat(
                             list::item(
                                 Value::Boolean(
-                                    int::ne(
-                                        TruncateInteger {
-                                            value: int::add(lhs, rhs),
-                                            width,
-                                            signed
-                                        },
-                                        int::add(lhs, rhs)
-                                    )
+                                    TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs
                                 )
                             ),
                             list::empty()
@@ -7823,7 +7808,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::eq(TruncateInteger { value: int::sub(lhs, rhs), width, signed }, int::sub(lhs, rhs))
+        TruncateInteger { value: lhs - rhs, width, signed } == lhs - rhs
     )]
     finish_sub: {
         k: [
@@ -7843,7 +7828,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::sub(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs - rhs, width, signed },
                     width,
                     signed
                 }
@@ -7853,7 +7838,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::eq(TruncateInteger { value: int::sub(lhs, rhs), width, signed }, int::sub(lhs, rhs))
+        TruncateInteger { value: lhs - rhs, width, signed } == lhs - rhs
     )]
     finish_sub_unchecked: {
         k: [
@@ -7873,7 +7858,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::sub(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs - rhs, width, signed },
                     width,
                     signed
                 }
@@ -7904,7 +7889,7 @@ k::rules! {
                     fields: list::concat(
                         list::item(
                             Value::Integer {
-                                value: TruncateInteger { value: int::sub(lhs, rhs), width, signed },
+                                value: TruncateInteger { value: lhs - rhs, width, signed },
                                 width,
                                 signed
                             }
@@ -7912,14 +7897,7 @@ k::rules! {
                         list::concat(
                             list::item(
                                 Value::Boolean(
-                                    int::ne(
-                                        TruncateInteger {
-                                            value: int::sub(lhs, rhs),
-                                            width,
-                                            signed
-                                        },
-                                        int::sub(lhs, rhs)
-                                    )
+                                    TruncateInteger { value: lhs - rhs, width, signed } != lhs - rhs
                                 )
                             ),
                             list::empty()
@@ -7932,7 +7910,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::eq(TruncateInteger { value: int::mul(lhs, rhs), width, signed }, int::mul(lhs, rhs))
+        TruncateInteger { value: lhs * rhs, width, signed } == lhs * rhs
     )]
     finish_mul: {
         k: [
@@ -7952,7 +7930,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::mul(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs * rhs, width, signed },
                     width,
                     signed
                 }
@@ -7962,7 +7940,7 @@ k::rules! {
     };
 
     #[k::requires(
-        int::eq(TruncateInteger { value: int::mul(lhs, rhs), width, signed }, int::mul(lhs, rhs))
+        TruncateInteger { value: lhs * rhs, width, signed } == lhs * rhs
     )]
     finish_mul_unchecked: {
         k: [
@@ -7982,7 +7960,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::mul(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs * rhs, width, signed },
                     width,
                     signed
                 }
@@ -8013,7 +7991,7 @@ k::rules! {
                     fields: list::concat(
                         list::item(
                             Value::Integer {
-                                value: TruncateInteger { value: int::mul(lhs, rhs), width, signed },
+                                value: TruncateInteger { value: lhs * rhs, width, signed },
                                 width,
                                 signed
                             }
@@ -8021,14 +7999,7 @@ k::rules! {
                         list::concat(
                             list::item(
                                 Value::Boolean(
-                                    int::ne(
-                                        TruncateInteger {
-                                            value: int::mul(lhs, rhs),
-                                            width,
-                                            signed
-                                        },
-                                        int::mul(lhs, rhs)
-                                    )
+                                    TruncateInteger { value: lhs * rhs, width, signed } != lhs * rhs
                                 )
                             ),
                             list::empty()
@@ -8041,11 +8012,8 @@ k::rules! {
     };
 
     #[k::requires(
-        int::ne(rhs, 0)
-            && int::eq(
-                TruncateInteger { value: int::div(lhs, rhs), width, signed },
-                int::div(lhs, rhs)
-            )
+        rhs != 0
+            && TruncateInteger { value: lhs / rhs, width, signed } == lhs / rhs
     )]
     finish_div: {
         k: [
@@ -8065,7 +8033,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::div(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs / rhs, width, signed },
                     width,
                     signed
                 }
@@ -8075,15 +8043,8 @@ k::rules! {
     };
 
     #[k::requires(
-        int::ne(rhs, 0)
-            && int::eq(
-                TruncateInteger {
-                    value: int::sub(lhs, int::mul(int::div(lhs, rhs), rhs)),
-                    width,
-                    signed
-                },
-                int::sub(lhs, int::mul(int::div(lhs, rhs), rhs))
-            )
+        rhs != 0
+            && TruncateInteger { value: lhs - lhs / rhs * rhs, width, signed } == lhs - lhs / rhs * rhs
     )]
     finish_rem: {
         k: [
@@ -8103,11 +8064,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger {
-                        value: int::sub(lhs, int::mul(int::div(lhs, rhs), rhs)),
-                        width,
-                        signed
-                    },
+                    value: TruncateInteger { value: lhs - lhs / rhs * rhs, width, signed },
                     width,
                     signed
                 }
@@ -8133,7 +8090,7 @@ k::rules! {
         k: [
             Execution::SetLocalValue {
                 place,
-                value: Value::Integer { value: int::bit_xor(lhs, rhs), width, signed }
+                value: Value::Integer { value: lhs ^ rhs, width, signed }
             },
             ..
         ],
@@ -8156,7 +8113,7 @@ k::rules! {
         k: [
             Execution::SetLocalValue {
                 place,
-                value: Value::Integer { value: int::bit_and(lhs, rhs), width, signed }
+                value: Value::Integer { value: lhs & rhs, width, signed }
             },
             ..
         ],
@@ -8179,7 +8136,7 @@ k::rules! {
         k: [
             Execution::SetLocalValue {
                 place,
-                value: Value::Integer { value: int::bit_or(lhs, rhs), width, signed }
+                value: Value::Integer { value: lhs | rhs, width, signed }
             },
             ..
         ],
@@ -8203,7 +8160,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::shift_left(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs << rhs, width, signed },
                     width,
                     signed
                 }
@@ -8212,7 +8169,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::lt(rhs, width))]
+    #[k::requires(rhs < width)]
     finish_shl_unchecked: {
         k: [
             Execution::Continue {
@@ -8231,7 +8188,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::shift_left(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs << rhs, width, signed },
                     width,
                     signed
                 }
@@ -8258,7 +8215,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::shift_right(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs >> rhs, width, signed },
                     width,
                     signed
                 }
@@ -8267,7 +8224,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::lt(rhs, width))]
+    #[k::requires(rhs < width)]
     finish_shr_unchecked: {
         k: [
             Execution::Continue {
@@ -8286,7 +8243,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger { value: int::shift_right(lhs, rhs), width, signed },
+                    value: TruncateInteger { value: lhs >> rhs, width, signed },
                     width,
                     signed
                 }
@@ -8309,7 +8266,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::ne(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs != rhs) }, ..],
     };
 
     finish_bool_bit_and: {
@@ -8346,7 +8303,7 @@ k::rules! {
         k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs || rhs) }, ..],
     };
 
-    #[k::requires(int::eq(offset, 0))]
+    #[k::requires(offset == 0)]
     finish_pointer_offset_zero: {
         k: [
             Execution::Continue {
@@ -8370,7 +8327,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::ge(offset, 0) && int::le(int::add(current_offset, offset), origin_size))]
+    #[k::requires(offset >= 0 && current_offset + offset <= origin_size)]
     #[k::rule(owise)]
     finish_pointer_offset_dynamic: {
         k: [
@@ -8404,7 +8361,7 @@ k::rules! {
                     mutability,
                     metadata: MirMetadata::Metadata {
                         size,
-                        offset: int::add(current_offset, offset),
+                        offset: current_offset + offset,
                         origin_size: MirMetadataSize::DynamicSize(origin_size)
                     }
                 }
@@ -8413,7 +8370,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::ge(offset, 0) && int::le(int::add(current_offset, offset), origin_size))]
+    #[k::requires(offset >= 0 && current_offset + offset <= origin_size)]
     #[k::rule(owise)]
     finish_pointer_offset_static: {
         k: [
@@ -8447,7 +8404,7 @@ k::rules! {
                     mutability,
                     metadata: MirMetadata::Metadata {
                         size,
-                        offset: int::add(current_offset, offset),
+                        offset: current_offset + offset,
                         origin_size: MirMetadataSize::StaticSize(origin_size)
                     }
                 }
@@ -8540,7 +8497,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(int::eq(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs == rhs) }, ..],
     };
 
     finish_lt: {
@@ -8557,7 +8514,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(int::lt(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs < rhs) }, ..],
     };
 
     finish_le: {
@@ -8574,7 +8531,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(int::le(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs <= rhs) }, ..],
     };
 
     finish_ne: {
@@ -8591,7 +8548,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(int::ne(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs != rhs) }, ..],
     };
 
     finish_ge: {
@@ -8608,7 +8565,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(int::ge(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs >= rhs) }, ..],
     };
 
     finish_gt: {
@@ -8625,7 +8582,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(int::gt(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs > rhs) }, ..],
     };
 
     finish_bool_eq: {
@@ -8642,7 +8599,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::eq(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs == rhs) }, ..],
     };
 
     finish_bool_lt: {
@@ -8659,7 +8616,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::not(lhs) && rhs) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(!lhs && rhs) }, ..],
     };
 
     finish_bool_le: {
@@ -8676,13 +8633,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [
-            Execution::SetLocalValue {
-                place,
-                value: Value::Boolean(bool::not(lhs) || (lhs && rhs))
-            },
-            ..
-        ],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(!lhs || (lhs && rhs)) }, ..],
     };
 
     finish_bool_ne: {
@@ -8699,7 +8650,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::ne(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs != rhs) }, ..],
     };
 
     finish_bool_ge: {
@@ -8716,13 +8667,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [
-            Execution::SetLocalValue {
-                place,
-                value: Value::Boolean(bool::not(rhs) || (rhs && lhs))
-            },
-            ..
-        ],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(!rhs || (rhs && lhs)) }, ..],
     };
 
     finish_bool_gt: {
@@ -8739,7 +8684,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs && bool::not(rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs && !rhs) }, ..],
     };
 
     set_local_value: {
@@ -8909,7 +8854,7 @@ k::rules! {
     } => {
         k: [
             Execution::SetArgFromStack { index, operand: head },
-            Execution::SetArgsFromStack { index: int::add(index, 1), args: tail },
+            Execution::SetArgsFromStack { index: index + 1, args: tail },
             ..
         ],
     };
@@ -9063,7 +9008,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::eq(condition, expected))]
+    #[k::requires(condition == expected)]
     assert_succeeds: {
         k: [
             Execution::Continue {
@@ -9076,7 +9021,7 @@ k::rules! {
         k: [..],
     };
 
-    #[k::requires(bool::ne(condition, expected))]
+    #[k::requires(condition != expected)]
     #[k::rule(owise)]
     assert_fails: {
         k: [
@@ -9127,7 +9072,7 @@ k::rules! {
         k: [Execution::ExecBlockIdx(target), ..],
     };
 
-    #[k::requires(int::ne(branch_value, 1))]
+    #[k::requires(branch_value != 1)]
     #[k::rule(owise)]
     select_true_next: {
         k: [
@@ -9177,7 +9122,7 @@ k::rules! {
         k: [Execution::ExecBlockIdx(target), ..],
     };
 
-    #[k::requires(int::ne(branch_value, 0))]
+    #[k::requires(branch_value != 0)]
     #[k::rule(owise)]
     select_false_next: {
         k: [
@@ -9207,7 +9152,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(int::eq(branch_value, TruncateUnsigned { value, width }))]
+    #[k::requires(branch_value == TruncateUnsigned { value, width })]
     select_integer: {
         k: [
             Execution::Continue {
@@ -9228,7 +9173,7 @@ k::rules! {
         k: [Execution::ExecBlockIdx(target), ..],
     };
 
-    #[k::requires(int::ne(branch_value, TruncateUnsigned { value, width }))]
+    #[k::requires(branch_value != TruncateUnsigned { value, width })]
     #[k::rule(owise)]
     select_integer_next: {
         k: [
