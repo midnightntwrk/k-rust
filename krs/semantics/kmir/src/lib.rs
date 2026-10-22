@@ -1010,7 +1010,7 @@ fn read_ty_const_int_done(
 }
 
 #[k::equation]
-#[k::requires(bool::and(int::ge(index, 0), int::lt(index, bytes::length(value))))]
+#[k::requires(int::ge(index, 0) && int::lt(index, bytes::length(value)))]
 fn read_ty_const_int_byte(
     k::term![ReadTyConstInt {
         bytes: value,
@@ -1245,18 +1245,7 @@ pub fn DecodeInteger(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::eq(bytes::length(bytes), 1),
-    int::eq(
-        ReadTyConstInt {
-            bytes,
-            index: 0,
-            multiplier: 1,
-            result: 0,
-        },
-        0,
-    ),
-))]
+#[k::requires(int::eq(bytes::length(bytes), 1) && int::eq(ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 }, 0))]
 fn decode_allocated_boolean_false(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -1270,18 +1259,7 @@ fn decode_allocated_boolean_false(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::eq(bytes::length(bytes), 1),
-    int::eq(
-        ReadTyConstInt {
-            bytes,
-            index: 0,
-            multiplier: 1,
-            result: 0,
-        },
-        1,
-    ),
-))]
+#[k::requires(int::eq(bytes::length(bytes), 1) && int::eq(ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 }, 1))]
 fn decode_allocated_boolean_true(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -1907,13 +1885,7 @@ pub fn DecodeArrayAllocation(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::gt(remaining, 0),
-    bool::and(
-        int::gt(ElementSize { types, info }, 0),
-        int::ge(bytes::length(bytes), ElementSize { types, info }),
-    ),
-))]
+#[k::requires(bool::and(int::gt(remaining, 0), int::gt(ElementSize { types, info }, 0) && int::ge(bytes::length(bytes), ElementSize { types, info })))]
 fn decode_array_elements_cons(
     k::term![DecodeArrayElements {
         types,
@@ -1940,7 +1912,7 @@ fn decode_array_elements_cons(
 }
 
 #[k::equation]
-#[k::requires(bool::and(int::le(remaining, 0), int::eq(bytes::length(bytes), 0),))]
+#[k::requires(int::le(remaining, 0) && int::eq(bytes::length(bytes), 0))]
 fn decode_array_elements_done(
     k::term![DecodeArrayElements {
         bytes,
@@ -2024,24 +1996,7 @@ fn decode_allocated_slice(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::ge(
-        NeededBytesForOffsets {
-            types,
-            fields,
-            offsets,
-        },
-        0,
-    ),
-    int::ge(
-        bytes::length(bytes),
-        NeededBytesForOffsets {
-            types,
-            fields,
-            offsets,
-        },
-    ),
-))]
+#[k::requires(int::ge(NeededBytesForOffsets { types, fields, offsets }, 0) && int::ge(bytes::length(bytes), NeededBytesForOffsets { types, fields, offsets }))]
 fn decode_allocated_struct(
     k::term![DecodeAllocatedValue {
         bytes,
@@ -2090,30 +2045,7 @@ fn decode_allocated_empty_tuple(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::ge(
-        NeededBytesForOffsets {
-            types,
-            fields: MirTys::TysCons {
-                head: first,
-                tail: remaining,
-            },
-            offsets,
-        },
-        0,
-    ),
-    int::ge(
-        bytes::length(bytes),
-        NeededBytesForOffsets {
-            types,
-            fields: MirTys::TysCons {
-                head: first,
-                tail: remaining,
-            },
-            offsets,
-        },
-    ),
-))]
+#[k::requires(int::ge(NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets }, 0) && int::ge(bytes::length(bytes), NeededBytesForOffsets { types, fields: MirTys::TysCons { head: first, tail: remaining }, offsets }))]
 fn decode_allocated_tuple(
     k::term![DecodeAllocatedValue {
         types,
@@ -4441,7 +4373,7 @@ fn read_projection_deref(
 }
 
 #[k::equation]
-#[k::requires(bool::and(int::ge(offset, 0), int::lt(offset, list::size(elements))))]
+#[k::requires(int::ge(offset, 0) && int::lt(offset, list::size(elements)))]
 fn read_projection_constant_index_front(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4464,10 +4396,7 @@ fn read_projection_constant_index_front(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::gt(offset, 0),
-    bool::and(int::le(offset, min_length), int::eq(min_length, list::size(elements)),),
-))]
+#[k::requires(int::gt(offset, 0) && int::le(offset, min_length) && int::eq(min_length, list::size(elements)))]
 fn read_projection_constant_index_end(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4490,16 +4419,7 @@ fn read_projection_constant_index_end(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::ge(from, 0),
-    bool::and(
-        int::le(from, list::size(elements)),
-        bool::and(
-            int::gt(to, 0),
-            bool::and(int::le(to, list::size(elements)), int::lt(from, to)),
-        ),
-    ),
-))]
+#[k::requires(int::ge(from, 0) && int::le(from, list::size(elements)) && int::gt(to, 0) && int::le(to, list::size(elements)) && int::lt(from, to))]
 fn read_projection_subslice_front(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4524,16 +4444,7 @@ fn read_projection_subslice_front(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::ge(from, 0),
-    bool::and(
-        int::ge(to, 0),
-        bool::and(
-            int::lt(to, list::size(elements)),
-            int::le(from, int::sub(list::size(elements), to)),
-        ),
-    ),
-))]
+#[k::requires(int::ge(from, 0) && int::ge(to, 0) && int::lt(to, list::size(elements)) && int::le(from, int::sub(list::size(elements), to)))]
 fn read_projection_subslice_end(
     k::term![ReadProjection {
         value: Value::Range { elements },
@@ -4649,7 +4560,7 @@ fn write_projection_index(
 }
 
 #[k::equation]
-#[k::requires(bool::and(int::ge(offset, 0), int::lt(offset, list::size(elements))))]
+#[k::requires(int::ge(offset, 0) && int::lt(offset, list::size(elements)))]
 fn write_projection_constant_index_front(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -4680,10 +4591,7 @@ fn write_projection_constant_index_front(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::gt(offset, 0),
-    bool::and(int::le(offset, min_length), int::eq(min_length, list::size(elements)),),
-))]
+#[k::requires(int::gt(offset, 0) && int::le(offset, min_length) && int::eq(min_length, list::size(elements)))]
 fn write_projection_constant_index_end(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -4714,16 +4622,7 @@ fn write_projection_constant_index_end(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::ge(from, 0),
-    bool::and(
-        int::le(from, list::size(elements)),
-        bool::and(
-            int::gt(to, 0),
-            bool::and(int::le(to, list::size(elements)), int::lt(from, to)),
-        ),
-    ),
-))]
+#[k::requires(int::ge(from, 0) && int::le(from, list::size(elements)) && int::gt(to, 0) && int::le(to, list::size(elements)) && int::lt(from, to))]
 fn write_projection_subslice_front(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -4759,16 +4658,7 @@ fn write_projection_subslice_front(
 }
 
 #[k::equation]
-#[k::requires(bool::and(
-    int::ge(from, 0),
-    bool::and(
-        int::ge(to, 0),
-        bool::and(
-            int::lt(to, list::size(elements)),
-            int::le(from, int::sub(list::size(elements), to)),
-        ),
-    ),
-))]
+#[k::requires(int::ge(from, 0) && int::ge(to, 0) && int::lt(to, list::size(elements)) && int::le(from, int::sub(list::size(elements), to)))]
 fn write_projection_subslice_end(
     k::term![WriteProjection {
         value: Value::Range { elements },
@@ -6385,7 +6275,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::and(int::ge(offset, 0), int::lt(offset, list::size(elements))))]
+    #[k::requires(int::ge(offset, 0) && int::lt(offset, list::size(elements)))]
     traverse_projection_constant_index_front: {
         k: [
             Execution::TraverseProjection {
@@ -6419,10 +6309,7 @@ k::rules! {
     };
 
     #[k::requires(
-        bool::and(
-            int::gt(offset, 0),
-            bool::and(int::le(offset, min_length), int::eq(min_length, list::size(elements)))
-        )
+        int::gt(offset, 0) && int::le(offset, min_length) && int::eq(min_length, list::size(elements))
     )]
     traverse_projection_constant_index_end: {
         k: [
@@ -6460,16 +6347,7 @@ k::rules! {
     };
 
     #[k::requires(
-        bool::and(
-            int::ge(from, 0),
-            bool::and(
-                int::le(from, list::size(elements)),
-                bool::and(
-                    int::gt(to, 0),
-                    bool::and(int::le(to, list::size(elements)), int::lt(from, to))
-                )
-            )
-        )
+        int::ge(from, 0) && int::le(from, list::size(elements)) && int::gt(to, 0) && int::le(to, list::size(elements)) && int::lt(from, to)
     )]
     traverse_projection_subslice_front: {
         k: [
@@ -6510,16 +6388,7 @@ k::rules! {
     };
 
     #[k::requires(
-        bool::and(
-            int::ge(from, 0),
-            bool::and(
-                int::ge(to, 0),
-                bool::and(
-                    int::lt(to, list::size(elements)),
-                    int::le(from, int::sub(list::size(elements), to))
-                )
-            )
-        )
+        int::ge(from, 0) && int::ge(to, 0) && int::lt(to, list::size(elements)) && int::le(from, int::sub(list::size(elements), to))
     )]
     traverse_projection_subslice_end: {
         k: [
@@ -6557,7 +6426,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::and(int::ge(offset, 0), int::le(offset, list::size(elements))))]
+    #[k::requires(int::ge(offset, 0) && int::le(offset, list::size(elements)))]
     traverse_projection_pointer_offset: {
         k: [
             Execution::TraverseProjection {
@@ -6594,7 +6463,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::and(int::ge(size, 0), int::le(size, list::size(elements))))]
+    #[k::requires(int::ge(size, 0) && int::le(size, list::size(elements)))]
     traverse_projection_truncate_size: {
         k: [
             Execution::TraverseProjection {
@@ -7362,13 +7231,15 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::and(
-    ZeroFieldOffset { layout },
-    SameTypeInfo {
-    first: MirTypeInfo::ArrayType { element: source_element, size: source_size },
-    second: map::get(types, field),
-    },
-    ))]
+    #[k::requires(
+        bool::and(
+            ZeroFieldOffset { layout },
+            SameTypeInfo {
+                first: MirTypeInfo::ArrayType { element: source_element, size: source_size },
+                second: map::get(types, field)
+            }
+        )
+    )]
     resolve_ptr_cast_array_to_exact_wrapper: {
         k: [
             Execution::ResolvePtrCast {
@@ -8455,7 +8326,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::and(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs && rhs) }, ..],
     };
 
     finish_bool_bit_or: {
@@ -8472,7 +8343,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::or(lhs, rhs)) }, ..],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs || rhs) }, ..],
     };
 
     #[k::requires(int::eq(offset, 0))]
@@ -8499,10 +8370,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::and(
-    int::ge(offset, 0),
-    int::le(int::add(current_offset, offset), origin_size),
-    ))]
+    #[k::requires(int::ge(offset, 0) && int::le(int::add(current_offset, offset), origin_size))]
     #[k::rule(owise)]
     finish_pointer_offset_dynamic: {
         k: [
@@ -8545,10 +8413,7 @@ k::rules! {
         ],
     };
 
-    #[k::requires(bool::and(
-    int::ge(offset, 0),
-    int::le(int::add(current_offset, offset), origin_size),
-    ))]
+    #[k::requires(int::ge(offset, 0) && int::le(int::add(current_offset, offset), origin_size))]
     #[k::rule(owise)]
     finish_pointer_offset_static: {
         k: [
@@ -8794,13 +8659,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [
-            Execution::SetLocalValue {
-                place,
-                value: Value::Boolean(bool::and(bool::not(lhs), rhs))
-            },
-            ..
-        ],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(bool::not(lhs) && rhs) }, ..],
     };
 
     finish_bool_le: {
@@ -8820,7 +8679,7 @@ k::rules! {
         k: [
             Execution::SetLocalValue {
                 place,
-                value: Value::Boolean(bool::or(bool::not(lhs), bool::and(lhs, rhs)))
+                value: Value::Boolean(bool::not(lhs) || (lhs && rhs))
             },
             ..
         ],
@@ -8860,7 +8719,7 @@ k::rules! {
         k: [
             Execution::SetLocalValue {
                 place,
-                value: Value::Boolean(bool::or(bool::not(rhs), bool::and(rhs, lhs)))
+                value: Value::Boolean(bool::not(rhs) || (rhs && lhs))
             },
             ..
         ],
@@ -8880,13 +8739,7 @@ k::rules! {
             ..
         ],
     } => {
-        k: [
-            Execution::SetLocalValue {
-                place,
-                value: Value::Boolean(bool::and(lhs, bool::not(rhs)))
-            },
-            ..
-        ],
+        k: [Execution::SetLocalValue { place, value: Value::Boolean(lhs && bool::not(rhs)) }, ..],
     };
 
     set_local_value: {
