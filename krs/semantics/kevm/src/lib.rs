@@ -411,6 +411,7 @@ pub struct BoolToWord {
 
 #[k::function(
     total,
+    underspecified = "SLT and SGT apply it to stack words, so both operands are in 0..2^256",
     sort = Int,
     syntax = "#kevmSignedLess({left}, {right})"
 )]
@@ -1542,10 +1543,10 @@ pub struct PreparePush {
 #[k::function(
     total,
     sort = GasStep,
-    syntax = "#kevmPrepareLog({op}, {stack}, {gas}, {used}, {static_mode})"
+    syntax = "#kevmPrepareLog({topics}, {stack}, {gas}, {used}, {static_mode})"
 )]
 pub struct PrepareLog {
-    pub op: k::Term<OpCode>,
+    pub topics: k::Term<Int>,
     pub stack: k::Term<WordStack>,
     pub gas: k::Term<Int>,
     pub used: k::Term<Int>,
@@ -2446,14 +2447,26 @@ fn scan_jump_destination_found(
         cursor
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![int::eq(bytes::get(program, cursor), 91)]
+    k::term![int::eq(
+        MemoryByte {
+            memory: program,
+            index: cursor
+        },
+        91
+    )]
 }
 
 #[k::requires(bool::and(
     int::lt(cursor, destination),
     bool::and(
-        int::ge(bytes::get(program, cursor), 96),
-        int::le(bytes::get(program, cursor), 127),
+        int::ge(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 96),
+        int::le(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 127),
     ),
 ))]
 #[k::equation]
@@ -2467,15 +2480,30 @@ fn scan_jump_destination_past_push(
     k::term![ScanJumpDestination {
         program,
         destination,
-        cursor: int::add(cursor, int::sub(bytes::get(program, cursor), 94),)
+        cursor: int::add(
+            cursor,
+            int::sub(
+                MemoryByte {
+                    memory: program,
+                    index: cursor
+                },
+                94
+            ),
+        )
     }]
 }
 
 #[k::requires(bool::and(
     int::lt(cursor, destination),
     bool::or(
-        int::lt(bytes::get(program, cursor), 96),
-        int::gt(bytes::get(program, cursor), 127),
+        int::lt(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 96),
+        int::gt(MemoryByte {
+            memory: program,
+            index: cursor
+        }, 127),
     ),
 ))]
 #[k::equation]
@@ -2617,19 +2645,19 @@ fn sign_outside_word(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
 }
 
-#[k::requires(int::eq(Sign(value), int::sub(0, 1)))]
+#[k::requires(bool::and(int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value), int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)))]
 #[k::equation]
 fn magnitude_negative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![Chop(int::sub(0, value))]
 }
 
-#[k::requires(int::eq(Sign(value), 1))]
+#[k::requires(bool::and(int::le(0, value), int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)))]
 #[k::equation]
 fn magnitude_nonnegative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![value]
 }
 
-#[k::requires(int::eq(Sign(value), 0))]
+#[k::requires(bool::or(int::lt(value, 0), int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)))]
 #[k::equation]
 fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
@@ -3210,7 +3238,7 @@ fn prepare_push_overflow(
 #[k::equation]
 fn prepare_log_underflow(
     k::term![PrepareLog {
-        op: Operation::LogOpcode { topics },
+        topics,
         stack,
         gas,
         used,
@@ -3280,7 +3308,7 @@ fn static_call_gas_capped(
     k::term![int::sub(available, int::div(available, 64))]
 }
 
-#[k::requires(int::eq(bytes::length(public_key), 0))]
+#[k::requires(int::le(bytes::length(public_key), 0))]
 #[k::equation]
 fn ecrec_output_invalid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
     k::term![bytes::empty()]
@@ -3523,13 +3551,14 @@ fn modexp_exponent_head_bits_positive(
     k::term![int::log2(value)]
 }
 
+#[k::requires(int::le(modulus_length, 0))]
 #[k::equation]
 fn modexp_output_body_empty(
     k::term![ModExpOutputBody {
         body,
         base_length,
         exponent_length,
-        modulus_length: 0
+        modulus_length
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
     k::term![bytes::empty()]
@@ -3568,7 +3597,7 @@ fn modexp_output_body_nonempty(
     }]
 }
 
-#[k::requires(int::eq(modulus, 0))]
+#[k::requires(int::le(modulus, 0))]
 #[k::equation]
 fn modexp_power_zero_modulus(
     k::term![ModExpPower {
@@ -3814,7 +3843,7 @@ fn resolve_ecmul_precompile_invalid_point(
     }]
 }
 
-#[k::requires(int::eq(index, length))]
+#[k::requires(int::ge(index, length))]
 #[k::equation]
 fn ecpairing_g1_points_done(
     k::term![EcPairingG1Points {
@@ -3845,7 +3874,7 @@ fn ecpairing_g1_points_next(
     )]
 }
 
-#[k::requires(int::eq(index, length))]
+#[k::requires(int::ge(index, length))]
 #[k::equation]
 fn ecpairing_g2_points_done(
     k::term![EcPairingG2Points {
@@ -3876,7 +3905,7 @@ fn ecpairing_g2_points_next(
     )]
 }
 
-#[k::requires(int::eq(index, length))]
+#[k::requires(int::ge(index, length))]
 #[k::equation]
 fn ecpairing_points_valid_done(
     k::term![EcPairingPointsValid {
@@ -4051,7 +4080,7 @@ fn maximum_right(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int
 #[k::equation]
 fn prepare_log_static(
     k::term![PrepareLog {
-        op: Operation::LogOpcode { topics },
+        topics,
         stack,
         gas,
         used,
@@ -4065,7 +4094,7 @@ fn prepare_log_static(
 #[k::equation]
 fn prepare_log_allowed(
     k::term![PrepareLog {
-        op: Operation::LogOpcode { topics },
+        topics,
         stack,
         gas,
         used,
@@ -4592,7 +4621,7 @@ k::rules! {
         static_mode: static_mode,
         gas: gas,
     } => {
-        k: [crate::PrepareLog { op: Operation::LogOpcode { topics }, stack, gas, used, static_mode }, ..],
+        k: [crate::PrepareLog { topics, stack, gas, used, static_mode }, ..],
     }
     where topics: Int, stack: WordStack, used: Int, static_mode: Bool, gas: Int;
 
