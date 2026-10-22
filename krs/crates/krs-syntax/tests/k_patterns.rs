@@ -15,6 +15,12 @@ fn error(clause: &str) -> String {
 }
 
 #[test]
+fn a_binder_repeated_across_cells_is_one_binder() {
+    let block = block("a: { k: [Run { n }, ..], left: n } => { k: [..], left: 0 };");
+    assert_eq!(block.clauses()[0].bindings(), ["n"]);
+}
+
+#[test]
 fn a_prefix_matches_several_items_and_keeps_the_rest() {
     let block = block(
         "store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;",
@@ -104,10 +110,6 @@ fn unsupported_shapes_are_rejected_with_their_reason() {
         (
             "a: { k: [Run { n }, ..] } => { k: 3 };",
             "the computation cell's result is a bracketed sequence",
-        ),
-        (
-            "a: { k: [Run { n }, ..], left: n } => { k: [..], left: 0 };",
-            "duplicate readable rule binding `n`",
         ),
     ] {
         let message = error(clause);

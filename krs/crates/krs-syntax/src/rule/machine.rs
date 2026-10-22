@@ -1029,6 +1029,7 @@ fn assemble_machine_clause(
     let mut extras = Vec::new();
     let mut extra_bindings = Vec::new();
     let mut state_bindings: Vec<Ident> = Vec::new();
+    let mut map_values = Vec::new();
     for (cell, pattern) in subject_cells {
         match pattern {
             MachinePatternCell::KItems(pattern) => {
@@ -1066,6 +1067,7 @@ fn assemble_machine_clause(
                         })
                         .collect::<Result<_, ParseError>>()?,
                 });
+                map_values.extend(entries.iter().map(|(_, value)| value.clone()));
                 extra_bindings.extend(entries.iter().map(|(_, value)| value.clone()));
             }
             MachinePatternCell::State(before) => {
@@ -1252,25 +1254,22 @@ fn assemble_machine_clause(
             }
         }
     }
-    for introduced in state_bindings {
-        if !bindings
-            .iter()
-            .chain(&extra_bindings)
-            .any(|binding| binding.unraw() == introduced.unraw())
-        {
-            extra_bindings.push(introduced);
-        }
-    }
-    for introduced in extra_bindings {
+    // The record is one configuration pattern, so a binder repeated across
+    // cells, like one repeated across items, is nonlinear matching. A map
+    // entry's value binder stays fresh: it names what the entry maps to.
+    for introduced in extra_bindings.into_iter().chain(state_bindings) {
         if bindings
             .iter()
             .any(|binding| binding.unraw() == introduced.unraw())
         {
-            return Err(syn::Error::new(
-                introduced.span(),
-                format!("duplicate readable rule binding `{}`", introduced.unraw()),
-            )
-            .into());
+            if map_values.contains(&introduced) {
+                return Err(syn::Error::new(
+                    introduced.span(),
+                    format!("duplicate readable rule binding `{}`", introduced.unraw()),
+                )
+                .into());
+            }
+            continue;
         }
         bindings.push(introduced);
     }
