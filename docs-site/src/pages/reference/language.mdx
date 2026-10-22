@@ -300,7 +300,11 @@ The evaluation is the builtins' definition on literals; a `requires` that calls 
 
 Otherwise the check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
 A comparison `x.bit_range::<Int>(o, l) == v` or `(x & m) == v` with constant `o`, `l` and `m` also fixes bits of `x`, and the check skips valuations no integer `x` has, so a bit template's equation covers the values it matches.
-It only counts a guard whose every operation is defined on every argument: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key, a division counts only by a nonzero constant, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, only with constant `o` and `l` that are not negative.
+A guard holds only where it is defined, and the check reads a partial Int operation together with its domain: a division or remainder holds only where its divisor is not zero, a shift or exponent where its amount is not negative, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, where `o` and `l` are not negative.
+So `w > 0 && x < 1 << (w - 1)` counts, because the shift is defined wherever `w > 0` holds, while `x / d >= 0` and `x / d < 0` leave `d == 0` uncovered.
+Comparisons are read through constant summands, so `w - 1 >= 0` is `w >= 1`.
+A guard with any other operation that may be undefined counts for nothing: `map::get(m, k) > 0` and `map::get(m, k) <= 0` both fail when `k` is not a key.
+The same holds when such an operation is the right operand of a negated `&&` or of a `||`, where a backend that evaluates them lazily and the strict reading of matching logic disagree on whether the guard holds.
 The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
 A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
 
