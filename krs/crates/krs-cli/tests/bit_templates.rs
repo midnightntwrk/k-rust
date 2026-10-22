@@ -375,19 +375,19 @@ fn a_template_at_a_position_of_another_sort_is_reported_at_the_template() {
         [
             [
                 "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
-                "--> src/lib.rs:52:24",
+                "--> src/lib.rs:58:24",
             ],
             [
                 "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
-                "--> src/lib.rs:51:35",
+                "--> src/lib.rs:57:35",
             ],
             [
                 "error[krs::analysis::bit-template-sort]: a `k::bits!` template matches an `Int`, but it stands where a term of sort Bool is expected, and no `Int` is one; a template belongs in an argument of sort `Int` or of a sort above it",
-                "--> src/lib.rs:53:30",
+                "--> src/lib.rs:59:30",
             ],
             [
                 "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BITS-ALL-FIXED::flag_row (equation): literal `2` of sort Int is not admissible at sort Bool",
-                "--> src/lib.rs:52:24",
+                "--> src/lib.rs:58:24",
             ],
         ]
     "#]]

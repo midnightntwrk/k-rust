@@ -26,7 +26,11 @@
 //!   a table row (`edgeOf(56)` is `3`, `edgeOf(40)` is `0`) and in an
 //!   `#[k::equation]` fn (`edgeOf(245)` is `13`, `edgeOf(213)` is `0`), and
 //!   `k::bits!(opcode, "..")` tests in a condition and in `isLd`'s result
-//!   (`edgeOf(112)` is `6`, `edgeOf(70)` is `0`).
+//!   (`edgeOf(112)` is `6`, `edgeOf(70)` is `0`);
+//! - `immOf(..)`: the immediates of RISC-V's ADDI, SW, BEQ, LUI and JAL, read
+//!   with field modifiers: signed (I), signed in two pieces (S), scattered
+//!   with a zero bit 0 (B, J), and shifted into place (U), so
+//!   `immOf(4293918867)`, `addi x1, x0, -1`, is `-1`.
 
 use k::builtin::KSequence;
 use k::builtin::bool::Bool;
@@ -42,7 +46,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((DecodeOf, DecodeCbOf, KindOf, RegOf, EdgeOf))]
+#[k::precedence((DecodeOf, DecodeCbOf, KindOf, RegOf, EdgeOf, ImmOf))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("decodeOf({opcode})")]
@@ -55,6 +59,8 @@ pub enum ExpSyntax {
     RegOf { opcode: Int },
     #[k::syntax("edgeOf({opcode})")]
     EdgeOf { opcode: Int },
+    #[k::syntax("immOf({word})")]
+    ImmOf { word: Int },
 }
 
 #[k::constructors(sort = Reg, result = KResult)]
@@ -193,6 +199,7 @@ k::rules! {
     reg_low     : RegOf(k::bits!("0___ 0zzz"))      => crate::R8(z);
     reg_high    : RegOf(op @ k::bits!("1yyy ____")) => crate::Instruction::Alu(op, crate::R8(y));
     edge_of     : EdgeOf(n)                         => crate::Edge(n);
+    imm_of      : ImmOf(n)                          => crate::Imm(n);
 }
 
 /// Whether an opcode is an 8-bit load or `halt`: the test form of the
@@ -224,4 +231,20 @@ k::equations! {
 #[k::equation]
 fn edge_push(k::term![Edge(k::bits!("11 pp0 101"))]: Term<Int>) -> Term<Int> {
     p.add::<Int>(10)
+}
+
+/// The immediate of a RISC-V instruction word: signed, in pieces, scattered,
+/// or shifted into place, as the encoding table draws each format.
+#[k::function(total, internal)]
+pub fn Imm(word: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Imm;
+    imm_addi : k::bits!("iiiiiiiiiiii _____ 000 _____ 0010011", i: signed)                        => i;
+    imm_sw   : k::bits!("iiiiiii _____ _____ 010 iiiii 0100011", i: signed[11:5 | 4:0])           => i;
+    imm_beq  : k::bits!("bbbbbbb _____ _____ 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => b;
+    imm_lui  : k::bits!("uuuuuuuuuuuuuuuuuuuu _____ 0110111", u: signed[31:12])                   => u;
+    imm_jal  : k::bits!("jjjjjjjjjjjjjjjjjjjj _____ 1101111", j: signed[20 | 10:1 | 11 | 19:12])  => j;
+    #[k::equation(owise)]
+    imm_other: word                                                                               => 0;
 }
