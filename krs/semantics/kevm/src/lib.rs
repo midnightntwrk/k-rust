@@ -354,9 +354,15 @@ pub enum SavedWorldState {
     },
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmChop({value})")]
-pub struct Chop {
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmChop({value})")]
+pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(
+        value,
+        int::mul(
+            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
+            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
+        ),
+    )
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmWordDiv({dividend}, {divisor})")]
@@ -451,10 +457,9 @@ pub struct WordSignExtend {
     pub value: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmSignExtendByte({index}, {value})")]
-pub struct SignExtendByte {
-    pub index: k::Term<Int>,
-    pub value: k::Term<Int>,
+#[k::function(total, syntax = "#kevmSignExtendByte({index}, {value})")]
+pub fn SignExtendByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(int::shift_right(value, int::mul(8, index)), 256)
 }
 
 #[k::function(
@@ -480,27 +485,29 @@ pub struct MemoryUsageUpdate {
     pub width: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmMemoryCost({words})")]
-pub struct MemoryCost {
-    pub words: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMemoryCost({words})")]
+pub fn MemoryCost(words: k::Term<Int>) -> k::Term<Int> {
+    int::add(int::mul(3, words), int::div(int::mul(words, words), 512))
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmMemoryExpansionCost({used}, {start}, {width})"
-)]
-pub struct MemoryExpansionCost {
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMemoryExpansionCost({used}, {start}, {width})")]
+pub fn MemoryExpansionCost(
+    used: k::Term<Int>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Int> {
+    int::sub(
+        MemoryCost(MemoryUsageUpdate { used, start, width }),
+        MemoryCost(used),
+    )
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmCopyGasCost({used}, {start}, {width})")]
-pub struct CopyGasCost {
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmCopyGasCost({used}, {start}, {width})")]
+pub fn CopyGasCost(used: k::Term<Int>, start: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int> {
+    int::add(
+        MemoryExpansionCost { used, start, width },
+        int::add(3, int::mul(3, int::div(int::add(width, 31), 32))),
+    )
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmAccountAccessCost({accessed}, {account})")]
@@ -509,39 +516,66 @@ pub struct AccountAccessCost {
     pub account: k::Term<Int>,
 }
 
-#[k::function(total, sort = Bool, syntax = "#kevmAccountEmpty({code}, {nonce}, {balance})")]
-pub struct AccountEmpty {
-    pub code: k::Term<Bytes>,
-    pub nonce: k::Term<Int>,
-    pub balance: k::Term<Int>,
+#[k::function(total, syntax = "#kevmAccountEmpty({code}, {nonce}, {balance})")]
+pub fn AccountEmpty(
+    code: k::Term<Bytes>,
+    nonce: k::Term<Int>,
+    balance: k::Term<Int>,
+) -> k::Term<Bool> {
+    bool::and(
+        int::eq(bytes::length(code), 0),
+        bool::and(int::eq(nonce, 0), int::eq(balance, 0)),
+    )
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmCallMemoryUsage({used}, {argument_start}, {argument_width}, {return_start}, {return_width})"
 )]
-pub struct CallMemoryUsage {
-    pub used: k::Term<Int>,
-    pub argument_start: k::Term<Int>,
-    pub argument_width: k::Term<Int>,
-    pub return_start: k::Term<Int>,
-    pub return_width: k::Term<Int>,
+pub fn CallMemoryUsage(
+    used: k::Term<Int>,
+    argument_start: k::Term<Int>,
+    argument_width: k::Term<Int>,
+    return_start: k::Term<Int>,
+    return_width: k::Term<Int>,
+) -> k::Term<Int> {
+    MemoryUsageUpdate {
+        used: MemoryUsageUpdate {
+            used,
+            start: argument_start,
+            width: argument_width,
+        },
+        start: return_start,
+        width: return_width,
+    }
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmStaticCallCost({accessed}, {account}, {used}, {argument_start}, {argument_width}, {return_start}, {return_width})"
 )]
-pub struct StaticCallCost {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
-    pub used: k::Term<Int>,
-    pub argument_start: k::Term<Int>,
-    pub argument_width: k::Term<Int>,
-    pub return_start: k::Term<Int>,
-    pub return_width: k::Term<Int>,
+pub fn StaticCallCost(
+    accessed: k::Term<Set>,
+    account: k::Term<Int>,
+    used: k::Term<Int>,
+    argument_start: k::Term<Int>,
+    argument_width: k::Term<Int>,
+    return_start: k::Term<Int>,
+    return_width: k::Term<Int>,
+) -> k::Term<Int> {
+    int::add(
+        AccountAccessCost { accessed, account },
+        int::sub(
+            MemoryCost(CallMemoryUsage {
+                used,
+                argument_start,
+                argument_width,
+                return_start,
+                return_width,
+            }),
+            MemoryCost(used),
+        ),
+    )
 }
 
 #[k::function(
@@ -572,9 +606,36 @@ pub struct EcrecOutput {
     pub public_key: k::Term<Bytes>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcrecPrecompileOutput({data})")]
-pub struct EcrecPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcrecPrecompileOutput({data})")]
+pub fn EcrecPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    EcrecOutput {
+        public_key: EcdsaRecover {
+            hash: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            recovery: BytesToInt {
+                value: ReturnBytes {
+                    memory: data,
+                    start: 32,
+                    width: 32,
+                },
+                index: 0,
+                result: 0,
+            },
+            r: ReturnBytes {
+                memory: data,
+                start: 64,
+                width: 32,
+            },
+            s: ReturnBytes {
+                memory: data,
+                start: 96,
+                width: 32,
+            },
+        },
+    }
 }
 
 #[k::function(
@@ -597,13 +658,12 @@ pub struct Sha256Digest {
     pub value: k::Term<Bytes>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmSha256PrecompileCost({data})"
-)]
-pub struct Sha256PrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmSha256PrecompileCost({data})")]
+pub fn Sha256PrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(
+        60,
+        int::mul(12, int::div(int::add(bytes::length(data), 31), 32)),
+    )
 }
 
 #[k::function(
@@ -627,13 +687,12 @@ pub struct Ripemd160Digest {
     pub value: k::Term<Bytes>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmRipemd160PrecompileCost({data})"
-)]
-pub struct Ripemd160PrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmRipemd160PrecompileCost({data})")]
+pub fn Ripemd160PrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(
+        600,
+        int::mul(120, int::div(int::add(bytes::length(data), 31), 32)),
+    )
 }
 
 #[k::function(
@@ -647,13 +706,12 @@ pub struct ResolveRipemd160Precompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(
-    total,
-    sort = Int,
-    syntax = "#kevmIdentityPrecompileCost({data})"
-)]
-pub struct IdentityPrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmIdentityPrecompileCost({data})")]
+pub fn IdentityPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(
+        15,
+        int::mul(3, int::div(int::add(bytes::length(data), 31), 32)),
+    )
 }
 
 #[k::function(
@@ -667,9 +725,94 @@ pub struct ResolveIdentityPrecompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmModExpPrecompileCost({data})")]
-pub struct ModExpPrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmModExpPrecompileCost({data})")]
+pub fn ModExpPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    Maximum {
+        left: 200,
+        right: int::div(
+            int::mul(
+                int::mul(
+                    int::div(
+                        int::add(
+                            Maximum {
+                                left: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 0,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                                right: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 64,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                            },
+                            7,
+                        ),
+                        8,
+                    ),
+                    int::div(
+                        int::add(
+                            Maximum {
+                                left: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 0,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                                right: BytesToInt {
+                                    value: ReturnBytes {
+                                        memory: data,
+                                        start: 64,
+                                        width: 32,
+                                    },
+                                    index: 0,
+                                    result: 0,
+                                },
+                            },
+                            7,
+                        ),
+                        8,
+                    ),
+                ),
+                Maximum {
+                    left: ModExpAdjustedExponentLength {
+                        data,
+                        base_length: BytesToInt {
+                            value: ReturnBytes {
+                                memory: data,
+                                start: 0,
+                                width: 32,
+                            },
+                            index: 0,
+                            result: 0,
+                        },
+                        exponent_length: BytesToInt {
+                            value: ReturnBytes {
+                                memory: data,
+                                start: 32,
+                                width: 32,
+                            },
+                            index: 0,
+                            result: 0,
+                        },
+                    },
+                    right: 1,
+                },
+            ),
+            3,
+        ),
+    }
 }
 
 #[k::function(
@@ -688,9 +831,45 @@ pub struct ModExpExponentHeadBits {
     pub value: k::Term<Int>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmModExpPrecompileOutput({data})")]
-pub struct ModExpPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmModExpPrecompileOutput({data})")]
+pub fn ModExpPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    ModExpOutputBody {
+        body: ReturnBytes {
+            memory: data,
+            start: 96,
+            width: Maximum {
+                left: 0,
+                right: int::sub(bytes::length(data), 96),
+            },
+        },
+        base_length: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        exponent_length: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 32,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        modulus_length: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 64,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
 #[k::function(
@@ -707,14 +886,40 @@ pub struct ModExpOutputBody {
 
 #[k::function(
     total,
-    sort = Bytes,
     syntax = "#kevmModExpOutputExponent({body}, {base}, {exponent_length}, {modulus_length})"
 )]
-pub struct ModExpOutputExponent {
-    pub body: k::Term<Bytes>,
-    pub base: k::Term<Int>,
-    pub exponent_length: k::Term<Int>,
-    pub modulus_length: k::Term<Int>,
+pub fn ModExpOutputExponent(
+    body: k::Term<Bytes>,
+    base: k::Term<Int>,
+    exponent_length: k::Term<Int>,
+    modulus_length: k::Term<Int>,
+) -> k::Term<Bytes> {
+    WriteMemoryWord {
+        memory: bytes::pad_right(bytes::empty(), modulus_length, 0),
+        index: 0,
+        remaining: modulus_length,
+        value: ModExpPower {
+            base,
+            exponent: BytesToInt {
+                value: ReturnBytes {
+                    memory: body,
+                    start: 0,
+                    width: exponent_length,
+                },
+                index: 0,
+                result: 0,
+            },
+            modulus: BytesToInt {
+                value: ReturnBytes {
+                    memory: body,
+                    start: exponent_length,
+                    width: modulus_length,
+                },
+                index: 0,
+                result: 0,
+            },
+        },
+    }
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmModExpPower({base}, {exponent}, {modulus})")]
@@ -788,14 +993,52 @@ pub struct Bn128Ate {
     pub g2_points: k::Term<List>,
 }
 
-#[k::function(total, sort = G1Point, syntax = "#kevmEcAddFirstPoint({data})")]
-pub struct EcAddFirstPoint {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcAddFirstPoint({data})")]
+pub fn EcAddFirstPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 32,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
-#[k::function(total, sort = G1Point, syntax = "#kevmEcAddSecondPoint({data})")]
-pub struct EcAddSecondPoint {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcAddSecondPoint({data})")]
+pub fn EcAddSecondPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 64,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 96,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
 #[k::function(total, sort = Bytes, syntax = "#kevmBn128PointBytes({point})")]
@@ -803,9 +1046,14 @@ pub struct Bn128PointBytes {
     pub point: k::Term<G1Point>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcAddPrecompileOutput({data})")]
-pub struct EcAddPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcAddPrecompileOutput({data})")]
+pub fn EcAddPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    Bn128PointBytes {
+        point: Bn128Add {
+            left: EcAddFirstPoint { data },
+            right: EcAddSecondPoint { data },
+        },
+    }
 }
 
 #[k::function(
@@ -819,19 +1067,51 @@ pub struct ResolveEcAddPrecompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(total, sort = G1Point, syntax = "#kevmEcMulPoint({data})")]
-pub struct EcMulPoint {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcMulPoint({data})")]
+pub fn EcMulPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 0,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: 32,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmEcMulScalar({data})")]
-pub struct EcMulScalar {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcMulScalar({data})")]
+pub fn EcMulScalar(data: k::Term<Bytes>) -> k::Term<Int> {
+    BytesToInt {
+        value: ReturnBytes {
+            memory: data,
+            start: 64,
+            width: 32,
+        },
+        index: 0,
+        result: 0,
+    }
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcMulPrecompileOutput({data})")]
-pub struct EcMulPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcMulPrecompileOutput({data})")]
+pub fn EcMulPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    Bn128PointBytes {
+        point: Bn128Mul {
+            point: EcMulPoint { data },
+            scalar: EcMulScalar { data },
+        },
+    }
 }
 
 #[k::function(
@@ -845,29 +1125,75 @@ pub struct ResolveEcMulPrecompile {
     pub available: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmEcPairingPrecompileCost({data})")]
-pub struct EcPairingPrecompileCost {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcPairingPrecompileCost({data})")]
+pub fn EcPairingPrecompileCost(data: k::Term<Bytes>) -> k::Term<Int> {
+    int::add(45000, int::mul(34000, int::div(bytes::length(data), 192)))
 }
 
-#[k::function(
-    total,
-    sort = G1Point,
-    syntax = "#kevmEcPairingG1Point({data}, {index})"
-)]
-pub struct EcPairingG1Point {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingG1Point({data}, {index})")]
+pub fn EcPairingG1Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G1Point> {
+    Bn128Point::Point {
+        x: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: index,
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 32),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
-#[k::function(
-    total,
-    sort = G2Point,
-    syntax = "#kevmEcPairingG2Point({data}, {index})"
-)]
-pub struct EcPairingG2Point {
-    pub data: k::Term<Bytes>,
-    pub index: k::Term<Int>,
+#[k::function(total, syntax = "#kevmEcPairingG2Point({data}, {index})")]
+pub fn EcPairingG2Point(data: k::Term<Bytes>, index: k::Term<Int>) -> k::Term<G2Point> {
+    Bn128G2Point::G2 {
+        x_real: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 96),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        x_imaginary: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 64),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y_real: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 160),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+        y_imaginary: BytesToInt {
+            value: ReturnBytes {
+                memory: data,
+                start: int::add(index, 128),
+                width: 32,
+            },
+            index: 0,
+            result: 0,
+        },
+    }
 }
 
 #[k::function(
@@ -903,9 +1229,25 @@ pub struct EcPairingPointsValid {
     pub length: k::Term<Int>,
 }
 
-#[k::function(total, sort = Bytes, syntax = "#kevmEcPairingPrecompileOutput({data})")]
-pub struct EcPairingPrecompileOutput {
-    pub data: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmEcPairingPrecompileOutput({data})")]
+pub fn EcPairingPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
+    WriteMemoryWord {
+        memory: bytes::pad_right(bytes::empty(), 32, 0),
+        index: 0,
+        remaining: 32,
+        value: BoolToWord(Bn128Ate {
+            g1_points: EcPairingG1Points {
+                data,
+                index: 0,
+                length: bytes::length(data),
+            },
+            g2_points: EcPairingG2Points {
+                data,
+                index: 0,
+                length: bytes::length(data),
+            },
+        }),
+    }
 }
 
 #[k::function(
@@ -931,23 +1273,29 @@ pub struct Maximum {
     pub right: k::Term<Int>,
 }
 
-#[k::function(total, sort = Set, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
-pub struct MarkAccountAccess {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
+#[k::function(total, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
+pub fn MarkAccountAccess(accessed: k::Term<Set>, account: k::Term<Int>) -> k::Term<Set> {
+    set::union(accessed, set::item(account))
 }
 
 #[k::function(
     total,
-    sort = Int,
     syntax = "#kevmExternalCopyGasCost({accessed}, {account}, {used}, {start}, {width})"
 )]
-pub struct ExternalCopyGasCost {
-    pub accessed: k::Term<Set>,
-    pub account: k::Term<Int>,
-    pub used: k::Term<Int>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+pub fn ExternalCopyGasCost(
+    accessed: k::Term<Set>,
+    account: k::Term<Int>,
+    used: k::Term<Int>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Int> {
+    int::add(
+        AccountAccessCost { accessed, account },
+        int::add(
+            MemoryExpansionCost { used, start, width },
+            int::mul(3, int::div(int::add(width, 31), 32)),
+        ),
+    )
 }
 
 #[k::function(
@@ -989,9 +1337,13 @@ pub struct BytesToInt {
     pub result: k::Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#kevmKeccak({value})")]
-pub struct Keccak {
-    pub value: k::Term<Bytes>,
+#[k::function(total, syntax = "#kevmKeccak({value})")]
+pub fn Keccak(value: k::Term<Bytes>) -> k::Term<Int> {
+    BytesToInt {
+        value: Keccak256Raw(value),
+        index: 0,
+        result: 0,
+    }
 }
 
 #[k::function(total, sort = Int, syntax = "#kevmStorageValue({storage}, {index})")]
@@ -1106,15 +1458,19 @@ pub struct CopyBytes {
     pub remaining: k::Term<Int>,
 }
 
-#[k::function(
-    total,
-    sort = Bytes,
-    syntax = "#kevmReturnBytes({memory}, {start}, {width})"
-)]
-pub struct ReturnBytes {
-    pub memory: k::Term<Bytes>,
-    pub start: k::Term<Int>,
-    pub width: k::Term<Int>,
+#[k::function(total, syntax = "#kevmReturnBytes({memory}, {start}, {width})")]
+pub fn ReturnBytes(
+    memory: k::Term<Bytes>,
+    start: k::Term<Int>,
+    width: k::Term<Int>,
+) -> k::Term<Bytes> {
+    CopyBytes {
+        memory: bytes::pad_right(bytes::empty(), width, 0),
+        destination: 0,
+        source: memory,
+        source_index: start,
+        remaining: width,
+    }
 }
 
 #[k::function(
@@ -1827,32 +2183,6 @@ fn memory_usage_grows(
     k::term![int::div(int::add(int::add(start, width), 31), 32)]
 }
 
-#[k::equation]
-fn memory_cost(k::term![MemoryCost(words)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
-        int::mul(3, words),
-        int::div(int::mul(words, words), 512),
-    )]
-}
-
-#[k::equation]
-fn memory_expansion_cost(
-    k::term![MemoryExpansionCost { used, start, width }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::sub(
-        MemoryCost(MemoryUsageUpdate { used, start, width }),
-        MemoryCost(used),
-    )]
-}
-
-#[k::equation]
-fn copy_gas_cost(k::term![CopyGasCost { used, start, width }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
-        MemoryExpansionCost { used, start, width },
-        int::add(3, int::mul(3, int::div(int::add(width, 31), 32)),),
-    )]
-}
-
 #[k::requires(set::contains(account, accessed))]
 #[k::equation]
 fn account_access_cost_warm(
@@ -1867,94 +2197,6 @@ fn account_access_cost_cold(
     k::term![AccountAccessCost { accessed, account }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![2600]
-}
-
-#[k::equation]
-fn account_empty(
-    k::term![AccountEmpty {
-        code,
-        nonce,
-        balance
-    }]: k::Term<Bool>,
-) -> k::Term<Bool> {
-    k::term![bool::and(
-        int::eq(bytes::length(code), 0),
-        bool::and(int::eq(nonce, 0), int::eq(balance, 0)),
-    )]
-}
-
-#[k::equation]
-fn call_memory_usage(
-    k::term![CallMemoryUsage {
-        used,
-        argument_start,
-        argument_width,
-        return_start,
-        return_width
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![MemoryUsageUpdate {
-        used: MemoryUsageUpdate {
-            used,
-            start: argument_start,
-            width: argument_width
-        },
-        start: return_start,
-        width: return_width
-    }]
-}
-
-#[k::equation]
-fn static_call_cost(
-    k::term![StaticCallCost {
-        accessed,
-        account,
-        used,
-        argument_start,
-        argument_width,
-        return_start,
-        return_width
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        AccountAccessCost { accessed, account },
-        int::sub(
-            MemoryCost(CallMemoryUsage {
-                used,
-                argument_start,
-                argument_width,
-                return_start,
-                return_width
-            }),
-            MemoryCost(used),
-        ),
-    )]
-}
-
-#[k::equation]
-fn mark_account_access(
-    k::term![MarkAccountAccess { accessed, account }]: k::Term<Set>,
-) -> k::Term<Set> {
-    k::term![set::union(accessed, set::item(account))]
-}
-
-#[k::equation]
-fn external_copy_gas_cost(
-    k::term![ExternalCopyGasCost {
-        accessed,
-        account,
-        used,
-        start,
-        width
-    }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        AccountAccessCost { accessed, account },
-        int::add(
-            MemoryExpansionCost { used, start, width },
-            int::mul(3, int::div(int::add(width, 31), 32)),
-        ),
-    )]
 }
 
 #[k::requires(int::le(width, 0))]
@@ -2024,15 +2266,6 @@ fn bytes_to_int_byte(
         value,
         index: int::add(index, 1),
         result: int::add(int::mul(result, 256), bytes::get(value, index))
-    }]
-}
-
-#[k::equation]
-fn keccak(k::term![Keccak(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![BytesToInt {
-        value: Keccak256Raw(value),
-        index: 0,
-        result: 0
     }]
 }
 
@@ -2140,23 +2373,6 @@ fn copy_bytes_step(
         source,
         source_index: int::add(source_index, 1),
         remaining: int::sub(remaining, 1)
-    }]
-}
-
-#[k::equation]
-fn return_bytes(
-    k::term![ReturnBytes {
-        memory,
-        start,
-        width
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![CopyBytes {
-        memory: bytes::pad_right(bytes::empty(), width, 0),
-        destination: 0,
-        source: memory,
-        source_index: start,
-        remaining: width
     }]
 }
 
@@ -2343,17 +2559,6 @@ fn resolve_true_jump_if(
 
 // 2^256 is written as (2^64 * 2^64)^2 so every authored Rust literal fits
 // its host integer lexer while the object-language computation stays exact.
-#[k::equation]
-fn chop_word(k::term![Chop(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::rem_euclid(
-        value,
-        int::mul(
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-            int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
-        ),
-    )]
-}
-
 #[k::requires(int::eq(divisor, 0))]
 #[k::equation]
 fn word_div_zero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
@@ -2645,14 +2850,6 @@ fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<In
 #[k::equation]
 fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
-}
-
-#[k::equation]
-fn sign_extend_byte(k::term![SignExtendByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::rem_euclid(
-        int::shift_right(value, int::mul(8, index)),
-        256
-    )]
 }
 
 #[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
@@ -3112,40 +3309,6 @@ fn static_call_gas_capped(
     k::term![int::sub(available, int::div(available, 64))]
 }
 
-#[k::equation]
-fn ecrec_precompile_output(
-    k::term![EcrecPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![EcrecOutput {
-        public_key: EcdsaRecover {
-            hash: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            recovery: BytesToInt {
-                value: ReturnBytes {
-                    memory: data,
-                    start: 32,
-                    width: 32
-                },
-                index: 0,
-                result: 0
-            },
-            r: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32
-            },
-            s: ReturnBytes {
-                memory: data,
-                start: 96,
-                width: 32
-            }
-        }
-    }]
-}
-
 #[k::requires(int::eq(bytes::length(public_key), 0))]
 #[k::equation]
 fn ecrec_output_invalid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
@@ -3206,14 +3369,6 @@ fn resolve_ecrec_precompile_failure(
     }]
 }
 
-#[k::equation]
-fn sha256_precompile_cost(k::term![Sha256PrecompileCost { data }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
-        60,
-        int::mul(12, int::div(int::add(bytes::length(data), 31), 32)),
-    )]
-}
-
 #[k::requires(int::ge(
     StaticCallGas { requested, available },
     Sha256PrecompileCost { data },
@@ -3252,16 +3407,6 @@ fn resolve_sha256_precompile_failure(
             }
         )
     }]
-}
-
-#[k::equation]
-fn ripemd160_precompile_cost(
-    k::term![Ripemd160PrecompileCost { data }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        600,
-        int::mul(120, int::div(int::add(bytes::length(data), 31), 32)),
-    )]
 }
 
 #[k::requires(int::ge(
@@ -3304,16 +3449,6 @@ fn resolve_ripemd160_precompile_failure(
     }]
 }
 
-#[k::equation]
-fn identity_precompile_cost(
-    k::term![IdentityPrecompileCost { data }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        15,
-        int::mul(3, int::div(int::add(bytes::length(data), 31), 32)),
-    )]
-}
-
 #[k::requires(int::ge(
     StaticCallGas { requested, available },
     IdentityPrecompileCost { data },
@@ -3350,96 +3485,6 @@ fn resolve_identity_precompile_failure(
                 requested,
                 available
             }
-        )
-    }]
-}
-
-#[k::equation]
-fn modexp_precompile_cost(k::term![ModExpPrecompileCost { data }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![Maximum {
-        left: 200,
-        right: int::div(
-            int::mul(
-                int::mul(
-                    int::div(
-                        int::add(
-                            Maximum {
-                                left: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 0,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                },
-                                right: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 64,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                }
-                            },
-                            7
-                        ),
-                        8
-                    ),
-                    int::div(
-                        int::add(
-                            Maximum {
-                                left: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 0,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                },
-                                right: BytesToInt {
-                                    value: ReturnBytes {
-                                        memory: data,
-                                        start: 64,
-                                        width: 32
-                                    },
-                                    index: 0,
-                                    result: 0
-                                }
-                            },
-                            7
-                        ),
-                        8
-                    )
-                ),
-                Maximum {
-                    left: ModExpAdjustedExponentLength {
-                        data,
-                        base_length: BytesToInt {
-                            value: ReturnBytes {
-                                memory: data,
-                                start: 0,
-                                width: 32
-                            },
-                            index: 0,
-                            result: 0
-                        },
-                        exponent_length: BytesToInt {
-                            value: ReturnBytes {
-                                memory: data,
-                                start: 32,
-                                width: 32
-                            },
-                            index: 0,
-                            result: 0
-                        }
-                    },
-                    right: 1
-                }
-            ),
-            3
         )
     }]
 }
@@ -3508,49 +3553,6 @@ fn modexp_exponent_head_bits_positive(
 }
 
 #[k::equation]
-fn modexp_precompile_output(
-    k::term![ModExpPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![ModExpOutputBody {
-        body: ReturnBytes {
-            memory: data,
-            start: 96,
-            width: Maximum {
-                left: 0,
-                right: int::sub(bytes::length(data), 96)
-            }
-        },
-        base_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        exponent_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        modulus_length: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
 fn modexp_output_body_empty(
     k::term![ModExpOutputBody {
         body,
@@ -3592,43 +3594,6 @@ fn modexp_output_body_nonempty(
         },
         exponent_length,
         modulus_length
-    }]
-}
-
-#[k::equation]
-fn modexp_output_exponent(
-    k::term![ModExpOutputExponent {
-        body,
-        base,
-        exponent_length,
-        modulus_length
-    }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![WriteMemoryWord {
-        memory: bytes::pad_right(bytes::empty(), modulus_length, 0),
-        index: 0,
-        remaining: modulus_length,
-        value: ModExpPower {
-            base,
-            exponent: BytesToInt {
-                value: ReturnBytes {
-                    memory: body,
-                    start: 0,
-                    width: exponent_length
-                },
-                index: 0,
-                result: 0
-            },
-            modulus: BytesToInt {
-                value: ReturnBytes {
-                    memory: body,
-                    start: exponent_length,
-                    width: modulus_length
-                },
-                index: 0,
-                result: 0
-            }
-        }
     }]
 }
 
@@ -3697,54 +3662,6 @@ fn resolve_modexp_precompile_failure(
 }
 
 #[k::equation]
-fn ecadd_first_point(k::term![EcAddFirstPoint { data }]: k::Term<G1Point>) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
-fn ecadd_second_point(k::term![EcAddSecondPoint { data }]: k::Term<G1Point>) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 64,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 96,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
 fn bn128_point_bytes(
     k::term![Bn128PointBytes {
         point: Bn128Point::Point { x, y }
@@ -3760,18 +3677,6 @@ fn bn128_point_bytes(
         index: 32,
         remaining: 32,
         value: y
-    }]
-}
-
-#[k::equation]
-fn ecadd_precompile_output(
-    k::term![EcAddPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![Bn128PointBytes {
-        point: Bn128Add {
-            left: EcAddFirstPoint { data },
-            right: EcAddSecondPoint { data }
-        }
     }]
 }
 
@@ -3874,55 +3779,6 @@ fn resolve_ecadd_precompile_invalid_second_point(
     }]
 }
 
-#[k::equation]
-fn ecmul_point(k::term![EcMulPoint { data }]: k::Term<G1Point>) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 0,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: 32,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
-fn ecmul_scalar(k::term![EcMulScalar { data }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![BytesToInt {
-        value: ReturnBytes {
-            memory: data,
-            start: 64,
-            width: 32
-        },
-        index: 0,
-        result: 0
-    }]
-}
-
-#[k::equation]
-fn ecmul_precompile_output(
-    k::term![EcMulPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![Bn128PointBytes {
-        point: Bn128Mul {
-            point: EcMulPoint { data },
-            scalar: EcMulScalar { data }
-        }
-    }]
-}
-
 #[k::requires(bool::and(
     int::ge(StaticCallGas { requested, available }, 6000),
     Bn128PointValid {
@@ -3984,86 +3840,6 @@ fn resolve_ecmul_precompile_invalid_point(
                 available
             }
         )
-    }]
-}
-
-#[k::equation]
-fn ecpairing_precompile_cost(
-    k::term![EcPairingPrecompileCost { data }]: k::Term<Int>,
-) -> k::Term<Int> {
-    k::term![int::add(
-        45000,
-        int::mul(34000, int::div(bytes::length(data), 192))
-    )]
-}
-
-#[k::equation]
-fn ecpairing_g1_point(
-    k::term![EcPairingG1Point { data, index }]: k::Term<G1Point>,
-) -> k::Term<G1Point> {
-    k::term![Bn128Point::Point {
-        x: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: index,
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 32),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
-    }]
-}
-
-#[k::equation]
-fn ecpairing_g2_point(
-    k::term![EcPairingG2Point { data, index }]: k::Term<G2Point>,
-) -> k::Term<G2Point> {
-    k::term![Bn128G2Point::G2 {
-        x_real: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 96),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        x_imaginary: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 64),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y_real: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 160),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        },
-        y_imaginary: BytesToInt {
-            value: ReturnBytes {
-                memory: data,
-                start: int::add(index, 128),
-                width: 32
-            },
-            index: 0,
-            result: 0
-        }
     }]
 }
 
@@ -4165,29 +3941,6 @@ fn ecpairing_points_valid_next(
             }
         )
     )]
-}
-
-#[k::equation]
-fn ecpairing_precompile_output(
-    k::term![EcPairingPrecompileOutput { data }]: k::Term<Bytes>,
-) -> k::Term<Bytes> {
-    k::term![WriteMemoryWord {
-        memory: bytes::pad_right(bytes::empty(), 32, 0),
-        index: 0,
-        remaining: 32,
-        value: BoolToWord(Bn128Ate {
-            g1_points: EcPairingG1Points {
-                data,
-                index: 0,
-                length: bytes::length(data)
-            },
-            g2_points: EcPairingG2Points {
-                data,
-                index: 0,
-                length: bytes::length(data)
-            }
-        })
-    }]
 }
 
 #[k::requires(bool::and(
