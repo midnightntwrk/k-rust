@@ -31,8 +31,8 @@
 //! observed of equal ones), and the schedule draws it by its weight within its share of the
 //! budget. An asked query is settled, whatever it answered, and leaves the pending set, so a
 //! query that found no candidate (no path, no model, a candidate that missed) gives way to the
-//! next one at the next draw, with the stall still running. Only a run a stop ended (a
-//! cancellation, the per-case safety limit) leaves its query pending. A blocked rule and set of
+//! next one at the next draw, with the stall still running; a run a cancellation or the
+//! per-case safety limit stopped is settled too, and charged at least 1 work. A blocked rule and set of
 //! symbolic holes whose queries found no candidate [`SOLVE_FUTILE_LIMIT`] times (with other
 //! values of the other holes) is given up for the campaign: on the maze's unreachable `u4` the
 //! queries differ only in holes no guard on the path reads, and without the limit a campaign of
@@ -817,20 +817,17 @@ impl SolveProposer {
         self.totals.first_failure.get_or_insert(message);
     }
 
-    /// Ask `query`; the candidate values when its model gives admissible ones, and whether the
-    /// answer was decided (not an unknown solver answer or a stop, after which the query may be
-    /// asked again).
-    fn ask(&mut self, query: &Query) -> (Option<Vec<Value>>, bool) {
-        // An answer is settled unless a stop (by the clock or a cancellation) ended the run: the
-        // clock-free solver answers the same query the same way again.
-        let settled =
-            |answer: &Answer, outside: bool| !(matches!(answer, Answer::Failed(_)) && outside);
+    /// Ask `query`; the candidate values when its model gives admissible ones. Every answer
+    /// settles the query: the clock-free solver answers the same query the same way again, and a
+    /// run a cancellation or the per-case safety limit stopped would be stopped again (asking it
+    /// at every draw would spend the campaign's time on it while charging little work).
+    fn ask(&mut self, query: &Query) -> Option<Vec<Value>> {
         self.totals.attempts += 1;
         let state = match self.state(query) {
             Ok(state) => state,
             Err(message) => {
                 self.fail(message);
-                return (None, true);
+                return None;
             }
         };
         let request = ExecuteRequest {
@@ -869,13 +866,15 @@ impl SolveProposer {
             self.cancel.as_ref(),
             self.options.safety_limit_ms.map(Duration::from_millis),
         );
-        self.extra_work = self.extra_work.saturating_add(outcome.work);
-        self.totals.work = self.totals.work.saturating_add(outcome.work);
+        // Every run is charged at least 1, a stopped one too (it reports no work), so that its
+        // share fills as any case's does.
+        let work = outcome.work.max(1);
+        self.extra_work = self.extra_work.saturating_add(work);
+        self.totals.work = self.totals.work.saturating_add(work);
         if outcome.outside_determinism {
             self.totals.outside_determinism += 1;
         }
-        let decided = settled(&outcome.answer, outcome.outside_determinism);
-        let candidate = match outcome.answer {
+        match outcome.answer {
             Answer::Model(model) => match apply_model(query, &model) {
                 None => {
                     // A model that gives no symbolic hole a value would propose the blocked case
@@ -917,8 +916,7 @@ impl SolveProposer {
                 self.fail(message);
                 None
             }
-        };
-        (candidate, decided)
+        }
     }
 }
 
@@ -950,18 +948,17 @@ impl Proposer for SolveProposer {
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
         let query = self.ready.take()?;
         let key = query.key();
-        let (values, decided) = self.ask(&query);
-        if decided {
-            self.pending.remove(&key);
-            self.settled.insert(key);
-            if values.is_none() {
-                let pair = (query.rule.clone(), query.symbolic.clone());
-                let count = self.futile.entry(pair.clone()).or_insert(0);
-                *count += 1;
-                if *count >= SOLVE_FUTILE_LIMIT {
-                    self.pending
-                        .retain(|(rule, symbolic, _), _| (rule, symbolic) != (&pair.0, &pair.1));
-                }
+        let values = self.ask(&query);
+        // Every asked query is settled (`Self::ask`).
+        self.pending.remove(&key);
+        self.settled.insert(key);
+        if values.is_none() {
+            let pair = (query.rule.clone(), query.symbolic.clone());
+            let count = self.futile.entry(pair.clone()).or_insert(0);
+            *count += 1;
+            if *count >= SOLVE_FUTILE_LIMIT {
+                self.pending
+                    .retain(|(rule, symbolic, _), _| (rule, symbolic) != (&pair.0, &pair.1));
             }
         }
         let values = values?;

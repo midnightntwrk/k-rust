@@ -263,7 +263,6 @@ fn a_query_solves_the_nonlinear_guard_of_c7() {
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), Constraints::default());
     let candidate = solve
         .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
-        .0
         .unwrap_or_else(|| panic!("a candidate: {:?}", solve.totals));
     assert_eq!(candidate, values((1, 7, 1050), 1009, 2003));
     assert_eq!(solve.totals.candidates, 1);
@@ -286,9 +285,7 @@ fn a_query_conjoins_the_holes_declared_constraints() {
     };
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(2, 1000));
     assert_eq!(
-        solve
-            .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
-            .0,
+        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4])),
         None
     );
     // No branch applies `c7` under `H <= 1000`: the run finds no path (no candidate either way;
@@ -301,9 +298,7 @@ fn a_query_conjoins_the_holes_declared_constraints() {
     );
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), range(1009, 1009));
     assert_eq!(
-        solve
-            .ask(&query("MAZE.c7", values((1, 7, 1050), 1009, 9), vec![3, 4]))
-            .0,
+        solve.ask(&query("MAZE.c7", values((1, 7, 1050), 1009, 9), vec![3, 4])),
         Some(values((1, 7, 1050), 1009, 2003))
     );
 }
@@ -315,9 +310,7 @@ fn a_query_conjoins_the_holes_declared_constraints() {
 fn a_query_finds_no_candidate_for_the_unreachable_cells() {
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u4"), Constraints::default());
     assert_eq!(
-        solve
-            .ask(&query("MAZE.u4", values((1, 3, 1050), 8, 9), vec![1]))
-            .0,
+        solve.ask(&query("MAZE.u4", values((1, 3, 1050), 8, 9), vec![1])),
         None
     );
     // No path applies `u4` (`C * C == 2`) within the run's budget.
@@ -329,9 +322,7 @@ fn a_query_finds_no_candidate_for_the_unreachable_cells() {
     );
     let mut solve = proposer(maze_spec(8, 9, "MAZE.u2"), Constraints::default());
     assert_eq!(
-        solve
-            .ask(&query("MAZE.u2", values((1, 7, 1050), 8, 9), vec![2]))
-            .0,
+        solve.ask(&query("MAZE.u2", values((1, 7, 1050), 8, 9), vec![2])),
         None
     );
     assert_eq!(solve.totals.no_path, 1, "{:?}", solve.totals);
@@ -454,4 +445,71 @@ fn a_renamed_int_sort_is_not_symbolic() {
     });
     assert_eq!(renamed.symbolic(), None);
     assert!(symbolic_holes(&[renamed], &[int(8)], &[int(8)]).is_empty());
+}
+
+/// A run the per-case safety limit stops is settled and charged: it is asked once, its query
+/// does not come back at every draw, and its work (at least 1) counts in the share. The 1 ms limit
+/// stops the `c7` query, which takes hundreds of milliseconds (building its backends alone takes
+/// tens), before it answers.
+#[test]
+fn a_run_the_safety_limit_stops_is_settled_and_charged() {
+    use crate::{
+        exec::OutcomeClass,
+        score::{Blocked, Distance, Guard, Level},
+    };
+    let mut spec = maze_spec(8, 9, "MAZE.c7");
+    spec.options.safety_limit_ms = Some(1);
+    let mut solve = proposer(spec, Constraints::default());
+    let guard = Guard::Defined(Distance::normalized(5u32.into()));
+    let blocked = Observation {
+        case: 0,
+        class: OutcomeClass::Miss,
+        applied: Vec::new(),
+        matched: Vec::new(),
+        work: 9,
+        score: Some(Score {
+            level: Level::At(0),
+            guard: guard.clone(),
+        }),
+        reads: Vec::new(),
+        blocked: Some(Blocked {
+            rule: rule_id("MAZE.c7"),
+            distance: 0,
+            guard,
+            values: vec![int(8), int(9)],
+        }),
+    };
+    let proposal = Proposal::plain(Origin::Explicit, values((1, 7, 1050), 8, 9));
+    let unscored = Observation {
+        score: None,
+        blocked: None,
+        class: OutcomeClass::Rejected,
+        ..blocked.clone()
+    };
+    solve.observe_all(&proposal, &blocked);
+    for _ in 0..SOLVE_STALL_CASES {
+        solve.observe_all(&proposal, &unscored);
+    }
+    let mut rng = <rand_chacha::ChaCha20Rng as rand::SeedableRng>::from_seed([0; 32]);
+    for _ in 0..5 {
+        if solve.ready() {
+            assert!(
+                solve
+                    .propose(&mut ProposalContext { rng: &mut rng })
+                    .is_none()
+            );
+        }
+        // The same blocked case again: its query is settled, so it is not ready again.
+        solve.observe_all(&proposal, &blocked);
+        solve.observe_all(&proposal, &unscored);
+    }
+    assert_eq!(solve.totals.attempts, 1, "{:?}", solve.totals);
+    assert_eq!(
+        (solve.totals.failed, solve.totals.outside_determinism),
+        (1, 1),
+        "{:?}",
+        solve.totals
+    );
+    assert!(solve.take_extra_work() >= 1, "{:?}", solve.totals);
+    assert!(solve.totals.work >= 1, "{:?}", solve.totals);
 }
