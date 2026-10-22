@@ -36,8 +36,7 @@
 //! An execution that also names rules (`rewrite::ExecutionOptions::collect_conditions`) records,
 //! besides, what each entry into a named rule's `requires` saw: the bindings of the variables
 //! the condition reads and its atoms evaluated under the instance ([`RunCoverage::conditions`],
-//! [`conditions`](self::ConditionRecord)). The evaluation is isolated from the run
-//! ([`isolated`]).
+//! [`ConditionRecord`]). The evaluation is isolated from the run (`isolated`).
 //!
 //! Collection is crate-private: only the execute entry point opens one around a run, and the
 //! definition load around a rule's discharge. A caller that could open one around its own calls
