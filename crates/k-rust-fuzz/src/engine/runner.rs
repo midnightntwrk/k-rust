@@ -12,7 +12,7 @@ use k_rust::backend::CancellationToken;
 use crate::{
     exec::{Abort, OutcomeClass},
     report::{HoleValue, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide},
-    score::Guards,
+    score::{Guards, records::Compared},
     values::Value,
 };
 
@@ -36,6 +36,10 @@ pub(crate) struct CaseRun {
     /// Per rule whose condition entries the run recorded (only when the climb asks for them),
     /// the guard distance of each entry (`crate::score`); empty otherwise.
     pub(crate) guards: Guards,
+    /// The comparisons the refuted guards of the recorded rules needed the other way round
+    /// (`crate::score::records::comparisons`), for the run-time dictionary; empty when the run
+    /// recorded no conditions.
+    pub(crate) comparisons: Vec<Compared>,
     /// For an observer target, the greatest progress the observer answered on the run
     /// (`target::JudgedRun::progress`); `None` otherwise.
     pub(crate) progress: Option<u32>,
@@ -83,6 +87,7 @@ impl CaseRun {
             applied_counts: BTreeMap::new(),
             blocked: false,
             guards: Guards::new(),
+            comparisons: Vec::new(),
             progress: None,
             outside_determinism: false,
             rejection: Some(reason),

@@ -355,6 +355,7 @@ fn the_proposer_asks_after_a_stall_never_twice_and_moves_on() {
             guard: Guard::Defined(Distance::normalized(5u32.into())),
             values: vec![int(8), int(9)],
         }),
+        comparisons: Vec::new(),
     };
     let proposal = Proposal::plain(Origin::Explicit, values((1, 7, 1050), 8, 9));
     let unscored = Observation {
@@ -480,6 +481,7 @@ fn a_run_the_safety_limit_stops_is_settled_and_charged() {
             guard,
             values: vec![int(8), int(9)],
         }),
+        comparisons: Vec::new(),
     };
     let proposal = Proposal::plain(Origin::Explicit, values((1, 7, 1050), 8, 9));
     let unscored = Observation {

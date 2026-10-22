@@ -57,6 +57,7 @@ fn observation(score: Option<Score>) -> Observation {
         score,
         reads: Vec::new(),
         blocked: None,
+        comparisons: Vec::new(),
     }
 }
 
@@ -414,4 +415,62 @@ fn values_beyond_the_generator_bounds_are_not_admissible() {
         &unconstrained,
         &small
     ));
+}
+
+/// The comparison `left op right` of rule `r`, as the condition records give it.
+fn compared(comparison: crate::score::distance::Comparison, left: i64, right: i64) -> Compared {
+    Compared {
+        rule: "r".into(),
+        comparison,
+        left: Operand::Int(left.into()),
+        right: Operand::Int(right.into()),
+    }
+}
+
+#[test]
+fn the_incumbent_is_changed_from_its_pool_of_run_time_literals() {
+    use crate::score::distance::Comparison;
+    // Two holes; the guard compared the second hole's 7 with 4096 (`X >Int 4096`): the change
+    // is 4097, which a climb of `±2^e` steps from 7 reaches only in many cases.
+    let start = vec![int(1), int(7)];
+    let mut found = 0;
+    for seed in 0..8 {
+        let mut climb = ClimbProposer::new(
+            vec![
+                hole(ValueSort::Int, Constraints::default()),
+                hole(ValueSort::Int, Constraints::default()),
+            ],
+            bounds(),
+            seed,
+        );
+        let mut seen = observation(Some(score(4090)));
+        seen.comparisons = vec![compared(Comparison::IntGt, 7, 4096)];
+        climb.observe_all(&Proposal::plain(Origin::Explicit, start.clone()), &seen);
+        let proposals: Vec<Vec<Value>> = (0..8).map(|_| propose(&mut climb).values).collect();
+        found += proposals
+            .iter()
+            .filter(|values| **values == [int(1), int(4097)])
+            .count();
+    }
+    // A quarter of the proposals, give or take: 64 proposals over the seeds.
+    assert!((4..=40).contains(&found), "{found}");
+    // An incumbent without a pool never draws a run-time change; the moves' stream is the
+    // same as with a pool whose values occur nowhere in the incumbent.
+    let moves = |comparisons: Vec<Compared>| {
+        let mut climb = ClimbProposer::new(
+            vec![hole(ValueSort::Int, Constraints::default())],
+            bounds(),
+            3,
+        );
+        let mut seen = observation(Some(score(10)));
+        seen.comparisons = comparisons;
+        climb.observe_all(&Proposal::plain(Origin::Explicit, vec![int(5)]), &seen);
+        (0..32)
+            .map(|_| propose(&mut climb).values)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        moves(Vec::new()),
+        moves(vec![compared(Comparison::IntEq, 99, 100)])
+    );
 }

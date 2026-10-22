@@ -104,7 +104,7 @@ use crate::{
     holes::ResolvedHole,
     report::DictionaryParameters,
     spec::{CampaignSpec, ProposerKind},
-    target::{TargetKind, resolve_rule},
+    target::TargetKind,
     values::{self, Constraints, GenerationBounds, Generator, Value, ValueRng, ValueSort},
 };
 
@@ -234,6 +234,7 @@ impl Harvest {
     /// [`CampaignError::Definition`] when the backend, its catalog or its graph is not
     /// available, and [`CampaignError::Target`] for a rule reference the catalog does not
     /// resolve; `Campaign::new` refuses both earlier, when it resolves the target.
+    #[cfg(test)]
     pub(crate) fn for_campaign(spec: &CampaignSpec) -> Result<Self, CampaignError> {
         let mut backend =
             build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
@@ -245,7 +246,10 @@ impl Harvest {
                         .map_err(|error| CampaignError::Definition {
                             message: format!("the rule catalog is not available: {error}"),
                         })?;
-                Some(resolve_rule(&catalog, &rule.rule).map_err(CampaignError::Target)?)
+                Some(
+                    crate::target::resolve_rule(&catalog, &rule.rule)
+                        .map_err(CampaignError::Target)?,
+                )
             }
             TargetKind::Pattern(_) | TargetKind::Differential(_) | TargetKind::Observer(_) => None,
         };
@@ -273,6 +277,37 @@ impl Harvest {
         }
     }
 
+    /// The rules whose guards [`Self::from_graph`] reads for a rule target `target` within
+    /// `radius`: those at most `radius` edges before it, and the higher-priority rules each of
+    /// them competes with. Their condition entries give the run-time dictionary's pools
+    /// (`super::runtime`): the guards whose literals the static harvest reads are those whose
+    /// compared values the run-time pools read.
+    pub(crate) fn guard_rules(graph: &RuleGraph, target: &str, radius: usize) -> BTreeSet<String> {
+        let all = Self::keyed_rules(graph);
+        let mut rules = BTreeSet::new();
+        for (id, distance) in graph.distances_to(target) {
+            if distance > radius {
+                continue;
+            }
+            for rule in graph.rules(&id) {
+                let rule = Keyed::new(&id, rule);
+                for competitor in all.iter().filter(|competitor| competitor.competes(&rule)) {
+                    rules.insert(competitor.id.to_owned());
+                }
+            }
+            rules.insert(id);
+        }
+        rules
+    }
+
+    /// Every rewrite rule of `graph` with its id and root bucket.
+    fn keyed_rules(graph: &RuleGraph) -> Vec<Keyed<'_>> {
+        graph
+            .rule_ids()
+            .flat_map(|id| graph.rules(id).iter().map(move |rule| Keyed::new(id, rule)))
+            .collect()
+    }
+
     /// Harvest every rule of `graph` (and the equations their `requires` call) at `distance`.
     fn everything(graph: &RuleGraph, distance: usize) -> Self {
         let scope = graph
@@ -287,10 +322,7 @@ impl Harvest {
     /// call, and with their competitors when `competitors` is set.
     fn from_scope(graph: &RuleGraph, scope: &BTreeMap<String, usize>, competitors: bool) -> Self {
         let all: Vec<Keyed<'_>> = if competitors {
-            graph
-                .rule_ids()
-                .flat_map(|id| graph.rules(id).iter().map(move |rule| Keyed::new(id, rule)))
-                .collect()
+            Self::keyed_rules(graph)
         } else {
             Vec::new()
         };

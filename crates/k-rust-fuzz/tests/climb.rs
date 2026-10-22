@@ -63,12 +63,20 @@ const BLIND_ISOLATED_S3: [Option<u64>; 5] =
 
 /// Blind sampling and the climb's cases at [`CI_SEEDS`] with [`CI_BUDGET`]: regression pins.
 /// They move whenever the climb's case sequence moves (its parameters, moves, the score or the
-/// condition records it reads), as `tests/golden.rs`'s climb fingerprint does.
-const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(50), Some(75), Some(151), Some(83), Some(65)];
-const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(47), Some(193), Some(175), Some(213), Some(141)];
+/// condition records it reads), as `tests/golden.rs`'s climb fingerprint does. The run-time
+/// literals (FZ-16) moved them from `c4` 50, 75, 151, 83, 65; `s3` 47, 193, 175, 213, 141;
+/// `c6` 781, 188, 239, 456, 252; whole-maze `c4` 921, 286, 411, 484, 934: a window's bound or
+/// `D ==Int C` gives the passing value at once, while `c6` (`3F ==Int G +Int 1000001`) compares
+/// no hole's value as it is. FZ-16's fix round (only atoms below refuting nodes, a change drawn
+/// by side of a comparison, none proposed twice by the climb) moved them again, from `c4` 12, 3,
+/// 4, 6, 10; `s3` 12, 3, 11, 6, 10; `c6` 681, 288, 239, 410, 418; whole-maze `c4` 227, 46, 67,
+/// 40, 74, by drawing the random streams differently; the isolated medians at seeds 11-20 are
+/// in `exp/fz16/` of the fz26 notes (`climb-iso-*.log`).
+const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(23), Some(12), Some(35), Some(19), Some(26)];
+const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(68), Some(12), Some(11), Some(24), Some(23)];
 const PINNED_ISOLATED_C6: [Option<u64>; 5] =
-    [Some(781), Some(188), Some(239), Some(456), Some(252)];
-const PINNED_MAZE_C4: [Option<u64>; 5] = [Some(921), Some(286), Some(411), Some(484), Some(934)];
+    [Some(693), Some(248), Some(312), Some(414), Some(316)];
+const PINNED_MAZE_C4: [Option<u64>; 5] = [Some(32), Some(33), Some(77), Some(83), Some(85)];
 
 /// Run `measure` at every seed, one thread per seed.
 fn per_seed<T: Send>(seeds: &[u64], measure: impl Fn(u64) -> T + Sync) -> Vec<T> {

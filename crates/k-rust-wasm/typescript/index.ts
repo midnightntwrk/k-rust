@@ -1359,6 +1359,13 @@ export interface FuzzClimbParameters {
   'condition-rules': string
   'condition-limit': number
   'condition-value-size': number
+  /** A proposal from a best case with a pool of run-time literals is a change from it. */
+  'runtime-probability': [number, number]
+  'max-comparisons': number
+  /** `dictionary-guard-rules` for a rule target, `none` for an observer target. */
+  'runtime-condition-rules': string
+  /** The rule-graph radius of `dictionary-guard-rules`. */
+  'runtime-guard-radius': number
 }
 
 /** Probabilities and shares are `[numerator, denominator]`. */
@@ -1377,6 +1384,14 @@ export interface FuzzCorpusParameters {
   'count-exact-below': number
   /** The harvest its literals come from (its draw probability does not apply). */
   harvest: FuzzDictionaryParameters
+  /** A proposal from a kept case with a pool of run-time literals is a change from it. */
+  'runtime-probability': [number, number]
+  /** The proposal after its own missed case with a pool is a change of that case. */
+  'follow-probability': [number, number]
+  'follow-depth': number
+  'max-comparisons': number
+  /** `dictionary-guard-rules` for a rule target, `none` for another target. */
+  'runtime-condition-rules': string
 }
 
 /** The solve proposer's fixed parameters; its share is `[numerator, denominator]`. */

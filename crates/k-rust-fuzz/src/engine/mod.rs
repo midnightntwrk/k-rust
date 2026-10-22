@@ -10,7 +10,10 @@ mod shrink;
 #[cfg(test)]
 mod tests;
 
-use std::sync::{Arc, OnceLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, OnceLock},
+};
 
 use k_rust::backend::CancellationToken;
 
@@ -73,6 +76,9 @@ pub struct Campaign {
     /// The harvest the corpus draws its literals from (ARCHITECTURE 8.3, 8.5), made once in
     /// [`Campaign::new`] when the corpus has a positive weight.
     corpus: Option<Arc<Harvest>>,
+    /// The rules whose condition entries every case records ([`condition_rules`]); empty when
+    /// no weighted proposer reads them.
+    condition_rules: Vec<String>,
 }
 
 impl Campaign {
@@ -166,8 +172,7 @@ impl Campaign {
             None => false,
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
-        let (dictionary, corpus) = harvests(&spec, &cases, graph.as_deref())?;
-        let scorer = climb_scorer(&spec, &cases, graph.as_deref())?;
+        let guidance = Guidance::build(&spec, &cases, graph.as_deref())?;
         let settings = LoopSettings {
             identity: identity(&spec, &initial)?,
             rejection_cap: spec.rejection_cap,
@@ -190,7 +195,8 @@ impl Campaign {
                 .as_ref()
                 .map(|graph| graph.warnings().to_vec())
                 .unwrap_or_default(),
-            scorer,
+            scorer: guidance.scorer,
+            pool_rank: guidance.pool_rank,
         };
         Ok(Campaign {
             spec,
@@ -200,8 +206,9 @@ impl Campaign {
             equivalent,
             definition_cache: Arc::new(OnceLock::new()),
             graph,
-            dictionary,
-            corpus,
+            dictionary: guidance.dictionary,
+            corpus: guidance.corpus,
+            condition_rules: guidance.condition_rules,
         })
     }
 
@@ -262,13 +269,11 @@ impl Campaign {
                 }
             },
         };
-        // The climb's score reads the condition entries of the target and its predecessors;
-        // only a climbing campaign asks for them, so no other campaign's cases change.
-        if let Some(scorer) = &self.settings.scorer {
-            let rules = scorer.condition_rules();
-            if !rules.is_empty() {
-                cases.request_conditions(rules);
-            }
+        // The climb's and the solve proposer's scores and the corpus's pools of run-time
+        // literals read condition entries; only a campaign that weighs one of them asks for
+        // them, so no other campaign's cases change.
+        if !self.condition_rules.is_empty() {
+            cases.request_conditions(self.condition_rules.clone());
         }
         // The corpus keeps a case whose counted coverage gains a (rule, count bucket); only a
         // campaign that weighs it asks for counts, so no other campaign's requests change.
@@ -385,6 +390,39 @@ impl Campaign {
     }
 }
 
+/// What the guided proposers need of the campaign, built once from one rule graph
+/// ([`Graphs`]): the dictionary's pools and the corpus's harvest ([`harvests`]), the score
+/// ([`climb_scorer`]), and the recorded rules with their ranks in the pools of run-time
+/// literals ([`condition_rules`]).
+struct Guidance {
+    dictionary: Option<Arc<Vec<HolePool>>>,
+    corpus: Option<Arc<Harvest>>,
+    scorer: Option<Scorer>,
+    condition_rules: Vec<String>,
+    pool_rank: BTreeMap<String, u64>,
+}
+
+impl Guidance {
+    fn build(
+        spec: &CampaignSpec,
+        cases: &LiveCases,
+        graph: Option<&GraphCheck>,
+    ) -> Result<Self, CampaignError> {
+        let mut graphs = Graphs::new(spec, cases, graph);
+        let (dictionary, corpus) = harvests(spec, cases, &mut graphs)?;
+        let scorer = climb_scorer(spec, cases, &mut graphs)?;
+        let (condition_rules, pool_rank) =
+            condition_rules(spec, cases, &mut graphs, scorer.as_ref())?;
+        Ok(Self {
+            dictionary,
+            corpus,
+            scorer,
+            condition_rules,
+            pool_rank,
+        })
+    }
+}
+
 /// The dictionary's pool of each hole and the corpus's harvest, each when its proposer has a
 /// positive weight: one harvest serves both ([`campaign_harvest`]).
 type Harvests = (Option<Arc<Vec<HolePool>>>, Option<Arc<Harvest>>);
@@ -392,12 +430,12 @@ type Harvests = (Option<Arc<Vec<HolePool>>>, Option<Arc<Harvest>>);
 fn harvests(
     spec: &CampaignSpec,
     cases: &LiveCases,
-    graph: Option<&GraphCheck>,
+    graphs: &mut Graphs<'_>,
 ) -> Result<Harvests, CampaignError> {
     let dictionary = weight(&spec.proposers, ProposerKind::Dictionary) > 0;
     let corpus = weight(&spec.proposers, ProposerKind::Corpus) > 0;
     let harvest = (dictionary || corpus)
-        .then(|| campaign_harvest(spec, cases, graph))
+        .then(|| campaign_harvest(spec, cases, graphs))
         .transpose()?;
     let pools = harvest.as_ref().filter(|_| dictionary).map(|harvest| {
         Arc::new(dictionary::pools(
@@ -410,20 +448,14 @@ fn harvests(
 }
 
 /// The harvest of the dictionary and the corpus (ARCHITECTURE 8.3, 8.5), from the campaign's
-/// rule graph `graph`, or from a graph of the campaign's one internalization when there is no
-/// graph check (a differential campaign, a template that does not build); only the
-/// `from-definition` route makes the harvest build a backend and graph of its own.
+/// rule graph ([`Graphs`]).
 fn campaign_harvest(
     spec: &CampaignSpec,
     cases: &LiveCases,
-    graph: Option<&GraphCheck>,
+    graphs: &mut Graphs<'_>,
 ) -> Result<Harvest, CampaignError> {
     let target = cases.target_rule_id();
-    match (graph, cases.baseline_internalized()) {
-        (Some(check), _) => dictionary::harvest(spec, check.graph(), target),
-        (None, Some(definition)) => dictionary::harvest(spec, &RuleGraph::new(definition), target),
-        (None, None) => Harvest::for_campaign(spec),
-    }
+    graphs.with(|graph| dictionary::harvest(spec, graph, target))?
 }
 
 /// The scorer of a climbing campaign's target (ARCHITECTURE 6.4; `crate::score`), or `None`
@@ -440,7 +472,7 @@ fn campaign_harvest(
 fn climb_scorer(
     spec: &CampaignSpec,
     cases: &LiveCases,
-    graph: Option<&GraphCheck>,
+    graphs: &mut Graphs<'_>,
 ) -> Result<Option<Scorer>, CampaignError> {
     let climb = weight(&spec.proposers, ProposerKind::Climb) > 0;
     let solve = weight(&spec.proposers, ProposerKind::Solve) > 0;
@@ -472,22 +504,100 @@ fn climb_scorer(
             scorer
         }
     };
-    Ok(Some(Scorer::Rule(
-        match (graph, cases.baseline_internalized()) {
-            (Some(check), _) => scorer(check.graph()),
-            (None, Some(definition)) => scorer(&RuleGraph::new(definition)),
-            (None, None) => {
-                let mut backend =
-                    build_backend(&spec.definitions.baseline, spec.options.backend.options())?;
-                let graph = RuleGraph::of_backend(&mut backend).map_err(|error| {
-                    CampaignError::Definition {
-                        message: format!("the rule graph is not available: {error}"),
-                    }
-                })?;
-                scorer(&graph)
-            }
-        },
-    )))
+    Ok(Some(Scorer::Rule(graphs.with(scorer)?)))
+}
+
+/// The baseline's rule graph for [`Campaign::new`]'s helpers, made at most once: the graph
+/// check's, or a graph of the campaign's one internalization when there is no graph check, or,
+/// on the `from-definition` route without one, a graph of one backend of its own.
+struct Graphs<'a> {
+    spec: &'a CampaignSpec,
+    cases: &'a LiveCases,
+    check: Option<&'a GraphCheck>,
+    own: Option<RuleGraph>,
+}
+
+impl<'a> Graphs<'a> {
+    fn new(spec: &'a CampaignSpec, cases: &'a LiveCases, check: Option<&'a GraphCheck>) -> Self {
+        Self {
+            spec,
+            cases,
+            check,
+            own: None,
+        }
+    }
+
+    /// `use_graph` applied to the graph.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::Definition`] when the rule graph cannot be built.
+    fn with<T>(&mut self, use_graph: impl FnOnce(&RuleGraph) -> T) -> Result<T, CampaignError> {
+        if let Some(check) = self.check {
+            return Ok(use_graph(check.graph()));
+        }
+        if self.own.is_none() {
+            let graph = if let Some(definition) = self.cases.baseline_internalized() {
+                RuleGraph::new(definition)
+            } else {
+                let mut backend = build_backend(
+                    &self.spec.definitions.baseline,
+                    self.spec.options.backend.options(),
+                )?;
+                RuleGraph::of_backend(&mut backend).map_err(|error| CampaignError::Definition {
+                    message: format!("the rule graph is not available: {error}"),
+                })?
+            };
+            self.own = Some(graph);
+        }
+        Ok(use_graph(self.own.as_ref().expect("built above")))
+    }
+}
+
+/// The rules whose condition entries every case of the campaign records, sorted, and the rank
+/// of each in the pools of run-time literals: those the score of `scorer` reads (the climb's
+/// and the solve proposer's), and, when the climb or the corpus has a positive weight and the
+/// target is a rule, the rules whose guards the dictionary's harvest reads
+/// (`Harvest::guard_rules`), whose refuted guards give the pools (ARCHITECTURE 8.3;
+/// `crate::proposers::runtime`), each ranked by its rule-graph distance to the target. Empty
+/// when no weighted proposer reads condition entries, so that such a campaign records none and
+/// its cases do not change.
+///
+/// # Errors
+///
+/// [`CampaignError::Definition`] when the rule graph cannot be built.
+fn condition_rules(
+    spec: &CampaignSpec,
+    cases: &LiveCases,
+    graphs: &mut Graphs<'_>,
+    scorer: Option<&Scorer>,
+) -> Result<(Vec<String>, BTreeMap<String, u64>), CampaignError> {
+    let mut rules: std::collections::BTreeSet<String> = scorer
+        .map(Scorer::condition_rules)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let mut rank = BTreeMap::new();
+    let pools = weight(&spec.proposers, ProposerKind::Corpus) > 0
+        || weight(&spec.proposers, ProposerKind::Climb) > 0;
+    if pools
+        && let (TargetKind::Rule(_), Some(target)) = (&spec.target.kind, cases.target_rule_id())
+    {
+        let (guards, distances) = graphs.with(|graph| {
+            (
+                Harvest::guard_rules(graph, target, dictionary::RADIUS),
+                graph.distances_to(target),
+            )
+        })?;
+        for rule in &guards {
+            let distance = distances.get(rule).map_or(u64::MAX, |distance| {
+                u64::try_from(*distance).unwrap_or(u64::MAX)
+            });
+            rank.insert(rule.clone(), distance);
+        }
+        rules.extend(guards);
+    }
+    Ok((rules.into_iter().collect(), rank))
 }
 
 /// A mutant is given exactly when the target is differential.
@@ -669,7 +779,8 @@ fn identity(
             .then(DictionaryParameters::current),
         climb: (weight(&spec.proposers, ProposerKind::Climb) > 0)
             .then(|| ClimbParameters::for_target(&spec.target.kind)),
-        corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0).then(CorpusParameters::current),
+        corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0)
+            .then(|| CorpusParameters::for_target(&spec.target.kind)),
         solve: (weight(&spec.proposers, ProposerKind::Solve) > 0).then(SolveParameters::current),
     })
 }

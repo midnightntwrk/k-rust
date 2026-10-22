@@ -65,6 +65,23 @@
 //!   hole in any entry);
 //! - a hole with a choice set takes another member.
 //!
+//! # Run-time literals
+//!
+//! A case that recorded conditions (in a campaign with a rule target, the corpus records those
+//! of the rules whose guards the dictionary's harvest reads) carries its pool of run-time
+//! literals: the comparisons its refuted guards needed the other way round,
+//! with the values the run compared (`super::runtime`). A kept case keeps its pool. When the
+//! chosen entry's pool is not empty, the proposal is, with probability
+//! [`RUNTIME_PROBABILITY`], a change from that pool instead of a mutation: one occurrence of a
+//! compared value in the entry takes the value that passes the comparison (the running balance
+//! for an amount compared with it). And when the corpus's own last case was a `miss` that
+//! carried a pool, the next corpus proposal is, with probability [`FOLLOW_PROBABILITY`], a
+//! change of that case from its own pool: a mutation that appended a transaction with a wrong
+//! nonce is a change away from one that applies, though it reached nothing new and was not
+//! kept. Such follow-ups chain at most [`FOLLOW_DEPTH`] cases after a mutation. The run-time
+//! stream (`corpus-runtime`) is drawn from only when there is a pool, so a campaign whose cases
+//! record no conditions proposes the cases it proposed before.
+//!
 //! The harvest is the dictionary's whether or not the dictionary has a weight, and it also
 //! fills the elements, keys and values of collection holes, which the dictionary itself leaves
 //! to blind generation. Every mutated hole value must be admissible (`values::admissible`, the
@@ -101,10 +118,14 @@ use rand_chacha::ChaCha20Rng;
 use crate::{
     engine::proposer::{Observation, Origin, Proposal, ProposalContext, Proposer},
     exec::OutcomeClass,
-    proposers::dictionary::{Harvest, HolePool},
+    proposers::{
+        dictionary::{Harvest, HolePool},
+        runtime,
+    },
     report::CorpusParameters,
-    score::Score,
+    score::{Score, records::Compared},
     spec::ProposerKind,
+    target::TargetKind,
     values::{self, Constraints, GenerationBounds, Generator, Value, ValueRng, ValueSort},
     values::{ArgumentSort, DataAlternative, DataSorts},
 };
@@ -156,8 +177,26 @@ fn count_bucket(count: u64) -> u128 {
     1 << index
 }
 
-/// The corpus's parameters as the report records them ([`CorpusParameters`]).
-pub(crate) fn parameters() -> CorpusParameters {
+/// The probability, as (numerator, denominator), that a proposal from an entry whose pool of
+/// run-time literals is not empty is a change from that pool (module documentation, "Run-time
+/// literals").
+pub(crate) const RUNTIME_PROBABILITY: (u32, u32) = (1, 4);
+
+/// The probability, as (numerator, denominator), that the proposal after a corpus case that
+/// was a `miss` with a pool of run-time literals is a change of that case from its pool.
+pub(crate) const FOLLOW_PROBABILITY: (u32, u32) = (1, 2);
+
+/// The most follow-up changes chained after one mutation.
+pub(crate) const FOLLOW_DEPTH: u32 = 2;
+
+/// The corpus's parameters for a campaign whose target is `target`, as the report records them
+/// ([`CorpusParameters`]): only a rule target's cases record conditions for the pools of
+/// run-time literals.
+pub(crate) fn parameters(target: &TargetKind) -> CorpusParameters {
+    let condition_rules = match target {
+        TargetKind::Rule(_) => "dictionary-guard-rules",
+        TargetKind::Pattern(_) | TargetKind::Differential(_) | TargetKind::Observer(_) => "none",
+    };
     CorpusParameters {
         budget_share: [BUDGET_SHARE.0, BUDGET_SHARE.1],
         newest_probability: [NEWEST_PROBABILITY.0, NEWEST_PROBABILITY.1],
@@ -169,6 +208,11 @@ pub(crate) fn parameters() -> CorpusParameters {
         max_attempts: MAX_ATTEMPTS,
         count_exact_below: EXACT_COUNTS,
         harvest: crate::proposers::dictionary::parameters(),
+        runtime_probability: [RUNTIME_PROBABILITY.0, RUNTIME_PROBABILITY.1],
+        follow_probability: [FOLLOW_PROBABILITY.0, FOLLOW_PROBABILITY.1],
+        follow_depth: FOLLOW_DEPTH,
+        max_comparisons: u32::try_from(runtime::MAX_COMPARISONS).unwrap_or(u32::MAX),
+        runtime_condition_rules: condition_rules.into(),
     }
 }
 
@@ -249,6 +293,16 @@ struct Entry {
     values: Vec<Value>,
     /// It entered for its score alone, not for coverage.
     score_only: bool,
+    /// Its pool of run-time literals (module documentation, "Run-time literals").
+    comparisons: Vec<Compared>,
+}
+
+/// The corpus's last case, to follow up from its pool of run-time literals.
+struct Follow {
+    values: Vec<Value>,
+    comparisons: Vec<Compared>,
+    /// How many follow-ups led to it after a mutation (0: a mutation's case).
+    depth: u32,
 }
 
 /// The corpus proposer (module documentation).
@@ -269,6 +323,12 @@ pub(crate) struct CorpusProposer {
     /// so far, one bit per bucket ([`count_bucket`]).
     counted: BTreeMap<String, u128>,
     best: Option<Score>,
+    /// The stream of the run-time literals' choices (module documentation).
+    runtime: ChaCha20Rng,
+    /// The last corpus case to follow up, if it was a `miss` with a pool.
+    follow: Option<Follow>,
+    /// The follow-up depth of the last proposal.
+    depth: u32,
 }
 
 impl CorpusProposer {
@@ -325,6 +385,9 @@ impl CorpusProposer {
             matched: BTreeSet::new(),
             counted: BTreeMap::new(),
             best: None,
+            runtime: ChaCha20Rng::from_seed(crate::engine::derive_seed(seed, "corpus-runtime")),
+            follow: None,
+            depth: 0,
         }
     }
 
@@ -337,8 +400,9 @@ impl CorpusProposer {
             .collect()
     }
 
-    /// Keep `values`, which entered for its score alone when `score_only`.
-    fn keep(&mut self, values: Vec<Value>, score_only: bool) {
+    /// Keep `values` with its pool `comparisons`, which entered for its score alone when
+    /// `score_only`.
+    fn keep(&mut self, values: Vec<Value>, score_only: bool, comparisons: Vec<Compared>) {
         if self.entries.len() >= MAX_ENTRIES {
             let index = self
                 .entries
@@ -347,7 +411,11 @@ impl CorpusProposer {
                 .unwrap_or(0);
             self.entries.remove(index);
         }
-        self.entries.push(Entry { values, score_only });
+        self.entries.push(Entry {
+            values,
+            score_only,
+            comparisons,
+        });
     }
 
     /// `true` with probability `numerator / denominator`.
@@ -755,6 +823,27 @@ impl CorpusProposer {
             .then_some(entries)
     }
 
+    /// A change of `values` from the pool `comparisons` (`runtime::propose`), admissible in the
+    /// hole it changes.
+    fn runtime_change(
+        &mut self,
+        values: &[Value],
+        comparisons: &[Compared],
+        tried: &mut BTreeSet<runtime::Candidate>,
+    ) -> Option<Vec<Value>> {
+        let (holes, bounds) = (&self.holes, &self.bounds);
+        runtime::propose(
+            values,
+            comparisons,
+            tried,
+            &mut self.runtime,
+            |hole, value| {
+                let hole = &holes[hole];
+                values::admissible(value, &hole.sort, &hole.constraints, bounds)
+            },
+        )
+    }
+
     /// One admissible mutation of hole `hole` from `value`, or `None` when none was drawn in
     /// [`MAX_ATTEMPTS`].
     fn mutate_hole(&mut self, hole: usize, value: &Value, entry: usize) -> Option<Value> {
@@ -790,11 +879,45 @@ impl Proposer for CorpusProposer {
 
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
         let last = self.entries.len().checked_sub(1)?;
+        if let Some(follow) = self.follow.take()
+            && self
+                .runtime
+                .random_ratio(FOLLOW_PROBABILITY.0, FOLLOW_PROBABILITY.1)
+            && let Some(values) =
+                self.runtime_change(&follow.values, &follow.comparisons, &mut BTreeSet::new())
+        {
+            self.depth = follow.depth + 1;
+            return Some(Proposal::plain(
+                Origin::Scheduled(ProposerKind::Corpus),
+                values,
+            ));
+        }
+        self.depth = 0;
         let entry = if self.ratio(NEWEST_PROBABILITY) {
             last
         } else {
             self.rng.random_range(0..=last)
         };
+        if !self.entries[entry].comparisons.is_empty()
+            && self
+                .runtime
+                .random_ratio(RUNTIME_PROBABILITY.0, RUNTIME_PROBABILITY.1)
+        {
+            // No memory of the changes drawn from a kept case: a change that reached nothing new
+            // is not kept, and only its follow-up can finish what it started, so the same change
+            // is worth drawing again for another follow-up.
+            let (values, comparisons) = {
+                let entry = &self.entries[entry];
+                (entry.values.clone(), entry.comparisons.clone())
+            };
+            let change = self.runtime_change(&values, &comparisons, &mut BTreeSet::new());
+            if let Some(values) = change {
+                return Some(Proposal::plain(
+                    Origin::Scheduled(ProposerKind::Corpus),
+                    values,
+                ));
+            }
+        }
         let mut values = self.entries[entry].values.clone();
         let count = if self.ratio(SECOND_MUTATION_PROBABILITY) {
             2
@@ -829,7 +952,16 @@ impl Proposer for CorpusProposer {
         ))
     }
 
-    fn observe(&mut self, _proposal: &Proposal, _observation: &Observation, _interesting: bool) {}
+    fn observe(&mut self, proposal: &Proposal, observation: &Observation, _interesting: bool) {
+        self.follow = (observation.class == OutcomeClass::Miss
+            && !observation.comparisons.is_empty()
+            && self.depth < FOLLOW_DEPTH)
+            .then(|| Follow {
+                values: proposal.values.clone(),
+                comparisons: observation.comparisons.clone(),
+                depth: self.depth,
+            });
+    }
 
     fn observe_all(&mut self, proposal: &Proposal, observation: &Observation) {
         if observation.class != OutcomeClass::Miss {
@@ -860,7 +992,11 @@ impl Proposer for CorpusProposer {
             self.best.clone_from(&observation.score);
         }
         if new || better {
-            self.keep(proposal.values.clone(), !new);
+            self.keep(
+                proposal.values.clone(),
+                !new,
+                observation.comparisons.clone(),
+            );
         }
     }
 }

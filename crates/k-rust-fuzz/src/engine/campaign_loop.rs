@@ -48,6 +48,9 @@ pub(crate) struct LoopSettings {
     pub(crate) warnings: Vec<String>,
     /// The scorer of the campaign's target, when a proposer climbs a score (ARCHITECTURE 6.4).
     pub(crate) scorer: Option<Scorer>,
+    /// The rank of each recorded rule in a case's pool of run-time literals, its rule-graph
+    /// distance to the target (`crate::proposers::runtime::pool`); empty when no pool is read.
+    pub(crate) pool_rank: std::collections::BTreeMap<String, u64>,
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -202,6 +205,7 @@ fn observation(
         score,
         reads,
         blocked,
+        comparisons: crate::proposers::runtime::pool(&run.comparisons, &settings.pool_rank),
     }
 }
 
