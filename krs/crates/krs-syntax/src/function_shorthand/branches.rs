@@ -970,13 +970,31 @@ impl VisitMut for WildBinders {
     fn visit_macro_mut(&mut self, _: &mut syn::Macro) {}
 }
 
-/// Whether `tokens` spell `name` anywhere, macro arguments included.
+/// Whether `tokens` read `name` anywhere, macro arguments included.
+///
+/// A name followed by one `:` is a field label (`Ctor { name: value }`) or a
+/// declared binder (`|name: Int| ..`), neither of which reads a variable;
+/// the shorthand `Ctor { name }` and a path `name::..` do.
 fn mentions(name: &Ident, tokens: &TokenStream) -> bool {
-    tokens.clone().into_iter().any(|token| match token {
-        TokenTree::Ident(ident) => ident.unraw() == name.unraw(),
-        TokenTree::Group(group) => mentions(name, &group.stream()),
-        _ => false,
-    })
+    let mut trees = tokens.clone().into_iter().peekable();
+    while let Some(token) = trees.next() {
+        let read = match token {
+            TokenTree::Ident(ident) => {
+                ident.unraw() == name.unraw()
+                    && !matches!(
+                        trees.peek(),
+                        Some(TokenTree::Punct(colon))
+                            if colon.as_char() == ':' && colon.spacing() == Spacing::Alone
+                    )
+            }
+            TokenTree::Group(group) => mentions(name, &group.stream()),
+            _ => false,
+        };
+        if read {
+            return true;
+        }
+    }
+    false
 }
 
 /// Writes a pattern's negative literals as `-` and digits, with the spans

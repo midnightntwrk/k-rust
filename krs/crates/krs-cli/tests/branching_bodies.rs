@@ -113,6 +113,16 @@ pub fn Fit(width: Term<Int>, value: Term<Int>) -> Term<Int> {
     }
 }
 
+/// A field label named like a parameter, `count: 1`, is no read of it; the
+/// shorthand `{ count, .. }` is.
+#[k::function(total, internal)]
+pub fn Resize(count: Term<Int>, size: Term<Int>) -> Term<TypeInfo> {
+    match count {
+        0 => Info::TupleInfo { count: 1, size: 8 },
+        _ => Info::TupleInfo { count, size },
+    }
+}
+
 #[k::constant]
 pub const IF: Int = 0xFF0F;
 
@@ -234,6 +244,19 @@ fn flip_2(k::term![Flip(1)]: Term<Int>) -> Term<Int> {
 #[k::equation(owise)]
 fn flip_3(k::term![Flip(_)]: Term<Int>) -> Term<Int> {
     0
+}
+
+#[k::function(total, internal)]
+pub fn Resize(count: Term<Int>, size: Term<Int>) -> Term<TypeInfo>;
+
+#[k::equation]
+fn resize_1(k::term![Resize(0, _)]: Term<TypeInfo>) -> Term<TypeInfo> {
+    Info::TupleInfo { count: 1, size: 8 }
+}
+
+#[k::equation(owise)]
+fn resize_2(k::term![Resize(count, size)]: Term<TypeInfo>) -> Term<TypeInfo> {
+    Info::TupleInfo { count, size }
 }
 
 #[k::function(partial, internal)]
@@ -395,8 +418,8 @@ fn branches_emit_the_equations_written_by_hand() {
     assert!(success, "{stderr}");
     let branching = rules(&branching);
     assert_eq!(branching, rules(&long_form));
-    // `Magnitude`'s one equation, and the twenty-one that branches define.
-    assert_eq!(branching.len(), 22, "{branching:#?}");
+    // `Magnitude`'s one equation, and the twenty-three that branches define.
+    assert_eq!(branching.len(), 24, "{branching:#?}");
 }
 
 /// Shapes whose equations the macro and the collector must anchor alike,
