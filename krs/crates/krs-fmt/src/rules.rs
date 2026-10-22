@@ -611,7 +611,25 @@ fn render_tokens(tokens: &[TokenTree]) -> String {
         let closes = turbofish > 0 && punctuation(atom, ">");
         let after_open = index > 0 && turbofish > 0 && punctuation(&atoms[index - 1], "<");
         let call = after_close && matches!(atom.kind, AtomKind::Group(Delimiter::Parenthesis));
-        if index > 0 && !closes && !after_open && !call && needs_space(&atoms[index - 1], atom) {
+        // A bit range between integers, as in a `k::bits!` modifier's
+        // `[10:5]`, keeps the spelling of the ISA manuals.
+        let integer = |atom: &Atom| {
+            matches!(atom.kind, AtomKind::Word)
+                && atom
+                    .text
+                    .starts_with(|character: char| character.is_ascii_digit())
+        };
+        let bit_range = index > 1
+            && integer(atom)
+            && punctuation(&atoms[index - 1], ":")
+            && integer(&atoms[index - 2]);
+        if index > 0
+            && !closes
+            && !after_open
+            && !call
+            && !bit_range
+            && needs_space(&atoms[index - 1], atom)
+        {
             output.push(' ');
         }
         if opens {
@@ -841,6 +859,29 @@ mod tests {
                 code_row  : k::bits!("10 aa") => a;
                 #[k::equation(owise)]
                 code_other: n                 => 100;"#]]
+        .assert_eq(&actual);
+    }
+
+    /// A bit template's field modifiers keep their bit ranges tight, as the
+    /// ISA manuals write them.
+    #[test]
+    fn bit_template_modifiers_keep_tight_bit_ranges() {
+        let source = r#"
+            for Decode;
+            beq: k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b : signed [ 12 | 10 : 5 | 4:1 | 11 ]) => Beq(r, s, b);
+            addi: k::bits!("iiiiiiiiiiii rrrrr 000 ddddd 0010011", i: signed) => Addi(d, r, i);
+        "#;
+        let output = format_equation_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let again = format_equation_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(output, again, "modifier formatting is idempotent");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r#"
+            body:
+                for Decode;
+                beq : k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11]) => Beq(r, s, b);
+                addi: k::bits!("iiiiiiiiiiii rrrrr 000 ddddd 0010011", i: signed)                        => Addi(d, r, i);"#]]
         .assert_eq(&actual);
     }
 
