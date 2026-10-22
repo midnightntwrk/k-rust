@@ -7769,11 +7769,7 @@ k::rules! {
             Execution::SetLocalValue {
                 place,
                 value: Value::Integer {
-                    value: TruncateInteger {
-                        value: int::bit_xor(value, int::sub(0, 1)),
-                        width,
-                        signed
-                    },
+                    value: TruncateInteger { value: int::bit_xor(value, -1), width, signed },
                     width,
                     signed
                 }
@@ -9440,10 +9436,7 @@ k::rules! {
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [
-            Execution::SetLocalValue {
-                place: destination,
-                value: AdjustRef { value, offset: int::sub(0, 1) }
-            },
+            Execution::SetLocalValue { place: destination, value: AdjustRef { value, offset: -1 } },
             Execution::ExecBlockIdx(target),
             ..
         ],
@@ -9525,7 +9518,7 @@ k::rules! {
 fn list_add_switch_return(
     k::cells! {
         k: k::configuration::KCell(Execution::Run()),
-        current_func: k::configuration::Cell(MirTy::TyId(int::sub(0, 1))),
+        current_func: k::configuration::Cell(MirTy::TyId(-1)),
         CurrentFrame::current_body: k::configuration::Cell(list::concat(
             list::item(BlockSyntax::Block(
                 StatementList::StatementsCons(
@@ -9575,8 +9568,8 @@ fn list_add_switch_return(
                 ),
             ),
         )),
-        CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(int::sub(0, 1))),
-        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(int::sub(0, 1), Projections::ProjectionsEmpty())),
+        CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(-1)),
+        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, Projections::ProjectionsEmpty())),
         CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
         CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
         CurrentFrame::locals: k::configuration::Cell(list::concat(
@@ -9604,7 +9597,7 @@ fn list_add_switch_return(
 ) -> Machine {
     k::cells! {
         k: k::configuration::KCell(.K),
-        current_func: k::configuration::Cell(MirTy::TyId(int::sub(0, 1))),
+        current_func: k::configuration::Cell(MirTy::TyId(-1)),
         CurrentFrame::current_body: k::configuration::Cell(list::concat(
             list::item(BlockSyntax::Block(
                 StatementList::StatementsCons(
@@ -9654,8 +9647,8 @@ fn list_add_switch_return(
                 ),
             ),
         )),
-        CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(int::sub(0, 1))),
-        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(int::sub(0, 1), Projections::ProjectionsEmpty())),
+        CurrentFrame::caller: k::configuration::Cell(MirTy::TyId(-1)),
+        CurrentFrame::dest: k::configuration::Cell(MirPlace::Place(-1, Projections::ProjectionsEmpty())),
         CurrentFrame::target: k::configuration::Cell(MirMaybeBasicBlockIdx::NoBasicBlockIdx()),
         CurrentFrame::unwind: k::configuration::Cell(MirUnwindAction::UnwindContinue()),
         CurrentFrame::locals: k::configuration::Cell(list::concat(
