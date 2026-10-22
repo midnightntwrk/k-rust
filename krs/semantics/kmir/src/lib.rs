@@ -960,17 +960,6 @@ pub struct IsVoidType {
 #[k::function(
     partial,
     sort = MirValue,
-    syntax = "#decodeInteger({bytes}, {width}, {signed})"
-)]
-pub struct DecodeInteger {
-    pub bytes: k::Term<Bytes>,
-    pub width: k::Term<Int>,
-    pub signed: k::Term<Bool>,
-}
-
-#[k::function(
-    partial,
-    sort = MirValue,
     syntax = "#decodeAllocatedValue({types}, {bytes}, {info})"
 )]
 pub struct DecodeAllocatedValue {
@@ -1025,18 +1014,6 @@ pub struct DecodeFieldsWithOffsets {
 
 #[k::function(
     partial,
-    sort = MirValue,
-    syntax = "#decodeArrayAllocation({types}, {bytes}, {info}, {length})"
-)]
-pub struct DecodeArrayAllocation {
-    pub types: k::Term<Map>,
-    pub bytes: k::Term<Bytes>,
-    pub info: k::Term<TypeInfo>,
-    pub length: k::Term<Int>,
-}
-
-#[k::function(
-    partial,
     sort = List,
     syntax = "#decodeArrayElements({types}, {bytes}, {info}, {remaining}, {accumulated})"
 )]
@@ -1048,26 +1025,9 @@ pub struct DecodeArrayElements {
     pub accumulated: k::Term<List>,
 }
 
-#[k::function(
-    partial,
-    sort = MirValue,
-    syntax = "#decodeSliceAllocation({types}, {bytes}, {info})"
-)]
-pub struct DecodeSliceAllocation {
-    pub types: k::Term<Map>,
-    pub bytes: k::Term<Bytes>,
-    pub info: k::Term<TypeInfo>,
-}
-
 #[k::function(total, sort = Bool, syntax = "#noFields({fields})")]
 pub struct NoFields {
     pub fields: k::Term<Tyss>,
-}
-
-#[k::function(partial, sort = Int, syntax = "#findVariantIdx({tag}, {discriminants})")]
-pub struct FindVariantIndex {
-    pub tag: k::Term<Int>,
-    pub discriminants: k::Term<Discriminants>,
 }
 
 #[k::function(
@@ -1089,29 +1049,6 @@ pub struct FindVariantIndexAux {
 pub struct LookupDiscriminant {
     pub discriminants: k::Term<Discriminants>,
     pub index: k::Term<Int>,
-}
-
-#[k::function(
-    partial,
-    sort = MirValue,
-    syntax = "#decodeEnumDirectFields({types}, {bytes}, {index}, {fields}, {layouts})"
-)]
-pub struct DecodeEnumDirectFields {
-    pub types: k::Term<Map>,
-    pub bytes: k::Term<Bytes>,
-    pub index: k::Term<Int>,
-    pub fields: k::Term<Tyss>,
-    pub layouts: k::Term<LayoutShapes>,
-}
-
-#[k::function(
-    partial,
-    sort = Int,
-    syntax = "#decodeEnumDirectTag({bytes}, {width})"
-)]
-pub struct DecodeEnumDirectTag {
-    pub bytes: k::Term<Bytes>,
-    pub width: k::Term<IntegerLength>,
 }
 
 #[k::function(partial, sort = Tys, syntax = "#nthTys({fields}, {index})")]
@@ -1314,14 +1251,12 @@ k::equations! {
     align_of_other           : (_, _)                                                                   => 0;
 }
 
-#[k::equation]
+#[k::function(partial, syntax = "#decodeInteger({bytes}, {width}, {signed})")]
 #[k::requires(int::eq(bytes::length(bytes), int::div(width, 8)))]
-fn decode_integer(
-    k::term![DecodeInteger {
-        bytes,
-        width,
-        signed,
-    }]: k::Term<MirValue>,
+pub fn DecodeInteger(
+    bytes: k::Term<Bytes>,
+    width: k::Term<Int>,
+    signed: k::Term<Bool>,
 ) -> k::Term<MirValue> {
     k::term![Value::Integer {
         value: TruncateInteger {
@@ -1456,10 +1391,8 @@ fn no_fields_nonempty_variant(
     k::term![false]
 }
 
-#[k::equation]
-fn find_variant_index(
-    k::term![FindVariantIndex { tag, discriminants }]: k::Term<Int>,
-) -> k::Term<Int> {
+#[k::function(partial, syntax = "#findVariantIdx({tag}, {discriminants})")]
+pub fn FindVariantIndex(tag: k::Term<Int>, discriminants: k::Term<Discriminants>) -> k::Term<Int> {
     k::term![FindVariantIndexAux {
         tag,
         discriminants,
@@ -1662,16 +1595,17 @@ fn decode_allocated_niche_pointer_none(
     }]
 }
 
-#[k::equation]
+#[k::function(
+    partial,
+    syntax = "#decodeEnumDirectFields({types}, {bytes}, {index}, {fields}, {layouts})"
+)]
 #[k::requires(int::ge(index, 0))]
-fn decode_enum_direct_fields(
-    k::term![DecodeEnumDirectFields {
-        types,
-        bytes,
-        index,
-        fields,
-        layouts,
-    }]: k::Term<MirValue>,
+pub fn DecodeEnumDirectFields(
+    types: k::Term<Map>,
+    bytes: k::Term<Bytes>,
+    index: k::Term<Int>,
+    fields: k::Term<Tyss>,
+    layouts: k::Term<LayoutShapes>,
 ) -> k::Term<MirValue> {
     k::term![Value::Aggregate {
         variant: index,
@@ -1684,11 +1618,9 @@ fn decode_enum_direct_fields(
     }]
 }
 
-#[k::equation]
+#[k::function(partial, syntax = "#decodeEnumDirectTag({bytes}, {width})")]
 #[k::requires(int::ge(bytes::length(bytes), ByteLength { width }))]
-fn decode_enum_direct_tag(
-    k::term![DecodeEnumDirectTag { bytes, width }]: k::Term<Int>,
-) -> k::Term<Int> {
+pub fn DecodeEnumDirectTag(bytes: k::Term<Bytes>, width: k::Term<IntegerLength>) -> k::Term<Int> {
     k::term![ReadTyConstInt {
         bytes: bytes::substr(bytes, 0, ByteLength { width }),
         index: 0,
@@ -2010,14 +1942,15 @@ fn decode_fields_with_offsets_cons(
     )]
 }
 
-#[k::equation]
-fn decode_array_allocation(
-    k::term![DecodeArrayAllocation {
-        types,
-        bytes,
-        info,
-        length,
-    }]: k::Term<MirValue>,
+#[k::function(
+    partial,
+    syntax = "#decodeArrayAllocation({types}, {bytes}, {info}, {length})"
+)]
+pub fn DecodeArrayAllocation(
+    types: k::Term<Map>,
+    bytes: k::Term<Bytes>,
+    info: k::Term<TypeInfo>,
+    length: k::Term<Int>,
 ) -> k::Term<MirValue> {
     k::term![Value::Range {
         elements: DecodeArrayElements {
@@ -2077,13 +2010,15 @@ fn decode_array_elements_done(
     k::term![accumulated]
 }
 
-#[k::equation]
+#[k::function(partial, syntax = "#decodeSliceAllocation({types}, {bytes}, {info})")]
 #[k::requires(
     int::gt(ElementSize { types, info }, 0)
         && int::eq(int::rem_euclid(bytes::length(bytes), ElementSize { types, info }), 0)
 )]
-fn decode_slice_allocation(
-    k::term![DecodeSliceAllocation { types, bytes, info }]: k::Term<MirValue>,
+pub fn DecodeSliceAllocation(
+    types: k::Term<Map>,
+    bytes: k::Term<Bytes>,
+    info: k::Term<TypeInfo>,
 ) -> k::Term<MirValue> {
     k::term![DecodeArrayAllocation {
         types,
@@ -4760,28 +4695,17 @@ fn range_elements(
 
 #[k::function(
     partial,
-    sort = List,
     syntax = "#replaceSubslice({elements}, {start}, {from_back}, {replacement})"
 )]
-pub struct ReplaceSubslice {
-    pub elements: k::Term<List>,
-    pub start: k::Term<Int>,
-    pub from_back: k::Term<Int>,
-    pub replacement: k::Term<List>,
-}
-
-#[k::equation]
 #[k::requires(int::eq(
     list::size(replacement),
     int::sub(list::size(elements), int::add(start, from_back)),
 ))]
-fn replace_subslice(
-    k::term![ReplaceSubslice {
-        elements,
-        start,
-        from_back,
-        replacement,
-    }]: k::Term<List>,
+pub fn ReplaceSubslice(
+    elements: k::Term<List>,
+    start: k::Term<Int>,
+    from_back: k::Term<Int>,
+    replacement: k::Term<List>,
 ) -> k::Term<List> {
     k::term![list::update_all(elements, start, replacement)]
 }
