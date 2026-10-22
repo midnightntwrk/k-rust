@@ -1695,13 +1695,13 @@ pub struct ResolveJumpIf {
 #[k::requires(map::in_keys(index, storage))]
 #[k::equation]
 fn storage_value_present(k::term![StorageValue { storage, index }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![map::get(storage, index)]
+    map::get(storage, index)
 }
 
 #[k::requires(bool::not(map::in_keys(index, storage)))]
 #[k::equation]
 fn storage_value_absent(k::term![StorageValue { storage, index }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(map::in_keys(account, accessed))]
@@ -1713,7 +1713,7 @@ fn storage_warm_present(
         index
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![set::contains(index, map::get(accessed, account))]
+    set::contains(index, map::get(accessed, account))
 }
 
 #[k::requires(bool::not(map::in_keys(account, accessed)))]
@@ -1725,7 +1725,7 @@ fn storage_warm_absent(
         index
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![false]
+    false
 }
 
 #[k::requires(map::in_keys(account, accessed))]
@@ -1737,11 +1737,11 @@ fn mark_storage_access_present(
         index
     }]: k::Term<Map>,
 ) -> k::Term<Map> {
-    k::term![map::update(
+    map::update(
         accessed,
         account,
-        set::union(map::get(accessed, account), set::item(index))
-    )]
+        set::union(map::get(accessed, account), set::item(index)),
+    )
 }
 
 #[k::requires(bool::not(map::in_keys(account, accessed)))]
@@ -1753,7 +1753,7 @@ fn mark_storage_access_absent(
         index
     }]: k::Term<Map>,
 ) -> k::Term<Map> {
-    k::term![map::update(accessed, account, set::item(index))]
+    map::update(accessed, account, set::item(index))
 }
 
 #[k::requires(int::eq(current, new))]
@@ -1766,7 +1766,7 @@ fn storage_store_cost_unchanged(
         warm
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::add(100, ColdStorageSurcharge(warm))]
+    int::add(100, ColdStorageSurcharge(warm))
 }
 
 #[k::requires(bool::and(
@@ -1782,7 +1782,7 @@ fn storage_store_cost_set(
         warm
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::add(20000, ColdStorageSurcharge(warm))]
+    int::add(20000, ColdStorageSurcharge(warm))
 }
 
 #[k::requires(bool::and(
@@ -1798,7 +1798,7 @@ fn storage_store_cost_reset(
         warm
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::add(2900, ColdStorageSurcharge(warm))]
+    int::add(2900, ColdStorageSurcharge(warm))
 }
 
 #[k::requires(bool::and(int::ne(current, new), int::ne(original, current)))]
@@ -1811,7 +1811,7 @@ fn storage_store_cost_dirty(
         warm
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::add(100, ColdStorageSurcharge(warm))]
+    int::add(100, ColdStorageSurcharge(warm))
 }
 
 #[k::requires(int::eq(current, new))]
@@ -1823,7 +1823,7 @@ fn storage_refund_unchanged(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(
@@ -1841,7 +1841,7 @@ fn storage_refund_clean_clear(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![4800]
+    4800
 }
 
 #[k::requires(bool::and(
@@ -1859,7 +1859,7 @@ fn storage_refund_clean_no_clear(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(
@@ -1874,7 +1874,7 @@ fn storage_refund_restore_new_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![19900]
+    19900
 }
 
 #[k::requires(bool::and(
@@ -1892,7 +1892,7 @@ fn storage_refund_dirty_new_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(
@@ -1910,7 +1910,7 @@ fn storage_refund_restore_cleared_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::sub(0, 2000)]
+    int::sub(0, 2000)
 }
 
 #[k::requires(bool::and(
@@ -1931,7 +1931,7 @@ fn storage_refund_rewrite_cleared_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::sub(0, 4800)]
+    int::sub(0, 4800)
 }
 
 #[k::requires(bool::and(
@@ -1946,7 +1946,7 @@ fn storage_refund_clear_dirty_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![4800]
+    4800
 }
 
 #[k::requires(bool::and(
@@ -1964,7 +1964,7 @@ fn storage_refund_restore_dirty_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![2800]
+    2800
 }
 
 #[k::requires(bool::and(
@@ -1988,7 +1988,7 @@ fn storage_refund_other_dirty_slot(
         new
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::equation]
@@ -2002,7 +2002,7 @@ fn prepare_storage_store_static(
         static_mode: true
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StaticViolationResult()]
+    GasResult::StaticViolationResult()
 }
 
 #[k::requires(int::le(gas, 2300))]
@@ -2017,7 +2017,7 @@ fn prepare_storage_store_stipend(
         static_mode: false
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
+    GasResult::InsufficientGas()
 }
 
 #[k::requires(int::gt(gas, 2300))]
@@ -2032,38 +2032,38 @@ fn prepare_storage_store_allowed(
         static_mode: false
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeFixed {
+    ChargeFixed {
         op: Operation::StorageStore,
         gas,
         cost: StorageStoreCost {
             original,
             current,
             new,
-            warm
-        }
-    }]
+            warm,
+        },
+    }
 }
 
 #[k::requires(bool::and(int::ge(pc, 0), int::lt(pc, bytes::length(program))))]
 #[k::equation]
 fn lookup_opcode(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
-    k::term![Decode {
+    Decode {
         opcode: bytes::get(program, pc),
         program,
-        pc
-    }]
+        pc,
+    }
 }
 
 #[k::requires(int::lt(pc, 0))]
 #[k::equation]
 fn lookup_before_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
-    k::term![Operation::End]
+    Operation::End
 }
 
 #[k::requires(int::ge(pc, bytes::length(program)))]
 #[k::equation]
 fn lookup_after_program(k::term![Lookup { program, pc }]: k::Term<OpCode>) -> k::Term<OpCode> {
-    k::term![Operation::End]
+    Operation::End
 }
 
 k::equations! {
@@ -2158,7 +2158,7 @@ fn read_immediate_done(
         value
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![value]
+    value
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -2171,7 +2171,7 @@ fn read_immediate_byte(
         value
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![ReadImmediate {
+    ReadImmediate {
         program,
         at: int::add(at, 1),
         remaining: int::sub(remaining, 1),
@@ -2179,10 +2179,10 @@ fn read_immediate_byte(
             int::mul(value, 256),
             MemoryByte {
                 memory: program,
-                index: at
-            }
-        )
-    }]
+                index: at,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::le(width, 0))]
@@ -2190,7 +2190,7 @@ fn read_immediate_byte(
 fn memory_usage_nonpositive_width(
     k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![used]
+    used
 }
 
 #[k::requires(bool::and(
@@ -2201,7 +2201,7 @@ fn memory_usage_nonpositive_width(
 fn memory_usage_unchanged(
     k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![used]
+    used
 }
 
 #[k::requires(bool::and(
@@ -2212,7 +2212,7 @@ fn memory_usage_unchanged(
 fn memory_usage_grows(
     k::term![MemoryUsageUpdate { used, start, width }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::div(int::add(int::add(start, width), 31), 32)]
+    int::div(int::add(int::add(start, width), 31), 32)
 }
 
 #[k::requires(set::contains(account, accessed))]
@@ -2220,7 +2220,7 @@ fn memory_usage_grows(
 fn account_access_cost_warm(
     k::term![AccountAccessCost { accessed, account }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![100]
+    100
 }
 
 #[k::requires(bool::not(set::contains(account, accessed)))]
@@ -2228,7 +2228,7 @@ fn account_access_cost_warm(
 fn account_access_cost_cold(
     k::term![AccountAccessCost { accessed, account }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![2600]
+    2600
 }
 
 #[k::requires(int::le(width, 0))]
@@ -2241,7 +2241,7 @@ fn prepare_copy_memory_zero_width(
         width
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![memory]
+    memory
 }
 
 #[k::requires(int::gt(width, 0))]
@@ -2254,23 +2254,23 @@ fn prepare_copy_memory_positive_width(
         width
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![bytes::pad_right(
+    bytes::pad_right(
         memory,
         int::mul(MemoryUsageUpdate { used, start, width }, 32),
         0,
-    )]
+    )
 }
 
 #[k::requires(bool::and(int::ge(index, 0), int::lt(index, bytes::length(memory)),))]
 #[k::equation]
 fn memory_byte_present(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![bytes::get(memory, index)]
+    bytes::get(memory, index)
 }
 
 #[k::requires(bool::or(int::lt(index, 0), int::ge(index, bytes::length(memory)),))]
 #[k::equation]
 fn memory_byte_absent(k::term![MemoryByte { memory, index }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::or(int::lt(index, 0), int::ge(index, bytes::length(value)),))]
@@ -2282,7 +2282,7 @@ fn bytes_to_int_done(
         result
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![result]
+    result
 }
 
 #[k::requires(bool::and(int::ge(index, 0), int::lt(index, bytes::length(value)),))]
@@ -2294,11 +2294,11 @@ fn bytes_to_int_byte(
         result
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![BytesToInt {
+    BytesToInt {
         value,
         index: int::add(index, 1),
-        result: int::add(int::mul(result, 256), bytes::get(value, index))
-    }]
+        result: int::add(int::mul(result, 256), bytes::get(value, index)),
+    }
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -2311,7 +2311,7 @@ fn read_memory_word_done(
         value
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![value]
+    value
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -2324,12 +2324,12 @@ fn read_memory_word_byte(
         value
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![ReadMemoryWord {
+    ReadMemoryWord {
         memory,
         index: int::add(index, 1),
         remaining: int::sub(remaining, 1),
-        value: int::add(int::mul(value, 256), MemoryByte { memory, index })
-    }]
+        value: int::add(int::mul(value, 256), MemoryByte { memory, index }),
+    }
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -2342,7 +2342,7 @@ fn write_memory_word_done(
         value
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![memory]
+    memory
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -2355,7 +2355,7 @@ fn write_memory_word_byte(
         value
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![WriteMemoryWord {
+    WriteMemoryWord {
         memory: bytes::update(
             memory,
             int::add(index, int::sub(remaining, 1)),
@@ -2363,8 +2363,8 @@ fn write_memory_word_byte(
         ),
         index,
         remaining: int::sub(remaining, 1),
-        value: int::div(value, 256)
-    }]
+        value: int::div(value, 256),
+    }
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -2378,7 +2378,7 @@ fn copy_bytes_done(
         remaining
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![memory]
+    memory
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -2392,20 +2392,20 @@ fn copy_bytes_step(
         remaining
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![CopyBytes {
+    CopyBytes {
         memory: bytes::update(
             memory,
             destination,
             MemoryByte {
                 memory: source,
-                index: source_index
+                index: source_index,
             },
         ),
         destination: int::add(destination, 1),
         source,
         source_index: int::add(source_index, 1),
-        remaining: int::sub(remaining, 1)
-    }]
+        remaining: int::sub(remaining, 1),
+    }
 }
 
 #[k::requires(int::le(int::add(source_index, width), bytes::length(output)))]
@@ -2418,7 +2418,7 @@ fn resolve_return_data_copy_valid(
         remaining
     }]: k::Term<CopyStep>,
 ) -> k::Term<CopyStep> {
-    k::term![CopyResult::ReturnDataCopyValid { remaining }]
+    CopyResult::ReturnDataCopyValid { remaining }
 }
 
 #[k::requires(int::gt(int::add(source_index, width), bytes::length(output)))]
@@ -2431,7 +2431,7 @@ fn resolve_return_data_copy_invalid(
         remaining
     }]: k::Term<CopyStep>,
 ) -> k::Term<CopyStep> {
-    k::term![CopyResult::ReturnDataCopyInvalid { remaining }]
+    CopyResult::ReturnDataCopyInvalid { remaining }
 }
 
 #[k::requires(bool::or(int::lt(destination, 0), int::ge(destination, bytes::length(program)),))]
@@ -2442,7 +2442,7 @@ fn invalid_jump_destination_outside_program(
         destination
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![false]
+    false
 }
 
 #[k::requires(bool::and(int::ge(destination, 0), int::lt(destination, bytes::length(program)),))]
@@ -2453,11 +2453,11 @@ fn scan_jump_destination(
         destination
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![ScanJumpDestination {
+    ScanJumpDestination {
         program,
         destination,
-        cursor: 0
-    }]
+        cursor: 0,
+    }
 }
 
 #[k::requires(int::gt(cursor, destination))]
@@ -2469,7 +2469,7 @@ fn scan_jump_destination_skipped(
         cursor
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![false]
+    false
 }
 
 #[k::requires(int::eq(cursor, destination))]
@@ -2481,13 +2481,13 @@ fn scan_jump_destination_found(
         cursor
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![int::eq(
+    int::eq(
         MemoryByte {
             memory: program,
-            index: cursor
+            index: cursor,
         },
-        91
-    )]
+        91,
+    )
 }
 
 #[k::requires(bool::and(
@@ -2511,7 +2511,7 @@ fn scan_jump_destination_past_push(
         cursor
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![ScanJumpDestination {
+    ScanJumpDestination {
         program,
         destination,
         cursor: int::add(
@@ -2519,12 +2519,12 @@ fn scan_jump_destination_past_push(
             int::sub(
                 MemoryByte {
                     memory: program,
-                    index: cursor
+                    index: cursor,
                 },
-                94
+                94,
             ),
-        )
-    }]
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -2548,11 +2548,11 @@ fn scan_jump_destination_past_opcode(
         cursor
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![ScanJumpDestination {
+    ScanJumpDestination {
         program,
         destination,
-        cursor: int::add(cursor, 1)
-    }]
+        cursor: int::add(cursor, 1),
+    }
 }
 
 #[k::requires(bool::eq(
@@ -2569,7 +2569,7 @@ fn resolve_valid_jump(
         destination
     }]: k::Term<JumpStep>,
 ) -> k::Term<JumpStep> {
-    k::term![JumpResult::JumpValid { destination }]
+    JumpResult::JumpValid { destination }
 }
 
 #[k::requires(bool::eq(
@@ -2586,7 +2586,7 @@ fn resolve_invalid_jump(
         destination
     }]: k::Term<JumpStep>,
 ) -> k::Term<JumpStep> {
-    k::term![JumpResult::JumpInvalid()]
+    JumpResult::JumpInvalid()
 }
 
 #[k::requires(int::eq(condition, 0))]
@@ -2598,7 +2598,7 @@ fn resolve_false_jump_if(
         condition
     }]: k::Term<JumpStep>,
 ) -> k::Term<JumpStep> {
-    k::term![JumpResult::JumpFallthrough()]
+    JumpResult::JumpFallthrough()
 }
 
 #[k::requires(int::ne(condition, 0))]
@@ -2610,34 +2610,34 @@ fn resolve_true_jump_if(
         condition
     }]: k::Term<JumpStep>,
 ) -> k::Term<JumpStep> {
-    k::term![ResolveJump {
+    ResolveJump {
         program,
-        destination
-    }]
+        destination,
+    }
 }
 
 #[k::requires(int::eq(divisor, 0))]
 #[k::equation]
 fn word_div_zero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(int::ne(divisor, 0))]
 #[k::equation]
 fn word_div_nonzero(k::term![WordDiv { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::div(dividend, divisor)]
+    int::div(dividend, divisor)
 }
 
 #[k::requires(int::eq(divisor, 0))]
 #[k::equation]
 fn word_mod_zero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(int::ne(divisor, 0))]
 #[k::equation]
 fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::rem_euclid(dividend, divisor)]
+    int::rem_euclid(dividend, divisor)
 }
 
 #[k::requires(bool::and(
@@ -2652,7 +2652,7 @@ fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k:
 ))]
 #[k::equation]
 fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::sub(0, 1)]
+    int::sub(0, 1)
 }
 
 #[k::requires(bool::and(
@@ -2664,7 +2664,7 @@ fn sign_negative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
 ))]
 #[k::equation]
 fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![1]
+    1
 }
 
 #[k::requires(bool::or(
@@ -2676,25 +2676,25 @@ fn sign_nonnegative(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
 ))]
 #[k::equation]
 fn sign_outside_word(k::term![Sign(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(int::le(57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968, value), int::lt(value, 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936)))]
 #[k::equation]
 fn magnitude_negative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![Chop(int::sub(0, value))]
+    Chop(int::sub(0, value))
 }
 
 #[k::requires(bool::and(int::le(0, value), int::lt(value, 57_896_044_618_658_097_711_785_492_504_343_953_926_634_992_332_820_282_019_728_792_003_956_564_819_968)))]
 #[k::equation]
 fn magnitude_nonnegative(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![value]
+    value
 }
 
 #[k::requires(bool::or(int::lt(value, 0), int::le(115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936, value)))]
 #[k::equation]
 fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), 1,))]
@@ -2702,10 +2702,10 @@ fn magnitude_outside_word(k::term![Magnitude(value)]: k::Term<Int>) -> k::Term<I
 fn signed_word_div_same_sign(
     k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![WordDiv {
+    WordDiv {
         dividend: Magnitude(dividend),
-        divisor: Magnitude(divisor)
-    }]
+        divisor: Magnitude(divisor),
+    }
 }
 
 #[k::requires(int::eq(int::mul(Sign(dividend), Sign(divisor)), int::sub(0, 1),))]
@@ -2713,13 +2713,13 @@ fn signed_word_div_same_sign(
 fn signed_word_div_different_sign(
     k::term![SignedWordDiv { dividend, divisor }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![Chop(int::sub(
+    Chop(int::sub(
         0,
         WordDiv {
             dividend: Magnitude(dividend),
-            divisor: Magnitude(divisor)
+            divisor: Magnitude(divisor),
         },
-    ))]
+    ))
 }
 
 #[k::requires(int::eq(Sign(dividend), 1))]
@@ -2727,10 +2727,10 @@ fn signed_word_div_different_sign(
 fn signed_word_mod_nonnegative(
     k::term![SignedWordMod { dividend, divisor }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![WordMod {
+    WordMod {
         dividend: Magnitude(dividend),
-        divisor: Magnitude(divisor)
-    }]
+        divisor: Magnitude(divisor),
+    }
 }
 
 #[k::requires(int::eq(Sign(dividend), int::sub(0, 1)))]
@@ -2738,19 +2738,19 @@ fn signed_word_mod_nonnegative(
 fn signed_word_mod_negative(
     k::term![SignedWordMod { dividend, divisor }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![Chop(int::sub(
+    Chop(int::sub(
         0,
         WordMod {
             dividend: Magnitude(dividend),
-            divisor: Magnitude(divisor)
+            divisor: Magnitude(divisor),
         },
-    ))]
+    ))
 }
 
 #[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), 1),))]
 #[k::equation]
 fn signed_less_nonnegative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![BoolToWord(int::lt(left, right))]
+    BoolToWord(int::lt(left, right))
 }
 
 #[k::requires(bool::and(int::eq(Sign(left), 1), int::eq(Sign(right), int::sub(0, 1)),))]
@@ -2758,7 +2758,7 @@ fn signed_less_nonnegative(k::term![SignedLess { left, right }]: k::Term<Int>) -
 fn signed_less_positive_negative(
     k::term![SignedLess { left, right }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![BoolToWord(false)]
+    BoolToWord(false)
 }
 
 #[k::requires(bool::and(int::eq(Sign(left), int::sub(0, 1)), int::eq(Sign(right), 1),))]
@@ -2766,7 +2766,7 @@ fn signed_less_positive_negative(
 fn signed_less_negative_positive(
     k::term![SignedLess { left, right }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![BoolToWord(true)]
+    BoolToWord(true)
 }
 
 #[k::requires(bool::and(
@@ -2775,40 +2775,40 @@ fn signed_less_negative_positive(
 ))]
 #[k::equation]
 fn signed_less_negative(k::term![SignedLess { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![BoolToWord(int::lt(Magnitude(right), Magnitude(left)))]
+    BoolToWord(int::lt(Magnitude(right), Magnitude(left)))
 }
 
 #[k::requires(int::le(exponent, 0))]
 #[k::equation]
 fn exp_cost_zero(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![10]
+    10
 }
 
 #[k::requires(int::gt(exponent, 0))]
 #[k::equation]
 fn exp_cost_positive(k::term![ExpCost(exponent)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::add(
+    int::add(
         10,
         int::mul(50, int::add(int::div(int::log2(exponent), 8), 1)),
-    )]
+    )
 }
 
 #[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
 #[k::equation]
 fn shift_left_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![Chop(int::shift_left(value, shift))]
+    Chop(int::shift_left(value, shift))
 }
 
 #[k::requires(bool::or(int::lt(value, 0), bool::or(int::lt(shift, 0), int::ge(shift, 256)),))]
 #[k::equation]
 fn shift_left_outside_word(k::term![WordShiftLeft { value, shift }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
 #[k::equation]
 fn shift_right_word(k::term![WordShiftRight { value, shift }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::shift_right(value, shift)]
+    int::shift_right(value, shift)
 }
 
 #[k::requires(bool::or(int::lt(value, 0), bool::or(int::lt(shift, 0), int::ge(shift, 256)),))]
@@ -2816,7 +2816,7 @@ fn shift_right_word(k::term![WordShiftRight { value, shift }]: k::Term<Int>) -> 
 fn shift_right_outside_word(
     k::term![WordShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(bool::and(int::ge(value, 0), int::ge(shift, 0)), int::lt(shift, 256),))]
@@ -2824,10 +2824,10 @@ fn shift_right_outside_word(
 fn signed_shift_right_word(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![Chop(int::shift_right(
+    Chop(int::shift_right(
         int::mul(Magnitude(value), Sign(value)),
         shift,
-    ))]
+    ))
 }
 
 #[k::requires(bool::and(
@@ -2838,10 +2838,10 @@ fn signed_shift_right_word(
 fn signed_shift_right_large_negative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::sub(
+    int::sub(
         115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
         1,
-    )]
+    )
 }
 
 #[k::requires(bool::and(
@@ -2852,7 +2852,7 @@ fn signed_shift_right_large_negative(
 fn signed_shift_right_large_nonnegative(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::or(int::lt(value, 0), int::lt(shift, 0)))]
@@ -2860,28 +2860,28 @@ fn signed_shift_right_large_nonnegative(
 fn signed_shift_right_outside_word(
     k::term![WordSignedShiftRight { value, shift }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(int::ge(index, 0), int::lt(index, 32)))]
 #[k::equation]
 fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::rem_euclid(
+    int::rem_euclid(
         int::shift_right(value, int::mul(8, int::sub(31, index))),
         256,
-    )]
+    )
 }
 
 #[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
 #[k::equation]
 fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::or(int::lt(index, 0), int::ge(index, 32)))]
 #[k::equation]
 fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![value]
+    value
 }
 
 #[k::requires(
@@ -2890,10 +2890,10 @@ fn sign_extend_invalid(k::term![WordSignExtend { index, value }]: k::Term<Int>) 
 )]
 #[k::equation]
 fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![Chop(int::bit_and(
+    Chop(int::bit_and(
         int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
         value,
-    ))]
+    ))
 }
 
 #[k::requires(
@@ -2902,7 +2902,7 @@ fn sign_extend_positive(k::term![WordSignExtend { index, value }]: k::Term<Int>)
 )]
 #[k::equation]
 fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![Chop(int::bit_or(
+    Chop(int::bit_or(
         int::bit_xor(
             int::sub(
                 115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457_584_007_913_129_639_936,
@@ -2911,7 +2911,7 @@ fn sign_extend_negative(k::term![WordSignExtend { index, value }]: k::Term<Int>)
             int::sub(int::shift_left(1, int::mul(8, int::add(index, 1))), 1),
         ),
         value,
-    ))]
+    ))
 }
 
 #[k::requires(int::gt(requested, highest))]
@@ -2924,7 +2924,7 @@ fn block_hash_future(
         age
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(int::le(requested, highest), int::ge(age, 256)))]
@@ -2937,7 +2937,7 @@ fn block_hash_too_old(
         age
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(
@@ -2953,7 +2953,7 @@ fn block_hash_zero_sentinel(
         age
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(bool::and(
@@ -2969,7 +2969,7 @@ fn block_hash_found(
         age
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![list::get(hashes, age)]
+    list::get(hashes, age)
 }
 
 #[k::requires(bool::and(
@@ -2985,24 +2985,24 @@ fn block_hash_continue(
         age
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![BlockHashLookup {
+    BlockHashLookup {
         hashes,
         requested,
         highest: int::sub(highest, 1),
-        age: int::add(age, 1)
-    }]
+        age: int::add(age, 1),
+    }
 }
 
 #[k::equation]
 fn stack_size_empty(k::term![StackSize(Stack::StackEmpty())]: k::Term<Int>) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::equation]
 fn stack_size_cons(
     k::term![StackSize(Stack::StackCons(head, tail))]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::add(1, StackSize(tail))]
+    int::add(1, StackSize(tail))
 }
 
 #[k::requires(int::le(index, 0))]
@@ -3013,7 +3013,7 @@ fn stack_at_here(
         index
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![head]
+    head
 }
 
 #[k::requires(int::gt(index, 0))]
@@ -3024,10 +3024,10 @@ fn stack_at_later(
         index
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![StackAt {
+    StackAt {
         stack: tail,
-        index: int::sub(index, 1)
-    }]
+        index: int::sub(index, 1),
+    }
 }
 
 #[k::requires(int::le(index, 0))]
@@ -3039,7 +3039,7 @@ fn stack_set_here(
         value
     }]: k::Term<WordStack>,
 ) -> k::Term<WordStack> {
-    k::term![Stack::StackCons(value, tail)]
+    Stack::StackCons(value, tail)
 }
 
 #[k::requires(int::gt(index, 0))]
@@ -3051,14 +3051,14 @@ fn stack_set_later(
         value
     }]: k::Term<WordStack>,
 ) -> k::Term<WordStack> {
-    k::term![Stack::StackCons(
+    Stack::StackCons(
         head,
         StackSet {
             stack: tail,
             index: int::sub(index, 1),
-            value
-        }
-    )]
+            value,
+        },
+    )
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -3066,7 +3066,7 @@ fn stack_set_later(
 fn stack_take_list_done(
     k::term![StackTakeList { stack, remaining }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::empty()]
+    list::empty()
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -3077,13 +3077,13 @@ fn stack_take_list_empty(
         remaining
     }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::concat(
+    list::concat(
         list::item(0),
         StackTakeList {
             stack: Stack::StackEmpty(),
-            remaining: int::sub(remaining, 1)
-        }
-    )]
+            remaining: int::sub(remaining, 1),
+        },
+    )
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -3094,13 +3094,13 @@ fn stack_take_list_item(
         remaining
     }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::concat(
+    list::concat(
         list::item(head),
         StackTakeList {
             stack: tail,
-            remaining: int::sub(remaining, 1)
-        }
-    )]
+            remaining: int::sub(remaining, 1),
+        },
+    )
 }
 
 #[k::requires(int::le(remaining, 0))]
@@ -3108,7 +3108,7 @@ fn stack_take_list_item(
 fn stack_drop_done(
     k::term![StackDrop { stack, remaining }]: k::Term<WordStack>,
 ) -> k::Term<WordStack> {
-    k::term![stack]
+    stack
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -3119,7 +3119,7 @@ fn stack_drop_empty(
         remaining
     }]: k::Term<WordStack>,
 ) -> k::Term<WordStack> {
-    k::term![Stack::StackEmpty()]
+    Stack::StackEmpty()
 }
 
 #[k::requires(int::gt(remaining, 0))]
@@ -3130,10 +3130,10 @@ fn stack_drop_item(
         remaining
     }]: k::Term<WordStack>,
 ) -> k::Term<WordStack> {
-    k::term![StackDrop {
+    StackDrop {
         stack: tail,
-        remaining: int::sub(remaining, 1)
-    }]
+        remaining: int::sub(remaining, 1),
+    }
 }
 
 #[k::requires(int::eq(StackSize(stack), 0))]
@@ -3145,7 +3145,7 @@ fn prepare_pop_underflow(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackUnderflowResult()]
+    GasResult::StackUnderflowResult()
 }
 
 #[k::requires(int::gt(StackSize(stack), 0))]
@@ -3157,11 +3157,11 @@ fn prepare_pop(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeFixed {
+    ChargeFixed {
         op: Operation::Pop,
         gas,
-        cost: 2
-    }]
+        cost: 2,
+    }
 }
 
 #[k::requires(int::lt(StackSize(stack), depth))]
@@ -3173,7 +3173,7 @@ fn prepare_duplicate_underflow(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackUnderflowResult()]
+    GasResult::StackUnderflowResult()
 }
 
 #[k::requires(bool::and(int::ge(StackSize(stack), depth), int::lt(StackSize(stack), 1024),))]
@@ -3185,11 +3185,11 @@ fn prepare_duplicate(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeFixed {
+    ChargeFixed {
         op: Operation::Duplicate { depth },
         gas,
-        cost: 3
-    }]
+        cost: 3,
+    }
 }
 
 #[k::requires(bool::and(int::ge(StackSize(stack), depth), int::ge(StackSize(stack), 1024),))]
@@ -3201,7 +3201,7 @@ fn prepare_duplicate_overflow(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackOverflowResult()]
+    GasResult::StackOverflowResult()
 }
 
 #[k::requires(int::lt(StackSize(stack), int::add(depth, 1)))]
@@ -3213,7 +3213,7 @@ fn prepare_swap_underflow(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackUnderflowResult()]
+    GasResult::StackUnderflowResult()
 }
 
 #[k::requires(int::ge(StackSize(stack), int::add(depth, 1)))]
@@ -3225,11 +3225,11 @@ fn prepare_swap(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeFixed {
+    ChargeFixed {
         op: Operation::Swap { depth },
         gas,
-        cost: 3
-    }]
+        cost: 3,
+    }
 }
 
 #[k::requires(int::lt(StackSize(stack), 1024))]
@@ -3242,7 +3242,7 @@ fn prepare_push(
         cost
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeFixed { op, gas, cost }]
+    ChargeFixed { op, gas, cost }
 }
 
 #[k::requires(int::ge(StackSize(stack), 1024))]
@@ -3255,7 +3255,7 @@ fn prepare_push_overflow(
         cost
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackOverflowResult()]
+    GasResult::StackOverflowResult()
 }
 
 #[k::requires(int::lt(StackSize(stack), int::add(topics, 2),))]
@@ -3269,7 +3269,7 @@ fn prepare_log_underflow(
         static_mode
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackUnderflowResult()]
+    GasResult::StackUnderflowResult()
 }
 
 #[k::requires(int::lt(StackSize(stack), 6))]
@@ -3282,7 +3282,7 @@ fn prepare_static_call_underflow(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StackUnderflowResult()]
+    GasResult::StackUnderflowResult()
 }
 
 #[k::requires(int::ge(StackSize(stack), 6))]
@@ -3295,7 +3295,7 @@ fn prepare_static_call(
         gas
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeStaticCall {
+    ChargeStaticCall {
         gas,
         cost: StaticCallCost {
             accessed,
@@ -3304,10 +3304,10 @@ fn prepare_static_call(
             argument_start: StackAt { stack, index: 2 },
             argument_width: StackAt { stack, index: 3 },
             return_start: StackAt { stack, index: 4 },
-            return_width: StackAt { stack, index: 5 }
+            return_width: StackAt { stack, index: 5 },
         },
-        account: StackAt { stack, index: 1 }
-    }]
+        account: StackAt { stack, index: 1 },
+    }
 }
 
 #[k::requires(int::le(requested, int::sub(available, int::div(available, 64)),))]
@@ -3318,7 +3318,7 @@ fn static_call_gas_requested(
         available
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![requested]
+    requested
 }
 
 #[k::requires(int::gt(requested, int::sub(available, int::div(available, 64)),))]
@@ -3329,29 +3329,29 @@ fn static_call_gas_capped(
         available
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::sub(available, int::div(available, 64))]
+    int::sub(available, int::div(available, 64))
 }
 
 #[k::requires(int::le(bytes::length(public_key), 0))]
 #[k::equation]
 fn ecrec_output_invalid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
-    k::term![bytes::empty()]
+    bytes::empty()
 }
 
 #[k::requires(int::gt(bytes::length(public_key), 0))]
 #[k::equation]
 fn ecrec_output_valid(k::term![EcrecOutput { public_key }]: k::Term<Bytes>) -> k::Term<Bytes> {
-    k::term![CopyBytes {
+    CopyBytes {
         memory: bytes::pad_right(bytes::empty(), 32, 0),
         destination: 12,
         source: ReturnBytes {
             memory: Keccak256Raw { value: public_key },
             start: 12,
-            width: 20
+            width: 20,
         },
         source_index: 0,
-        remaining: 20
-    }]
+        remaining: 20,
+    }
 }
 
 #[k::requires(int::ge(
@@ -3365,9 +3365,9 @@ fn resolve_ecrec_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcrecPrecompileSuccess {
-        remaining: int::sub(available, 3000)
-    }]
+    PrecompileResult::EcrecPrecompileSuccess {
+        remaining: int::sub(available, 3000),
+    }
 }
 
 #[k::requires(int::lt(
@@ -3381,15 +3381,15 @@ fn resolve_ecrec_precompile_failure(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcrecPrecompileFailure {
+    PrecompileResult::EcrecPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::ge(
@@ -3404,9 +3404,9 @@ fn resolve_sha256_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::Sha256PrecompileSuccess {
-        remaining: int::sub(available, Sha256PrecompileCost { data })
-    }]
+    PrecompileResult::Sha256PrecompileSuccess {
+        remaining: int::sub(available, Sha256PrecompileCost { data }),
+    }
 }
 
 #[k::requires(int::lt(
@@ -3421,15 +3421,15 @@ fn resolve_sha256_precompile_failure(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::Sha256PrecompileFailure {
+    PrecompileResult::Sha256PrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::ge(
@@ -3444,9 +3444,9 @@ fn resolve_ripemd160_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::Ripemd160PrecompileSuccess {
-        remaining: int::sub(available, Ripemd160PrecompileCost { data })
-    }]
+    PrecompileResult::Ripemd160PrecompileSuccess {
+        remaining: int::sub(available, Ripemd160PrecompileCost { data }),
+    }
 }
 
 #[k::requires(int::lt(
@@ -3461,15 +3461,15 @@ fn resolve_ripemd160_precompile_failure(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::Ripemd160PrecompileFailure {
+    PrecompileResult::Ripemd160PrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::ge(
@@ -3484,9 +3484,9 @@ fn resolve_identity_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::IdentityPrecompileSuccess {
-        remaining: int::sub(available, IdentityPrecompileCost { data })
-    }]
+    PrecompileResult::IdentityPrecompileSuccess {
+        remaining: int::sub(available, IdentityPrecompileCost { data }),
+    }
 }
 
 #[k::requires(int::lt(
@@ -3501,15 +3501,15 @@ fn resolve_identity_precompile_failure(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::IdentityPrecompileFailure {
+    PrecompileResult::IdentityPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::le(exponent_length, 32))]
@@ -3521,17 +3521,17 @@ fn modexp_adjusted_exponent_length_short(
         exponent_length
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![ModExpExponentHeadBits {
+    ModExpExponentHeadBits {
         value: BytesToInt {
             value: ReturnBytes {
                 memory: data,
                 start: int::add(96, base_length),
-                width: exponent_length
+                width: exponent_length,
             },
             index: 0,
-            result: 0
-        }
-    }]
+            result: 0,
+        },
+    }
 }
 
 #[k::requires(int::gt(exponent_length, 32))]
@@ -3543,20 +3543,20 @@ fn modexp_adjusted_exponent_length_long(
         exponent_length
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::add(
+    int::add(
         int::mul(8, int::sub(exponent_length, 32)),
         ModExpExponentHeadBits {
             value: BytesToInt {
                 value: ReturnBytes {
                     memory: data,
                     start: int::add(96, base_length),
-                    width: 32
+                    width: 32,
                 },
                 index: 0,
-                result: 0
-            }
-        }
-    )]
+                result: 0,
+            },
+        },
+    )
 }
 
 #[k::requires(int::le(value, 1))]
@@ -3564,7 +3564,7 @@ fn modexp_adjusted_exponent_length_long(
 fn modexp_exponent_head_bits_zero_or_one(
     k::term![ModExpExponentHeadBits { value }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(int::gt(value, 1))]
@@ -3572,7 +3572,7 @@ fn modexp_exponent_head_bits_zero_or_one(
 fn modexp_exponent_head_bits_positive(
     k::term![ModExpExponentHeadBits { value }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::log2(value)]
+    int::log2(value)
 }
 
 #[k::requires(int::le(modulus_length, 0))]
@@ -3585,7 +3585,7 @@ fn modexp_output_body_empty(
         modulus_length
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![bytes::empty()]
+    bytes::empty()
 }
 
 #[k::requires(int::gt(modulus_length, 0))]
@@ -3598,27 +3598,27 @@ fn modexp_output_body_nonempty(
         modulus_length
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![ModExpOutputExponent {
+    ModExpOutputExponent {
         body: ReturnBytes {
             memory: body,
             start: base_length,
             width: Maximum {
                 left: 0,
-                right: int::sub(bytes::length(body), base_length)
-            }
+                right: int::sub(bytes::length(body), base_length),
+            },
         },
         base: BytesToInt {
             value: ReturnBytes {
                 memory: body,
                 start: 0,
-                width: base_length
+                width: base_length,
             },
             index: 0,
-            result: 0
+            result: 0,
         },
         exponent_length,
-        modulus_length
-    }]
+        modulus_length,
+    }
 }
 
 #[k::requires(int::le(modulus, 0))]
@@ -3630,7 +3630,7 @@ fn modexp_power_zero_modulus(
         modulus
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![0]
+    0
 }
 
 #[k::requires(int::gt(modulus, 0))]
@@ -3642,7 +3642,7 @@ fn modexp_power_nonzero_modulus(
         modulus
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::pow_mod(base, exponent, modulus)]
+    int::pow_mod(base, exponent, modulus)
 }
 
 #[k::requires(int::ge(
@@ -3657,9 +3657,9 @@ fn resolve_modexp_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::ModExpPrecompileSuccess {
-        remaining: int::sub(available, ModExpPrecompileCost { data })
-    }]
+    PrecompileResult::ModExpPrecompileSuccess {
+        remaining: int::sub(available, ModExpPrecompileCost { data }),
+    }
 }
 
 #[k::requires(int::lt(
@@ -3674,15 +3674,15 @@ fn resolve_modexp_precompile_failure(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::ModExpPrecompileFailure {
+    PrecompileResult::ModExpPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::equation]
@@ -3691,17 +3691,17 @@ fn bn128_point_bytes(
         point: Bn128Point::Point { x, y }
     }]: k::Term<Bytes>,
 ) -> k::Term<Bytes> {
-    k::term![WriteMemoryWord {
+    WriteMemoryWord {
         memory: WriteMemoryWord {
             memory: bytes::pad_right(bytes::empty(), 64, 0),
             index: 0,
             remaining: 32,
-            value: x
+            value: x,
         },
         index: 32,
         remaining: 32,
-        value: y
-    }]
+        value: y,
+    }
 }
 
 #[k::requires(bool::and(
@@ -3723,9 +3723,9 @@ fn resolve_ecadd_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcAddPrecompileSuccess {
-        remaining: int::sub(available, 150)
-    }]
+    PrecompileResult::EcAddPrecompileSuccess {
+        remaining: int::sub(available, 150),
+    }
 }
 
 #[k::requires(int::lt(StaticCallGas { requested, available }, 150))]
@@ -3737,15 +3737,15 @@ fn resolve_ecadd_precompile_out_of_gas(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcAddPrecompileFailure {
+    PrecompileResult::EcAddPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -3762,15 +3762,15 @@ fn resolve_ecadd_precompile_invalid_first_point(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcAddPrecompileFailure {
+    PrecompileResult::EcAddPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -3792,15 +3792,15 @@ fn resolve_ecadd_precompile_invalid_second_point(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcAddPrecompileFailure {
+    PrecompileResult::EcAddPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -3817,9 +3817,9 @@ fn resolve_ecmul_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcMulPrecompileSuccess {
-        remaining: int::sub(available, 6000)
-    }]
+    PrecompileResult::EcMulPrecompileSuccess {
+        remaining: int::sub(available, 6000),
+    }
 }
 
 #[k::requires(int::lt(StaticCallGas { requested, available }, 6000))]
@@ -3831,15 +3831,15 @@ fn resolve_ecmul_precompile_out_of_gas(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcMulPrecompileFailure {
+    PrecompileResult::EcMulPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -3856,15 +3856,15 @@ fn resolve_ecmul_precompile_invalid_point(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcMulPrecompileFailure {
+    PrecompileResult::EcMulPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::ge(index, length))]
@@ -3876,7 +3876,7 @@ fn ecpairing_g1_points_done(
         length
     }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::empty()]
+    list::empty()
 }
 
 #[k::requires(int::lt(index, length))]
@@ -3888,14 +3888,14 @@ fn ecpairing_g1_points_next(
         length
     }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::concat(
+    list::concat(
         list::item(EcPairingG1Point { data, index }),
         EcPairingG1Points {
             data,
             index: int::add(index, 192),
-            length
-        }
-    )]
+            length,
+        },
+    )
 }
 
 #[k::requires(int::ge(index, length))]
@@ -3907,7 +3907,7 @@ fn ecpairing_g2_points_done(
         length
     }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::empty()]
+    list::empty()
 }
 
 #[k::requires(int::lt(index, length))]
@@ -3919,14 +3919,14 @@ fn ecpairing_g2_points_next(
         length
     }]: k::Term<List>,
 ) -> k::Term<List> {
-    k::term![list::concat(
+    list::concat(
         list::item(EcPairingG2Point { data, index }),
         EcPairingG2Points {
             data,
             index: int::add(index, 192),
-            length
-        }
-    )]
+            length,
+        },
+    )
 }
 
 #[k::requires(int::ge(index, length))]
@@ -3938,7 +3938,7 @@ fn ecpairing_points_valid_done(
         length
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![true]
+    true
 }
 
 #[k::requires(int::lt(index, length))]
@@ -3950,21 +3950,21 @@ fn ecpairing_points_valid_next(
         length
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
-    k::term![bool::and(
+    bool::and(
         Bn128PointValid {
-            point: EcPairingG1Point { data, index }
+            point: EcPairingG1Point { data, index },
         },
         bool::and(
             Bn128G2PointValid {
-                point: EcPairingG2Point { data, index }
+                point: EcPairingG2Point { data, index },
             },
             EcPairingPointsValid {
                 data,
                 index: int::add(index, 192),
-                length
-            }
-        )
-    )]
+                length,
+            },
+        ),
+    )
 }
 
 #[k::requires(bool::and(
@@ -3989,9 +3989,9 @@ fn resolve_ecpairing_precompile_success(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcPairingPrecompileSuccess {
-        remaining: int::sub(available, EcPairingPrecompileCost { data })
-    }]
+    PrecompileResult::EcPairingPrecompileSuccess {
+        remaining: int::sub(available, EcPairingPrecompileCost { data }),
+    }
 }
 
 #[k::requires(int::lt(
@@ -4006,15 +4006,15 @@ fn resolve_ecpairing_precompile_out_of_gas(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcPairingPrecompileFailure {
+    PrecompileResult::EcPairingPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -4032,15 +4032,15 @@ fn resolve_ecpairing_precompile_malformed_length(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcPairingPrecompileFailure {
+    PrecompileResult::EcPairingPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(bool::and(
@@ -4065,39 +4065,39 @@ fn resolve_ecpairing_precompile_invalid_point(
         available
     }]: k::Term<PrecompileStep>,
 ) -> k::Term<PrecompileStep> {
-    k::term![PrecompileResult::EcPairingPrecompileFailure {
+    PrecompileResult::EcPairingPrecompileFailure {
         remaining: int::sub(
             available,
             StaticCallGas {
                 requested,
-                available
-            }
-        )
-    }]
+                available,
+            },
+        ),
+    }
 }
 
 #[k::requires(int::le(left, right))]
 #[k::equation]
 fn minimum_left(k::term![Minimum { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![left]
+    left
 }
 
 #[k::requires(int::gt(left, right))]
 #[k::equation]
 fn minimum_right(k::term![Minimum { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![right]
+    right
 }
 
 #[k::requires(int::ge(left, right))]
 #[k::equation]
 fn maximum_left(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![left]
+    left
 }
 
 #[k::requires(int::lt(left, right))]
 #[k::equation]
 fn maximum_right(k::term![Maximum { left, right }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![right]
+    right
 }
 
 #[k::requires(int::ge(StackSize(stack), int::add(topics, 2),))]
@@ -4111,7 +4111,7 @@ fn prepare_log_static(
         static_mode: true
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::StaticViolationResult()]
+    GasResult::StaticViolationResult()
 }
 
 #[k::requires(int::ge(StackSize(stack), int::add(topics, 2),))]
@@ -4125,14 +4125,14 @@ fn prepare_log_allowed(
         static_mode: false
     }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![ChargeFixed {
+    ChargeFixed {
         op: Operation::LogOpcode { topics },
         gas,
         cost: int::add(
             MemoryExpansionCost {
                 used,
                 start: StackAt { stack, index: 0 },
-                width: StackAt { stack, index: 1 }
+                width: StackAt { stack, index: 1 },
             },
             int::add(
                 375,
@@ -4141,17 +4141,17 @@ fn prepare_log_allowed(
                     int::mul(375, topics),
                 ),
             ),
-        )
-    }]
+        ),
+    }
 }
 
 #[k::requires(int::ge(gas, cost))]
 #[k::equation]
 fn charge_fixed(k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>) -> k::Term<GasStep> {
-    k::term![GasResult::EnoughGas {
+    GasResult::EnoughGas {
         op,
-        remaining: int::sub(gas, cost)
-    }]
+        remaining: int::sub(gas, cost),
+    }
 }
 
 #[k::requires(int::lt(gas, cost))]
@@ -4159,7 +4159,7 @@ fn charge_fixed(k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>) -> k:
 fn charge_fixed_fails(
     k::term![ChargeFixed { op, gas, cost }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {
-    k::term![GasResult::InsufficientGas()]
+    GasResult::InsufficientGas()
 }
 
 #[k::cell]
