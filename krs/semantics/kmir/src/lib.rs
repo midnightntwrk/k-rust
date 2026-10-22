@@ -100,28 +100,24 @@ k::sorts! {
 }
 
 #[k::constructors(sort = AllocId, result = KResult)]
-#[k::precedence((AllocId))]
 pub enum MirAllocId {
     #[k::syntax("allocId({id})")]
     AllocId { id: Int },
 }
 
 #[k::constructors(sort = Ty, result = KResult)]
-#[k::precedence((TyId))]
 pub enum MirTy {
     #[k::syntax("ty({id})")]
     TyId { id: Int },
 }
 
 #[k::constructors(sort = MaybeTy, result = KResult)]
-#[k::precedence((TyUnknown))]
 pub enum MirMaybeTy {
     #[k::syntax("TyUnknown")]
     TyUnknown(),
 }
 
 #[k::constructors(sort = IntTy, result = KResult)]
-#[k::precedence((Isize, I8, I16, I32, I64, I128))]
 pub enum MirIntTy {
     #[k::syntax("intTyIsize")]
     Isize(),
@@ -138,7 +134,6 @@ pub enum MirIntTy {
 }
 
 #[k::constructors(sort = UintTy, result = KResult)]
-#[k::precedence((Usize, U8, U16, U32, U64, U128))]
 pub enum MirUintTy {
     #[k::syntax("uintTyUsize")]
     Usize(),
@@ -155,7 +150,6 @@ pub enum MirUintTy {
 }
 
 #[k::constructors(sort = FloatTy, result = KResult)]
-#[k::precedence((F16, F32, F64, F128))]
 pub enum MirFloatTy {
     #[k::syntax("floatTyF16")]
     F16(),
@@ -168,7 +162,6 @@ pub enum MirFloatTy {
 }
 
 #[k::constructors(sort = PrimitiveType, result = KResult)]
-#[k::precedence((Bool, Char, SignedInteger, UnsignedInteger, Float, Str))]
 pub enum MirPrimitiveType {
     #[k::syntax("primTypeBool")]
     Bool(),
@@ -185,14 +178,12 @@ pub enum MirPrimitiveType {
 }
 
 #[k::constructors(sort = TyConstId, result = KResult)]
-#[k::precedence((TyConstId))]
 pub enum MirTyConstId {
     #[k::syntax("tyConstId({id})")]
     TyConstId { id: Int },
 }
 
 #[k::constructors(sort = ProvenanceMap, result = KResult)]
-#[k::precedence((EmptyProvenanceMap, SingletonProvenanceMap))]
 pub enum MirProvenanceMap {
     #[k::syntax("provenanceMap(.ProvenanceMapEntries)")]
     EmptyProvenanceMap(),
@@ -201,28 +192,24 @@ pub enum MirProvenanceMap {
 }
 
 #[k::constructors(sort = Align, result = KResult)]
-#[k::precedence((Align))]
 pub enum MirAlign {
     #[k::syntax("align({bytes})")]
     Align { bytes: Int },
 }
 
 #[k::constructors(sort = AdtDef, result = KResult)]
-#[k::precedence((AdtDef))]
 pub enum MirAdtDef {
     #[k::syntax("adtDef({id})")]
     AdtDef { id: Int },
 }
 
 #[k::constructors(sort = ClosureDef, result = KResult)]
-#[k::precedence((ClosureDef))]
 pub enum MirClosureDef {
     #[k::syntax("closureDef({id})")]
     ClosureDef { id: Int },
 }
 
 #[k::constructors(sort = GenericArg, result = KResult)]
-#[k::precedence((GenericArgLifetime, GenericArgType, GenericArgConst))]
 pub enum MirGenericArg {
     #[k::syntax("genericArgKindLifetime({region})")]
     GenericArgLifetime { region: Region },
@@ -242,7 +229,6 @@ pub enum MirGenericArgs {
 }
 
 #[k::constructors(sort = MaybeUserTypeAnnotationIndex, result = KResult)]
-#[k::precedence((NoUserTypeAnnotationIndex, SomeUserTypeAnnotationIndex))]
 pub enum MirMaybeUserTypeAnnotationIndex {
     #[k::syntax("noUserTypeAnnotationIndex")]
     NoUserTypeAnnotationIndex(),
@@ -251,7 +237,6 @@ pub enum MirMaybeUserTypeAnnotationIndex {
 }
 
 #[k::constructors(sort = MaybeFieldIdx, result = KResult)]
-#[k::precedence((NoFieldIdx, SomeFieldIdx))]
 pub enum MirMaybeFieldIdx {
     #[k::syntax("noFieldIdx")]
     NoFieldIdx(),
@@ -260,13 +245,6 @@ pub enum MirMaybeFieldIdx {
 }
 
 #[k::constructors(sort = AggregateKind, result = KResult)]
-#[k::precedence((
-    AggregateArray,
-    AggregateTuple,
-    AggregateAdt,
-    AggregateClosure,
-    AggregateRawPointer,
-))]
 pub enum MirAggregateKind {
     #[k::syntax("aggregateKindArray({ty})")]
     AggregateArray { ty: Ty },
@@ -308,7 +286,6 @@ pub enum MirTyss {
 }
 
 #[k::constructors(sort = Discriminant, result = KResult)]
-#[k::precedence((Discriminant))]
 pub enum MirDiscriminant {
     #[k::syntax("discriminant({value})")]
     Discriminant { value: Int },
@@ -327,7 +304,6 @@ pub enum MirDiscriminants {
 }
 
 #[k::constructors(sort = MachineSize, result = KResult)]
-#[k::precedence((MachineSize))]
 pub enum MirMachineSize {
     #[k::syntax("machineSize({bits})")]
     MachineSize { bits: Int },
@@ -346,21 +322,18 @@ pub enum MirMachineSizes {
 }
 
 #[k::constructors(sort = FieldsShapeArbitrary, result = KResult)]
-#[k::precedence((ArbitraryFields))]
 pub enum MirFieldsShapeArbitrary {
     #[k::syntax("mk({offsets})")]
     ArbitraryFields { offsets: MachineSizes },
 }
 
 #[k::constructors(sort = FieldsShape, result = KResult)]
-#[k::precedence((FieldsShapeArbitrary))]
 pub enum MirFieldsShape {
     #[k::syntax("fieldsShapeArbitrary({fields})")]
     FieldsShapeArbitrary { fields: FieldsShapeArbitrary },
 }
 
 #[k::constructors(sort = VariantsShapeSingle, result = KResult)]
-#[k::precedence((SingleVariant))]
 pub enum MirVariantsShapeSingle {
     #[k::syntax("mk(variantIdx({index}))")]
     SingleVariant { index: Int },
@@ -379,7 +352,6 @@ pub enum MirLayoutShapes {
 }
 
 #[k::constructors(sort = IntegerLength, result = KResult)]
-#[k::precedence((LengthI8, LengthI16, LengthI32, LengthI64, LengthI128))]
 pub enum MirIntegerLength {
     #[k::syntax("integerLengthI8")]
     LengthI8(),
@@ -394,21 +366,18 @@ pub enum MirIntegerLength {
 }
 
 #[k::constructors(sort = PrimitiveInt, result = KResult)]
-#[k::precedence((PrimitiveInt))]
 pub enum MirPrimitiveInt {
     #[k::syntax("mk({length}, {signed})")]
     PrimitiveInt { length: IntegerLength, signed: Bool },
 }
 
 #[k::constructors(sort = AddressSpace, result = KResult)]
-#[k::precedence((AddressSpace))]
 pub enum MirAddressSpace {
     #[k::syntax("addressSpace({id})")]
     AddressSpace { id: Int },
 }
 
 #[k::constructors(sort = Primitive, result = KResult)]
-#[k::precedence((IntegerPrimitive, PointerPrimitive))]
 pub enum MirPrimitive {
     #[k::syntax("primitiveInt({integer})")]
     IntegerPrimitive { integer: PrimitiveInt },
@@ -417,14 +386,12 @@ pub enum MirPrimitive {
 }
 
 #[k::constructors(sort = WrappingRange, result = KResult)]
-#[k::precedence((WrappingRange))]
 pub enum MirWrappingRange {
     #[k::syntax("wrappingRange({start}, {end})")]
     WrappingRange { start: Int, end: Int },
 }
 
 #[k::constructors(sort = ScalarInitialized, result = KResult)]
-#[k::precedence((ScalarInitializedFields))]
 pub enum MirScalarInitialized {
     #[k::syntax("mk({value}, {valid_range})")]
     ScalarInitializedFields {
@@ -434,14 +401,12 @@ pub enum MirScalarInitialized {
 }
 
 #[k::constructors(sort = Scalar, result = KResult)]
-#[k::precedence((InitializedScalar))]
 pub enum MirScalar {
     #[k::syntax("scalarInitialized({scalar})")]
     InitializedScalar { scalar: ScalarInitialized },
 }
 
 #[k::constructors(sort = TagEncoding, result = KResult)]
-#[k::precedence((Direct, Niche))]
 pub enum MirTagEncoding {
     #[k::syntax("tagEncodingDirect")]
     Direct(),
@@ -450,7 +415,6 @@ pub enum MirTagEncoding {
 }
 
 #[k::constructors(sort = VariantsShapeMultiple, result = KResult)]
-#[k::precedence((MultipleVariants))]
 pub enum MirVariantsShapeMultiple {
     #[k::syntax("mk({tag}, {tag_encoding}, {tag_field}, {variants})")]
     MultipleVariants {
@@ -462,7 +426,6 @@ pub enum MirVariantsShapeMultiple {
 }
 
 #[k::constructors(sort = VariantsShape, result = KResult)]
-#[k::precedence((VariantsShapeSingle, VariantsShapeMultiple))]
 pub enum MirVariantsShape {
     #[k::syntax("variantsShapeSingle({variant})")]
     VariantsShapeSingle { variant: VariantsShapeSingle },
@@ -471,14 +434,12 @@ pub enum MirVariantsShape {
 }
 
 #[k::constructors(sort = ValueAbiAggregate, result = KResult)]
-#[k::precedence((AggregateAbi))]
 pub enum MirValueAbiAggregate {
     #[k::syntax("mk({sized})")]
     AggregateAbi { sized: Bool },
 }
 
 #[k::constructors(sort = ValueAbi, result = KResult)]
-#[k::precedence((ValueAbiScalar, ValueAbiAggregate))]
 pub enum MirValueAbi {
     #[k::syntax("valueAbiScalar({scalar})")]
     ValueAbiScalar { scalar: Scalar },
@@ -487,7 +448,6 @@ pub enum MirValueAbi {
 }
 
 #[k::constructors(sort = LayoutShape, result = KResult)]
-#[k::precedence((LayoutShape))]
 pub enum MirLayoutShape {
     #[k::syntax("layoutShape({fields}, {variants}, {abi}, {abi_align}, {size})")]
     LayoutShape {
@@ -500,7 +460,6 @@ pub enum MirLayoutShape {
 }
 
 #[k::constructors(sort = MaybeLayoutShape, result = KResult)]
-#[k::precedence((SomeLayoutShape, NoLayoutShape))]
 pub enum MirMaybeLayoutShape {
     #[k::syntax("someLayoutShape({layout})")]
     SomeLayoutShape { layout: LayoutShape },
@@ -509,7 +468,6 @@ pub enum MirMaybeLayoutShape {
 }
 
 #[k::constructors(sort = Allocation, result = KResult)]
-#[k::precedence((Allocation))]
 pub enum MirAllocation {
     #[k::syntax("allocation({bytes}, {provenance}, {align}, {mutability})")]
     Allocation {
@@ -521,21 +479,18 @@ pub enum MirAllocation {
 }
 
 #[k::constructors(sort = TyConstKind, result = KResult)]
-#[k::precedence((Value))]
 pub enum MirTyConstKind {
     #[k::syntax("tyConstKindValue({ty}, {allocation})")]
     Value { ty: Ty, allocation: Allocation },
 }
 
 #[k::constructors(sort = TyConst, result = KResult)]
-#[k::precedence((TyConst))]
 pub enum MirTyConst {
     #[k::syntax("tyConst({kind}, {id})")]
     TyConst { kind: TyConstKind, id: TyConstId },
 }
 
 #[k::constructors(sort = MaybeTyConst, result = KResult)]
-#[k::precedence((SomeTyConst, NoTyConst))]
 pub enum MirMaybeTyConst {
     #[k::syntax("someTyConst({value})")]
     SomeTyConst { value: TyConst },
@@ -544,19 +499,6 @@ pub enum MirMaybeTyConst {
 }
 
 #[k::constructors(sort = TypeInfo, result = KResult)]
-#[k::precedence((
-    PrimitiveType,
-    ArrayType,
-    PointerType,
-    ReferenceType,
-    StructType,
-    UnionType,
-    TupleType,
-    EnumType,
-    DynamicType,
-    FunType,
-    VoidType,
-))]
 pub enum MirTypeInfo {
     #[k::syntax("typeInfoPrimitiveType({primitive})")]
     PrimitiveType { primitive: PrimitiveType },
@@ -605,7 +547,6 @@ pub enum MirTypeInfo {
 }
 
 #[k::constructors(sort = Mutability, result = KResult)]
-#[k::precedence((NotMutable, Mutable))]
 pub enum LocalMutability {
     #[k::syntax("mutabilityNot")]
     NotMutable(),
@@ -614,14 +555,12 @@ pub enum LocalMutability {
 }
 
 #[k::constructors(sort = Region, result = KResult)]
-#[k::precedence((Erased))]
 pub enum MirRegion {
     #[k::syntax("region(regionKindReErased)")]
     Erased(),
 }
 
 #[k::constructors(sort = BorrowKind, result = KResult)]
-#[k::precedence((SharedBorrow, MutableBorrow))]
 pub enum MirBorrowKind {
     #[k::syntax("borrowKindShared")]
     SharedBorrow(),
@@ -630,14 +569,12 @@ pub enum MirBorrowKind {
 }
 
 #[k::constructors(sort = PointerCoercion, result = KResult)]
-#[k::precedence((Unsize))]
 pub enum MirPointerCoercion {
     #[k::syntax("pointerCoercionUnsize")]
     Unsize(),
 }
 
 #[k::constructors(sort = CastKind, result = KResult)]
-#[k::precedence((PointerCoercion, PtrToPtr, Transmute))]
 pub enum MirCastKind {
     #[k::syntax("castKindPointerCoercion({coercion})")]
     PointerCoercion { coercion: PointerCoercion },
@@ -648,7 +585,6 @@ pub enum MirCastKind {
 }
 
 #[k::constructors(sort = MetadataSize, result = KResult)]
-#[k::precedence((NoMetadataSize, StaticSize, DynamicSize))]
 pub enum MirMetadataSize {
     #[k::syntax("noMetadataSize")]
     NoMetadataSize(),
@@ -659,7 +595,6 @@ pub enum MirMetadataSize {
 }
 
 #[k::constructors(sort = Metadata, result = KResult)]
-#[k::precedence((Metadata))]
 pub enum MirMetadata {
     #[k::syntax("metadata({size}, {offset}, {origin_size})")]
     Metadata {
@@ -670,7 +605,6 @@ pub enum MirMetadata {
 }
 
 #[k::constructors(sort = TypedLocal, result = KResult)]
-#[k::precedence((NewLocal, TypedValue))]
 pub enum LocalValue {
     #[k::syntax("newLocal({ty}, {mutability})")]
     NewLocal { ty: Ty, mutability: Mutability },
@@ -3332,20 +3266,6 @@ fn convert_pointer_metadata_dynamic_to_static(
 }
 
 #[k::constructors(sort = ProjectionElem, result = KResult)]
-#[k::precedence((
-    Deref,
-    Field,
-    Index,
-    ConstantIndex,
-    Subslice,
-    Downcast,
-    PointerOffset,
-    DerefTruncate,
-    SingletonArray,
-    WrapStruct,
-    ToZst,
-    FromZst,
-))]
 pub enum Projection {
     #[k::syntax("projectionElemDeref")]
     Deref(),
@@ -3774,7 +3694,6 @@ fn projections_for_wrap_struct(
 }
 
 #[k::constructors(sort = ProjectionTarget, result = KResult)]
-#[k::precedence((ToLocal, ToStack, ToAllocation))]
 pub enum MirProjectionTarget {
     #[k::syntax("toLocal(local({local}))")]
     ToLocal { local: Int },
@@ -3785,14 +3704,6 @@ pub enum MirProjectionTarget {
 }
 
 #[k::constructors(sort = ProjectionContext, result = KResult)]
-#[k::precedence((
-    FieldContext,
-    UnionFieldContext,
-    IndexContext,
-    SubsliceContext,
-    PointerOffsetContext,
-    WrapStructContext,
-))]
 pub enum MirProjectionContext {
     #[k::syntax("CtxField(variantIdx({variant}), {fields}, fieldIdx({field}), {ty})")]
     FieldContext {
@@ -3834,7 +3745,6 @@ pub enum MirProjectionContexts {
 }
 
 #[k::constructors(sort = ProjectionAction, result = KResult)]
-#[k::precedence((ReadAction, WriteAction, MoveAction, ReferenceAction))]
 pub enum MirProjectionAction {
     #[k::syntax("readProjection({continuation})")]
     ReadAction { continuation: Continuation },
@@ -3851,7 +3761,6 @@ pub enum MirProjectionAction {
 }
 
 #[k::constructors(sort = PtrCastPhase, result = KResult)]
-#[k::precedence((Compare, Source, TargetPhase))]
 pub enum MirPtrCastPhase {
     #[k::syntax("ptrCastCompare")]
     Compare(),
@@ -3862,7 +3771,6 @@ pub enum MirPtrCastPhase {
 }
 
 #[k::constructors(sort = Place, result = KResult)]
-#[k::precedence((Place))]
 pub enum MirPlace {
     #[k::syntax("place(local({local}), {projections})")]
     Place {
@@ -3872,17 +3780,6 @@ pub enum MirPlace {
 }
 
 #[k::constructors(sort = MirValue, result = KResult)]
-#[k::precedence((
-    Integer,
-    Boolean,
-    Aggregate,
-    Union,
-    Range,
-    Reference,
-    Pointer,
-    AllocationReference,
-    Moved,
-))]
 pub enum Value {
     #[k::syntax("Integer({value}, {width}, {signed})")]
     Integer {
@@ -4085,30 +3982,6 @@ fn materialize_closure(
 }
 
 #[k::constructors(sort = BinaryOp, result = KResult)]
-#[k::precedence((
-    BinOpAdd,
-    BinOpAddUnchecked,
-    BinOpSub,
-    BinOpSubUnchecked,
-    BinOpMul,
-    BinOpMulUnchecked,
-    BinOpDiv,
-    BinOpRem,
-    BinOpBitXor,
-    BinOpBitAnd,
-    BinOpBitOr,
-    BinOpShl,
-    BinOpShlUnchecked,
-    BinOpShr,
-    BinOpShrUnchecked,
-    BinOpEq,
-    BinOpLt,
-    BinOpLe,
-    BinOpNe,
-    BinOpGe,
-    BinOpGt,
-    BinOpOffset,
-))]
 pub enum MirBinaryOp {
     #[k::syntax("binOpAdd")]
     BinOpAdd(),
@@ -4157,7 +4030,6 @@ pub enum MirBinaryOp {
 }
 
 #[k::constructors(sort = Operand, result = KResult)]
-#[k::precedence((Constant, AllocatedConstant, ZeroSizedConstant, Copy, Move))]
 pub enum MirOperand {
     #[k::syntax("const({value})")]
     Constant { value: MirValue },
@@ -4181,7 +4053,6 @@ pub enum MirOperand {
 }
 
 #[k::constructors(sort = UnaryOp, result = KResult)]
-#[k::precedence((UnOpNot, UnOpNeg, UnOpPtrMetadata))]
 pub enum MirUnaryOp {
     #[k::syntax("unOpNot")]
     UnOpNot(),
@@ -4192,7 +4063,6 @@ pub enum MirUnaryOp {
 }
 
 #[k::constructors(sort = NullOp, result = KResult)]
-#[k::precedence((SizeOf, AlignOf, UbChecks))]
 pub enum MirNullOp {
     #[k::syntax("nullOpSizeOf")]
     SizeOf(),
@@ -4203,21 +4073,6 @@ pub enum MirNullOp {
 }
 
 #[k::constructors(sort = Rvalue, result = KResult)]
-#[k::precedence((
-    Use,
-    Cast,
-    Ref,
-    AddressOf,
-    Unary,
-    Nullary,
-    Binary,
-    CheckedBinary,
-    AggregateRvalue,
-    Repeat,
-    Len,
-    CopyForDeref,
-    DiscriminantRvalue,
-))]
 pub enum MirRvalue {
     #[k::syntax("rvalueUse({operand})")]
     Use { operand: Operand },
@@ -4273,7 +4128,6 @@ pub enum MirRvalue {
 }
 
 #[k::constructors(sort = Statement, result = KResult)]
-#[k::precedence((Assign))]
 pub enum MirStatement {
     #[k::syntax("assign({place}, {value})")]
     Assign { place: Place, value: Rvalue },
@@ -4289,7 +4143,6 @@ pub enum StatementList {
 }
 
 #[k::constructors(sort = Branch, result = KResult)]
-#[k::precedence((Branch))]
 pub enum MirBranch {
     #[k::syntax("branch({value}, {target})")]
     Branch { value: Int, target: Int },
@@ -4305,14 +4158,12 @@ pub enum BranchList {
 }
 
 #[k::constructors(sort = SwitchTargets, result = KResult)]
-#[k::precedence((SwitchTargets))]
 pub enum MirSwitchTargets {
     #[k::syntax("switchTargets({branches}, {otherwise})")]
     SwitchTargets { branches: Branches, otherwise: Int },
 }
 
 #[k::constructors(sort = MaybeBasicBlockIdx, result = KResult)]
-#[k::precedence((NoBasicBlockIdx, SomeBasicBlockIdx))]
 pub enum MirMaybeBasicBlockIdx {
     #[k::syntax("noBasicBlockIdx")]
     NoBasicBlockIdx(),
@@ -4331,7 +4182,6 @@ pub enum Operands {
 }
 
 #[k::constructors(sort = LocalDecl, result = KResult)]
-#[k::precedence((LocalDecl))]
 pub enum MirLocalDecl {
     #[k::syntax("localDecl({ty}, span({span}), {mutability})")]
     LocalDecl {
@@ -4351,7 +4201,6 @@ pub enum MirLocalDecls {
 }
 
 #[k::constructors(sort = FunctionBody, result = KResult)]
-#[k::precedence((Body))]
 pub enum MirFunctionBody {
     #[k::syntax("body({blocks}, {locals}, {arg_count})")]
     Body {
@@ -4362,14 +4211,12 @@ pub enum MirFunctionBody {
 }
 
 #[k::constructors(sort = Function, result = KResult)]
-#[k::precedence((MonoItemFn))]
 pub enum MirFunction {
     #[k::syntax("monoItemFn(defId({id}), someBody({body}))")]
     MonoItemFn { id: Int, body: FunctionBody },
 }
 
 #[k::constructors(sort = CallTarget, result = KResult)]
-#[k::precedence((ConstantFunction))]
 pub enum MirCallTarget {
     #[k::syntax(
         "operandConstant(constOperand(span({span}), mirConst(constantKindZeroSized, {ty}, mirConstId({id}))))"
@@ -4378,7 +4225,6 @@ pub enum MirCallTarget {
 }
 
 #[k::constructors(sort = StackFrame, result = KResult)]
-#[k::precedence((StackFrame))]
 pub enum MirStackFrame {
     #[k::syntax("StackFrame({caller}, {dest}, {target}, {unwind}, {locals}, span({span}))")]
     StackFrame {
@@ -4392,7 +4238,6 @@ pub enum MirStackFrame {
 }
 
 #[k::constructors(sort = AssertMessage, result = KResult)]
-#[k::precedence((Overflow))]
 pub enum MirAssertMessage {
     #[k::syntax("assertMessageOverflow({operation}, {lhs}, {rhs})")]
     Overflow {
@@ -4403,14 +4248,12 @@ pub enum MirAssertMessage {
 }
 
 #[k::constructors(sort = UnwindAction, result = KResult)]
-#[k::precedence((UnwindContinue))]
 pub enum MirUnwindAction {
     #[k::syntax("unwindActionContinue")]
     UnwindContinue(),
 }
 
 #[k::constructors(sort = MirError, result = k::KItem)]
-#[k::precedence((AssertError, ReachedUnreachable))]
 pub enum MirExecutionError {
     #[k::syntax("AssertError({message})")]
     AssertError { message: AssertMessage },
@@ -4419,7 +4262,6 @@ pub enum MirExecutionError {
 }
 
 #[k::constructors(sort = Terminator, result = KResult)]
-#[k::precedence((Goto, SwitchInt, Assert, Call, Drop, Unreachable, Return))]
 pub enum MirTerminator {
     #[k::syntax("goto({target})")]
     Goto { target: Int },
@@ -4459,7 +4301,6 @@ pub enum MirTerminator {
 }
 
 #[k::constructors(sort = BasicBlock, result = KResult)]
-#[k::precedence((Block))]
 pub enum BlockSyntax {
     #[k::syntax("basicBlock({statements}, {terminator})")]
     Block {
@@ -4469,7 +4310,6 @@ pub enum BlockSyntax {
 }
 
 #[k::constructors(sort = RetVal, result = KResult)]
-#[k::precedence((NoReturn, Returned))]
 pub enum ReturnValue {
     #[k::syntax("noReturn")]
     NoReturn(),
@@ -6167,21 +6007,6 @@ fn build_projection_update_pointer_offset(
 }
 
 #[k::constructors(sort = Continuation, result = KResult)]
-#[k::precedence((
-    StoreAt,
-    FinishCast,
-    FinishPtrCast,
-    FinishTransmute,
-    FinishUnary,
-    BinaryRight,
-    FinishBinary,
-    AggregateNext,
-    FinishRepeat,
-    FinishLen,
-    FinishDiscriminant,
-    SelectBlock,
-    FinishAssert,
-))]
 pub enum EvaluationContinuation {
     #[k::syntax("#storeAt({place})")]
     StoreAt { place: Place },
@@ -6238,32 +6063,6 @@ pub enum EvaluationContinuation {
 }
 
 #[k::constructors(sort = Command, result = KResult)]
-#[k::precedence((
-    Run,
-    ExecBlockIdx,
-    ExecBlock,
-    ExecStmts,
-    ExecStmt,
-    EvalRvalue,
-    ResolveAddressOf,
-    ResolvePtrCast,
-    EvalOperand,
-    ReadLocal,
-    ReadProjectedLocal,
-    TraverseProjection,
-    ReadMovedProjectedLocal,
-    Continue,
-    SetLocalValue,
-    WriteLocal,
-    WriteProjectedLocal,
-    ReturnLocal,
-    ExecTerminator,
-    SetArgsFromStack,
-    SetArgFromStack,
-    Expect,
-    ProgramError,
-    EndProgram,
-))]
 pub enum Execution {
     #[k::syntax("run")]
     Run(),
