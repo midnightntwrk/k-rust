@@ -271,6 +271,10 @@ fn __krs_rule_result_sort_99baddc925745240() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_99baddc925745240_0() -> ::core::any::TypeId {
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Operand::*;
+    #[allow(unused_imports, clippy::enum_glob_use)]
+    use Register::*;
     ::core::any::TypeId::of::<int::gt>()
 }
 #[doc(hidden)]

@@ -351,6 +351,7 @@ k::equations! {
 `for R8;` names a non-parametric `#[k::function]`, and each row `label: args => result;` is the equation `#[k::equation] fn label(k::term![R8(args)]: ..) -> .. { result }`, named by its label, with `R8`'s result sort.
 The arguments are one pattern, or a parenthesized list for several (`both: (true, v) => v;`, `none: () => 0;`), with every pattern an equation accepts; a row may carry `#[k::equation(..)]` keys, `#[k::requires(..)]`, and documentation, and takes no `where` narrowing.
 The table's `use` items are in scope for its rows only, and rustc resolves every unqualified name in a row through them and the module, so two of them that export one name are rustc's ambiguity error at the name.
+That includes the first segment of a qualified path: under `use Register as Reg;`, a row may write `swap_a: Reg::A => Reg::B;`, and `krs expand` prints `crate::Register::A`.
 `krs expand` prints each row as its `#[k::equation]` fn with qualified paths, and `krs fmt` lays a table out as it lays out `k::rules!`.
 
 Rows are unordered, like every set of equations: a row never wins by its position, and the label, not the position, is the equation's identity, so reordering rows changes nothing.
