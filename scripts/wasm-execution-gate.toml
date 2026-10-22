@@ -86,7 +86,9 @@ stdout = "success"
 [[program]]
 name = "simple/f64_bitwise-cs"
 exit = 0
-stderr = ""
+stderr = """
+warning: a path to a result read a value of FLOAT.sign the definition leaves open (nan-sign); in another model of the definition such a result may differ or be absent
+"""
 stdout = "success"
 
 [[program]]
