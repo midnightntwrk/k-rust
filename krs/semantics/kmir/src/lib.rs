@@ -624,12 +624,7 @@ pub struct LocalTy {
 #[k::equation]
 fn local_ty(
     k::term![LocalTy {
-        entry: LocalValue::NewLocal { ty, mutability: _ }
-            | LocalValue::TypedValue {
-                value: _,
-                ty,
-                mutability: _,
-            },
+        entry: LocalValue::NewLocal { ty, .. } | LocalValue::TypedValue { ty, .. },
     }]: k::Term<Ty>,
 ) -> k::Term<Ty> {
     ty
@@ -650,7 +645,7 @@ fn pointee_ty(
 }
 
 #[k::equation(priority = 60)]
-fn pointee_ty_other(k::term![PointeeTy { info: _ }]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
+fn pointee_ty_other(k::term![PointeeTy(_)]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
     k::term![MirMaybeTy::TyUnknown()]
 }
 
@@ -662,14 +657,14 @@ pub struct ElemTy {
 #[k::equation]
 fn elem_ty_array(
     k::term![ElemTy {
-        info: MirTypeInfo::ArrayType { element, size: _ },
+        info: MirTypeInfo::ArrayType { element, .. },
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     element
 }
 
 #[k::equation(priority = 60)]
-fn elem_ty_other(k::term![ElemTy { info: _ }]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
+fn elem_ty_other(k::term![ElemTy(_)]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
     k::term![MirMaybeTy::TyUnknown()]
 }
 
@@ -687,9 +682,8 @@ pub struct GetTyOf {
 #[k::equation(priority = 40)]
 fn get_ty_of_unknown(
     k::term![GetTyOf {
-        types: _,
         ty: MirMaybeTy::TyUnknown(),
-        projections: _,
+        ..
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     k::term![MirMaybeTy::TyUnknown()]
@@ -698,9 +692,9 @@ fn get_ty_of_unknown(
 #[k::equation]
 fn get_ty_of_done(
     k::term![GetTyOf {
-        types: _,
         ty,
         projections: Projections::ProjectionsEmpty(),
+        ..
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     ty
@@ -730,11 +724,11 @@ fn get_ty_of_deref(
 fn get_ty_of_field(
     k::term![GetTyOf {
         types,
-        ty: _,
         projections: Projections::ProjectionsCons {
-            head: Projection::Field { field: _, ty },
+            head: Projection::Field { ty, .. },
             tail,
         },
+        ..
     }]: k::Term<MaybeTy>,
 ) -> k::Term<MaybeTy> {
     k::term![GetTyOf {
@@ -750,12 +744,7 @@ fn get_ty_of_element(
         types,
         ty,
         projections: Projections::ProjectionsCons {
-            head: Projection::Index { local: _ }
-                | Projection::ConstantIndex {
-                    offset: _,
-                    min_length: _,
-                    from_end: _,
-                },
+            head: Projection::Index(_) | Projection::ConstantIndex(_, _, _),
             tail,
         },
     }]: k::Term<MaybeTy>,
@@ -776,11 +765,7 @@ fn get_ty_of_same_type(
         types,
         ty,
         projections: Projections::ProjectionsCons {
-            head: Projection::Subslice {
-                from: _,
-                to: _,
-                from_end: _,
-            } | Projection::Downcast { variant: _ },
+            head: Projection::Subslice(_, _, _) | Projection::Downcast(_),
             tail,
         },
     }]: k::Term<MaybeTy>,
@@ -793,13 +778,7 @@ fn get_ty_of_same_type(
 }
 
 #[k::equation(priority = 60)]
-fn get_ty_of_other(
-    k::term![GetTyOf {
-        types: _,
-        ty: _,
-        projections: _,
-    }]: k::Term<MaybeTy>,
-) -> k::Term<MaybeTy> {
+fn get_ty_of_other(k::term![GetTyOf(_, _, _)]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
     k::term![MirMaybeTy::TyUnknown()]
 }
 
@@ -826,8 +805,8 @@ fn lookup_maybe_ty_known(
 #[k::equation]
 fn lookup_maybe_ty_unknown(
     k::term![LookupMaybeTy {
-        types: _,
         ty: MirMaybeTy::TyUnknown(),
+        ..
     }]: k::Term<TypeInfo>,
 ) -> k::Term<TypeInfo> {
     k::term![MirTypeInfo::VoidType()]
@@ -1023,8 +1002,8 @@ fn read_ty_const_int_done(
     k::term![ReadTyConstInt {
         bytes: value,
         index,
-        multiplier: _,
         result,
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![result]
@@ -1081,11 +1060,8 @@ fn layout_size_known(
     k::term![LayoutSize {
         layout: MirMaybeLayoutShape::SomeLayoutShape {
             layout: MirLayoutShape::LayoutShape {
-                fields: _,
-                variants: _,
-                abi: _,
-                abi_align: _,
                 size: MirMachineSize::MachineSize { bits },
+                ..
             },
         },
     }]: k::Term<Int>,
@@ -1107,11 +1083,8 @@ fn layout_align_known(
     k::term![LayoutAlign {
         layout: MirMaybeLayoutShape::SomeLayoutShape {
             layout: MirLayoutShape::LayoutShape {
-                fields: _,
-                variants: _,
-                abi: _,
                 abi_align: MirAlign::Align { bytes },
-                size: _,
+                ..
             },
         },
     }]: k::Term<Int>,
@@ -1133,8 +1106,8 @@ fn layout_align_unknown(
 fn pointer_words_unsized(
     k::term![PointerWords {
         info: MirTypeInfo::ArrayType {
-            element: _,
             size: MirMaybeTyConst::NoTyConst(),
+            ..
         } | MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::Str(),
         },
@@ -1144,7 +1117,7 @@ fn pointer_words_unsized(
 }
 
 #[k::equation(priority = 60)]
-fn pointer_words_thin(k::term![PointerWords { info: _ }]: k::Term<Int>) -> k::Term<Int> {
+fn pointer_words_thin(k::term![PointerWords(_)]: k::Term<Int>) -> k::Term<Int> {
     k::term![1]
 }
 
@@ -1158,7 +1131,7 @@ fn is_void_type(
 }
 
 #[k::equation(priority = 60)]
-fn is_not_void_type(k::term![IsVoidType { info: _ }]: k::Term<Bool>) -> k::Term<Bool> {
+fn is_not_void_type(k::term![IsVoidType(_)]: k::Term<Bool>) -> k::Term<Bool> {
     k::term![false]
 }
 
@@ -1290,7 +1263,7 @@ fn decode_allocated_boolean_false(
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::Bool(),
         },
-        types: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Boolean(false)]
@@ -1315,7 +1288,7 @@ fn decode_allocated_boolean_true(
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::Bool(),
         },
-        types: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Boolean(true)]
@@ -1328,7 +1301,7 @@ fn decode_allocated_signed_integer(
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::SignedInteger { kind },
         },
-        types: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![DecodeInteger {
@@ -1345,7 +1318,7 @@ fn decode_allocated_unsigned_integer(
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::UnsignedInteger { kind },
         },
-        types: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![DecodeInteger {
@@ -1380,8 +1353,8 @@ fn no_fields_empty_variant(
 fn no_fields_nonempty_variant(
     k::term![NoFields {
         fields: MirTyss::TyssCons {
-            head: MirTys::TysCons { head: _, tail: _ },
-            tail: _,
+            head: MirTys::TysCons(_, _),
+            ..
         },
     }]: k::Term<Bool>,
 ) -> k::Term<Bool> {
@@ -1406,7 +1379,7 @@ fn find_variant_index_match(
             head: MirDiscriminant::Discriminant {
                 value: discriminant,
             },
-            tail: _,
+            ..
         },
         index,
     }]: k::Term<Int>,
@@ -1441,7 +1414,7 @@ fn lookup_discriminant_head(
     k::term![LookupDiscriminant {
         discriminants: MirDiscriminants::DiscriminantsCons {
             head: MirDiscriminant::Discriminant { value },
-            tail: _,
+            ..
         },
         index,
     }]: k::Term<Int>,
@@ -1453,7 +1426,7 @@ fn lookup_discriminant_head(
 #[k::requires(int::gt(index, 0))]
 fn lookup_discriminant_tail(
     k::term![LookupDiscriminant {
-        discriminants: MirDiscriminants::DiscriminantsCons { head: _, tail },
+        discriminants: MirDiscriminants::DiscriminantsCons { tail, .. },
         index,
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -1470,24 +1443,18 @@ fn decode_allocated_direct_enum(
         types,
         bytes,
         info: MirTypeInfo::EnumType {
-            name: _,
-            adt_def: _,
             discriminants,
             fields,
             layout: MirMaybeLayoutShape::SomeLayoutShape {
                 layout: MirLayoutShape::LayoutShape {
-                    fields: _,
                     variants: MirVariantsShape::VariantsShapeMultiple {
                         variants: MirVariantsShapeMultiple::MultipleVariants {
                             tag: MirScalar::InitializedScalar {
                                 scalar: MirScalarInitialized::ScalarInitializedFields {
                                     value: MirPrimitive::IntegerPrimitive {
-                                        integer: MirPrimitiveInt::PrimitiveInt {
-                                            length,
-                                            signed: _,
-                                        },
+                                        integer: MirPrimitiveInt::PrimitiveInt { length, .. },
                                     },
-                                    valid_range: _,
+                                    ..
                                 },
                             },
                             tag_encoding: MirTagEncoding::Direct(),
@@ -1495,11 +1462,10 @@ fn decode_allocated_direct_enum(
                             variants: layouts,
                         },
                     },
-                    abi: _,
-                    abi_align: _,
-                    size: _,
+                    ..
                 },
             },
+            ..
         },
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -1530,11 +1496,8 @@ fn decode_allocated_direct_enum(
 ))]
 fn decode_allocated_niche_pointer_none(
     k::term![DecodeAllocatedValue {
-        types: _,
         bytes,
         info: MirTypeInfo::EnumType {
-            name: _,
-            adt_def: _,
             discriminants: MirDiscriminants::DiscriminantsCons {
                 head: MirDiscriminant::Discriminant { value: 0 },
                 tail: MirDiscriminants::DiscriminantsCons {
@@ -1546,8 +1509,8 @@ fn decode_allocated_niche_pointer_none(
                 head: MirTys::TysEmpty(),
                 tail: MirTyss::TyssCons {
                     head: MirTys::TysCons {
-                        head: _,
                         tail: MirTys::TysEmpty(),
+                        ..
                     },
                     tail: MirTyss::TyssEmpty(),
                 },
@@ -1566,7 +1529,7 @@ fn decode_allocated_niche_pointer_none(
                         variants: MirVariantsShapeMultiple::MultipleVariants {
                             tag: MirScalar::InitializedScalar {
                                 scalar: MirScalarInitialized::ScalarInitializedFields {
-                                    value: MirPrimitive::PointerPrimitive { address_space: _ },
+                                    value: MirPrimitive::PointerPrimitive(_),
                                     valid_range: MirWrappingRange::WrappingRange {
                                         start: 1,
                                         end: 0,
@@ -1575,15 +1538,15 @@ fn decode_allocated_niche_pointer_none(
                             },
                             tag_encoding: MirTagEncoding::Niche(),
                             tag_field: 0,
-                            variants: _,
+                            ..
                         },
                     },
-                    abi: _,
-                    abi_align: _,
-                    size: _,
+                    ..
                 },
             },
+            ..
         },
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Aggregate {
@@ -1629,7 +1592,7 @@ pub fn DecodeEnumDirectTag(bytes: k::Term<Bytes>, width: k::Term<IntegerLength>)
 #[k::equation]
 fn nth_tys_first(
     k::term![NthTys {
-        fields: MirTyss::TyssCons { head, tail: _ },
+        fields: MirTyss::TyssCons { head, .. },
         index: 0,
     }]: k::Term<Tys>,
 ) -> k::Term<Tys> {
@@ -1640,7 +1603,7 @@ fn nth_tys_first(
 #[k::requires(int::gt(index, 0))]
 fn nth_tys_next(
     k::term![NthTys {
-        fields: MirTyss::TyssCons { head: _, tail },
+        fields: MirTyss::TyssCons { tail, .. },
         index,
     }]: k::Term<Tys>,
 ) -> k::Term<Tys> {
@@ -1658,12 +1621,9 @@ fn nth_variant_offsets_first(
                 fields: MirFieldsShape::FieldsShapeArbitrary {
                     fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets },
                 },
-                variants: _,
-                abi: _,
-                abi_align: _,
-                size: _,
+                ..
             },
-            tail: _,
+            ..
         },
         index: 0,
     }]: k::Term<MachineSizes>,
@@ -1675,7 +1635,7 @@ fn nth_variant_offsets_first(
 #[k::requires(int::gt(index, 0))]
 fn nth_variant_offsets_next(
     k::term![NthVariantOffsets {
-        layouts: MirLayoutShapes::LayoutShapesCons { head: _, tail },
+        layouts: MirLayoutShapes::LayoutShapesCons { tail, .. },
         index,
     }]: k::Term<MachineSizes>,
 ) -> k::Term<MachineSizes> {
@@ -1697,10 +1657,10 @@ k::equations! {
 #[k::equation]
 fn element_size_boolean(
     k::term![ElementSize {
-        types: _,
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::Bool(),
         },
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![1]
@@ -1709,10 +1669,10 @@ fn element_size_boolean(
 #[k::equation]
 fn element_size_signed_integer(
     k::term![ElementSize {
-        types: _,
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::SignedInteger { kind },
         },
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![int::div(IntWidth { kind }, 8)]
@@ -1721,10 +1681,10 @@ fn element_size_signed_integer(
 #[k::equation]
 fn element_size_unsigned_integer(
     k::term![ElementSize {
-        types: _,
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::UnsignedInteger { kind },
         },
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![int::div(UintWidth { kind }, 8)]
@@ -1733,21 +1693,16 @@ fn element_size_unsigned_integer(
 #[k::equation]
 fn element_size_struct(
     k::term![ElementSize {
-        types: _,
         info: MirTypeInfo::StructType {
-            name: _,
-            adt_def: _,
-            fields: _,
             layout: MirMaybeLayoutShape::SomeLayoutShape {
                 layout: MirLayoutShape::LayoutShape {
-                    fields: _,
-                    variants: _,
-                    abi: _,
-                    abi_align: _,
                     size: MirMachineSize::MachineSize { bits },
+                    ..
                 },
             },
+            ..
         },
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![int::div(bits, 8)]
@@ -1756,19 +1711,16 @@ fn element_size_struct(
 #[k::equation]
 fn element_size_tuple_layout(
     k::term![ElementSize {
-        types: _,
         info: MirTypeInfo::TupleType {
-            fields: _,
             layout: MirMaybeLayoutShape::SomeLayoutShape {
                 layout: MirLayoutShape::LayoutShape {
-                    fields: _,
-                    variants: _,
-                    abi: _,
-                    abi_align: _,
                     size: MirMachineSize::MachineSize { bits },
+                    ..
                 },
             },
+            ..
         },
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![int::div(bits, 8)]
@@ -1777,11 +1729,11 @@ fn element_size_tuple_layout(
 #[k::equation]
 fn element_size_empty_tuple(
     k::term![ElementSize {
-        types: _,
         info: MirTypeInfo::TupleType {
             fields: MirTys::TysEmpty(),
             layout: MirMaybeLayoutShape::NoLayoutShape(),
         },
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![0]
@@ -1796,15 +1748,10 @@ fn element_size_static_array(
             size: MirMaybeTyConst::SomeTyConst {
                 value: MirTyConst::TyConst {
                     kind: MirTyConstKind::Value {
-                        ty: _,
-                        allocation: MirAllocation::Allocation {
-                            bytes,
-                            provenance: _,
-                            align: _,
-                            mutability: _,
-                        },
+                        allocation: MirAllocation::Allocation { bytes, .. },
+                        ..
                     },
-                    id: _,
+                    ..
                 },
             },
         },
@@ -1839,9 +1786,9 @@ fn maximum_second(k::term![Maximum { first, second }]: k::Term<Int>) -> k::Term<
 #[k::equation]
 fn needed_bytes_for_offsets_done(
     k::term![NeededBytesForOffsets {
-        types: _,
         fields: MirTys::TysEmpty(),
         offsets: MirMachineSizes::MachineSizesEmpty(),
+        ..
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
     k::term![0]
@@ -1880,10 +1827,9 @@ fn needed_bytes_for_offsets_cons(
 #[k::equation]
 fn decode_fields_with_offsets_done(
     k::term![DecodeFieldsWithOffsets {
-        types: _,
-        bytes: _,
         fields: MirTys::TysEmpty(),
         offsets: MirMachineSizes::MachineSizesEmpty(),
+        ..
     }]: k::Term<List>,
 ) -> k::Term<List> {
     k::term![list::empty()]
@@ -1997,11 +1943,10 @@ fn decode_array_elements_cons(
 #[k::requires(bool::and(int::le(remaining, 0), int::eq(bytes::length(bytes), 0),))]
 fn decode_array_elements_done(
     k::term![DecodeArrayElements {
-        types: _,
         bytes,
-        info: _,
         remaining,
         accumulated,
+        ..
     }]: k::Term<List>,
 ) -> k::Term<List> {
     k::term![accumulated]
@@ -2034,15 +1979,13 @@ fn decode_allocated_static_array(
             size: MirMaybeTyConst::SomeTyConst {
                 value: MirTyConst::TyConst {
                     kind: MirTyConstKind::Value {
-                        ty: _,
                         allocation: MirAllocation::Allocation {
                             bytes: length_bytes,
-                            provenance: _,
-                            align: _,
-                            mutability: _,
+                            ..
                         },
+                        ..
                     },
-                    id: _,
+                    ..
                 },
             },
         },
@@ -2103,20 +2046,16 @@ fn decode_allocated_struct(
     k::term![DecodeAllocatedValue {
         bytes,
         info: MirTypeInfo::StructType {
-            name: _,
-            adt_def: _,
             fields,
             layout: MirMaybeLayoutShape::SomeLayoutShape {
                 layout: MirLayoutShape::LayoutShape {
                     fields: MirFieldsShape::FieldsShapeArbitrary {
                         fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets },
                     },
-                    variants: _,
-                    abi: _,
-                    abi_align: _,
-                    size: _,
+                    ..
                 },
             },
+            ..
         },
         types,
     }]: k::Term<MirValue>,
@@ -2136,12 +2075,12 @@ fn decode_allocated_struct(
 #[k::requires(int::eq(bytes::length(bytes), 0))]
 fn decode_allocated_empty_tuple(
     k::term![DecodeAllocatedValue {
-        types: _,
         bytes,
         info: MirTypeInfo::TupleType {
             fields: MirTys::TysEmpty(),
-            layout: _,
+            ..
         },
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Aggregate {
@@ -2189,10 +2128,7 @@ fn decode_allocated_tuple(
                     fields: MirFieldsShape::FieldsShapeArbitrary {
                         fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets },
                     },
-                    variants: _,
-                    abi: _,
-                    abi_align: _,
-                    size: _,
+                    ..
                 },
             },
         },
@@ -2216,15 +2152,13 @@ fn decode_allocated_tuple(
 #[k::requires(bool::eq(NoFields { fields }, true))]
 fn decode_allocated_fieldless_enum(
     k::term![DecodeAllocatedValue {
-        types: _,
         bytes,
         info: MirTypeInfo::EnumType {
-            name: _,
-            adt_def: _,
             discriminants,
             fields,
-            layout: _,
+            ..
         },
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Aggregate {
@@ -2244,15 +2178,9 @@ fn decode_allocated_fieldless_enum(
 #[k::equation]
 fn decode_zero_sized_aggregate(
     k::term![DecodeZeroSizedConstant {
-        info: MirTypeInfo::StructType {
-            name: _,
-            adt_def: _,
-            fields: _,
-            layout: _,
-        } | MirTypeInfo::TupleType {
-            fields: _,
-            layout: _,
-        } | MirTypeInfo::FunType { name: _ },
+        info: MirTypeInfo::StructType(_, _, _, _)
+            | MirTypeInfo::TupleType(_, _)
+            | MirTypeInfo::FunType(_),
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Aggregate {
@@ -2264,10 +2192,7 @@ fn decode_zero_sized_aggregate(
 #[k::equation]
 fn decode_zero_sized_array(
     k::term![DecodeZeroSizedConstant {
-        info: MirTypeInfo::ArrayType {
-            element: _,
-            size: _,
-        },
+        info: MirTypeInfo::ArrayType(_, _),
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::Range {
@@ -2281,9 +2206,9 @@ fn decode_allocated_reference_thin(
     k::term![DecodeAllocatedReference {
         allocation,
         bytes,
-        stored: _,
         info: MirTypeInfo::ReferenceType { pointee },
         types,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::AllocationReference {
@@ -2307,9 +2232,8 @@ fn decode_allocated_reference_fat(
     k::term![DecodeAllocatedReference {
         allocation,
         bytes,
-        stored: _,
-        info: MirTypeInfo::ReferenceType { pointee: _ },
-        types: _,
+        info: MirTypeInfo::ReferenceType(_),
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![Value::AllocationReference {
@@ -2340,35 +2264,16 @@ fn metadata_size_of_thin(
         info: MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::Bool()
                 | MirPrimitiveType::Char()
-                | MirPrimitiveType::SignedInteger { kind: _ }
-                | MirPrimitiveType::UnsignedInteger { kind: _ }
-                | MirPrimitiveType::Float { kind: _ },
-        } | MirTypeInfo::PointerType { pointee: _ }
-            | MirTypeInfo::ReferenceType { pointee: _ }
-            | MirTypeInfo::StructType {
-                name: _,
-                adt_def: _,
-                fields: _,
-                layout: _,
-            }
-            | MirTypeInfo::UnionType {
-                name: _,
-                adt_def: _,
-                fields: _,
-                layout: _,
-            }
-            | MirTypeInfo::TupleType {
-                fields: _,
-                layout: _
-            }
-            | MirTypeInfo::EnumType {
-                name: _,
-                adt_def: _,
-                discriminants: _,
-                fields: _,
-                layout: _,
-            }
-            | MirTypeInfo::FunType { name: _ }
+                | MirPrimitiveType::SignedInteger(_)
+                | MirPrimitiveType::UnsignedInteger(_)
+                | MirPrimitiveType::Float(_),
+        } | MirTypeInfo::PointerType(_)
+            | MirTypeInfo::ReferenceType(_)
+            | MirTypeInfo::StructType(_, _, _, _)
+            | MirTypeInfo::UnionType(_, _, _, _)
+            | MirTypeInfo::TupleType(_, _)
+            | MirTypeInfo::EnumType(_, _, _, _, _)
+            | MirTypeInfo::FunType(_)
             | MirTypeInfo::VoidType(),
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -2413,10 +2318,7 @@ fn zero_field_offset(
                         },
                     },
                 },
-                variants: _,
-                abi: _,
-                abi_align: _,
-                size: _,
+                ..
             },
         },
     }]: k::Term<Bool>,
@@ -2430,8 +2332,8 @@ fn zero_field_offset(
 fn metadata_size_of_unsized(
     k::term![MetadataSizeOf {
         info: MirTypeInfo::ArrayType {
-            element: _,
             size: MirMaybeTyConst::NoTyConst(),
+            ..
         } | MirTypeInfo::PrimitiveType {
             primitive: MirPrimitiveType::Str(),
         },
@@ -2444,21 +2346,16 @@ fn metadata_size_of_unsized(
 fn metadata_size_of_static_array(
     k::term![MetadataSizeOf {
         info: MirTypeInfo::ArrayType {
-            element: _,
             size: MirMaybeTyConst::SomeTyConst {
                 value: MirTyConst::TyConst {
                     kind: MirTyConstKind::Value {
-                        ty: _,
-                        allocation: MirAllocation::Allocation {
-                            bytes: value,
-                            provenance: _,
-                            align: _,
-                            mutability: _,
-                        },
+                        allocation: MirAllocation::Allocation { bytes: value, .. },
+                        ..
                     },
-                    id: _,
+                    ..
                 },
             },
+            ..
         },
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -2479,11 +2376,7 @@ pub struct ConvertPointerMetadata {
 #[k::equation(priority = 40)]
 fn convert_pointer_metadata_thin(
     k::term![ConvertPointerMetadata {
-        metadata: MirMetadata::Metadata {
-            size,
-            offset,
-            origin_size: _,
-        },
+        metadata: MirMetadata::Metadata { size, offset, .. },
         target_size: MirMetadataSize::NoMetadataSize(),
     }]: k::Term<Metadata>,
 ) -> k::Term<Metadata> {
@@ -2518,7 +2411,7 @@ fn convert_pointer_metadata_static_to_dynamic(
         metadata: MirMetadata::Metadata {
             size: MirMetadataSize::StaticSize(size),
             offset,
-            origin_size: _,
+            ..
         },
         target_size: MirMetadataSize::DynamicSize(_),
     }]: k::Term<Metadata>,
@@ -2536,7 +2429,7 @@ fn convert_pointer_metadata_dynamic_to_dynamic(
         metadata: MirMetadata::Metadata {
             size: MirMetadataSize::DynamicSize(size),
             offset,
-            origin_size: _,
+            ..
         },
         target_size: MirMetadataSize::DynamicSize(_),
     }]: k::Term<Metadata>,
@@ -2554,7 +2447,7 @@ fn convert_pointer_metadata_static_to_static(
         metadata: MirMetadata::Metadata {
             size: MirMetadataSize::StaticSize(origin),
             offset,
-            origin_size: _,
+            ..
         },
         target_size: MirMetadataSize::StaticSize(size),
     }]: k::Term<Metadata>,
@@ -2572,7 +2465,7 @@ fn convert_pointer_metadata_dynamic_to_static(
         metadata: MirMetadata::Metadata {
             size: MirMetadataSize::DynamicSize(origin),
             offset,
-            origin_size: _,
+            ..
         },
         target_size: MirMetadataSize::StaticSize(size),
     }]: k::Term<Metadata>,
@@ -2650,11 +2543,7 @@ fn remove_index_tail_empty(
 fn remove_index_tail_zero(
     k::term![RemoveIndexTail {
         projections: Projections::ProjectionsCons {
-            head: Projection::ConstantIndex {
-                offset: 0,
-                min_length: _,
-                from_end: _,
-            },
+            head: Projection::ConstantIndex { offset: 0, .. },
             tail: Projections::ProjectionsEmpty(),
         },
     }]: k::Term<ProjectionElems>,
@@ -2701,12 +2590,12 @@ fn projection_metadata_size_done(
 #[k::equation]
 fn projection_metadata_size_field(
     k::term![ProjectionMetadataSize {
-        ty: _,
         projections: Projections::ProjectionsCons {
-            head: Projection::Field { field: _, ty },
+            head: Projection::Field { ty, .. },
             tail,
         },
         types,
+        ..
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
     k::term![ProjectionMetadataSize {
@@ -2721,12 +2610,7 @@ fn projection_metadata_size_element(
     k::term![ProjectionMetadataSize {
         ty,
         projections: Projections::ProjectionsCons {
-            head: Projection::Index { local: _ }
-                | Projection::ConstantIndex {
-                    offset: _,
-                    min_length: _,
-                    from_end: _,
-                },
+            head: Projection::Index(_) | Projection::ConstantIndex(_, _, _),
             tail,
         },
         types,
@@ -2769,7 +2653,7 @@ pub struct ArrayElementType {
 #[k::equation]
 fn array_element_type(
     k::term![ArrayElementType {
-        info: MirTypeInfo::ArrayType { element, size: _ },
+        info: MirTypeInfo::ArrayType { element, .. },
     }]: k::Term<Ty>,
 ) -> k::Term<Ty> {
     element
@@ -2809,7 +2693,7 @@ fn maybe_dynamic_size_range(
 fn maybe_dynamic_size_non_range(
     k::term![MaybeDynamicSize {
         size: MirMetadataSize::DynamicSize(_),
-        value: _,
+        ..
     }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
     k::term![MirMetadataSize::NoMetadataSize()]
@@ -2817,7 +2701,7 @@ fn maybe_dynamic_size_non_range(
 
 #[k::equation(priority = 60)]
 fn maybe_dynamic_size_other(
-    k::term![MaybeDynamicSize { size, value: _ }]: k::Term<MetadataSize>,
+    k::term![MaybeDynamicSize { size, .. }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
     size
 }
@@ -2846,16 +2730,8 @@ fn projections_for_done(
 fn projections_for_field(
     k::term![ProjectionsFor {
         contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::FieldContext {
-                variant: _,
-                fields: _,
-                field,
-                ty,
-            } | MirProjectionContext::UnionFieldContext {
-                field,
-                value: _,
-                ty,
-            },
+            head: MirProjectionContext::FieldContext { field, ty, .. }
+                | MirProjectionContext::UnionFieldContext { field, ty, .. },
             tail,
         },
         projections,
@@ -2874,7 +2750,7 @@ fn projections_for_field(
 fn projections_for_index(
     k::term![ProjectionsFor {
         contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::IndexContext { elements: _, index },
+            head: MirProjectionContext::IndexContext { index, .. },
             tail,
         },
         projections,
@@ -2898,9 +2774,9 @@ fn projections_for_subslice(
     k::term![ProjectionsFor {
         contexts: MirProjectionContexts::ContextsCons {
             head: MirProjectionContext::SubsliceContext {
-                elements: _,
                 start,
                 from_back,
+                ..
             },
             tail,
         },
@@ -2925,9 +2801,9 @@ fn projections_for_pointer_offset(
     k::term![ProjectionsFor {
         contexts: MirProjectionContexts::ContextsCons {
             head: MirProjectionContext::PointerOffsetContext {
-                elements: _,
                 offset,
                 origin_size,
+                ..
             },
             tail,
         },
@@ -3105,11 +2981,9 @@ pub struct MaterializeAggregate {
 fn materialize_adt(
     k::term![MaterializeAggregate {
         kind: MirAggregateKind::AggregateAdt {
-            adt: _,
             variant,
-            args: _,
-            user_ty: _,
             field: MirMaybeFieldIdx::NoFieldIdx(),
+            ..
         },
         values,
     }]: k::Term<MirValue>,
@@ -3124,11 +2998,8 @@ fn materialize_adt(
 fn materialize_union(
     k::term![MaterializeAggregate {
         kind: MirAggregateKind::AggregateAdt {
-            adt: _,
-            variant: _,
-            args: _,
-            user_ty: _,
             field: MirMaybeFieldIdx::SomeFieldIdx { index: field },
+            ..
         },
         values: list::concat(list::item(value), list::empty()),
     }]: k::Term<MirValue>,
@@ -3139,17 +3010,17 @@ fn materialize_union(
 #[k::equation]
 fn materialize_fat_raw_pointer(
     k::term![MaterializeAggregate {
-        kind: MirAggregateKind::AggregateRawPointer { ty: _, mutability },
+        kind: MirAggregateKind::AggregateRawPointer { mutability, .. },
         values: list::concat(
             list::item(Value::Pointer {
                 height,
                 place: MirPlace::Place { local, projections },
-                mutability: _,
                 metadata: MirMetadata::Metadata {
-                    size: _,
                     offset,
                     origin_size,
+                    ..
                 },
+                ..
             }),
             list::concat(
                 list::item(Value::Integer {
@@ -3180,22 +3051,22 @@ fn materialize_fat_raw_pointer(
 #[k::equation]
 fn materialize_thin_raw_pointer(
     k::term![MaterializeAggregate {
-        kind: MirAggregateKind::AggregateRawPointer { ty: _, mutability },
+        kind: MirAggregateKind::AggregateRawPointer { mutability, .. },
         values: list::concat(
             list::item(Value::Pointer {
                 height,
                 place,
-                mutability: _,
                 metadata: MirMetadata::Metadata {
-                    size: _,
                     offset,
                     origin_size,
+                    ..
                 },
+                ..
             }),
             list::concat(
                 list::item(Value::Aggregate {
-                    variant: _,
                     fields: list::empty(),
+                    ..
                 }),
                 list::empty(),
             ),
@@ -3217,7 +3088,7 @@ fn materialize_thin_raw_pointer(
 #[k::equation]
 fn materialize_array(
     k::term![MaterializeAggregate {
-        kind: MirAggregateKind::AggregateArray { ty: _ },
+        kind: MirAggregateKind::AggregateArray(_),
         values,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -3227,11 +3098,7 @@ fn materialize_array(
 #[k::equation]
 fn materialize_tuple(
     k::term![MaterializeAggregate {
-        kind: MirAggregateKind::AggregateTuple()
-            | MirAggregateKind::AggregateClosure {
-                closure: _,
-                args: _,
-            },
+        kind: MirAggregateKind::AggregateTuple() | MirAggregateKind::AggregateClosure(_, _),
         values,
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
@@ -3679,11 +3546,7 @@ pub struct LocalValueOf {
 #[k::equation]
 fn local_value_of(
     k::term![LocalValueOf {
-        entry: LocalValue::TypedValue {
-            value,
-            ty: _,
-            mutability: _,
-        },
+        entry: LocalValue::TypedValue { value, .. },
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![value]
@@ -3697,11 +3560,7 @@ pub struct MovedEntry {
 #[k::equation]
 fn moved_entry(
     k::term![MovedEntry {
-        entry: LocalValue::TypedValue {
-            value: _,
-            ty,
-            mutability,
-        },
+        entry: LocalValue::TypedValue { ty, mutability, .. },
     }]: k::Term<TypedLocal>,
 ) -> k::Term<TypedLocal> {
     k::term![LocalValue::TypedValue {
@@ -3729,11 +3588,7 @@ fn reserve_for_done(
 fn reserve_for_cons(
     k::term![ReserveFor {
         locals: MirLocalDecls::LocalDeclsCons {
-            head: MirLocalDecl::LocalDecl {
-                ty,
-                span: _,
-                mutability,
-            },
+            head: MirLocalDecl::LocalDecl { ty, mutability, .. },
             tail,
         },
     }]: k::Term<List>,
@@ -3753,12 +3608,8 @@ pub struct FunctionBlocks {
 fn function_blocks(
     k::term![FunctionBlocks {
         function: MirFunction::MonoItemFn {
-            id: _,
-            body: MirFunctionBody::Body {
-                blocks,
-                locals: _,
-                arg_count: _,
-            },
+            body: MirFunctionBody::Body { blocks, .. },
+            ..
         },
     }]: k::Term<List>,
 ) -> k::Term<List> {
@@ -3774,12 +3625,8 @@ pub struct FunctionLocals {
 fn function_locals(
     k::term![FunctionLocals {
         function: MirFunction::MonoItemFn {
-            id: _,
-            body: MirFunctionBody::Body {
-                blocks: _,
-                locals,
-                arg_count: _,
-            },
+            body: MirFunctionBody::Body { locals, .. },
+            ..
         },
     }]: k::Term<List>,
 ) -> k::Term<List> {
@@ -3802,7 +3649,7 @@ pub struct MapRefOffset {
 fn map_ref_offset_done(
     k::term![MapRefOffset {
         values: list::empty(),
-        offset: _,
+        ..
     }]: k::Term<List>,
 ) -> k::Term<List> {
     k::term![list::empty()]
@@ -3918,11 +3765,11 @@ fn adjust_ref_union(
 #[k::equation]
 fn adjust_ref_unchanged(
     k::term![AdjustRef {
-        value: value @ (Value::Integer { value: _, width: _, signed: _ }
+        value: value @ (Value::Integer(_, _, _)
             | Value::Boolean(_)
-            | Value::AllocationReference { allocation: _, projections: _, metadata: _ }
+            | Value::AllocationReference(_, _, _)
             | Value::Moved()),
-        offset: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     value
@@ -3936,14 +3783,7 @@ pub struct FrameLocals {
 #[k::equation]
 fn frame_locals(
     k::term![FrameLocals {
-        frame: MirStackFrame::StackFrame {
-            caller: _,
-            dest: _,
-            target: _,
-            unwind: _,
-            locals,
-            span: _,
-        },
+        frame: MirStackFrame::StackFrame { locals, .. },
     }]: k::Term<List>,
 ) -> k::Term<List> {
     k::term![locals]
@@ -3959,14 +3799,7 @@ pub struct LocalFromFrame {
 #[k::equation]
 fn local_from_frame(
     k::term![LocalFromFrame {
-        frame: MirStackFrame::StackFrame {
-            caller: _,
-            dest: _,
-            target: _,
-            unwind: _,
-            locals,
-            span: _,
-        },
+        frame: MirStackFrame::StackFrame { locals, .. },
         local,
         offset,
     }]: k::Term<MirValue>,
@@ -4192,7 +4025,7 @@ fn append_cast_projections_cancel_wrapped_field(
             tail: Projections::ProjectionsEmpty(),
         },
         second: Projections::ProjectionsCons {
-            head: Projection::Field { field: 0, ty: _ },
+            head: Projection::Field { field: 0, .. },
             tail,
         },
     }]: k::Term<ProjectionElems>,
@@ -4291,8 +4124,8 @@ fn deref_projection_path_zero_offset(
         referenced,
         size,
         offset,
-        origin_size: _,
         tail,
+        ..
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     k::term![AppendProjections {
@@ -4344,7 +4177,7 @@ pub struct FreezeProjections {
 fn freeze_projections_done(
     k::term![FreezeProjections {
         projections: Projections::ProjectionsEmpty(),
-        locals: _,
+        ..
     }]: k::Term<ProjectionElems>,
 ) -> k::Term<ProjectionElems> {
     k::term![Projections::ProjectionsEmpty()]
@@ -4357,23 +4190,12 @@ fn freeze_projections_done(
 fn freeze_projections_fixed(
     k::term![FreezeProjections {
         projections: Projections::ProjectionsCons {
-            head: head @ (Projection::Field { field: _, ty: _ }
+            head: head @ (Projection::Field(_, _)
                 | Projection::WrapStruct()
-                | Projection::ConstantIndex {
-                    offset: _,
-                    min_length: _,
-                    from_end: _,
-                }
-                | Projection::Subslice {
-                    from: _,
-                    to: _,
-                    from_end: _,
-                }
-                | Projection::Downcast { variant: _ }
-                | Projection::PointerOffset {
-                    offset: _,
-                    origin_size: _,
-                }),
+                | Projection::ConstantIndex(_, _, _)
+                | Projection::Subslice(_, _, _)
+                | Projection::Downcast(_)
+                | Projection::PointerOffset(_, _)),
             tail,
         },
         locals,
@@ -4453,8 +4275,7 @@ fn expect_usize(
                 width: 64,
                 signed: false,
             },
-            ty: _,
-            mutability: _,
+            ..
         },
     }]: k::Term<Int>,
 ) -> k::Term<Int> {
@@ -4520,7 +4341,7 @@ fn read_projection_done(
     k::term![ReadProjection {
         value,
         projections: Projections::ProjectionsEmpty(),
-        locals: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![value]
@@ -4529,9 +4350,9 @@ fn read_projection_done(
 #[k::equation]
 fn read_projection_field(
     k::term![ReadProjection {
-        value: Value::Aggregate { variant: _, fields },
+        value: Value::Aggregate { fields, .. },
         projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, ty: _ },
+            head: Projection::Field { field, .. },
             tail,
         },
         locals,
@@ -4547,7 +4368,7 @@ fn read_projection_field(
 #[k::equation]
 fn read_projection_downcast(
     k::term![ReadProjection {
-        value: Value::Aggregate { variant: _, fields },
+        value: Value::Aggregate { fields, .. },
         projections: Projections::ProjectionsCons {
             head: Projection::Downcast { variant },
             tail,
@@ -4594,16 +4415,14 @@ fn read_projection_deref(
                 local,
                 projections: referenced,
             },
-            mutability: _,
-            metadata: _,
+            ..
         } | Value::Pointer {
             height: 0,
             place: MirPlace::Place {
                 local,
                 projections: referenced,
             },
-            mutability: _,
-            metadata: _,
+            ..
         },
         projections: Projections::ProjectionsCons {
             head: Projection::Deref(),
@@ -4632,8 +4451,8 @@ fn read_projection_constant_index_front(
         projections: Projections::ProjectionsCons {
             head: Projection::ConstantIndex {
                 offset,
-                min_length: _,
                 from_end: false,
+                ..
             },
             tail,
         },
@@ -4744,10 +4563,9 @@ fn read_projection_subslice_end(
 #[k::equation]
 fn write_projection_done(
     k::term![WriteProjection {
-        value: _,
         projections: Projections::ProjectionsEmpty(),
         replacement,
-        locals: _,
+        ..
     }]: k::Term<MirValue>,
 ) -> k::Term<MirValue> {
     k::term![replacement]
@@ -4758,7 +4576,7 @@ fn write_projection_field(
     k::term![WriteProjection {
         value: Value::Aggregate { variant, fields },
         projections: Projections::ProjectionsCons {
-            head: Projection::Field { field, ty: _ },
+            head: Projection::Field { field, .. },
             tail,
         },
         replacement,
@@ -4783,7 +4601,7 @@ fn write_projection_field(
 #[k::equation]
 fn write_projection_downcast(
     k::term![WriteProjection {
-        value: Value::Aggregate { variant: _, fields },
+        value: Value::Aggregate { fields, .. },
         projections: Projections::ProjectionsCons {
             head: Projection::Downcast { variant },
             tail,
@@ -4841,8 +4659,8 @@ fn write_projection_constant_index_front(
         projections: Projections::ProjectionsCons {
             head: Projection::ConstantIndex {
                 offset,
-                min_length: _,
                 from_end: false,
+                ..
             },
             tail,
         },
@@ -5017,7 +4835,7 @@ fn build_projection_update_field(
                 variant,
                 fields,
                 field,
-                ty: _,
+                ..
             },
             tail,
         },
@@ -5037,11 +4855,7 @@ fn build_projection_update_union_field(
     k::term![BuildProjectionUpdate {
         value,
         contexts: MirProjectionContexts::ContextsCons {
-            head: MirProjectionContext::UnionFieldContext {
-                field,
-                value: _,
-                ty: _,
-            },
+            head: MirProjectionContext::UnionFieldContext { field, .. },
             tail,
         },
     }]: k::Term<MirValue>,
@@ -5128,7 +4942,7 @@ fn build_projection_update_pointer_offset(
             head: MirProjectionContext::PointerOffsetContext {
                 elements,
                 offset,
-                origin_size: _,
+                ..
             },
             tail,
         },
@@ -5454,7 +5268,7 @@ k::rules! {
                 value: MirRvalue::Cast {
                     kind: MirCastKind::PointerCoercion { coercion: MirPointerCoercion::Unsize() },
                     operand,
-                    target: _
+                    ..
                 },
                 place
             },
@@ -5548,11 +5362,7 @@ k::rules! {
     eval_ref: {
         k: [
             Execution::EvalRvalue {
-                value: MirRvalue::Ref {
-                    region: _,
-                    kind,
-                    place: MirPlace::Place { local, projections }
-                },
+                value: MirRvalue::Ref { kind, place: MirPlace::Place { local, projections }, .. },
                 place
             },
             ..
@@ -5613,17 +5423,16 @@ k::rules! {
         k: [
             Execution::ResolveAddressOf {
                 entry: LocalValue::TypedValue {
-                    value: Value::Reference { height, place: referenced, mutability: _, metadata },
-                    ty: _,
-                    mutability: _
+                    value: Value::Reference { height, place: referenced, metadata, .. },
+                    ..
                 },
                 mutability,
                 referenced: MirPlace::Place {
-                    local: _,
                     projections: Projections::ProjectionsCons {
                         head: Projection::Deref(),
                         tail: Projections::ProjectionsEmpty()
-                    }
+                    },
+                    ..
                 },
                 destination
             },
@@ -5643,7 +5452,7 @@ k::rules! {
     address_of_local: {
         k: [
             Execution::ResolveAddressOf {
-                entry: LocalValue::TypedValue { value: _, ty: _, mutability: _ },
+                entry: LocalValue::TypedValue(_, _, _),
                 mutability,
                 referenced,
                 destination
@@ -5685,7 +5494,7 @@ k::rules! {
     eval_ub_checks: {
         k: [
             Execution::EvalRvalue {
-                value: MirRvalue::Nullary { operation: MirNullOp::UbChecks(), ty: _ },
+                value: MirRvalue::Nullary { operation: MirNullOp::UbChecks(), .. },
                 place
             },
             ..
@@ -5830,15 +5639,10 @@ k::rules! {
                     element,
                     count: MirTyConst::TyConst {
                         kind: MirTyConstKind::Value {
-                            ty: _,
-                            allocation: MirAllocation::Allocation {
-                                bytes,
-                                provenance: _,
-                                align: _,
-                                mutability: _
-                            }
+                            allocation: MirAllocation::Allocation { bytes, .. },
+                            ..
                         },
-                        id: _
+                        ..
                     }
                 },
                 place
@@ -5924,18 +5728,16 @@ k::rules! {
         k: [
             Execution::EvalOperand {
                 operand: MirOperand::AllocatedConstant {
-                    span: _,
                     allocation: MirAllocation::Allocation {
                         bytes,
                         provenance: MirProvenanceMap::SingletonProvenanceMap {
                             offset: 0,
                             allocation
                         },
-                        align: _,
-                        mutability: _
+                        ..
                     },
                     ty,
-                    id: _
+                    ..
                 },
                 continuation
             },
@@ -5963,15 +5765,13 @@ k::rules! {
         k: [
             Execution::EvalOperand {
                 operand: MirOperand::AllocatedConstant {
-                    span: _,
                     allocation: MirAllocation::Allocation {
                         bytes,
                         provenance: MirProvenanceMap::EmptyProvenanceMap(),
-                        align: _,
-                        mutability: _
+                        ..
                     },
                     ty,
-                    id: _
+                    ..
                 },
                 continuation
             },
@@ -5991,7 +5791,7 @@ k::rules! {
     eval_zero_sized_constant: {
         k: [
             Execution::EvalOperand {
-                operand: MirOperand::ZeroSizedConstant { span: _, ty, id: _ },
+                operand: MirOperand::ZeroSizedConstant { ty, .. },
                 continuation
             },
             ..
@@ -6108,10 +5908,10 @@ k::rules! {
     read_local_copy: {
         k: [
             Execution::ReadLocal {
-                entry: LocalValue::TypedValue { value, ty: _, mutability: _ },
+                entry: LocalValue::TypedValue { value, .. },
                 move_after: false,
-                index: _,
-                continuation
+                continuation,
+                ..
             },
             ..
         ],
@@ -6142,7 +5942,7 @@ k::rules! {
     read_projected_local: {
         k: [
             Execution::ReadProjectedLocal {
-                entry: LocalValue::TypedValue { value, ty: _, mutability: _ },
+                entry: LocalValue::TypedValue { value, .. },
                 local,
                 projections,
                 continuation
@@ -6167,7 +5967,7 @@ k::rules! {
     read_moved_projected_local: {
         k: [
             Execution::ReadMovedProjectedLocal {
-                entry: LocalValue::TypedValue { value, ty: _, mutability: _ },
+                entry: LocalValue::TypedValue { value, .. },
                 local,
                 projections,
                 continuation
@@ -6192,12 +5992,10 @@ k::rules! {
     traverse_projection_read_done: {
         k: [
             Execution::TraverseProjection {
-                target: _,
                 value,
                 projections: Projections::ProjectionsEmpty(),
-                contexts: _,
-                locals: _,
-                action: MirProjectionAction::ReadAction(continuation)
+                action: MirProjectionAction::ReadAction(continuation),
+                ..
             },
             ..
         ],
@@ -6212,12 +6010,12 @@ k::rules! {
                 value,
                 projections: Projections::ProjectionsEmpty(),
                 contexts,
-                locals: _,
                 action: MirProjectionAction::ReferenceAction {
                     place,
                     mutability,
                     metadata: MirMetadata::Metadata { size, offset, origin_size }
-                }
+                },
+                ..
             },
             ..
         ],
@@ -6253,12 +6051,12 @@ k::rules! {
                 value,
                 projections: Projections::ProjectionsEmpty(),
                 contexts,
-                locals: _,
                 action: MirProjectionAction::ReferenceAction {
                     place,
                     mutability,
                     metadata: MirMetadata::Metadata { size, offset, origin_size }
-                }
+                },
+                ..
             },
             ..
         ],
@@ -6294,12 +6092,12 @@ k::rules! {
                 value,
                 projections: Projections::ProjectionsEmpty(),
                 contexts,
-                locals: _,
                 action: MirProjectionAction::ReferenceAction {
                     place,
-                    mutability: _,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
-                }
+                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    ..
+                },
+                ..
             },
             ..
         ],
@@ -6328,11 +6126,10 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToLocal(local),
-                value: _,
                 projections: Projections::ProjectionsEmpty(),
                 contexts,
-                locals: _,
-                action: MirProjectionAction::WriteAction(replacement)
+                action: MirProjectionAction::WriteAction(replacement),
+                ..
             },
             ..
         ],
@@ -6350,11 +6147,11 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 target: MirProjectionTarget::ToStack { height, local },
-                value: _,
                 projections: Projections::ProjectionsEmpty(),
                 contexts,
                 locals,
-                action: MirProjectionAction::WriteAction(replacement)
+                action: MirProjectionAction::WriteAction(replacement),
+                ..
             },
             ..
         ],
@@ -6384,8 +6181,8 @@ k::rules! {
                 value,
                 projections: Projections::ProjectionsEmpty(),
                 contexts,
-                locals: _,
-                action: MirProjectionAction::MoveAction(continuation)
+                action: MirProjectionAction::MoveAction(continuation),
+                ..
             },
             ..
         ],
@@ -6531,7 +6328,7 @@ k::rules! {
         k: [
             Execution::TraverseProjection {
                 target,
-                value: Value::Aggregate { variant: _, fields },
+                value: Value::Aggregate { fields, .. },
                 projections: Projections::ProjectionsCons {
                     head: Projection::Downcast { variant },
                     tail
@@ -6598,7 +6395,7 @@ k::rules! {
                 target,
                 value: Value::Range(elements),
                 projections: Projections::ProjectionsCons {
-                    head: Projection::ConstantIndex { offset, min_length: _, from_end: false },
+                    head: Projection::ConstantIndex { offset, from_end: false, .. },
                     tail
                 },
                 contexts,
@@ -6897,23 +6694,22 @@ k::rules! {
     traverse_projection_current_deref: {
         k: [
             Execution::TraverseProjection {
-                target: _,
                 value: Value::Reference {
                     height: 0,
                     place: MirPlace::Place { local, projections: referenced },
-                    mutability: _,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
+                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    ..
                 }
                 | Value::Pointer {
                     height: 0,
                     place: MirPlace::Place { local, projections: referenced },
-                    mutability: _,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
+                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    ..
                 },
                 projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
-                contexts: _,
                 locals,
-                action
+                action,
+                ..
             },
             ..
         ],
@@ -6935,23 +6731,22 @@ k::rules! {
     traverse_projection_stack_deref: {
         k: [
             Execution::TraverseProjection {
-                target: _,
                 value: Value::Reference {
                     height,
                     place: MirPlace::Place { local, projections: referenced },
-                    mutability: _,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
+                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    ..
                 }
                 | Value::Pointer {
                     height,
                     place: MirPlace::Place { local, projections: referenced },
-                    mutability: _,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
+                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    ..
                 },
                 projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
-                contexts: _,
                 locals,
-                action
+                action,
+                ..
             },
             ..
         ],
@@ -6977,16 +6772,15 @@ k::rules! {
     traverse_projection_allocation_reference_read: {
         k: [
             Execution::TraverseProjection {
-                target: _,
                 value: Value::AllocationReference {
                     allocation,
                     projections: referenced,
-                    metadata: MirMetadata::Metadata { size, offset: _, origin_size: _ }
+                    metadata: MirMetadata::Metadata { size, .. }
                 },
                 projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
-                contexts: _,
                 locals,
-                action: MirProjectionAction::ReadAction(continuation)
+                action: MirProjectionAction::ReadAction(continuation),
+                ..
             },
             ..
         ],
@@ -7014,16 +6808,15 @@ k::rules! {
     traverse_projection_allocation_reference_reborrow: {
         k: [
             Execution::TraverseProjection {
-                target: _,
                 value: Value::AllocationReference {
                     allocation,
                     projections: referenced,
-                    metadata: MirMetadata::Metadata { size, offset: _, origin_size: _ }
+                    metadata: MirMetadata::Metadata { size, .. }
                 },
                 projections: Projections::ProjectionsCons { head: Projection::Deref(), tail },
-                contexts: _,
                 locals,
-                action: MirProjectionAction::ReferenceAction { place, mutability, metadata }
+                action: MirProjectionAction::ReferenceAction { place, mutability, metadata },
+                ..
             },
             ..
         ],
@@ -7151,16 +6944,10 @@ k::rules! {
     finish_discriminant: {
         k: [
             Execution::Continue {
-                value: Value::Aggregate { variant, fields: _ },
+                value: Value::Aggregate { variant, .. },
                 continuation: EvaluationContinuation::FinishDiscriminant {
                     place,
-                    info: MirTypeInfo::EnumType {
-                        name: _,
-                        adt_def: _,
-                        discriminants,
-                        fields: _,
-                        layout: _
-                    }
+                    info: MirTypeInfo::EnumType { discriminants, .. }
                 }
             },
             ..
@@ -7297,9 +7084,9 @@ k::rules! {
     finish_transmute_identity: {
         k: [
             Execution::Continue {
-                value: value @ (Value::Reference { height: _, place: _, mutability: _, metadata: _ }
-                | Value::Pointer { height: _, place: _, mutability: _, metadata: _ }
-                | Value::AllocationReference { allocation: _, projections: _, metadata: _ }),
+                value: value @ (Value::Reference(_, _, _, _)
+                | Value::Pointer(_, _, _, _)
+                | Value::AllocationReference(_, _, _)),
                 continuation: EvaluationContinuation::FinishTransmute {
                     place,
                     source: info,
@@ -7315,7 +7102,7 @@ k::rules! {
     finish_same_pointee_ptr_cast: {
         k: [
             Execution::Continue {
-                value: value @ Value::Pointer { height: _, place: _, mutability: _, metadata: _ },
+                value: value @ Value::Pointer(_, _, _, _),
                 continuation: EvaluationContinuation::FinishPtrCast {
                     place,
                     source: MirTypeInfo::PointerType { pointee }
@@ -7410,9 +7197,9 @@ k::rules! {
                 mutability,
                 metadata,
                 destination,
-                source: MirTypeInfo::PrimitiveType { primitive: _ }
-                | MirTypeInfo::ArrayType { element: _, size: _ }
-                | MirTypeInfo::PointerType { pointee: _ },
+                source: MirTypeInfo::PrimitiveType(_)
+                | MirTypeInfo::ArrayType(_, _)
+                | MirTypeInfo::PointerType(_),
                 target: MirTypeInfo::VoidType(),
                 projections,
                 target_size
@@ -7453,9 +7240,9 @@ k::rules! {
                 metadata,
                 destination,
                 source: MirTypeInfo::VoidType(),
-                target: target @ (MirTypeInfo::PrimitiveType { primitive: _ }
-                | MirTypeInfo::ArrayType { element: _, size: _ }
-                | MirTypeInfo::PointerType { pointee: _ }),
+                target: target @ (MirTypeInfo::PrimitiveType(_)
+                | MirTypeInfo::ArrayType(_, _)
+                | MirTypeInfo::PointerType(_)),
                 projections,
                 target_size
             },
@@ -7722,7 +7509,7 @@ k::rules! {
                 mutability,
                 metadata,
                 destination,
-                source: MirTypeInfo::ArrayType { element, size: _ },
+                source: MirTypeInfo::ArrayType { element, .. },
                 target,
                 projections,
                 target_size
@@ -7851,7 +7638,7 @@ k::rules! {
                 metadata,
                 destination,
                 source,
-                target: MirTypeInfo::ArrayType { element, size: _ },
+                target: MirTypeInfo::ArrayType { element, .. },
                 projections,
                 target_size
             },
@@ -8002,33 +7789,25 @@ k::rules! {
         k: [
             Execution::Continue {
                 value: Value::Pointer {
-                    height: _,
-                    place: _,
-                    mutability: _,
                     metadata: MirMetadata::Metadata {
                         size: MirMetadataSize::DynamicSize(size),
-                        offset: _,
-                        origin_size: _
-                    }
+                        ..
+                    },
+                    ..
                 }
                 | Value::Reference {
-                    height: _,
-                    place: _,
-                    mutability: _,
                     metadata: MirMetadata::Metadata {
                         size: MirMetadataSize::DynamicSize(size),
-                        offset: _,
-                        origin_size: _
-                    }
+                        ..
+                    },
+                    ..
                 }
                 | Value::AllocationReference {
-                    allocation: _,
-                    projections: _,
                     metadata: MirMetadata::Metadata {
                         size: MirMetadataSize::DynamicSize(size),
-                        offset: _,
-                        origin_size: _
-                    }
+                        ..
+                    },
+                    ..
                 },
                 continuation: EvaluationContinuation::FinishUnary {
                     place,
@@ -8545,7 +8324,7 @@ k::rules! {
     finish_shl: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: rhs, width: _, signed: _ },
+                value: Value::Integer { value: rhs, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8573,7 +8352,7 @@ k::rules! {
     finish_shl_unchecked: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: rhs, width: _, signed: _ },
+                value: Value::Integer { value: rhs, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8600,7 +8379,7 @@ k::rules! {
     finish_shr: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: rhs, width: _, signed: _ },
+                value: Value::Integer { value: rhs, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8628,7 +8407,7 @@ k::rules! {
     finish_shr_unchecked: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: rhs, width: _, signed: _ },
+                value: Value::Integer { value: rhs, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8707,7 +8486,7 @@ k::rules! {
     finish_pointer_offset_zero: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: offset, width: _, signed: _ },
+                value: Value::Integer { value: offset, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8735,7 +8514,7 @@ k::rules! {
     finish_pointer_offset_dynamic: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: offset, width: _, signed: _ },
+                value: Value::Integer { value: offset, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8781,7 +8560,7 @@ k::rules! {
     finish_pointer_offset_static: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value: offset, width: _, signed: _ },
+                value: Value::Integer { value: offset, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
@@ -8822,12 +8601,12 @@ k::rules! {
     finish_pointer_eq_same: {
         k: [
             Execution::Continue {
-                value: Value::Pointer { height, place: pointer_place, mutability: _, metadata },
+                value: Value::Pointer { height, place: pointer_place, metadata, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
                     operation: MirBinaryOp::BinOpEq(),
-                    lhs: Value::Pointer { height, place: pointer_place, mutability: _, metadata }
+                    lhs: Value::Pointer { height, place: pointer_place, metadata, .. }
                 }
             },
             ..
@@ -8840,12 +8619,12 @@ k::rules! {
     finish_pointer_eq_different: {
         k: [
             Execution::Continue {
-                value: Value::Pointer { height: _, place: _, mutability: _, metadata: _ },
+                value: Value::Pointer(_, _, _, _),
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
                     operation: MirBinaryOp::BinOpEq(),
-                    lhs: Value::Pointer { height: _, place: _, mutability: _, metadata: _ }
+                    lhs: Value::Pointer(_, _, _, _)
                 }
             },
             ..
@@ -8857,12 +8636,12 @@ k::rules! {
     finish_pointer_ne_same: {
         k: [
             Execution::Continue {
-                value: Value::Pointer { height, place: pointer_place, mutability: _, metadata },
+                value: Value::Pointer { height, place: pointer_place, metadata, .. },
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
                     operation: MirBinaryOp::BinOpNe(),
-                    lhs: Value::Pointer { height, place: pointer_place, mutability: _, metadata }
+                    lhs: Value::Pointer { height, place: pointer_place, metadata, .. }
                 }
             },
             ..
@@ -8875,12 +8654,12 @@ k::rules! {
     finish_pointer_ne_different: {
         k: [
             Execution::Continue {
-                value: Value::Pointer { height: _, place: _, mutability: _, metadata: _ },
+                value: Value::Pointer(_, _, _, _),
                 continuation: EvaluationContinuation::FinishBinary {
                     place,
                     checked: false,
                     operation: MirBinaryOp::BinOpNe(),
-                    lhs: Value::Pointer { height: _, place: _, mutability: _, metadata: _ }
+                    lhs: Value::Pointer(_, _, _, _)
                 }
             },
             ..
@@ -9157,7 +8936,7 @@ k::rules! {
     write_projected_local: {
         k: [
             Execution::WriteProjectedLocal {
-                entry: LocalValue::TypedValue { value: original, ty: _, mutability: _ },
+                entry: LocalValue::TypedValue { value: original, .. },
                 local,
                 projections,
                 value
@@ -9182,7 +8961,7 @@ k::rules! {
     write_initialized_local: {
         k: [
             Execution::WriteLocal {
-                entry: LocalValue::TypedValue { value: _, ty, mutability },
+                entry: LocalValue::TypedValue { ty, mutability, .. },
                 index,
                 value
             },
@@ -9231,7 +9010,7 @@ k::rules! {
         k: [
             Execution::ExecTerminator(
                 MirTerminator::Call {
-                    function: MirCallTarget::ConstantFunction { span, ty: callee, id: _ },
+                    function: MirCallTarget::ConstantFunction { span, ty: callee, .. },
                     args,
                     destination,
                     target,
@@ -9274,7 +9053,7 @@ k::rules! {
     };
 
     set_args_done: {
-        k: [Execution::SetArgsFromStack { index: _, args: Operands::Nil() }, ..],
+        k: [Execution::SetArgsFromStack { args: Operands::Nil(), .. }, ..],
     } => {
         k: [..],
     };
@@ -9402,7 +9181,7 @@ k::rules! {
     assert: {
         k: [
             Execution::ExecTerminator(
-                MirTerminator::Assert { condition, expected, message, target, unwind: _ }
+                MirTerminator::Assert { condition, expected, message, target, .. }
             ),
             ..
         ],
@@ -9415,7 +9194,7 @@ k::rules! {
     };
 
     drop: {
-        k: [Execution::ExecTerminator(MirTerminator::Drop { place: _, target, unwind: _ }), ..],
+        k: [Execution::ExecTerminator(MirTerminator::Drop { target, .. }), ..],
     } => {
         k: [Execution::ExecBlockIdx(target), ..],
     };
@@ -9443,7 +9222,7 @@ k::rules! {
         k: [
             Execution::Continue {
                 value: Value::Boolean(condition),
-                continuation: EvaluationContinuation::FinishAssert { expected, message: _ }
+                continuation: EvaluationContinuation::FinishAssert { expected, .. }
             },
             ..
         ],
@@ -9468,13 +9247,13 @@ k::rules! {
     select_otherwise: {
         k: [
             Execution::Continue {
-                value: _,
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesEmpty(),
                         otherwise
                     }
-                )
+                ),
+                ..
             },
             ..
         ],
@@ -9490,9 +9269,9 @@ k::rules! {
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesCons {
                             head: MirBranch::Branch { value: 1, target },
-                            tail: _
+                            ..
                         },
-                        otherwise: _
+                        ..
                     }
                 )
             },
@@ -9511,7 +9290,7 @@ k::rules! {
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, target: _ },
+                            head: MirBranch::Branch { value: branch_value, .. },
                             tail
                         },
                         otherwise
@@ -9540,9 +9319,9 @@ k::rules! {
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesCons {
                             head: MirBranch::Branch { value: 0, target },
-                            tail: _
+                            ..
                         },
-                        otherwise: _
+                        ..
                     }
                 )
             },
@@ -9561,7 +9340,7 @@ k::rules! {
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, target: _ },
+                            head: MirBranch::Branch { value: branch_value, .. },
                             tail
                         },
                         otherwise
@@ -9586,14 +9365,14 @@ k::rules! {
     select_integer: {
         k: [
             Execution::Continue {
-                value: Value::Integer { value, width, signed: _ },
+                value: Value::Integer { value, width, .. },
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesCons {
                             head: MirBranch::Branch { value: branch_value, target },
-                            tail: _
+                            ..
                         },
-                        otherwise: _
+                        ..
                     }
                 )
             },
@@ -9612,7 +9391,7 @@ k::rules! {
                 continuation: EvaluationContinuation::SelectBlock(
                     MirSwitchTargets::SwitchTargets {
                         branches: BranchList::BranchesCons {
-                            head: MirBranch::Branch { value: branch_value, target: _ },
+                            head: MirBranch::Branch { value: branch_value, .. },
                             tail
                         },
                         otherwise
@@ -9730,12 +9509,7 @@ k::rules! {
     };
 
     return_local: {
-        k: [
-            Execution::ReturnLocal {
-                entry: LocalValue::TypedValue { value, ty: _, mutability: _ }
-            },
-            ..
-        ],
+        k: [Execution::ReturnLocal { entry: LocalValue::TypedValue { value, .. } }, ..],
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [Execution::EndProgram(), ..],
