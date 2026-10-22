@@ -1837,6 +1837,58 @@ fn a_shared_proposer_spends_at_most_its_share_of_cases_and_work_over_every_prefi
 }
 
 #[test]
+fn guided_proposers_together_spend_at_most_half_of_the_cases_and_work_over_every_prefix() {
+    // Blind 1, climb 4, corpus 4: each guided proposer alone keeps within half, but without a
+    // joint bound the two together would take about 8 cases in 9.
+    for (guided_work, blind_work) in [(1, 1), (7, 1), (1, 7)] {
+        let sharing = |kind| -> Box<dyn Proposer> {
+            Box::new(Sharing {
+                kind,
+                share: Some((1, 2)),
+                ready_after: 0,
+                seen: std::rc::Rc::default(),
+            })
+        };
+        let mut schedule = Schedule::new(
+            12,
+            vec![vec![int(0)]],
+            vec![
+                (1, Counter::boxed(ProposerKind::Blind, 0, 1)),
+                (4, sharing(ProposerKind::Climb)),
+                (4, sharing(ProposerKind::Corpus)),
+            ],
+        );
+        let (mut cases, mut work, mut guided_cases, mut guided_total) = (0u64, 0u64, 0u64, 0u64);
+        let mut kinds = std::collections::BTreeSet::new();
+        for _ in 0..400 {
+            let proposal = schedule.next().expect("blind never runs out");
+            let guided = proposal.origin != Origin::Scheduled(ProposerKind::Blind)
+                && proposal.origin != Origin::Explicit;
+            if guided {
+                kinds.insert(proposal.origin);
+                assert!(
+                    2 * (guided_cases + 1) <= cases + 1,
+                    "cases {guided_cases}/{cases}"
+                );
+                assert!(2 * guided_total <= work, "work {guided_total}/{work}");
+            }
+            let case_work = if guided { guided_work } else { blind_work };
+            cases += 1;
+            work += case_work;
+            if guided {
+                guided_cases += 1;
+                guided_total += case_work;
+            }
+            schedule.observe(&proposal, &observed(case_work), false);
+        }
+        assert_eq!(kinds.len(), 2, "both guided proposers ran");
+        if guided_work == blind_work {
+            assert!(guided_cases >= 190, "{guided_cases} of {cases}");
+        }
+    }
+}
+
+#[test]
 fn a_proposer_that_is_not_ready_waits_without_leaving_the_schedule() {
     let seen = std::rc::Rc::default();
     let mut schedule = Schedule::new(

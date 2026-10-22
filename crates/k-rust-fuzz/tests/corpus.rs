@@ -5,6 +5,8 @@
 //! measurement mode (`--ignored --nocapture measure_`), which prints the lines
 //! `research/stall-benchmark.md` records. Seeds 1-10 tune; seeds 11-20 are held out.
 
+#[path = "data/bank/harness.rs"]
+mod bank;
 #[path = "data/lock/harness.rs"]
 mod lock;
 #[path = "data/maze/harness.rs"]
@@ -26,6 +28,9 @@ const HELD_OUT_SEEDS: [u64; 10] = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
 /// The measurement budget per cell, the stall benchmark's.
 const MEASURE_BUDGET: u64 = 5000;
+
+/// Every cell of the bank.
+const BANK_CELLS: [&str; 4] = ["pay", "double", "rich", "broke"];
 
 /// Every cell of the lock.
 const LOCK_CELLS: [&str; 6] = ["l1", "l2", "l3", "l4", "l5", "lu"];
@@ -84,6 +89,19 @@ fn blind_corpus() -> Configuration {
     configuration(
         "blind+corpus",
         &[(ProposerKind::Blind, 1), (ProposerKind::Corpus, 1)],
+    )
+}
+
+/// Blind sampling, the dictionary and the corpus at equal weights: the corpus measured against
+/// blind+dictionary, so that it is not credited with the dictionary's harvest (review S2).
+fn blind_dictionary_corpus() -> Configuration {
+    configuration(
+        "blind+dictionary+corpus",
+        &[
+            (ProposerKind::Blind, 1),
+            (ProposerKind::Dictionary, 1),
+            (ProposerKind::Corpus, 1),
+        ],
     )
 }
 
@@ -153,6 +171,45 @@ fn every_reachable_lock_cell_has_a_witness_and_lu_none() {
     }
     // The anchor `ListItem(0)` reaches no cell.
     let (hit, report) = lock::run_cell(lock::cell_named("l1"), &maze::blind(), 1, 1);
+    assert_eq!((hit, report.totals.cases), (None, 1));
+}
+
+#[test]
+fn every_reachable_bank_cell_has_a_witness_and_broke_none() {
+    for cell in &bank::CELLS {
+        for other in bank::CELLS.iter().filter(|other| other.reachable()) {
+            let configuration = Configuration {
+                name: "witness",
+                proposers: ProposerConfig {
+                    anchors_first: false,
+                    explicit: vec![BTreeMap::from([(
+                        "TXS".to_owned(),
+                        bank::txs(other.witness),
+                    )])],
+                    weights: BTreeMap::new(),
+                },
+                target_blind: true,
+            };
+            let (hit, _) = bank::run_cell(cell, &configuration, 1, 1);
+            // `pay` fires on every witness's first transaction, `double` on the third
+            // transaction of `double`'s and `rich`'s, `rich` only on its own five.
+            let fires = match cell.label {
+                "pay" => true,
+                "double" => other.witness.len() >= 3,
+                "rich" => other.label == "rich",
+                _ => false,
+            };
+            assert_eq!(
+                hit.is_some(),
+                fires,
+                "cell {} under {}",
+                cell.label,
+                other.label
+            );
+        }
+    }
+    // The anchor `ListItem(tx(7, 1))` has the wrong nonce and reaches no cell.
+    let (hit, report) = bank::run_cell(bank::cell_named("pay"), &maze::blind(), 1, 1);
     assert_eq!((hit, report.totals.cases), (None, 1));
 }
 
@@ -233,15 +290,32 @@ fn the_corpus_needs_blind_sampling_or_the_dictionary() {
 
 /// Print each configuration's lines and per-cell summaries over `seeds`.
 fn measure_lock(configurations: &[Configuration], seeds: &[u64]) {
+    measure_list("lock", &LOCK_CELLS, configurations, seeds, lock::run_line);
+}
+
+/// Print each configuration's lines and per-cell summaries over `seeds`, on the bank.
+fn measure_bank(configurations: &[Configuration], seeds: &[u64]) {
+    measure_list("bank", &BANK_CELLS, configurations, seeds, bank::run_line);
+}
+
+/// The lines of `run_line` over `cells` for each configuration and seed, then a summary line
+/// per configuration, `benchmark` naming it.
+fn measure_list(
+    benchmark: &str,
+    cells: &[&str],
+    configurations: &[Configuration],
+    seeds: &[u64],
+    run_line: impl Fn(&Configuration, &[&str], u64, u64) -> (String, Vec<Option<u64>>) + Sync,
+) {
     for configuration in configurations {
         let runs = per_seed(seeds, |seed| {
-            lock::run_line(configuration, &LOCK_CELLS, seed, MEASURE_BUDGET)
+            run_line(configuration, cells, seed, MEASURE_BUDGET)
         });
         for (line, _) in &runs {
             println!("{line}");
         }
-        let mut table = format!("lock {}:", configuration.name);
-        for (index, label) in LOCK_CELLS.iter().enumerate() {
+        let mut table = format!("{benchmark} {}:", configuration.name);
+        for (index, label) in cells.iter().enumerate() {
             let cases: Vec<Option<u64>> = runs.iter().map(|(_, cases)| cases[index]).collect();
             write!(table, " {label} {};", lock::summary(&cases, MEASURE_BUDGET))
                 .expect("writing to a String");
@@ -321,4 +395,64 @@ fn measure_corpus_maze_tuning() {
 #[ignore = "measurement mode: run with --ignored --nocapture measure_"]
 fn measure_corpus_maze_held_out() {
     measure_maze(&corpus_configurations(), &HELD_OUT_SEEDS);
+}
+
+/// The configurations of round 2 on the lock and the maze: the corpus beside blind+dictionary,
+/// and all four proposers again under the guided proposers' joint share.
+fn round2_configurations(baseline: bool) -> Vec<Configuration> {
+    let mut configurations = Vec::new();
+    if baseline {
+        configurations.push(blind_dictionary());
+    }
+    configurations.push(blind_dictionary_corpus());
+    configurations.push(blind_dictionary_climb_corpus());
+    configurations
+}
+
+/// Every configuration measured on the bank.
+fn bank_configurations() -> Vec<Configuration> {
+    vec![
+        maze::blind(),
+        blind_dictionary(),
+        maze::blind_dictionary_climb(),
+        blind_corpus(),
+        blind_dictionary_corpus(),
+        blind_dictionary_climb_corpus(),
+    ]
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_round2_lock_tuning() {
+    measure_lock(&round2_configurations(false), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_round2_lock_held_out() {
+    measure_lock(&round2_configurations(false), &HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_round2_maze_tuning() {
+    measure_maze(&round2_configurations(true), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_round2_maze_held_out() {
+    measure_maze(&round2_configurations(true), &HELD_OUT_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_bank_tuning() {
+    measure_bank(&bank_configurations(), &TUNING_SEEDS);
+}
+
+#[test]
+#[ignore = "measurement mode: run with --ignored --nocapture measure_"]
+fn measure_bank_held_out() {
+    measure_bank(&bank_configurations(), &HELD_OUT_SEEDS);
 }

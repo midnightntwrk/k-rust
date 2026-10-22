@@ -31,8 +31,12 @@
 //! A proposal takes the newest entry with probability [`NEWEST_PROBABILITY`], since the newest
 //! is the case that got furthest most recently, and otherwise an entry chosen uniformly. It
 //! applies one mutation to one hole, and a second with probability
-//! [`SECOND_MUTATION_PROBABILITY`], each on a hole chosen uniformly among those with more than
-//! one admissible value (two distinct holes, when there are two). Each mutation keeps the hole's sort:
+//! [`SECOND_MUTATION_PROBABILITY`], each on a hole chosen uniformly among the movable ones (two
+//! distinct holes, when there are two). A hole is movable unless it has a choice set of one
+//! member or is a token sort without a choice set (which has no generator); a hole whose
+//! constraints admit one value without saying so (an `Int` range with equal ends) stays movable,
+//! and its mutations are all refused, so it costs draws, never a wrong case. Each mutation keeps
+//! the hole's sort:
 //!
 //! - a collection (`List`, `Set`, `Map`) changes one element (entry): replace one with a new
 //!   value, insert one, delete one, keep only a prefix (a list), append one (a list), or cross
@@ -44,7 +48,10 @@
 //!   dictionary's harvest, ARCHITECTURE 8.3: a literal of the target's guards and of those near
 //!   it, itself or plus or minus 1 to 3 or negated, by the dictionary's weights), a fresh draw
 //!   from its generator, a nudge of the current value (an integer by `±2^e` with `e` below
-//!   [`NUDGE_EXPONENTS`], a Boolean negated, a string or byte string by one character edit), or
+//!   [`NUDGE_EXPONENTS`], a Boolean negated, a string or byte string by one character edit, and
+//!   a value of a data sort by one field: one constructor argument, followed down through data
+//!   arguments, takes a harvested literal of its sort, a fresh draw or a nudge, so that one field
+//!   of one record inside a list changes and the rest of the record and of the list stays), or
 //!   a splice (the same hole's value in another entry; for an element, an element of the same
 //!   hole in any entry);
 //! - a hole with a choice set takes another member.
@@ -62,7 +69,9 @@
 //!
 //! The corpus spends at most [`BUDGET_SHARE`] of the campaign's cases over every prefix, and
 //! its work is held to the same share before each corpus case (`engine::schedule`), as the
-//! climb's is. A campaign that weighs the corpus must also weigh blind sampling or the
+//! climb's is; the corpus and the climb together are held to the same half
+//! (`engine::schedule::GUIDED_SHARE`), so blind sampling and the dictionary keep at least half
+//! of the cases. A campaign that weighs the corpus must also weigh blind sampling or the
 //! dictionary.
 //!
 //! Every choice is drawn from a `ChaCha20` stream and a proptest runner seeded from the campaign
@@ -85,6 +94,7 @@ use crate::{
     score::Score,
     spec::ProposerKind,
     values::{self, Constraints, GenerationBounds, Generator, Value, ValueRng, ValueSort},
+    values::{ArgumentSort, DataAlternative, DataSorts},
 };
 
 /// The most share of the campaign's cases and work the corpus may spend, as (numerator,
@@ -213,8 +223,10 @@ struct Entry {
 pub(crate) struct CorpusProposer {
     holes: Vec<CorpusHole>,
     sources: Vec<HoleSources>,
+    /// The harvested literals of each builtin sort a field of a data value may have.
+    fields: Vec<(ValueSort, HolePool)>,
     bounds: GenerationBounds,
-    /// The holes a mutation can change: those with more than one admissible value.
+    /// The holes a mutation can change (module documentation, "Mutations").
     movable: Vec<usize>,
     rng: ChaCha20Rng,
     values: ValueRng,
@@ -244,6 +256,18 @@ impl CorpusProposer {
                 }
             })
             .collect();
+        let fields = [
+            ValueSort::Int,
+            ValueSort::Bool,
+            ValueSort::String,
+            ValueSort::Bytes,
+        ]
+        .into_iter()
+        .map(|sort| {
+            let pool = HolePool::new(harvest, &sort, &Constraints::default(), &bounds);
+            (sort, pool)
+        })
+        .collect();
         let movable = holes
             .iter()
             .enumerate()
@@ -256,6 +280,7 @@ impl CorpusProposer {
         Self {
             holes,
             sources,
+            fields,
             bounds,
             movable,
             rng: ChaCha20Rng::from_seed(crate::engine::derive_seed(seed, "corpus")),
@@ -371,6 +396,7 @@ impl CorpusProposer {
                     | ValueSort::Bool
                     | ValueSort::String
                     | ValueSort::Bytes
+                    | ValueSort::Data { .. }
             );
         let splices = self.splices(hole, place, entry);
         let allowed = [
@@ -446,7 +472,77 @@ impl CorpusProposer {
                 self.edit(&mut bytes, byte);
                 Some(Value::Bytes(bytes))
             }
+            (_, ValueSort::Data { table, .. }) => {
+                let table = table.clone();
+                self.edit_field(value, &table, 0)
+            }
             _ => None,
+        }
+    }
+
+    /// `value`, of entry `index` of the data-sort table `table`, with one field changed: one
+    /// constructor argument, chosen uniformly and followed down through data arguments, takes a
+    /// new value of its own sort ([`Self::field_value`]). `None` for a constant.
+    fn edit_field(&mut self, value: &Value, table: &DataSorts, index: usize) -> Option<Value> {
+        match values::data_alternative(value, table, index).ok()? {
+            DataAlternative::Subsort(ArgumentSort::Value(sort)) => {
+                let sort = sort.clone();
+                self.field_value(value, &sort)
+            }
+            DataAlternative::Subsort(_) => None,
+            DataAlternative::Constructor(constructor) => {
+                let Value::Apply { symbol, arguments } = value else {
+                    return None;
+                };
+                if arguments.is_empty() {
+                    return None;
+                }
+                let position = self.rng.random_range(0..arguments.len());
+                let edited = match &constructor.arguments[position] {
+                    ArgumentSort::Value(sort) => {
+                        let sort = sort.clone();
+                        self.field_value(&arguments[position], &sort)?
+                    }
+                    ArgumentSort::Data(child) => {
+                        self.edit_field(&arguments[position], table, *child)?
+                    }
+                    ArgumentSort::Empty(_) => return None,
+                };
+                let mut arguments = arguments.clone();
+                arguments[position] = edited;
+                Some(Value::Apply {
+                    symbol: symbol.clone(),
+                    arguments,
+                })
+            }
+        }
+    }
+
+    /// A new value for a field of `sort` whose value is `current`: a harvested literal of that
+    /// sort, a fresh draw, or a nudge, with the weights [`SOURCE_WEIGHTS`] (a field has no
+    /// splice).
+    fn field_value(&mut self, current: &Value, sort: &ValueSort) -> Option<Value> {
+        let pool = self
+            .fields
+            .iter()
+            .position(|(field, pool)| field == sort.generated() && !pool.is_empty());
+        let nudgeable = matches!(
+            sort.generated(),
+            ValueSort::Int
+                | ValueSort::MInt { .. }
+                | ValueSort::Bool
+                | ValueSort::String
+                | ValueSort::Bytes
+        );
+        let allowed = [pool.is_some(), true, nudgeable, false];
+        match self.pick(&SOURCE_WEIGHTS, &allowed)? {
+            0 => self.fields[pool?].1.draw(&mut self.rng),
+            1 => Generator::new(sort, &Constraints::default(), &self.bounds)
+                .ok()?
+                .try_generate(&mut self.values)
+                .ok()
+                .map(|tree| tree.current()),
+            _ => self.nudge(current, sort),
         }
     }
 

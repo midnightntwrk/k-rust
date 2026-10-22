@@ -349,3 +349,88 @@ fn the_corpus_alone_opens_the_lock_model_one_key_at_a_time() {
     }
     assert!(cases > 5, "{cases}");
 }
+
+#[test]
+fn a_record_inside_a_list_changes_one_field_at_a_time() {
+    // LEDGER's `Tx ::= transfer(Int, Int) | noop`, as the elements of a `List` hole.
+    let tx = values::ledger_sort("Tx");
+    let list = ValueSort::List {
+        sort: "List".into(),
+        symbols: symbols("SortList"),
+        element: Box::new(tx.clone()),
+        text: None,
+    };
+    let generator = Generator::new(&tx, &Constraints::default(), &bounds()).expect("a generator");
+    let mut rng = ValueRng::from_seed([5; 32]);
+    let symbol = loop {
+        if let Value::Apply { symbol, arguments } =
+            generator.try_generate(&mut rng).expect("a draw").current()
+            && arguments.len() == 2
+        {
+            break symbol;
+        }
+    };
+    let transfer = |amount: i64, fee: i64| Value::Apply {
+        symbol: symbol.clone(),
+        arguments: vec![int(amount), int(fee)],
+    };
+    let start = vec![
+        transfer(123_456_789, 987_654_321),
+        transfer(555_555_555, 444_444_444),
+    ];
+    let mut corpus = CorpusProposer::new(
+        vec![hole(list.clone(), Constraints::default())],
+        &harvest(&[]),
+        bounds(),
+        8,
+    );
+    corpus.observe_all(
+        &Proposal::plain(Origin::Explicit, vec![Value::List(start.clone())]),
+        &observation(OutcomeClass::Miss, &["a"], None),
+    );
+    let mut one_field = 0;
+    for _ in 0..400 {
+        let proposal = propose(&mut corpus);
+        assert!(
+            values::admissible(
+                &proposal.values[0],
+                &list,
+                &Constraints::default(),
+                &bounds()
+            ),
+            "{:?}",
+            proposal.values[0]
+        );
+        let Value::List(items) = &proposal.values[0] else {
+            panic!("a list")
+        };
+        if items.len() != start.len() {
+            continue;
+        }
+        let changed: Vec<(&Value, &Value)> = items
+            .iter()
+            .zip(&start)
+            .filter(|(new, old)| new != old)
+            .collect();
+        if let [
+            (
+                Value::Apply {
+                    symbol: new,
+                    arguments: after,
+                },
+                Value::Apply {
+                    arguments: before, ..
+                },
+            ),
+        ] = changed[..]
+            && *new == symbol
+            && after.iter().zip(before).filter(|(a, b)| a != b).count() == 1
+        {
+            one_field += 1;
+        }
+    }
+    assert!(
+        one_field >= 10,
+        "{one_field} proposals changed one field of one record"
+    );
+}

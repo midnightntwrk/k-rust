@@ -14,6 +14,15 @@
 //! (its work at most the share of all work so far): a case's work is known only after it runs,
 //! so the proposer's work can exceed the share by the work of its last case, and no more. Since a draw that
 //! no slot limits draws exactly as before, a schedule without such a proposer is unchanged.
+//!
+//! The proposers that declare a share are the guided ones (the climb, the corpus), which work
+//! from cases others make. Together they are held to [`GUIDED_SHARE`] by the same rule, counting
+//! all their cases and work as one: a guided proposer is drawn only while the guided cases,
+//! counting the one it would add, are at most that share of all cases, and the guided work so
+//! far is at most that share of all work. So the unguided proposers (blind sampling, the
+//! dictionary) keep at least half of the cases over every prefix, however the weights are set.
+//! With one guided proposer whose own share is [`GUIDED_SHARE`] the joint bound is its own, so a
+//! campaign with only the climb (or only the corpus) draws exactly as without the joint bound.
 
 use std::collections::VecDeque;
 
@@ -36,6 +45,26 @@ pub(crate) fn derive_seed(seed: u64, purpose: &str) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// The most share of the campaign's cases and work that the guided proposers (those with a
+/// [`Proposer::budget_share`]) spend together, as (numerator, denominator) (module
+/// documentation).
+pub(crate) const GUIDED_SHARE: (u32, u32) = (1, 2);
+
+/// Whether `cases` cases (counting the one to add, so `cases + 1`) and `work` of a proposer or
+/// group stay within `share` of the campaign's `total_cases` (counting the one to add) and
+/// `total_work`.
+fn within(
+    (numerator, denominator): (u32, u32),
+    cases: u64,
+    work: u64,
+    total_cases: u64,
+    total_work: u64,
+) -> bool {
+    let (numerator, denominator) = (u128::from(numerator), u128::from(denominator));
+    (u128::from(cases) + 1) * denominator <= (u128::from(total_cases) + 1) * numerator
+        && u128::from(work) * denominator <= u128::from(total_work) * numerator
+}
+
 /// One scheduled proposer and its weight.
 struct Slot {
     weight: u32,
@@ -49,18 +78,14 @@ struct Slot {
 impl Slot {
     /// Whether the slot may be drawn for the next case, given the campaign's observed `cases`
     /// and `work`.
-    fn eligible(&self, cases: u64, work: u64) -> bool {
+    /// `guided` is the guided proposers' cases and work together.
+    fn eligible(&self, cases: u64, work: u64, guided: (u64, u64)) -> bool {
         !self.exhausted
             && self.proposer.ready()
-            && self
-                .proposer
-                .budget_share()
-                .is_none_or(|(numerator, denominator)| {
-                    let (numerator, denominator) = (u128::from(numerator), u128::from(denominator));
-                    (u128::from(self.cases) + 1) * denominator
-                        <= (u128::from(cases) + 1) * numerator
-                        && u128::from(self.work) * denominator <= u128::from(work) * numerator
-                })
+            && self.proposer.budget_share().is_none_or(|share| {
+                within(share, self.cases, self.work, cases, work)
+                    && within(GUIDED_SHARE, guided.0, guided.1, cases, work)
+            })
     }
 }
 
@@ -111,11 +136,18 @@ impl Schedule {
             return Some(Proposal::plain(Origin::Explicit, values));
         }
         let (cases, work) = (self.cases, self.work);
+        let guided = self
+            .slots
+            .iter()
+            .filter(|slot| slot.proposer.budget_share().is_some())
+            .fold((0u64, 0u64), |(cases, work), slot| {
+                (cases + slot.cases, work.saturating_add(slot.work))
+            });
         loop {
             let total: u64 = self
                 .slots
                 .iter()
-                .filter(|slot| slot.eligible(cases, work))
+                .filter(|slot| slot.eligible(cases, work, guided))
                 .map(|slot| u64::from(slot.weight))
                 .sum();
             if total == 0 {
@@ -126,7 +158,7 @@ impl Schedule {
                 .slots
                 .iter()
                 .position(|slot| {
-                    if !slot.eligible(cases, work) {
+                    if !slot.eligible(cases, work, guided) {
                         return false;
                     }
                     let weight = u64::from(slot.weight);

@@ -42,6 +42,17 @@ use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use admit::admissible;
+
+/// The sort `sort` (a data sort such as `Tx` or `Account`) of the LEDGER fixture, for the tests
+/// of other modules.
+#[cfg(test)]
+pub(crate) fn ledger_sort(sort: &str) -> ValueSort {
+    let ledger = test_definition::ledger();
+    ledger
+        .text_syntax(&["Pgm"])
+        .resolve(sort, &Constraints::default(), &ledger.backend)
+        .unwrap_or_else(|refusal| panic!("{sort}: {refusal:?}"))
+}
 pub(crate) use generator::{Generator, ShrinkableValue, ValueRng};
 pub use text::TextSyntax;
 
