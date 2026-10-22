@@ -7470,57 +7470,9 @@ k::rules! {
     }
     where return_start: Int, return_width: Int, remaining_call_stack: List, remaining_interim_states: List, saved_account_id: Int, saved_balance: Int, saved_code: Bytes, saved_nonce: Int, saved_storage: Map, saved_original_storage: Map, saved_self_destruct: Set, saved_logs: List, saved_refund: Int, saved_accessed_accounts: Set, saved_accessed_storage: Map, saved_created_accounts: Set, child_account_id: Int, child_balance: Int, child_code: Bytes, child_nonce: Int, child_storage: Map, child_original_storage: Map, child_self_destruct: Set, child_logs: List, child_refund: Int, child_accessed_accounts: Set, child_accessed_storage: Map, child_created_accounts: Set, child_output: Bytes, child_program: Bytes, child_jump_dests: Bytes, child_address: Int, child_caller: Int, child_call_data: Bytes, child_call_value: Int, child_stack: WordStack, child_memory: Bytes, child_pc: Int, child_gas: Int, child_memory_used: Int, child_call_gas: Int, child_static_mode: Bool, child_call_depth: Int, child_code_address: Int, caller_program: Bytes, caller_jump_dests: Bytes, caller_address: Int, caller_caller: Int, caller_call_data: Bytes, caller_call_value: Int, caller_stack: WordStack, caller_memory: Bytes, caller_pc: Int, caller_gas: Int, caller_memory_used: Int, caller_call_gas: Int, caller_static_mode: Bool, caller_call_depth: Int, caller_code_address: Int;
 
-    finish_static_call_stack_underflow: {
+    finish_static_call_exceptional_halt: {
         k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StackUnderflow(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_stack_overflow: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StackOverflow(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_out_of_gas: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::OutOfGas(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_bad_jump_destination: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::BadJumpDestination(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_invalid_memory_access: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::InvalidMemoryAccess(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_invalid_instruction: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::InvalidInstruction(),
-    } => {
-        k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
-    }
-    where return_start: Int, return_width: Int;
-
-    finish_static_call_static_violation: {
-        k: [ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
-        status_code: Status::StaticModeViolation(),
+        status_code: Status::StackUnderflow() | Status::StackOverflow() | Status::OutOfGas() | Status::BadJumpDestination() | Status::InvalidMemoryAccess() | Status::InvalidInstruction() | Status::StaticModeViolation(),
     } => {
         k: [ExecutionCommand::FinishStaticCallExceptional { return_start, return_width }, ..],
     }
@@ -7646,8 +7598,10 @@ k::rules! {
 
 k::rules! {
     for Machine;
-    balance_underflow: {
-        k: [Operation::AccountBalance, ..],
+    use Operation::*;
+
+    stack_underflow_no_words_arithmetic: {
+        k: [(Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend()), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -7656,8 +7610,8 @@ k::rules! {
     }
     where status: StatusCode;
 
-    external_code_size_underflow: {
-        k: [Operation::ExternalCodeSize, ..],
+    stack_underflow_no_words_comparison_bitwise: {
+        k: [(LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | IsZero() | BitAnd() | BitOr() | BitXor() | BitNot() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight()), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -7666,8 +7620,8 @@ k::rules! {
     }
     where status: StatusCode;
 
-    external_code_hash_underflow: {
-        k: [Operation::ExternalCodeHash, ..],
+    stack_underflow_no_words_environment: {
+        k: [(AccountBalance() | ExternalCodeSize() | ExternalCodeHash() | ExternalCodeCopy() | CallDataLoad() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | BlockHash()), ..],
         word_stack: Stack::StackEmpty(),
         status_code: status,
     } => {
@@ -7676,825 +7630,65 @@ k::rules! {
     }
     where status: StatusCode;
 
-    external_code_copy_underflow_empty: {
+    stack_underflow_no_words_memory_storage_control: {
+        k: [(MemoryLoad() | MemoryStore() | MemoryStore8() | Sha3() | StorageLoad() | StorageStore() | Jump() | JumpIf() | Return() | Revert()), ..],
+        word_stack: Stack::StackEmpty(),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_one_word_arithmetic: {
+        k: [(Add() | Mul() | Sub() | Div() | SignedDiv() | Mod() | SignedMod() | AddMod() | MulMod() | Exponent() | SignExtend()), ..],
+        word_stack: Stack::StackCons(_, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_one_word_comparison_bitwise: {
+        k: [(LessThan() | GreaterThan() | SignedLessThan() | SignedGreaterThan() | Equal() | BitAnd() | BitOr() | BitXor() | Byte() | ShiftLeft() | ShiftRight() | SignedShiftRight()), ..],
+        word_stack: Stack::StackCons(_, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_one_word_environment_memory_control: {
+        k: [(ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | MemoryStore() | MemoryStore8() | Sha3() | StorageStore() | JumpIf() | Return() | Revert()), ..],
+        word_stack: Stack::StackCons(_, Stack::StackEmpty()),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_two_words: {
+        k: [(ExternalCodeCopy() | CallDataCopy() | CodeCopy() | ReturnDataCopy() | AddMod() | MulMod()), ..],
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty())),
+        status_code: status,
+    } => {
+        k: [..],
+        status_code: Status::StackUnderflow(),
+    }
+    where status: StatusCode;
+
+    stack_underflow_three_words: {
         k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackEmpty(),
+        word_stack: Stack::StackCons(_, Stack::StackCons(_, Stack::StackCons(_, Stack::StackEmpty()))),
         status_code: status,
     } => {
         k: [..],
         status_code: Status::StackUnderflow(),
     }
     where status: StatusCode;
-
-    external_code_copy_underflow_one: {
-        k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    external_code_copy_underflow_two: {
-        k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    external_code_copy_underflow_three: {
-        k: [Operation::ExternalCodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackCons(w2, Stack::StackEmpty()))),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, w2: Int, status: StatusCode;
-
-    call_data_load_underflow: {
-        k: [Operation::CallDataLoad, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    call_data_copy_underflow_empty: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    call_data_copy_underflow_one: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    call_data_copy_underflow_two: {
-        k: [Operation::CallDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    code_copy_underflow_empty: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    code_copy_underflow_one: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    code_copy_underflow_two: {
-        k: [Operation::CodeCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    return_data_copy_underflow_empty: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    return_data_copy_underflow_one: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    return_data_copy_underflow_two: {
-        k: [Operation::ReturnDataCopy, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    return_underflow_empty: {
-        k: [Operation::Return, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    return_underflow_one: {
-        k: [Operation::Return, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    revert_underflow_empty: {
-        k: [Operation::Revert, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    revert_underflow_one: {
-        k: [Operation::Revert, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    memory_load_underflow: {
-        k: [Operation::MemoryLoad, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    memory_store_underflow_empty: {
-        k: [Operation::MemoryStore, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    memory_store_underflow_one: {
-        k: [Operation::MemoryStore, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    memory_store8_underflow_empty: {
-        k: [Operation::MemoryStore8, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    memory_store8_underflow_one: {
-        k: [Operation::MemoryStore8, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    sha3_underflow_empty: {
-        k: [Operation::Sha3, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    sha3_underflow_one: {
-        k: [Operation::Sha3, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    storage_load_underflow: {
-        k: [Operation::StorageLoad, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    storage_store_underflow_empty: {
-        k: [Operation::StorageStore, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    storage_store_underflow_one: {
-        k: [Operation::StorageStore, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    block_hash_underflow: {
-        k: [Operation::BlockHash, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    jump_underflow: {
-        k: [Operation::Jump, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    jump_if_underflow_empty: {
-        k: [Operation::JumpIf, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    jump_if_underflow_one: {
-        k: [Operation::JumpIf, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    add_underflow_empty: {
-        k: [Operation::Add, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    add_underflow_one: {
-        k: [Operation::Add, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    mul_underflow_empty: {
-        k: [Operation::Mul, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    mul_underflow_one: {
-        k: [Operation::Mul, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    sub_underflow_empty: {
-        k: [Operation::Sub, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    sub_underflow_one: {
-        k: [Operation::Sub, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    div_underflow_empty: {
-        k: [Operation::Div, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    div_underflow_one: {
-        k: [Operation::Div, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    mod_underflow_empty: {
-        k: [Operation::Mod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    mod_underflow_one: {
-        k: [Operation::Mod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_div_underflow_empty: {
-        k: [Operation::SignedDiv, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_div_underflow_one: {
-        k: [Operation::SignedDiv, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_mod_underflow_empty: {
-        k: [Operation::SignedMod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_mod_underflow_one: {
-        k: [Operation::SignedMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    add_mod_underflow_empty: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    add_mod_underflow_one: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    add_mod_underflow_two: {
-        k: [Operation::AddMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    mul_mod_underflow_empty: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    mul_mod_underflow_one: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    mul_mod_underflow_two: {
-        k: [Operation::MulMod, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackCons(w1, Stack::StackEmpty())),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, w1: Int, status: StatusCode;
-
-    less_than_underflow_empty: {
-        k: [Operation::LessThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    less_than_underflow_one: {
-        k: [Operation::LessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    greater_than_underflow_empty: {
-        k: [Operation::GreaterThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    greater_than_underflow_one: {
-        k: [Operation::GreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_less_than_underflow_empty: {
-        k: [Operation::SignedLessThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_less_than_underflow_one: {
-        k: [Operation::SignedLessThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_greater_than_underflow_empty: {
-        k: [Operation::SignedGreaterThan, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_greater_than_underflow_one: {
-        k: [Operation::SignedGreaterThan, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    equal_underflow_empty: {
-        k: [Operation::Equal, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    equal_underflow_one: {
-        k: [Operation::Equal, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    is_zero_underflow: {
-        k: [Operation::IsZero, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    exponent_underflow_empty: {
-        k: [Operation::Exponent, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    exponent_underflow_one: {
-        k: [Operation::Exponent, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    sign_extend_underflow_empty: {
-        k: [Operation::SignExtend, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    sign_extend_underflow_one: {
-        k: [Operation::SignExtend, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_and_underflow_empty: {
-        k: [Operation::BitAnd, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    bit_and_underflow_one: {
-        k: [Operation::BitAnd, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_or_underflow_empty: {
-        k: [Operation::BitOr, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    bit_or_underflow_one: {
-        k: [Operation::BitOr, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_xor_underflow_empty: {
-        k: [Operation::BitXor, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    bit_xor_underflow_one: {
-        k: [Operation::BitXor, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    bit_not_underflow: {
-        k: [Operation::BitNot, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    byte_underflow_empty: {
-        k: [Operation::Byte, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    byte_underflow_one: {
-        k: [Operation::Byte, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    shift_left_underflow_empty: {
-        k: [Operation::ShiftLeft, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    shift_left_underflow_one: {
-        k: [Operation::ShiftLeft, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    shift_right_underflow_empty: {
-        k: [Operation::ShiftRight, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    shift_right_underflow_one: {
-        k: [Operation::ShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
-
-    signed_shift_right_underflow_empty: {
-        k: [Operation::SignedShiftRight, ..],
-        word_stack: Stack::StackEmpty(),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where status: StatusCode;
-
-    signed_shift_right_underflow_one: {
-        k: [Operation::SignedShiftRight, ..],
-        word_stack: Stack::StackCons(w0, Stack::StackEmpty()),
-        status_code: status,
-    } => {
-        k: [..],
-        status_code: Status::StackUnderflow(),
-    }
-    where w0: Int, status: StatusCode;
 
     stack_operation_underflow: {
         k: [GasResult::StackUnderflowResult(), ..],
