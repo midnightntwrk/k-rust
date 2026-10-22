@@ -67,11 +67,11 @@ const BLIND_ISOLATED_S3: [Option<u64>; 5] =
 /// literals (FZ-16) moved them from `c4` 50, 75, 151, 83, 65; `s3` 47, 193, 175, 213, 141;
 /// `c6` 781, 188, 239, 456, 252; whole-maze `c4` 921, 286, 411, 484, 934: a window's bound or
 /// `D ==Int C` gives the passing value at once, while `c6` (`3F ==Int G +Int 1000001`) compares
-/// no hole's value as it is. FZ-16's fix round (reading only atoms below refuting nodes, drawing
-/// by comparison first, no change proposed twice) moved them again, from `c4` 12, 3, 4, 6, 10;
-/// `s3` 12, 3, 11, 6, 10; `c6` 681, 288, 239, 410, 418; whole-maze `c4` 227, 46, 67, 40, 74: the
-/// random streams are drawn differently; at seeds 11-20 the isolated medians are unchanged
-/// within noise (`c4` 11 against 10, `s3` 14 against 27; `exp/fz16/fix-iso.log`).
+/// no hole's value as it is. FZ-16's fix round (only atoms below refuting nodes, a change drawn
+/// by side of a comparison, none proposed twice by the climb) moved them again, from `c4` 12, 3,
+/// 4, 6, 10; `s3` 12, 3, 11, 6, 10; `c6` 681, 288, 239, 410, 418; whole-maze `c4` 227, 46, 67,
+/// 40, 74, by drawing the random streams differently; the isolated medians at seeds 11-20 are
+/// in `exp/fz16/` of the fz26 notes (`climb-iso-*.log`).
 const PINNED_ISOLATED_C4: [Option<u64>; 5] = [Some(23), Some(12), Some(35), Some(19), Some(26)];
 const PINNED_ISOLATED_S3: [Option<u64>; 5] = [Some(68), Some(12), Some(11), Some(24), Some(23)];
 const PINNED_ISOLATED_C6: [Option<u64>; 5] =
