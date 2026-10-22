@@ -2485,7 +2485,7 @@ k::rules! {
 
     /// POP, DUP, and SWAP, whose stack bounds `PrepareStack` checks before charging.
     begin_stack_operation: {
-        k: [op @ (Pop() | Duplicate(_) | Swap(_)), ..],
+        k: [op @ (Pop() | Duplicate { .. } | Swap { .. }), ..],
         word_stack: stack,
         gas,
     } => {
