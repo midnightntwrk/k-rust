@@ -8076,6 +8076,21 @@
           }
         }
       ],
+      "claim": {
+        "circularity_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "modality": "all_paths",
+        "modality_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "trusted_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
       "computation_cell": {
         "cell": {
           "field": "sample",
@@ -10017,6 +10032,21 @@
             }
           }
         ],
+        "claim": {
+          "circularity_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "modality": "all_paths",
+          "modality_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "trusted_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          }
+        },
         "computation_cell": {
           "cell": {
             "field": "sample",
@@ -11324,7 +11354,19 @@
           "role": "sort_declaration"
         }
       },
-      "term_kind": "application"
+      "term_kind": "application",
+      "update": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
+      }
     },
     {
       "key": {
@@ -11457,7 +11499,20 @@
         "ordinal": 0,
         "role": "sort_declaration"
       },
-      "term_kind": "cell"
+      "open": true,
+      "term_kind": "cell",
+      "update": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
+      }
     },
     {
       "key": {
@@ -31177,6 +31232,21 @@
           }
         }
       },
+      "claim": {
+        "circularity_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "modality": "all_paths",
+        "modality_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "trusted_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
       "computation_cell_name": "sample",
       "configuration": {
         "configuration": {
@@ -32055,6 +32125,21 @@
               "ordinal": 0,
               "role": "sort_declaration"
             }
+          }
+        },
+        "claim": {
+          "circularity_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "modality": "all_paths",
+          "modality_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "trusted_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
           }
         },
         "computation_cell_name": "sample",
@@ -33152,7 +33237,19 @@
         },
         "target": 1
       },
-      "term_kind": "application"
+      "term_kind": "application",
+      "update": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
+      }
     },
     {
       "key": {
@@ -33262,7 +33359,20 @@
         "ordinal": 0,
         "role": "sort_declaration"
       },
-      "term_kind": "cell"
+      "open": true,
+      "term_kind": "cell",
+      "update": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "path_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term_kind": "variable"
+      }
     },
     {
       "key": {

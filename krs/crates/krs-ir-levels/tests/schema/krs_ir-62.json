@@ -1126,6 +1126,34 @@
       }
     }
   },
+  "HeadRuleClaim": {
+    "STRUCT": [
+      {
+        "modality_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "modality": {
+          "TYPENAME": "ClaimModality"
+        }
+      },
+      {
+        "circularity_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      },
+      {
+        "trusted_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      }
+    ]
+  },
   "HookOperation": {
     "ENUM": {
       "0": {
