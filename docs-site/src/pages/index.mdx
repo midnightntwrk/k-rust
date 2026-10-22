@@ -7,6 +7,7 @@ import { Climb } from '../components/story/Climb'
 import { Corpus } from '../components/story/Corpus'
 import { EveryTool } from '../components/story/EveryTool'
 import { GreenButWrong } from '../components/story/GreenButWrong'
+import { KRSProofs } from '../components/story/KRSProofs'
 import { MutateTheSpec } from '../components/story/MutateTheSpec'
 import { MutationReputation } from '../components/story/MutationReputation'
 import { PastFullCoverage } from '../components/story/PastFullCoverage'
@@ -14,7 +15,9 @@ import { RewriteMachine } from '../components/story/RewriteMachine'
 import { SpecCoverage } from '../components/story/SpecCoverage'
 import { SpecIsRust } from '../components/story/SpecIsRust'
 import { StandingOnK } from '../components/story/StandingOnK'
+import { TestSuiteCost } from '../components/story/TestSuiteCost'
 import { VersionTest } from '../components/story/VersionTest'
+import { WhyNotLean } from '../components/story/WhyNotLean'
 import { WhyTests } from '../components/story/WhyTests'
 import { WriteItDown } from '../components/story/WriteItDown'
 
@@ -24,15 +27,23 @@ KRS lets you write a specification of your program in Rust, run it, and use it t
 k-rust, a Rust implementation of the K Framework, runs it.
 
 Each scene below starts in a readable state; press Play to animate it, or step through it.
-After the two scenes of the problem, every scene follows one small example, a `plus` function on natural numbers, and every result shown as output is one that `krs` printed for it.
+After the opening problem scenes, every scene follows one small example, a `plus` function on natural numbers, and every result shown as output is one that `krs` printed for it.
 
 ## The problem
 
-### A test that checks nothing
+### Ever asked AI for tests that turned out to check nothing?
 
 <VersionTest />
 
-### Green tests, wrong code
+### Those tests add up
+
+Meaningless tests slow down your development cycle and eat into your CI budget.
+
+<TestSuiteCost />
+
+### And even real tests miss cases
+
+Tests can check real results and still miss the cases that would catch a bug.
 
 <GreenButWrong />
 
@@ -68,6 +79,24 @@ How `run` computes: a rule's pattern finds a subterm it fits, binds its variable
 ### Why tests, now
 
 <WhyTests />
+
+### Why not Lean instead?
+
+<WhyNotLean />
+
+### What can KRS prove compared with Lean?
+
+<KRSProofs />
+
+<details>
+<summary>The theory is broader than the current tools</summary>
+
+Lean builds proofs using dependent types; matching logic reasons about patterns that describe sets of values or states.
+[Matching Logic Explained](https://fsl.cs.illinois.edu/publications/chen-lucanu-rosu-2020-trb.pdf) shows how matching logic can also describe dependent types and support induction.
+The [Chen–Roșu paper on completeness](https://arxiv.org/pdf/2608.13306v1) studies what can be derived in particular versions of matching logic; it does not establish parity between KRS and Lean’s tools.
+The comparison above concerns the proof workflows available today.
+
+</details>
 
 ### A test corpus
 

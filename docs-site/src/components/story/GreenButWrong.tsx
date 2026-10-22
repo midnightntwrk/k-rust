@@ -6,18 +6,18 @@ import { Stage, Status, usePlayer } from './player'
 import styles from './Story.module.css'
 
 const tests = ['assert_eq!(add(0, 0), 0)', 'assert_eq!(add(0, 1), 1)', 'assert_eq!(add(1, 1), 2)']
-const rerun = 'Run the suite again.'
 const phases = [
-  { bug: false, running: -1, gap: false, caption: 'Your AI wrote three tests for add. All green.' },
-  { bug: true, running: -1, gap: false, caption: 'Now break add: it ignores everything in a above 1, so add(2, 2) returns 3.' },
-  { bug: true, running: 0, gap: false, caption: rerun },
-  { bug: true, running: 1, gap: false, caption: rerun },
-  { bug: true, running: 2, gap: false, caption: rerun },
-  { bug: true, running: -1, gap: false, caption: 'Still all green. The tests pass whether add is right or wrong.' },
-  { bug: true, running: -1, gap: true,
-    caption: 'Every test keeps a at 0 or 1, so none of them reaches the inputs the bug changed. Passing says nothing about what the tests never try.' },
+  { bug: false, completed: 0, caption: 'Even tests with real assertions often miss the cases that would catch an error. Run these three tests on a + b.' },
+  { bug: false, completed: 1, caption: 'add(0, 0) returns 0. Pass.' },
+  { bug: false, completed: 2, caption: 'add(0, 1) returns 1. Pass.' },
+  { bug: false, completed: 3, caption: 'add(1, 1) returns 2. Pass. Three real assertions, all green.' },
+  { bug: true, completed: 0, caption: 'Now break the code: a.min(1) + b ignores everything in a above 1. Run the same tests again.' },
+  { bug: true, completed: 1, caption: 'add(0, 0) still returns 0. Pass.' },
+  { bug: true, completed: 2, caption: 'add(0, 1) still returns 1. Pass.' },
+  { bug: true, completed: 3, caption: 'add(1, 1) still returns 2. Pass. The code is wrong, but every test is still green.' },
+  { bug: true, completed: 3, gap: true, caption: 'The missing case: add(2, 2) should return 4, but now returns 3. None of these tests catches it.' },
 ]
-const delays = [3000, 3000, 700, 700, 700, 3000]
+const delays = [3000, 900, 900, 2500, 3000, 900, 900, 2500]
 
 export function GreenButWrong() {
   const player = usePlayer(phases.length, delays)
@@ -37,12 +37,12 @@ export function GreenButWrong() {
           {tests.map((test, index) => (
             <li key={test}>
               <code>{test}</code>
-              <span className={`${styles.pill} ${phase.running === index ? styles.running : styles.pass}`}>
-                {phase.running === index ? 'running' : 'pass'}
+              <span className={`${styles.pill} ${index < phase.completed ? styles.pass : styles.idle}`}>
+                {index < phase.completed ? 'pass' : 'pending'}
               </span>
             </li>
           ))}
-          {phase.gap && (
+          {('gap' in phase && phase.gap) && (
             <li className={styles.flagged}>
               <code>add(2, 2) returns 3, not 4</code>
               <span className={`${styles.pill} ${styles.fail}`}>no test</span>

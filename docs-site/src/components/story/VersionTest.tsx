@@ -6,7 +6,7 @@ import { Stage, Status, usePlayer } from './player'
 import styles from './Story.module.css'
 
 const phases = [
-  { version: '1.0.0', expected: '1.0.0', changed: '', flag: false, pass: true, caption: 'Your AI wrote a test for the version constant. It passes.' },
+  { version: '1.0.0', expected: '1.0.0', changed: '', flag: false, pass: true, caption: 'Ever asked AI to write tests for your code, only to get meaningless tests like this?' },
   { version: '1.0.0', expected: '1.0.0', changed: '', flag: true, pass: true,
     caption: 'Look at what it compares: the constant, and the same text typed a second time. None of your code runs in between.' },
   { version: '1.1.0', expected: '1.0.0', changed: 'version', flag: true, pass: false,

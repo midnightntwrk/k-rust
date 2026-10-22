@@ -1,0 +1,97 @@
+/* Tests stay green as the machine supporting the stack strains under their weight. */
+.stack {
+  color: var(--vocs-text-color-muted);
+  display: block;
+  height: 17rem;
+  margin-inline: auto;
+  max-width: 100%;
+  overflow: visible;
+  width: 27rem;
+}
+
+.ground {
+  fill: none;
+  stroke: var(--vocs-border-color-primary);
+  stroke-width: 1;
+}
+
+.support {
+  fill: var(--vocs-background-color-surfaceMuted, var(--vocs-background-color-code-block));
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.sheet {
+  fill: oklch(from var(--vocs-text-color-muted) l c h / 12%);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  transition: d 450ms ease;
+}
+
+.machine {
+  fill: oklch(from var(--vocs-text-color-muted) l c h / 22%);
+  stroke-width: 2;
+}
+
+.stack .machineLabel {
+  fill: var(--vocs-text-color-primary);
+  font-family: var(--vocs-font-mono);
+  font-size: 11px;
+}
+
+.code {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.passBadge {
+  fill: oklch(from var(--vocs-color-green) l c h / 14%);
+  stroke: var(--vocs-color-green);
+  stroke-width: 1;
+}
+
+.passCheck {
+  fill: none;
+  stroke: var(--vocs-color-green);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.pane {
+  animation: settle 550ms both;
+}
+
+.crack {
+  fill: none;
+  stroke: var(--bad);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  animation: fracture 500ms 800ms both;
+}
+
+@keyframes settle {
+  from { opacity: 0; transform: translateY(-22px); }
+  75% { opacity: 1; transform: translateY(1px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fracture {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane,
+  .crack {
+    animation: none;
+  }
+
+  .sheet {
+    transition: none;
+  }
+}
