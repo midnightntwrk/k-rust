@@ -77,3 +77,20 @@ pub use values::{Constraints, Value};
 /// k-rust revision reports. The corpus proposer (FZ-14) was added within version 2 on the same
 /// grounds; its parameters join the case sequence's inputs of a campaign that weighs it.
 pub const ENGINE_VERSION: u32 = 2;
+
+#[cfg(test)]
+mod release_tests {
+    /// A release tag `vX.Y.Z` ships the dist packages of version X.Y.Z (dist-workspace.toml),
+    /// and `krust fuzz` runs only a `krust-fuzz` built from its own k-rust sources: krust-fuzz
+    /// ships in krust's releases only while this crate's version is k-rust's.
+    #[test]
+    fn version_is_k_rust_version() {
+        let identity = k_rust::build_identity();
+        let k_rust_version = identity.split('+').next().unwrap_or_default();
+        assert_eq!(
+            env!("CARGO_PKG_VERSION"),
+            k_rust_version,
+            "k-rust-fuzz's version must equal k-rust's (build identity {identity})"
+        );
+    }
+}

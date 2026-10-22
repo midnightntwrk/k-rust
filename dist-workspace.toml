@@ -5,8 +5,10 @@ members = ["cargo:."]
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.32.0"
-# Only the native CLI belongs in GitHub release archives. Binding crates are packaged with npm.
-packages = ["k-rust"]
+# GitHub release archives hold the native executables: `krust` (package k-rust) and `krust-fuzz`
+# (package k-rust-fuzz, which opts in with `[package.metadata.dist]`), released together under
+# one `vX.Y.Z` tag because their versions agree. The binding crates build libraries, which dist
+# does not package; npm packages them.
 # CI backends to support
 ci = "github"
 # Authenticate build-script GitHub API requests with the workflow token.

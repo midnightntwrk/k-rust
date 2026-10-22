@@ -1,6 +1,9 @@
 [package]
 name = "k-rust-fuzz"
-version = "0.1.0"
+# k-rust's version: a release tag `vX.Y.Z` ships the dist packages of version X.Y.Z, so krust-fuzz
+# ships beside krust only while the two versions agree (`[package.metadata.dist]` below; the
+# `version_is_k_rust_version` test checks it).
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Crafts concrete input values that make a program reach a target under a K specification"
@@ -54,6 +57,11 @@ z3 = ["k-rust/z3-inference"]
 # default features. It implies `z3`: k-rust's `cli` feature links Z3, so the executable offers the
 # solve proposer.
 cli = ["z3", "k-rust/cli", "dep:clap", "dep:toml"]
+# Link the Z3 release k-rust's default features download (`k-rust/z3-inference-gh-release`), as
+# `krust` does, instead of a Z3 the build environment provides. Release archives build
+# `krust-fuzz` with it; a build with only `cli` links a system Z3 unless another package of the
+# same Cargo invocation enables k-rust's default features.
+z3-gh-release = ["z3", "k-rust/z3-inference-gh-release"]
 
 [[bin]]
 name = "krust-fuzz"
@@ -67,3 +75,14 @@ required-features = ["cli"]
 
 [lints]
 workspace = true
+
+# Release archives (dist-workspace.toml): `krust fuzz` runs a `krust-fuzz` beside krust or on
+# PATH that was built from the same k-rust sources, so every release that ships krust ships
+# krust-fuzz, built from the same commit for the same targets and installed into the same
+# directory by its own shell installer. dist skips a package with `publish = false` unless it
+# says `dist = true`. The archive carries the K Framework license beside this crate's: the K
+# builtin sources are compiled into k-rust, and so into krust-fuzz (crates/k-rust/NOTICE).
+[package.metadata.dist]
+dist = true
+features = ["cli", "z3-gh-release"]
+include = ["../k-rust/LICENSE-K-FRAMEWORK"]

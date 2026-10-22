@@ -286,7 +286,9 @@ fn fuzz(options: FuzzArgs) -> ExitCode {
     else {
         eprintln!(
             "error: `krust fuzz` runs the `{name}` executable, which is neither beside krust nor \
-             on PATH; build it with `cargo build -p k-rust-fuzz --features cli --bin krust-fuzz`"
+             on PATH; install it from the release krust came from (k-rust-fuzz-installer.sh), \
+             or build it with `cargo build -p k-rust-fuzz --features cli,z3-gh-release --bin \
+             krust-fuzz`"
         );
         return ExitCode::from(FUZZ_ERROR);
     };

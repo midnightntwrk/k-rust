@@ -110,12 +110,13 @@ Observer targets are library-only, and the WebAssembly package has neither the s
 ## Command line
 
 The `krust-fuzz` executable runs the same campaign from a compiled directory, a program and a campaign file (ARCHITECTURE 9.4).
-It needs k-rust's `cli` feature, which loads compiled directories (and implies Z3), so it is built with this crate's `cli` feature: `cargo build -p k-rust-fuzz --features cli`.
+It needs k-rust's `cli` feature, which loads compiled directories (and implies Z3), so it is built with this crate's `cli` feature: `cargo build -p k-rust-fuzz --features cli,z3-gh-release`.
+`z3-gh-release` links the Z3 release that k-rust's default features download, as `krust` does; with `cli` alone, a build of this package links the Z3 the build environment provides (README, "Install and build").
 `krust fuzz ARGS` runs it, as `cargo` runs `cargo-NAME`.
 krust looks for an executable `krust-fuzz` beside itself, then on `PATH`, skipping files that are not executable.
 It passes the arguments after `fuzz` exactly as given (a leading `--` included) and its own k-rust build identity, and `krust-fuzz` refuses to run (exit status 2, "version skew") when it was built from other k-rust sources.
 When no `krust-fuzz` is found or it cannot be started, `krust fuzz` exits with status 2, never with `krust-fuzz`'s "no witness" status 1.
-Release archives ship only `krust`, so `krust fuzz` needs `krust-fuzz` built from source.
+Each release ships `krust-fuzz` in its own archive (package `k-rust-fuzz`, built with `cli` and `z3-gh-release`) for every target `krust` ships for, with a shell installer that puts it in the directory where `krust`'s puts `krust`; the two packages share k-rust's version, so one release tag ships both (README, "Install and build").
 
 ```text
 krust fuzz --definition imp-kompiled --program transfer.imp --campaign holes.toml \
