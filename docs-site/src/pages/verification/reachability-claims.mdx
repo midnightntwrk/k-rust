@@ -73,15 +73,17 @@ KWasm's `simple_addition` reads:
 k::claims! {
     for Machine;
     use Instruction::*;
+    use IntegerType::*;
+    use Value::*;
 
     /// `3 + 4` leaves 7 on the stack.
     #[k::claim(all_paths)]
     simple_addition: {
-        instrs: [Const(IntegerType::I32, 3), Const(IntegerType::I32, 4), Binary(IntegerType::I32, IntegerBinOp::Add)],
-        valstack: Stack::Empty(),
+        instrs: [Const(I32, 3), Const(I32, 4), Binary(I32, IntegerBinOp::Add)],
+        valstack: [],
     } => {
         instrs: [],
-        valstack: Stack::Cons(Value::Integer(IntegerType::I32, 7), Stack::Empty()),
+        valstack: [Integer(I32, 7)],
     };
 }
 ```

@@ -1,5 +1,5 @@
 #[k::claim(all_paths, label = "sum-spec", circularity)]
-#[k::requires(int::ge(n, 0))]
+#[k::requires(n >= 0)]
 fn sum_spec(
     n: Term<Int>,
     s: Term<Int>,
@@ -25,10 +25,7 @@ fn sum_spec(
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![
             k::id!("$n") -> 0,
-            k::id!("$s") -> int::add(
-                s,
-                int::div(int::mul(int::add(n, 1), n), 2),
-            ),
+            k::id!("$s") -> s + (n + 1) * n / 2,
         ]),
         ..state
     }
