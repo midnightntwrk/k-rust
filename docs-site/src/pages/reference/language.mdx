@@ -500,7 +500,7 @@ The abstraction never calls an uncovered argument covered, but it can miss a fac
 A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
 
 Partial functions are not checked, since a missing case is what `partial` means, nor are hooked and `smt_hook` functions, which the backend or the SMT translation define, nor total functions, or instances of a sort-parametric one, with no equation at all, which are declared rather than defined.
-Simplifications are lemmas, not definitions, and do not count; neither do `raw_k!` sentences, which the check does not read.
+Simplifications are lemmas, not definitions, and do not count; neither do `raw_k!` sentences, which the check does not read, and since one could be an equation that gives a function another value, a definition with a `raw_k!` sentence has no ranges and evaluates no function by its equations.
 A warned function takes more equations, an `#[k::equation(owise)]` equation, `partial`, or `underspecified = "reason"`, which states the gap on purpose; `underspecified` on a function whose equations cover every argument is itself a warning (`krs::analysis::stale-underspecified`).
 
 ### Functions declared by a fn
@@ -746,7 +746,7 @@ error[krs::analysis::overlapping-equations]: equations `lookup_known` and `looku
 Two arms of one [branching body](#branching-bodies) that overlap are `krs::analysis::overlapping-match-arms` instead, at the later arm.
 Identical results agree, so equations that overlap with them are no error.
 A `k::matches!` test is read as the coverage check reads it, which proves disjoint the equations a test and its negation separate, and evaluated on the concrete argument as matching.
-An application of a `total` function that neither the backend nor the SMT solver defines, and none of whose equations reads the configuration, is evaluated by the function's own equations: in the lowest priority (`owise` is 200) at which an equation's patterns match and its `requires` evaluates to `true`, every such equation must give the same value, which is the application's value.
+An application of a `total` function that neither the backend nor the SMT solver defines, and none of whose equations reads the configuration, is evaluated by the function's own equations (unless the definition has a `raw_k!` sentence): in the lowest priority (`owise` is 200) at which an equation's patterns match and its `requires` evaluates to `true`, every such equation must give the same value, which is the application's value.
 The evaluation gives up, and the pair is not reported, when no equation applies, two applying equations give different values, a pattern or `requires` is one it cannot evaluate, a `requires` is undefined there (where a lazy and a strict reading disagree), or the calls nest deeper than 64 or exceed 4096; so it states only values the definition states.
 The same evaluation decides the bounded case above, so `Field(op) == 1` on `0 <= op < 8` is evaluated on each of the eight values.
 A pair is not reported when a pattern is one the check does not decompose (a collection pattern), when a `requires` calls a function the evaluation cannot evaluate or a partial operation the guard reading does not read, or when none of the integer values it tries, up to 64 arguments per pair, makes both `requires` evaluate to `true`; templates over more than 16 bits are compared pair by pair, and the table check above still compares unguarded rows' templates of any width.

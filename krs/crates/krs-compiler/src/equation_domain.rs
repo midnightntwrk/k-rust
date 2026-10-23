@@ -1148,11 +1148,19 @@ fn bind_name<'p>(environment: &mut Environment<'p>, name: &'p SemanticId, value:
 /// The equations of each total function the evaluator can apply: a
 /// non-parametric total function that neither the backend nor the SMT
 /// solver defines, all of whose equations the evaluation can read (none
-/// reads the configuration or has a matching-logic `requires`).
+/// reads the configuration or has a matching-logic `requires`). None in a
+/// definition with `raw_k!` sentences, which may add equations the
+/// evaluation does not see.
 pub(crate) fn evaluable_functions(
     modules: &[SemanticModule],
 ) -> BTreeMap<&StableItemId, Bands<'_>> {
     let mut functions = BTreeMap::new();
+    if modules
+        .iter()
+        .any(|module| !module.raw_sentences().is_empty())
+    {
+        return functions;
+    }
     for (production, instance, rules) in function_equations(modules) {
         if !instance.is_empty() || !production.parameters().is_empty() || !checked(production) {
             continue;

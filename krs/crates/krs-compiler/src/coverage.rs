@@ -137,6 +137,9 @@ struct Analysis<'m> {
     outcomes: RefCell<BTreeMap<&'m StableItemId, Option<Outcomes>>>,
     /// `None` while the range is being inferred, and for no range.
     ranges: RefCell<BTreeMap<&'m StableItemId, Option<Rc<Range>>>>,
+    /// Whether the definition has `raw_k!` sentences, which may add
+    /// equations the lint does not see.
+    raw: bool,
 }
 
 impl<'m> Analysis<'m> {
@@ -170,6 +173,9 @@ impl<'m> Analysis<'m> {
             equations,
             outcomes: RefCell::default(),
             ranges: RefCell::default(),
+            raw: modules
+                .iter()
+                .any(|module| !module.raw_sentences().is_empty()),
         }
     }
 
@@ -213,7 +219,9 @@ impl<'m> Analysis<'m> {
             .attributes()
             .iter()
             .any(|attribute| matches!(attribute, ProductionAttribute::Underspecified { .. }));
-        if stated || !production.parameters().is_empty() {
+        // A `raw_k!` equation could return another value, at a priority
+        // that wins.
+        if stated || self.raw || !production.parameters().is_empty() {
             return None;
         }
         let outcomes = self.outcomes(production.id())?;

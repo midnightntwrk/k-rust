@@ -841,6 +841,81 @@ fn guards_that_apply_functions_and_match_patterns_are_read() {
     "#]].assert_debug_eq(&headlines);
 }
 
+/// A `raw_k!` sentence may add an equation the checks do not see, so no
+/// function has a range and none is evaluated.
+#[test]
+fn raw_k_sentences_turn_off_ranges_and_evaluation() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let source = r#"
+use k::builtin::{Int, KSequence};
+use k::Term;
+
+#[k::function(total, internal)]
+pub fn TwoSign(value: Term<Int>) -> Term<Int> {
+    if value >= 0 { 1 } else { -1 }
+}
+
+#[k::function(total, internal)]
+pub fn UsesTwoSign(value: Term<Int>) -> Term<Int> {
+    match TwoSign(value) {
+        1 => 10,
+        -1 => 20,
+    }
+}
+
+#[k::function(total, internal)]
+pub fn Overlapping(value: Term<Int>) -> Term<Int> {
+    match (TwoSign(value), value) {
+        (1, v) if v < 10 => 1,
+        (_, v) if v >= 5 => 2,
+        _ => 3,
+    }
+}
+
+k::raw_k!(r"rule twoSign(0) => 7 [priority(10)]");
+
+#[k::configuration(root = "machine")]
+pub struct Machine {
+    pub k: k::configuration::KCell<KSequence>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init() -> Self {
+        Self {
+            k: k::configuration::KCell::new(k::k![]),
+        }
+    }
+}
+"#;
+    package(temporary.path(), "raw", source, None, "main");
+    let manifest_path = temporary.path().join("raw/Cargo.toml");
+    let manifest = fs::read_to_string(&manifest_path).unwrap().replace(
+        "[package.metadata.krs]\n",
+        "[package.metadata.krs]\nallow-raw-k = true\n",
+    );
+    fs::write(&manifest_path, manifest).unwrap();
+    let manifest = workspace(temporary.path(), &["raw"]);
+    let (success, lines) = emit(
+        target.path(),
+        &manifest,
+        "raw",
+        &temporary.path().join("emitted"),
+        &[],
+    );
+    assert!(success, "{lines:#?}");
+    let headlines = lines
+        .into_iter()
+        .filter(|line| line.starts_with("warning[") || line.starts_with("error["))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "warning[krs::analysis::uncovered-total-function]: total function `UsesTwoSign` has no equation for `UsesTwoSign(value)` when `TwoSign(value)` is 0",
+        ]
+    "#]].assert_debug_eq(&headlines);
+}
+
 #[test]
 fn a_constructor_another_package_adds_uncovers_a_total_function() {
     let target = shared_fixture_target();
