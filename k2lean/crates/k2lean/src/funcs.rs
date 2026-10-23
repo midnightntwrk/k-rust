@@ -10,7 +10,7 @@
 
 use crate::hooks;
 use crate::ir::{Def, P};
-use crate::lower::{FnSig, Fns, Lower};
+use crate::lower::{FnSig, Fns, L, Lower};
 use crate::model::{Model, sort_name};
 use crate::names;
 use crate::render;
@@ -389,21 +389,180 @@ fn sccs(nodes: &[String], calls: &BTreeMap<String, BTreeSet<String>>) -> Vec<Vec
     st.out
 }
 
+/// Per-definition termination inputs (`gen --termination FILE`, a TOML file), keyed by the K
+/// function's label as the generated comment prints it (`` `label` (recursive) ``):
+///
+/// ```toml
+/// [functions."qsortJSONs"]
+/// termination_by = "sizeOf x0"           # a Lean term over the parameters x0, x1, …
+/// decreasing_by = "all_goals …"          # a tactic; replaces the generated one
+/// before = """theorem …"""               # declarations emitted before the function's group
+/// partial_fixpoint = true                # no measure exists: the least fixed point instead
+/// ```
+///
+/// For the definitions whose termination needs facts about other functions (a filter returns a
+/// shorter list, an opcode width is positive) or a measure no generic rule derives. Nothing in
+/// it changes what a definition computes: it supplies the proof of termination only.
+///
+/// `partial_fixpoint` is for a function whose equations do not terminate on some arguments (K
+/// gives it no value there): it is defined as the least fixed point of its equations
+/// (`partial_fixpoint`, flat order on `Option`), which is `none` exactly where the rewriting
+/// diverges and the value of the equations wherever it terminates. Lean proves the equations
+/// monotone only in a direct form, so the function is rendered as an `if` chain over the
+/// equations' guards with `do` binds on the right-hand sides; this needs every left-hand side
+/// to be guards only (no patterns).
+#[derive(Default, Clone, Debug)]
+pub struct SideEntry {
+    pub termination_by: Option<String>,
+    pub decreasing_by: Option<String>,
+    pub before: Option<String>,
+    pub partial_fixpoint: bool,
+}
+
+/// The termination inputs of a definition (`SideEntry`), by K function label.
+#[derive(Default, Clone, Debug)]
+pub struct Sidecar {
+    pub functions: BTreeMap<String, SideEntry>,
+}
+
+impl Sidecar {
+    pub fn load(path: &std::path::Path) -> Result<Sidecar, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let v: toml::Table = text
+            .parse()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut out = Sidecar::default();
+        for k in v.keys() {
+            if k != "functions" {
+                return Err(format!("{}: unknown key {k}", path.display()));
+            }
+        }
+        if let Some(fs) = v.get("functions").and_then(|f| f.as_table()) {
+            for (label, e) in fs {
+                let t = e
+                    .as_table()
+                    .ok_or(format!("functions.{label}: not a table"))?;
+                for k in t.keys() {
+                    if ![
+                        "termination_by",
+                        "decreasing_by",
+                        "before",
+                        "partial_fixpoint",
+                    ]
+                    .contains(&k.as_str())
+                    {
+                        return Err(format!("functions.{label}: unknown key {k}"));
+                    }
+                }
+                let get = |k: &str| t.get(k).and_then(|x| x.as_str()).map(|x| x.to_string());
+                let pf = t
+                    .get("partial_fixpoint")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
+                out.functions.insert(
+                    label.clone(),
+                    SideEntry {
+                        termination_by: get("termination_by"),
+                        decreasing_by: get("decreasing_by"),
+                        before: get("before"),
+                        partial_fixpoint: pf,
+                    },
+                );
+            }
+        }
+        Ok(out)
+    }
+
+    /// The labels that name no recursive function of the definition (a misspelt key).
+    pub fn unknown(&self, recursive_labels: &BTreeSet<String>) -> Vec<String> {
+        self.functions
+            .keys()
+            .filter(|k| !recursive_labels.contains(*k))
+            .cloned()
+            .collect()
+    }
+}
+
+/// The equations of one function, lowered: (equation index, steps, left-hand-side steps, result).
+type Lowered = Vec<(usize, Vec<crate::lower::Step>, usize, L)>;
+
+/// The body of a function defined as a least fixed point: an `if` chain over the equations'
+/// guards (in cascade order), each right-hand side a `do` block over its partial calls. Lean's
+/// `partial_fixpoint` proves this form monotone (`Option`'s bind); the cascade form is not.
+fn render_fixpoint(
+    m: &Model,
+    f: &str,
+    params: &[String],
+    lowered: &Lowered,
+) -> Result<String, String> {
+    use crate::lower::Step;
+    let mut o = String::new();
+    for (k, (_, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
+        let mut conds = Vec::new();
+        for s in &steps[..*lhs_len] {
+            match s {
+                Step::Cond { cond, .. } => conds.push(format!("{} = true", cond.render())),
+                Step::CondEq { lhs, rhs, .. } => {
+                    conds.push(format!("{} = {}", lhs.render(), rhs.render()))
+                }
+                _ => {
+                    return Err("partial_fixpoint needs left-hand sides made of guards only".into());
+                }
+            }
+        }
+        let mut d = String::from("do\n");
+        for s in &steps[*lhs_len..] {
+            match s {
+                Step::Bind { expr, var, .. } => {
+                    d.push_str(&format!("      let {var} ← {}\n", expr.render()))
+                }
+                _ => {
+                    return Err(
+                        "partial_fixpoint: a right-hand side step that is not a partial call"
+                            .into(),
+                    );
+                }
+            }
+        }
+        d.push_str(&format!("      pure {}\n", rhs.render_arg()));
+        let kw = if k == 0 { "  if" } else { "  else if" };
+        if conds.is_empty() {
+            // an unconditional equation ends the chain
+            o.push_str(&format!("{}    {d}", if k == 0 { "" } else { "  else\n" }));
+            return Ok(o);
+        }
+        o.push_str(&format!("{kw} {} then\n    {d}", conds.join(" ∧ ")));
+    }
+    let fallback = if m.anywhere.contains(f) {
+        format!("some {}", anywhere_ctor(m, f, params).render_arg())
+    } else {
+        "none".to_string()
+    };
+    o.push_str(&format!("  else {fallback}\n"));
+    Ok(o)
+}
+
 /// A strongly connected component of recursive functions: one `mutual` block of Option-valued
 /// definitions, each cascading over its equations inline; Lean proves termination (structural
-/// or well-founded on `sizeOf`, or on an integer measure that the requires bound).
+/// or well-founded on `sizeOf`, or on a measure from the `--termination` file,
+/// `list_measure`, `int_measure` or `termination::plan`, in that order).
 fn gen_recursive(
     m: &Model,
     fns: &Fns,
     eqs: &BTreeMap<String, Vec<Equation>>,
     scc: &[String],
+    side: &Sidecar,
     list_rec_out: &mut BTreeSet<String>,
 ) -> Result<String, String> {
     let mut o = String::new();
+    // declarations before the group: the file's `before` texts, rank functions of the measures
+    let mut pre = String::new();
     let multi = scc.len() > 1;
-    if multi {
-        o.push_str("mutual\n");
-    }
+    let ctors: BTreeMap<String, usize> = m
+        .ctors
+        .iter()
+        .map(|(sym, ci)| (m.ctor_path(sym), ci.args.len()))
+        .collect();
     for f in scc {
         let sig = fns[f].clone();
         let params: Vec<String> = (0..sig.args.len()).map(|i| format!("x{i}")).collect();
@@ -412,8 +571,16 @@ fn gen_recursive(
             .zip(&sig.args)
             .map(|(p, s)| format!("({p} : {s})"))
             .collect();
-        let mut body = String::new();
-        let mut depth = 0;
+        let label = names::demangle(f);
+        let entry = side.functions.get(&label);
+        if let Some(b) = entry.and_then(|e| e.before.as_ref()) {
+            pre.push_str(&format!(
+                "-- termination of `{label}` (from the --termination file)\n{}\n\n",
+                b.trim_end()
+            ));
+        }
+        // lower every equation first: the measure is chosen from all of them
+        let mut lowered: Lowered = Vec::new();
         let mut measure: Option<String> = None;
         let mut list_rec: Option<(String, String, bool)> = None;
         for (i, e) in eqs[f].iter().enumerate() {
@@ -430,6 +597,48 @@ fn gen_recursive(
             if measure.is_none() && list_rec.is_none() {
                 list_rec = list_measure(scc, &params, &steps);
             }
+            lowered.push((i, steps, lhs_len, rhs));
+        }
+        if entry.is_some_and(|e| e.partial_fixpoint) {
+            if multi {
+                return Err(format!(
+                    "{label}: partial_fixpoint in a mutual group is not supported"
+                ));
+            }
+            let body =
+                render_fixpoint(m, f, &params, &lowered).map_err(|e| format!("{label}: {e}"))?;
+            o.push_str(&format!(
+                "/-! `{label}` (recursive; least fixed point) -/\n"
+            ));
+            o.push_str(&format!(
+                "def {} {} : Option {} :=\n{body}partial_fixpoint\n\n",
+                fn_name(f),
+                ps.join(" "),
+                sig.result
+            ));
+            continue;
+        }
+        let side_measure =
+            entry.is_some_and(|e| e.termination_by.is_some() || e.decreasing_by.is_some());
+        // the list measure (on which the equations' proofs rely) or the integer bound when one
+        // applies; else a synthesized one
+        let plan = if multi || side_measure || list_rec.is_some() || measure.is_some() {
+            None
+        } else {
+            let eqns: Vec<crate::termination::Eqn> = lowered
+                .iter()
+                .map(|(_, s, l, _)| crate::termination::Eqn {
+                    steps: s,
+                    lhs_len: *l,
+                })
+                .collect();
+            crate::termination::plan(&fn_name(f), &params, &sig.args, &eqns, &ctors)
+        };
+        let named: BTreeSet<usize> = plan.as_ref().map(|p| p.named.clone()).unwrap_or_default();
+        let mut body = String::new();
+        let mut depth = 0;
+        for (li, (i, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
+            let lhs_len = *lhs_len;
             let pad = " ".repeat(2 + 2 * depth);
             let leaf = format!("some (some {})", rhs.render_arg());
             let fail = move |k: usize| {
@@ -440,14 +649,20 @@ fn gen_recursive(
                 }
             };
             // named hypotheses: the termination proof needs the requires and the matched shapes
-            let eb = render::exec(&steps, true, &fail, &leaf, 4 + 2 * depth);
+            let eb = render::exec(steps, true, &fail, &leaf, 4 + 2 * depth);
             body.push_str(&format!(
                 "{pad}let e{} : Option (Option {}) :=\n{eb}",
                 i + 1,
                 sig.result
             ));
+            // a failed guard-only equation is a hypothesis of the later calls (its negation)
+            let h = if named.contains(&li) {
+                format!("he{} : ", i + 1)
+            } else {
+                String::new()
+            };
             body.push_str(&format!(
-                "{pad}match e{} with\n{pad}| some r => r\n{pad}| none =>\n",
+                "{pad}match {h}e{} with\n{pad}| some r => r\n{pad}| none =>\n",
                 i + 1
             ));
             depth += 1;
@@ -461,10 +676,13 @@ fn gen_recursive(
         } else {
             body.push_str(&format!("{pad}none\n"));
         }
+        if let Some(p) = &plan {
+            pre.push_str(&p.rank_defs);
+        }
         // inside a `mutual` block only declarations may appear, so the note is the definition's
         // docstring there
         let note = if multi { "/--" } else { "/-!" };
-        o.push_str(&format!("{note} `{}` (recursive) -/\n", names::demangle(f)));
+        o.push_str(&format!("{note} `{label}` (recursive) -/\n"));
         o.push_str(&format!(
             "def {} {} : Option {} :=\n{body}",
             fn_name(f),
@@ -500,12 +718,23 @@ fn gen_recursive(
                 })
                 .cloned(),
         );
-        if let Some(meas) = &measure {
-            o.push_str(&format!("termination_by {meas}\n"));
+        let side_by = entry.and_then(|e| e.termination_by.as_ref());
+        if let Some(t) = side_by {
+            o.push_str(&format!("termination_by {t}\n"));
         } else if let Some((meas, _, _)) = &list_rec {
             o.push_str(&format!("termination_by {meas}\n"));
+        } else if let (Some(meas), false) = (&measure, side_measure) {
+            o.push_str(&format!("termination_by {meas}\n"));
+        } else if let Some(p) = &plan {
+            o.push_str(&format!("termination_by {}\n", p.measure));
         }
-        if let (None, Some((_, hyp, front))) = (&measure, &list_rec) {
+        if let Some(d) = entry.and_then(|e| e.decreasing_by.as_ref()) {
+            // a tactic block, indented under `decreasing_by`
+            o.push_str("decreasing_by\n");
+            for l in d.trim().lines() {
+                o.push_str(&format!("  {l}\n"));
+            }
+        } else if let (None, Some((_, hyp, front))) = (side_by, &list_rec) {
             list_rec_out.insert(fn_name(f));
             // the list is `ListItem(X) REST` (`REST ListItem(X)`), so `REST` is one shorter
             let lemma = if *front {
@@ -517,17 +746,24 @@ fn gen_recursive(
                 "decreasing_by all_goals (simp_wf; rw [← KPrelude.ListHook.{lemma} {hyp}]; simp [KPrelude.ListHook.concat, KPrelude.ListHook.element, KPrelude.ListIso.toList_ofList])\n"
             ));
         } else {
+            // the prelude's termination tactic (its facts, then `omega`; the rank functions of
+            // the measure unfolded), then the earlier generic one (`sizeOf` of constructor
+            // patterns, which `simp_all` unfolds)
+            let ranks = plan
+                .as_ref()
+                .map(|p| p.rank_names.join(", "))
+                .unwrap_or_default();
             o.push_str(&format!(
-                "decreasing_by all_goals (simp_wf; (try subst_vars); (try simp_all [{}]); (try omega))\n",
+                "decreasing_by all_goals first\n  | k2l_decreasing [{ranks}]\n  | (simp_wf; (try subst_vars); (try simp_all [{}]); (try omega))\n",
                 simp.join(", ")
             ));
         }
         o.push('\n');
     }
     if multi {
-        o.push_str("end\n\n");
+        o = format!("mutual\n{o}end\n\n");
     }
-    Ok(o)
+    Ok(format!("{pre}{o}"))
 }
 
 /// The length measure of a function that recurses on a builtin `List` parameter: an equation that
@@ -635,6 +871,16 @@ def K.hook_bytes2int (b : {b}) (e : {e}) (s : {sg}) : {result} :=
 }
 
 pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Generated, String> {
+    generate_with(def, m, roots, &Sidecar::default())
+}
+
+/// `generate` with per-definition termination inputs (`Sidecar`).
+pub fn generate_with(
+    def: &Def,
+    m: &Model,
+    roots: &BTreeSet<String>,
+    side: &Sidecar,
+) -> Result<Generated, String> {
     let eqs = equations(def);
     // close over calls
     let mut used: BTreeSet<String> = BTreeSet::new();
@@ -767,12 +1013,20 @@ pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Genera
             recursive.extend(c.iter().cloned());
         }
     }
+    let labels: BTreeSet<String> = recursive.iter().map(|f| names::demangle(f)).collect();
+    let unknown = side.unknown(&labels);
+    if !unknown.is_empty() {
+        return Err(format!(
+            "--termination: no recursive function is labelled {}",
+            unknown.join(", ")
+        ));
+    }
     // generate, deciding purity on the way (callees first, so their purity is known)
     let mut lean = helpers;
     let mut unfold = Vec::new();
     for scc in &sccs {
         if scc.iter().any(|f| recursive.contains(f)) {
-            let text = gen_recursive(m, &fns, &eqs, scc, &mut list_recursive)?;
+            let text = gen_recursive(m, &fns, &eqs, scc, side, &mut list_recursive)?;
             lean.push_str(&text);
             for f in scc {
                 notes.push(format!(

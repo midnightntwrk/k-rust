@@ -59,8 +59,13 @@ pub fn generate(name: &str, ns: &str, extra: &[&str]) -> PathBuf {
 }
 
 fn snapshot(name: &str, ns: &str) {
-    let out = generate(name, ns, &[]);
-    let exp = fixture(name).join("expected");
+    snapshot_with(name, ns, &[], "expected");
+}
+
+/// The snapshot of `gen` with `extra` flags, recorded in the fixture's directory `dir`.
+fn snapshot_with(name: &str, ns: &str, extra: &[&str], dir: &str) {
+    let out = generate(name, ns, extra);
+    let exp = fixture(name).join(dir);
     if std::env::var("K2LEAN_BLESS").is_ok_and(|v| v == "1") {
         let _ = std::fs::remove_dir_all(&exp);
         for f in files(&out) {
@@ -126,4 +131,17 @@ fn counter() {
 #[test]
 fn params() {
     snapshot("params", "Params");
+}
+
+/// Termination measures: a negated earlier guard (`sumTo`), a constructor rank (`fee`), and a
+/// least fixed point (`norm`, from the fixture's `--termination` file).
+#[test]
+fn measure() {
+    let side = fixture("measure").join("termination.toml");
+    snapshot_with(
+        "measure",
+        "Measure",
+        &["--termination", side.to_str().unwrap()],
+        "expected",
+    );
 }

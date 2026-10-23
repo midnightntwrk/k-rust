@@ -42,6 +42,8 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
   An `owise` equation's guard is the negation of its competitors' applicability, which the cascade position realizes.
   Where no equation applies the result is `none`: the least-defined model, since KORE leaves the value unconstrained there.
   Well-founded recursive functions are Lean definitions by well-founded recursion, and their equations get a proof by the recursion's own unfolding (`k2l_eqn_r`).
+  The measure is the length of a list the function destructures, an integer distance bounded by a requires, or one the generator synthesizes from the equations (`termination.rs`: integer distances from the requires, from failed earlier guards and from defined partial hooks, constructor ranks for fallback chains, combined lexicographically); the proof is Lean's (`k2l_decreasing`), so a wrong choice is a build error, never an unsound definition.
+  `gen --termination FILE` (TOML, keyed by K label) supplies a measure and its proof where no generic rule does, or makes a function whose rewriting diverges on some arguments the least fixed point of its equations (`partial_fixpoint`): `none` exactly where the rewriting diverges, the equations' value everywhere else.
 - **Rules.** `Step` has one constructor per rewrite axiom of the compiled definition, heating and cooling included, at the top configuration.
   A rule whose left-hand side matches and whose `requires` is `true` but whose right-hand side is `⊥` applies (`App`) and has no `Step`: matching logic gives that configuration no successor.
   With priorities, `Step` is stratified: a rule of a lower rank steps only where no rule of a higher rank applies (`¬ App j lhs`).
