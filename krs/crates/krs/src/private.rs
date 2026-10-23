@@ -16,8 +16,6 @@ pub use inventory;
 /// the `#[cfg]` attributes of the item that defines it.
 #[doc(hidden)]
 pub struct RegistrationTable {
-    /// Whether any `sorts!` in the crate names `KItem` or `KResult`.
-    pub requests_framework: bool,
     /// Pushes each descriptor factory of the crate.
     pub register: fn(&mut Registrar),
 }
@@ -74,27 +72,6 @@ impl HostRegistration {
     }
 }
 
-/// One downstream request for the framework sort descriptor pair.
-#[cfg(feature = "inventory")]
-#[doc(hidden)]
-pub struct FrameworkSortRequest {
-    manifest_dir: &'static str,
-}
-
-#[cfg(feature = "inventory")]
-impl FrameworkSortRequest {
-    /// Captures the requesting definition's manifest directory.
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn new(manifest_dir: &'static str) -> Self {
-        Self { manifest_dir }
-    }
-
-    pub(crate) const fn manifest_dir(&self) -> &'static str {
-        self.manifest_dir
-    }
-}
-
 /// One linked factory as recorded by the inventory registration.
 #[cfg(feature = "inventory")]
 #[doc(hidden)]
@@ -116,12 +93,9 @@ pub struct CensusRegistration {
 pub struct RegistrationCensus {
     /// Registered factories, sorted.
     pub registrations: Vec<CensusRegistration>,
-    /// Manifest directories that requested the framework sorts, sorted
-    /// and deduplicated.
-    pub framework_requests: Vec<&'static str>,
 }
 
-/// Lists every linked registration and framework-sort request.
+/// Lists every linked registration.
 #[cfg(feature = "inventory")]
 #[doc(hidden)]
 #[must_use]
@@ -134,19 +108,8 @@ pub fn registration_census() -> RegistrationCensus {
         })
         .collect::<Vec<_>>();
     registrations.sort_unstable();
-    let mut framework_requests = inventory::iter::<FrameworkSortRequest>
-        .into_iter()
-        .map(FrameworkSortRequest::manifest_dir)
-        .collect::<Vec<_>>();
-    framework_requests.sort_unstable();
-    framework_requests.dedup();
-    RegistrationCensus {
-        registrations,
-        framework_requests,
-    }
+    RegistrationCensus { registrations }
 }
 
 #[cfg(feature = "inventory")]
 inventory::collect!(HostRegistration);
-#[cfg(feature = "inventory")]
-inventory::collect!(FrameworkSortRequest);

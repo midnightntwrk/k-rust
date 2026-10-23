@@ -29,6 +29,9 @@ use super::origin::{
 };
 use super::references::require_cell_field;
 
+/// The framework `KItem` sort, which every descriptor bundle carries (both
+/// facade entry points always include the framework descriptors), so a
+/// failure here is a malformed bundle, not an authoring error.
 pub(super) fn framework_k_item_sort(
     declarations: &DescriptorIndex<'_>,
 ) -> Result<SemanticSortRef, DescriptorLoweringError> {
@@ -42,13 +45,14 @@ pub(super) fn framework_k_item_sort(
     let first = matches
         .next()
         .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
-            node: "complete cell term",
-            detail: "fragment! requires the selected framework KItem sort".into(),
+            node: "framework sort",
+            detail: "internal error: the descriptor bundle has no framework KItem sort, which every definition has".into(),
         })?;
     if matches.next().is_some() {
         return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "complete cell term",
-            detail: "fragment! found more than one selected framework KItem sort".into(),
+            node: "framework sort",
+            detail: "internal error: the descriptor bundle has more than one framework KItem sort"
+                .into(),
         });
     }
     Ok(SemanticSortRef::Declared(first.clone()))

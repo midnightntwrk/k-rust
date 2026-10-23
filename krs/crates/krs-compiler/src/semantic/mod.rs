@@ -51,7 +51,7 @@ use krs_ir::{
     BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorIndex,
     DescriptorPayload, ModuleId, PackageId, ProvenanceRole, StableItemId,
 };
-use krs_ir_levels::SemanticTheory;
+use krs_ir_levels::{SemanticModule, SemanticTheory};
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
 use package::{lower_package_module, lower_spec_module};
@@ -193,6 +193,9 @@ pub fn lower_descriptor_bundle(
             )?);
         }
     }
+    if !uses_framework(&modules) {
+        modules.retain(|module| !crate::partition::is_framework_module(module.id()));
+    }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
     family_precedence::check_chainless_families(&modules, &semantic_sort_parents)?;
@@ -295,6 +298,45 @@ pub fn lower_descriptor_bundle(
 }
 
 /// The exact authored range of a descriptor's first anchor of `role`.
+/// Whether the definition uses the framework sorts, so that its K keeps the
+/// framework module: some module imports it, which a module does exactly when
+/// one of its declarations names `KItem` or `KResult` (as with any package),
+/// or some sentence still refers to one of them, such as a rule variable
+/// inferred at `KItem`. Every definition has the framework sorts; only what
+/// it uses is emitted.
+fn uses_framework(modules: &[SemanticModule]) -> bool {
+    modules
+        .iter()
+        .filter(|module| !crate::partition::is_framework_module(module.id()))
+        .any(|module| {
+            module
+                .imports()
+                .iter()
+                .any(crate::partition::is_framework_module)
+                || serde_json::to_value(module).is_ok_and(|module| names_framework_item(&module))
+        })
+}
+
+/// Whether a serialized IR value names an item of the framework package
+/// outside provenance: an item identity serializes with its `package`, whose
+/// `k_namespace` is the framework's.
+fn names_framework_item(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(fields) => fields.iter().any(|(key, field)| {
+            key != "origin"
+                && ((key == "package"
+                    && field.get("k_namespace").and_then(serde_json::Value::as_str)
+                        == Some(crate::partition::FRAMEWORK_NAMESPACE))
+                    || names_framework_item(field))
+        }),
+        serde_json::Value::Array(items) => items.iter().any(names_framework_item),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => false,
+    }
+}
+
 fn exact_role_range(descriptor: &Descriptor, role: ProvenanceRole) -> Option<krs_ir::SourceRange> {
     descriptor
         .provenance()

@@ -1241,6 +1241,7 @@ The Rust item a constant expands to is a unit struct of the same name, which giv
 `KItem` is the framework sort of computation items, and every sort except `K` is a `KItem`, declared or not: each declared sort, each builtin sort, and each generated cell sort.
 A `KItem` field, parameter, or result admits a term of any sort but `K` (`Hold { saved: Seq { .. } }`, `Hold { saved: true }`), and `X: KItem` in `k::sorts!` is allowed and states nothing KRS does not already know; it still emits `syntax KItem ::= X`.
 `KResult` marks terms that count as evaluated results for strictness.
+`KItem` and `KResult` are part of every definition, so `k::KItem` and `k::KResult` may be written wherever a sort may (a field, a binder, `k::is!`, a strictness `result`) with no sort declared below them; the emitted K contains their `KRS-FRAMEWORK` module only when the definition uses one of them, and a module imports it when one of its declarations names one.
 `KSequence` is the symbolic computation sequence sort.
 The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
 The arguments of a collection type on a cell, a constructor field, or a function signature are its element types, which every term written there is checked against ([Typed collections](#typed-collections)); K's collection sorts themselves are not parametric.

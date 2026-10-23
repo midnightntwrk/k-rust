@@ -18,8 +18,8 @@
 //!    every invocation is copied unchanged, and each outermost expansion,
 //!    with its nested expansions spliced in, replaces the invocation's
 //!    authored range.
-//! 6. Every `__register_host_descriptor!` and `__request_framework_sorts!`
-//!    the expansions emit is collected, and the crate-root explicit
+//! 6. Every `__register_host_descriptor!` the expansions emit is
+//!    collected, and the crate-root explicit
 //!    descriptor registration table (`__KRS_REGISTRATIONS`) is appended as
 //!    generated-only text.
 //!
@@ -128,9 +128,6 @@ pub struct FileExpansion {
     pub generated: GeneratedSource,
     /// Registered descriptor factories, in expansion order.
     pub registrations: Vec<Registration>,
-    /// Whether some expansion requests the framework `KItem`/`KResult`
-    /// descriptors.
-    pub requests_framework: bool,
     /// Every invocation's own output (nested invocations unexpanded), in
     /// invocation-id order.
     pub expansions: Vec<Expansion>,
@@ -308,18 +305,12 @@ pub fn expand_file(request: &FileRequest<'_>) -> Result<FileExpansion, Vec<Expan
     }
     let mut diagnostics = expander.diagnostics;
 
-    let (registrations, requests_framework) =
+    let registrations =
         collect_registrations(&roots, request.module_path, &authored, &mut diagnostics);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
-    let generated = print(
-        &roots,
-        request,
-        &authored,
-        requests_framework,
-        &registrations,
-    )?;
+    let generated = print(&roots, request, &authored, &registrations)?;
     let mut expansions = Vec::new();
     for (node, _) in &roots {
         node.collect(&mut expansions);
@@ -328,7 +319,6 @@ pub fn expand_file(request: &FileRequest<'_>) -> Result<FileExpansion, Vec<Expan
         authored,
         generated,
         registrations,
-        requests_framework,
         expansions,
     })
 }
@@ -340,13 +330,12 @@ fn collect_registrations(
     module_path: &[String],
     authored: &AuthoredFile,
     diagnostics: &mut Vec<ExpandDiagnostic>,
-) -> (Vec<Registration>, bool) {
+) -> Vec<Registration> {
     let mut registrations = Vec::new();
-    let mut requests_framework = false;
     for (node, scope) in roots {
         let spliced = splice_tokens(&node.output, &node.splices());
         let mut found = Vec::new();
-        scan_registrations(&spliced, 0, &mut found, &mut requests_framework);
+        scan_registrations(&spliced, 0, &mut found);
         for (depth, factory, cfg, span) in found {
             let at_crate_root =
                 matches!((scope, depth), (Scope::Module(modules), 0) if modules.is_empty());
@@ -373,7 +362,7 @@ fn collect_registrations(
             });
         }
     }
-    (registrations, requests_framework)
+    registrations
 }
 
 /// Prints the file: authored text outside every outermost invocation, each
@@ -383,7 +372,6 @@ fn print(
     roots: &[(Node, Scope)],
     request: &FileRequest<'_>,
     authored: &AuthoredFile,
-    requests_framework: bool,
     registrations: &[Registration],
 ) -> Result<GeneratedSource, Vec<ExpandDiagnostic>> {
     let mut generated = GeneratedSource::new(request.generated_file, authored);
@@ -412,11 +400,7 @@ fn print(
         ByteRange::new(cursor, request.source.len()).expect("remaining source range is ordered"),
     );
     let facade = path_spelling(&request.facade_path);
-    generated.push_generated(&registration_table(
-        &facade,
-        requests_framework,
-        registrations,
-    ));
+    generated.push_generated(&registration_table(&facade, registrations));
     Ok(generated)
 }
 
@@ -425,11 +409,7 @@ fn print(
 /// Each factory is listed once, sorted by path, under the `#[cfg]`
 /// attributes of its registration; `#[cfg]` on statements is stable.
 #[must_use]
-pub fn registration_table(
-    facade: &str,
-    requests_framework: bool,
-    registrations: &[Registration],
-) -> String {
+pub fn registration_table(facade: &str, registrations: &[Registration]) -> String {
     let mut entries = registrations
         .iter()
         .map(|registration| {
@@ -449,7 +429,6 @@ pub fn registration_table(
          #[doc(hidden)]\n\
          pub static {REGISTRATION_TABLE}: {facade}::__private::RegistrationTable =\n    \
          {facade}::__private::RegistrationTable {{\n        \
-         requests_framework: {requests_framework},\n        \
          register: __krs_register_descriptors,\n    \
          }};\n\n\
          #[doc(hidden)]\n\
@@ -869,14 +848,13 @@ impl Expander<'_> {
 }
 
 /// Collects `__register_host_descriptor!(factory)` sites as (group depth,
-/// factory, `#[cfg]` attributes, span) and notes `__request_framework_sorts!`.
+/// factory, `#[cfg]` attributes, span).
 /// Macro calls and attributes are recognized by the shared token-tree rules;
 /// these hidden macros are matched by their last path segment because they occur only in generated output.
 fn scan_registrations(
     stream: &TokenStream,
     depth: usize,
     found: &mut Vec<(usize, String, Vec<String>, Span)>,
-    requests_framework: &mut bool,
 ) {
     let trees = stream.clone().into_iter().collect::<Vec<_>>();
     let mut index = 0;
@@ -888,18 +866,16 @@ fn scan_registrations(
                 .last()
                 .expect("a path has a segment")
                 .ident;
-            if name == "__request_framework_sorts" {
-                *requests_framework = true;
-            } else if name == "__register_host_descriptor" {
+            if name == "__register_host_descriptor" {
                 let factory = call.group.stream().to_string().replace(' ', "");
                 found.push((depth, factory, preceding_cfg(&trees, index), name.span()));
             }
-            scan_registrations(&call.group.stream(), depth + 1, found, requests_framework);
+            scan_registrations(&call.group.stream(), depth + 1, found);
             index += call.len;
             continue;
         }
         if let TokenTree::Group(group) = &trees[index] {
-            scan_registrations(&group.stream(), depth + 1, found, requests_framework);
+            scan_registrations(&group.stream(), depth + 1, found);
         }
         index += 1;
     }
@@ -1035,14 +1011,11 @@ mod tests {
     fn registrations_keep_preceding_cfg_attributes_and_group_depth() {
         let tokens: proc_macro2::TokenStream = syn::parse_str(
             "#[cfg(a)] #[doc = \"x\"] #[cfg(b)] ::k::__register_host_descriptor!(f); \
-             const _: () = { k::__register_host_descriptor!(g) }; \
-             other! { k::__request_framework_sorts!() }",
+             const _: () = { k::__register_host_descriptor!(g) };",
         )
         .unwrap();
         let mut found = Vec::new();
-        let mut requests_framework = false;
-        scan_registrations(&tokens, 0, &mut found, &mut requests_framework);
-        assert!(requests_framework);
+        scan_registrations(&tokens, 0, &mut found);
         assert_eq!(
             found
                 .into_iter()

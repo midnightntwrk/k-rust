@@ -433,10 +433,7 @@ pub(super) fn check_constants(
             descriptor,
             catalog,
             declarations: Some(declarations),
-            // Only a cell fragment needs it, and a value naming one fails at
-            // the fragment, so a definition without it may still declare
-            // constants.
-            k_item_sort: super::rules::framework_k_item_sort(declarations).ok(),
+            k_item_sort: Some(super::rules::framework_k_item_sort(declarations)?),
             sort_parents,
             binding_names: &binding_names,
             pattern_key: None,

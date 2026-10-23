@@ -57,9 +57,6 @@ fn main() {
     for registration in &census.registrations {
         println!("registration\\t{}\\t{}", registration.path, registration.manifest_dir);
     }
-    for manifest_dir in &census.framework_requests {
-        println!("framework\\t{manifest_dir}");
-    }
 }
 """
 
@@ -189,18 +186,15 @@ def take_census(
         cwd=census,
     )
     registrations = []
-    framework_requests = []
     for line in output.stdout.splitlines():
         kind, *fields = line.split("\t")
         if kind == "registration" and len(fields) == 2:
             registrations.append({"path": fields[0], "manifest_dir": fields[1]})
-        elif kind == "framework" and len(fields) == 1:
-            framework_requests.append(fields[0])
         else:
             raise GateError(f"unexpected census line: {line!r}")
     if not registrations:
         raise GateError("the census found no registrations")
-    return {"registrations": registrations, "framework_requests": framework_requests}
+    return {"registrations": registrations}
 
 
 def registration_path(registration: dict[str, Any], crate_root: str) -> str:
@@ -210,7 +204,7 @@ def registration_path(registration: dict[str, Any], crate_root: str) -> str:
 def verify_registration_census(
     product: dict[str, Any], census: dict[str, Any], lesson: Path, crate_root: str
 ) -> None:
-    """Requires the product registrations and framework request to match inventory."""
+    """Requires the product registrations to match inventory."""
 
     manifest_dir = lesson.resolve()
     inventory_paths = sorted(
@@ -241,15 +235,6 @@ def verify_registration_census(
             raise GateError(f"product registration {path} has unsupported cfg {cfg!r}")
         if path in census_paths:
             raise GateError(f"cfg-disabled product registration {path} appears in the census")
-    requests_framework = any(
-        Path(directory).resolve() == manifest_dir
-        for directory in census["framework_requests"]
-    )
-    if product["requests_framework"] != requests_framework:
-        raise GateError(
-            "product framework request differs from the copy's census: "
-            f"product={product['requests_framework']}, census={requests_framework}"
-        )
 
 
 def append_table(copy: Path, table: str) -> None:
@@ -501,9 +486,6 @@ def main() -> int:
                         else "<COPY>",
                     }
                     for item in base["census"]["registrations"]
-                ],
-                "framework_requests": [
-                    "<COPY>" for _ in base["census"]["framework_requests"]
                 ],
             }
             (evidence / "census.json").write_text(

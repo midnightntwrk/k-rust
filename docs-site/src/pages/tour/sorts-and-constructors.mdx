@@ -118,7 +118,7 @@ The next lesson adds function symbols such as `plus`, whose applications are mor
 `syntax Nat` declares the sort, and each `syntax Nat ::= ...` line is one production: quoted terminals, and the sort `Nat` where an argument goes.
 `symbol(natSyntaxSucc)` is the symbol you saw in the KAST.
 `format(...)` is a detail for K's printer; a later lesson on unparsing covers it.
-`KRS-FRAMEWORK` is the module KRS adds to every definition whose `k::sorts!` names `KItem` or `KResult`; it declares those two sorts, and `syntax KItem ::= Nat` is the `: KItem` from `k::sorts!`.
+`KRS-FRAMEWORK` is the module KRS adds to every definition that uses `KItem` or `KResult`; it declares those two sorts, and `syntax KItem ::= Nat` is the `: KItem` from `k::sorts!`.
 The configuration puts the program, `$PGM`, into the `k` cell.
 
 The [language reference](/reference/language#declarations-and-sentence-forms) lists the other ways to declare sorts and productions.

@@ -542,9 +542,6 @@ fn main() {
     for registration in &census.registrations {
         println!("registration\\t{}\\t{}", registration.path, registration.manifest_dir);
     }
-    for manifest_dir in &census.framework_requests {
-        println!("framework\\t{manifest_dir}");
-    }
 }
 """
 
@@ -568,16 +565,14 @@ def prepare_explicit(work: Path, port: Any, environment: Mapping[str, str], logs
                  cwd=census, environment={**environment, "CARGO_TARGET_DIR": os.fspath(work / "targets" / "census")},
                  log=logs / "census.log")
     shutil.rmtree(work / "targets" / "census", ignore_errors=True)
-    registrations, framework = [], []
+    registrations = []
     for line in output.stdout.splitlines():
         kind, *fields = line.split("\t")
         if kind == "registration" and len(fields) == 2:
             registrations.append({"path": fields[0], "manifest_dir": fields[1]})
-        elif kind == "framework" and len(fields) == 1:
-            framework.append(fields[0])
     if not registrations:
         raise GateError("the registration census found nothing")
-    table = gate.generate_table({"registrations": registrations, "framework_requests": framework}, lesson,
+    table = gate.generate_table({"registrations": registrations}, lesson,
                                 rustc_profile.crate_name(port.package), "k")
     with (lesson / port.source).open("a", encoding="utf-8") as source:
         source.write(table)

@@ -56,11 +56,7 @@ pub fn dispatch(request: &Value) -> Result<Value, Box<dyn Error>> {
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let table = whole_file::registration_table(
-        &facade,
-        expansion.requests_framework,
-        &expansion.registrations,
-    );
+    let table = whole_file::registration_table(&facade, &expansion.registrations);
     if !expansion.generated.text.ends_with(&table) {
         return Err("the rendered registration table is not the one the expansion appends".into());
     }
@@ -77,7 +73,6 @@ pub fn dispatch(request: &Value) -> Result<Value, Box<dyn Error>> {
         .collect::<Vec<_>>();
     Ok(json!({
         "table": table,
-        "requests_framework": expansion.requests_framework,
         "registrations": registrations,
     }))
 }
@@ -167,7 +162,7 @@ pub trait HiddenSort {}
         assert!(failed.get("error").is_some());
         let response = session.dispatch(&request(&source)).unwrap();
         assert_eq!(response["result"]["registrations"], json!([]));
-        assert_eq!(response["result"]["requests_framework"], false);
+        assert!(response["result"].get("requests_framework").is_none());
         assert!(
             response["result"]["table"]
                 .as_str()

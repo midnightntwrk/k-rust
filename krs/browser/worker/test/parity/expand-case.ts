@@ -38,7 +38,7 @@ if (command === "expand") {
   const lesson = JSON.parse(readFileSync(values.lesson!, "utf8")) as LessonManifest;
   const generatedFile = `/work/expanded/${lesson.lesson}/${lesson.display_file}`;
   const response = await runExpander(module, {
-    schema: 1,
+    schema: 2,
     mode: "whole-file",
     file: { virtual_path: `${lesson.package.manifest_dir}/${lesson.display_file}`, display_file: lesson.display_file, source },
     package: {
@@ -72,7 +72,7 @@ if (command === "expand") {
   const generatedFile = join(dir, "expanded.rs");
   const ranges = lookupRanges(diagnostics, generatedFile).filter((r): r is [number, number] => r !== null);
   const lookup = ranges.length > 0
-    ? await runLookup(module, { schema: 1, authored_source: source, text, source_map: response.source_map, ranges })
+    ? await runLookup(module, { schema: 2, authored_source: source, text, source_map: response.source_map, ranges })
     : null;
   const mapped = fromRustc(diagnostics, generatedFile, "src/lib.rs", lookup?.ok ? lookup.mappings : null);
   console.log(JSON.stringify(mapped.map(({ rendered: _rendered, ...d }) => d), null, 1));

@@ -58,7 +58,7 @@ export function runPolicy(module: WebAssembly.Module, request: PolicyRequest): P
 // ---------------------------------------------------------------- krs-expand-wasm expander
 
 export interface ExpandRequest {
-  schema: 1;
+  schema: 2;
   mode: "whole-file";
   file: { virtual_path: string; display_file: string; source: string };
   package: { cargo_name: string; cargo_version: string; manifest_dir: string; crate_name: string };
@@ -81,13 +81,12 @@ export interface ExpandDiagnosticJson {
 }
 
 export interface ExpandResponse {
-  schema: 1;
+  schema: 2;
   ok: boolean;
   expanded: { generated_file: string; text: string } | null;
   source_map: ({ authored_sha256: string } & Record<string, unknown>) | null;
   diagnostics: ExpandDiagnosticJson[];
   registrations: unknown[];
-  requests_framework: boolean;
   evidence: Record<string, unknown>;
 }
 
@@ -96,7 +95,7 @@ export function runExpander(module: WebAssembly.Module, request: ExpandRequest):
 }
 
 export interface LookupRequest {
-  schema: 1;
+  schema: 2;
   authored_source: string;
   text: string;
   source_map: unknown;
@@ -104,7 +103,7 @@ export interface LookupRequest {
 }
 
 export interface LookupResponse {
-  schema: 1;
+  schema: 2;
   ok: boolean;
   mappings: Array<{
     class: "exact-authored" | "invocation-level" | "generated-only" | "unmappable";

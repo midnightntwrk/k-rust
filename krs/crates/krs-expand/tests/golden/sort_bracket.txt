@@ -1,5 +1,4 @@
 pub trait ExprSort: KItemSort {}
-::k::__request_framework_sorts!();
 #[doc(hidden)]
 fn __krs_sort_type_c98bdd3ca1e923de() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Expr>()

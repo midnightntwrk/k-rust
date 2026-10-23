@@ -100,7 +100,6 @@ fn spec_module_inner(
             #facade::__register_host_descriptor!(#ident::#factory);
         }
     });
-    let framework = hoisted.framework;
     let imports = attribute.imports();
     let import_checks = (!imports.is_empty()).then(|| {
         quote! {
@@ -117,7 +116,6 @@ fn spec_module_inner(
             #body
         }
         #(#registrations)*
-        #framework
         #import_checks
     })
 }
@@ -247,13 +245,11 @@ fn item_attributes_mut(item: &mut Item) -> Option<&mut Vec<Attribute>> {
 struct Hoisted {
     /// Each factory's preceding attributes (its `#[cfg]`s) and its name.
     factories: Vec<(TokenStream, Ident)>,
-    /// The framework-sort request, when an item asked for it.
-    framework: Option<TokenStream>,
 }
 
 impl Hoisted {
     /// Returns `expanded` without its top-level `__register_host_descriptor!`
-    /// and `__request_framework_sorts!` statements, which it records.
+    /// statements, which it records.
     fn take(&mut self, expanded: TokenStream) -> TokenStream {
         let trees = expanded.into_iter().collect::<Vec<_>>();
         let mut output = Vec::new();
@@ -278,13 +274,6 @@ impl Hoisted {
                     && let Ok(factory) = syn::parse2::<Ident>(call.group.stream())
                 {
                     self.factories.push((pending.drain(..).collect(), factory));
-                    index = end + semicolon;
-                    continue;
-                }
-                if name == "__request_framework_sorts" {
-                    let mut request = pending.drain(..).collect::<TokenStream>();
-                    request.extend(trees[index..end + semicolon].iter().cloned());
-                    self.framework = Some(request);
                     index = end + semicolon;
                     continue;
                 }

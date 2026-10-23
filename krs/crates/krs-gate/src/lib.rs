@@ -58,7 +58,7 @@
 //! `crate_name` is the library crate name at the start of `module_path!()`, and `facade_alias` is the dependency name through which authored code names the KRS facade.
 //! It calls [`krs_expand::whole_file::expand_file`] with whole-file selection, module path `[crate_name]`, facade path `::<facade_alias>`, and `display_file` as the generated-file map label.
 //! Expansion failures return an error message listing every diagnostic's code and message.
-//! Its result contains `table`, the exact text [`krs_expand::whole_file::registration_table`] appends to that expansion, `requests_framework` (boolean), and `registrations` in expansion order.
+//! Its result contains `table`, the exact text [`krs_expand::whole_file::registration_table`] appends to that expansion, and `registrations` in expansion order.
 //! Each registration contains `module_path` (string array starting with the crate name), `factory` (string), and `cfg` (array of Rust attribute strings).
 //! The table preserves cfg attributes and uses the expansion's facade path rendered as tokens with spaces removed.
 //! The operation fails unless the generated file ends with exactly that table.

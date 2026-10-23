@@ -2251,7 +2251,9 @@ impl StructuredTermBuilder<'_> {
 
     fn cell_k_item_sort(&self) -> Result<SemanticSortRef, DescriptorLoweringError> {
         self.k_item_sort.clone().ok_or_else(|| {
-            self.invalid_term("fragment! requires one selected framework KItem sort")
+            self.invalid_term(
+                "internal error: the descriptor bundle has no framework KItem sort, which every definition has",
+            )
         })
     }
 

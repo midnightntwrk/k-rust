@@ -1,4 +1,7 @@
-//! JSON protocol of the expander module (schema 1).
+//! JSON protocol of the expander module (schema 2).
+//!
+//! Schema 2 dropped the response's `requests_framework`: every definition
+//! now has the framework sorts.
 //!
 //! # Expansion
 //!
@@ -6,7 +9,7 @@
 //!
 //! ```json
 //! {
-//!   "schema": 1,
+//!   "schema": 2,
 //!   "mode": "whole-file",
 //!   "file": {
 //!     "virtual_path": "/workspace/tour-minimal/src/lib.rs",
@@ -48,7 +51,7 @@
 //!
 //! ```json
 //! {
-//!   "schema": 1,
+//!   "schema": 2,
 //!   "ok": true,
 //!   "expanded": { "generated_file": "/work/expanded/tour-minimal/src/lib.rs", "text": "…" },
 //!   "source_map": { "version": 1, "generated_file": "…", "authored_file": "src/lib.rs",
@@ -57,7 +60,6 @@
 //!   "registrations": [
 //!     { "invocation": 0, "module_path": ["krs_tour_minimal"], "factory": "__krs_…", "cfg": [] }
 //!   ],
-//!   "requests_framework": true,
 //!   "evidence": { "krs_expand_version": "0.1.0", "request_sha256": "…",
 //!                 "authored_sha256": "…", "text_sha256": "…" }
 //! }
@@ -84,11 +86,11 @@
 //! the generated file) through a source map this module returned:
 //!
 //! ```json
-//! { "schema": 1, "authored_source": "<the authored source>",
+//! { "schema": 2, "authored_source": "<the authored source>",
 //!   "text": "<expanded.text>", "source_map": { … }, "ranges": [[1200, 1205]] }
 //! ```
 //!
-//! The response is `{ "schema": 1, "ok": true, "mappings": [ { "class": …,
+//! The response is `{ "schema": 2, "ok": true, "mappings": [ { "class": …,
 //! "authored": [s, e] | null, "invocation": n | null } ], "diagnostics": [] }`
 //! with one mapping per range, classified by `krs_expand::sink::lookup`.
 
@@ -105,7 +107,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Protocol schema this module reads and writes.
-pub const SCHEMA: u32 = 1;
+pub const SCHEMA: u32 = 2;
 
 pub use krs_diagnostic::codes::expand::PROTOCOL_ERROR;
 
@@ -202,8 +204,6 @@ pub struct Response {
     pub diagnostics: Vec<Diagnostic>,
     /// Registered descriptor factories, in expansion order.
     pub registrations: Vec<RegistrationJson>,
-    /// Whether the expansions request the framework sort descriptors.
-    pub requests_framework: bool,
     /// Identity values for retained evidence.
     pub evidence: Evidence,
 }
@@ -482,7 +482,6 @@ impl Response {
             source_map: None,
             diagnostics,
             registrations: Vec::new(),
-            requests_framework: false,
             evidence,
         }
     }
@@ -625,7 +624,6 @@ pub fn run(request_bytes: &[u8]) -> Response {
                 cfg: registration.cfg,
             })
             .collect(),
-        requests_framework: expansion.requests_framework,
         evidence,
     }
 }

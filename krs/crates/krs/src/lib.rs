@@ -170,11 +170,12 @@ pub trait __KrsTurbofishMarkerKind {
 
 impl<T: ?Sized> __KrsTurbofishMarkerKind for __KrsTurbofishProbe<T> {}
 
-// Framework identities are ordinary readable sorts, requested lazily by a
-// definition whose sort graph names either one. The invocation lists their
-// factories only in `FRAMEWORK_FACTORIES`, which both entry points run when a
-// definition requests them. Collection reparses this file and resolves this
-// block through the crate facade name.
+// Framework identities are ordinary readable sorts that every definition
+// has: `KItem` is the sort of computation items and `KResult` of evaluated
+// results. The invocation lists their factories only in
+// `FRAMEWORK_FACTORIES`, which both entry points always run; lowering emits
+// their K module only where a declaration imports it. Collection reparses
+// this file and resolves this block through the crate facade name.
 use krs_macros::__framework_sorts;
 crate::__framework_sorts! {
     KItem;
@@ -395,7 +396,7 @@ pub struct Term<S: ?Sized> {
 
 /// Returns all host descriptor factory results linked into this collector process.
 ///
-/// The framework `KItem`/`KResult` descriptor results are included when some linked definition requests them, matching [`host_descriptors_from`].
+/// The framework `KItem`/`KResult` descriptor results are always included, matching [`host_descriptors_from`].
 /// Each registered function constructs a fresh descriptor or returns a provenance error.
 /// Owned strings and vectors are legal descriptor data.
 /// The iterator follows the registration mechanism's unspecified enumeration order.
@@ -405,16 +406,7 @@ pub struct Term<S: ?Sized> {
 /// Collectors built without it enumerate generated tables through [`host_descriptors_from`].
 #[cfg(feature = "inventory")]
 pub fn host_descriptors() -> impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>> {
-    let framework_requested = inventory::iter::<__private::FrameworkSortRequest>
-        .into_iter()
-        .next()
-        .is_some();
-    let framework: &[fn() -> Result<HostDescriptor, HostProvenanceError>] = if framework_requested {
-        FRAMEWORK_FACTORIES
-    } else {
-        &[]
-    };
-    framework
+    FRAMEWORK_FACTORIES
         .iter()
         .map(|factory| factory())
         .chain(
@@ -429,19 +421,16 @@ pub fn host_descriptors() -> impl Iterator<Item = Result<HostDescriptor, HostPro
 /// Returns the host descriptor factory results listed by explicit registration tables.
 ///
 /// Each table belongs to one semantics crate and is written by a whole-crate step, because a procedural macro invocation cannot enumerate its sibling invocations.
-/// The framework `KItem`/`KResult` descriptor results are included when some table requests them, matching [`host_descriptors`].
+/// The framework `KItem`/`KResult` descriptor results are always included, matching [`host_descriptors`].
 /// Collectors must deterministically select factory errors and order descriptors by stable identity.
 ///
 /// This entry point needs no linker-section support and is available whether or not the `inventory` feature is enabled.
 pub fn host_descriptors_from(
     tables: &[&__private::RegistrationTable],
 ) -> impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>> {
-    let framework_requested = tables.iter().any(|table| table.requests_framework);
     let mut registrar = __private::Registrar::default();
-    if framework_requested {
-        for factory in FRAMEWORK_FACTORIES {
-            registrar.factory(*factory);
-        }
+    for factory in FRAMEWORK_FACTORIES {
+        registrar.factory(*factory);
     }
     for table in tables {
         (table.register)(&mut registrar);
@@ -491,34 +480,6 @@ macro_rules! __register_host_descriptor {
         const _: fn()
             -> ::core::result::Result<$crate::HostDescriptor, $crate::HostProvenanceError> =
             $factory;
-    };
-}
-
-/// Requests the framework `KItem`/`KResult` descriptors for one definition.
-///
-/// This is an expansion boundary; authors use it indirectly through
-/// `sorts!` whenever a parent or membership line names a framework sort.
-#[cfg(feature = "inventory")]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __request_framework_sorts {
-    () => {
-        $crate::__private::inventory::submit! {
-            $crate::__private::FrameworkSortRequest::new(env!("CARGO_MANIFEST_DIR"))
-        }
-    };
-}
-
-/// Accepts a framework-sort request without registering it.
-///
-/// Without the `inventory` feature, the request is recorded by the crate's
-/// explicit registration table instead.
-#[cfg(not(feature = "inventory"))]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __request_framework_sorts {
-    () => {
-        const _: () = ();
     };
 }
 
@@ -841,9 +802,8 @@ mod tests {
         registrar.factory(nested::descriptor);
     }
 
-    fn table(requests_framework: bool) -> __private::RegistrationTable {
+    fn table() -> __private::RegistrationTable {
         __private::RegistrationTable {
-            requests_framework,
             register: register_nested,
         }
     }
@@ -870,21 +830,11 @@ mod tests {
     }
 
     #[test]
-    fn explicit_tables_without_a_framework_request_omit_the_framework_pair() {
-        let downstream = table(false);
+    fn explicit_tables_always_include_the_framework_pair() {
+        assert_eq!(item_names(host_descriptors_from(&[])), ["KItem", "KResult"]);
+        let downstream = table();
         assert_eq!(
-            item_names(host_descriptors_from(&[&downstream])),
-            ["NestedSort"]
-        );
-        assert!(host_descriptors_from(&[]).next().is_none());
-    }
-
-    #[test]
-    fn explicit_downstream_framework_request_includes_the_framework_pair() {
-        let downstream = table(true);
-        let unrequested = table(false);
-        assert_eq!(
-            item_names(host_descriptors_from(&[&unrequested, &downstream])),
+            item_names(host_descriptors_from(&[&downstream, &downstream])),
             ["KItem", "KResult", "NestedSort", "NestedSort"]
         );
         let framework = host_descriptors_from(&[&downstream])
@@ -917,13 +867,11 @@ mod tests {
 
     #[cfg(feature = "inventory")]
     #[test]
-    fn unrequested_framework_factories_are_not_run() {
-        assert!(
-            __private::registration_census()
-                .framework_requests
-                .is_empty()
+    fn inventory_enumeration_includes_the_framework_pair() {
+        assert_eq!(
+            item_names(host_descriptors()),
+            ["KItem", "KResult", "NestedSort"]
         );
-        assert_eq!(item_names(host_descriptors()), ["NestedSort"]);
     }
 
     #[cfg(feature = "inventory")]
@@ -938,7 +886,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(own, ["krs::tests::nested::descriptor"]);
 
-        let explicit = table(!census.framework_requests.is_empty());
+        let explicit = table();
         assert_eq!(
             item_ids(host_descriptors_from(&[&explicit])),
             item_ids(host_descriptors())

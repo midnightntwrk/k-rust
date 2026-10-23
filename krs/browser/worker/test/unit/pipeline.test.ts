@@ -344,12 +344,12 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
     const request = JSON.parse(fixture("expander-tour-minimal.request.json"));
     const response = await runExpander(expander, request);
     expect(await sha256Hex(new TextEncoder().encode(response.expanded!.text))).toBe(
-      "4c445a68a10a09d6ca3551e14acd4a0b1818032240ca6573cf04ef44da21533d",
+      "a948a5ecd3374db221d46adca07f897aabf0da2ee20ae10d511fbee29bd68b4b",
     );
     const segments = (response.source_map as { segments: Array<{ class: string; generated: [number, number] }> }).segments;
     const generated = segments.find((segment) => segment.class === "generated-only")!;
     const lookup = await runLookup(expander, {
-      schema: 1,
+      schema: 2,
       authored_source: request.file.source,
       text: response.expanded!.text,
       source_map: response.source_map,
