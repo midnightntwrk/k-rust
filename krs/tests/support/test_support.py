@@ -34,6 +34,23 @@ class RouteComparisonTests(unittest.TestCase):
             semantics.compare_routes("KMIR", [{"id": "one"}], [], {})
 
 
+class CheckWarningTests(unittest.TestCase):
+    def test_keeps_sorted_warning_headlines_without_color(self) -> None:
+        stderr = (
+            "\x1b[33mwarning[krs::analysis::untyped-collection]\x1b[0m: b\n"
+            "   --> src/lib.rs:1:2\n"
+            "warning[krs::analysis::untyped-collection]: a\n"
+            "error[krs::analysis::other]: c\n"
+        )
+        self.assertEqual(
+            semantics.check_warnings(stderr),
+            [
+                "warning[krs::analysis::untyped-collection]: a",
+                "warning[krs::analysis::untyped-collection]: b",
+            ],
+        )
+
+
 def write_executable(path: Path, body: str) -> Path:
     path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
     path.chmod(0o755)

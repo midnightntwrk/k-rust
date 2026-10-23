@@ -199,6 +199,19 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
     return krs, gate
 
 
+def check_warnings(stderr: str) -> list[str]:
+    """The `warning[..]` headlines of `krs check`, sorted.
+
+    A warning is an expected output of a port: the
+    `krs::analysis::untyped-collection` warnings, for example, name each
+    collection whose element types nothing declares that a rule writes into
+    a typed cell, until the port declares them.
+    """
+
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", stderr)
+    return sorted(line for line in plain.splitlines() if line.startswith("warning["))
+
+
 def artifact_gate(
     port: Port,
     workspace: Path,
@@ -209,16 +222,18 @@ def artifact_gate(
 ) -> Path:
     """Check, expand, and emit the port fresh twice; compile the expansion independently.
 
-    Records the expansion and emitted-artifact digests, requires a cached replay
-    to equal the first fresh emission, requires the independently compiled
-    expansion to emit the same syntax, configuration, and sentence identities,
-    and returns the first emission directory.
+    Records the warnings of `krs check`, the expansion and emitted-artifact
+    digests, requires a cached replay to equal the first fresh emission,
+    requires the independently compiled expansion to emit the same syntax,
+    configuration, and sentence identities, and returns the first emission
+    directory.
     """
 
     invocation = Invocation(krs, port.manifest, port.package, "main")
     check = invocation.run("check", environment=environment)
     if f"{port.descriptors} descriptors" not in check.stdout:
         raise GateError(f"unexpected descriptor count: {check.stdout.strip()}")
+    pins.expect("check_warnings", check_warnings(check.stderr))
     expansions = [invocation.run("expand", environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
         raise GateError("readable expansion is nondeterministic")
