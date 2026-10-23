@@ -622,6 +622,14 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
     if at.is_some() && !matches!(kind, TargetKind::Pattern(_)) {
         return Err("the file's `at` applies only to a pattern target".into());
     }
+    let data_end = flags.data_end.or(file.data_end);
+    if data_end.is_some() && !matches!(kind, TargetKind::Rule(_) | TargetKind::Pattern(_)) {
+        return Err(
+            "--data-end, --no-data-end (or the file's `data-end`) apply only to a rule or a \
+             pattern target"
+                .into(),
+        );
+    }
     match (&kind, has_mutant) {
         (TargetKind::Differential(_), false) => {
             return Err("the differential target needs a mutant: pass --mutant DIR".into());
@@ -645,7 +653,7 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
             .negated_property
             .or(file.negated_property)
             .unwrap_or(false),
-        data_end: flags.data_end.or(file.data_end).unwrap_or(true),
+        data_end: data_end.unwrap_or(true),
     })
 }
 

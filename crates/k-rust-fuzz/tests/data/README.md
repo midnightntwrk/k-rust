@@ -1,6 +1,6 @@
 # Fixture definitions of the fuzz crate's tests
 
-Each directory holds one K definition (or, for `coin/`, `chosen/`, `mac/`, `vanish/`, `imp-diff/`, `claimstep/`, `diamond/` and `ov/`, a baseline and its mutants; for `graph/`, three definitions) and the programs the tests run on it.
+Each directory holds one K definition (or, for `coin/`, `chosen/`, `mac/`, `vanish/`, `imp-diff/`, `claimstep/`, `diamond/`, `ov/`, `dia/` and `kplace/`, a baseline and its mutant(s); for `graph/`, three definitions) and the programs the tests run on it.
 `tests/support/mod.rs` registers every definition below as a `Fixture`, compiles it in-process in the portable build (`outer::load_for_compilation` with the embedded prelude and `CompilationBackend::Rust`, then `kompile::compile_loaded_definition`), once per test binary, refuses one that compiles with a diagnostic it does not declare (only TOY declares one, `MissingSyntaxModule`), and exposes the compiled definitions and the text of every program.
 Integration tests include it with `mod support;`; the crate's unit tests share one copy, `crate::support`, declared in `src/lib.rs`.
 `tests/fixtures.rs` checks that every fixture of `support::ALL` (every fixture but TOY, whose syntax module is its main module) converts to a campaign definition and assembles its programs, and runs the programs of IMP, UNSIGNED, CHOSEN, RULES, COIN, LEDGER, LOADCLAIM and TAINT through `Backend::execute`, checking the halt and the record this README promises (a "natural end" there is a clean one: a `stuck` leaf with an empty `<k>`, no constraint and no diagnostic, in a run with no stack stop, undecided solver answer, allowance refusal or unsupported hook); a fixture that stops doing what is written here fails there first.
@@ -67,6 +67,10 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | | `ov/ov-prepend.k` | | Same syntax and overload equations; stores `0, Es`. | FZ-DATAEND: the anchor kills, both ends data |
 | | `ov/ov-ints.k` | | Adds `Ints ::= List{Int,","} [overload(Exps)]`, so `_,_Exps` has another overload equation; stores `0, Es`. | FZ-DATAEND: overload equations differ, never a kill |
 | | `ov/ov-size.k` | | Stores `size(Es)`, a total function with an equation for `Ids` only: `h(3)` ends with an unevaluated function application. | FZ-DATAEND: an end that is not data, as a mutant (no kill) and under a run-to-completion rule target (`unsupported` unless `data-end` is off) |
+| DIA | `dia/dia.k`, `dia/go.pgm` | `DIA` (`DIA-SYNTAX`) | A broken overload family: `Ids` and `Vals` both `overload(Exps)` over a common, non-overloaded `Bots`; `.Exps` lowers to both `.Ids` and `.Vals` (`UnjoinedCriticalPair`). Stores `.Ids`. | FZ-DATAEND review B2: constructor terms the family equates are not data |
+| | `dia/dia-m.k` | | Stores `.Vals`. | FZ-DATAEND review B2: never a kill (main and diffend kill it) |
+| KPLACE | `kplace/kp.k`, `kplace/go.pgm` | `KP` (`KP-SYNTAX`) | `f(K)` and `f(Exp)` both `overload(f)`: the overload equation `f_K(kseq(inj(X), dotk)) = f_Exp(X)` is not canonical (`ValueClaimPrecondition`). Stores `f(bar ~> .K)`. | FZ-DATAEND review B1: a head with a non-canonical overload equation is not a data head |
+| | `kplace/kp-m.k` | | Adds `Exp ::= Bar`, so the stored term lowers to `f(bar)` at `Exp`. | FZ-DATAEND review B1: never a kill |
 
 ## Not covered here
 

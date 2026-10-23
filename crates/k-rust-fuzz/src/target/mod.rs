@@ -50,7 +50,8 @@ pub struct Target {
     /// definition's (ARCHITECTURE 4.3). A reaching natural end that is not data is
     /// `unsupported`. `true` by default (absent from a serialized target when `true`): the
     /// witness of a run-to-completion target is meant to become a test whose end is compared.
-    /// Ignored without `run-to-completion` and by the differential and observer targets.
+    /// Ignored without `run-to-completion`, for a negated property (whose counterexample is
+    /// decided by its match) and by the differential and observer targets.
     #[serde(
         default = "data_end_default",
         skip_serializing_if = "is_data_end_default"
@@ -73,11 +74,14 @@ const fn is_data_end_default(data_end: &bool) -> bool {
 
 impl Target {
     /// Whether a hit needs a data end: a rule or pattern target with `run-to-completion` and
-    /// [`Self::data_end`].
+    /// [`Self::data_end`], that states no property's violation. A property counterexample is
+    /// decided by its match, whatever the end's function applications denote, and is not a test
+    /// compared by its end, so it needs none (FZ-DATAEND review S1).
     #[must_use]
     pub(crate) fn requires_data_end(&self) -> bool {
         self.run_to_completion
             && self.data_end
+            && !self.negated_property
             && matches!(self.kind, TargetKind::Rule(_) | TargetKind::Pattern(_))
     }
 }

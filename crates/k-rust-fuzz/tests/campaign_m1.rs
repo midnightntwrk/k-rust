@@ -644,3 +644,25 @@ fn a_run_to_completion_rule_hit_needs_a_data_end() {
     let witness = waived.witness().expect("a reach-only hit");
     assert!(!witness.clean_leaf_facts.contains(&"end-data".to_owned()));
 }
+
+/// FZ-DATAEND review S1: a negated property's counterexample is decided by its match, so it
+/// needs no data end. On `OV_SIZE` the end holds the unevaluated `size(...)`, and the pattern
+/// `<s> S </s>` at a natural end is violated by every input: a property failure, not
+/// `unsupported`.
+#[test]
+fn a_property_counterexample_needs_no_data_end() {
+    let mut setup = Setup::new(
+        &OV_SIZE,
+        "ov/three.pgm",
+        Target {
+            run_to_completion: true,
+            ..final_pattern("<k> .K </k> <s> S </s>", true)
+        },
+    );
+    setup.holes = vec![int_hole("N", "ov/three.pgm", "3", "3")];
+    setup.proposers = anchors_only();
+    let report = setup.run(Budget::Cases(1));
+    let witness = report.witness().expect("a property failure");
+    assert_eq!(witness.label, HitLabel::PropertyFailure);
+    assert!(!witness.clean_leaf_facts.contains(&"end-data".to_owned()));
+}

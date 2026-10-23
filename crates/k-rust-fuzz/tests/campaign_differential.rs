@@ -19,9 +19,9 @@ use k_rust_fuzz::{
 use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
-    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIAMOND, DIAMOND_PLUS, Fixture, IMP_ADD_COMMUTED,
-    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL, OV, OV_INTS,
-    OV_PREPEND, OV_SIZE,
+    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
+    IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
+    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE,
 };
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
@@ -640,4 +640,40 @@ fn an_end_holding_a_function_application_is_never_compared() {
         assert!(report.witness().is_none(), "{:?}", report.outcome);
         assert_only_unsupported(&report);
     }
+}
+
+/// FZ-DATAEND review B2: in a broken overload family (`.Exps` lowers to both `.Ids` and `.Vals`,
+/// a pair that does not join) the overload axioms equate the constructor terms `.Ids` and
+/// `.Vals`. The baseline stores one and the mutant the other: one value, so never a kill, though
+/// both ends are constructor terms. Main and fz26/diffend kill it.
+#[test]
+fn constructor_ends_a_broken_overload_family_equates_are_never_compared() {
+    let report = Campaign::new(spec_on(&DIA, &DIA_M, "dia/go.pgm", None))
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// FZ-DATAEND review B1: `f_K(kseq(inj(X), dotk)) = f_Exp(X)` is an overload equation of another
+/// shape than the argument covers. The baseline's end `f_K(bar ~> .K)` is irreducible there, and
+/// the mutant, which adds `Exp ::= Bar`, ends with its lowering `f_Exp(bar)`: one value of the
+/// mutant. `f_K` is no data head, so never a kill (the first FZ-DATAEND head killed it).
+#[test]
+fn an_overload_of_another_shape_is_never_compared_through() {
+    let report = Campaign::new(spec_on(&KPLACE, &KPLACE_M, "kplace/go.pgm", None))
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
 }

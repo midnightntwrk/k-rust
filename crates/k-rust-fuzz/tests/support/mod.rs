@@ -567,6 +567,18 @@ fixture!(OV_PREPEND, "ov/ov-prepend.k", "OV", OV_PROGRAMS);
 fixture!(OV_INTS, "ov/ov-ints.k", "OV", OV_PROGRAMS);
 fixture!(OV_SIZE, "ov/ov-size.k", "OV", OV_PROGRAMS);
 
+/// FZ-DATAEND review B2: a broken overload family whose axioms equate the constructor terms
+/// `.Ids` and `.Vals`, stored by the baseline and the mutant.
+pub const DIA_PROGRAMS: &[Program] = &[program!("dia/go.pgm")];
+fixture!(DIA, "dia/dia.k", "DIA", DIA_PROGRAMS);
+fixture!(DIA_M, "dia/dia-m.k", "DIA", DIA_PROGRAMS);
+
+/// FZ-DATAEND review B1: an overload placed across `K`, and a mutant that adds a subsort below
+/// the overload's argument sort.
+pub const KPLACE_PROGRAMS: &[Program] = &[program!("kplace/go.pgm")];
+fixture!(KPLACE, "kplace/kp.k", "KP", KPLACE_PROGRAMS);
+fixture!(KPLACE_M, "kplace/kp-m.k", "KP", KPLACE_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -759,7 +771,7 @@ fixture!(
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 51] = [
+pub static ALL: [&Fixture; 55] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -811,4 +823,8 @@ pub static ALL: [&Fixture; 51] = [
     &OV_PREPEND,
     &OV_INTS,
     &OV_SIZE,
+    &DIA,
+    &DIA_M,
+    &KPLACE,
+    &KPLACE_M,
 ];
