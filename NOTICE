@@ -22,6 +22,14 @@ Runtime Verification's pyk test data, crates/k-rust/tests/fixtures/kore/LICENSE.
   tutorial's lesson-4 IMP (`k-distribution/tests/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k`)
   from the same commit, unchanged below a source header, with its licence in
   `LICENSE-K.md` beside it; the `imp-diff/imp-*.k` mutants modify one rule each.
+- k2lean's `k2lean/demos/k/kimp-mutant/` (kimp's `imp.k`, `calc.k` and `expr.k`
+  with one rule changed), `k2lean/demos/claims/specs/imp-ifs-uint64-spec.k`
+  (kimp's `examples/specs/imp-ifs-spec.k` with one predicate written out) and the
+  kimp example programs that `k2lean/tests/goldens` carries come from
+  runtimeverification/imp-semantics commit 683a773418add3bcae8ded47c2b24e94494e1988;
+  the compiled fixtures under `k2lean/tests/fixtures/` and
+  `k2lean/demos/k/krs-imp/*.kore` contain the K builtin modules krust compiles
+  into every definition (k2lean/README.md, "Third-party material").
 
 Haskell backend (BSD 3-Clause License, licenses/HASKELL-BACKEND-BSD-3-Clause.txt):
 - `crates/k-rust-backend` ports the behaviour of runtimeverification/haskell-backend

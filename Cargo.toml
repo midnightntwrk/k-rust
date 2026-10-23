@@ -2,7 +2,8 @@
 resolver = "3"
 # krs/ holds KRS, the Rust-shaped K authoring language built on k-rust (krs/README.md).
 # kink/ holds kink, semantic mutation testing for K definitions built on k-rust (kink/README.md).
-members = ["crates/*", "krs/crates/*", "kink/crates/*"]
+# k2lean/ holds k2lean, which generates a Lean 4 library from a krust-compiled K definition (k2lean/README.md).
+members = ["crates/*", "krs/crates/*", "kink/crates/*", "k2lean/crates/*"]
 # KRS's test, port, and documentation packages are workspaces of their own; without the exclusion
 # Cargo reads their inherited package fields from this manifest when another workspace depends on them.
 exclude = ["krs/browser", "krs/docs-site", "krs/semantics", "krs/tests"]

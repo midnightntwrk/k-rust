@@ -1,0 +1,21 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "<kimp llvm>",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "<pgm>"
+  ],
+  "returncode": 113,
+  "stderr": "[hook_INT_tdiv]: Division by zero: 2 / 0",
+  "term": null
+ },
+ "name": "example-expr-08",
+ "origin": "imp-semantics/examples/expressions",
+ "provenance": "krun (K 7.1.337 frontend) on the kdist kimp LLVM definition (kompiled by K v7.1.318, imp-semantics 683a773)",
+ "source": "result = 2 / 0 + 3 / 0;\n"
+}

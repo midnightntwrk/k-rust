@@ -1,0 +1,12 @@
+axiom{R}
+  \equals{SortExpr{}, R}(
+    LblstaticExprZeroAlias{}(),
+    inj{SortInt{}, SortExpr{}}(\dv{SortInt{}}("0"))
+  )
+  [
+    UNIQUE'Unds'ID{}("01ee77061f06665475435341478f715e150c04fec747f47a3256231575443920"),
+    alias'Kywd'{}(),
+    label{}("krsRule_b9e85aa4e06cf32c8faec228"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(src/static_adjunct.rs)"),
+    priority{}("50")
+  ]

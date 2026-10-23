@@ -1,0 +1,4 @@
+# Cases of the invariant `KImpInv.Invariant` that `k2l_preserve` does not close (`k2lean gen --invariant`, `--sidecar`).
+# `k2lean open-from-log KImpInv/Invariants.lean BUILD.log open-invariant-cases.txt` adds the cases whose proof failed.
+# Each line: the case, its statement, the rule's source position. Prove each in KImpInv/InvariantsHand.lean as
+# `theorem Invariant.hand.r : Step.Case.r Invariant` (namespace `KImpInv`; `Step.Case.r` is stated in KImpInv/Preserves.lean).

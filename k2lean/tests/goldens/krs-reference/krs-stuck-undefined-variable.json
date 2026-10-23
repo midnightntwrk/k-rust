@@ -1,0 +1,150 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "{{work}}/reference-execution-kompiled",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "{{root}}/tests/imp-state/corpus/rejected/semantic/undefined-variable.calc"
+  ],
+  "returncode": 0,
+  "stderr": "",
+  "term": {
+   "args": [
+    {
+     "args": [
+      {
+       "arity": 3,
+       "items": [
+        {
+         "node": "KToken",
+         "sort": {
+          "name": "Id",
+          "node": "KSort",
+          "params": []
+         },
+         "token": "x"
+        },
+        {
+         "args": [
+          {
+           "arity": 1,
+           "items": [
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Int",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "1"
+            }
+           ],
+           "node": "KSequence"
+          }
+         ],
+         "arity": 1,
+         "label": {
+          "name": "#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr0_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        },
+        {
+         "args": [
+          {
+           "arity": 1,
+           "items": [
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Id",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "y"
+            }
+           ],
+           "node": "KSequence"
+          }
+         ],
+         "arity": 1,
+         "label": {
+          "name": "#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr1_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "node": "KSequence"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<k>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "args": [],
+       "arity": 0,
+       "label": {
+        "name": ".Map",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<env>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "node": "KToken",
+       "sort": {
+        "name": "Int",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "0"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<generatedCounter>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    }
+   ],
+   "arity": 3,
+   "label": {
+    "name": "<generatedTop>",
+    "node": "KLabel",
+    "params": []
+   },
+   "node": "KApply"
+  }
+ },
+ "name": "krs-stuck-undefined-variable",
+ "origin": "krs/tests/imp-state/corpus/rejected/semantic/undefined-variable.calc",
+ "provenance": "krs IMP gate behavior snapshot a9a0a0977cbd403b51e7743f069fbef5178f9e4a0f77ca16f29049a5fa79e23c, label krun/reference/stuck-undefined-variable.calc, K 7.1.337, kimp 683a773418add3bcae8ded47c2b24e94494e1988",
+ "source": "y = x + 1;\n"
+}

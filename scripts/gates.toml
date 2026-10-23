@@ -120,6 +120,12 @@ kink = [
   '^kink/',
   '^\.config/nextest\.toml$',
 ]
+# k2lean (k2lean/README.md): its generator crate, Lean libraries, demos, gate and test data, and
+# the workflow that runs its light gate.
+k2lean = [
+  '^k2lean/',
+  '^\.github/workflows/k2lean\.yml$',
+]
 
 [[gate]]
 name = "compile-light"
@@ -460,3 +466,21 @@ name = "kink-heavy"
 run = "heavy"
 command = "kink/scripts/kink-tier.py run heavy && kink/scripts/kink-tier.py run heavy --portable"
 paths = ["@kink", "@krust"]
+
+# k2lean's gate tiers (k2lean/tests/gate.sh). They compile the K inputs with krust, regenerate the
+# Lean libraries with the generator, build them with Lean, and compare every count, output and
+# generated file with k2lean/tests/baseline.toml; krust's KORE is the generator's input, so a
+# change to krust's sources owes them too. light needs the pinned K release's kompile (kimp's
+# LLVM interpreter for the step traces) and Lean (elan); heavy adds SIMPLE, its invariants and the
+# kimp claims. .github/workflows/k2lean.yml runs light weekly and on demand.
+[[gate]]
+name = "k2lean-light"
+run = "certification"
+command = "k2lean/tests/gate.sh light"
+paths = ["@krust", "@k2lean"]
+
+[[gate]]
+name = "k2lean-heavy"
+run = "heavy"
+command = "k2lean/tests/gate.sh heavy"
+paths = ["@krust", "@k2lean"]

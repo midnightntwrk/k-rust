@@ -1,0 +1,127 @@
+# shellcheck shell=bash
+# The generator invocations of every k2lean library, relation and test-data file, in one place.
+# Sourced (not run) by k2lean/tests/gate.sh and k2lean/demos/regen.sh, so a flag is changed once
+# and every caller (the gate on its copies included) uses it.
+#
+# The caller sets, before calling a function:
+#   G        the k2lean binary
+#   GEN      the libraries' output root (a `generated/` directory next to `lean/prelude`: each
+#            library requires the prelude as ../../lean/prelude)
+#   DEMOS    the demos root (a `demos/` directory): relations write `DEMOS/NS/...`
+#   KRS      the directory of the KRS IMP KORE (`demos/k/krs-imp`)
+#   KRUST    krust; BUILTIN, K's builtin include directory
+#   KIMP     kimp's K sources (imp-semantics)
+#   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
+#   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
+# and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
+# NAME (kimp, kimp-verif, kimp-inv, imp-typing, kmut, simple, simple-inv), so that each caller keeps its own layout.
+
+# libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
+libs_kcompile() {
+  local out; out=$(kore_dir "$1")
+  local f m s inc
+  case $1 in
+    kimp) f=$KIMP/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
+    kimp-verif) f=$KIMP/imp-verification.k m=IMP-VERIFICATION s=IMP-VERIFICATION-SYNTAX inc=$KIMP ;;
+    kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
+    imp-typing) f=$DEMOS/k/imp-typing.k m=IMP-TYPING s=IMP-TYPING-SYNTAX inc=$KIMP ;;
+    kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
+    simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
+    simple-inv) f=$DEMOS/k/simple-inv/simple-inv.k m=SIMPLE-INV s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
+    *) echo "libs_kcompile: unknown definition $1" >&2; return 2 ;;
+  esac
+  "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
+    --builtin-directory "$BUILTIN" -I "$inc"
+}
+
+# libs_name DIR: the Lean namespace of library DIR.
+libs_name() {
+  case $1 in
+    kimp) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple) echo KSimple ;; simpleinv) echo KSimpleInv ;;
+    *) echo "libs_name: unknown library $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_gen DIR: generate library DIR into GEN/DIR, with its open-obligation list.
+libs_gen() {
+  local o=$GEN/$1
+  case $1 in
+    kimp) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
+            --out "$o" --name KImp --prelude ../../lean/prelude \
+            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" ;;
+    kimpinv) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
+            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
+            --invariant envOk@env ;;
+    krsimp) "$G" gen --kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude \
+            --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json" ;;
+    kmut) "$G" gen --kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json" \
+            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    imptypes) "$G" gen --kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json" \
+            --out "$o" --name KImpTypes --prelude ../../lean/prelude \
+            --open-obligations "$o/open-obligations.txt" --extra-fns typeOf,wt ;;
+    simple) "$G" gen --kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json" \
+            --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms \
+            --open-obligations "$o/open-obligations.txt" ;;
+    # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
+    # is inside the `<thread>` cell map, so it is lifted to "every thread"
+    simpleinv) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
+            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
+            --open-obligations "$o/open-obligations.txt" --invariant holdsOk@holds ;;
+    *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_gen_ill_typed DIR: KRS IMP with an ill-typed `assign` (krs-imp-ill-typed.py beside this file), with
+# the sidecar, into DIR (namespace KrsImp, so its Terms.lean equals krsimp's): the generated proof of the
+# declared cell type must fail at `KRS-IMP.assign` (the gate's negative check).
+libs_gen_ill_typed() {
+  python3 -I "$(dirname "${BASH_SOURCE[0]}")/krs-imp-ill-typed.py" "$KRS/definition.kore" "$1/definition.kore" &&
+  "$G" gen --kore "$1/definition.kore" --out "$1" --name KrsImp --prelude ../../lean/prelude \
+    --open-obligations "$1/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json"
+}
+
+# libs_goldens SCRATCH INTERPRETER: kimp's golden cases and step traces (KImpTest/Goldens.lean,
+# KImpTest/Traces.lean); INTERPRETER is K's LLVM interpreter of kimp.
+libs_goldens() {
+  "$G" goldens --kore "$(kore_dir kimp)/definition.kore" --name KImp --krust "$KRUST" --definition "$(kore_dir kimp)" \
+    --goldens "$GOLDENS/krs-reference" --goldens "$GOLDENS/kimp-llvm" \
+    --lean-out "$GEN/kimp/KImpTest/Goldens.lean" --scratch "$1" --interpreter "$2" \
+    --depths krs-block-sequence:30 --depths example-sumto10:404:4 --depths example-gcd-while:163:3
+}
+
+# libs_simple_cases: set the array LIBS_SIMPLE_CASES to the `--case` arguments of SIMPLE's tests
+# (the modes of K's test Makefile: `--search` tests, `--search --bound 5`).
+libs_simple_cases() {
+  LIBS_SIMPLE_CASES=()
+  local f b spec
+  for f in "$SD"/tests/diverse/*.simple "$SD"/tests/exceptions/*.simple "$SD"/tests/threads/*.simple; do
+    b=$(basename "$f" .simple); spec="$b=$f"
+    [ -f "$f.in" ] && spec="$spec@$f.in"
+    case $b in
+      exceptions_07|threads_01|threads_02|threads_04|threads_06|threads_09|div-nondet) spec="$spec!search" ;;
+      threads_05) spec="$spec!search:5" ;;
+    esac
+    LIBS_SIMPLE_CASES+=(--case "$spec")
+  done
+}
+
+# libs_cases OUT: SIMPLE's cases (needs libs_simple_cases first).
+libs_cases() {
+  "$G" cases --kore "$(kore_dir simple)/definition.kore" --name KSimple --krust "$KRUST" --definition "$(kore_dir simple)" \
+    --sort Stmt --lean-out "$1" "${LIBS_SIMPLE_CASES[@]}"
+}
+
+# libs_relate NS: the relation of demo NS to kimp (ImpRel: `Bisim.lean`; ImpTypes, ImpMut:
+# `Tr.lean`) and its correspondence report.
+libs_relate() {
+  local ns=$1 nb kd f=Tr extra=()
+  case $ns in
+    ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
+    ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
+    ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
+    *) echo "libs_relate: unknown demo $ns" >&2; return 2 ;;
+  esac
+  "$G" relate --kore-a "$(kore_dir kimp)/definition.kore" --syntax-a "$(kore_dir kimp)/syntaxDefinition.kore" --name-a KImp \
+    --kore-b "$kd/definition.kore" --syntax-b "$kd/syntaxDefinition.kore" --name-b "$nb" \
+    --ns "$ns" "${extra[@]}" --out "$DEMOS/$ns/$ns/$f.lean" --report "$DEMOS/$ns/correspondence.toml"
+}
