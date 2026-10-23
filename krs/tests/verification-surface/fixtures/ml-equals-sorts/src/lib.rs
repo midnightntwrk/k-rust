@@ -20,6 +20,12 @@ fn half_even(k::term![Half(value)]: Term<Int>) -> Term<Int> {
     int::div(value, 2)
 }
 
+/// The computation that remains.
+#[k::function(partial, sort = KSequence, syntax = "rest({value})")]
+pub struct Rest {
+    pub value: Term<Int>,
+}
+
 #[k::configuration]
 pub struct Machine {
     #[k::cell]
@@ -34,7 +40,7 @@ impl Machine {
 }
 
 #[k::claim(all_paths, label = "probe")]
-#[k::requires(ml::equals(a, true))]
+#[k::requires(ml::equals(a, Rest(a)))]
 fn probe(
     a: Term<Int>,
     k::cells! { k: k::configuration::KCell(a, tail @ ..), state @ .. }: Machine,

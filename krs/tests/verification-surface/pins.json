@@ -204,7 +204,7 @@
       "error[krs::analysis::invalid-ml-predicate]: a predicate is expected here, but this is an object term; an object Bool enters matching logic only as `ml::equals(true, <term>)` (K's `{ true #Equals B }`)"
     ],
     "ml-equals-sorts": [
-      "error[krs::analysis::invalid-ml-predicate]: the operands of ml::equals have sorts `Int` and `Bool`, which share no least common sort; both sides of an equality denote values of one sort"
+      "error[krs::analysis::invalid-ml-predicate]: the operands of ml::equals have sorts `Int` and `K`, which share no least common sort; both sides of an equality denote values of one sort"
     ],
     "ml-exists-shadows": [
       "error[krs::analysis::invalid-ml-predicate]: the ml::exists binder `a` shadows a binder of the sentence; quantify a fresh name (K would silently shadow `a`)"

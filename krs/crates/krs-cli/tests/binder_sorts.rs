@@ -388,7 +388,8 @@ fn unhold_twice(k::term![FrameSyntax::Hold(FrameSyntax::Hold(s))]: Term<Frame>) 
     store_frame: { k: [Op(6), Hold { saved: Hold { saved: s } }, ..] } => { k: [s, ..] };
     only_k_item: { k: [Op(7), Hold { saved: s }, ..] } => { k: [s, ..] };
     narrower: { k: [Op(8), Hold { saved: s }, ..] } => { k: [s, ..] } where s: Int;
-    call: { k: [Op(10), ..] } => { k: [Keep(Skip()), Wrapped(Skip()), ..] };"
+    call: { k: [Op(10), ..] } => { k: [Keep(Skip()), Wrapped(Skip()), ..] };
+    join: { k: [Op(11), ..] } => { k: [k::builtin::kequal::ite(true, Skip(), Hold { saved: 1 }), ..] };"
             ),
         ),
     );
@@ -415,6 +416,7 @@ fn unhold_twice(k::term![FrameSyntax::Hold(FrameSyntax::Hold(s))]: Term<Frame>) 
                 "<k> op 8 ~> hold ( S:Int ) => S:Int ... </k>",
                 "<k> op 9 ~> hold ( S:Stmt ) ~> Tail:K => S:Stmt ~> Tail:K </k>",
                 "<k> op 10 => keep ( skip ) ~> wrapped ( skip ) ... </k>",
+                "<k> op 11 => #if true #then skip #else hold ( 1 ) #fi ... </k>",
             ],
             [
                 "rule hold ( S:Stmt ) => S:Stmt",
@@ -436,6 +438,7 @@ fn unhold_twice(k::term![FrameSyntax::Hold(FrameSyntax::Hold(s))]: Term<Frame>) 
             "narrower",
             "cells_unhold",
             "call",
+            "join",
         ]
         .map(|label| rule(&definition, label)),
         term_rules,
