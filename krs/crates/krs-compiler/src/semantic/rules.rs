@@ -526,7 +526,9 @@ pub(super) fn lower_head_rule_descriptor(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
-        declared_binders: BTreeMap::new(),
+        declared_binders: super::infer::declared_existentials(
+            rule.existentials.iter().chain(&rule.fresh),
+        ),
         subject_keys: BTreeMap::new(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: CollectionUse::new(&typing),
@@ -1905,6 +1907,9 @@ pub(super) fn lower_structured_rule_descriptor(
                 ),
             )
         })
+        .chain(super::infer::declared_existentials(
+            rule.existentials.iter().chain(&rule.fresh),
+        ))
         .collect::<BTreeMap<_, _>>();
     // A function context matches cells, and a subject matches arguments;
     // their binders have the cells' and parameters' element types.

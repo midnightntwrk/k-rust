@@ -18,7 +18,9 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
-use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
+use super::infer::{
+    CollectionUse, StructuredTermBuilder, declared_existentials, initial_binding_constraints,
+};
 use super::origin::{generated_semantic_id, role_key, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 use super::rules::{
@@ -38,6 +40,8 @@ struct StateRuleTerms<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     /// The element types of the rule's typed cells.
     collections: &'a CollectionTyping,
+    /// The rule's existential and fresh binders at their declared sorts.
+    declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
 }
@@ -68,7 +72,7 @@ impl StateRuleTerms<'_> {
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
             operators: super::operators::OperatorInference::default(),
-            declared_binders: BTreeMap::new(),
+            declared_binders: self.declared_binders.clone(),
             subject_keys: BTreeMap::new(),
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
@@ -121,7 +125,7 @@ impl StateRuleTerms<'_> {
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
             operators: super::operators::OperatorInference::default(),
-            declared_binders: BTreeMap::new(),
+            declared_binders: self.declared_binders.clone(),
             subject_keys: BTreeMap::new(),
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
@@ -365,6 +369,13 @@ pub(super) fn lower_configuration_rule_descriptor(
         sort_parents,
         catalog,
         collections: &typing,
+        declared_binders: declared_existentials(
+            rule.claim
+                .iter()
+                .flat_map(|claim| &claim.existentials)
+                .chain(&rule.existentials)
+                .chain(&rule.fresh),
+        ),
         wildcard_ordinal: 0,
         variables,
     };
@@ -1008,6 +1019,7 @@ pub(super) fn lower_context_alias_descriptor(
         sort_parents,
         catalog,
         collections: CollectionTyping::empty(),
+        declared_binders: BTreeMap::new(),
         wildcard_ordinal: 0,
         variables,
     };
@@ -1125,6 +1137,7 @@ pub(super) fn lower_function_context(
         sort_parents,
         catalog,
         collections,
+        declared_binders: BTreeMap::new(),
         wildcard_ordinal,
         variables: Vec::new(),
     };

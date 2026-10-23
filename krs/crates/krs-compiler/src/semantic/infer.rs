@@ -37,8 +37,10 @@ pub(super) struct StructuredTermBuilder<'a> {
     /// The provenance key of each variable's first occurrence in the
     /// subject, where a diagnostic about its sort points.
     pub(super) subject_keys: BTreeMap<String, ProvenanceKey>,
-    /// Typed binders of a term-shaped rule fn (KF-009): the declared sort,
-    /// which every occurrence must accept, and its parameter-type key.
+    /// Binders whose sort the author fixed: the typed binders of a
+    /// term-shaped rule fn (KF-009), and every sentence's `#[k::exists]` and
+    /// `#[k::fresh]` binders. The declared sort, which every occurrence must
+    /// accept, and the key of the sort the author wrote.
     pub(super) declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     pub(super) wildcard_offset: usize,
     /// Generated variables of the sentence: wildcards, then (KF-031) the
@@ -250,7 +252,7 @@ impl StructuredTermBuilder<'_> {
                         .or_insert_with(|| key.clone());
                 }
                 if let Some(expected) = expected_sort {
-                    self.check_declared_binder(name, expected)?;
+                    self.check_declared_binder(term, name, expected)?;
                     self.binding_constraints
                         .entry(name.clone())
                         .or_default()
@@ -399,7 +401,7 @@ impl StructuredTermBuilder<'_> {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
                 }
                 if let Some(expected) = expected_sort {
-                    self.check_declared_binder(name, expected)?;
+                    self.check_declared_binder(term, name, expected)?;
                     self.binding_constraints
                         .entry(name.clone())
                         .or_default()
@@ -2746,9 +2748,11 @@ impl StructuredTermBuilder<'_> {
 
     /// Rejects an occurrence of a typed binder whose position needs a sort
     /// the declared sort is not below (KF-009). A narrower declared sort is
-    /// kept, as K keeps `X:S`.
+    /// kept, as K keeps `X:S`. At a typed element position the declared
+    /// element type is the reason, so the error names it at the occurrence.
     fn check_declared_binder(
         &self,
+        occurrence: &DescriptorTerm,
         name: &str,
         expected: &SemanticSortRef,
     ) -> Result<(), DescriptorLoweringError> {
@@ -2757,6 +2761,17 @@ impl StructuredTermBuilder<'_> {
         };
         if semantic_is_subsort(declared, expected, self.sort_parents) {
             return Ok(());
+        }
+        if let Some(site) = self.collections.typing.element(occurrence)
+            && !semantic_is_subsort(declared, &site.sort, self.sort_parents)
+        {
+            return Err(super::collection_types::element_mismatch(
+                self.descriptor,
+                site,
+                name,
+                &super::overload::sort_name(declared),
+                Self::term_key(occurrence),
+            ));
         }
         Err(DescriptorLoweringError::IncompatibleBinder {
             item: Box::new(self.descriptor.id().clone()),
@@ -3310,6 +3325,27 @@ pub(super) fn least_instance(
         }),
         _ => Err(InstanceError::Ambiguous(least)),
     }
+}
+
+/// The declared binders ([`StructuredTermBuilder::declared_binders`]) of a
+/// sentence's `#[k::exists]` and `#[k::fresh]` lists: an existential or fresh
+/// value has exactly its declared sort, so an occurrence whose position needs
+/// a sort it is not below is an error, never a narrowing.
+pub(super) fn declared_existentials<'a>(
+    binders: impl IntoIterator<Item = &'a krs_ir::DescriptorClaimBinder>,
+) -> BTreeMap<String, (SemanticSortRef, ProvenanceKey)> {
+    binders
+        .into_iter()
+        .map(|binder| {
+            (
+                binder.name.clone(),
+                (
+                    semantic_sort_ref(&binder.sort.sort),
+                    binder.sort.key.clone(),
+                ),
+            )
+        })
+        .collect()
 }
 
 pub(super) fn initial_binding_constraints(
