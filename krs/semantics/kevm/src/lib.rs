@@ -2266,7 +2266,7 @@ k::rules! {
             ChargeFixed {
                 op: ExternalCodeCopy,
                 gas,
-                cost: ExternalCopyGasCost { accessed, account, used, start: destination, width }
+                cost: ExternalCopyGasCost { accessed, account, used, start: destination, width },
             },
             ..
         ],
@@ -2298,7 +2298,7 @@ k::rules! {
             ChargeFixed {
                 op: MemoryLoad,
                 gas,
-                cost: 3 + MemoryExpansionCost { used, start: index, width: 32 }
+                cost: 3 + MemoryExpansionCost { used, start: index, width: 32 },
             },
             ..
         ],
@@ -2314,7 +2314,7 @@ k::rules! {
             ChargeFixed {
                 op: MemoryStore,
                 gas,
-                cost: 3 + MemoryExpansionCost { used, start: index, width: 32 }
+                cost: 3 + MemoryExpansionCost { used, start: index, width: 32 },
             },
             ..
         ],
@@ -2330,7 +2330,7 @@ k::rules! {
             ChargeFixed {
                 op: MemoryStore8,
                 gas,
-                cost: 3 + MemoryExpansionCost { used, start: index, width: 1 }
+                cost: 3 + MemoryExpansionCost { used, start: index, width: 1 },
             },
             ..
         ],
@@ -2346,7 +2346,7 @@ k::rules! {
             ChargeFixed {
                 op: Sha3,
                 gas,
-                cost: MemoryExpansionCost { used, start, width } + (30 + 6 * ((width + 31) / 32))
+                cost: MemoryExpansionCost { used, start, width } + (30 + 6 * ((width + 31) / 32)),
             },
             ..
         ],
@@ -2367,8 +2367,8 @@ k::rules! {
                 op: StorageLoad,
                 gas,
                 cost: StorageLoadCost {
-                    warm: StorageWarm { accessed, account: current_account, index }
-                }
+                    warm: StorageWarm { accessed, account: current_account, index },
+                },
             },
             ..
         ],
@@ -2393,7 +2393,7 @@ k::rules! {
                 current: StorageValue { storage, index },
                 new,
                 warm: StorageWarm { accessed, account: current_account, index },
-                static_mode
+                static_mode,
             },
             ..
         ],
@@ -3084,7 +3084,7 @@ k::rules! {
             destination,
             source: call_data,
             source_index,
-            remaining: width
+            remaining: width,
         },
         memory_used: MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
@@ -3120,7 +3120,7 @@ k::rules! {
             destination,
             source: program,
             source_index,
-            remaining: width
+            remaining: width,
         },
         memory_used: MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
@@ -3194,7 +3194,7 @@ k::rules! {
             destination,
             source: code,
             source_index,
-            remaining: width
+            remaining: width,
         },
         memory_used: MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
@@ -3219,7 +3219,7 @@ k::rules! {
             destination,
             source: bytes::empty(),
             source_index,
-            remaining: width
+            remaining: width,
         },
         memory_used: MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
@@ -3300,7 +3300,7 @@ k::rules! {
             destination,
             source: output,
             source_index,
-            remaining: width
+            remaining: width,
         },
         memory_used: MemoryUsageUpdate { used, start: destination, width },
         word_stack: rest,
@@ -3471,11 +3471,11 @@ k::rules! {
             memory: bytes::pad_right(
                 memory,
                 MemoryUsageUpdate { used, start: index, width: 32 } * 32,
-                0
+                0,
             ),
             index,
             remaining: 32,
-            value: Chop(value)
+            value: Chop(value),
         },
         memory_used: MemoryUsageUpdate { used, start: index, width: 32 },
         word_stack: rest,
@@ -3495,7 +3495,7 @@ k::rules! {
         local_mem: bytes::update(
             bytes::pad_right(memory, MemoryUsageUpdate { used, start: index, width: 1 } * 32, 0),
             index,
-            int::rem_euclid(value, 256)
+            int::rem_euclid(value, 256),
         ),
         memory_used: MemoryUsageUpdate { used, start: index, width: 1 },
         word_stack: rest,
@@ -3555,7 +3555,7 @@ k::rules! {
         refund: refund + StorageRefundDelta {
             original: StorageValue { storage: original_storage, index },
             current: StorageValue { storage, index },
-            new
+            new,
         },
         word_stack: rest,
         pc: pc + 1,
@@ -3580,7 +3580,7 @@ k::rules! {
                     address,
                     topics: StackTakeList { stack: topic_stack, remaining: topics },
                     data: ReturnBytes(memory, start, width),
-                }
+                },
             ),
         ),
         memory_used: MemoryUsageUpdate { used, start, width },
@@ -3746,7 +3746,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(1)
+            set::item(1),
         ),
         output: EcrecPrecompileOutput { data: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
@@ -3755,7 +3755,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -3763,16 +3763,16 @@ k::rules! {
             },
             destination: return_start,
             source: EcrecPrecompileOutput {
-                data: ReturnBytes(memory, argument_start, argument_width)
+                data: ReturnBytes(memory, argument_start, argument_width),
             },
             source_index: 0,
             remaining: Minimum(
                 return_width,
                 bytes::length(
                     EcrecPrecompileOutput {
-                        data: ReturnBytes(memory, argument_start, argument_width)
-                    }
-                )
+                        data: ReturnBytes(memory, argument_start, argument_width),
+                    },
+                ),
             ),
         },
         memory_used: CallMemoryUsage {
@@ -3780,7 +3780,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 1 },
         word_stack: [1, ..],
@@ -3803,7 +3803,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(1)
+            set::item(1),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -3811,7 +3811,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -3822,7 +3822,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 1 },
         word_stack: [0, ..],
@@ -3868,7 +3868,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(2)
+            set::item(2),
         ),
         output: Sha256Digest { value: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
@@ -3877,7 +3877,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -3893,7 +3893,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 2 },
         word_stack: [1, ..],
@@ -3916,7 +3916,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(2)
+            set::item(2),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -3924,7 +3924,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -3935,7 +3935,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 2 },
         word_stack: [0, ..],
@@ -3981,14 +3981,14 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(3)
+            set::item(3),
         ),
         output: CopyBytes {
             memory: bytes::pad_right(bytes::empty(), 32, 0),
             destination: 12,
             source: Ripemd160Digest { value: ReturnBytes(memory, argument_start, argument_width) },
             source_index: 0,
-            remaining: 20
+            remaining: 20,
         },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
@@ -3996,7 +3996,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -4007,10 +4007,10 @@ k::rules! {
                 memory: bytes::pad_right(bytes::empty(), 32, 0),
                 destination: 12,
                 source: Ripemd160Digest {
-                    value: ReturnBytes(memory, argument_start, argument_width)
+                    value: ReturnBytes(memory, argument_start, argument_width),
                 },
                 source_index: 0,
-                remaining: 20
+                remaining: 20,
             },
             source_index: 0,
             remaining: Minimum(return_width, 32),
@@ -4020,7 +4020,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 3 },
         word_stack: [1, ..],
@@ -4043,7 +4043,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(3)
+            set::item(3),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -4051,7 +4051,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -4062,7 +4062,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 3 },
         word_stack: [0, ..],
@@ -4108,7 +4108,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(4)
+            set::item(4),
         ),
         output: ReturnBytes(memory, argument_start, argument_width),
         local_mem: CopyBytes {
@@ -4117,7 +4117,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -4133,7 +4133,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 4 },
         word_stack: [1, ..],
@@ -4156,7 +4156,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(4)
+            set::item(4),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -4164,7 +4164,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -4175,7 +4175,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 4 },
         word_stack: [0, ..],
@@ -4221,10 +4221,10 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(5)
+            set::item(5),
         ),
         output: ModExpPrecompileOutput {
-            data: ReturnBytes(memory, argument_start, argument_width)
+            data: ReturnBytes(memory, argument_start, argument_width),
         },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
@@ -4232,7 +4232,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -4240,16 +4240,16 @@ k::rules! {
             },
             destination: return_start,
             source: ModExpPrecompileOutput {
-                data: ReturnBytes(memory, argument_start, argument_width)
+                data: ReturnBytes(memory, argument_start, argument_width),
             },
             source_index: 0,
             remaining: Minimum(
                 return_width,
                 bytes::length(
                     ModExpPrecompileOutput {
-                        data: ReturnBytes(memory, argument_start, argument_width)
-                    }
-                )
+                        data: ReturnBytes(memory, argument_start, argument_width),
+                    },
+                ),
             ),
         },
         memory_used: CallMemoryUsage {
@@ -4257,7 +4257,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 5 },
         word_stack: [1, ..],
@@ -4280,7 +4280,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(5)
+            set::item(5),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -4288,7 +4288,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -4299,7 +4299,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 5 },
         word_stack: [0, ..],
@@ -4345,7 +4345,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(6)
+            set::item(6),
         ),
         output: EcAddPrecompileOutput { data: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
@@ -4354,7 +4354,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -4362,7 +4362,7 @@ k::rules! {
             },
             destination: return_start,
             source: EcAddPrecompileOutput {
-                data: ReturnBytes(memory, argument_start, argument_width)
+                data: ReturnBytes(memory, argument_start, argument_width),
             },
             source_index: 0,
             remaining: Minimum(return_width, 64),
@@ -4372,7 +4372,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 6 },
         word_stack: [1, ..],
@@ -4395,7 +4395,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(6)
+            set::item(6),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -4403,7 +4403,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -4414,7 +4414,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 6 },
         word_stack: [0, ..],
@@ -4460,7 +4460,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(7)
+            set::item(7),
         ),
         output: EcMulPrecompileOutput { data: ReturnBytes(memory, argument_start, argument_width) },
         local_mem: CopyBytes {
@@ -4469,7 +4469,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -4477,7 +4477,7 @@ k::rules! {
             },
             destination: return_start,
             source: EcMulPrecompileOutput {
-                data: ReturnBytes(memory, argument_start, argument_width)
+                data: ReturnBytes(memory, argument_start, argument_width),
             },
             source_index: 0,
             remaining: Minimum(return_width, 64),
@@ -4487,7 +4487,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 7 },
         word_stack: [1, ..],
@@ -4510,7 +4510,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(7)
+            set::item(7),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -4518,7 +4518,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -4529,7 +4529,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 7 },
         word_stack: [0, ..],
@@ -4575,10 +4575,10 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(8)
+            set::item(8),
         ),
         output: EcPairingPrecompileOutput {
-            data: ReturnBytes(memory, argument_start, argument_width)
+            data: ReturnBytes(memory, argument_start, argument_width),
         },
         local_mem: CopyBytes {
             memory: PrepareCopyMemory {
@@ -4586,7 +4586,7 @@ k::rules! {
                     memory,
                     used,
                     start: argument_start,
-                    width: argument_width
+                    width: argument_width,
                 },
                 used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
                 start: return_start,
@@ -4594,7 +4594,7 @@ k::rules! {
             },
             destination: return_start,
             source: EcPairingPrecompileOutput {
-                data: ReturnBytes(memory, argument_start, argument_width)
+                data: ReturnBytes(memory, argument_start, argument_width),
             },
             source_index: 0,
             remaining: Minimum(return_width, 32),
@@ -4604,7 +4604,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 8 },
         word_stack: [1, ..],
@@ -4627,7 +4627,7 @@ k::rules! {
         k: [Run(), ..],
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(8)
+            set::item(8),
         ),
         output: bytes::empty(),
         local_mem: PrepareCopyMemory {
@@ -4635,7 +4635,7 @@ k::rules! {
                 memory,
                 used,
                 start: argument_start,
-                width: argument_width
+                width: argument_width,
             },
             used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
             start: return_start,
@@ -4646,7 +4646,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account: 8 },
         word_stack: [0, ..],
@@ -4712,7 +4712,7 @@ k::rules! {
                             used: MemoryUsageUpdate {
                                 used,
                                 start: argument_start,
-                                width: argument_width
+                                width: argument_width,
                             },
                             start: return_start,
                             width: return_width,
@@ -4729,7 +4729,7 @@ k::rules! {
                         call_gas: StaticCallGas { requested: gas_cap, available: remaining },
                         ..caller_frame
                     }
-                ]
+                ],
             ),
             call_stack,
         ),
@@ -4748,13 +4748,13 @@ k::rules! {
                     accessed_accounts: MarkAccountAccess { accessed, account },
                     accessed_storage,
                     created_accounts,
-                }
+                },
             ),
             interim_states,
         ),
         touched_accounts: set::union(
             set::union(touched_accounts, set::item(address)),
-            set::item(account)
+            set::item(account),
         ),
         output: bytes::empty(),
         status_code: Status::Running(),
@@ -4790,7 +4790,7 @@ k::rules! {
                             gas: caller_gas,
                             ..
                         }
-                    ]
+                    ],
                 ),
                 remaining_call_stack,
             )
@@ -4831,7 +4831,7 @@ k::rules! {
                             gas: caller_gas,
                             ..
                         }
-                    ]
+                    ],
                 ),
                 remaining_call_stack,
             )
@@ -4851,7 +4851,7 @@ k::rules! {
                     accessed_accounts,
                     accessed_storage,
                     created_accounts,
-                }
+                },
             ),
             remaining_interim_states,
         ),
@@ -4934,7 +4934,7 @@ k::rules! {
                     accessed_accounts,
                     accessed_storage,
                     created_accounts,
-                }
+                },
             ),
             remaining_interim_states,
         ),
@@ -5007,7 +5007,7 @@ k::rules! {
             argument_start,
             argument_width,
             return_start,
-            return_width
+            return_width,
         },
         accessed_accounts: MarkAccountAccess { accessed, account },
         word_stack: [1, ..],
