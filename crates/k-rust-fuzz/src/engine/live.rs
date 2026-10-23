@@ -3,6 +3,7 @@
 //! judged ([`crate::exec`], [`crate::target`]). Owner: FZ-06.
 
 use std::{
+    collections::BTreeMap,
     fmt::Write as _,
     sync::{Arc, OnceLock},
 };
@@ -26,7 +27,7 @@ use crate::{
     report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
     score,
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
-    target::{HitSite, ResolvedTarget, TargetKind, differential},
+    target::{self, HitSite, ResolvedTarget, RuleName, TargetKind, differential},
     values::{self, Value, print},
 };
 
@@ -436,6 +437,27 @@ impl LiveCases {
     /// route.
     pub(crate) fn baseline_internalized(&self) -> Option<&Arc<BackendDefinition>> {
         self.baseline.internalized.as_ref()
+    }
+
+    /// The names of every id in the rule catalog of the definition whose coverage a case
+    /// records: the mutant's in a differential campaign ([`run_of`]), the baseline's otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::Definition`] when the backend gives no catalog.
+    pub(crate) fn rule_names(&mut self) -> Result<BTreeMap<String, RuleName>, CampaignError> {
+        let side = match &mut self.judge {
+            Judge::Differential(mutant) => mutant,
+            Judge::Target(_) => &mut self.baseline,
+        };
+        let catalog = side
+            .executor
+            .backend_mut()
+            .rule_catalog(None)
+            .map_err(|error| CampaignError::Definition {
+                message: format!("the rule catalog is not available: {error}"),
+            })?;
+        Ok(target::rule_names(&catalog))
     }
 
     /// The catalog id of a rule target's rule, as the target resolved it; `None` for every

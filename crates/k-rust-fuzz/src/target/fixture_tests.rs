@@ -258,10 +258,11 @@ fn the_real_catalog_refuses_shared_non_executable_and_equation_entries() {
         refusal(&mut rules, "dormant"),
         CampaignError::Target(TargetProblem::Equation)
     );
-    assert_eq!(
-        refusal(&mut rules, "nothing"),
-        CampaignError::Target(TargetProblem::UnknownRule)
-    );
+    let CampaignError::Target(TargetProblem::UnknownRule(unknown)) = refusal(&mut rules, "nothing")
+    else {
+        panic!("`nothing` is not refused as unknown");
+    };
+    assert_eq!(unknown.reference, RuleRef::Label("nothing".to_owned()));
     let by_label = rules
         .resolve(&rule("check-hit", RuleMode::Fired, false))
         .expect("check-hit resolves");

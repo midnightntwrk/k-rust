@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use crate::target::{RuleName, RuleRef, common_directory};
+
 /// Why a hole's span does not address exactly one literal (ARCHITECTURE 2.2, T-9).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SpanProblem {
@@ -67,13 +69,15 @@ pub enum SortRefusal {
     },
 }
 
-/// Why a target is refused (ARCHITECTURE 4.2, 9.2).
+/// Why a target is refused (ARCHITECTURE 4.2, 9.2). [`fmt::Display`] says why in words, with
+/// the rules an author can name instead.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TargetProblem {
     /// No catalog entry matches the rule reference.
-    UnknownRule,
-    /// Several catalog entries match the rule reference; their ids.
-    AmbiguousRule(Vec<String>),
+    UnknownRule(Box<UnknownRule>),
+    /// Catalog entries with different ids match the rule reference: each id, in order, with its
+    /// names.
+    AmbiguousRule(Vec<(String, RuleName)>),
     /// The entry's id is shared by different entries (`shared_identity`).
     SharedIdentity,
     /// The entry is not executable.
@@ -87,6 +91,129 @@ pub enum TargetProblem {
     /// The target kind or option is not provided by this milestone or build (for example
     /// `at: any-state` before G-4, or an observer before FZ-10).
     Unsupported(String),
+}
+
+/// A rule reference that no catalog entry matches, with what the definition offers instead
+/// (ARCHITECTURE 4.2).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnknownRule {
+    /// The reference as given.
+    pub reference: RuleRef,
+    /// The entries the reference may have meant, each id with its names, nearest first: for a
+    /// label, the entries whose label is nearest it, then those whose id starts with it; for a
+    /// unique id, the entries whose id starts with it; for a source position in a file that
+    /// holds entries, the entries of that file written nearest the line.
+    pub candidates: Vec<(String, RuleName)>,
+    /// For a label: the definition's executable rewrite rules without a label, which only their
+    /// source position or unique id names.
+    pub unlabelled: usize,
+    /// For a source position in a file that holds no catalog entry: the files that hold
+    /// rewrite rules, as the catalog records them.
+    pub sources: Vec<String>,
+}
+
+/// Candidate rules as lines of a refusal ([`RuleName::describe`]), with the directory every
+/// absolute source path among them starts with left out.
+fn write_rules(f: &mut fmt::Formatter<'_>, rules: &[(String, RuleName)]) -> fmt::Result {
+    let base = common_directory(
+        rules
+            .iter()
+            .flat_map(|(_, name)| &name.locations)
+            .map(|location| location.source.as_str()),
+    );
+    for (id, name) in rules {
+        write!(f, "\n  {}", name.describe(id, &base))?;
+    }
+    Ok(())
+}
+
+impl fmt::Display for UnknownRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.reference {
+            RuleRef::Label(label) => {
+                write!(f, "no rule has the label `{label}`")?;
+                if !self.candidates.is_empty() {
+                    f.write_str("; the nearest are:")?;
+                }
+            }
+            RuleRef::UniqueId(id) => {
+                write!(
+                    f,
+                    "no rule or equation has the unique id `{id}` (an id is a digest of the \
+                     rule's text, so an edited rule has another id)"
+                )?;
+                if !self.candidates.is_empty() {
+                    f.write_str("; the ids that start with it are:")?;
+                }
+            }
+            RuleRef::Source { source, line } if !self.sources.is_empty() => {
+                write!(
+                    f,
+                    "no rule is written in `{source}` (line {line}); the rules are written in:"
+                )?;
+                let base = common_directory(self.sources.iter().map(String::as_str));
+                for written in &self.sources {
+                    let shown = written
+                        .strip_prefix(base.as_str())
+                        .filter(|_| !base.is_empty())
+                        .unwrap_or(written);
+                    write!(f, "\n  {shown}")?;
+                }
+            }
+            RuleRef::Source { source, line } => {
+                write!(f, "no rule or equation spans line {line} of `{source}`")?;
+                if !self.candidates.is_empty() {
+                    f.write_str("; the nearest are:")?;
+                }
+            }
+        }
+        write_rules(f, &self.candidates)?;
+        match self.unlabelled {
+            0 => {}
+            1 => f.write_str(
+                "\n1 rewrite rule has no label: name it by its source position (FILE:LINE, any \
+                 line of the rule) or its unique id",
+            )?,
+            unlabelled => write!(
+                f,
+                "\n{unlabelled} rewrite rules have no label: name one by its source position \
+                 (FILE:LINE, any line of the rule) or its unique id"
+            )?,
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for TargetProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownRule(unknown) => write!(f, "{unknown}"),
+            Self::AmbiguousRule(rules) => {
+                write!(
+                    f,
+                    "the reference names {} different rules; name one by its unique id:",
+                    rules.len()
+                )?;
+                write_rules(f, rules)
+            }
+            Self::SharedIdentity => f.write_str(
+                "the rule's unique id is shared by other catalog entries, so coverage and \
+                 traces, which record ids, cannot tell its steps from theirs",
+            ),
+            Self::NotExecutable => {
+                f.write_str("the rule is not executable, so no step of a run applies it")
+            }
+            Self::UnknownId => f.write_str(
+                "the rule has the generated id `UNKNOWN`, which other generated sentences share",
+            ),
+            Self::Equation => f.write_str(
+                "the reference names an equation, not a rewrite rule; a rule target names a \
+                 rewrite rule (target a rewrite rule whose step evaluates the function instead)",
+            ),
+            Self::Pattern(message) => write!(f, "the pattern does not compile: {message}"),
+            Self::Unsupported(message) => f.write_str(message),
+        }
+    }
 }
 
 /// A specification [`crate::Campaign::new`] refuses.
@@ -226,7 +353,7 @@ impl fmt::Display for CampaignError {
                 hole,
                 message,
             } => write!(f, "explicit assignment {index}, hole `{hole}`: {message}"),
-            Self::Target(problem) => write!(f, "target refused: {problem:?}"),
+            Self::Target(problem) => write!(f, "target refused: {problem}"),
             Self::Program { message } => write!(f, "program: {message}"),
             Self::NormalEndPattern { message } => {
                 write!(f, "normal-termination pattern: {message}")

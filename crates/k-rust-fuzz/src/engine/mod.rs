@@ -114,7 +114,7 @@ impl Campaign {
             });
         }
         let spec = Arc::new(spec);
-        let cases = LiveCases::build(Arc::clone(&spec))?;
+        let mut cases = LiveCases::build(Arc::clone(&spec))?;
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
@@ -197,6 +197,7 @@ impl Campaign {
                 .unwrap_or_default(),
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
+            rule_names: Arc::new(cases.rule_names()?),
         };
         Ok(Campaign {
             spec,

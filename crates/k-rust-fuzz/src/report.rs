@@ -19,6 +19,7 @@ use crate::{
     exec::OutcomeClass,
     holes::HoleLocation,
     spec::{Budget, CaseOptions, PathMode, ProposerConfig},
+    target::RuleName,
     values::{GenerationBounds, Value},
 };
 
@@ -673,6 +674,12 @@ pub struct CoverageTotals {
     pub applied: BTreeSet<String>,
     /// Rule ids in some case's coverage `matched`.
     pub matched: BTreeSet<String>,
+    /// The names of every id in [`Self::applied`] or [`Self::matched`] that the catalog of the
+    /// definition whose coverage the cases record (the mutant's in a differential campaign)
+    /// holds: kind, label and source locations ([`RuleName`]), so that an author reads which
+    /// rules the campaign reached. One entry per reached id, so its size is bounded by the
+    /// catalog's.
+    pub names: BTreeMap<String, RuleName>,
 }
 
 /// Why a case was `rejected` (ARCHITECTURE 2.3, 5.3).
@@ -1054,6 +1061,18 @@ mod tests {
                 coverage: CoverageTotals {
                     applied: BTreeSet::from(["b".to_owned(), "a".to_owned()]),
                     matched: BTreeSet::from(["c".to_owned()]),
+                    names: BTreeMap::from([(
+                        "a".to_owned(),
+                        RuleName {
+                            kind: k_rust::backend::CompiledRuleKind::Rewrite,
+                            label: Some("IMP.a".into()),
+                            locations: vec![crate::target::RuleLocation {
+                                source: "imp.k".into(),
+                                line: 3,
+                                end_line: 4,
+                            }],
+                        },
+                    )]),
                 },
                 target_blocked: 3,
                 best_score: Some(vec![0, 2]),
@@ -1140,7 +1159,9 @@ mod tests {
             r#""totals":{"cases":40,"work":1234,"#,
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
-            r#""coverage":{"applied":["a","b"],"matched":["c"]},"target-blocked":3,"#,
+            r#""coverage":{"applied":["a","b"],"matched":["c"],"names":{"a":{"kind":"rewrite","#,
+            r#""label":"IMP.a","locations":[{"source":"imp.k","line":3,"end-line":4}]}}},"#,
+            r#""target-blocked":3,"#,
             r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"#,
             r#""load-records":[{"kind":"contradicted-claim","#,

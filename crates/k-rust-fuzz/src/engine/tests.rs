@@ -262,6 +262,7 @@ fn settings(holes: usize) -> LoopSettings {
         warnings: Vec::new(),
         scorer: None,
         pool_rank: std::collections::BTreeMap::new(),
+        rule_names: std::sync::Arc::default(),
     }
 }
 

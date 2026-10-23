@@ -1221,6 +1221,7 @@ export interface FuzzHole {
 export type FuzzRuleRef =
   | { by: 'label'; value: string }
   | { by: 'unique-id'; value: string }
+  /** Any line of the rule, from its first to its last, in `source` (a catalog path or a suffix of it). */
   | { by: 'source'; value: { source: string; line: number } }
 
 /** Observer targets are library-only: one read from JSON carries no observer and throws. */
@@ -1481,13 +1482,32 @@ export type FuzzRejectionReason =
   | 'round-trip'
   | 'backend-refused'
 
+/** Where a catalog entry is written: its source file and the lines it spans. */
+export interface FuzzRuleLocation {
+  source: string
+  line: number
+  'end-line': number
+}
+
+/** A rule's names besides its unique id (`totals.coverage.names`). */
+export interface FuzzRuleName {
+  kind: 'rewrite' | 'function-equation' | 'simplification' | 'definedness'
+  label: string | null
+  locations: FuzzRuleLocation[]
+}
+
 export interface FuzzTotals {
   cases: number
   work: number
   classes: Partial<Record<FuzzOutcomeClass, number>>
   'rejection-rate-permille': number
   rejections: Partial<Record<FuzzRejectionReason, number>>
-  coverage: { applied: string[]; matched: string[] }
+  /** Rule ids reached, and the names of each: kind, label and source locations. */
+  coverage: {
+    applied: string[]
+    matched: string[]
+    names: Record<string, FuzzRuleName>
+  }
   'target-blocked': number
   'best-score': number[] | null
   'outside-determinism': number

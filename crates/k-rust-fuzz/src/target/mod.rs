@@ -14,7 +14,9 @@ mod rule;
 #[cfg(test)]
 mod tests;
 
-use k_rust::backend::HaltReasonOutput;
+use std::{collections::BTreeMap, fmt};
+
+use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, HaltReasonOutput};
 use serde::{Deserialize, Serialize};
 
 pub use observer::{
@@ -90,17 +92,142 @@ pub enum RuleRef {
     Label(String),
     /// The rule's unique id (`UNIQUE_ID`).
     UniqueId(String),
-    /// The rule's source position: a catalog origin with this `source` whose `location` starts
-    /// on `line`.
+    /// The rule's source position: a catalog origin with this `source` whose `location` holds
+    /// `line`, from the line the rule starts on to the line it ends on. A rule is a span of its
+    /// source, and rules do not nest, so any line of a rule names that rule alone.
     Source {
         /// The source file: the catalog's `Source(path)` text, the path inside it, a suffix of
         /// that path that starts after a `/` (`rules.k` for `Source(tests/rules/rules.k)`), or
         /// an absolute path that ends with `/` and the catalog's relative path. Equal written
         /// axioms share one catalog entry, so a reference to one of their positions names all.
         source: String,
-        /// The one-based line the rule starts on.
+        /// A one-based line of the rule: the line it starts on, or any later line it spans.
         line: u32,
     },
+}
+
+/// The names of a catalog entry besides its unique id: its kind, its label and where it is
+/// written (ARCHITECTURE 4.2). Coverage and traces record ids; these names let an author read
+/// which rule an id is. Several entries that share one id (equal written axioms) give one name
+/// with all their locations, and the first entry's kind and label.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct RuleName {
+    /// A rewrite rule, or the kind of equation.
+    pub kind: CompiledRuleKind,
+    /// The label as the catalog writes it (`IMP.assign`), if the rule has one.
+    pub label: Option<String>,
+    /// The source locations the entry was written at, in catalog order; empty for a sentence
+    /// with no source location.
+    pub locations: Vec<RuleLocation>,
+}
+
+impl RuleName {
+    /// The rule `id` of this name on one line: where it is written, its label in brackets, its
+    /// kind when it is an equation, and its unique id, as in
+    /// `imp.k:56 [IMP.mul] unique id 5872…`. An absolute source path that starts with the
+    /// directory `base` (a [`common_directory`]) is written without it.
+    #[must_use]
+    pub fn describe<'a>(&'a self, id: &'a str, base: &'a str) -> impl fmt::Display + 'a {
+        Described {
+            id,
+            name: self,
+            base,
+        }
+    }
+}
+
+/// The longest directory (ending with `/`) that starts every absolute path of `paths`, or the
+/// empty text when there is none. Paths written without it stay valid source references: a
+/// reference may name a catalog path by any suffix that starts after a `/`
+/// ([`RuleRef::Source`]), and a suffix that also names another file makes a reference to a
+/// line both files hold an ambiguity, never a guess.
+pub fn common_directory<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
+    let mut common: Option<&str> = None;
+    for path in paths.into_iter().filter(|path| path.starts_with('/')) {
+        let directory = &path[..=path.rfind('/').unwrap_or(0)];
+        common = Some(match common {
+            None => directory,
+            Some(common) => {
+                let shared = common
+                    .char_indices()
+                    .zip(directory.chars())
+                    .take_while(|((_, left), right)| left == right)
+                    .last()
+                    .map_or(0, |((index, character), _)| index + character.len_utf8());
+                &common[..=common[..shared].rfind('/').unwrap_or(0)]
+            }
+        });
+    }
+    common.unwrap_or_default().to_owned()
+}
+
+/// [`RuleName::describe`].
+struct Described<'a> {
+    id: &'a str,
+    name: &'a RuleName,
+    base: &'a str,
+}
+
+impl fmt::Display for Described<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.name.locations.is_empty() {
+            f.write_str("(no source location)")?;
+        }
+        for (index, location) in self.name.locations.iter().enumerate() {
+            if index > 0 {
+                f.write_str(", ")?;
+            }
+            let source = location
+                .source
+                .strip_prefix(self.base)
+                .filter(|_| !self.base.is_empty() && location.source.starts_with('/'))
+                .unwrap_or(&location.source);
+            write!(f, "{source}:{}", location.line)?;
+            if location.end_line > location.line {
+                write!(f, "-{}", location.end_line)?;
+            }
+        }
+        if let Some(label) = &self.name.label {
+            write!(f, " [{label}]")?;
+        }
+        match self.name.kind {
+            CompiledRuleKind::Rewrite => {}
+            CompiledRuleKind::FunctionEquation => f.write_str(" (function equation)")?,
+            CompiledRuleKind::Simplification => f.write_str(" (simplification)")?,
+            CompiledRuleKind::Definedness => f.write_str(" (definedness axiom)")?,
+        }
+        write!(f, " unique id {}", self.id)
+    }
+}
+
+/// Where a catalog entry is written: a source file and the lines it spans.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct RuleLocation {
+    /// The source file as the catalog records it (the path inside its `Source(path)` text).
+    pub source: String,
+    /// The one-based line the entry starts on.
+    pub line: u32,
+    /// The one-based line it ends on.
+    pub end_line: u32,
+}
+
+/// The names of every id of `catalog` ([`RuleName`]).
+pub(crate) fn rule_names(catalog: &[CompiledRuleOutput]) -> BTreeMap<String, RuleName> {
+    let mut names: BTreeMap<String, RuleName> = BTreeMap::new();
+    for entry in catalog {
+        let locations = rule::locations(entry);
+        names
+            .entry(entry.id.clone())
+            .and_modify(|name| name.locations.extend(locations.iter().cloned()))
+            .or_insert_with(|| RuleName {
+                kind: entry.kind,
+                label: entry.label.clone(),
+                locations,
+            });
+    }
+    names
 }
 
 /// What counts as reaching a rule (ARCHITECTURE 4.2, R-5).

@@ -10,13 +10,18 @@
 
 use std::collections::BTreeSet;
 
-use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, RunCoverageOutput};
+use k_rust::backend::{
+    CompiledRuleKind, CompiledRuleOriginOutput, CompiledRuleOutput, RunCoverageOutput,
+};
 
-use super::{RuleMode, RuleRef};
+use super::{RuleLocation, RuleMode, RuleName, RuleRef, rule_names};
 use crate::{
-    error::TargetProblem,
+    error::{TargetProblem, UnknownRule},
     exec::{self, CaseResult, TargetNeeds},
 };
+
+/// How many candidates a refusal of an unknown reference lists.
+const CANDIDATES: usize = 5;
 
 /// Resolve `rule` to the unique id of one catalog entry, refusing the entries whose coverage may
 /// come from another sentence or from use the run never made (ARCHITECTURE 4.2).
@@ -27,12 +32,16 @@ use crate::{
 /// - `Source` matches the entries with an origin written in that source (the catalog's
 ///   `Source(path)` text, the path inside it, or a suffix of that path at a `/`; failing all
 ///   of those, an absolute path that ends with `/` and the catalog's relative path) whose
-///   location starts on that line. Equal written axioms are one catalog entry with all their origins and one id, so a
-///   reference to one position also counts firings of an identical sentence at another
-///   position: the two have the same meaning, but a claim about the position names both.
+///   location spans that line, from its first line to its last. A rule is a span of its source
+///   and rules do not nest, so a line inside a rule names that rule; two sentences written on
+///   one line are an ambiguity. Equal written axioms are one catalog entry with all their
+///   origins and one id, so a reference to one position also counts firings of an identical
+///   sentence at another position: the two have the same meaning, but a claim about the
+///   position names both.
 ///
 /// Entries matching one reference that carry different ids are an ambiguity; entries that carry
-/// one id are that id's entries, which `shared_identity` flags when there are several.
+/// one id are that id's entries, which `shared_identity` flags when there are several. A
+/// reference no entry matches is refused with candidates ([`UnknownRule`]).
 pub(crate) fn resolve_rule(
     catalog: &[CompiledRuleOutput],
     rule: &RuleRef,
@@ -59,41 +68,19 @@ pub(crate) fn resolve_rule(
             }
         }
         RuleRef::UniqueId(id) => catalog.iter().filter(|entry| entry.id == *id).collect(),
-        RuleRef::Source { source, line } => {
-            let at = |matches: fn(&str, &str) -> bool| -> Vec<&CompiledRuleOutput> {
-                catalog
-                    .iter()
-                    .filter(|entry| {
-                        entry.origins.iter().any(|origin| {
-                            origin
-                                .source
-                                .as_deref()
-                                .is_some_and(|written| matches(catalog_path(written), source))
-                                && origin
-                                    .location
-                                    .as_deref()
-                                    .and_then(start_line)
-                                    .is_some_and(|start| start == *line)
-                        })
-                    })
-                    .collect()
-            };
-            let named = at(source_names);
-            if named.is_empty() && source.starts_with('/') {
-                at(absolute_source_names)
-            } else {
-                named
-            }
-        }
+        RuleRef::Source { source, line } => written_in(catalog, source, Some(*line)),
     };
     let ids: BTreeSet<&str> = matching.iter().map(|entry| entry.id.as_str()).collect();
     if ids.len() > 1 {
+        let mut names = rule_names(catalog);
         return Err(TargetProblem::AmbiguousRule(
-            ids.into_iter().map(str::to_owned).collect(),
+            ids.into_iter()
+                .filter_map(|id| names.remove_entry(id))
+                .collect(),
         ));
     }
     let Some(entry) = matching.first() else {
-        return Err(TargetProblem::UnknownRule);
+        return Err(TargetProblem::UnknownRule(Box::new(unknown(catalog, rule))));
     };
     // The permanent refusal first: an equation stays refused in M1 whatever its attributes.
     if entry.kind != CompiledRuleKind::Rewrite {
@@ -109,6 +96,189 @@ pub(crate) fn resolve_rule(
         return Err(TargetProblem::NotExecutable);
     }
     Ok(entry.id.clone())
+}
+
+/// The entries of `catalog` with an origin written in `source` (see [`resolve_rule`]) whose
+/// location spans `line`, or with any location when `line` is `None`.
+fn written_in<'a>(
+    catalog: &'a [CompiledRuleOutput],
+    source: &str,
+    line: Option<u32>,
+) -> Vec<&'a CompiledRuleOutput> {
+    let at = |matches: fn(&str, &str) -> bool| -> Vec<&CompiledRuleOutput> {
+        catalog
+            .iter()
+            .filter(|entry| {
+                entry.origins.iter().any(|origin| {
+                    in_source(origin, source, matches)
+                        && line.is_none_or(|line| {
+                            origin
+                                .location
+                                .as_deref()
+                                .and_then(span)
+                                .is_some_and(|(start, end)| start <= line && line <= end)
+                        })
+                })
+            })
+            .collect()
+    };
+    let named = at(source_names);
+    if named.is_empty() && source.starts_with('/') {
+        at(absolute_source_names)
+    } else {
+        named
+    }
+}
+
+/// Whether `origin` is written in `source`, compared by `matches`.
+fn in_source(
+    origin: &CompiledRuleOriginOutput,
+    source: &str,
+    matches: fn(&str, &str) -> bool,
+) -> bool {
+    origin
+        .source
+        .as_deref()
+        .is_some_and(|written| matches(catalog_path(written), source))
+}
+
+/// What `catalog` offers in place of `rule`, which no entry matches ([`UnknownRule`]).
+fn unknown(catalog: &[CompiledRuleOutput], rule: &RuleRef) -> UnknownRule {
+    let names = rule_names(catalog);
+    let with_names = |ids: Vec<&str>| -> Vec<(String, RuleName)> {
+        let mut seen = BTreeSet::new();
+        ids.into_iter()
+            .filter(|id| seen.insert(*id))
+            .filter_map(|id| names.get(id).map(|name| (id.to_owned(), name.clone())))
+            .take(CANDIDATES)
+            .collect()
+    };
+    let starting_with = |prefix: &str| -> Vec<&str> {
+        let prefix = prefix.to_ascii_lowercase();
+        names
+            .keys()
+            .filter(|id| !prefix.is_empty() && id.starts_with(&prefix))
+            .map(String::as_str)
+            .collect()
+    };
+    let mut unknown = UnknownRule {
+        reference: rule.clone(),
+        candidates: Vec::new(),
+        unlabelled: 0,
+        sources: Vec::new(),
+    };
+    match rule {
+        RuleRef::Label(label) => {
+            let mut near: Vec<(usize, &str, &str)> = catalog
+                .iter()
+                .filter_map(|entry| {
+                    let written = entry.label.as_deref()?;
+                    let distance = label_distance(label, written)?;
+                    Some((distance, written, entry.id.as_str()))
+                })
+                .collect();
+            near.sort_unstable();
+            let mut ids: Vec<&str> = near.into_iter().map(|(_, _, id)| id).collect();
+            // An id cut short (`5ac0f147`) is not a label; the ids it starts.
+            if label.len() >= 4 && label.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                ids.extend(starting_with(label));
+            }
+            unknown.candidates = with_names(ids);
+            unknown.unlabelled = catalog
+                .iter()
+                .filter(|entry| {
+                    entry.kind == CompiledRuleKind::Rewrite
+                        && entry.executable
+                        && entry.label.is_none()
+                        && entry.id != "UNKNOWN"
+                })
+                .map(|entry| entry.id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len();
+        }
+        RuleRef::UniqueId(id) => unknown.candidates = with_names(starting_with(id)),
+        RuleRef::Source { source, line } => {
+            let in_file = written_in(catalog, source, None);
+            if in_file.is_empty() {
+                unknown.sources = catalog
+                    .iter()
+                    .filter(|entry| entry.kind == CompiledRuleKind::Rewrite)
+                    .flat_map(|entry| &entry.origins)
+                    .filter_map(|origin| origin.source.as_deref().map(catalog_path))
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+            } else {
+                // The entries written nearest the line, listed in the order they are written.
+                let mut near: Vec<(u32, u32, &str)> = in_file
+                    .iter()
+                    .filter_map(|entry| {
+                        entry
+                            .origins
+                            .iter()
+                            .filter(|origin| {
+                                in_source(origin, source, source_names)
+                                    || in_source(origin, source, absolute_source_names)
+                            })
+                            .filter_map(|origin| origin.location.as_deref().and_then(span))
+                            .map(|(start, end)| {
+                                let distance = if *line < start {
+                                    start - line
+                                } else {
+                                    line.saturating_sub(end)
+                                };
+                                (distance, start, entry.id.as_str())
+                            })
+                            .min()
+                    })
+                    .collect();
+                near.sort_unstable();
+                near.truncate(CANDIDATES);
+                near.sort_unstable_by_key(|(_, start, id)| (*start, *id));
+                unknown.candidates = with_names(near.into_iter().map(|(_, _, id)| id).collect());
+            }
+        }
+    }
+    unknown
+}
+
+/// How far the label `given` is from the catalog label `written`, when it is near enough to
+/// list: the edit distance, ignoring case, to `written` or to `written` without its module,
+/// when it is at most a third of the given label's length (at least 2), or 0 when the label
+/// contains the given text or the given text contains the label without its module (of three
+/// characters or more).
+fn label_distance(given: &str, written: &str) -> Option<usize> {
+    let given = given.to_lowercase();
+    let written = written.to_lowercase();
+    let bare = written
+        .split_once('.')
+        .map_or(written.as_str(), |(_, bare)| bare);
+    if !given.is_empty() && (written.contains(&given) || bare.len() >= 3 && given.contains(bare)) {
+        return Some(0);
+    }
+    let distance = edit_distance(&given, &written).min(edit_distance(&given, bare));
+    (distance <= (given.chars().count() / 3).max(2)).then_some(distance)
+}
+
+/// The Levenshtein distance between `left` and `right`, by characters.
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right: Vec<char> = right.chars().collect();
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    for (row, left) in left.chars().enumerate() {
+        let mut current = Vec::with_capacity(right.len() + 1);
+        current.push(row + 1);
+        for (column, right) in right.iter().enumerate() {
+            let substitution = previous[column] + usize::from(left != *right);
+            current.push(
+                substitution
+                    .min(previous[column + 1] + 1)
+                    .min(current[column] + 1),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 /// The path inside the catalog's source text `Source(path)`, or the text itself.
@@ -138,12 +308,35 @@ fn absolute_source_names(path: &str, given: &str) -> bool {
     !path.starts_with('/') && ends_at_directory(given, path)
 }
 
-/// The first line of a catalog location `Location(start_line,start_column,end_line,end_column)`.
-fn start_line(location: &str) -> Option<u32> {
+/// The first and last lines of a catalog location
+/// `Location(start_line,start_column,end_line,end_column)`; a last line before the first is
+/// read as the first.
+fn span(location: &str) -> Option<(u32, u32)> {
     let numbers = location.strip_prefix("Location(")?.strip_suffix(')')?;
-    let mut parts = numbers.split(',').map(|part| part.trim().parse::<u32>());
-    let line = parts.next()?.ok()?;
-    (parts.count() == 3).then_some(line)
+    let parts = numbers
+        .split(',')
+        .map(|part| part.trim().parse::<u32>().ok())
+        .collect::<Option<Vec<u32>>>()?;
+    let [start, _, end, _] = parts[..] else {
+        return None;
+    };
+    Some((start, end.max(start)))
+}
+
+/// The source locations of `entry`'s origins ([`RuleLocation`]).
+pub(super) fn locations(entry: &CompiledRuleOutput) -> Vec<RuleLocation> {
+    entry
+        .origins
+        .iter()
+        .filter_map(|origin| {
+            let (line, end_line) = origin.location.as_deref().and_then(span)?;
+            Some(RuleLocation {
+                source: catalog_path(origin.source.as_deref()?).to_owned(),
+                line,
+                end_line,
+            })
+        })
+        .collect()
 }
 
 /// What every request of a rule target needs (ARCHITECTURE 5.1, 5.3; D16, D18).
