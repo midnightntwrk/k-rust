@@ -9,6 +9,7 @@ use k_rust::{
     },
     definition::{AttributeKey, Attributes, ResolvedDefinition},
     k_rust_backend::{
+        data_term::DataHeads,
         definition::BackendDefinition,
         evaluation::{EvaluationMode, with_evaluation},
         rewrite::Pattern,
@@ -273,6 +274,11 @@ pub(crate) struct Executor {
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
+    /// The overload heads whose irreducible applications a data end may hold
+    /// ([`LeafReport::data_end`]): the definition's own ([`BackendDefinition::data_heads`]), or,
+    /// in a differential campaign, those the two definitions agree on
+    /// ([`Self::admit_data_heads`]).
+    data_heads: DataHeads,
     /// The per-case safety limit, in milliseconds; wasm32 refuses it, so there it is never set.
     #[cfg(not(target_arch = "wasm32"))]
     safety_limit_ms: Option<u64>,
@@ -379,6 +385,7 @@ impl Executor {
                     message: format!("the main module does not load: {error}"),
                 })?;
         let load_stack_stops = load_stack_stops(&loaded);
+        let data_heads = loaded.data_heads();
         drop(loaded);
         let prepared = prepare_matcher(&mut backend, &normal_end.pattern)
             .map_err(|message| CampaignError::NormalEndPattern { message })?;
@@ -389,6 +396,7 @@ impl Executor {
             compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
+            data_heads,
             #[cfg(not(target_arch = "wasm32"))]
             safety_limit_ms: options.safety_limit_ms,
             #[cfg(not(target_arch = "wasm32"))]
@@ -396,6 +404,17 @@ impl Executor {
                 .safety_limit_ms
                 .map(|_| super::watchdog::Watchdog::new()),
         })
+    }
+
+    /// The overload heads a data end may hold ([`Self::admit_data_heads`]).
+    pub(crate) fn data_heads(&self) -> &DataHeads {
+        &self.data_heads
+    }
+
+    /// Admit only `heads` (a subset of [`Self::data_heads`]: the heads both definitions of a
+    /// differential campaign agree on, `DataHeads::agreeing_with`) in data ends.
+    pub(crate) fn admit_data_heads(&mut self, heads: DataHeads) {
+        self.data_heads = heads;
     }
 
     /// The backend, for target resolution (`rule_catalog`) and pattern compilation.
@@ -466,7 +485,7 @@ impl Executor {
                 max_iterations: self.max_simplification_iterations,
                 ..SimplificationOptions::default()
             },
-            constructor_only: shape.constructor_only,
+            data_heads: shape.data_end.then_some(&self.data_heads),
             terminal_allowed: shape.has_terminal_rules(),
             load_stack_stops: self.load_stack_stops,
             forward: None,
@@ -519,14 +538,14 @@ impl Executor {
             natural_end: false,
             matches: Vec::new(),
             rewrites: Vec::new(),
-            constructor_only: None,
+            data_end: None,
         };
         let judge = Judge {
             normal_end: &self.normal_end,
             default_normal_end: self.default_normal_end,
             matchers: &[],
             options: SimplificationOptions::default(),
-            constructor_only: false,
+            data_heads: None,
             terminal_allowed: false,
             load_stack_stops: 0,
             forward: None,
@@ -560,7 +579,9 @@ struct Judge<'a> {
     default_normal_end: bool,
     matchers: &'a [&'a LeafMatcher],
     options: SimplificationOptions,
-    constructor_only: bool,
+    /// When the request asks for [`LeafReport::data_end`], the overload heads a data end may
+    /// hold.
+    data_heads: Option<&'a DataHeads>,
     terminal_allowed: bool,
     load_stack_stops: usize,
     /// Under the safety limit, the caller's token and the case's own: the caller's cancellation
@@ -584,7 +605,7 @@ struct Internal {
     /// The normal-termination pattern matched (a `stuck` leaf whose state was decided).
     normal_end: bool,
     matches: Vec<bool>,
-    constructor_only: Option<bool>,
+    data_end: Option<bool>,
     /// Solver `unknown`s the leaf's matching met, in either evaluation mode (review 2, NI-2).
     smt_unknowns: usize,
 }
@@ -685,7 +706,7 @@ impl Judge<'_> {
                 natural_end: false,
                 matches: vec![false; self.matchers.len()],
                 rewrites: established_rewrites(leaf),
-                constructor_only: None,
+                data_end: None,
             });
         }
         let internal = match self.judge_internally(backend, &leaves) {
@@ -700,7 +721,7 @@ impl Judge<'_> {
             leaf.unclean.dedup();
             leaf.natural_end = leaf.is_clean() && internal.normal_end;
             leaf.matches = internal.matches;
-            leaf.constructor_only = internal.constructor_only;
+            leaf.data_end = internal.data_end;
         }
         let run_facts_off_leaves = run_facts_off_leaves(result);
         let mut load_records = load_records(result);
@@ -782,7 +803,7 @@ impl Judge<'_> {
     }
 
     /// Internalize every leaf in its definition and judge it: decided, ceil-free, natural end,
-    /// each matcher, constructor-only. One operation over every leaf state and every matcher.
+    /// each matcher, data. One operation over every leaf state and every matcher.
     fn judge_internally(
         &self,
         backend: &mut Backend,
@@ -852,8 +873,8 @@ impl Judge<'_> {
         if !decided || !end_like {
             return Ok(internal);
         }
-        if self.constructor_only {
-            internal.constructor_only = Some(attributes.constructor_like);
+        if let Some(heads) = self.data_heads {
+            internal.data_end = Some(definition.is_data(&pattern.term, heads));
         }
         if leaf.halt == HaltReasonOutput::Stuck {
             if self.default_normal_end && attributes.k_cells() != 1 {

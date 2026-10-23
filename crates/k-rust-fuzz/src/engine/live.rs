@@ -420,6 +420,15 @@ impl LiveCases {
                     .map(SideCache::seed)
                     .unwrap_or_default(),
             )?;
+            // Condition 4 compares ends across the two definitions: an irreducible overload
+            // application denotes the same value in both only where both give its head the same
+            // overload equations (`k_rust_backend::data_term`, "Two definitions").
+            let agreeing = baseline
+                .executor
+                .data_heads()
+                .agreeing_with(mutant.executor.data_heads());
+            baseline.executor.admit_data_heads(agreeing.clone());
+            mutant.executor.admit_data_heads(agreeing);
             baseline.shape = CaseRequestShape::new(&spec.options, &plan.baseline);
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);
             mutant.all_paths_shape = plan
@@ -1312,6 +1321,7 @@ mod tests {
                 }),
                 run_to_completion: false,
                 negated_property: true,
+                data_end: true,
             },
             options: CaseOptions::default(),
             proposers: ProposerConfig {
@@ -1432,6 +1442,7 @@ mod tests {
                 )),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -1517,6 +1528,7 @@ mod tests {
                 )),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -1595,6 +1607,7 @@ mod tests {
                 }),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -1657,6 +1670,7 @@ mod tests {
                 }),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),

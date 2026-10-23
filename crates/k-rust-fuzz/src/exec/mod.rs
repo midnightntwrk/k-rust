@@ -295,11 +295,14 @@ pub struct LeafReport {
     /// `cancelled` leaf the last entry is left out: it built the stopped, unnormalised state,
     /// which may normalize to `\bottom` (review 2, S1).
     pub rewrites: Vec<String>,
-    /// When the request asked for it and the leaf's state can be decided: the leaf's
-    /// internalized configuration consists only of free-constructor applications, injections,
-    /// domain values and well-formed collections (differential condition 4, ARCHITECTURE 4.3,
-    /// T-16). `None` otherwise.
-    pub constructor_only: Option<bool>,
+    /// When the request asked for it and the leaf is a decided end: the leaf's internalized
+    /// configuration is data (`k_rust_backend::definition::BackendDefinition::is_data`): free
+    /// constructors, injections, domain values, well-formed collections and irreducible
+    /// applications of the overload heads the executor admits, so that it denotes itself and
+    /// differs from every other data term (differential condition 4, ARCHITECTURE 4.3, T-16;
+    /// the data-end requirement of rule and pattern targets, [`crate::Target::data_end`]).
+    /// `None` otherwise.
+    pub data_end: Option<bool>,
 }
 
 impl LeafReport {
@@ -465,8 +468,9 @@ pub(crate) struct TargetNeeds {
     pub(crate) trace: bool,
     /// The request's terminal rules (a `fired` rule target without `run-to-completion`).
     pub(crate) terminal_rules: Vec<String>,
-    /// Leaves carry [`LeafReport::constructor_only`] (the differential mutant side).
-    pub(crate) constructor_only: bool,
+    /// Leaves carry [`LeafReport::data_end`] (both differential sides, and a rule or pattern
+    /// target that requires a data end).
+    pub(crate) data_end: bool,
     /// Override of the path mode (the differential baseline runs all paths).
     pub(crate) paths: Option<PathMode>,
     /// Ask for `result_modality: state-set` instead of `path-set` (both differential sides,
@@ -483,7 +487,7 @@ pub(crate) struct TargetNeeds {
 #[derive(Clone, Debug)]
 pub(crate) struct CaseRequestShape {
     request: ExecuteRequest,
-    constructor_only: bool,
+    data_end: bool,
 }
 
 impl CaseRequestShape {
@@ -520,7 +524,7 @@ impl CaseRequestShape {
         };
         Self {
             request,
-            constructor_only: needs.constructor_only,
+            data_end: needs.data_end,
         }
     }
 
@@ -596,6 +600,23 @@ pub(crate) fn classify(
     reached: &[bool],
     run_to_completion: bool,
 ) -> Result<OutcomeClass, EngineDefect> {
+    classify_ends(result, reached, run_to_completion, false)
+}
+
+/// [`classify`], where under `run_to_completion` and `data_end` a reaching natural end is a hit
+/// only when its configuration is data ([`LeafReport::data_end`]; a rule or pattern target's
+/// [`crate::Target::data_end`]); a reaching natural end that is not data is `unsupported`, as the
+/// differential judge classes a mutant end it cannot compare.
+///
+/// # Errors
+///
+/// As [`classify`].
+pub(crate) fn classify_ends(
+    result: &CaseResult,
+    reached: &[bool],
+    run_to_completion: bool,
+    data_end: bool,
+) -> Result<OutcomeClass, EngineDefect> {
     if let Some(failure) = &result.failure {
         return Ok(failure_class(result, failure));
     }
@@ -627,6 +648,15 @@ pub(crate) fn classify(
     for (index, (leaf, reached)) in result.leaves.iter().zip(reached).enumerate() {
         let class = leaf_class(leaf, *reached, run_to_completion)
             .map_err(|description| defect(format!("leaf {index}: {description}")))?;
+        let class = if class == OutcomeClass::Hit
+            && run_to_completion
+            && data_end
+            && leaf.data_end != Some(true)
+        {
+            OutcomeClass::Unsupported
+        } else {
+            class
+        };
         let class = if class == OutcomeClass::Hit && !breaks.is_empty() {
             if breaks.contains(&DeterminismBreak::Clock) {
                 OutcomeClass::Timeout

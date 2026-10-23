@@ -165,6 +165,7 @@ fn maze_spec(h: i64, i: i64, target: &str) -> CampaignSpec {
             }),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         options: CaseOptions::default(),
         proposers: ProposerConfig::default(),

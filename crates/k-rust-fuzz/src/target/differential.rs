@@ -29,10 +29,15 @@
 //! all-paths run is complete: every leaf is a clean `stuck` leaf or a clean undefined step. A
 //! bound, a stop, an undecided or unsupported leaf leaves paths unexplored, and an end outside a
 //! partial set proves nothing; such a case is `baseline-incomplete`, never a miss. The mutant's
-//! end must be a clean, decided `stuck` leaf whose internalized term is built from free
-//! constructors, injections, domain values and well-formed collections only, so that it denotes
+//! end must be a clean, decided `stuck` leaf whose internalized term is data
+//! (`k_rust_backend::data_term`): built from free constructors, injections, domain values,
+//! well-formed collections and irreducible applications of overload heads, so that it denotes
 //! itself and syntactic inequality is inequality of values (condition 4); the baseline's ends
-//! must pass the same test, or one of them may denote the mutant's end (D15). An
+//! must pass the same test, or one of them may denote the mutant's end (D15). An irreducible
+//! overload application denotes itself in each definition, and the same value in both only
+//! where both give its head the same overload equations over the same subsort order, so each
+//! side's ends are judged against the overload heads the two definitions agree on
+//! (`DataHeads::agreeing_with`, set on both executors when the campaign is built). An
 //! implementation-chosen value on either side would make the comparison depend on a choice
 //! k-rust made, not on the definitions; a contradicted claim (a `total` or
 //! `preserves-definedness` attribute the run refuted) makes that side's theory inconsistent on
@@ -90,10 +95,10 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DifferentialPlan {
     /// The baseline runs all paths, so that its set of ends can be complete, and reports
-    /// [`crate::exec::LeafReport::constructor_only`]: its ends must be data to be compared.
+    /// [`crate::exec::LeafReport::data_end`]: its ends must be data to be compared.
     pub(crate) baseline: TargetNeeds,
     /// The mutant runs on the campaign's path mode and reports
-    /// [`crate::exec::LeafReport::constructor_only`].
+    /// [`crate::exec::LeafReport::data_end`].
     pub(crate) mutant: TargetNeeds,
     /// In the one-path mode, the mutant on all paths, for the cases [`needs_all_paths`] selects;
     /// `None` in the all-paths mode, whose mutant run already explores every path.
@@ -140,7 +145,7 @@ impl DifferentialJudgement {
 
 /// The needs of each side for `options`: the baseline on all paths, whatever the campaign's
 /// path mode; the mutant on the campaign's path mode (and, in the one-path mode, on all paths for
-/// the re-run), with the constructor-only judgement of condition 4. The baseline's leaves carry
+/// the re-run), with the data judgement of condition 4. The baseline's leaves carry
 /// that judgement too: an end outside the baseline's set is a kill only when every baseline end
 /// is data, and a baseline end can be the witness of a removed end. Both sides run as state
 /// sets, whose set of final configurations is the path set's (the module documentation, "State
@@ -148,7 +153,7 @@ impl DifferentialJudgement {
 pub(crate) fn plan(options: &CaseOptions) -> DifferentialPlan {
     let side = |paths| TargetNeeds {
         paths: Some(paths),
-        constructor_only: true,
+        data_end: true,
         state_set: true,
         ..TargetNeeds::default()
     };
@@ -330,8 +335,10 @@ fn strip_positions(value: &mut serde_json::Value) {
 ///    natural end or abnormal stop alike (under `run_to_completion`, a natural end only);
 /// 3. neither side is no evidence: no implementation-chosen value mark and no contradicted
 ///    claim on a leaf or off every leaf;
-/// 4. the mutant leaf's internalized configuration is constructor-only (internal term kinds,
-///    not KORE symbols);
+/// 4. the mutant leaf's internalized configuration is data in the mutant
+///    (`k_rust_backend::data_term`): free constructors, injections, domain values, well-formed
+///    collections, and irreducible applications of the overload heads both definitions give the
+///    same overload equations ([`crate::exec::LeafReport::data_end`]);
 /// 5. that configuration is not in the baseline's set of ends, compared as printed KORE after
 ///    k-rust's normalization, and every end in that set passes condition 4 too (decision D15):
 ///    a baseline end such as an unevaluated application of a total function may denote the
@@ -339,9 +346,8 @@ fn strip_positions(value: &mut serde_json::Value) {
 ///
 /// With `paths` all-paths a case is also a hit by a *removed end* if conditions 1 and 3 hold, the
 /// mutant's run is complete in the sense of condition 1 (its set of ends may be empty, when every
-/// path takes an undefined step) with every end constructor-only, and some baseline end (a
-/// clean `stuck` leaf, a natural end under `run_to_completion`) with a constructor-only
-/// configuration is not in the mutant's set. The mutant's ends must be data too: a mutant end
+/// path takes an undefined step) with every end data, and some baseline end (a
+/// clean `stuck` leaf, a natural end under `run_to_completion`) whose configuration is data is not in the mutant's set. The mutant's ends must be data too: a mutant end
 /// such as an unevaluated application of a total function may denote the baseline's end, so its
 /// syntactic difference proves nothing.
 ///
@@ -357,7 +363,7 @@ fn strip_positions(value: &mut serde_json::Value) {
 ///   one the run noted on no leaf ([`CaseResult::run_facts_off_leaves`]); condition 3 is a fact
 ///   of the whole result;
 /// - no kill exists, but some end outside the other side's set could not be judged: a clean
-///   end that is not constructor-only, a `stuck` leaf that is not clean (or, under
+///   end that is not data, a `stuck` leaf that is not clean (or, under
 ///   `run_to_completion`, whose natural end is undecided), or a would-be kill against a
 ///   complete set that holds an end that is not data (the set is complete, so the case is not
 ///   `baseline-incomplete`, but its ends cannot be compared).
@@ -365,7 +371,7 @@ fn strip_positions(value: &mut serde_json::Value) {
 /// # Errors
 ///
 /// [`EngineDefect`] from classification, or when a clean natural end outside the other side's
-/// set carries no constructor-only judgement although [`plan`] asked for it.
+/// set carries no data judgement although [`plan`] asked for it.
 pub(crate) fn judge_pair(
     baseline: &CaseResult,
     mutant: &CaseResult,
@@ -460,7 +466,7 @@ pub(crate) fn needs_all_paths(
     adds_none
         && baseline.leaves.iter().any(|leaf| {
             leaf.halt == HaltReasonOutput::Stuck
-                && leaf.constructor_only == Some(true)
+                && leaf.data_end == Some(true)
                 && (!run_to_completion || leaf.natural_end)
                 && !reached.contains(&leaf.state)
         })
@@ -529,10 +535,10 @@ fn complete_leaf(leaf: &LeafReport) -> bool {
 #[derive(Debug, Eq, PartialEq)]
 struct Verdicts {
     /// `kills[i]`: leaf `i` is a clean `stuck` leaf (condition 2) whose configuration is
-    /// constructor-only (condition 4) and not in the other side's set (condition 5).
+    /// data (condition 4) and not in the other side's set (condition 5).
     kills: Vec<bool>,
     /// Some end outside the other side's set could not be judged: a clean end that is not
-    /// constructor-only, or a `stuck` leaf that is not clean.
+    /// data, or a `stuck` leaf that is not clean.
     undecided: bool,
 }
 
@@ -550,7 +556,7 @@ impl Verdicts {
     /// or the baseline's removed ends against the mutant.
     ///
     /// A kill needs data on both sides (conditions 4 and 5, decision D15): when some end of
-    /// `others` is not constructor-only, an end that `others_set` lacks syntactically may still
+    /// `others` is not data, an end that `others_set` lacks syntactically may still
     /// be one the other side reaches, so every would-be kill is undecided instead. Only the
     /// ends of `others` count: its undefined steps reach no configuration to compare with.
     ///
@@ -581,14 +587,14 @@ impl Verdicts {
                 verdicts.undecided |= leaf.natural_end_undecided();
                 continue;
             }
-            match leaf.constructor_only {
+            match leaf.data_end {
                 Some(true) => verdicts.kills[index] = true,
                 Some(false) => verdicts.undecided = true,
                 None => {
                     return Err(EngineDefect {
                         case: None,
                         description: format!(
-                            "{role} leaf {index} is an end without the constructor-only \
+                            "{role} leaf {index} is an end without the data \
                              judgement the differential plan requests"
                         ),
                     });
@@ -599,7 +605,7 @@ impl Verdicts {
             .leaves
             .iter()
             .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
-            .all(|leaf| leaf.constructor_only == Some(true));
+            .all(|leaf| leaf.data_end == Some(true));
         if !others_are_data && verdicts.kills.contains(&true) {
             verdicts.kills.fill(false);
             verdicts.undecided = true;
@@ -629,8 +635,8 @@ mod tests {
         .expect("the test configuration parses")
     }
 
-    /// A clean natural end with the given constructor-only judgement.
-    fn natural(state: KorePattern, constructor_only: Option<bool>) -> LeafReport {
+    /// A clean natural end with the given data judgement.
+    fn natural(state: KorePattern, data_end: Option<bool>) -> LeafReport {
         LeafReport {
             halt: HaltReasonOutput::Stuck,
             depth: 3,
@@ -639,7 +645,7 @@ mod tests {
             natural_end: true,
             matches: Vec::new(),
             rewrites: Vec::new(),
-            constructor_only,
+            data_end,
         }
     }
 
@@ -653,7 +659,7 @@ mod tests {
             natural_end: false,
             matches: Vec::new(),
             rewrites: Vec::new(),
-            constructor_only: None,
+            data_end: None,
         }
     }
 
@@ -673,7 +679,7 @@ mod tests {
     }
 
     /// A complete baseline with the two ends 3 and 4 (the COIN baseline on `flip(3)`), both
-    /// judged constructor-only.
+    /// judged data.
     fn coin_baseline() -> CaseResult {
         result(vec![
             natural(config(3, 0), Some(true)),
@@ -717,7 +723,7 @@ mod tests {
                 assert_eq!(rerun.paths, Some(PathMode::AllPaths));
             }
             for needs in [&plan.baseline, &plan.mutant].into_iter().chain(rerun) {
-                assert!(needs.constructor_only);
+                assert!(needs.data_end);
                 assert!(needs.state_set);
                 assert!(!needs.trace);
                 assert!(needs.terminal_rules.is_empty());
@@ -896,10 +902,10 @@ mod tests {
     }
 
     /// A clean abnormal stop (a `stuck` leaf that is not a natural end) with the given
-    /// constructor-only judgement.
-    fn abnormal(state: KorePattern, constructor_only: Option<bool>) -> LeafReport {
+    /// data judgement.
+    fn abnormal(state: KorePattern, data_end: Option<bool>) -> LeafReport {
         LeafReport {
-            constructor_only,
+            data_end,
             ..leaf(HaltReasonOutput::Stuck, state, Vec::new())
         }
     }
@@ -968,7 +974,7 @@ mod tests {
     }
 
     #[test]
-    fn a_natural_end_that_is_not_constructor_only_is_undecided() {
+    fn a_natural_end_that_is_not_data_is_undecided() {
         let mutant = result(vec![natural(config(5, 0), Some(false))]);
         assert_eq!(
             added(&coin_baseline(), &mutant),
@@ -996,7 +1002,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_constructor_only_judgement_is_an_engine_defect() {
+    fn a_missing_data_judgement_is_an_engine_defect() {
         let mutant = result(vec![natural(config(5, 0), None)]);
         let baseline = coin_baseline();
         let ends = complete_ends(&baseline).expect("complete");
@@ -1216,7 +1222,7 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_end_that_is_not_constructor_only_is_unsupported() {
+    fn a_removed_end_that_is_not_data_is_unsupported() {
         let baseline = result(vec![
             natural(config(3, 0), Some(false)),
             natural(config(4, 0), Some(true)),
@@ -1230,7 +1236,7 @@ mod tests {
 
     #[test]
     fn a_removed_end_beside_a_mutant_end_that_is_not_data_is_unsupported() {
-        // The mutant's end 4 is not constructor-only (say an unevaluated total function that
+        // The mutant's end 4 is not data (say an unevaluated total function that
         // happens to print apart from 3 and 4): it may denote 3, so 3 is not shown removed.
         let mutant = result(vec![
             natural(config(4, 0), Some(true)),
@@ -1394,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_end_without_a_constructor_only_judgement_is_an_engine_defect() {
+    fn a_removed_end_without_a_data_judgement_is_an_engine_defect() {
         let baseline = result(vec![
             natural(config(3, 0), None),
             natural(config(4, 0), None),
@@ -1783,7 +1789,7 @@ mod fixture_tests {
         };
         let needs = |state_set| TargetNeeds {
             paths: Some(PathMode::AllPaths),
-            constructor_only: true,
+            data_end: true,
             state_set,
             ..TargetNeeds::default()
         };

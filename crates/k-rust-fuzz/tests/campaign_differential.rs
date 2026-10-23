@@ -20,7 +20,8 @@ use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIAMOND, DIAMOND_PLUS, Fixture, IMP_ADD_COMMUTED,
-    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL,
+    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL, OV, OV_INTS,
+    OV_PREPEND, OV_SIZE,
 };
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
@@ -64,6 +65,7 @@ fn spec_on(
             kind: TargetKind::Differential(DifferentialTarget::default()),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         options: CaseOptions::default(),
         proposers: ProposerConfig {
@@ -566,4 +568,76 @@ fn a_mark_that_a_state_set_merge_moved_to_the_result_list_is_no_evidence() {
         "{:?}",
         report.outcome
     );
+}
+
+// ---- ends that hold overload applications (FZ-DATAEND; FZ-OVERLIST, TRIAL2 S-T1)
+
+/// `h(N)` on `baseline` and `mutant`, the anchor and 16 cases.
+fn ov_report(baseline: &'static Fixture, mutant: &'static Fixture) -> k_rust_fuzz::FuzzReport {
+    let report = Campaign::new(spec_on(baseline, mutant, "ov/three.pgm", None))
+        .expect("valid")
+        .run(Budget::Cases(16), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    report
+}
+
+/// Every case that ran is `unsupported` (a negative value does not parse as `h`'s argument and is
+/// `rejected`), and some case ran.
+fn assert_only_unsupported(report: &k_rust_fuzz::FuzzReport) {
+    let classes = &report.totals.classes;
+    assert!(
+        classes.contains_key(&OutcomeClass::Unsupported),
+        "{classes:?}"
+    );
+    assert!(
+        classes
+            .keys()
+            .all(|class| matches!(class, OutcomeClass::Unsupported | OutcomeClass::Rejected)),
+        "{classes:?}"
+    );
+}
+
+/// The baseline ends with `_,_Exps(3, .Ids)`, the mutant with `_,_Exps(0, _,_Exps(3, .Ids))`:
+/// irreducible applications of the overload head `_,_Exps`, which both definitions give the same
+/// overload equations. Both ends are data, so the anchor kills; before FZ-DATAEND condition 4
+/// read only free constructors and every case was `unsupported`.
+#[test]
+fn an_end_holding_an_irreducible_overload_application_is_compared() {
+    let report = ov_report(&OV, &OV_PREPEND);
+    let witness = report.witness().expect("a kill");
+    assert_eq!(witness.first.kill, Some(KillKind::AddedEnd));
+    assert_eq!(witness.first.holes[0].value, Value::Int(BigInt::from(3)));
+    assert!(
+        witness
+            .clean_leaf_facts
+            .contains(&"mutant-end-data".to_owned()),
+        "{:?}",
+        witness.clean_leaf_facts
+    );
+}
+
+/// The mutant adds a list to the family, so `_,_Exps` has an overload equation the baseline
+/// lacks: an application of it that is a normal form of the baseline is reducible in the mutant,
+/// and the two definitions do not name the same values with it. The baseline's end holds one, so
+/// no end is compared: never a kill.
+#[test]
+fn a_mutant_whose_overload_equations_differ_is_never_killed_through_them() {
+    let report = ov_report(&OV, &OV_INTS);
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// An end that holds an unevaluated total function application is not data, on either side:
+/// its value is whatever a model makes of the function, which may be the other side's end.
+#[test]
+fn an_end_holding_a_function_application_is_never_compared() {
+    for (baseline, mutant) in [(&OV, &OV_SIZE), (&OV_SIZE, &OV)] {
+        let report = ov_report(baseline, mutant);
+        assert!(report.witness().is_none(), "{:?}", report.outcome);
+        assert_only_unsupported(&report);
+    }
 }

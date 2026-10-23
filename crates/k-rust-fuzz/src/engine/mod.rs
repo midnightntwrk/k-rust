@@ -822,7 +822,9 @@ fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
 /// - a target that matches a pattern on the leaf (a pattern target, or any target with
 ///   `run-to-completion`, which matches the normal-termination pattern): a decided match;
 /// - a target whose hit rests on run-level facts (the coverage modes, D18) or on a set of ends
-///   (differential): no run-level fact off every leaf (D16).
+///   (differential): no run-level fact off every leaf (D16);
+/// - a rule or pattern target with `run-to-completion` and `data-end`: the end is data
+///   ([`crate::Target::data_end`]).
 fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
     let mut facts: Vec<&str> = vec![
         "halt-stuck-or-target-terminal",
@@ -863,6 +865,9 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
             facts.push("decided-match");
         }
         facts.push("natural-end");
+    }
+    if spec.target.requires_data_end() {
+        facts.push("end-data");
     }
     facts.into_iter().map(str::to_owned).collect()
 }

@@ -147,6 +147,7 @@ fn observer(
         kind: TargetKind::Observer(ObserverTarget::new(name, observer)),
         run_to_completion,
         negated_property: false,
+        data_end: true,
     }
 }
 
@@ -326,6 +327,7 @@ fn a_rule_target_is_run_and_judged_by_the_same_entry_point() {
         }),
         run_to_completion: true,
         negated_property: false,
+        data_end: true,
     };
     let mut coin = Harness::new(COIN.compiled(), one_path());
     let resolved = coin.resolve(&target).expect("the rule resolves");

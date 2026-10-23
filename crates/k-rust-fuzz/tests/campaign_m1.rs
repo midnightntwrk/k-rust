@@ -18,7 +18,7 @@ use k_rust_fuzz::{
     values::{Constraints, GenerationBounds},
 };
 use num_bigint::BigInt;
-use support::{CHOSEN, Fixture, GRAPH, IMP, RULES, SHAPE, VALUE};
+use support::{CHOSEN, Fixture, GRAPH, IMP, OV, OV_SIZE, RULES, SHAPE, VALUE};
 
 /// An `Int` hole at `literal` inside the unique text `find` of `program`.
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
@@ -45,6 +45,7 @@ fn final_pattern(pattern: &str, negated_property: bool) -> Target {
         }),
         run_to_completion: false,
         negated_property,
+        data_end: true,
     }
 }
 
@@ -328,6 +329,7 @@ fn an_undefined_step_is_never_a_hit() {
             }),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
     );
     setup.holes = vec![int_hole("B", "rules/div.pgm", "2)", "2")];
@@ -442,6 +444,7 @@ fn fired(label: &str) -> Target {
         }),
         run_to_completion: false,
         negated_property: false,
+        data_end: true,
     }
 }
 
@@ -608,4 +611,36 @@ fn a_kore_template_data_hole_is_injected_to_its_sort_and_finds_the_witness() {
             );
         }
     }
+}
+
+/// FZ-DATAEND (TRIAL2 S-T2): a run-to-completion rule hit's end must be data, as the
+/// differential judge's ends must, unless the target waives it. `OV`'s rule ends with an
+/// irreducible overload application (data); `OV_SIZE`'s with an unevaluated total function
+/// (not data): its reaching natural end is `unsupported`, and a hit only with `data_end` off.
+#[test]
+fn a_run_to_completion_rule_hit_needs_a_data_end() {
+    let target = |data_end| Target {
+        run_to_completion: true,
+        data_end,
+        ..fired("OV.store")
+    };
+    let setup = |fixture, data_end| {
+        let mut setup = Setup::new(fixture, "ov/three.pgm", target(data_end));
+        setup.holes = vec![int_hole("N", "ov/three.pgm", "3", "3")];
+        setup.proposers = anchors_only();
+        setup
+    };
+    let data = setup(&OV, true).run(Budget::Cases(1));
+    let witness = data.witness().expect("the anchor's end is data");
+    assert!(
+        witness.clean_leaf_facts.contains(&"end-data".to_owned()),
+        "{:?}",
+        witness.clean_leaf_facts
+    );
+    let function = setup(&OV_SIZE, true).run(Budget::Cases(1));
+    assert!(function.witness().is_none(), "{:?}", function.outcome);
+    assert_eq!(classes(&function), [(OutcomeClass::Unsupported, 1)]);
+    let waived = setup(&OV_SIZE, false).run(Budget::Cases(1));
+    let witness = waived.witness().expect("a reach-only hit");
+    assert!(!witness.clean_leaf_facts.contains(&"end-data".to_owned()));
 }

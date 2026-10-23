@@ -1234,6 +1234,12 @@ export interface FuzzTarget {
   kind: FuzzTargetKind
   'run-to-completion': boolean
   'negated-property': boolean
+  /**
+   * With `run-to-completion`, a rule or pattern hit's end must also be data (constructors,
+   * injections, domain values, well-formed collections and irreducible overload applications);
+   * `true` when absent.
+   */
+  'data-end'?: boolean
 }
 
 export type FuzzPathMode = 'one-path' | 'all-paths'

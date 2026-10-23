@@ -146,7 +146,7 @@ fn the_request_follows_the_options_and_the_target_needs() {
     assert!(!request.moving_average_timeout);
     assert!(!request.assume_state_defined);
     assert_eq!(request.module_name, None);
-    assert!(!shape.constructor_only);
+    assert!(!shape.data_end);
 
     let options = CaseOptions {
         max_depth: Some(5),
@@ -156,7 +156,7 @@ fn the_request_follows_the_options_and_the_target_needs() {
     let needs = TargetNeeds {
         trace: true,
         terminal_rules: vec!["rule-id".to_owned()],
-        constructor_only: true,
+        data_end: true,
         paths: Some(PathMode::AllPaths),
         state_set: true,
     };
@@ -170,7 +170,7 @@ fn the_request_follows_the_options_and_the_target_needs() {
     assert_eq!(request.max_simplification_iterations, 7);
     assert!(request.trace);
     assert_eq!(request.terminal_rules, ["rule-id"]);
-    assert!(shape.constructor_only);
+    assert!(shape.data_end);
     assert_eq!(request.result_modality, ResultModalityOutput::StateSet);
 }
 
@@ -477,15 +477,15 @@ fn matches_are_judged_on_unclean_decidable_leaves() {
 }
 
 #[test]
-fn constructor_only_is_judged_when_asked() {
+fn data_end_is_judged_when_asked() {
     let needs = TargetNeeds {
-        constructor_only: true,
+        data_end: true,
         ..TargetNeeds::default()
     };
     let result = rules().run_with("div(10, 2)", &CaseOptions::default(), &needs, &[]);
-    assert_eq!(only_leaf(&result).constructor_only, Some(true));
+    assert_eq!(only_leaf(&result).data_end, Some(true));
     let result = rules().run("div(10, 2)");
-    assert_eq!(only_leaf(&result).constructor_only, None);
+    assert_eq!(only_leaf(&result).data_end, None);
 }
 
 #[test]
@@ -583,7 +583,7 @@ fn leaf(halt: HaltReasonOutput, unclean: &[UncleanReason], natural_end: bool) ->
         natural_end,
         matches: Vec::new(),
         rewrites: Vec::new(),
-        constructor_only: None,
+        data_end: None,
     }
 }
 

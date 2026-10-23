@@ -557,6 +557,16 @@ fixture!(
     DIAMOND_PROGRAMS
 );
 
+/// The overloaded list family (FZ-OVERLIST, FZ-DATAEND): a baseline whose end holds an
+/// irreducible application of the overload head `_,_Exps`, a mutant with the same overload
+/// equations whose end differs, one whose overload equations differ, and one whose end holds an
+/// unevaluated total function.
+pub const OV_PROGRAMS: &[Program] = &[program!("ov/three.pgm")];
+fixture!(OV, "ov/ov.k", "OV", OV_PROGRAMS);
+fixture!(OV_PREPEND, "ov/ov-prepend.k", "OV", OV_PROGRAMS);
+fixture!(OV_INTS, "ov/ov-ints.k", "OV", OV_PROGRAMS);
+fixture!(OV_SIZE, "ov/ov-size.k", "OV", OV_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -749,7 +759,7 @@ fixture!(
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 47] = [
+pub static ALL: [&Fixture; 51] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -797,4 +807,8 @@ pub static ALL: [&Fixture; 47] = [
     &CLAIMSTEP_PRESERVES,
     &DIAMOND,
     &DIAMOND_PLUS,
+    &OV,
+    &OV_PREPEND,
+    &OV_INTS,
+    &OV_SIZE,
 ];
