@@ -1988,6 +1988,11 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
 }
 
+/// Whether `path` names a compiler-owned term island.
+pub(crate) fn is_island_macro(path: &Path) -> bool {
+    special_macro_kind(path).is_some()
+}
+
 /// Whether `path` names `k::fragment!`, a complete nested-cell term.
 pub(crate) fn is_fragment_macro(path: &Path) -> bool {
     matches!(special_macro_kind(path), Some(TermMacroKind::Fragment))
@@ -2162,7 +2167,7 @@ fn validate_special_macro(
         }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, or `or_bool!` islands",
+                reason: "macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands",
             },
             value.span(),
         )),

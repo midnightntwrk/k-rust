@@ -413,7 +413,7 @@ pub(super) fn parse_rule_pattern(
                 return Err(crate::term::matched_matches(&macro_pattern.mac.path));
             }
             if !is_term_macro(&macro_pattern.mac.path) {
-                return Err(unexpected_macro(&macro_pattern.mac.path));
+                return Err(subject_root_macro(&macro_pattern.mac.path));
             }
             let term = TermExpression::parse_pattern_tokens(crate::parse::strip_trailing_comma(
                 macro_pattern.mac.tokens.clone(),
@@ -725,7 +725,7 @@ fn validate_native_pattern(
             crate::rule::misplaced_bit_template(macro_pattern.mac.path.span()),
         ),
         // A rule subject's root is the matched constructor or function.
-        Pat::Macro(macro_pattern) if is_root => Err(unexpected_macro(&macro_pattern.mac.path)),
+        Pat::Macro(macro_pattern) if is_root => Err(subject_root_macro(&macro_pattern.mac.path)),
         // `k::fragment![Group { .. }]` is the group's cell term: its children
         // are patterns of this grammar.
         Pat::Macro(macro_pattern) if crate::term::is_fragment_macro(&macro_pattern.mac.path) => {
@@ -843,6 +843,25 @@ fn validate_native_cell_pattern(
         open,
         update: None,
     }))
+}
+
+/// The error for a macro at the root of a fn's subject. A compiler-owned
+/// island stands below the root, which is the constructor or function the
+/// rule matches; any other macro is not a pattern.
+fn subject_root_macro(path: &Path) -> SyntaxError {
+    if crate::term::is_rewrite_macro(path) {
+        return unsupported_pattern(
+            "a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root",
+            path.span(),
+        );
+    }
+    if crate::term::is_island_macro(path) {
+        return unsupported_pattern(
+            "a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b\"..\"))`",
+            path.span(),
+        );
+    }
+    unexpected_macro(path)
 }
 
 fn validate_root_identifier(

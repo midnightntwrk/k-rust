@@ -178,10 +178,37 @@ fn islands_that_are_not_patterns_keep_their_reasons() {
             "{value}: expected {expected:?}, got {error}"
         );
     }
-    // A fn subject's root is the matched constructor or function, never an
-    // island.
+}
+
+/// A fn subject's root is the matched constructor or function, never an
+/// island, and the error says where the island goes instead of asking for
+/// `k::term!`; any other macro still names the wrapper.
+#[test]
+fn an_island_at_a_subject_root_says_it_stands_below_the_root() {
+    for (subject, expected) in [
+        (
+            "k::fragment![Frame { pc: p, .. }]",
+            "a compiler-owned island stands below it",
+        ),
+        (
+            "k::bytes!(b\"x\")",
+            "a compiler-owned island stands below it",
+        ),
+        (
+            "k::rewrite!(A() => B())",
+            "a whole-subject `k::rewrite!(from => to)` is an ordinary rule",
+        ),
+    ] {
+        let error = RuleItem::parse_source(&format!("#[k::rule] fn f({subject}: Term<E>) {{}}"))
+            .unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::UnsupportedRulePattern { .. })
+                && error.to_string().contains(expected),
+            "{subject}: {error}"
+        );
+    }
     let error = RuleItem::parse_equation_source(
-        "#[k::equation] fn f(k::fragment![Frame { pc: p, .. }]: Term<E>) -> Term<E> { G() }",
+        "#[k::equation] fn f(other![x]: Term<E>) -> Term<E> { G() }",
     )
     .unwrap_err();
     assert!(
