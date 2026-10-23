@@ -24,8 +24,9 @@ The aligned table is presentation: moving `eval_add` above or below `eval_mul` d
 
 ## Symbolic builtin applications
 
-`int::add(lhs, rhs)` and `bool::not(value)` construct builtin applications in the object language.
-They are typed by Rust-visible marker shapes, but K evaluates them through the selected semantic backend—not by calling a Rust function during collection.
+`lhs + rhs` and `!value` construct builtin applications in the object language.
+An operator takes its domain from its operands' sorts, so `where lhs: Int, rhs: Int` makes `lhs + rhs` the `Int` addition `int::add(lhs, rhs)`, and `where value: Bool` makes `!value` the `Bool` negation `bool::not(value)`; without a narrowing the operands would only be `KItem`s, and the operator would be ambiguous.
+K evaluates these applications through the selected semantic backend—not by calling a Rust function during collection.
 
 ## Patterns and narrowing
 
@@ -34,7 +35,7 @@ Literals such as `true` match object-language values, and `..` discards unneeded
 A name repeated within one pattern is one binder and therefore imposes nonlinear symbolic equality; it does not bind two unrelated values.
 
 The equality constructors accept both integers and Booleans.
-Their clauses would overlap without the `where lhs: Bool` or `where lhs: Int` narrowing constraints, which refine binder sorts using the symbolic sort graph.
+Their clauses would overlap without the `where lhs: Bool` or `where lhs: Int` narrowing constraints, which refine binder sorts using the symbolic sort graph; the same narrowing chooses whether `==` is `Int` or `Bool` equality.
 
 Strictness determines where evaluation may occur; rules determine what an evaluated redex becomes.
 If no rule and no derived context applies, the term is stuck rather than implicitly delegated to Rust.

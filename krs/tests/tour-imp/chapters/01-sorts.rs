@@ -5,7 +5,7 @@
 //! to rustc and rust-analyzer while KRS owns the symbolic rule bodies.
 
 use k::KResult;
-use k::builtin::{Bool, Id, Int, KSequence, Map, bool, int, map};
+use k::builtin::{Bool, Id, Int, KSequence, Map, map};
 
 k::sorts! {
     #[k::bracket("(", ")")]
