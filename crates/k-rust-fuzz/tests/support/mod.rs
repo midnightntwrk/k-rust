@@ -677,11 +677,24 @@ fixture!(
     &[program!("tally/run.pgm", "KEYS" = "tally/run.keys")]
 );
 
+// A threaded language: its <k> cell lies under the multiplicity cell <thread>, so the default
+// normal end is judged on every <k> cell (FZ-UNSUPPORTED).
+fixture!(
+    THREADS,
+    "threads/threads.k",
+    "THREADS",
+    &[
+        program!("threads/spawn.pgm"),
+        program!("threads/keep.pgm"),
+        program!("threads/fail.pgm"),
+    ]
+);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 37] = [
+pub static ALL: [&Fixture; 38] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -719,4 +732,5 @@ pub static ALL: [&Fixture; 37] = [
     &TALLY,
     &NOISE,
     &DRAIN,
+    &THREADS,
 ];

@@ -461,6 +461,7 @@ fn a_failing_guard_is_a_condition_reached_hit_and_a_blocked_miss_otherwise() {
             class: OutcomeClass::Hit,
             hit_site: Some(HitSite::Leaf(0)),
             blocked: true,
+            reason: None,
         }
     );
     for mode in [RuleMode::Fired, RuleMode::Covered] {

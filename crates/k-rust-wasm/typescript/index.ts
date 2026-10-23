@@ -1481,12 +1481,57 @@ export type FuzzRejectionReason =
   | 'round-trip'
   | 'backend-refused'
 
+/**
+ * Why a case could not be judged (`unsupported` or `baseline-incomplete`); a case is counted
+ * once, under the first of its reasons in this order.
+ */
+export type FuzzUnjudgedReason =
+  | 'backend-error'
+  | 'stack-exhausted'
+  | 'clock'
+  | 'work-bound'
+  | 'depth-bound'
+  | 'halt-indeterminate'
+  | 'halt-unsupported-hook'
+  | 'halt-simplification-error'
+  | 'halt-vacuous'
+  | 'halt-unexpected'
+  | 'not-ceil-free'
+  | 'undecided-state'
+  | 'internalization-failed'
+  | 'implementation-chosen-value'
+  | 'contradicted-claim'
+  | 'iteration-exhaustion'
+  | 'simplification-failure'
+  | 'undecided-match'
+  | 'stack-stops'
+  | 'smt-unknowns'
+  | 'allowance-refusal'
+  | 'unsupported-hook'
+  | 'run-fact-off-leaves'
+  | 'reached-undefined-step'
+  | 'reached-cut-path'
+  | 'natural-end-undecided'
+  | 'unobservable'
+  | 'kill-on-chosen-value'
+  | 'mutant-end-not-data'
+  | 'baseline-end-not-data'
+  | 'unconfirmed'
+  | 'engine-defect'
+
+/** Which normal end a definition's classes rest on. */
+export type FuzzNormalEndKind = 'single-k' | 'every-k' | 'pattern'
+
 export interface FuzzTotals {
   cases: number
   work: number
   classes: Partial<Record<FuzzOutcomeClass, number>>
   'rejection-rate-permille': number
   rejections: Partial<Record<FuzzRejectionReason, number>>
+  /** `unsupported` cases per reason; the counts sum to `classes.unsupported`. */
+  'unsupported-reasons': Partial<Record<FuzzUnjudgedReason, number>>
+  /** `baseline-incomplete` cases per reason; the counts sum to `classes['baseline-incomplete']`. */
+  'incomplete-reasons': Partial<Record<FuzzUnjudgedReason, number>>
   coverage: { applied: string[]; matched: string[] }
   'target-blocked': number
   'best-score': number[] | null
@@ -1504,6 +1549,8 @@ export interface FuzzReport {
   identity: FuzzReportIdentity
   outcome: FuzzCampaignOutcome
   totals: FuzzTotals
+  /** Which normal end each definition's classes rest on; absent when no case ran. */
+  'normal-end'?: { baseline: FuzzNormalEndKind; mutant?: FuzzNormalEndKind }
   'load-records': { kind: string; detail: string }[]
   'sort-overrides': { hole: string; sort: string; refusal: string }[]
   warnings: string[]

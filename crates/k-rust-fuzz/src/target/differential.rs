@@ -45,7 +45,10 @@ use k_rust::{backend::HaltReasonOutput, kore::ast::Pattern as KorePattern};
 
 use crate::{
     error::CampaignError,
-    exec::{self, CaseResult, LeafReport, OutcomeClass, TargetNeeds, UncleanReason},
+    exec::{
+        self, CaseResult, LeafReport, OutcomeClass, TargetNeeds, UncleanReason, UnjudgedReason,
+        reasons,
+    },
     report::{EngineDefect, KillKind},
     spec::{BackendRoute, CaseOptions, CompiledDefinition, PathMode},
 };
@@ -322,20 +325,44 @@ fn strip_positions(value: &mut serde_json::Value) {
 ///
 /// [`EngineDefect`] from classification, or when a clean natural end outside the other side's
 /// set carries no constructor-only judgement although [`plan`] asked for it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the campaign calls `judge_pair_explained`; the tests compare judgements alone"
+    )
+)]
 pub(crate) fn judge_pair(
     baseline: &CaseResult,
     mutant: &CaseResult,
     paths: PathMode,
     run_to_completion: bool,
 ) -> Result<DifferentialJudgement, EngineDefect> {
+    judge_pair_explained(baseline, mutant, paths, run_to_completion).map(|(judgement, _)| judgement)
+}
+
+/// [`judge_pair`], with the reason of an `unsupported` or `baseline-incomplete` class
+/// ([`crate::exec::reasons`]): `Some` exactly for those two classes.
+///
+/// # Errors
+///
+/// As [`judge_pair`].
+pub(crate) fn judge_pair_explained(
+    baseline: &CaseResult,
+    mutant: &CaseResult,
+    paths: PathMode,
+    run_to_completion: bool,
+) -> Result<(DifferentialJudgement, Option<UnjudgedReason>), EngineDefect> {
     if exec::classify(baseline, &vec![false; baseline.leaves.len()], false)?
         == OutcomeClass::Rejected
     {
-        return Ok(DifferentialJudgement::class(OutcomeClass::Rejected));
+        return Ok((DifferentialJudgement::class(OutcomeClass::Rejected), None));
     }
     let Some(baseline_set) = complete_ends(baseline) else {
-        return Ok(DifferentialJudgement::class(
-            OutcomeClass::BaselineIncomplete,
+        let reason = reasons::incomplete(baseline).unwrap_or(UnjudgedReason::EngineDefect);
+        return Ok((
+            DifferentialJudgement::class(OutcomeClass::BaselineIncomplete),
+            Some(reason),
         ));
     };
     let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant")?;
@@ -347,14 +374,17 @@ pub(crate) fn judge_pair(
     };
     let killing_leaf = added.kills.iter().position(|&kills| kills);
     let removed_end = removed.kills.iter().position(|&kills| kills);
-    let class = exec::classify(mutant, &added.kills, run_to_completion)?;
+    let (class, reason) = exec::classify_explained(mutant, &added.kills, run_to_completion)?;
     let chosen_value = mutant.run_facts_off_leaves
         || mutant.leaves.iter().any(|leaf| {
             leaf.unclean
                 .contains(&UncleanReason::ImplementationChosenValue)
         });
     if (killing_leaf.is_some() || removed_end.is_some()) && chosen_value {
-        return Ok(DifferentialJudgement::class(OutcomeClass::Unsupported));
+        return Ok((
+            DifferentialJudgement::class(OutcomeClass::Unsupported),
+            Some(UnjudgedReason::KillOnChosenValue),
+        ));
     }
     if class == OutcomeClass::Hit && killing_leaf.is_none() {
         return Err(EngineDefect {
@@ -364,16 +394,25 @@ pub(crate) fn judge_pair(
         });
     }
     if class == OutcomeClass::Hit || removed_end.is_some() {
-        return Ok(DifferentialJudgement {
-            class: OutcomeClass::Hit,
-            killing_leaf: killing_leaf.filter(|_| class == OutcomeClass::Hit),
-            removed_end,
-        });
+        return Ok((
+            DifferentialJudgement {
+                class: OutcomeClass::Hit,
+                killing_leaf: killing_leaf.filter(|_| class == OutcomeClass::Hit),
+                removed_end,
+            },
+            None,
+        ));
     }
-    if added.undecided || removed.undecided {
-        return Ok(DifferentialJudgement::class(OutcomeClass::Unsupported));
+    if let Some(undecided) = added.undecided.or(removed.undecided) {
+        // The mutant's own classification, when it is `unsupported`, names the fact nearer the
+        // backend (an unclean leaf); otherwise the comparison's refusal is the reason.
+        let reason = reason.map_or(undecided, |reason| reason.min(undecided));
+        return Ok((
+            DifferentialJudgement::class(OutcomeClass::Unsupported),
+            Some(reason),
+        ));
     }
-    Ok(DifferentialJudgement::class(class))
+    Ok((DifferentialJudgement::class(class), reason))
 }
 
 /// A side's set of final configurations when its all-paths run is complete (condition 1, with
@@ -431,8 +470,10 @@ struct Verdicts {
     /// constructor-only (condition 4) and not in the other side's set (condition 5).
     kills: Vec<bool>,
     /// Some end outside the other side's set could not be judged: a clean natural end that is
-    /// not constructor-only, or (on the mutant side) a `stuck` leaf that is not clean.
-    undecided: bool,
+    /// not constructor-only, or (on the mutant side) a `stuck` leaf that is not clean. The
+    /// reason of the first such end found, or that the other side's set holds an end that is
+    /// not data.
+    undecided: Option<UnjudgedReason>,
 }
 
 impl Verdicts {
@@ -440,7 +481,7 @@ impl Verdicts {
     fn none(side: &CaseResult) -> Self {
         Self {
             kills: vec![false; side.leaves.len()],
-            undecided: false,
+            undecided: None,
         }
     }
 
@@ -467,11 +508,15 @@ impl Verdicts {
             // A leaf whose natural end is undecided is clean, but neither a natural end nor an
             // abnormal stop is established for it, so it is no kill and no proof of none.
             if !leaf.is_clean() || leaf.natural_end_undecided() {
-                verdicts.undecided = true;
+                let reason =
+                    reasons::beyond_halt(leaf).unwrap_or(UnjudgedReason::NaturalEndUndecided);
+                verdicts.undecided.get_or_insert(reason);
             } else if leaf.natural_end {
                 match leaf.constructor_only {
                     Some(true) => verdicts.kills[index] = true,
-                    Some(false) => verdicts.undecided = true,
+                    Some(false) => {
+                        verdicts.undecided.get_or_insert(not_data(role));
+                    }
                     None => {
                         return Err(EngineDefect {
                             case: None,
@@ -492,9 +537,24 @@ impl Verdicts {
             .all(|leaf| leaf.constructor_only == Some(true));
         if !others_are_data && verdicts.kills.contains(&true) {
             verdicts.kills.fill(false);
-            verdicts.undecided = true;
+            verdicts
+                .undecided
+                .get_or_insert(not_data(if role == "mutant" {
+                    "baseline"
+                } else {
+                    "mutant"
+                }));
         }
         Ok(verdicts)
+    }
+}
+
+/// The reason for an end of the side `role` (`"mutant"` or `"baseline"`) that is not data.
+fn not_data(role: &str) -> UnjudgedReason {
+    if role == "mutant" {
+        UnjudgedReason::MutantEndNotData
+    } else {
+        UnjudgedReason::BaselineEndNotData
     }
 }
 
@@ -653,7 +713,7 @@ mod tests {
         }
         let unclean = [
             UncleanReason::Undecided,
-            UncleanReason::NotCeilFree,
+            UncleanReason::NotCeilFree(None),
             UncleanReason::ImplementationChosenValue,
             UncleanReason::ContradictedClaim,
             UncleanReason::IterationExhaustion,
@@ -734,6 +794,97 @@ mod tests {
         }
     }
 
+    // ---- reasons (FZ-UNSUPPORTED)
+
+    fn explained(
+        baseline: &CaseResult,
+        mutant: &CaseResult,
+        paths: PathMode,
+    ) -> (OutcomeClass, Option<UnjudgedReason>) {
+        let (judgement, reason) =
+            judge_pair_explained(baseline, mutant, paths, false).expect("no engine defect");
+        (judgement.class, reason)
+    }
+
+    #[test]
+    fn an_end_that_is_not_data_names_its_side() {
+        // TRIAL2's SIMPLE shape: the mutant's end outside the baseline's set holds a function
+        // application, so the two ends cannot be compared.
+        let mutant = result(vec![natural(config(5, 0), Some(false))]);
+        for paths in BOTH_MODES {
+            assert_eq!(
+                explained(&coin_baseline(), &mutant, paths),
+                (
+                    OutcomeClass::Unsupported,
+                    Some(UnjudgedReason::MutantEndNotData)
+                )
+            );
+        }
+        // A would-be kill against a complete baseline set that holds an end that is not data.
+        let baseline = result(vec![
+            natural(config(3, 0), Some(false)),
+            natural(config(4, 0), Some(true)),
+        ]);
+        let killing = result(vec![natural(config(5, 0), Some(true))]);
+        assert_eq!(
+            explained(&baseline, &killing, PathMode::OnePath),
+            (
+                OutcomeClass::Unsupported,
+                Some(UnjudgedReason::BaselineEndNotData)
+            )
+        );
+    }
+
+    #[test]
+    fn an_incomplete_baseline_names_what_cut_it() {
+        let mutant = result(vec![natural(config(5, 0), Some(true))]);
+        for (cut, expected) in [
+            (
+                leaf(
+                    HaltReasonOutput::DepthBound,
+                    config(9, 0),
+                    vec![UncleanReason::Halt],
+                ),
+                UnjudgedReason::DepthBound,
+            ),
+            (
+                leaf(
+                    HaltReasonOutput::WorkBound,
+                    config(9, 0),
+                    vec![UncleanReason::Halt],
+                ),
+                UnjudgedReason::WorkBound,
+            ),
+            (
+                leaf(
+                    HaltReasonOutput::Stuck,
+                    config(9, 0),
+                    vec![UncleanReason::NotCeilFree(None)],
+                ),
+                UnjudgedReason::NotCeilFree,
+            ),
+        ] {
+            let baseline = result(vec![natural(config(3, 0), Some(true)), cut]);
+            assert_eq!(
+                explained(&baseline, &mutant, PathMode::OnePath),
+                (OutcomeClass::BaselineIncomplete, Some(expected))
+            );
+        }
+    }
+
+    #[test]
+    fn a_kill_resting_on_a_chosen_value_is_named() {
+        let mut mutant = result(vec![natural(config(5, 0), Some(true))]);
+        mutant.run_facts_off_leaves = true;
+        assert_eq!(
+            explained(&coin_baseline(), &mutant, PathMode::OnePath),
+            (
+                OutcomeClass::Unsupported,
+                Some(UnjudgedReason::KillOnChosenValue)
+            )
+        );
+    }
+
     // ---- conditions 2, 4, 5 per mutant leaf
 
     #[test]
@@ -743,7 +894,7 @@ mod tests {
             added(&coin_baseline(), &mutant),
             Verdicts {
                 kills: vec![true],
-                undecided: false,
+                undecided: None,
             }
         );
     }
@@ -757,7 +908,7 @@ mod tests {
                 added(&coin_baseline(), &mutant),
                 Verdicts {
                     kills: vec![false],
-                    undecided: false,
+                    undecided: None,
                 }
             );
         }
@@ -788,7 +939,7 @@ mod tests {
             added(&coin_baseline(), &mutant),
             Verdicts {
                 kills: vec![false, false, false],
-                undecided: false,
+                undecided: None,
             }
         );
     }
@@ -800,7 +951,7 @@ mod tests {
             added(&coin_baseline(), &mutant),
             Verdicts {
                 kills: vec![false],
-                undecided: true,
+                undecided: Some(UnjudgedReason::MutantEndNotData),
             }
         );
     }
@@ -816,7 +967,7 @@ mod tests {
             added(&coin_baseline(), &mutant),
             Verdicts {
                 kills: vec![false],
-                undecided: true,
+                undecided: Some(UnjudgedReason::SmtUnknowns),
             }
         );
     }

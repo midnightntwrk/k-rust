@@ -18,7 +18,8 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use k_rust_fuzz::{
-    Campaign,
+    Campaign, OutcomeClass,
+    exec::{NormalEndKind, UnjudgedReason},
     report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
     target::RuleMode,
 };
@@ -548,6 +549,7 @@ fn summary(report: &FuzzReport) -> String {
     if let Some(no_witness) = report.no_witness() {
         let _ = writeln!(text, "{}", no_witness.statement);
     }
+    write_unjudged(&mut text, report);
     for warning in &report.warnings {
         let _ = writeln!(text, "warning: {warning}");
     }
@@ -555,6 +557,57 @@ fn summary(report: &FuzzReport) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// For a report with a witness, its `unsupported` and `baseline-incomplete` cases per reason,
+/// largest first, with the largest one's remedy (a report without a witness says the same in
+/// its no-witness statement); and, when a definition's classes rest on the every-`<k>` default
+/// and some case is `stuck`, that a semantics whose finished threads keep a value in `<k>`
+/// needs its own pattern.
+fn write_unjudged(text: &mut String, report: &FuzzReport) {
+    use std::fmt::Write as _;
+    if report.witness().is_some() {
+        for (label, reasons) in [
+            ("unsupported", &report.totals.unsupported_reasons),
+            ("baseline-incomplete", &report.totals.incomplete_reasons),
+        ] {
+            let mut ranked: Vec<(UnjudgedReason, u64)> = reasons
+                .iter()
+                .map(|(reason, count)| (*reason, *count))
+                .collect();
+            ranked.sort_by(|(left, left_count), (right, right_count)| {
+                right_count.cmp(left_count).then(left.cmp(right))
+            });
+            let Some((top, _)) = ranked.first() else {
+                continue;
+            };
+            let counts: Vec<String> = ranked
+                .iter()
+                .map(|(reason, count)| format!("{count} {}", reason.name()))
+                .collect();
+            let _ = writeln!(text, "{label} cases by reason: {}", counts.join(", "));
+            if let Some(remedy) = top.remedy() {
+                let _ = writeln!(text, "  for {}: {remedy}", top.name());
+            }
+        }
+    }
+    let every_k = report.normal_end.is_some_and(|ends| {
+        ends.baseline == NormalEndKind::EveryK || ends.mutant == Some(NormalEndKind::EveryK)
+    });
+    let stuck = report
+        .totals
+        .classes
+        .get(&OutcomeClass::Stuck)
+        .copied()
+        .unwrap_or(0);
+    if every_k && stuck > 0 {
+        let _ = writeln!(
+            text,
+            "note: {stuck} stuck: under the every-k default normal end a run finished only when \
+             every <k> cell is empty or no thread is left; if finished threads keep a value in \
+             <k>, set normal-end-pattern"
+        );
+    }
 }
 
 fn write_case(text: &mut String, case: &WitnessCase) {

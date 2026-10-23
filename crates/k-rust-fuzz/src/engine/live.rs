@@ -19,11 +19,13 @@ use crate::{
     error::{CampaignError, SortRefusal},
     exec::{
         self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, FailureCause,
-        NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds,
+        NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds, UncleanReason, UnjudgedReason,
     },
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
-    report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
+    report::{
+        DefinitionRole, HoleValue, KillKind, NormalEnds, Reaching, RejectionReason, WitnessSide,
+    },
     score,
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
     target::{HitSite, ResolvedTarget, TargetKind, differential},
@@ -480,6 +482,17 @@ impl LiveCases {
         }
     }
 
+    /// Which normal end each side's classes rest on (ARCHITECTURE 5.2).
+    pub(crate) fn normal_ends(&self) -> NormalEnds {
+        NormalEnds {
+            baseline: self.baseline.normal_end.kind(),
+            mutant: match &self.judge {
+                Judge::Differential(mutant) => Some(mutant.normal_end.kind()),
+                Judge::Target(_) => None,
+            },
+        }
+    }
+
     /// What a run's [`RunAssemblers`] borrow: each side's program assembly and definition.
     pub(crate) fn assembly_parts(&self) -> AssemblyParts {
         let part = |side: &Side| (Arc::clone(&side.assembly), Arc::clone(&side.definition));
@@ -602,6 +615,7 @@ impl LiveCases {
         match judged {
             Ok(judgement) => {
                 run.class = judgement.class;
+                run.unjudged = judgement.reason;
                 run.blocked = judgement.blocked;
                 if judgement.class == OutcomeClass::Hit {
                     // A leaf hit names its leaf; a hit of the whole run (D16) names none, and
@@ -641,6 +655,7 @@ impl LiveCases {
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
+                        run.unjudged = Some(UnjudgedReason::EngineDefect);
                         run.defects
                             .push("a hit names no leaf of the result".to_owned());
                     }
@@ -648,9 +663,11 @@ impl LiveCases {
             }
             Err(defect) => {
                 run.class = OutcomeClass::Unsupported;
+                run.unjudged = Some(UnjudgedReason::EngineDefect);
                 run.defects.push(defect.description);
             }
         }
+        run.warnings.extend(partial_warnings(&result, run.unjudged));
         if run.class == OutcomeClass::Rejected {
             run.rejection = Some(RejectionReason::BackendRefused);
         }
@@ -697,14 +714,23 @@ impl LiveCases {
             run.rejection = Some(RejectionReason::BackendRefused);
             return Ok(run);
         }
-        match differential::judge_pair(
+        match differential::judge_pair_explained(
             &baseline,
             &mutated,
             self.spec.options.paths,
             self.spec.target.run_to_completion,
         ) {
-            Ok(judgement) => {
+            Ok((judgement, reason)) => {
                 run.class = judgement.class;
+                run.unjudged = reason;
+                run.warnings.extend(partial_warnings(
+                    if judgement.class == OutcomeClass::BaselineIncomplete {
+                        &baseline
+                    } else {
+                        &mutated
+                    },
+                    reason,
+                ));
                 run.cut = cut_of(if judgement.class == OutcomeClass::BaselineIncomplete {
                     &baseline
                 } else {
@@ -740,6 +766,7 @@ impl LiveCases {
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
+                        run.unjudged = Some(UnjudgedReason::EngineDefect);
                         run.defects
                             .push("a kill names no leaf of either result".to_owned());
                     }
@@ -747,6 +774,7 @@ impl LiveCases {
             }
             Err(defect) => {
                 run.class = OutcomeClass::Unsupported;
+                run.unjudged = Some(UnjudgedReason::EngineDefect);
                 run.defects.push(defect.description);
             }
         }
@@ -802,12 +830,43 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
             .iter()
             .any(|side| !side.determinism_breaks().is_empty()),
         rejection: None,
+        unjudged: None,
         load_records,
         defects: Vec::new(),
         warnings: Vec::new(),
         hit: None,
         cut: Cut::default(),
     }
+}
+
+/// For a case not judged because a leaf is not ceil-free ([`UnjudgedReason::NotCeilFree`]), a
+/// warning naming each partial function whose application a leaf of `result` holds; the report
+/// lists each distinct text once, so the warnings name the functions, not the cases.
+fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<String> {
+    if reason != Some(UnjudgedReason::NotCeilFree) {
+        return Vec::new();
+    }
+    let mut functions: Vec<&str> = result
+        .leaves
+        .iter()
+        .flat_map(|leaf| &leaf.unclean)
+        .filter_map(|reason| match reason {
+            UncleanReason::NotCeilFree(Some(function)) => Some(function.as_str()),
+            _ => None,
+        })
+        .collect();
+    functions.sort_unstable();
+    functions.dedup();
+    functions
+        .into_iter()
+        .map(|function| {
+            format!(
+                "not-ceil-free: a case ended in a configuration holding an application of the \
+                 partial function `{function}` that no equation evaluates, so it may denote no \
+                 value and the case is unsupported"
+            )
+        })
+        .collect()
 }
 
 /// Which bounds stopped paths of `result` ([`Cut`]).

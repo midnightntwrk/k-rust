@@ -197,6 +197,7 @@ impl Campaign {
                 .unwrap_or_default(),
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
+            normal_end: Some(cases.normal_ends()),
         };
         Ok(Campaign {
             spec,

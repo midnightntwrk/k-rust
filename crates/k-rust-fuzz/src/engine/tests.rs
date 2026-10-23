@@ -56,6 +56,11 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         progress: None,
         outside_determinism: false,
         rejection: None,
+        unjudged: matches!(
+            class,
+            OutcomeClass::Unsupported | OutcomeClass::BaselineIncomplete
+        )
+        .then_some(crate::exec::UnjudgedReason::EngineDefect),
         load_records: Vec::new(),
         defects: Vec::new(),
         warnings: Vec::new(),
@@ -262,6 +267,7 @@ fn settings(holes: usize) -> LoopSettings {
         warnings: Vec::new(),
         scorer: None,
         pool_rank: std::collections::BTreeMap::new(),
+        normal_end: None,
     }
 }
 
