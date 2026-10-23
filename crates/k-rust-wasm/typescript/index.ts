@@ -1583,6 +1583,19 @@ export interface FuzzRuleName {
   locations: FuzzRuleLocation[]
 }
 
+/** `totals.best-score`: lexicographic, the level first, smaller nearer the target. */
+export interface FuzzBestScore {
+  'scored-cases': number
+  /** Absent when no case was scored. */
+  best?: {
+    case: number
+    /** Rule-graph distance to the target; absent when no rule-graph path reaches it. */
+    level?: number
+    /** Exact fraction `N/D`; absent when no guard instance gave a distance. */
+    'guard-distance'?: string
+  }
+}
+
 export interface FuzzTotals {
   cases: number
   work: number
@@ -1600,7 +1613,8 @@ export interface FuzzTotals {
     names: Record<string, FuzzRuleName>
   }
   'target-blocked': number
-  'best-score': number[] | null
+  /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
+  'best-score': FuzzBestScore | null
   'outside-determinism': number
   unconfirmed: number
   'case-sequence-digest': string

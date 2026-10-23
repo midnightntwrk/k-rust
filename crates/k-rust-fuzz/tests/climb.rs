@@ -257,6 +257,33 @@ fn a_climbing_campaign_runs_to_its_budget() {
     let (_, report) = maze::run_isolated(cell, &maze::blind_climb(), 3, 120);
     assert_eq!(report.totals.cases, 120);
     assert!(report.no_witness().is_some());
+    // The climb scores its `miss` cases, so the report holds the best score they reached
+    // (FZ-POLISH S1); a campaign whose proposers score nothing holds none.
+    let best = report
+        .totals
+        .best_score
+        .as_ref()
+        .expect("the climb scores its cases");
+    assert_eq!(
+        best.scored_cases, 120,
+        "every case is a miss, and every miss is scored"
+    );
+    let value = best.best.as_ref().expect("a best score");
+    assert!(value.case < 120);
+    // Cases enter `u1`'s condition (the target is blocked), which no case passes: the best
+    // score is at level 0 with a guard distance above 0.
+    assert_eq!(value.level, Some(0), "{value:?}");
+    assert!(
+        value
+            .guard_distance
+            .as_deref()
+            .is_some_and(|distance| distance != "0/1"),
+        "{value:?}"
+    );
+    let json = report.to_canonical_json();
+    assert!(json.contains("\"best-score\":{\"scored-cases\":120,\"best\":{\"case\":"));
+    let (_, blind) = maze::run_isolated(cell, &maze::blind(), 3, 8);
+    assert!(blind.totals.best_score.is_none());
 }
 
 /// Accepts the step after which the maze's `<d>` cell holds `goal`, and reports as progress how

@@ -90,6 +90,26 @@ pub(crate) struct Score {
     pub(crate) guard: Guard,
 }
 
+impl Score {
+    /// The report's form of this score, reached by case `case` ([`crate::report::ScoreValue`]).
+    pub(crate) fn value(&self, case: u64) -> crate::report::ScoreValue {
+        crate::report::ScoreValue {
+            case,
+            level: match self.level {
+                Level::At(level) => Some(level),
+                Level::Unreached => None,
+            },
+            guard_distance: match &self.guard {
+                Guard::Defined(distance) => {
+                    let (numerator, denominator) = distance.parts();
+                    Some(format!("{numerator}/{denominator}"))
+                }
+                Guard::Unknown => None,
+            },
+        }
+    }
+}
+
 /// One recorded entry into a rule's `requires`, as a score reads it ([`records::guards`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GuardEntry {

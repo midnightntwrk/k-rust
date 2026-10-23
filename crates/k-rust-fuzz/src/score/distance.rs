@@ -155,7 +155,6 @@ impl Distance {
     }
 
     /// The fraction as `(numerator, denominator)` in lowest terms.
-    #[cfg(test)]
     pub(crate) fn parts(&self) -> (BigUint, BigUint) {
         let (mut a, mut b) = (self.numerator.clone(), self.denominator.clone());
         while !b.is_zero() {

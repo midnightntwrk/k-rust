@@ -21,7 +21,7 @@ use k_rust::backend::CompiledRuleKind;
 use k_rust_fuzz::{
     Campaign,
     exec::UnjudgedReason,
-    report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
+    report::{BestScore, CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
     target::RuleMode,
 };
 
@@ -562,6 +562,9 @@ fn summary(report: &FuzzReport) -> String {
             format!(" ({classes})")
         }
     );
+    if let Some(best) = &report.totals.best_score {
+        let _ = writeln!(text, "{}", best_score_line(best));
+    }
     if let CampaignOutcome::Aborted { reason, .. } = &report.outcome {
         let _ = writeln!(text, "reason: {reason}");
     }
@@ -590,6 +593,26 @@ fn summary(report: &FuzzReport) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// The summary's line for the best score of the scored cases (`totals.best-score`).
+fn best_score_line(best: &BestScore) -> String {
+    let Some(value) = &best.best else {
+        return "best score: none (no miss case was scored)".to_owned();
+    };
+    let level = value.level.map_or_else(
+        || "no rule-graph path to the target".to_owned(),
+        |level| format!("level {level}"),
+    );
+    let guard = value.guard_distance.as_deref().map_or_else(
+        || "no guard distance".to_owned(),
+        |distance| format!("guard distance {distance}"),
+    );
+    format!(
+        "best score: {level}, {guard} (case {}; {} miss cases scored; smaller is nearer the \
+         target)",
+        value.case, best.scored_cases
+    )
 }
 
 /// For a report with a witness, its `unsupported` and `baseline-incomplete` cases per reason,

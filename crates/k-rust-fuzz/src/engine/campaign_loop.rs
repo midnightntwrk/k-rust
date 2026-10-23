@@ -14,11 +14,11 @@ use super::{
 use crate::{
     exec::{Abort, NormalEndKind, OutcomeClass, UnjudgedReason},
     report::{
-        CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord, NoWitness,
-        NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride,
-        Totals, Witness, WitnessCase, digest_hex,
+        BestScore, CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord,
+        NoWitness, NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity,
+        SortOverride, Totals, Witness, WitnessCase, digest_hex,
     },
-    score::{Scorer, Signals},
+    score::{Score, Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
     target::RuleName,
     values::{Constraints, Value},
@@ -158,6 +158,7 @@ pub(crate) fn run_loop(
             break Ending::Cancelled;
         }
         let observation = observation(settings, case, class, run);
+        state.score(case, observation.score.as_ref());
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
     };
@@ -507,6 +508,10 @@ pub(crate) struct Cuts {
 struct State {
     budget: Budget,
     totals: Totals,
+    /// The `miss` cases scored, and the best score with the earliest case that reached it
+    /// ([`Totals::best_score`]).
+    scored: u64,
+    best: Option<(Score, u64)>,
     cuts: Cuts,
     load_records: BTreeSet<LoadRecord>,
     warnings: Vec<String>,
@@ -522,6 +527,8 @@ impl State {
                 case_sequence_digest: digest_hex(b""),
                 ..Totals::default()
             },
+            scored: 0,
+            best: None,
             cuts: Cuts::default(),
             load_records: BTreeSet::new(),
             warnings: Vec::new(),
@@ -609,6 +616,18 @@ impl State {
         ));
     }
 
+    /// Take case `case`'s score, when it was scored, into [`Totals::best_score`]: a better score
+    /// replaces the best one, an equal one keeps the earlier case.
+    fn score(&mut self, case: u64, score: Option<&Score>) {
+        let Some(score) = score else {
+            return;
+        };
+        self.scored += 1;
+        if self.best.as_ref().is_none_or(|(best, _)| score < best) {
+            self.best = Some((score.clone(), case));
+        }
+    }
+
     /// Count a case under `class`.
     fn record(&mut self, run: &CaseRun, class: OutcomeClass) {
         *self.totals.classes.entry(class).or_insert(0) += 1;
@@ -666,6 +685,10 @@ impl State {
         outcome: CampaignOutcome,
     ) -> FuzzReport {
         let mut totals = self.totals_snapshot();
+        totals.best_score = settings.scorer.as_ref().map(|_| BestScore {
+            scored_cases: self.scored,
+            best: self.best.as_ref().map(|(score, case)| score.value(*case)),
+        });
         let coverage = &mut totals.coverage;
         coverage.names = coverage
             .applied

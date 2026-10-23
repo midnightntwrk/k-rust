@@ -755,9 +755,10 @@ pub struct Totals {
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
     pub target_blocked: u64,
-    /// The best score any case reached, compared lexicographically, smaller being better
-    /// (ARCHITECTURE 6.4); `None` when no proposer scores.
-    pub best_score: Option<Vec<u64>>,
+    /// The best score the scored cases reached (ARCHITECTURE 6.4): present exactly when a
+    /// proposer scores the campaign's cases (the climb or the solve proposer), so that a reader
+    /// sees whether the guided search came near the target; `None` when no proposer scores.
+    pub best_score: Option<BestScore>,
     /// Cases outside the determinism contract (ARCHITECTURE 5.4).
     pub outside_determinism: u64,
     /// Candidates that reached the target but were not confirmed: the confirmation failed,
@@ -772,6 +773,40 @@ pub struct Totals {
     /// the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solve: Option<SolveTotals>,
+}
+
+/// The best score of a campaign whose proposers score its cases ([`Totals::best_score`];
+/// ARCHITECTURE 6.4). Only `miss` cases are scored (R-18): a bounded or unclean case's signals
+/// stop early, and a rejected case ran nothing.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct BestScore {
+    /// The `miss` cases that were scored.
+    pub scored_cases: u64,
+    /// The best score among them, the earliest case on a tie; absent when no case was scored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best: Option<ScoreValue>,
+}
+
+/// One case's score, compared lexicographically, the level first, smaller being better
+/// (ARCHITECTURE 6.4; the rustdoc of `crate::score`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ScoreValue {
+    /// The case that reached it.
+    pub case: u64,
+    /// For a rule target, the rule-graph distance to the target: 0 when the case entered the
+    /// target's `requires`, 1 when it entered a direct predecessor's that failed, and so on;
+    /// absent when no rule the case applied or entered reaches the target in the rule graph.
+    /// Always 0 for an observer target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u64>,
+    /// The guard distance at that level, an exact fraction `NUMERATOR/DENOMINATOR` in lowest
+    /// terms: 0 when the guard holds, otherwise the sum (over a conjunction) or the least (over
+    /// a disjunction) of its atoms' normalized distances `d / (d + 1)`, each below 1; absent
+    /// when no instance gave a distance (no signal, worse than every distance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard_distance: Option<String>,
 }
 
 /// Which normal end the classes of each definition of a campaign rest on (ARCHITECTURE 5.2):
@@ -1224,7 +1259,14 @@ mod tests {
                     )]),
                 },
                 target_blocked: 3,
-                best_score: Some(vec![0, 2]),
+                best_score: Some(BestScore {
+                    scored_cases: 3,
+                    best: Some(ScoreValue {
+                        case: 1,
+                        level: Some(0),
+                        guard_distance: Some("2/3".into()),
+                    }),
+                }),
                 outside_determinism: 0,
                 unconfirmed: 1,
                 case_sequence_digest: digest_hex(b"cases"),
@@ -1319,7 +1361,8 @@ mod tests {
             r#""label":"IMP.a","locations":[{"source":"/w/imp.k","reference":"imp.k","line":3,"#,
             r#""end-line":4}]}}},"#,
             r#""target-blocked":3,"#,
-            r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
+            r#""best-score":{"scored-cases":3,"best":{"case":1,"level":0,"#,
+            r#""guard-distance":"2/3"}},"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,
             r#""load-records":[{"kind":"contradicted-claim","#,
             r#""detail":"total"}],"sort-overrides":[{"hole":"X","sort":"Id","#,
