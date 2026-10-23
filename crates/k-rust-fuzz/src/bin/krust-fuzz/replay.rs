@@ -38,45 +38,67 @@ pub struct WitnessFile {
     pub report: FuzzReport,
 }
 
+/// Deserialize `text`. The report's hole values nest up to `values::MAX_VALUE_DEPTH` levels,
+/// deeper than `serde_json`'s recursion limit: read as `FuzzReport::from_json` reads, on a stack
+/// that grows on the heap.
+fn read_deep<'de, T: Deserialize<'de>>(text: &'de str) -> Result<T, serde_json::Error> {
+    let mut reader = serde_json::Deserializer::from_str(text);
+    reader.disable_recursion_limit();
+    let value = T::deserialize(serde_stacker::Deserializer::new(&mut reader))?;
+    reader.end()?;
+    Ok(value)
+}
+
+/// The fields of a witness file that say what it is, read before the rest
+/// ([`WitnessFile::read`]); every other field is skipped.
+#[derive(Deserialize)]
+struct WitnessHead {
+    schema: String,
+    version: u32,
+    report: DocumentHead,
+}
+
+/// A report's `schema` and `version`; its other fields are skipped.
+#[derive(Deserialize)]
+struct DocumentHead {
+    schema: String,
+    version: u32,
+}
+
 impl WitnessFile {
     /// Read and check a witness file.
     pub fn read(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read the witness `{}`: {error}", path.display()))?;
-        // The report's hole values nest up to `values::MAX_VALUE_DEPTH` levels, deeper than
-        // `serde_json`'s recursion limit: read as `FuzzReport::from_json` reads, on a stack
-        // that grows on the heap.
-        let read = || -> Result<WitnessFile, serde_json::Error> {
-            let mut reader = serde_json::Deserializer::from_str(&text);
-            reader.disable_recursion_limit();
-            let file = WitnessFile::deserialize(serde_stacker::Deserializer::new(&mut reader))?;
-            reader.end()?;
-            Ok(file)
-        };
-        let file = read().map_err(|error| {
+        let not_a_witness = |error: serde_json::Error| {
             format!(
                 "`{}` is not a krust-fuzz witness file: {error}",
                 path.display()
             )
-        })?;
-        if file.schema != WITNESS_SCHEMA || file.version != WITNESS_VERSION {
+        };
+        // The schemas and versions first, of the file and of its report: a document of another
+        // version may lack fields this version requires or hold fields it does not know, and
+        // its version is what explains the refusal.
+        let head: WitnessHead = read_deep(&text).map_err(not_a_witness)?;
+        if head.schema != WITNESS_SCHEMA || head.version != WITNESS_VERSION {
             return Err(format!(
                 "`{}` is a {} version {} document; this krust-fuzz reads {WITNESS_SCHEMA} \
                  version {WITNESS_VERSION}",
                 path.display(),
-                file.schema,
-                file.version
+                head.schema,
+                head.version
             ));
         }
-        if file.report.schema != REPORT_SCHEMA || file.report.version != REPORT_VERSION {
+        if head.report.schema != REPORT_SCHEMA || head.report.version != REPORT_VERSION {
             return Err(format!(
                 "`{}` holds a {} version {} report; this krust-fuzz reads {REPORT_SCHEMA} \
                  version {REPORT_VERSION}",
                 path.display(),
-                file.report.schema,
-                file.report.version
+                head.report.schema,
+                head.report.version
             ));
         }
+        let file: WitnessFile = read_deep(&text).map_err(not_a_witness)?;
         if file.report.witness().is_none() {
             return Err(format!(
                 "`{}` records a campaign that found no witness",

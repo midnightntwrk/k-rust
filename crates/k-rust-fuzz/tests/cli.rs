@@ -25,7 +25,7 @@ use k_rust_fuzz::{
     Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions, HoleDecl,
     HoleLocation, OutcomeClass, ProgramInput, ProgramSource, ProposerConfig, SpanAddress, Target,
     TargetKind,
-    report::{CampaignOutcome, FuzzReport, KillKind},
+    report::{CampaignOutcome, FuzzReport, KillKind, REPORT_VERSION},
     spec::{DEFAULT_REJECTION_CAP, ProgramText},
     target::{PatternAt, PatternTarget},
     values::{Constraints, GenerationBounds},
@@ -1076,6 +1076,56 @@ fn a_witness_whose_report_has_another_schema_or_version_is_refused() {
         assert!(stderr.contains(expected), "{field}: {stderr}");
         assert!(stderr.contains("krust-fuzz-report"), "{field}: {stderr}");
     }
+}
+
+/// A witness of an older report version is refused by its version, before the report's fields
+/// are read: an older report lacks fields this version requires and may hold fields it no
+/// longer has, which would otherwise give a "missing field" or "unknown field" error instead of
+/// the version (FZ-RULEREF review S4).
+#[test]
+fn a_witness_of_an_older_report_version_is_refused_by_its_version() {
+    let directory = le_workspace("report-version-old");
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--witness", "witness.json"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let mut old: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
+            .expect("the witness file is JSON");
+    let previous = REPORT_VERSION - 1;
+    old["report"]["version"] = serde_json::json!(previous);
+    // Fields an older report does not have, and one it had that this version does not.
+    let totals = old["report"]["totals"]
+        .as_object_mut()
+        .expect("the report has totals");
+    totals.remove("unsupported-reasons");
+    totals.remove("baseline-incomplete-reasons");
+    totals["coverage"]
+        .as_object_mut()
+        .expect("the totals have coverage")
+        .remove("names");
+    old["report"]["retired-field"] = serde_json::json!(true);
+    fs::write(directory.join("old.json"), old.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "old.json"]);
+    let stderr = text(&replay.stderr);
+    assert_eq!(replay.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "holds a krust-fuzz-report version {previous} report; this krust-fuzz reads \
+             krust-fuzz-report version {REPORT_VERSION}"
+        )),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("field"), "{stderr}");
+    // A witness file of another version of its own is refused by that version too.
+    let mut other = old;
+    other["version"] = serde_json::json!(0);
+    fs::write(directory.join("other.json"), other.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "other.json"]);
+    let stderr = text(&replay.stderr);
+    assert_eq!(replay.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("krust-fuzz-witness version 0"), "{stderr}");
 }
 
 /// FZ-RULEREF: a workspace holding kink's IMP (`kink/examples/imp/imp.k`, the pl-tutorial
