@@ -856,6 +856,85 @@ fn a_size_is_never_negative() {
 }
 
 // ---------------------------------------------------------------------------
+// Minimized refutations
+
+/// Every valuation in range that the counterexample's kept values,
+/// orders and truths describe falsifies every guard.
+fn refutes_everywhere(
+    counterexample: &Counterexample,
+    guards: &[&Formula],
+    facts: &BTreeMap<String, Fact>,
+) -> bool {
+    RANGE.clone().all(|first| {
+        RANGE.clone().all(|second| {
+            (0..4_u8).all(|mask| {
+                let values = [first, second];
+                let props = [mask & 1 == 1, mask & 2 == 2];
+                let described = SUBJECTS.iter().zip(values).all(|(subject, value)| {
+                    admitted(value, facts.get(*subject))
+                        && counterexample
+                            .values
+                            .get(*subject)
+                            .is_none_or(|chosen| *chosen == BigInt::from(value))
+                }) && PROPS.iter().zip(props).all(|(key, truth)| {
+                    counterexample
+                        .truths
+                        .get(*key)
+                        .is_none_or(|chosen| *chosen == truth)
+                }) && counterexample.orders.iter().all(
+                    |((left, right), chosen)| truth(&order(left, right, *chosen), values, props),
+                );
+                !described || !guards.iter().any(|guard| truth(guard, values, props))
+            })
+        })
+    })
+}
+
+#[test]
+fn a_reported_condition_is_always_a_refutation() {
+    let mut random = Random(0x2545_F491_4F6C_DD1D);
+    let mut refuted = 0;
+    for _ in 0..4000 {
+        let count = 1 + random.below(4);
+        let formulas = (0..count)
+            .map(|_| random_formula(&mut random, 3, true))
+            .collect::<Vec<_>>();
+        let guards = formulas.iter().collect::<Vec<_>>();
+        let facts = random_facts(&mut random);
+        if let Verdict::Refuted(counterexample) = decide(&guards, &facts, &Projections::new()) {
+            refuted += 1;
+            assert!(
+                refutes_everywhere(&counterexample, &guards, &facts),
+                "{counterexample:?} describes a valuation some guard of {guards:?} holds on under {facts:?}"
+            );
+        }
+    }
+    assert!(refuted > 100, "only {refuted} refutations generated");
+}
+
+#[test]
+fn atoms_that_only_matter_together_stay_in_the_condition() {
+    // `SignedLess`: each guard needs both signs.
+    let sign = |subject: &str, value: i64| bound(subject, Bound::At, value);
+    let formulas = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
+        .map(|(left, right)| and(sign("$0", left), sign("$1", right)));
+    let guards = formulas.iter().collect::<Vec<_>>();
+    let Verdict::Refuted(counterexample) = decide(&guards, &BTreeMap::new(), &Projections::new())
+    else {
+        panic!("a sign may be 0");
+    };
+    // Dropping every atom that alone changes nothing would claim that no
+    // argument is covered at all.
+    assert!(!counterexample.values.is_empty(), "{counterexample:?}");
+    assert!(refutes_everywhere(
+        &counterexample,
+        &guards,
+        &BTreeMap::new()
+    ));
+    assert_eq!(counterexample.values.len(), 1, "{counterexample:?}");
+}
+
+// ---------------------------------------------------------------------------
 // Reading guards with partial operations
 
 mod reading {

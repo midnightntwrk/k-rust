@@ -1785,14 +1785,34 @@ fn evaluate(
     }
 }
 
-/// A refuting valuation without the parts no guard depends on there: an
-/// atom is kept when another value of it alone makes some guard hold. A
+/// One part of a refuting valuation that [`minimize`] may free.
+#[derive(Clone, Copy)]
+enum Item<'v> {
+    /// The subject of `domains[index]`.
+    Value(usize),
+    Order((&'v String, &'v String)),
+    Truth(&'v String),
+}
+
+/// A refuting valuation reduced to a condition that every valuation
+/// satisfying it refutes. The subjects, then the orders, then the opaque
+/// atoms are freed one at a time, in key order; an item stays freed only
+/// when no valuation of all the items freed so far, with the kept ones
+/// fixed, makes a guard hold. Valuations no integers realize are skipped,
+/// as [`decide`] skips them, and an item whose check would enumerate more
+/// than [`VALUATION_BUDGET`] valuations is kept.
+///
+/// A subject the condition does not name is therefore really free: every
+/// argument the condition describes is uncovered, whatever that subject
+/// is. Freeing items one at a time but checking them together matters when
+/// the guards need two atoms at once (`Sign(a) == 1 && Sign(b) == 1`):
+/// neither atom alone can make a guard hold, yet both together can. A
 /// subject whose value matters only where it is undefined (the quotient of
-/// a zero divisor, say) is dropped, since the guards fail whatever it is.
+/// a zero divisor, say) is freed, since the guards fail whatever it is.
 #[expect(clippy::type_complexity, reason = "The three parts of a valuation.")]
-fn relevant<'v>(
+fn minimize<'v>(
     guards: &[&Formula],
-    domains: &[(&'v String, Vec<(BigInt, Region)>)],
+    domains: &'v [(&'v String, Vec<(BigInt, Region)>)],
     values: &BTreeMap<&'v String, &'v BigInt>,
     orders: &BTreeMap<(&'v String, &'v String), Order>,
     truths: &BTreeMap<&'v String, bool>,
@@ -1803,58 +1823,100 @@ fn relevant<'v>(
     BTreeMap<(&'v String, &'v String), Order>,
     BTreeMap<&'v String, bool>,
 ) {
-    let holds = |values: &BTreeMap<&String, &BigInt>,
-                 orders: &BTreeMap<(&String, &String), Order>,
-                 truths: &BTreeMap<&String, bool>| {
-        guards
-            .iter()
-            .any(|guard| evaluate(guard, values, orders, truths))
+    let positions = domains
+        .iter()
+        .map(|(subject, domain)| {
+            domain
+                .iter()
+                .position(|(point, _)| point == values[subject])
+                .unwrap_or(0)
+        })
+        .collect::<Vec<_>>();
+    let items = (0..domains.len())
+        .map(Item::Value)
+        .chain(orders.keys().copied().map(Item::Order))
+        .chain(truths.keys().copied().map(Item::Truth))
+        .collect::<Vec<_>>();
+    let orders_of = [Order::Less, Order::Equal, Order::Greater];
+    let size = |item: &Item<'_>| match item {
+        Item::Value(index) => domains[*index].1.len() as u64,
+        Item::Order(_) => 3,
+        Item::Truth(_) => 2,
     };
-    let mut kept_values = BTreeMap::new();
-    for (subject, domain) in domains {
-        let matters = domain.iter().any(|(value, region)| {
-            let mut varied = values.clone();
-            varied.insert(subject, value);
-            if !projections.is_empty() {
-                let mut regions = BTreeMap::new();
-                for (other, other_domain) in domains {
-                    if let Some((_, other_region)) = other_domain
-                        .iter()
-                        .find(|(point, _)| *point == *varied[other])
-                    {
-                        regions.insert(*other, other_region);
+    // Whether every valuation of `free`, the other items fixed, refutes.
+    let refutes = |free: &[Item<'v>]| {
+        let mut count = 1_u64;
+        for item in free {
+            count = count.saturating_mul(size(item));
+        }
+        if count > VALUATION_BUDGET {
+            return false;
+        }
+        for index in 0..count {
+            let mut rest = index;
+            let mut chosen = positions.clone();
+            let mut varied_orders = orders.clone();
+            let mut varied_truths = truths.clone();
+            for item in free {
+                let size = size(item);
+                let choice = usize::try_from(rest % size).unwrap_or(0);
+                rest /= size;
+                match item {
+                    Item::Value(subject) => chosen[*subject] = choice,
+                    Item::Order(pair) => {
+                        varied_orders.insert(*pair, orders_of[choice]);
+                    }
+                    Item::Truth(key) => {
+                        varied_truths.insert(*key, choice == 1);
                     }
                 }
-                regions.insert(*subject, region);
-                if !consistent(&regions, projections, facts) {
-                    return false;
-                }
             }
-            holds(&varied, orders, truths)
-        });
-        if matters {
-            kept_values.insert(*subject, values[subject]);
+            let mut varied_values = values.clone();
+            let mut regions = BTreeMap::new();
+            for ((subject, domain), position) in domains.iter().zip(&chosen) {
+                let (point, region) = &domain[*position];
+                varied_values.insert(*subject, point);
+                regions.insert(*subject, region);
+            }
+            if !projections.is_empty() && !consistent(&regions, projections, facts) {
+                continue;
+            }
+            if !varied_orders.is_empty() && ordered(&regions, &varied_orders, projections).is_none()
+            {
+                continue;
+            }
+            if guards
+                .iter()
+                .any(|guard| evaluate(guard, &varied_values, &varied_orders, &varied_truths))
+            {
+                return false;
+            }
+        }
+        true
+    };
+    let mut free = Vec::new();
+    let mut kept = Vec::new();
+    for item in items {
+        free.push(item);
+        if !refutes(&free) {
+            free.pop();
+            kept.push(item);
         }
     }
-    let mut kept_orders = BTreeMap::new();
-    for (pair, order) in orders {
-        let matters = [Order::Less, Order::Equal, Order::Greater]
-            .into_iter()
-            .any(|other| {
-                let mut varied = orders.clone();
-                varied.insert(*pair, other);
-                holds(values, &varied, truths)
-            });
-        if matters {
-            kept_orders.insert(*pair, *order);
-        }
-    }
-    let mut kept_truths = BTreeMap::new();
-    for (key, truth) in truths {
-        let mut varied = truths.clone();
-        varied.insert(key, !truth);
-        if holds(values, orders, &varied) {
-            kept_truths.insert(*key, *truth);
+    let (mut kept_values, mut kept_orders, mut kept_truths) =
+        (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    for item in kept {
+        match item {
+            Item::Value(index) => {
+                let subject = domains[index].0;
+                kept_values.insert(subject, values[subject]);
+            }
+            Item::Order(pair) => {
+                kept_orders.insert(pair, orders[&pair]);
+            }
+            Item::Truth(key) => {
+                kept_truths.insert(key, truths[key]);
+            }
         }
     }
     (kept_values, kept_orders, kept_truths)
@@ -1885,8 +1947,9 @@ pub(crate) fn decide(
 }
 
 /// [`decide`], with the number of valuations it had to consider. With
-/// `minimize`, a refuting valuation keeps only the atoms some guard depends
-/// on (see [`relevant`]); without, it is the whole valuation.
+/// `minimize`, a refuting valuation is reduced to a condition every
+/// valuation of which refutes (see [`minimize`]); without, it is the whole
+/// valuation.
 #[expect(
     clippy::too_many_lines,
     reason = "One enumeration of the valuations: values, their consistency with projections and orders, truths, and the refutation."
@@ -1987,7 +2050,7 @@ fn decide_counted(
             .any(|guard| evaluate(guard, &values, &orders, &truths))
         {
             let (values, orders, truths) = if minimize {
-                relevant(
+                self::minimize(
                     guards,
                     &domains,
                     &values,
