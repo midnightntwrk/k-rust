@@ -1,0 +1,4 @@
+# Lake's build directories, and the manifests Lake writes for the path dependencies between
+# k2lean's projects (rewritten whenever a lakefile changes).
+.lake/
+lake-manifest.json
