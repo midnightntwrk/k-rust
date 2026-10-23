@@ -91,6 +91,14 @@ theorem mem_mergeRankN {r : Rule α A R} :
 @[simp] theorem mem_mergeRank {r : Rule α A R} (xs ys : List (Rule α A R)) :
     r ∈ mergeRank xs ys ↔ r ∈ xs ∨ r ∈ ys := mem_mergeRankN _ xs ys
 
+/-- A rule of the branch `xs` is in `mergeRank xs ys` (one step of the generated `mem` proofs, which
+follow a rule's own path through the index). -/
+theorem mem_mergeRank_left {r : Rule α A R} {xs : List (Rule α A R)} (ys : List (Rule α A R)) (h : r ∈ xs) :
+    r ∈ mergeRank xs ys := (mem_mergeRank xs ys).2 (Or.inl h)
+/-- A rule of the rest `ys` is in `mergeRank xs ys`. -/
+theorem mem_mergeRank_right {r : Rule α A R} (xs : List (Rule α A R)) {ys : List (Rule α A R)} (h : r ∈ ys) :
+    r ∈ mergeRank xs ys := (mem_mergeRank xs ys).2 (Or.inr h)
+
 /-- One priority group: the first defined result; `undefined` if rules apply but none is defined. -/
 def firstDefined : List (Rule α A R) → α → Option String → Outcome α
   | [], _, Option.none => .stuck

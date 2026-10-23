@@ -243,3 +243,170 @@ theorem AllMem.mem {α : Type} {P : α → Prop} : ∀ {l : List α}, AllMem P l
     · exact hl.mem a h
 
 end KPrelude
+
+/-- `k2l_mem`: `r ∈ l` where `l` is a list literal built with `mergeRank` (a rule-index bucket
+reduced on a constructor term), by search through its spine. It never rewrites inside `l`, whose
+unreduced parts may be large stuck matches. The generated `mem` proofs follow the rule's path
+through the index instead; this is their fallback. -/
+syntax "k2l_mem" : tactic
+macro_rules
+  | `(tactic| k2l_mem) => `(tactic| first
+      | exact List.mem_cons_self
+      | exact List.mem_cons_self ..
+      | (apply KPrelude.mem_mergeRank_left; k2l_mem)
+      | (apply KPrelude.mem_mergeRank_right; k2l_mem)
+      | (apply List.mem_cons_of_mem; k2l_mem))
+
+/-!
+## Facts for the per-rule adequacy proofs
+
+A rule's relation states a list pattern `ListItem(X) REST` as `ListHook.concat (ListHook.element x) t = l`,
+while its matcher tests `ListHook.uncons l`. `k2l_list_facts` adds, for each such hypothesis, what
+it says about `uncons l` (or `unsnoc l` for `REST ListItem(X)`): `uncons` of `concat (element x) t`
+is `some (x, t)`, so after the matcher's split `simp_all` identifies the matcher's `x', t'` with
+the relation's `x, t` (or refutes the `none` branch).
+
+A rule that calls the same partial function on the same arguments twice (once in a guard, once in
+the right-hand side) gets two hypotheses `f a = some r` and `f a = some r'` in its relation, and
+the matcher adds a third after the split. A function has one value at `a`, so `r = r'`;
+`k2l_fundep` eliminates it, for every pair of hypotheses `e = some r`, `e = some r'` with the same
+`e`, and for every `some r = some r'` (which `split` leaves when it generalizes a discriminant
+that an earlier split already decided), until none is left. `simp_all` alone rewrites one
+hypothesis with the other and keeps `r = r'` as a rewrite rule, without substituting it into the
+remaining hypotheses.
+-/
+
+namespace KPrelude
+
+namespace ListHook
+
+variable {L E : Type} [ListIso L E]
+
+theorem uncons_of_concat_element {l t : L} {x : E} (h : concat (element x) t = l) : uncons l = some (x, t) := by
+  subst h; exact uncons_concat_element x t
+
+theorem unsnoc_of_concat_element {l t : L} {x : E} (h : concat t (element x) = l) : unsnoc l = some (t, x) := by
+  subst h; exact unsnoc_concat_element t x
+
+end ListHook
+
+open Lean Meta Elab Tactic
+
+/-- `k2l_list_facts`: for each hypothesis `concat (element x) t = l` (or `concat t (element x) = l`),
+add `uncons l = some (x, t)` (or `unsnoc l = some (t, x)`). -/
+elab "k2l_list_facts" : tactic => withMainContext do
+  let mut facts : Array Expr := #[]
+  for ldecl in (← getLCtx) do
+    if ldecl.isImplementationDetail then continue
+    let ty ← instantiateMVars ldecl.type
+    let some (_, lhs, _) := ty.eq? | continue
+    unless lhs.isAppOf ``KPrelude.ListHook.concat do continue
+    let args := lhs.getAppArgs
+    let some a := args[args.size - 2]? | continue
+    let some b := args[args.size - 1]? | continue
+    try
+      if a.isAppOf ``KPrelude.ListHook.element then
+        facts := facts.push (← mkAppM ``KPrelude.ListHook.uncons_of_concat_element #[ldecl.toExpr])
+      if b.isAppOf ``KPrelude.ListHook.element then
+        facts := facts.push (← mkAppM ``KPrelude.ListHook.unsnoc_of_concat_element #[ldecl.toExpr])
+    catch _ => pure ()
+  liftMetaTactic fun g => do
+    let mut g := g
+    for p in facts do
+      let g' ← g.assert `k2l_fact (← inferType p) p
+      let (_, g'') ← g'.intro1P
+      g := g''
+    return [g]
+
+/-- Whether every hypothesis type of `tys` is still in the context (`k2lFundepOnce`). -/
+def k2lStillThere (tys : List Expr) : TacticM Bool := do
+  if (← getGoals).isEmpty then return false
+  withMainContext do
+    let lctx ← getLCtx
+    let mut present : List Expr := []
+    for ld in lctx do
+      if ld.isImplementationDetail then continue
+      present := (← instantiateMVars ld.type) :: present
+    return tys.all fun t => present.any (· == t)
+
+/-- One functional-dependency step (see above); `true` if it changed the goal. For hypotheses
+`h₁ : e = some a`, `h₂ : e = some b` it adds `a = b` and eliminates it with `cases`, which
+substitutes a variable side, or unifies constructor applications field by field (a pair
+`(x', t') = (x, t)` from `uncons`, a cell pattern), or closes the goal on a constructor clash;
+a hypothesis `some a = some b` is eliminated the same way. Pairs that `cases` cannot eliminate
+(two different stuck terms) are left alone, and so is a step after which the hypotheses it
+started from are still there unchanged (two values that are equal by definition but not
+syntactically: `cases` then succeeds without changing anything), so the loop always ends. -/
+def k2lFundepOnce : TacticM Bool := withMainContext do
+  let mut seen : Array (Expr × Expr × LocalDecl) := #[]
+  for ldecl in (← getLCtx) do
+    if ldecl.isImplementationDetail then continue
+    let ty ← instantiateMVars ldecl.type
+    let some (_, e, rhs) := ty.eq? | continue
+    unless rhs.isAppOfArity ``Option.some 2 do continue
+    let v := rhs.appArg!
+    -- `some a = some b` (a split that generalized a discriminant already split on)
+    if e.isAppOfArity ``Option.some 2 && !(e.appArg! == v) then
+      let s ← saveState
+      try
+        let h ← Term.exprToSyntax ldecl.toExpr
+        evalTactic (← `(tactic| (have k2l_fd := Option.some.inj $h; cases k2l_fd)))
+        if ← k2lStillThere [ty] then s.restore else return true
+      catch _ => s.restore
+      continue
+    for (e', v', d') in seen do
+      unless e == e' && !(v == v') do continue
+      let s ← saveState
+      try
+        let h1 ← Term.exprToSyntax d'.toExpr
+        let h2 ← Term.exprToSyntax ldecl.toExpr
+        evalTactic (← `(tactic| (have k2l_fd := Option.some.inj (Eq.trans (Eq.symm $h1) $h2); cases k2l_fd)))
+        if ← k2lStillThere [ty, ← instantiateMVars d'.type] then s.restore else return true
+      catch _ => s.restore
+    seen := seen.push (e, v, ldecl)
+  return false
+
+partial def k2lFundepLoop (fuel : Nat) : TacticM Unit := do
+  if fuel = 0 then return
+  if (← getGoals).isEmpty then return
+  if ← k2lFundepOnce then k2lFundepLoop (fuel - 1)
+
+/-- `k2l_fundep1`: one step of `k2l_fundep`; fails if there is none. -/
+elab "k2l_fundep1" : tactic => do
+  unless ← k2lFundepOnce do throwError "k2l_fundep1: nothing to identify"
+
+/-- `k2l_fundep`: the steps of `k2l_fundep1` until none applies (at most 64). -/
+elab "k2l_fundep" : tactic => k2lFundepLoop 64
+
+/-- `k2l_absurd`: close a goal with a hypothesis `h : ∀ x₁ …, a₁ = b₁ → … → False` (the
+"no pattern matched" hypothesis of a matcher's fallback branch, after `simp_all` has split the
+pattern equation into one equation per field) whose equations all hold by unification: each
+`aᵢ = bᵢ` is unified (assigning the `xⱼ`) and proved by `rfl`. Unlike `apply h <;> rfl`, the
+bound variables are never left as goals of their own. -/
+elab "k2l_absurd" : tactic => withMainContext do
+  let g ← getMainGoal
+  for ldecl in (← getLCtx) do
+    if ldecl.isImplementationDetail then continue
+    let ty ← instantiateMVars ldecl.type
+    unless ty.isForall do continue
+    let s ← saveState
+    let ok ← try
+      let (xs, _, body) ← forallMetaTelescopeReducing ty
+      unless (← whnfD body).isConstOf ``False do throwError "not a refutation"
+      for x in xs do
+        let xt ← instantiateMVars (← inferType x)
+        if let some (_, a, b) := xt.eq? then
+          unless ← isDefEq a b do throwError "an equation does not hold"
+          x.mvarId!.assign (← mkEqRefl a)
+      let pf ← instantiateMVars (mkAppN ldecl.toExpr xs)
+      if pf.hasExprMVar then throwError "a variable is not determined"
+      g.assign (← mkFalseElim (← g.getType) pf)
+      pure true
+    catch _ => pure false
+    if ok then
+      replaceMainGoal []
+      return
+    s.restore
+  throwError "k2l_absurd: no hypothesis refutes the goal"
+
+end KPrelude

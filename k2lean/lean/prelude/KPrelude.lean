@@ -14,3 +14,6 @@ import KPrelude.InvAttr
 import KPrelude.InvTactic
 import KPrelude.InvSteps
 import KPrelude.InvColl
+import KPrelude.Logic
+import KPrelude.Termination
+import KPrelude.Determinism

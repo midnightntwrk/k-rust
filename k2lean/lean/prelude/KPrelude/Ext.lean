@@ -502,8 +502,9 @@ end KPrelude
 
 The carrier is a list (proofs by list induction); its serialization is one string token whose
 characters are the bytes, and `ofString` reads a KORE `Bytes` domain value (one character per
-byte). Only the operations on bytes alone are here; the endianness and signedness arguments of
-`Bytes2Int`/`Int2Bytes` are generated constructors, unknown to this library. -/
+byte). The endianness and signedness arguments of `Bytes2Int`/`Int2Bytes` are generated
+constructors, unknown to this library: `bytes2int` and `int2bytes` take them as `Bool` flags, and
+the generated library compares its arguments with the constructors `domains.md` declares. -/
 
 namespace KPrelude.BytesHook
 
@@ -530,6 +531,26 @@ theorem ofString_toStr (a : List UInt8) : ofString (toStr a) = a := by
 theorem dec_ser (a : List UInt8) (r : List Tok) (n : Nat) (_ : (ser a).length ≤ n) :
     dec n (ser a ++ r) = some (a, r) := by
   simp [ser, dec, ofString_toStr]
+
+/-- The unsigned value of little-endian bytes. -/
+def toNatLE : List UInt8 → Nat
+  | [] => 0
+  | b :: t => b.toNat + 256 * toNatLE t
+/-- `Bytes2Int(B, E, S)` (`domains.md`): `B` read in byte order `E` (`big` for big-endian), as an
+unsigned number or as two's complement (`signed`); the empty sequence is `0`. -/
+def bytes2int (b : List UInt8) (big signed : Bool) : Int :=
+  let n := toNatLE (if big then b.reverse else b)
+  if signed && decide (0 < b.length) && decide (2 ^ (8 * b.length - 1) ≤ n) then (n : Int) - 2 ^ (8 * b.length) else n
+/-- `k` little-endian bytes of `i` modulo `256^k` (two's complement truncation). -/
+def int2bytesLE : Nat → Int → List UInt8
+  | 0, _ => []
+  | k + 1, i => (Int.emod i 256).toNat.toUInt8 :: int2bytesLE k (Int.ediv i 256)
+/-- `Int2Bytes(LEN, I, E)` (`domains.md`): `LEN` bytes of `I` in two's complement, truncated or
+sign-extended, in byte order `E`. `domains.md` does not say what a negative `LEN` gives; the
+model returns the empty sequence (a model choice, like `substrString`'s clamping). -/
+def int2bytes (len i : Int) (big : Bool) : List UInt8 :=
+  let l := int2bytesLE len.toNat i
+  if big then l.reverse else l
 
 def empty : List UInt8 := []
 def concat (a b : List UInt8) : List UInt8 := a ++ b

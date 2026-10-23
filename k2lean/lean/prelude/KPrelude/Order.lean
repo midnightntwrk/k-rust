@@ -103,3 +103,15 @@ theorem lawfulEqOrd_of_cmp {α : Type} (cmp : α → α → Ordering) (ser : α 
       rw [h] at e; exact inj a b (Std.LawfulEqOrd.eq_of_compare e) }
 
 end KPrelude
+
+namespace KPrelude
+
+/-- Length bounds through an append. The generated round trips of the arity-indexed universe
+bound each argument's serialization with these instead of `omega`, whose cost grows quickly
+with the number of arguments of a constructor (38 s for one of arity 21). -/
+theorem len_left {α : Type} {x y : List α} {n : Nat} (h : (x ++ y).length ≤ n) : x.length ≤ n := by
+  simp only [List.length_append] at h; omega
+theorem len_right {α : Type} {x y : List α} {n : Nat} (h : (x ++ y).length ≤ n) : y.length ≤ n := by
+  simp only [List.length_append] at h; omega
+
+end KPrelude
