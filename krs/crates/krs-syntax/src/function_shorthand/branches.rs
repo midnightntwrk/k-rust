@@ -353,7 +353,9 @@ fn arm_label(attributes: Vec<Attribute>) -> Result<Option<Ident>, ParseError> {
         if label.is_some() {
             return Err(shorthand_error("a match arm takes one label", attribute.span()).into());
         }
-        label = Some(attribute.parse_args::<Ident>()?);
+        label = Some(syn::parse2::<Ident>(crate::parse::strip_trailing_comma(
+            attribute.meta.require_list()?.tokens.clone(),
+        ))?);
     }
     Ok(label)
 }

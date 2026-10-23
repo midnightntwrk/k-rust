@@ -874,6 +874,8 @@ fn parse_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<KSequence, SyntaxError> {
+    // A trailing comma ends the list; it is no element.
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     if context == StateMacroContext::Expression {
         crate::term::reject_pattern_alias(&tokens)?;
     }
@@ -1004,6 +1006,8 @@ fn parse_map(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<MapExpression, SyntaxError> {
+    // A trailing comma ends the list; it is no element.
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     if context == StateMacroContext::Expression {
         crate::term::reject_pattern_alias(&tokens)?;
     }
@@ -1160,6 +1164,8 @@ fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<CellsExpression, SyntaxError> {
+    // A trailing comma ends the list; it is no element.
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     if context == StateMacroContext::Expression {
         crate::term::reject_pattern_alias(&tokens)?;
     }
@@ -1308,7 +1314,7 @@ fn parse_entry_value(
     let wrapper_name = last.ident.to_string();
     let value = match wrapper_name.as_str() {
         "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
-        "Cell" => parse_state_term(value_tokens, context)?,
+        "Cell" => parse_state_term(crate::parse::strip_trailing_comma(value_tokens), context)?,
         _ => {
             return Err(state_error(
                 "cells",
@@ -1459,7 +1465,7 @@ fn parse_instance_item(
         input.parse::<Token![!]>().map_err(SyntaxError::from)?;
         let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
         let (owner, body) = structured_with(
-            group.stream(),
+            crate::parse::strip_trailing_comma(group.stream()),
             |inner| {
                 let owner: Path = inner.parse().map_err(SyntaxError::from)?;
                 let body: proc_macro2::Group = inner.parse().map_err(SyntaxError::from)?;

@@ -15,7 +15,8 @@ use super::tokens::call_site_path;
 use crate::environment::MacroEnvironment;
 
 pub(crate) fn term(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
-    let term = krs_syntax::TermExpression::parse_tokens(input)?;
+    let term =
+        krs_syntax::TermExpression::parse_tokens(krs_syntax::parse::strip_trailing_comma(input))?;
     let expression = term.denoted_tokens(&builtin_path(env)?);
     Ok(quote! {{
         let _krs_typecheck_named_term = || {
@@ -127,6 +128,7 @@ pub(crate) fn fragment(
     input: &TokenStream,
 ) -> crate::Result<TokenStream> {
     let facade = env.facade_path()?;
+    let input = krs_syntax::parse::strip_trailing_comma(input.clone());
     let record: syn::ExprStruct = syn::parse2(input.clone())?;
     let parsed = krs_syntax::TermExpression::parse_tokens(quote!(#facade::fragment![#input]))?;
     let TermTree::Cell(cell) = parsed.tree() else {

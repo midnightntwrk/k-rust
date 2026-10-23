@@ -89,8 +89,8 @@ fn malformed_or_ambiguous_lines_are_rejected_locally() {
             SyntaxErrorKind::RustSyntax("expected identifier".into()),
         ),
         (
-            "impl Value for Int,;",
-            SyntaxErrorKind::RustSyntax("expected a member type after `,`".into()),
+            "impl Value for Int,,;",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
         ),
         (
             "#[k::unknown] Expr;",

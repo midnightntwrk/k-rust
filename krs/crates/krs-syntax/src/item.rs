@@ -577,14 +577,16 @@ impl KrsSyntax for RawKItem {
     /// rule, claim or context sentence.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let span = tokens.span();
-        let literal: LitStr = syn::parse2(tokens).map_err(|_| {
-            SyntaxError::new(
-                SyntaxErrorKind::RawKShape {
-                    reason: "`raw_k!` takes one string literal holding one K sentence".to_owned(),
-                },
-                span,
-            )
-        })?;
+        let literal: LitStr =
+            syn::parse2(crate::parse::strip_trailing_comma(tokens)).map_err(|_| {
+                SyntaxError::new(
+                    SyntaxErrorKind::RawKShape {
+                        reason: "`raw_k!` takes one string literal holding one K sentence"
+                            .to_owned(),
+                    },
+                    span,
+                )
+            })?;
         let kind = Self::check_text(&literal.value()).map_err(|reason| {
             SyntaxError::new(SyntaxErrorKind::RawKShape { reason }, literal.span())
         })?;

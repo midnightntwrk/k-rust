@@ -405,7 +405,9 @@ pub(super) fn parse_rule_pattern(
             if !is_term_macro(&macro_pattern.mac.path) {
                 return Err(unexpected_macro(&macro_pattern.mac.path));
             }
-            let term = TermExpression::parse_pattern_tokens(macro_pattern.mac.tokens.clone())?;
+            let term = TermExpression::parse_pattern_tokens(crate::parse::strip_trailing_comma(
+                macro_pattern.mac.tokens.clone(),
+            ))?;
             if let TermTree::As { binding, .. } = term.tree() {
                 return Err(SyntaxError::new(
                     crate::SyntaxErrorKind::InvalidPatternAs {

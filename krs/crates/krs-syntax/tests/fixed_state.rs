@@ -286,7 +286,7 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
 
     for (source, expected_kind) in [
         (
-            "S1,",
+            "S1 ~>",
             SyntaxErrorKind::InvalidStateMacro {
                 macro_name: "k",
                 reason: "a sequence separator requires another item",

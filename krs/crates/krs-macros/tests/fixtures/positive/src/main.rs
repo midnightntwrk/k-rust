@@ -18,9 +18,9 @@ mod readable_sorts {
     use language_host::builtin::{Bool, Id, Int};
 
     language_host::sorts! {
-        #[k::bracket("(", ")")]
+        #[k::bracket("(", ")",)]
         ReadableExpr;
-        impl ReadableExpr for Id;
+        impl ReadableExpr for Id,;
 
         ReadableValue: ReadableExpr + language_host::KResult;
         impl ReadableValue for Int, Bool;
@@ -143,7 +143,7 @@ mod readable_imp_grammar {
         eval_lt:      Lt { lhs, rhs }         => int::lt(lhs, rhs);
 
         eval_bool_eq: Eq { lhs, rhs }         => bool::eq(lhs, rhs) where lhs: Bool, rhs: Bool;
-        eval_int_eq:  Eq { lhs, rhs }         => int::eq(lhs, rhs)  where lhs: Int,  rhs: Int;
+        eval_int_eq:  Eq { lhs, rhs }         => int::eq(lhs, rhs)  where lhs: Int,  rhs: Int,;
         eval_bool_ne: Ne { lhs, rhs }         => bool::ne(lhs, rhs) where lhs: Bool, rhs: Bool;
         eval_int_ne:  Ne { lhs, rhs }         => int::ne(lhs, rhs)  where lhs: Int,  rhs: Int;
 
@@ -275,13 +275,13 @@ mod readable_imp_grammar {
         s1: language_host::Term<Stmt>,
         s2: language_host::Term<Stmt>,
         language_host::cells! {
-            computation: KCell(StmtSyntax::Sequence(s1, s2), tail @ ..),
-            state @ ..
+            computation: KCell(StmtSyntax::Sequence(s1, s2), tail @ ..,),
+            state @ ..,
         }: ReadableRuleMachine,
     ) -> ReadableRuleMachine {
         language_host::cells! {
-            computation: KCell(s1, s2, ..tail),
-            ..state
+            computation: KCell(s1, s2, ..tail,),
+            ..state,
         }
     }
 
@@ -379,7 +379,7 @@ mod readable_imp_grammar {
         value: language_host::Term<Value>,
         language_host::cells! {
             computation: KCell(name, tail @ ..),
-            env: Cell(map![name -> value, rest @ ..]),
+            env: Cell(map![name -> value, rest @ ..,],),
             state @ ..
         }: ReadableRuleMachine,
     ) -> ReadableRuleMachine {

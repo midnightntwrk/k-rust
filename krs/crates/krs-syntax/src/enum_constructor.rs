@@ -1171,12 +1171,15 @@ fn take_variant_helpers(
                     attribute.span(),
                 ));
             };
-            helpers.format = Some(syn::parse2::<LitStr>(list.tokens.clone()).map_err(|_| {
-                unsupported_enum(
-                    "`k::format` requires exactly one string literal",
-                    list.tokens.span(),
-                )
-            })?);
+            helpers.format = Some(
+                syn::parse2::<LitStr>(crate::parse::strip_trailing_comma(list.tokens.clone()))
+                    .map_err(|_| {
+                        unsupported_enum(
+                            "`k::format` requires exactly one string literal",
+                            list.tokens.span(),
+                        )
+                    })?,
+            );
         } else if let Some((kind, mode)) = variant_strictness_helper(&attribute, family) {
             if helpers.strictness.is_some() {
                 return Err(unsupported_enum(

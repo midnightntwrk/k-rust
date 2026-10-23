@@ -701,7 +701,7 @@ impl StaticProductionAttribute {
     /// Rejects `priority`/`owise` (static rules have no priority) and every
     /// payload other than one `recursive`.
     pub fn parse_marker(mode: StaticMode, tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let mut iter = tokens.into_iter();
+        let mut iter = crate::parse::strip_trailing_comma(tokens).into_iter();
         let Some(first) = iter.next() else {
             return Ok(Self {
                 mode,
@@ -886,6 +886,7 @@ impl KrsSyntax for SymbolAttribute {
     /// Rejects missing or additional tokens, non-string values, and malformed
     /// logical symbol paths.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let tokens = crate::parse::strip_trailing_comma(tokens);
         let parser = |input: ParseStream<'_>| -> syn::Result<SymbolAttribute> {
             let literal: LitStr = input.parse()?;
             if !input.is_empty() {
@@ -1086,6 +1087,7 @@ impl KrsSyntax for DesugarAttribute {
     /// `nondet`, `recursive` (a property of the production), a malformed
     /// `unbound_variables` list, and every other payload at its first token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let tokens = crate::parse::strip_trailing_comma(tokens);
         let first = tokens.clone().into_iter().next();
         let Some(proc_macro2::TokenTree::Ident(first)) = first else {
             return parse_static_clause_tokens(tokens, "desugar")

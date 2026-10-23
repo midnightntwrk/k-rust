@@ -967,6 +967,10 @@ These are restricted object-language grammars embedded in Rust tokens.
 They do not evaluate arbitrary Rust expressions, methods, closures, or control flow; `&&`, `||`, the operators, and a method call with a domain turbofish are [notation for builtin calls](#operator-and-method-notation), and an island hands rustc the call each one denotes, an operator as a call of its facade marker (`k::builtin::__operator::add(a, b)`), which takes operands of any type.
 The claim-only boundary is enforced during macro expansion rather than being a style convention.
 
+Every list and every macro or attribute argument list accepts one trailing comma, as in Rust, including a single argument: `k::bytes!(b"..",)`, `k::k![a, b,]`, `KCell(x, tail @ ..,)`, `#[k::requires(c,)]`, `where a: Int, b: Int,;`.
+A comma adds no element, so the term, the IR, and the emitted K are those of the list without it.
+A record's `..` or `..base` takes none, as in Rust's struct patterns and updates (`Ctor { a, .. }`); in brackets, `..` and `rest @ ..` are elements and take one like any other.
+
 ## Literals
 
 | Rust literal | K token |

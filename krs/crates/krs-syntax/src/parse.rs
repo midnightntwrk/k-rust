@@ -118,6 +118,33 @@ pub fn tokens_from_source(source: &str) -> Result<TokenStream, SyntaxError> {
     })
 }
 
+/// Removes one trailing top-level comma that follows at least one token.
+///
+/// A trailing comma adds no element to a list, so every macro or attribute
+/// argument list accepts one; the parser then sees the list without it. A lone
+/// comma, or a second comma, is left for the parser to reject.
+#[must_use]
+pub fn strip_trailing_comma(tokens: TokenStream) -> TokenStream {
+    let mut tokens: Vec<_> = tokens.into_iter().collect();
+    let trailing = tokens.len() >= 2
+        && is_comma(&tokens[tokens.len() - 1])
+        && !is_comma(&tokens[tokens.len() - 2]);
+    if trailing {
+        tokens.pop();
+        // The new last token ends the stream, so it joins nothing.
+        if let Some(proc_macro2::TokenTree::Punct(last)) = tokens.last_mut() {
+            let mut alone = proc_macro2::Punct::new(last.as_char(), proc_macro2::Spacing::Alone);
+            alone.set_span(last.span());
+            *last = alone;
+        }
+    }
+    tokens.into_iter().collect()
+}
+
+fn is_comma(token: &proc_macro2::TokenTree) -> bool {
+    matches!(token, proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ',')
+}
+
 /// Parses a syntax value from tokens or source text.
 pub trait KrsSyntax: Sized {
     /// Parses a complete token stream.

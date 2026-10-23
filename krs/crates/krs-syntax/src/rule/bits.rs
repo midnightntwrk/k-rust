@@ -674,7 +674,8 @@ pub(crate) fn desugar(
             continue;
         };
         if let syn::Meta::List(list) = &mut attribute.meta
-            && let Ok(mut condition) = syn::parse2::<Expr>(list.tokens.clone())
+            && let Ok(mut condition) =
+                syn::parse2::<Expr>(crate::parse::strip_trailing_comma(list.tokens.clone()))
         {
             substitution.visit_expr_mut(&mut condition);
             list.tokens = condition.to_token_stream();
@@ -992,7 +993,9 @@ fn rewrite_parameter(
         if !contains_template(&invocation.mac.tokens) {
             return Ok(());
         }
-        let Ok(mut inner) = Pat::parse_multi.parse2(invocation.mac.tokens.clone()) else {
+        let Ok(mut inner) = Pat::parse_multi.parse2(crate::parse::strip_trailing_comma(
+            invocation.mac.tokens.clone(),
+        )) else {
             return Ok(());
         };
         rewrite_pattern(&mut inner, occurrences)?;
@@ -1189,7 +1192,9 @@ fn pattern_binders(pattern: &Pat, binders: &mut Vec<Ident>) {
             }
         }
         Pat::Macro(invocation) if crate::term::is_term_macro(&invocation.mac.path) => {
-            if let Ok(inner) = Pat::parse_multi.parse2(invocation.mac.tokens.clone()) {
+            if let Ok(inner) = Pat::parse_multi.parse2(crate::parse::strip_trailing_comma(
+                invocation.mac.tokens.clone(),
+            )) {
                 pattern_binders(&inner, binders);
             }
         }

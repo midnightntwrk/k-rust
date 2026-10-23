@@ -2036,7 +2036,8 @@ fn validate_special_macro(
     }
     match special_macro_kind(&value.mac.path) {
         Some(TermMacroKind::Id) => {
-            let literal: LitStr = syn::parse2(value.mac.tokens.clone())?;
+            let literal: LitStr =
+                syn::parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
             let text = literal.value();
             if !valid_extended_id(&text) {
                 return Err(SyntaxError::new(
@@ -2050,7 +2051,8 @@ fn validate_special_macro(
             Ok(TermTree::IdToken { literal })
         }
         Some(TermMacroKind::Bytes) => {
-            let literal: LitByteStr = syn::parse2(value.mac.tokens.clone())?;
+            let literal: LitByteStr =
+                syn::parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
             nodes.push(TermNode::BytesToken(literal.clone()));
             Ok(TermTree::BytesToken { literal })
         }
@@ -2064,7 +2066,8 @@ fn validate_special_macro(
                 }
                 Ok((sort, spelling))
             };
-            let (sort, spelling) = parser.parse2(value.mac.tokens.clone())?;
+            let (sort, spelling) =
+                parser.parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
             let text = spelling.value();
             crate::parse::validate_authored_binder(&text, spelling.span())?;
             if !text.starts_with('_')
@@ -2208,6 +2211,7 @@ pub(crate) fn matched_matches(path: &Path) -> SyntaxError {
 /// Rejects anything but one term expression, a comma, and a pattern without
 /// an `if` guard.
 pub fn parse_matches_arguments(tokens: TokenStream) -> Result<(Expr, TokenStream), SyntaxError> {
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     let shape =
         || "`k::matches!` expects `subject, pattern`: `k::matches!(t, Pair(_, _))`".to_owned();
     let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Expr, TokenStream)> {
@@ -2352,7 +2356,9 @@ pub(crate) fn local_rewrite_error(reason: String, span: Span) -> SyntaxError {
 
 /// Splits `k::rewrite!` arguments at the top-level `=>`.
 fn split_rewrite_arguments(tokens: &TokenStream) -> Option<(TokenStream, TokenStream)> {
-    let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
+    let tokens = crate::parse::strip_trailing_comma(tokens.clone())
+        .into_iter()
+        .collect::<Vec<_>>();
     let arrow = tokens.windows(2).position(|pair| {
         matches!(&pair[0], proc_macro2::TokenTree::Punct(first)
             if first.as_char() == '=' && first.spacing() == proc_macro2::Spacing::Joint)
@@ -3050,6 +3056,7 @@ pub fn parse_sort_test_arguments(
     kind: SortTestKind,
     tokens: TokenStream,
 ) -> Result<(Path, Expr), SyntaxError> {
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, Expr)> {
         let sort: Path = input.parse()?;
         input.parse::<Token![,]>()?;
@@ -3085,6 +3092,7 @@ pub fn parse_sort_test_arguments(
 /// Rejects anything but a plain sort path, a comma, and one nonempty string
 /// literal.
 pub fn parse_lexeme_arguments(tokens: TokenStream) -> Result<(Path, LitStr), SyntaxError> {
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, LitStr)> {
         let sort: Path = input.parse()?;
         input.parse::<Token![,]>()?;
@@ -3125,7 +3133,8 @@ fn validate_cell_term(
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
-    let record: ExprStruct = syn::parse2(value.mac.tokens.clone())?;
+    let record: ExprStruct =
+        syn::parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
     reject_attributes(&record.attrs, record.span())?;
     if record.qself.is_some() || !is_plain_path(&record.path) {
         return Err(SyntaxError::new(
@@ -3195,7 +3204,9 @@ fn validate_cell_pattern(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&value.attrs, value.span())?;
-    let Pat::Struct(record) = Pat::parse_multi.parse2(value.mac.tokens.clone())? else {
+    let Pat::Struct(record) =
+        Pat::parse_multi.parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?
+    else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "fragment! requires one nominal cell record",

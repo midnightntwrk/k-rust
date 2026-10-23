@@ -1282,7 +1282,9 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
                 return Err(unexpected_macro(&expression_macro.mac.path));
             }
             crate::term::reject_pattern_alias(&expression_macro.mac.tokens)?;
-            term(syn::parse2::<Expr>(expression_macro.mac.tokens.clone())?)
+            term(syn::parse2::<Expr>(crate::parse::strip_trailing_comma(
+                expression_macro.mac.tokens.clone(),
+            ))?)
         }
         expression => term(expression.clone()),
     }

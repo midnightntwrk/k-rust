@@ -2186,7 +2186,8 @@ fn take_ensures_helper(
                     attribute.span(),
                 ));
             }
-            let payload = helper_payload(&attribute, "ensures")?;
+            let payload =
+                crate::parse::strip_trailing_comma(helper_payload(&attribute, "ensures")?);
             crate::term::reject_pattern_alias(&payload)?;
             let expression: Expr = syn::parse2(payload)?;
             found = Some(ClaimEnsures {

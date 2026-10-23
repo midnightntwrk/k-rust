@@ -1556,10 +1556,9 @@ impl RuleBlock {
                         break;
                     }
                     input.parse::<Token![,]>()?;
+                    // A trailing comma before the `;` ends the list.
                     if input.peek(Token![;]) {
-                        return Err(input
-                            .error("expected a binding refinement after `,`")
-                            .into());
+                        break;
                     }
                 }
             }

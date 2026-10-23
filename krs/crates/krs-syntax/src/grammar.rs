@@ -1399,6 +1399,7 @@ impl KrsSyntax for BracketAttribute {
     /// The payload may use the compatibility template form (`"({value})"`) or the two-delimiter form (`"(", ")"`).
     /// Both forms must produce exactly one same-sort value and at least one terminal.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let tokens = crate::parse::strip_trailing_comma(tokens);
         let delimiter_tokens = tokens.clone();
         structured(tokens, |input| {
             let first: LitStr = input.parse()?;
