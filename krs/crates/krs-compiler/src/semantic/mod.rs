@@ -14,6 +14,7 @@ mod fresh;
 mod grammar;
 mod infer;
 mod lexicals;
+mod list_patterns;
 mod lists;
 pub(crate) use lists::value_list_overloads;
 mod ml;
@@ -220,6 +221,7 @@ pub fn lower_descriptor_bundle_with_warnings(
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     or_positions::check_or_pattern_positions(&modules)?;
+    list_patterns::check_list_patterns(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
     statics::check_static_clauses(&modules)?;
     visibility::check_proof_visibility(&modules)?;

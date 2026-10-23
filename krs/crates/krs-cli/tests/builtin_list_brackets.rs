@@ -8,7 +8,8 @@
 //! claim; a closed list is its items, without `.List`. A readable record's
 //! anonymous `..` is one shared rest wherever it stands, the rules run
 //! natively, a stdin read keeps its shape, `krs expand` writes the explicit
-//! terms, and malformed lists are errors.
+//! terms, and malformed lists and patterns that match a list in several ways
+//! are errors.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -534,7 +535,7 @@ fn check_error(target: &Path, item: &str) -> String {
 }
 
 #[test]
-fn malformed_lists_are_errors() {
+fn malformed_lists_and_ambiguous_list_patterns_are_errors() {
     let target = shared_fixture_target();
     let errors = [
         // One rest per bracket, in patterns and results.
@@ -552,6 +553,21 @@ fn malformed_lists_are_errors() {
              for Machine;
              back: { k: [.., Cmd::Pop()] } => { k: [..] };
          }",
+        // Two parts of unknown length: the pattern matches several ways.
+        "k::rules! {
+             for Machine;
+             middle: {
+                 k: [Cmd::Clear(), ..],
+                 queue: list::concat(left, list::concat(list::item(v), right)),
+                 acc: _,
+             } => { k: [..], queue: list::concat(left, right), acc: v };
+         }",
+        "#[k::function(partial, internal)]
+         pub fn Inner(l: Term<List>) -> Term<Int>;
+         k::equations! {
+             for Inner;
+             inner: (list::concat(_, list::concat(list::item(v), _))) => v;
+         }",
     ]
     .map(|item| check_error(target.path(), item));
     expect_test::expect![[r#"
@@ -561,6 +577,8 @@ fn malformed_lists_are_errors() {
             "error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, and the second is the binder `rest` itself",
             "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `Int`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",
             "error[krs::collect::invalid-configuration]: `..` may only end the computation cell `k`'s items: it is matched from its front, the next step first, so name the items before the rest",
+            "error[krs::analysis::ambiguous-list-pattern]: this `List` pattern has 2 parts that are not single elements, but a `List` pattern holds at most one: with two, such as `Left ListItem(V) Right`, the elements between them could sit at several places in the list, so the pattern matches a list in several ways and does not say which; match one rest and the elements before and after it, as in `[a, .., z]`",
+            "error[krs::analysis::ambiguous-list-pattern]: this `List` pattern has 2 parts that are not single elements, but a `List` pattern holds at most one: with two, such as `Left ListItem(V) Right`, the elements between them could sit at several places in the list, so the pattern matches a list in several ways and does not say which; match one rest and the elements before and after it, as in `[a, .., z]`",
         ]
     "#]].assert_debug_eq(&errors);
 }

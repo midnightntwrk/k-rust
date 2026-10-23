@@ -442,6 +442,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the brackets.
         range: Option<Box<SourceRange>>,
     },
+    /// A builtin `List` pattern holds two or more parts that are not single
+    /// elements, so it matches some lists in several ways.
+    AmbiguousListPattern {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason counting the open parts and naming the fix.
+        reason: String,
+        /// Sole exact authored range of the pattern.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `#[k::cons_list]` enum does not build a cons list of its own sort,
     /// or two cons-list declarations construct one sort (F6).
     InvalidConsList {
@@ -745,6 +755,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidListNotation { reason, .. }
+            | Self::AmbiguousListPattern { reason, .. }
             | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
             | Self::CellCollection { reason, .. } => formatter.write_str(reason),
@@ -818,6 +829,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NativeInstance { .. } => codes::analysis::NATIVE_INSTANCE,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidListNotation { .. } => codes::analysis::INVALID_LIST_NOTATION,
+            Self::AmbiguousListPattern { .. } => codes::analysis::AMBIGUOUS_LIST_PATTERN,
             Self::InvalidConsList { .. } => codes::analysis::INVALID_CONS_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -885,6 +897,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::NativeInstance { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidListNotation { range, .. }
+            | Self::AmbiguousListPattern { range, .. }
             | Self::InvalidConsList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }
