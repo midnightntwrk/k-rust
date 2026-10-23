@@ -62,7 +62,9 @@ pub(crate) struct Switches {
     /// where the gate admits it, as an equation head that is not overloaded is read.
     pub(crate) root_read_overloaded_patterns: bool,
     /// Normal-form sorts: no supersort closure (an overlap whose variable's sort gets its
-    /// elements only from a subsort is called vacuous).
+    /// elements only from a subsort is said to range over a sort with no normal form, which its
+    /// non-joined reason then names; it no longer changes a verdict, since no overlap is set
+    /// aside for its sort).
     pub(crate) drop_supersort_inhabitation: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).

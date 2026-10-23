@@ -281,9 +281,9 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 
 /// The harness's own acceptance: each switch below makes a claim false, or makes the check
 /// accept a definition that has no model or whose evaluation depends on its axioms' order, on
-/// one of the definitions the harness runs, and the harness sees it. That is 26 of the 32 defect
+/// one of the definitions the harness runs, and the harness sees it. That is 25 of the 32 defect
 /// switches of `confluence::switches` (`no_condition_memo` configures the load and seeds no
-/// defect). The other six it cannot see:
+/// defect). The other seven it cannot see:
 ///
 /// - `drop_injected_inner`, `drop_lifting` and `drop_lesser_productions` make no claim false:
 ///   each drops a pair whose overlap exists only modulo an overload axiom, and the check also
@@ -305,14 +305,20 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 ///   `g(1) = g(2)` read from right to left, so `isD(g(2))` stays undecided and every instance
 ///   that would show `hv(1) = hv(2)` is skipped. Deciding it takes equational reasoning in both
 ///   directions, a second engine;
+/// - `drop_supersort_inhabitation` makes no claim false: no verdict reads which sorts have a
+///   normal form, since an overlap over a sort without one is classified like any other
+///   (FZ-EMPTYSORT); the switch only makes a non-joined pair name, as a sort with no normal
+///   form, a sort whose normal forms come from a subsort;
 /// - `self_pair_reads_opaque_rhs_as_nothing`: its self pairs have a disjunction, `\top` or
 ///   predicates as right-hand side, which the harness does not instantiate.
 ///
 /// The oracle sees the overload switches by comparing the pairs with its own (V2 and the
 /// completeness run), `claims_during_check` with the claim-dependent probe and both check
 /// switches with `withdrawn_claim_failures`, `discharge_before_check` also by the rewrite rule's
-/// definedness obligation (`confluence::tests::discharging_before_the_check_is_caught`), and the
-/// last by V3c's brute-force self pairs
+/// definedness obligation (`confluence::tests::discharging_before_the_check_is_caught`),
+/// `drop_supersort_inhabitation` by the reason of the subsort probe's pair
+/// (`the_subsort_probe_withdraws_v_and_sees_a_missing_supersort_closure`), and the last by V3c's
+/// brute-force self pairs
 /// (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`).
 macro_rules! axiom_mutation {
     ($test:ident, $field:ident) => {
@@ -392,10 +398,6 @@ axiom_mutation!(
 axiom_mutation!(
     the_axiom_harness_sees_stuck_totals_read_as_bottom,
     stuck_total_is_bottom
-);
-axiom_mutation!(
-    the_axiom_harness_sees_a_dropped_supersort_closure,
-    drop_supersort_inhabitation
 );
 axiom_mutation!(
     the_axiom_harness_sees_relevance_without_tobs,

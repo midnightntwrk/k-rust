@@ -108,7 +108,7 @@ fn value_contract_corpus() {
             "equations": counts.equations,
             "pairs": counts.pairs,
             "overlaps": counts.overlaps,
-            "separated": counts.separated,
+            "uninhabited": counts.uninhabited,
             "refuted": counts.refuted,
             "joined": counts.joined,
             "unjoined": claims.unjoined().len(),

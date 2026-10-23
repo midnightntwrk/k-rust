@@ -1295,7 +1295,7 @@ fn summed_group_counts(claims: &super::ValueClaims) -> super::GroupCounts {
         sum.inner_pairs += counts.inner_pairs;
         sum.skipped += counts.skipped;
         sum.overlaps += counts.overlaps;
-        sum.separated += counts.separated;
+        sum.uninhabited += counts.uninhabited;
         sum.refuted += counts.refuted;
         sum.joined += counts.joined;
         sum.not_joined += counts.not_joined;
@@ -1318,7 +1318,7 @@ fn group_at(claims: &super::ValueClaims, name: &str) -> super::GroupCounts {
 
 /// Summed over the index and priority groups, the per-group counts are the check's totals, in
 /// both scopes: every classified pair is a root or an inner pair of one group, every self pair
-/// is one group's, and every overlap, separation, refutation, join and skipped pair is counted in
+/// is one group's, and every overlap (and each over a sort with no normal form), refutation, join and skipped pair is counted in
 /// one group. Under `CheckScope::All` each group of `n` executable equations has its `n(n-1)/2`
 /// root pairs, and the `[symbolic]` equation, which no check pairs, is counted only in its
 /// group's `symbolic_equations`.
@@ -1341,14 +1341,14 @@ fn group_counts_sum_to_the_totals() {
             (
                 sum.skipped,
                 sum.overlaps,
-                sum.separated,
+                sum.uninhabited,
                 sum.refuted,
                 sum.joined
             ),
             (
                 counts.skipped,
                 counts.overlaps,
-                counts.separated,
+                counts.uninhabited,
                 counts.refuted,
                 counts.joined
             ),
@@ -1505,3 +1505,4 @@ fn group_counts_name_the_refuted_pair() {
 mod review_one;
 mod review_two;
 mod scope;
+mod uninhabited;
