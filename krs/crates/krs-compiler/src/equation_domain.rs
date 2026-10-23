@@ -13,12 +13,14 @@
 //! where. Two consumers read it: the overlap check of equations at one
 //! priority, and the coverage lint of `total` functions.
 //!
-//! The evaluation is the builtins' definition on literals (`int_facts`), and
-//! it decides nothing it is unsure of: a guard that calls a function, reads
-//! a binder the pattern does not bind, overflows `i128`, or is undefined
-//! anywhere (`10 /Int x` at `x == 0`, unless a top-level conjunct is already
-//! false there) makes the analysis give up on the whole set, so a consumer
-//! reports nothing rather than guess. Matching logic reads an undefined
+//! The evaluation is the builtins' definition on literals (`int_facts`),
+//! constructors as free terms, and `k::matches!` (`P :=K t`) of a value as
+//! pattern matching ([`Evaluator`]), and it decides nothing it is unsure of:
+//! a guard that calls a function, reads a binder the pattern does not bind,
+//! overflows `i128`, or is undefined anywhere (`10 /Int x` at `x == 0`,
+//! unless a top-level conjunct is already false there) makes the analysis
+//! give up on the whole set, so a consumer reports nothing rather than
+//! guess. Matching logic reads an undefined
 //! guard as not holding while a short-circuiting backend may read
 //! `true orElseBool ⊥` as true; giving up keeps the analysis out of that
 //! disagreement.
@@ -34,8 +36,8 @@ use krs_ir_levels::{
 };
 
 use crate::coverage::{
-    EquationSignature, binder_text, display_name, instantiate, production_argument_sorts,
-    symbolic_overlap,
+    EquationSignature, Signature, binder_text, display_name, instantiate,
+    production_argument_sorts, symbolic_overlap,
 };
 use crate::int_facts::{IntFact, IntFacts, evaluate_int};
 
@@ -103,6 +105,7 @@ pub(crate) enum ColumnValues {
 
 /// A set of equations whose arguments the analysis can enumerate.
 pub(crate) struct Domain<'a> {
+    evaluator: &'a Evaluator<'a>,
     equations: Vec<Prepared<'a>>,
     columns: Vec<ColumnValues>,
 }
@@ -116,12 +119,166 @@ pub(crate) type Point = Vec<i128>;
 pub(crate) struct Undecided;
 
 /// The value of a ground term.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Ground {
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "A constructor term is a value like the others; values are few and short-lived."
+)]
+pub(crate) enum Ground {
     Int(i128),
     Bool(bool),
+    /// A constructor applied to values.
+    Term {
+        id: StableItemId,
+        instance: Vec<Sort>,
+        arguments: Vec<Ground>,
+    },
     /// The term has no value (a partial operation outside its domain).
     Undefined,
+}
+
+/// The values of an equation's binders.
+pub(crate) type Environment<'a> = BTreeMap<&'a SemanticId, Ground>;
+
+/// Evaluates ground terms: builtins on literals, constructors, and
+/// `P :=K t` once `t` has a value, as pattern matching.
+pub(crate) struct Evaluator<'a> {
+    signature: &'a Signature,
+}
+
+impl<'a> Evaluator<'a> {
+    pub(crate) fn new(signature: &'a Signature) -> Self {
+        Self { signature }
+    }
+
+    /// The value of a term under an environment, `None` when the analysis
+    /// cannot compute it.
+    fn evaluate(&self, term: &SemanticTerm, environment: &Environment<'_>) -> Option<Ground> {
+        match term.kind() {
+            SemanticTermKind::Token { value } => match term.sort() {
+                Sort::Builtin(BuiltinSort::Int) => value.parse().ok().map(Ground::Int),
+                Sort::Builtin(BuiltinSort::Bool) => match value.as_str() {
+                    "true" => Some(Ground::Bool(true)),
+                    "false" => Some(Ground::Bool(false)),
+                    _ => None,
+                },
+                _ => None,
+            },
+            SemanticTermKind::Variable { variable } => environment.get(variable).cloned(),
+            SemanticTermKind::Application {
+                application: ApplicationRef::Builtin(builtin),
+                arguments,
+                ..
+            } => {
+                let values = arguments
+                    .iter()
+                    .map(|argument| self.evaluate(argument, environment))
+                    .collect::<Option<Vec<_>>>()?;
+                operation(*builtin, &values)
+            }
+            SemanticTermKind::Application {
+                application: ApplicationRef::Declared(id),
+                arguments,
+                instance,
+                ..
+            } if self.signature.is_constructor(id) => {
+                let values = arguments
+                    .iter()
+                    .map(|argument| self.evaluate(argument, environment))
+                    .collect::<Option<Vec<_>>>()?;
+                // A constructor is strict as every symbol is.
+                if values.contains(&Ground::Undefined) {
+                    return Some(Ground::Undefined);
+                }
+                Some(Ground::Term {
+                    id: id.clone(),
+                    instance: instance.clone(),
+                    arguments: values,
+                })
+            }
+            SemanticTermKind::Matches {
+                subject, pattern, ..
+            } => match self.evaluate(subject, environment)? {
+                Ground::Undefined => Some(Ground::Undefined),
+                value => self.matches(pattern, &value).map(Ground::Bool),
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether a `k::matches!` pattern matches a value: constructors are
+    /// free, so two terms with different heads differ. `None` when the
+    /// analysis cannot tell.
+    fn matches(&self, pattern: &SemanticTerm, value: &Ground) -> Option<bool> {
+        match (pattern.kind(), value) {
+            (_, Ground::Undefined) => None,
+            (SemanticTermKind::Variable { .. }, _) => {
+                self.signature.value_in_sort(value, pattern.sort())
+            }
+            (SemanticTermKind::Token { value: text }, Ground::Int(number)) => {
+                match pattern.sort() {
+                    Sort::Builtin(BuiltinSort::Int) => Some(text.parse::<i128>().ok()? == *number),
+                    Sort::Builtin(BuiltinSort::Bool) => Some(false),
+                    _ => None,
+                }
+            }
+            (SemanticTermKind::Token { value: text }, Ground::Bool(truth)) => {
+                match pattern.sort() {
+                    Sort::Builtin(BuiltinSort::Bool) => Some((text == "true") == *truth),
+                    Sort::Builtin(BuiltinSort::Int) => Some(false),
+                    _ => None,
+                }
+            }
+            (SemanticTermKind::Token { .. }, Ground::Term { .. }) => matches!(
+                pattern.sort(),
+                Sort::Builtin(BuiltinSort::Int | BuiltinSort::Bool)
+            )
+            .then_some(false),
+            (
+                SemanticTermKind::Application {
+                    application: ApplicationRef::Declared(id),
+                    arguments,
+                    instance,
+                    ..
+                },
+                _,
+            ) if self.signature.is_constructor(id) => match value {
+                Ground::Term {
+                    id: other,
+                    instance: other_instance,
+                    arguments: values,
+                } => {
+                    if id != other || instance != other_instance || arguments.len() != values.len()
+                    {
+                        return Some(false);
+                    }
+                    let mut all = Some(true);
+                    for (argument, value) in arguments.iter().zip(values) {
+                        match self.matches(argument, value) {
+                            Some(false) => return Some(false),
+                            Some(true) => {}
+                            None => all = None,
+                        }
+                    }
+                    all
+                }
+                _ => Some(false),
+            },
+            (SemanticTermKind::As { pattern, .. }, _) => self.matches(pattern, value),
+            (SemanticTermKind::Or { alternatives }, _) => {
+                let mut any = Some(false);
+                for alternative in alternatives {
+                    match self.matches(alternative, value) {
+                        Some(true) => return Some(true),
+                        Some(false) => {}
+                        None => any = None,
+                    }
+                }
+                any
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The top-level conjuncts of a guard.
@@ -264,39 +421,12 @@ fn operation(operation: BuiltinOperation, values: &[Ground]) -> Option<Ground> {
     evaluate_int(operation, &ints).map(Ground::Int)
 }
 
-/// The value of a term under an environment, `None` when the analysis
-/// cannot compute it.
-fn evaluate(term: &SemanticTerm, environment: &BTreeMap<&SemanticId, i128>) -> Option<Ground> {
-    match term.kind() {
-        SemanticTermKind::Token { value } => match term.sort() {
-            Sort::Builtin(BuiltinSort::Int) => value.parse().ok().map(Ground::Int),
-            Sort::Builtin(BuiltinSort::Bool) => match value.as_str() {
-                "true" => Some(Ground::Bool(true)),
-                "false" => Some(Ground::Bool(false)),
-                _ => None,
-            },
-            _ => None,
-        },
-        SemanticTermKind::Variable { variable } => {
-            environment.get(variable).copied().map(Ground::Int)
-        }
-        SemanticTermKind::Application {
-            application: ApplicationRef::Builtin(builtin),
-            arguments,
-            ..
-        } => {
-            let values = arguments
-                .iter()
-                .map(|argument| evaluate(argument, environment))
-                .collect::<Option<Vec<_>>>()?;
-            operation(*builtin, &values)
-        }
-        _ => None,
-    }
-}
-
 /// The interval a top-level conjunct bounds a variable to, as an Int fact.
-fn bound_fact(conjunct: &SemanticTerm, names: &[&SemanticId]) -> Option<IntFact> {
+fn bound_fact(
+    evaluator: &Evaluator<'_>,
+    conjunct: &SemanticTerm,
+    names: &[&SemanticId],
+) -> Option<IntFact> {
     let SemanticTermKind::Application {
         application: ApplicationRef::Builtin(builtin),
         arguments,
@@ -317,7 +447,7 @@ fn bound_fact(conjunct: &SemanticTerm, names: &[&SemanticId]) -> Option<IntFact>
         (first, second)
     };
     let is_name = |term: &SemanticTerm| matches!(term.kind(), SemanticTermKind::Variable { variable } if names.contains(&variable));
-    let constant = |term: &SemanticTerm| match evaluate(term, &BTreeMap::new()) {
+    let constant = |term: &SemanticTerm| match evaluator.evaluate(term, &BTreeMap::new()) {
         Some(Ground::Int(value)) => Some(value),
         _ => None,
     };
@@ -381,7 +511,11 @@ fn int_pattern(term: &SemanticTerm) -> Option<(Option<BTreeSet<i128>>, Vec<&Sema
 }
 
 /// Reads one equation, or `None` when the analysis cannot.
-fn prepare<'a>(view: EquationView<'a>, columns: &[Sort]) -> Option<Prepared<'a>> {
+fn prepare<'a>(
+    evaluator: &Evaluator<'_>,
+    view: EquationView<'a>,
+    columns: &[Sort],
+) -> Option<Prepared<'a>> {
     if view.arguments.len() != columns.len() {
         return None;
     }
@@ -406,7 +540,7 @@ fn prepare<'a>(view: EquationView<'a>, columns: &[Sort]) -> Option<Prepared<'a>>
                 None if names.iter().any(|name| reads(name)) => {
                     let mut facts = IntFacts::default();
                     for conjunct in &conjuncts {
-                        if let Some(fact) = bound_fact(conjunct, &names) {
+                        if let Some(fact) = bound_fact(evaluator, conjunct, &names) {
                             facts.add(fact);
                         }
                     }
@@ -490,10 +624,14 @@ impl<'a> Domain<'a> {
     /// The domain of a set of equations over arguments of `columns`'
     /// sorts, or `None` when some equation is beyond the analysis or the
     /// domain has more than [`POINT_LIMIT`] points.
-    pub(crate) fn new(columns: &[Sort], views: &[EquationView<'a>]) -> Option<Self> {
+    pub(crate) fn new(
+        evaluator: &'a Evaluator<'a>,
+        columns: &[Sort],
+        views: &[EquationView<'a>],
+    ) -> Option<Self> {
         let equations = views
             .iter()
-            .map(|view| prepare(*view, columns))
+            .map(|view| prepare(evaluator, *view, columns))
             .collect::<Option<Vec<_>>>()?;
         let mut size = 1_u64;
         let mut values = Vec::new();
@@ -528,6 +666,7 @@ impl<'a> Domain<'a> {
             });
         }
         Some(Self {
+            evaluator,
             equations,
             columns: values,
         })
@@ -563,11 +702,11 @@ impl<'a> Domain<'a> {
     }
 
     /// The environment of an equation at a point.
-    fn environment(&self, equation: usize, point: &[i128]) -> BTreeMap<&'a SemanticId, i128> {
+    fn environment(&self, equation: usize, point: &[i128]) -> Environment<'a> {
         self.equations[equation]
             .binders
             .iter()
-            .map(|(name, column)| (*name, point[*column]))
+            .map(|(name, column)| (*name, Ground::Int(point[*column])))
             .collect()
     }
 
@@ -591,14 +730,12 @@ impl<'a> Domain<'a> {
         let environment = self.environment(equation, point);
         // A false top-level conjunct makes the guard not hold however the
         // others evaluate, even undefined.
-        if prepared
-            .conjuncts
-            .iter()
-            .any(|conjunct| evaluate(conjunct, &environment) == Some(Ground::Bool(false)))
-        {
+        if prepared.conjuncts.iter().any(|conjunct| {
+            self.evaluator.evaluate(conjunct, &environment) == Some(Ground::Bool(false))
+        }) {
             return Ok(false);
         }
-        match evaluate(guard, &environment) {
+        match self.evaluator.evaluate(guard, &environment) {
             Some(Ground::Bool(holds)) => Ok(holds),
             _ => Err(Undecided),
         }
@@ -616,7 +753,7 @@ impl<'a> Domain<'a> {
             .iter()
             .map(|(name, column)| (*name, *column))
             .collect::<BTreeMap<_, _>>();
-        ground_text(prepared.view.result, &environment, &free)
+        ground_text(self.evaluator, prepared.view.result, &environment, &free)
     }
 }
 
@@ -625,32 +762,34 @@ impl<'a> Domain<'a> {
 /// it then is defined, so a lazy and a strict reading agree), `Some(false)`
 /// when it is false or undefined, `None` when the evaluation cannot tell.
 pub(crate) fn guard_holds(
+    evaluator: &Evaluator<'_>,
     guard: &SemanticTerm,
-    environment: &BTreeMap<&SemanticId, i128>,
+    environment: &Environment<'_>,
 ) -> Option<bool> {
     if conjuncts(guard)
         .iter()
-        .any(|conjunct| evaluate(conjunct, environment) == Some(Ground::Bool(false)))
+        .any(|conjunct| evaluator.evaluate(conjunct, environment) == Some(Ground::Bool(false)))
     {
         return Some(false);
     }
-    match evaluate(guard, environment)? {
+    match evaluator.evaluate(guard, environment)? {
         Ground::Bool(holds) => Some(holds),
         Ground::Undefined => Some(false),
-        Ground::Int(_) => None,
+        Ground::Int(_) | Ground::Term { .. } => None,
     }
 }
 
 /// The literal a ground Int or Bool term evaluates to, with its Int binders
 /// at the given values.
 pub(crate) fn ground_literal(
+    evaluator: &Evaluator<'_>,
     term: &SemanticTerm,
-    environment: &BTreeMap<&SemanticId, i128>,
+    environment: &Environment<'_>,
 ) -> Option<String> {
-    match evaluate(term, environment)? {
+    match evaluator.evaluate(term, environment)? {
         Ground::Int(value) => Some(value.to_string()),
         Ground::Bool(value) => Some(value.to_string()),
-        Ground::Undefined => None,
+        Ground::Term { .. } | Ground::Undefined => None,
     }
 }
 
@@ -658,22 +797,23 @@ pub(crate) fn ground_literal(
 /// a key in which every binder of a free argument is named by its position,
 /// and a rendering.
 fn ground_text(
+    evaluator: &Evaluator<'_>,
     term: &SemanticTerm,
-    environment: &BTreeMap<&SemanticId, i128>,
+    environment: &Environment<'_>,
     free: &BTreeMap<&SemanticId, usize>,
 ) -> Option<(String, String)> {
-    if let Some(value) = evaluate(term, environment) {
+    if let Some(value) = evaluator.evaluate(term, environment) {
         match value {
             Ground::Int(value) => return Some((value.to_string(), value.to_string())),
             Ground::Bool(value) => return Some((value.to_string(), value.to_string())),
-            Ground::Undefined => {}
+            Ground::Term { .. } | Ground::Undefined => {}
         }
     }
     let list = |terms: &mut dyn Iterator<Item = &SemanticTerm>| {
         let mut keys = Vec::new();
         let mut texts = Vec::new();
         for term in terms {
-            let (key, text) = ground_text(term, environment, free)?;
+            let (key, text) = ground_text(evaluator, term, environment, free)?;
             keys.push(key);
             texts.push(text);
         }
@@ -719,7 +859,7 @@ fn ground_text(
             let mut keys = Vec::new();
             let mut texts = Vec::new();
             for item in items {
-                let (key, text) = ground_text(item, environment, free)?;
+                let (key, text) = ground_text(evaluator, item, environment, free)?;
                 keys.push(key);
                 texts.push(text);
             }
@@ -837,6 +977,7 @@ pub(crate) fn render_point(head: &str, domain: &Domain<'_>, point: &[i128]) -> S
 /// their overlap is no violation: the equations are confluent there.
 pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<EquationOverlap> {
     let signature = EquationSignature::new(modules);
+    let evaluator = signature.evaluator();
     for (production, instance, rules) in function_equations(modules) {
         let columns = instantiate(
             &production_argument_sorts(production),
@@ -863,10 +1004,10 @@ pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<Equat
                 .map(|rule| equation_view(rule))
                 .collect::<Option<Vec<_>>>()
                 .ok_or(Undecided)
-                .and_then(|views| overlap_among(production, &columns, &views));
+                .and_then(|views| overlap_among(&evaluator, production, &columns, &views));
             let overlap = match ground {
                 Ok(overlap) => overlap,
-                Err(Undecided) => symbolic_overlap(&signature, production, &rules),
+                Err(Undecided) => symbolic_overlap(&signature, &evaluator, production, &rules),
             };
             if overlap.is_some() {
                 return overlap;
@@ -878,12 +1019,13 @@ pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<Equat
 
 /// The first overlap among equations at one priority, sorted by identity,
 /// or [`Undecided`] when the analysis cannot enumerate them.
-fn overlap_among(
+fn overlap_among<'a>(
+    evaluator: &'a Evaluator<'a>,
     production: &SemanticProduction,
     columns: &[Sort],
-    views: &[EquationView<'_>],
+    views: &[EquationView<'a>],
 ) -> Result<Option<EquationOverlap>, Undecided> {
-    let domain = Domain::new(columns, views).ok_or(Undecided)?;
+    let domain = Domain::new(evaluator, columns, views).ok_or(Undecided)?;
     for point in domain.points() {
         let mut applying = Vec::new();
         for index in 0..views.len() {

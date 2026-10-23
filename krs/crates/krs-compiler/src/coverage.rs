@@ -23,10 +23,16 @@
 //! with integer constants, the order of two integers, and opaque atoms). A
 //! guard holds where it is defined and true: a partial Int operation in it
 //! contributes the condition under which it is defined, so `w > 0 &&
-//! x < 1 << (w - 1)` is read, with its shift's `w - 1 >= 0`. The
-//! abstraction only ever admits more valuations than exist, so it never calls
-//! an uncovered argument covered; it can miss facts (the range of a function,
-//! say) and then reports a gap that does not exist.
+//! x < 1 << (w - 1)` is read, with its shift's `w - 1 >= 0`. An application
+//! of a total function is one unknown value ([`GuardReader`]), limited to its
+//! equations' results when they cover it ([`Range`]); a `k::matches!` test
+//! refines the patterns ([`expand`]). The abstraction only ever admits more
+//! valuations than exist, never fewer, and a row never covers more than its
+//! equation does, so the lint never calls an uncovered argument covered; it
+//! can miss facts (a correlation between a call and its arguments, the
+//! range of a result form it does not bound) and then reports a gap that
+//! does not exist. Where it reports a condition, every argument that
+//! satisfies the condition is uncovered ([`minimize`]).
 //!
 //! Skipped: `partial` functions (a missing case is what `partial` means),
 //! hooked and `smt_hook` functions (the backend or the SMT term defines them),
@@ -39,6 +45,7 @@
 //! silences the warning; on a function whose equations cover every argument it
 //! is itself stale (`warning[krs::analysis::stale-underspecified]`).
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
@@ -54,7 +61,7 @@ use krs_ir_levels::{
 };
 use num_bigint::BigInt;
 
-use crate::equation_domain::{ColumnValues, Domain, Undecided, equation_view};
+use crate::equation_domain::{ColumnValues, Domain, Evaluator, Ground, Undecided, equation_view};
 use crate::int_facts::{IntFact, IntFacts};
 
 /// The pattern-matrix nodes one function may visit before the lint gives up
@@ -73,29 +80,14 @@ const WITNESS_LIMIT: usize = 3;
 #[must_use]
 pub fn coverage_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
     let signature = Signature::new(modules);
+    let evaluator = Evaluator::new(&signature);
+    let analysis = Analysis::new(&signature, &evaluator, modules);
     let raw = modules
         .iter()
         .any(|module| !module.raw_sentences().is_empty());
-    let mut equations = BTreeMap::<&StableItemId, Vec<&SemanticRule>>::new();
-    for rule in modules.iter().flat_map(SemanticModule::rules) {
-        if rule.kind() != SentenceKind::Equation {
-            continue;
-        }
-        if let Some(body) = rule.body()
-            && let SemanticTermKind::Application {
-                application: ApplicationRef::Declared(head),
-                ..
-            } = body.from().kind()
-        {
-            equations.entry(head).or_default().push(rule);
-        }
-    }
     let mut warnings = Vec::new();
     for production in modules.iter().flat_map(SemanticModule::productions) {
-        if !checked(production) {
-            continue;
-        }
-        let Some(rules) = equations.get(production.id()) else {
+        let Some(outcomes) = analysis.outcomes(production.id()) else {
             continue;
         };
         let stated = production
@@ -104,8 +96,8 @@ pub fn coverage_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
             .find(|attribute| matches!(attribute, ProductionAttribute::Underspecified { .. }));
         let mut uncovered = Vec::new();
         let mut decided = true;
-        for (instance, rules) in instances(rules) {
-            match check_instance(&signature, production, &instance, &rules) {
+        for (instance, outcome) in outcomes.iter() {
+            match outcome {
                 Outcome::Covered => {}
                 Outcome::Uncovered(report) => uncovered.push((instance, report)),
                 Outcome::Undecided => decided = false,
@@ -117,13 +109,141 @@ pub fn coverage_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
             }
             (None, false) => {
                 for (instance, report) in uncovered {
-                    warnings.push(uncovered_warning(production, &instance, &report, raw));
+                    warnings.push(uncovered_warning(production, instance, report, raw));
                 }
             }
             _ => {}
         }
     }
     warnings
+}
+
+/// A function's verdict on each instance.
+type Outcomes = Rc<Vec<(Vec<Sort>, Outcome)>>;
+
+/// The verdicts on a definition's checked functions and the ranges they
+/// give. Each function is checked once, when the lint first needs it: in
+/// production order, or earlier when a function checked before it applies
+/// it in a guard and asks for its range. A function still being checked (a
+/// cycle) has no range; that is sound, and the order is deterministic.
+struct Analysis<'m> {
+    signature: &'m Signature,
+    evaluator: &'m Evaluator<'m>,
+    productions: BTreeMap<&'m StableItemId, &'m SemanticProduction>,
+    equations: BTreeMap<&'m StableItemId, Vec<&'m SemanticRule>>,
+    /// `None` while the function is being checked.
+    outcomes: RefCell<BTreeMap<&'m StableItemId, Option<Outcomes>>>,
+    /// `None` while the range is being inferred, and for no range.
+    ranges: RefCell<BTreeMap<&'m StableItemId, Option<Rc<Range>>>>,
+}
+
+impl<'m> Analysis<'m> {
+    fn new(
+        signature: &'m Signature,
+        evaluator: &'m Evaluator<'m>,
+        modules: &'m [SemanticModule],
+    ) -> Self {
+        let mut equations = BTreeMap::<&StableItemId, Vec<&SemanticRule>>::new();
+        for rule in modules.iter().flat_map(SemanticModule::rules) {
+            if rule.kind() != SentenceKind::Equation {
+                continue;
+            }
+            if let Some(body) = rule.body()
+                && let SemanticTermKind::Application {
+                    application: ApplicationRef::Declared(head),
+                    ..
+                } = body.from().kind()
+            {
+                equations.entry(head).or_default().push(rule);
+            }
+        }
+        Self {
+            signature,
+            evaluator,
+            productions: modules
+                .iter()
+                .flat_map(SemanticModule::productions)
+                .map(|production| (production.id(), production))
+                .collect(),
+            equations,
+            outcomes: RefCell::default(),
+            ranges: RefCell::default(),
+        }
+    }
+
+    /// The verdicts on a checked function with equations; `None` for
+    /// another function, or one still being checked.
+    fn outcomes(&self, id: &StableItemId) -> Option<Outcomes> {
+        if let Some(known) = self.outcomes.borrow().get(id) {
+            return known.clone();
+        }
+        let (&key, &production) = self.productions.get_key_value(id)?;
+        let rules = self.equations.get(id)?;
+        if !checked(production) {
+            return None;
+        }
+        self.outcomes.borrow_mut().insert(key, None);
+        let outcomes = Rc::new(
+            instances(rules)
+                .into_iter()
+                .map(|(instance, rules)| {
+                    let outcome = check_instance(
+                        self.signature,
+                        self.evaluator,
+                        production,
+                        &instance,
+                        &rules,
+                        self,
+                    );
+                    (instance, outcome)
+                })
+                .collect::<Vec<_>>(),
+        );
+        self.outcomes
+            .borrow_mut()
+            .insert(key, Some(Rc::clone(&outcomes)));
+        Some(outcomes)
+    }
+
+    /// See [`Range`].
+    fn infer(&self, production: &SemanticProduction) -> Option<Rc<Range>> {
+        let stated = production
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, ProductionAttribute::Underspecified { .. }));
+        if stated || !production.parameters().is_empty() {
+            return None;
+        }
+        let outcomes = self.outcomes(production.id())?;
+        if !outcomes
+            .iter()
+            .all(|(_, outcome)| matches!(outcome, Outcome::Covered))
+        {
+            return None;
+        }
+        let mut range: Option<Range> = None;
+        for rule in self.equations.get(production.id())? {
+            let result = result_range(self.signature, self, rule.body()?.to())?;
+            range = Some(match range {
+                None => result,
+                Some(range) => range.union(result)?,
+            });
+        }
+        range.map(Rc::new)
+    }
+}
+
+impl RangeOf for Analysis<'_> {
+    fn range_of(&self, id: &StableItemId) -> Option<Rc<Range>> {
+        if let Some(known) = self.ranges.borrow().get(id) {
+            return known.clone();
+        }
+        let (&key, &production) = self.productions.get_key_value(id)?;
+        self.ranges.borrow_mut().insert(key, None);
+        let range = self.infer(production);
+        self.ranges.borrow_mut().insert(key, range.clone());
+        range
+    }
 }
 
 /// Whether the lint judges a production: a total function the backend or
@@ -163,7 +283,7 @@ fn instances<'a>(rules: &[&'a SemanticRule]) -> BTreeMap<Vec<Sort>, Vec<&'a Sema
 
 /// The constructors and value families of every sort of the definition.
 #[derive(Default)]
-struct Signature {
+pub(crate) struct Signature {
     /// Every constructor, parametric ones included.
     constructors: BTreeMap<StableItemId, ConstructorInfo>,
     /// The total functions, whose applications always have a value.
@@ -418,6 +538,43 @@ impl Signature {
     fn binder_covers(&self, binder: &Sort, head: &Head) -> bool {
         self.is_subsort(&self.head_sort(head), binder)
     }
+
+    /// Whether a production is a constructor: its applications are values.
+    pub(crate) fn is_constructor(&self, id: &StableItemId) -> bool {
+        self.constructors.contains_key(id)
+    }
+
+    /// Whether a value is in a sort, `None` when the signature cannot tell:
+    /// the value's own sort is below it, every value is a `KItem`, and a
+    /// declared sort of the definition or a builtin domain contains no
+    /// value whose sort the signature does not place below it. Other
+    /// framework sorts and cells are not judged.
+    pub(crate) fn value_in_sort(&self, value: &Ground, sort: &Sort) -> Option<bool> {
+        let own = match value {
+            Ground::Int(_) => Sort::Builtin(BuiltinSort::Int),
+            Ground::Bool(_) => Sort::Builtin(BuiltinSort::Bool),
+            Ground::Term { id, instance, .. } => {
+                if !self.constructors.contains_key(id) {
+                    return None;
+                }
+                self.head_sort(&Head::Constructor {
+                    id: id.clone(),
+                    instance: instance.clone(),
+                })
+            }
+            Ground::Undefined => return None,
+        };
+        if self.is_subsort(&own, sort) {
+            return Some(true);
+        }
+        match sort {
+            Sort::Declared(id) if id.package().k_namespace() == "KRS-FRAMEWORK" => {
+                (id.item_name() == "KItem").then_some(true)
+            }
+            Sort::Declared(_) | Sort::Builtin(BuiltinSort::Int | BuiltinSort::Bool) => Some(false),
+            _ => None,
+        }
+    }
 }
 
 /// How a production is named in a message: `Enum::Variant` or the struct.
@@ -458,6 +615,10 @@ enum Pattern {
         sort: Sort,
         value: String,
     },
+    /// The values of one family head ([`Head::Family`]) and nothing else:
+    /// a binder of the family's sort would also match the constructors of
+    /// its subsorts. Only a complement ([`complement`]) builds one.
+    Family(Sort),
     /// A pattern the lint does not decompose (a collection, a function
     /// application, a non-linear binder); it may match nothing.
     Opaque,
@@ -574,6 +735,394 @@ fn alternatives(signature: &Signature, term: &SemanticTerm) -> Vec<Alternative> 
     }
 }
 
+/// Whether a pattern is decomposed all the way down: it has no opaque part.
+fn decomposed(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::Opaque => false,
+        Pattern::Constructor { arguments, .. } => arguments.iter().all(decomposed),
+        Pattern::Binder(_) | Pattern::Literal { .. } | Pattern::Family(_) => true,
+    }
+}
+
+/// The canonical text and the rendering of a `k::matches!` pattern. Its
+/// local binders bind only inside the test (BIND-1), so they are numbered by
+/// first occurrence, which keeps what matters, where one repeats; each
+/// wildcard is a binder of its own. `None` for a form the lint does not
+/// render.
+fn matches_pattern(
+    term: &SemanticTerm,
+    binders: &mut BTreeMap<SemanticId, usize>,
+) -> Option<(String, String)> {
+    let number = |binders: &mut BTreeMap<SemanticId, usize>, variable: &SemanticId| {
+        let next = binders.len();
+        if matches!(variable.kind(), SemanticIdKind::Wildcard) {
+            binders.insert(variable.clone(), next);
+            next
+        } else {
+            *binders.entry(variable.clone()).or_insert(next)
+        }
+    };
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => {
+            let index = number(binders, variable);
+            Some((format!("_{index}:{:?}", term.sort()), binder_text(variable)))
+        }
+        SemanticTermKind::Token { value } => {
+            Some((format!("{:?}:{value}", term.sort()), value.clone()))
+        }
+        SemanticTermKind::Application {
+            application: ApplicationRef::Declared(id),
+            arguments,
+            instance,
+            ..
+        } => {
+            let mut keys = Vec::new();
+            let mut texts = Vec::new();
+            for argument in arguments {
+                let (key, text) = matches_pattern(argument, binders)?;
+                keys.push(key);
+                texts.push(text);
+            }
+            let text = if arguments.is_empty() {
+                display_name(id)
+            } else {
+                format!("{}({})", display_name(id), texts.join(", "))
+            };
+            Some((format!("{id:?}{instance:?}({})", keys.join(", ")), text))
+        }
+        SemanticTermKind::As { alias, pattern } => {
+            let (key, text) = matches_pattern(pattern, binders)?;
+            let index = number(binders, alias);
+            Some((
+                format!("{key}@_{index}"),
+                format!("{} @ {text}", binder_text(alias)),
+            ))
+        }
+        SemanticTermKind::Or { alternatives } => {
+            let mut keys = Vec::new();
+            let mut texts = Vec::new();
+            for alternative in alternatives {
+                let (key, text) = matches_pattern(alternative, binders)?;
+                keys.push(key);
+                texts.push(text);
+            }
+            Some((format!("or({})", keys.join(" | ")), texts.join(" | ")))
+        }
+        _ => None,
+    }
+}
+
+/// The pattern that matches exactly the values of one head: a constructor
+/// over binders of its argument sorts, or a family.
+fn head_pattern(signature: &Signature, head: &Head) -> Pattern {
+    match head {
+        Head::Constructor { id, instance } => Pattern::Constructor {
+            id: id.clone(),
+            instance: instance.clone(),
+            arguments: signature
+                .arguments(id, instance)
+                .into_iter()
+                .map(Pattern::Binder)
+                .collect(),
+        },
+        Head::Family(sort) => Pattern::Family(sort.clone()),
+    }
+}
+
+/// The subpattern at `path` of an argument list.
+fn pattern_at<'p>(patterns: &'p [Pattern], path: &[usize]) -> Option<&'p Pattern> {
+    let (first, rest) = path.split_first()?;
+    let mut pattern = patterns.get(*first)?;
+    for index in rest {
+        let Pattern::Constructor { arguments, .. } = pattern else {
+            return None;
+        };
+        pattern = arguments.get(*index)?;
+    }
+    Some(pattern)
+}
+
+/// `patterns` with the subpattern at `path` replaced.
+fn replace_at(patterns: &[Pattern], path: &[usize], replacement: Pattern) -> Option<Vec<Pattern>> {
+    fn replace(pattern: &mut Pattern, path: &[usize], replacement: Pattern) -> Option<()> {
+        let Some((first, rest)) = path.split_first() else {
+            *pattern = replacement;
+            return Some(());
+        };
+        let Pattern::Constructor { arguments, .. } = pattern else {
+            return None;
+        };
+        replace(arguments.get_mut(*first)?, rest, replacement)
+    }
+    let mut patterns = patterns.to_vec();
+    let (first, rest) = path.split_first()?;
+    replace(patterns.get_mut(*first)?, rest, replacement)?;
+    Some(patterns)
+}
+
+/// Patterns whose union matches exactly what both `left` and `right`
+/// match, over the lint's heads; `None` when one of them is opaque or the
+/// union would exceed [`ALTERNATIVE_LIMIT`].
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case per pair of pattern kinds, as in unification."
+)]
+fn meet(signature: &Signature, left: &Pattern, right: &Pattern) -> Option<Vec<Pattern>> {
+    let covers = |sort: &Sort, head: &Head| signature.binder_covers(sort, head);
+    Some(match (left, right) {
+        (Pattern::Opaque, _) | (_, Pattern::Opaque) => return None,
+        (Pattern::Binder(first), Pattern::Binder(second)) => {
+            if signature.is_subsort(first, second) {
+                vec![left.clone()]
+            } else if signature.is_subsort(second, first) {
+                vec![right.clone()]
+            } else {
+                // The heads below `first` that `second` also covers.
+                signature
+                    .heads(first)
+                    .iter()
+                    .filter(|head| covers(second, head))
+                    .map(|head| head_pattern(signature, head))
+                    .collect()
+            }
+        }
+        (Pattern::Binder(sort), other @ Pattern::Constructor { id, instance, .. })
+        | (other @ Pattern::Constructor { id, instance, .. }, Pattern::Binder(sort)) => {
+            let head = Head::Constructor {
+                id: id.clone(),
+                instance: instance.clone(),
+            };
+            if covers(sort, &head) {
+                vec![other.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+        (
+            Pattern::Binder(binder),
+            other @ (Pattern::Literal { sort, .. } | Pattern::Family(sort)),
+        )
+        | (
+            other @ (Pattern::Literal { sort, .. } | Pattern::Family(sort)),
+            Pattern::Binder(binder),
+        ) => {
+            if covers(binder, &Head::Family(sort.clone())) {
+                vec![other.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+        (
+            Pattern::Family(family),
+            other @ (Pattern::Literal { sort, .. } | Pattern::Family(sort)),
+        )
+        | (other @ Pattern::Literal { sort, .. }, Pattern::Family(family)) => {
+            if family == sort {
+                vec![other.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+        (
+            Pattern::Literal { sort, value },
+            Pattern::Literal {
+                sort: other,
+                value: other_value,
+            },
+        ) => {
+            if sort == other && value == other_value {
+                vec![left.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+        (
+            Pattern::Constructor {
+                id,
+                instance,
+                arguments,
+            },
+            Pattern::Constructor {
+                id: other,
+                instance: other_instance,
+                arguments: other_arguments,
+            },
+        ) => {
+            if id != other || instance != other_instance {
+                return Some(Vec::new());
+            }
+            let mut combined = vec![Vec::new()];
+            for (first, second) in arguments.iter().zip(other_arguments) {
+                let met = meet(signature, first, second)?;
+                if combined.len() * met.len() > ALTERNATIVE_LIMIT {
+                    return None;
+                }
+                combined = combined
+                    .into_iter()
+                    .flat_map(|prefix: Vec<Pattern>| {
+                        met.iter().map(move |argument| {
+                            let mut arguments = prefix.clone();
+                            arguments.push(argument.clone());
+                            arguments
+                        })
+                    })
+                    .collect();
+            }
+            combined
+                .into_iter()
+                .map(|arguments| Pattern::Constructor {
+                    id: id.clone(),
+                    instance: instance.clone(),
+                    arguments,
+                })
+                .collect()
+        }
+        (Pattern::Constructor { .. }, Pattern::Literal { .. } | Pattern::Family(_))
+        | (Pattern::Literal { .. } | Pattern::Family(_), Pattern::Constructor { .. }) => Vec::new(),
+    })
+}
+
+/// A pattern with the residual conditions it needs: `n` complemented in Int
+/// is every Int at that path but `n`.
+type Refined = (Pattern, Vec<Formula>);
+
+/// Patterns whose union matches exactly the values of `sort` that `pattern`
+/// does not, at `path`; `None` where that cannot be stated exactly (an
+/// opaque pattern, a literal of a sort other than Int and Bool) or past
+/// [`ALTERNATIVE_LIMIT`].
+///
+/// Each head is stated exactly, a family by [`Pattern::Family`]: a binder
+/// of the family's sort would also match the constructors of its
+/// subsorts, and a row with it would cover more than its equation does.
+fn complement(
+    signature: &Signature,
+    pattern: &Pattern,
+    sort: &Sort,
+    path: &[usize],
+) -> Option<Vec<Refined>> {
+    let heads = signature.heads(sort);
+    // Every head of `sort` but `except`.
+    let others = |except: Option<&Head>| -> Vec<Refined> {
+        heads
+            .iter()
+            .filter(|head| Some(*head) != except)
+            .map(|head| (head_pattern(signature, head), Vec::new()))
+            .collect()
+    };
+    let refined = match pattern {
+        Pattern::Opaque => return None,
+        Pattern::Binder(binder) => heads
+            .iter()
+            .filter(|head| !signature.binder_covers(binder, head))
+            .map(|head| (head_pattern(signature, head), Vec::new()))
+            .collect(),
+        Pattern::Family(family) => others(Some(&Head::Family(family.clone()))),
+        Pattern::Constructor {
+            id,
+            instance,
+            arguments,
+        } => {
+            let head = Head::Constructor {
+                id: id.clone(),
+                instance: instance.clone(),
+            };
+            if !heads.contains(&head) {
+                return Some(others(None));
+            }
+            let mut refined = others(Some(&head));
+            let sorts = signature.arguments(id, instance);
+            for (index, (argument, argument_sort)) in arguments.iter().zip(&sorts).enumerate() {
+                let mut inner = path.to_vec();
+                inner.push(index);
+                for (choice, residual) in complement(signature, argument, argument_sort, &inner)? {
+                    let arguments = sorts
+                        .iter()
+                        .enumerate()
+                        .map(|(position, sort)| {
+                            if position == index {
+                                choice.clone()
+                            } else {
+                                Pattern::Binder(sort.clone())
+                            }
+                        })
+                        .collect();
+                    refined.push((
+                        Pattern::Constructor {
+                            id: id.clone(),
+                            instance: instance.clone(),
+                            arguments,
+                        },
+                        residual,
+                    ));
+                }
+            }
+            refined
+        }
+        Pattern::Literal {
+            sort: family,
+            value,
+        } => {
+            let head = Head::Family(family.clone());
+            if !heads.contains(&head) {
+                return Some(others(None));
+            }
+            let mut refined = others(Some(&head));
+            match family {
+                Sort::Builtin(BuiltinSort::Bool) => refined.push((
+                    Pattern::Literal {
+                        sort: family.clone(),
+                        value: (value != "true").to_string(),
+                    },
+                    Vec::new(),
+                )),
+                Sort::Builtin(BuiltinSort::Int) => refined.push((
+                    Pattern::Family(family.clone()),
+                    vec![
+                        Formula::Atom(Atom::Bound {
+                            subject: path_text(path),
+                            bound: Bound::At,
+                            constant: value.parse().ok()?,
+                        })
+                        .not(),
+                    ],
+                )),
+                _ => return None,
+            }
+            refined
+        }
+    };
+    (refined.len() <= ALTERNATIVE_LIMIT).then_some(refined)
+}
+
+/// The complement of a union of alternatives: the intersection of their
+/// complements.
+fn complement_all(
+    signature: &Signature,
+    alternatives: &[Pattern],
+    sort: &Sort,
+    path: &[usize],
+) -> Option<Vec<Refined>> {
+    let mut refined = vec![(Pattern::Binder(sort.clone()), Vec::new())];
+    for alternative in alternatives {
+        let complement = complement(signature, alternative, sort, path)?;
+        let mut next = Vec::new();
+        for (left, left_residual) in &refined {
+            for (right, right_residual) in &complement {
+                for met in meet(signature, left, right)? {
+                    let mut residual = left_residual.clone();
+                    residual.extend(right_residual.iter().cloned());
+                    next.push((met, residual));
+                }
+            }
+        }
+        if next.len() > ALTERNATIVE_LIMIT {
+            return None;
+        }
+        refined = next;
+    }
+    Some(refined)
+}
+
 // ---------------------------------------------------------------------------
 // Guards
 
@@ -632,6 +1181,49 @@ impl Formula {
         Self::Not(Box::new(self))
     }
 
+    fn and(self, other: Self) -> Self {
+        Self::And(Box::new(self), Box::new(other))
+    }
+
+    /// The formula with the opaque atoms `truths` names replaced by their
+    /// truth values.
+    fn assign(&self, truths: &BTreeMap<&String, bool>) -> Self {
+        match self {
+            Self::Atom(Atom::Opaque(key)) => match truths.get(key) {
+                Some(truth) => Self::Constant(*truth),
+                None => self.clone(),
+            },
+            Self::Atom(_) | Self::Constant(_) => self.clone(),
+            Self::Not(inner) => inner.assign(truths).not(),
+            Self::And(left, right) => left.assign(truths).and(right.assign(truths)),
+            Self::Or(left, right) => Self::Or(
+                Box::new(left.assign(truths)),
+                Box::new(right.assign(truths)),
+            ),
+        }
+    }
+
+    /// The formula with its constants folded away, or a constant.
+    fn simplify(self) -> Self {
+        match self {
+            Self::Not(inner) => match inner.simplify() {
+                Self::Constant(value) => Self::Constant(!value),
+                inner => inner.not(),
+            },
+            Self::And(left, right) => match (left.simplify(), right.simplify()) {
+                (Self::Constant(false), _) | (_, Self::Constant(false)) => Self::Constant(false),
+                (Self::Constant(true), other) | (other, Self::Constant(true)) => other,
+                (left, right) => left.and(right),
+            },
+            Self::Or(left, right) => match (left.simplify(), right.simplify()) {
+                (Self::Constant(true), _) | (_, Self::Constant(true)) => Self::Constant(true),
+                (Self::Constant(false), other) | (other, Self::Constant(false)) => other,
+                (left, right) => Self::Or(Box::new(left), Box::new(right)),
+            },
+            other => other,
+        }
+    }
+
     fn atoms<'f>(&'f self, out: &mut BTreeSet<&'f Atom>) {
         match self {
             Self::Atom(atom) => {
@@ -659,12 +1251,67 @@ type Names = BTreeMap<String, String>;
 /// it applies (division, remainder, shift, exponent, bit range) contributes
 /// its domain as an obligation, a formula over the same atoms, and
 /// [`GuardReader::guard`] conjoins the obligations with the guard's value.
+///
+/// An application of a total function is one unknown value of its result
+/// sort, the same in every equation where its canonical text is the same
+/// (same function and instance, arguments equal once binders are named by
+/// their paths), and unrelated to every other subject, its own arguments
+/// included. With `ranges`, the unknown lies among the values the
+/// function's own equations return ([`Range`]).
+///
+/// `P :=K t` (`k::matches!`) is an opaque Bool atom keyed by the pattern
+/// and `t`: `:=K` is defined wherever `t` is, so the atom over-approximates
+/// as any opaque call does. Where `P` is linear and decomposable and `t` is
+/// a pattern binder or a term of a declared sort, the reader also records
+/// the test ([`Test`]), and [`expand`] reads it as pattern matching.
 struct GuardReader<'r> {
     signature: &'r Signature,
     paths: &'r BTreeMap<SemanticId, Path>,
     names: Names,
     projections: Projections,
     obligations: Vec<Formula>,
+    ranges: Option<&'r dyn RangeOf>,
+    /// The `k::matches!` tests read as pattern matching, by atom key.
+    tests: BTreeMap<String, Test>,
+    /// The subjects of those tests that are not binders: the virtual
+    /// columns, by canonical text.
+    virtuals: BTreeMap<String, Virtual>,
+    /// What the ranges of total functions state about Int subjects.
+    facts: BTreeMap<String, Fact>,
+}
+
+/// A `k::matches!` test read as pattern matching.
+#[derive(Clone, Debug)]
+struct Test {
+    subject: TestSubject,
+    /// The tested term's sort, within which the test's complement is taken.
+    sort: Sort,
+    /// The pattern's alternatives, its local binders as binders of their
+    /// sort (BIND-1: they bind nothing outside the test).
+    alternatives: Vec<Pattern>,
+}
+
+/// Where the term a [`Test`] tests is in the matrix.
+#[derive(Clone, Debug)]
+enum TestSubject {
+    /// A binder of the equation's pattern, at its path.
+    Binder(Path),
+    /// Another term, by its canonical text: one extra column of the
+    /// function's matrix, whose value is the term's one unknown value.
+    Virtual(String),
+}
+
+/// A virtual column: the sort of its term, and the heads its function's
+/// range admits, if it has one.
+#[derive(Clone, Debug)]
+struct Virtual {
+    sort: Sort,
+    heads: Option<BTreeSet<Head>>,
+}
+
+/// The ranges of total functions, as far as the lint has inferred them.
+trait RangeOf {
+    fn range_of(&self, id: &StableItemId) -> Option<Rc<Range>>;
 }
 
 /// How a guard subject reads bits of another subject, its base.
@@ -762,7 +1409,37 @@ fn path_text(path: &[usize]) -> String {
     text
 }
 
-impl GuardReader<'_> {
+impl<'r> GuardReader<'r> {
+    fn new(
+        signature: &'r Signature,
+        paths: &'r BTreeMap<SemanticId, Path>,
+        ranges: Option<&'r dyn RangeOf>,
+    ) -> Self {
+        Self {
+            signature,
+            paths,
+            names: Names::new(),
+            projections: Projections::new(),
+            obligations: Vec::new(),
+            ranges,
+            tests: BTreeMap::new(),
+            virtuals: BTreeMap::new(),
+            facts: BTreeMap::new(),
+        }
+    }
+
+    /// The range of a total function's application, if the lint inferred one.
+    fn range(&self, term: &SemanticTerm) -> Option<Rc<Range>> {
+        let SemanticTermKind::Application {
+            application: ApplicationRef::Declared(id),
+            ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        self.ranges?.range_of(id)
+    }
+
     /// Constant-folds an Int term built from literals.
     fn constant(term: &SemanticTerm) -> Option<BigInt> {
         match term.kind() {
@@ -856,6 +1533,13 @@ impl GuardReader<'_> {
     fn subject(&mut self, term: &SemanticTerm) -> Option<String> {
         let (key, text) = self.canonical(term)?;
         self.names.entry(key.clone()).or_insert(text);
+        if let Some(range) = self.range(term)
+            && let Range::Ints(intervals) = range.as_ref()
+        {
+            self.facts
+                .entry(key.clone())
+                .or_insert_with(|| Fact::Within(intervals.clone()));
+        }
         if Self::constant(term).is_none()
             && let Some((base, projection)) = Self::projection(term)
         {
@@ -1323,7 +2007,78 @@ impl GuardReader<'_> {
                 _ => {}
             }
         }
-        Some(Formula::Atom(Atom::Opaque(self.subject(term)?)))
+        if let SemanticTermKind::Matches {
+            subject, pattern, ..
+        } = term.kind()
+        {
+            return self.matches(subject, pattern);
+        }
+        let key = self.subject(term)?;
+        // A Bool function whose equations all return one value.
+        if let Some(range) = self.range(term)
+            && let Range::Bools(values) = range.as_ref()
+            && let [value] = values.iter().collect::<Vec<_>>()[..]
+        {
+            return Some(Formula::Constant(*value));
+        }
+        Some(Formula::Atom(Atom::Opaque(key)))
+    }
+
+    /// `pattern :=K subject` as an opaque atom, its test recorded when it
+    /// can be read as pattern matching.
+    fn matches(&mut self, subject: &SemanticTerm, pattern: &SemanticTerm) -> Option<Formula> {
+        let (pattern_key, pattern_text) = matches_pattern(pattern, &mut BTreeMap::new())?;
+        let subject_key = self.subject(subject)?;
+        let key = format!("matches({pattern_key}, {subject_key})");
+        let text = format!("k::matches!({}, {pattern_text})", self.names[&subject_key]);
+        self.names.entry(key.clone()).or_insert(text);
+        if let Some(test) = self.test(subject, &subject_key, pattern) {
+            self.tests.entry(key.clone()).or_insert(test);
+        }
+        Some(Formula::Atom(Atom::Opaque(key)))
+    }
+
+    /// The test `pattern :=K subject` as pattern matching: `None` when the
+    /// pattern is not linear or not decomposable, or the subject is neither
+    /// a pattern binder nor a term of a declared sort.
+    fn test(&mut self, subject: &SemanticTerm, key: &str, pattern: &SemanticTerm) -> Option<Test> {
+        let choices = alternatives(self.signature, pattern);
+        if choices.len() > ALTERNATIVE_LIMIT {
+            return None;
+        }
+        let mut patterns = Vec::new();
+        for (pattern, bindings) in choices {
+            let mut seen = BTreeSet::new();
+            let linear = bindings.iter().all(|(binder, _)| {
+                matches!(binder.kind(), SemanticIdKind::Wildcard) || seen.insert(binder)
+            });
+            if !linear || !decomposed(&pattern) {
+                return None;
+            }
+            patterns.push(pattern);
+        }
+        let place = match subject.kind() {
+            SemanticTermKind::Variable { variable } => {
+                TestSubject::Binder(self.paths.get(variable)?.clone())
+            }
+            _ if matches!(subject.sort(), Sort::Declared(_)) => {
+                let heads = match self.range(subject).as_deref() {
+                    Some(Range::Heads(heads)) => Some(heads.clone()),
+                    _ => None,
+                };
+                self.virtuals.entry(key.to_owned()).or_insert(Virtual {
+                    sort: subject.sort().clone(),
+                    heads,
+                });
+                TestSubject::Virtual(key.to_owned())
+            }
+            _ => return None,
+        };
+        Some(Test {
+            subject: place,
+            sort: subject.sort().clone(),
+            alternatives: patterns,
+        })
     }
 
     /// A positive literal of a canonical relation.
@@ -1429,15 +2184,256 @@ impl SymmetricRelation for BuiltinOperation {
     }
 }
 
+/// The most `k::matches!` tests one equation alternative expands by; past
+/// it, its tests stay opaque atoms.
+const TEST_LIMIT: usize = 6;
+
+/// The rows of one equation alternative whose guard has `k::matches!`
+/// tests ([`Test`]): one row per truth assignment of the tests, its
+/// patterns refined by each test's pattern where the assignment makes the
+/// test true and by its complement where false, its guard the original one
+/// with the tests replaced by their truth values. Assignments whose guard is
+/// then false, and refinements that match nothing, give no row.
+///
+/// Exact: for any argument (and value of each virtual column), the tests
+/// have exactly one truth assignment, the argument matches exactly that
+/// assignment's refined patterns, and the equation applies exactly where
+/// that assignment's guard holds. `None` past [`TEST_LIMIT`] tests or
+/// [`ALTERNATIVE_LIMIT`] rows, or where a refinement cannot be stated
+/// exactly; the caller then keeps the tests as opaque atoms.
+fn expand(
+    signature: &Signature,
+    patterns: &[Pattern],
+    guard: &Formula,
+    tests: &BTreeMap<String, Test>,
+    virtuals: &BTreeMap<String, Path>,
+) -> Option<Vec<(Vec<Pattern>, Formula)>> {
+    let mut atoms = BTreeSet::new();
+    guard.atoms(&mut atoms);
+    let used = atoms
+        .into_iter()
+        .filter_map(|atom| match atom {
+            Atom::Opaque(key) => tests.get_key_value(key),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if used.is_empty() || used.len() > TEST_LIMIT {
+        return None;
+    }
+    let mut rows = Vec::new();
+    for mask in 0..1_usize << used.len() {
+        let truths = used
+            .iter()
+            .enumerate()
+            .map(|(index, (key, _))| (*key, mask >> index & 1 == 1))
+            .collect::<BTreeMap<_, _>>();
+        let residual = guard.assign(&truths).simplify();
+        if matches!(residual, Formula::Constant(false)) {
+            continue;
+        }
+        let mut refined = vec![(patterns.to_vec(), Vec::<Formula>::new())];
+        for (key, test) in &used {
+            let path = match &test.subject {
+                TestSubject::Binder(path) => path,
+                TestSubject::Virtual(subject) => virtuals.get(subject)?,
+            };
+            let choices = if truths[key] {
+                test.alternatives
+                    .iter()
+                    .map(|pattern| (pattern.clone(), Vec::new()))
+                    .collect()
+            } else {
+                complement_all(signature, &test.alternatives, &test.sort, path)?
+            };
+            let mut next = Vec::new();
+            for (patterns, residuals) in &refined {
+                let current = pattern_at(patterns, path)?;
+                for (choice, choice_residuals) in &choices {
+                    for met in meet(signature, current, choice)? {
+                        let mut residuals = residuals.clone();
+                        residuals.extend(choice_residuals.iter().cloned());
+                        next.push((replace_at(patterns, path, met)?, residuals));
+                    }
+                }
+            }
+            if next.len() > ALTERNATIVE_LIMIT {
+                return None;
+            }
+            refined = next;
+        }
+        for (patterns, residuals) in refined {
+            let guard = residuals
+                .into_iter()
+                .fold(residual.clone(), |guard, residual| residual.and(guard))
+                .simplify();
+            if !matches!(guard, Formula::Constant(false)) {
+                rows.push((patterns, guard));
+            }
+        }
+        if rows.len() > ALTERNATIVE_LIMIT {
+            return None;
+        }
+    }
+    Some(rows)
+}
+
+// ---------------------------------------------------------------------------
+// Ranges of total functions
+
+/// The values a total function can return, from its own equations: the
+/// union of what each equation's result can be. A function has a range only
+/// when the lint finds it covered and it is neither `underspecified`,
+/// hooked, `smt_hook`, nor sort-parametric: `total` and `function` make each
+/// application exactly one value, and covered means some equation applies
+/// at every argument, so the value is one of the results. On a gap the
+/// value would be unspecified, so an uncovered function has no range.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Range {
+    /// Sorted disjoint intervals.
+    Ints(Vec<Interval>),
+    Bools(BTreeSet<bool>),
+    /// Constructor heads.
+    Heads(BTreeSet<Head>),
+}
+
+impl Range {
+    fn int(low: Option<BigInt>, high: Option<BigInt>) -> Self {
+        Self::Ints(vec![(low, high)])
+    }
+
+    /// The union of two ranges, `None` when they are of different kinds.
+    fn union(self, other: Self) -> Option<Self> {
+        Some(match (self, other) {
+            (Self::Ints(mut left), Self::Ints(right)) => {
+                left.extend(right);
+                Self::Ints(merged(left))
+            }
+            (Self::Bools(mut left), Self::Bools(right)) => {
+                left.extend(right);
+                Self::Bools(left)
+            }
+            (Self::Heads(mut left), Self::Heads(right)) => {
+                left.extend(right);
+                Self::Heads(left)
+            }
+            _ => return None,
+        })
+    }
+}
+
+/// Intervals sorted, with those that overlap or touch merged.
+fn merged(mut intervals: Vec<Interval>) -> Vec<Interval> {
+    // `None` sorts first, which is the unbounded low end.
+    intervals.sort();
+    let mut merged: Vec<Interval> = Vec::new();
+    for (low, high) in intervals {
+        if let Some((_, last_high)) = merged.last_mut() {
+            let touches = match (&*last_high, &low) {
+                (None, _) | (_, None) => true,
+                (Some(last), Some(low)) => *low <= last + 1,
+            };
+            if touches {
+                *last_high = match (&*last_high, high) {
+                    (None, _) | (_, None) => None,
+                    (Some(last), Some(high)) => Some(last.max(&high).clone()),
+                };
+                continue;
+            }
+        }
+        merged.push((low, high));
+    }
+    merged
+}
+
+/// The values one result can have, or `None` for a form the lint does not
+/// bound: a literal or ground constant, a constructor application (its
+/// head), a total function's application (its range), `bitRangeInt(_, o,
+/// l)`, `x &Int m` with `m >= 0`, `x modInt c` with `c != 0` (constant
+/// `o`, `l`, `m`, `c`), and a length or size.
+fn result_range(signature: &Signature, ranges: &dyn RangeOf, term: &SemanticTerm) -> Option<Range> {
+    if let Some(constant) = GuardReader::constant(term) {
+        return Some(Range::int(Some(constant.clone()), Some(constant)));
+    }
+    if GuardReader::is_size(term) {
+        return Some(Range::int(Some(BigInt::from(0)), None));
+    }
+    match term.kind() {
+        SemanticTermKind::Token { value }
+            if matches!(term.sort(), Sort::Builtin(BuiltinSort::Bool)) =>
+        {
+            match value.as_str() {
+                "true" => Some(Range::Bools(BTreeSet::from([true]))),
+                "false" => Some(Range::Bools(BTreeSet::from([false]))),
+                _ => None,
+            }
+        }
+        SemanticTermKind::Application {
+            application: ApplicationRef::Declared(id),
+            instance,
+            ..
+        } => {
+            if signature.constructors.contains_key(id) {
+                Some(Range::Heads(BTreeSet::from([Head::Constructor {
+                    id: id.clone(),
+                    instance: instance.clone(),
+                }])))
+            } else {
+                ranges.range_of(id).map(|range| range.as_ref().clone())
+            }
+        }
+        SemanticTermKind::Application {
+            application: ApplicationRef::Builtin(operation),
+            arguments,
+            ..
+        } => {
+            let zero = BigInt::from(0);
+            let constant = |index: usize| arguments.get(index).and_then(GuardReader::constant);
+            match operation {
+                BuiltinOperation::IntBitRange => {
+                    let length = usize::try_from(constant(2)?)
+                        .ok()
+                        .filter(|length| *length <= 4096)?;
+                    constant(1).filter(|offset| *offset >= zero)?;
+                    Some(Range::int(
+                        Some(zero),
+                        Some((BigInt::from(1) << length) - 1),
+                    ))
+                }
+                BuiltinOperation::IntBitAnd => {
+                    let mask = constant(1).or_else(|| constant(0))?;
+                    (mask >= zero).then(|| Range::int(Some(zero), Some(mask)))
+                }
+                BuiltinOperation::IntMod => {
+                    let divisor = constant(1).filter(|divisor| *divisor != zero)?;
+                    Some(Range::int(
+                        Some(zero),
+                        Some(BigInt::from(divisor.magnitude().clone()) - 1),
+                    ))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Deciding guards
 
-/// What the patterns already fix about an Int path on a branch.
+/// What is already known about an Int subject: the patterns fix an Int path
+/// on a branch (`Equal`, `Excluded`), and the equations of a total function
+/// bound the values of its applications (`Within`, see [`Range`]).
 #[derive(Clone, Debug)]
 pub(crate) enum Fact {
     Equal(BigInt),
     Excluded(BTreeSet<BigInt>),
+    /// The subject lies in one of these closed intervals, `None` being
+    /// unbounded.
+    Within(Vec<Interval>),
 }
+
+/// A closed interval of integers, `None` being unbounded.
+pub(crate) type Interval = (Option<BigInt>, Option<BigInt>);
 
 /// A valuation of a guard's atoms under which no guard holds.
 #[derive(Clone, Debug, Default)]
@@ -1450,18 +2446,21 @@ pub(crate) struct Counterexample {
     pub(crate) truths: BTreeMap<String, bool>,
 }
 
+/// Whether a canonical text reads the argument at `path`.
+fn reads_path(text: &str, path: &[usize]) -> bool {
+    let needle = path_text(path);
+    text.match_indices(&needle).any(|(start, _)| {
+        !matches!(
+            text[start + needle.len()..].chars().next(),
+            Some(next) if next.is_ascii_digit()
+        )
+    })
+}
+
 impl Counterexample {
     /// Whether a subject or atom of the counterexample reads the argument at `path`.
     fn mentions(&self, path: &[usize]) -> bool {
-        let needle = path_text(path);
-        let reads = |text: &String| {
-            text.match_indices(&needle).any(|(start, _)| {
-                !matches!(
-                    text[start + needle.len()..].chars().next(),
-                    Some(next) if next.is_ascii_digit()
-                )
-            })
-        };
+        let reads = |text: &String| reads_path(text, path);
         self.values.keys().any(reads)
             || self.truths.keys().any(reads)
             || self
@@ -1602,6 +2601,39 @@ fn regions(constants: &BTreeSet<BigInt>, excluded: &BTreeSet<BigInt>) -> Vec<(Bi
     // is the smallest natural number the patterns leave out when there is one.
     points.sort_by_key(|(point, _)| (point < &BigInt::from(0), point.magnitude().clone()));
     points
+}
+
+/// The parts of `regions` inside `intervals`, each with a point of its own:
+/// a region's atoms have one truth value on all of it, so its part inside
+/// an interval needs one point, the one nearest zero.
+fn within(regions: Vec<(BigInt, Region)>, intervals: &[Interval]) -> Vec<(BigInt, Region)> {
+    let zero = BigInt::from(0);
+    let mut parts = Vec::new();
+    for (_, region) in regions {
+        for (low, high) in intervals {
+            let low = match (&region.low, low) {
+                (Some(own), Some(other)) => Some(own.max(other).clone()),
+                (own, other) => own.clone().or_else(|| other.clone()),
+            };
+            let high = match (&region.high, high) {
+                (Some(own), Some(other)) => Some(own.min(other).clone()),
+                (own, other) => own.clone().or_else(|| other.clone()),
+            };
+            if let (Some(low), Some(high)) = (&low, &high)
+                && low > high
+            {
+                continue;
+            }
+            let point = match (&low, &high) {
+                (Some(low), _) if *low > zero => low.clone(),
+                (_, Some(high)) if *high < zero => high.clone(),
+                _ => zero.clone(),
+            };
+            parts.push((point, Region { low, high }));
+        }
+    }
+    parts.sort_by_key(|(point, _)| (point < &zero, point.magnitude().clone()));
+    parts
 }
 
 /// Whether the subjects' values can hold together, as far as the bits their
@@ -1989,6 +3021,9 @@ fn decide_counted(
             let values = match facts.get(subject.as_str()) {
                 Some(Fact::Equal(value)) => vec![(value.clone(), Region::exactly(value))],
                 Some(Fact::Excluded(excluded)) => regions(constants, excluded),
+                Some(Fact::Within(intervals)) => {
+                    within(regions(constants, &BTreeSet::new()), intervals)
+                }
                 None => regions(constants, &BTreeSet::new()),
             };
             (*subject, values)
@@ -2087,6 +3122,9 @@ struct Row {
 struct Column {
     sort: Sort,
     path: Path,
+    /// The only heads the column's values can have, when a range restricts
+    /// a virtual column.
+    heads: Option<Rc<BTreeSet<Head>>>,
 }
 
 /// An uncovered value, in a witness vector.
@@ -2108,6 +3146,10 @@ struct Gap {
 struct Search<'s> {
     signature: &'s Signature,
     projections: &'s Projections,
+    /// What ranges state about Int subjects (see [`Fact::Within`]).
+    ranges: &'s BTreeMap<String, Fact>,
+    /// The canonical text of each virtual column's term, by its path.
+    virtuals: &'s BTreeMap<Path, String>,
     nodes: usize,
     valuations: u64,
     exhausted: bool,
@@ -2159,6 +3201,13 @@ impl Search<'_> {
             if gaps.len() >= limit || self.exhausted {
                 break;
             }
+            if column
+                .heads
+                .as_ref()
+                .is_some_and(|allowed| !allowed.contains(&head))
+            {
+                continue;
+            }
             match &head {
                 Head::Constructor { id, instance } if explicit.contains(&head) => {
                     let arguments = self.signature.arguments(id, instance);
@@ -2199,6 +3248,7 @@ impl Search<'_> {
                         .map(|(index, sort)| Column {
                             sort,
                             path: column.path.iter().copied().chain([index]).collect(),
+                            heads: None,
                         })
                         .chain(rest.iter().cloned())
                         .collect::<Vec<_>>();
@@ -2309,6 +3359,7 @@ impl Search<'_> {
                 .filter(|row| match &row.patterns[0] {
                     Pattern::Literal { sort, value: named } => sort == family && *named == value,
                     Pattern::Binder(sort) => self.signature.binder_covers(sort, head),
+                    Pattern::Family(sort) => sort == family,
                     _ => false,
                 })
                 .map(|row| Row {
@@ -2334,7 +3385,11 @@ impl Search<'_> {
         }
         let specialized = rows
             .iter()
-            .filter(|row| matches!(&row.patterns[0], Pattern::Binder(sort) if self.signature.binder_covers(sort, head)))
+            .filter(|row| match &row.patterns[0] {
+                Pattern::Binder(sort) => self.signature.binder_covers(sort, head),
+                Pattern::Family(sort) => sort == family,
+                _ => false,
+            })
             .map(|row| Row {
                 patterns: row.patterns[1..].to_vec(),
                 guard: row.guard.clone(),
@@ -2356,7 +3411,8 @@ impl Search<'_> {
             let constrained = gap
                 .condition
                 .as_ref()
-                .is_some_and(|condition| condition.mentions(&column.path));
+                .is_some_and(|condition| condition.mentions(&column.path))
+                || self.virtual_mentions(rest, &gap.values, &column.path);
             let witness = match family {
                 // The guards constrain this argument through a term: name it
                 // by its binder rather than by an arbitrary value.
@@ -2396,6 +3452,18 @@ impl Search<'_> {
         gaps
     }
 
+    /// Whether a virtual column among `columns` that a gap fixes to a head
+    /// reads the argument at `path`: the gap's condition then names it.
+    fn virtual_mentions(&self, columns: &[Column], values: &[Witness], path: &[usize]) -> bool {
+        columns.iter().zip(values).any(|(column, value)| {
+            !matches!(value, Witness::Any)
+                && self
+                    .virtuals
+                    .get(&column.path)
+                    .is_some_and(|key| reads_path(key, path))
+        })
+    }
+
     /// Every argument is decomposed: the region is covered by an unguarded
     /// row, or by guards whose disjunction is valid.
     fn leaf(&mut self, rows: &[Row], facts: &BTreeMap<String, Fact>) -> Vec<Gap> {
@@ -2412,7 +3480,13 @@ impl Search<'_> {
             .iter()
             .filter_map(|row| row.guard.as_deref())
             .collect::<Vec<_>>();
-        let (verdict, valuations) = decide_counted(&guards, facts, self.projections, true);
+        let mut facts = facts.clone();
+        facts.extend(
+            self.ranges
+                .iter()
+                .map(|(subject, fact)| (subject.clone(), fact.clone())),
+        );
+        let (verdict, valuations) = decide_counted(&guards, &facts, self.projections, true);
         self.valuations = self.valuations.saturating_add(valuations);
         if self.valuations > FUNCTION_VALUATION_BUDGET {
             self.exhausted = true;
@@ -2454,6 +3528,9 @@ struct Report {
     /// For a function the ground analysis decided: the values its
     /// equations bound, described.
     evaluated: Option<String>,
+    /// The canonical text of each virtual column's term, in column order;
+    /// they follow the arguments in each gap.
+    virtuals: Vec<String>,
 }
 
 /// The values the equations bound at each argument, described.
@@ -2495,12 +3572,16 @@ fn describe_bounded(columns: &[ColumnValues]) -> String {
 /// Coverage decided by the ground analysis of the equations
 /// (`equation_domain`): exact, so the outcome needs no abstraction of the
 /// guards. `None` when the analysis gives up.
-fn evaluate_instance(columns: &[Sort], rules: &[&SemanticRule]) -> Option<Outcome> {
+fn evaluate_instance<'a>(
+    evaluator: &'a Evaluator<'a>,
+    columns: &[Sort],
+    rules: &[&'a SemanticRule],
+) -> Option<Outcome> {
     let views = rules
         .iter()
         .map(|rule| equation_view(rule))
         .collect::<Option<Vec<_>>>()?;
-    let domain = Domain::new(columns, &views)?;
+    let domain = Domain::new(evaluator, columns, &views)?;
     let mut gaps = Vec::new();
     for point in domain.points() {
         let mut covered = false;
@@ -2543,36 +3624,46 @@ fn evaluate_instance(columns: &[Sort], rules: &[&SemanticRule]) -> Option<Outcom
         unread: 0,
         contexts: 0,
         evaluated: Some(describe_bounded(domain.columns())),
+        virtuals: Vec::new(),
     }))
 }
 
 fn check_instance(
     signature: &Signature,
+    evaluator: &Evaluator<'_>,
     production: &SemanticProduction,
     instance: &[Sort],
     rules: &[&SemanticRule],
+    ranges: &dyn RangeOf,
 ) -> Outcome {
     let columns = instantiate(
         &production_argument_sorts(production),
         production.parameters(),
         instance,
     );
-    evaluate_instance(&columns, rules).unwrap_or_else(|| search_instance(signature, columns, rules))
+    evaluate_instance(evaluator, &columns, rules)
+        .unwrap_or_else(|| search_instance(signature, columns, rules, Some(ranges)))
 }
 
-/// Coverage decided by the pattern matrix and the guard abstraction.
-fn search_instance(signature: &Signature, columns: Vec<Sort>, rules: &[&SemanticRule]) -> Outcome {
-    let columns = columns
-        .into_iter()
-        .enumerate()
-        .map(|(index, sort)| Column {
-            sort,
-            path: vec![index],
-        })
-        .collect::<Vec<_>>();
-    let mut rows = Vec::new();
+/// Coverage decided by the pattern matrix and the guard abstraction. The
+/// terms that `k::matches!` tests and that are not binders become virtual
+/// columns after the arguments (see [`Test`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "Reads every equation alternative, then lays out the matrix with its virtual columns."
+)]
+fn search_instance(
+    signature: &Signature,
+    columns: Vec<Sort>,
+    rules: &[&SemanticRule],
+    ranges: Option<&dyn RangeOf>,
+) -> Outcome {
+    let arity = columns.len();
+    let mut read = Vec::<(Vec<Pattern>, Option<Formula>, BTreeMap<String, Test>)>::new();
     let mut names = Names::new();
     let mut projections = Projections::new();
+    let mut facts = BTreeMap::<String, Fact>::new();
+    let mut virtuals = BTreeMap::<String, Virtual>::new();
     let mut binders = BTreeMap::<Path, String>::new();
     let (mut guarded, mut unread, mut contexts) = (0, 0, 0);
     for rule in rules {
@@ -2608,16 +3699,10 @@ fn search_instance(signature: &Signature, columns: Vec<Sort>, rules: &[&Semantic
                 unread += 1;
                 continue;
             }
-            let guard = match rule.requires() {
-                None => None,
+            match rule.requires() {
+                None => read.push((patterns, None, BTreeMap::new())),
                 Some(IrCondition::Bool(condition)) => {
-                    let mut reader = GuardReader {
-                        signature,
-                        paths: &paths,
-                        names: Names::new(),
-                        projections: Projections::new(),
-                        obligations: Vec::new(),
-                    };
+                    let mut reader = GuardReader::new(signature, &paths, ranges);
                     let Some(formula) = reader.guard(condition.term()) else {
                         unread += 1;
                         continue;
@@ -2628,19 +3713,71 @@ fn search_instance(signature: &Signature, columns: Vec<Sort>, rules: &[&Semantic
                     for (key, projection) in reader.projections {
                         projections.entry(key).or_insert(projection);
                     }
-                    Some(Rc::new(formula))
+                    for (key, fact) in reader.facts {
+                        facts.entry(key).or_insert(fact);
+                    }
+                    for (key, column) in reader.virtuals {
+                        virtuals.entry(key).or_insert(column);
+                    }
+                    read.push((patterns, Some(formula), reader.tests));
                 }
-                Some(IrCondition::Predicate(_)) => {
-                    unread += 1;
-                    continue;
-                }
-            };
-            rows.push(Row { patterns, guard });
+                Some(IrCondition::Predicate(_)) => unread += 1,
+            }
         }
     }
+    let virtual_paths = virtuals
+        .keys()
+        .enumerate()
+        .map(|(index, key)| (key.clone(), vec![arity + index]))
+        .collect::<BTreeMap<_, _>>();
+    let columns = columns
+        .into_iter()
+        .enumerate()
+        .map(|(index, sort)| Column {
+            sort,
+            path: vec![index],
+            heads: None,
+        })
+        .chain(virtuals.iter().map(|(key, column)| Column {
+            sort: column.sort.clone(),
+            path: virtual_paths[key].clone(),
+            heads: column.heads.clone().map(Rc::new),
+        }))
+        .collect::<Vec<_>>();
+    let mut rows = Vec::new();
+    for (mut patterns, guard, tests) in read {
+        patterns.extend(
+            virtuals
+                .values()
+                .map(|column| Pattern::Binder(column.sort.clone())),
+        );
+        let Some(guard) = guard else {
+            rows.push(Row {
+                patterns,
+                guard: None,
+            });
+            continue;
+        };
+        match expand(signature, &patterns, &guard, &tests, &virtual_paths) {
+            Some(expanded) => rows.extend(expanded.into_iter().map(|(patterns, guard)| Row {
+                patterns,
+                guard: (!matches!(guard, Formula::Constant(true))).then(|| Rc::new(guard)),
+            })),
+            None => rows.push(Row {
+                patterns,
+                guard: Some(Rc::new(guard)),
+            }),
+        }
+    }
+    let virtual_keys = virtual_paths
+        .iter()
+        .map(|(key, path)| (path.clone(), key.clone()))
+        .collect::<BTreeMap<_, _>>();
     let mut search = Search {
         signature,
         projections: &projections,
+        ranges: &facts,
+        virtuals: &virtual_keys,
         nodes: 0,
         valuations: 0,
         exhausted: false,
@@ -2660,6 +3797,7 @@ fn search_instance(signature: &Signature, columns: Vec<Sort>, rules: &[&Semantic
         unread,
         contexts,
         evaluated: None,
+        virtuals: virtuals.into_keys().collect(),
     })
 }
 
@@ -2685,16 +3823,29 @@ fn render(witness: &Witness) -> String {
     }
 }
 
-/// Renders a witness vector, naming a top-level argument the guards
-/// constrain by its binder.
-fn render_application(head: &str, gap: &Gap, binders: &BTreeMap<Path, String>) -> String {
-    let arguments = gap
-        .values
+/// Renders a witness vector, naming a top-level argument the guards or a
+/// fixed virtual column constrain by its binder. The virtual columns'
+/// values follow the arguments in `gap` and are not rendered here.
+fn render_application(head: &str, gap: &Gap, report: &Report) -> String {
+    let arity = gap.values.len() - report.virtuals.len();
+    let fixed = gap.values[arity..]
+        .iter()
+        .zip(&report.virtuals)
+        .filter(|(value, _)| !matches!(value, Witness::Any))
+        .map(|(_, key)| key)
+        .collect::<Vec<_>>();
+    let arguments = gap.values[..arity]
         .iter()
         .enumerate()
         .map(
-            |(index, witness)| match (witness, &gap.condition, binders.get(&vec![index])) {
-                (Witness::Any, Some(condition), Some(name)) if condition.mentions(&[index]) => {
+            |(index, witness)| match (witness, report.binders.get(&vec![index])) {
+                (Witness::Any, Some(name))
+                    if gap
+                        .condition
+                        .as_ref()
+                        .is_some_and(|condition| condition.mentions(&[index]))
+                        || fixed.iter().any(|key| reads_path(key, &[index])) =>
+                {
                     name.clone()
                 }
                 _ => render(witness),
@@ -2702,6 +3853,24 @@ fn render_application(head: &str, gap: &Gap, binders: &BTreeMap<Path, String>) -
         )
         .collect::<Vec<_>>();
     format!("{head}({})", arguments.join(", "))
+}
+
+/// The values a gap fixes for virtual columns, as condition parts.
+fn render_virtuals(gap: &Gap, report: &Report) -> Vec<String> {
+    let arity = gap.values.len() - report.virtuals.len();
+    gap.values[arity..]
+        .iter()
+        .zip(&report.virtuals)
+        .filter(|(value, _)| !matches!(value, Witness::Any))
+        .map(|(value, key)| {
+            let name = report
+                .names
+                .get(key)
+                .cloned()
+                .unwrap_or_else(|| key.clone());
+            format!("`{name}` is `{}`", render(value))
+        })
+        .collect()
 }
 
 fn render_condition(condition: &Counterexample, names: &Names) -> String {
@@ -2742,17 +3911,18 @@ fn uncovered_warning(
         );
     }
     let describe = |gap: &Gap| {
-        let application = render_application(&head, gap, &report.binders);
-        match &gap.condition {
-            Some(condition) => {
-                let condition = render_condition(condition, &report.names);
-                if condition.is_empty() {
-                    format!("`{application}`")
-                } else {
-                    format!("`{application}` when {condition}")
-                }
+        let application = render_application(&head, gap, report);
+        let mut parts = render_virtuals(gap, report);
+        if let Some(condition) = &gap.condition {
+            let condition = render_condition(condition, &report.names);
+            if !condition.is_empty() {
+                parts.push(condition);
             }
-            None => format!("`{application}`"),
+        }
+        if parts.is_empty() {
+            format!("`{application}`")
+        } else {
+            format!("`{application}` when {}", parts.join(", "))
         }
     };
     let first = &report.gaps[0];
@@ -2787,13 +3957,13 @@ fn uncovered_warning(
         }
     } else if report.guarded > 0 {
         diagnostic.notes.push(format!(
-            "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
+            "{} of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers and of `k::matches!` tests, reading the bits that comparisons of `bitRangeInt` and `&Int` fix and each application of a total function as one unknown value (one of its equations' results, when they cover every argument), where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             report.guarded
         ));
     }
     if report.unread > 0 {
         diagnostic.notes.push(format!(
-            "{} equation alternatives are not counted: their `requires` mentions another operation that may be undefined, a lazy `&&` or `||` whose right operand may be, or a binder the pattern does not bind, or a binder occurs twice in the pattern",
+            "{} equation alternatives are not counted: their `requires` mentions a partial function or another operation that may be undefined, a lazy `&&` or `||` whose right operand may be, or a binder the pattern does not bind, or a binder occurs twice in the pattern",
             report.unread
         ));
     }

@@ -250,6 +250,306 @@ impl Machine {
 }
 "##;
 
+/// Guards that apply total functions and test patterns (`k::matches!`, which
+/// branching bodies emit for a term scrutinee and a nested catch-all).
+const GUARDS: &str = r#"
+use k::builtin::{Bool, Int, KSequence, int};
+use k::{KItem, Term};
+
+k::sorts! {
+    Kind;
+    Shape;
+    Item: KItem;
+    impl Item for Int;
+}
+
+#[k::constructors(sort = Kind, result = k::KResult)]
+#[k::precedence((A, B, C))]
+pub enum Kinds {
+    #[k::syntax("kA")]
+    A,
+    #[k::syntax("kB")]
+    B,
+    #[k::syntax("kC")]
+    C,
+}
+
+#[k::constructors(sort = Shape, result = k::KResult)]
+#[k::precedence((Circle, Pair))]
+pub enum Shapes {
+    #[k::syntax("circle({r})")]
+    Circle { r: Int },
+    #[k::syntax("pair({left}, {right})")]
+    Pair { left: Kind, right: Kind },
+}
+
+#[k::constructors(sort = Item, result = k::KResult)]
+#[k::precedence((Wrap, Other))]
+pub enum Items {
+    #[k::syntax("wrap({v})")]
+    Wrap { v: Int },
+    #[k::syntax("other")]
+    Other,
+}
+
+#[k::function(total, internal)]
+pub fn Classify(value: Term<Int>) -> Term<Kind> {
+    if value < 0 { Kinds::A() } else if value == 0 { Kinds::B() } else { Kinds::C() }
+}
+
+/// 1, -1, or 0 outside `0..512`.
+#[k::function(total, internal)]
+pub fn Sign(value: Term<Int>) -> Term<Int> {
+    if 0 <= value && value < 256 {
+        1
+    } else if 256 <= value && value < 512 {
+        -1
+    } else {
+        0
+    }
+}
+
+/// 1 or -1.
+#[k::function(total, internal)]
+pub fn TwoSign(value: Term<Int>) -> Term<Int> {
+    if value >= 0 { 1 } else { -1 }
+}
+
+#[k::function(total, internal)]
+pub fn BoolToWord(value: Term<Bool>) -> Term<Int>;
+
+k::equations! {
+    for BoolToWord;
+    bool_to_word_true: true => 1;
+    bool_to_word_false: false => 0;
+}
+
+/// Real gap: `Sign` may be 0.
+#[k::function(total, internal)]
+pub fn SignedLess(left: Term<Int>, right: Term<Int>) -> Term<Int> {
+    match (Sign(left), Sign(right)) {
+        (1, 1) => BoolToWord(left < right),
+        (1, -1) => BoolToWord(false),
+        (-1, 1) => BoolToWord(true),
+        (-1, -1) => BoolToWord(right < left),
+    }
+}
+
+/// Covered: `TwoSign` is 1 or -1.
+#[k::function(total, internal)]
+pub fn TwoSignedLess(left: Term<Int>, right: Term<Int>) -> Term<Int> {
+    match (TwoSign(left), TwoSign(right)) {
+        (1, 1) => BoolToWord(left < right),
+        (1, -1) => BoolToWord(false),
+        (-1, 1) => BoolToWord(true),
+        (-1, -1) => BoolToWord(right < left),
+    }
+}
+
+/// The same, stated as a gap: stale.
+#[k::function(total, internal, underspecified = "TwoSign is 1 or -1")]
+pub fn StatedLess(left: Term<Int>, right: Term<Int>) -> Term<Int> {
+    match (TwoSign(left), TwoSign(right)) {
+        (1, 1) => BoolToWord(left < right),
+        (1, -1) => BoolToWord(false),
+        (-1, 1) => BoolToWord(true),
+        (-1, -1) => BoolToWord(right < left),
+    }
+}
+
+/// A term scrutinee with constructor patterns: covered.
+#[k::function(total, internal)]
+pub fn Score(value: Term<Int>) -> Term<Int> {
+    match Classify(value) {
+        Kinds::A() => 1,
+        Kinds::B() => 2,
+        Kinds::C() => 3,
+    }
+}
+
+/// Real gap: `Classify(value)` is `Kinds::C` for a positive `value`.
+#[k::function(total, internal)]
+pub fn PartialScore(value: Term<Int>) -> Term<Int> {
+    match Classify(value) {
+        Kinds::A() => 1,
+        Kinds::B() => 2,
+    }
+}
+
+/// A nested catch-all over a term: covered.
+#[k::function(total, internal)]
+pub fn Nested(value: Term<Int>, flag: Term<Int>) -> Term<Int> {
+    if flag > 0 {
+        match Classify(value) {
+            Kinds::A() => 1,
+            _ => 2,
+        }
+    } else {
+        3
+    }
+}
+
+/// A nested catch-all over a parameter: covered.
+#[k::function(total, internal)]
+pub fn Area(shape: Term<Shape>, flag: Term<Int>) -> Term<Int> {
+    if flag > 0 {
+        match shape {
+            Shapes::Circle { r } => r,
+            _ => 0,
+        }
+    } else {
+        1
+    }
+}
+
+/// Guarded arms before the catch-all: covered.
+#[k::function(total, internal)]
+pub fn Guarded(shape: Term<Shape>, flag: Term<Int>) -> Term<Int> {
+    if flag > 0 {
+        match shape {
+            Shapes::Circle { .. } if flag > 5 => 1,
+            Shapes::Pair { left: Kinds::A(), .. } => 2,
+            _ => 3,
+        }
+    } else {
+        4
+    }
+}
+
+/// A nested catch-all over a sort with injected Ints: covered.
+#[k::function(total, internal)]
+pub fn Open(item: Term<Item>, flag: Term<Int>) -> Term<Int> {
+    if flag > 0 {
+        match item {
+            Items::Wrap { .. } => 1,
+            _ => 2,
+        }
+    } else {
+        3
+    }
+}
+
+/// A range from a callee's range.
+#[k::function(total, internal)]
+pub fn Again(value: Term<Int>) -> Term<Int> {
+    TwoSign(value)
+}
+
+#[k::function(total, internal)]
+pub fn UsesAgain(value: Term<Int>) -> Term<Int> {
+    match Again(value) {
+        1 => 10,
+        -1 => 20,
+    }
+}
+
+/// A range from a mask.
+#[k::function(total, internal)]
+pub fn Low(value: Term<Int>) -> Term<Int> {
+    value & 3
+}
+
+#[k::function(total, internal)]
+pub fn UsesLow(value: Term<Int>) -> Term<Int> {
+    match Low(value) {
+        0 | 1 => 10,
+        2 => 20,
+        3 => 30,
+    }
+}
+
+/// An uncovered callee has no range.
+#[k::function(total, internal)]
+pub fn LooseSign(value: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for LooseSign;
+    #[k::requires(value > 0)]
+    loose_sign_positive: value => 1;
+    #[k::requires(value < 0)]
+    loose_sign_negative: value => -1;
+}
+
+#[k::function(total, internal)]
+pub fn UsesLooseSign(value: Term<Int>) -> Term<Int> {
+    match LooseSign(value) {
+        1 => 10,
+        -1 => 20,
+    }
+}
+
+/// An `underspecified` callee has no range (and states a stale gap).
+#[k::function(total, internal, underspecified = "never 0")]
+pub fn StatedSign(value: Term<Int>) -> Term<Int> {
+    if value >= 0 { 1 } else { -1 }
+}
+
+#[k::function(total, internal)]
+pub fn UsesStatedSign(value: Term<Int>) -> Term<Int> {
+    match StatedSign(value) {
+        1 => 10,
+        -1 => 20,
+    }
+}
+
+/// A cycle: `Ping` is checked first, so `Pong`, which reads `Ping`, has no
+/// range of it, and `Ping`, still being checked when `Pong` asked, has none.
+#[k::function(total, internal)]
+pub fn Ping(value: Term<Int>) -> Term<Int> {
+    if Pong(value) >= 0 { 1 } else { -1 }
+}
+
+#[k::function(total, internal)]
+pub fn Pong(value: Term<Int>) -> Term<Int> {
+    if Ping(value) >= 0 { 1 } else { -1 }
+}
+
+#[k::function(total, internal)]
+pub fn UsesPing(value: Term<Int>) -> Term<Int> {
+    match Ping(value) {
+        1 => 10,
+        -1 => 20,
+    }
+}
+
+#[k::function(total, internal)]
+pub fn UsesPong(value: Term<Int>) -> Term<Int> {
+    match Pong(value) {
+        1 => 10,
+        -1 => 20,
+    }
+}
+
+/// A Bool function with one result.
+#[k::function(total, internal)]
+pub fn Always(value: Term<Int>) -> Term<Bool> {
+    true
+}
+
+#[k::function(total, internal)]
+pub fn Gated(value: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Gated;
+    #[k::requires(Always(value))]
+    gated: value => 1;
+}
+
+#[k::configuration(root = "machine")]
+pub struct Machine {
+    pub k: k::configuration::KCell<KSequence>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init() -> Self {
+        Self {
+            k: k::configuration::KCell::new(k::k![]),
+        }
+    }
+}
+"#;
+
 const BASE: &str = r#"
 use k::Term;
 
@@ -392,14 +692,14 @@ fn total_functions_warn_where_no_equation_applies() {
     expect_test::expect![[r#"
         [
             "warning[krs::analysis::uncovered-total-function]: total function `Clamp` has no equation for `Clamp(0)`",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers and of `k::matches!` tests, reading the bits that comparisons of `bitRangeInt` and `&Int` fix and each application of a total function as one unknown value (one of its equations' results, when they cover every argument), where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             "warning[krs::analysis::stale-underspecified]: `FlagBit` states `underspecified`, but its equations define every argument; remove `underspecified`",
             "warning[krs::analysis::uncovered-total-function]: total function `Nibble` has no equation for `Nibble(16)`",
             "= note: KRS evaluated the `requires` of its equations on every argument they bound (0..=15) and on one argument beyond them, which stands for every other",
             "warning[krs::analysis::uncovered-total-function]: total function `Page` has no equation for `Page(opcode)` when `High(opcode)` is 2",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers and of `k::matches!` tests, reading the bits that comparisons of `bitRangeInt` and `&Int` fix and each application of a total function as one unknown value (one of its equations' results, when they cover every argument), where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             "warning[krs::analysis::uncovered-total-function]: total function `Quotient` has no equation for `Quotient(0, 0)`",
-            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers, reading the bits that comparisons of `bitRangeInt` and `&Int` fix, where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
+            "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers and of `k::matches!` tests, reading the bits that comparisons of `bitRangeInt` and `&Int` fix and each application of a total function as one unknown value (one of its equations' results, when they cover every argument), where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             "warning[krs::analysis::uncovered-total-function]: total function `Size` has no equation for `Size(0)`",
             "warning[krs::analysis::uncovered-total-function]: total function `Table` has no equation for `Table(3)`",
         ]
@@ -485,6 +785,38 @@ fn operator_guards_warn_as_the_calls_they_denote() {
     let (operator_lines, operator_k) = emitted(&operators);
     assert_eq!(operator_lines, call_lines);
     assert_eq!(operator_k, call_k);
+}
+
+#[test]
+fn guards_that_apply_functions_and_match_patterns_are_read() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    package(temporary.path(), "guards", GUARDS, None, "main");
+    let manifest = workspace(temporary.path(), &["guards"]);
+    let (success, lines) = emit(
+        target.path(),
+        &manifest,
+        "guards",
+        &temporary.path().join("emitted"),
+        &[],
+    );
+    assert!(success, "{lines:#?}");
+    let headlines = lines
+        .into_iter()
+        .filter(|line| line.starts_with("warning["))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "warning[krs::analysis::uncovered-total-function]: total function `LooseSign` has no equation for `LooseSign(0)`",
+            "warning[krs::analysis::uncovered-total-function]: total function `PartialScore` has no equation for `PartialScore(value)` when `Classify(value)` is `Kinds::C`",
+            "warning[krs::analysis::uncovered-total-function]: total function `SignedLess` has no equation for `SignedLess(0, right)` when `Sign(right)` is 0",
+            "warning[krs::analysis::stale-underspecified]: `StatedLess` states `underspecified`, but its equations define every argument; remove `underspecified`",
+            "warning[krs::analysis::stale-underspecified]: `StatedSign` states `underspecified`, but its equations define every argument; remove `underspecified`",
+            "warning[krs::analysis::uncovered-total-function]: total function `UsesLooseSign` has no equation for `UsesLooseSign(value)` when `LooseSign(value)` is 0",
+            "warning[krs::analysis::uncovered-total-function]: total function `UsesPing` has no equation for `UsesPing(value)` when `Ping(value)` is 0",
+            "warning[krs::analysis::uncovered-total-function]: total function `UsesStatedSign` has no equation for `UsesStatedSign(value)` when `StatedSign(value)` is 0",
+        ]
+    "#]].assert_debug_eq(&headlines);
 }
 
 #[test]

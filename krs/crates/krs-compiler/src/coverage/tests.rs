@@ -10,7 +10,7 @@ use krs_ir_levels::SortParameterId;
 use num_bigint::BigInt;
 
 use super::{
-    Atom, Bound, Column, ConstructorInfo, Counterexample, Fact, Formula, Order, Pattern,
+    Atom, Bound, Column, ConstructorInfo, Counterexample, Fact, Formula, Head, Order, Pattern,
     Projection, Projections, Row, Search, Signature, Verdict, decide, points, render,
 };
 
@@ -138,6 +138,7 @@ fn columns(sorts: &[Sort]) -> Vec<Column> {
         .map(|(index, sort)| Column {
             sort: sort.clone(),
             path: vec![index],
+            heads: None,
         })
         .collect()
 }
@@ -148,6 +149,8 @@ fn gaps(signature: &Signature, rows: &[Row], sorts: &[Sort]) -> Vec<String> {
     let mut search = Search {
         signature,
         projections: &projections,
+        ranges: &BTreeMap::new(),
+        virtuals: &BTreeMap::new(),
         nodes: 0,
         valuations: 0,
         exhausted: false,
@@ -547,6 +550,12 @@ fn admitted(value: i64, fact: Option<&Fact>) -> bool {
     match fact {
         Some(Fact::Equal(fixed)) => BigInt::from(value) == *fixed,
         Some(Fact::Excluded(excluded)) => !excluded.contains(&BigInt::from(value)),
+        Some(Fact::Within(intervals)) => intervals.iter().any(|(low, high)| {
+            low.as_ref().is_none_or(|low| *low <= BigInt::from(value))
+                && high
+                    .as_ref()
+                    .is_none_or(|high| BigInt::from(value) <= *high)
+        }),
         None => true,
     }
 }
@@ -856,7 +865,418 @@ fn a_size_is_never_negative() {
 }
 
 // ---------------------------------------------------------------------------
-// Minimized refutations
+// Complements, `k::matches!` expansion, minimized refutations, ranges
+
+/// `KItem`, which every sort injects into.
+fn kitem() -> Sort {
+    Sort::Declared(
+        StableItemId::new(
+            PackageId::new("KRS-FRAMEWORK", "krs", "0.1.0", "test").unwrap(),
+            ["framework"],
+            "KItem",
+            ItemKind::Sort,
+            "",
+        )
+        .unwrap(),
+    )
+}
+
+/// `Kind = A | B`, `Shape = Circle(Int) | Pair(Kind, Kind)`, and `Exp`
+/// holding `Shape`s, `Int`s and `Neg(Int)`, below `KItem` with `Kind`.
+struct Shapes {
+    signature: Signature,
+    a: StableItemId,
+    b: StableItemId,
+    circle: StableItemId,
+    pair: StableItemId,
+    neg: StableItemId,
+    kind: Sort,
+    shape: Sort,
+    exp: Sort,
+}
+
+fn shapes() -> Shapes {
+    let (a, b) = (variant("Kinds", "A"), variant("Kinds", "B"));
+    let (circle, pair) = (variant("Shapes", "Circle"), variant("Shapes", "Pair"));
+    let neg = variant("Exps", "Neg");
+    let (kind, shape, exp) = (sort("Kind"), sort("Shape"), sort("Exp"));
+    let signature = Builder::new()
+        .constructor(&a, kind.clone(), &[])
+        .constructor(&b, kind.clone(), &[])
+        .constructor(&circle, shape.clone(), &[INT])
+        .constructor(&pair, shape.clone(), &[kind.clone(), kind.clone()])
+        .constructor(&neg, exp.clone(), &[INT])
+        .subsort(shape.clone(), exp.clone())
+        .subsort(INT, exp.clone())
+        .subsort(exp.clone(), kitem())
+        .subsort(kind.clone(), kitem())
+        .build();
+    Shapes {
+        signature,
+        a,
+        b,
+        circle,
+        pair,
+        neg,
+        kind,
+        shape,
+        exp,
+    }
+}
+
+/// A value, as the lint's heads see it.
+#[derive(Clone, Debug)]
+enum Value {
+    Constructor(StableItemId, Vec<Value>),
+    Int(i64),
+    Bool(bool),
+    /// A value of a family other than Int and Bool.
+    Other(Sort),
+}
+
+impl Value {
+    fn head(&self) -> Head {
+        match self {
+            Self::Constructor(id, _) => Head::Constructor {
+                id: id.clone(),
+                instance: Vec::new(),
+            },
+            Self::Int(_) => Head::Family(INT),
+            Self::Bool(_) => Head::Family(BOOL),
+            Self::Other(sort) => Head::Family(sort.clone()),
+        }
+    }
+}
+
+/// Values of every head of `sort`, constructors over values of their
+/// argument sorts.
+fn values(signature: &Signature, sort: &Sort) -> Vec<Value> {
+    let mut all = Vec::new();
+    for head in signature.heads(sort) {
+        match head {
+            Head::Constructor { id, instance } => {
+                let mut combined = vec![Vec::new()];
+                for argument in signature.arguments(&id, &instance) {
+                    let choices = values(signature, &argument);
+                    combined = combined
+                        .into_iter()
+                        .flat_map(|prefix: Vec<Value>| {
+                            choices.iter().map(move |choice| {
+                                let mut next = prefix.clone();
+                                next.push(choice.clone());
+                                next
+                            })
+                        })
+                        .collect();
+                }
+                all.extend(
+                    combined
+                        .into_iter()
+                        .map(|arguments| Value::Constructor(id.clone(), arguments)),
+                );
+            }
+            Head::Family(family) if family == INT => {
+                all.extend([-1, 0, 3].map(Value::Int));
+            }
+            Head::Family(family) if family == BOOL => {
+                all.extend([true, false].map(Value::Bool));
+            }
+            Head::Family(family) => all.push(Value::Other(family)),
+        }
+    }
+    all
+}
+
+/// Whether a pattern matches a value, recording the Ints it binds by path.
+fn matched(
+    signature: &Signature,
+    pattern: &Pattern,
+    value: &Value,
+    path: &mut Vec<usize>,
+    ints: &mut BTreeMap<String, i64>,
+) -> bool {
+    if let Value::Int(number) = value {
+        ints.insert(super::path_text(path), *number);
+    }
+    match (pattern, value) {
+        (Pattern::Binder(sort), _) => signature.binder_covers(sort, &value.head()),
+        (Pattern::Family(family), _) => value.head() == Head::Family(family.clone()),
+        (Pattern::Literal { sort, value: text }, Value::Int(number)) => {
+            *sort == INT && *text == number.to_string()
+        }
+        (Pattern::Literal { sort, value: text }, Value::Bool(truth)) => {
+            *sort == BOOL && *text == truth.to_string()
+        }
+        (Pattern::Constructor { id, arguments, .. }, Value::Constructor(other, values)) => {
+            id == other
+                && arguments
+                    .iter()
+                    .zip(values)
+                    .enumerate()
+                    .all(|(index, (pattern, value))| {
+                        path.push(index);
+                        let matched = matched(signature, pattern, value, path, ints);
+                        path.pop();
+                        matched
+                    })
+        }
+        _ => false,
+    }
+}
+
+/// The truth of a residual condition over the Ints a match bound.
+fn residual_holds(formula: &Formula, ints: &BTreeMap<String, i64>) -> bool {
+    match formula {
+        Formula::Atom(Atom::Bound {
+            subject,
+            bound: Bound::At,
+            constant,
+        }) => BigInt::from(ints[subject]) == *constant,
+        Formula::Not(inner) => !residual_holds(inner, ints),
+        Formula::And(left, right) => residual_holds(left, ints) && residual_holds(right, ints),
+        Formula::Constant(value) => *value,
+        other => panic!("unexpected residual {other:?}"),
+    }
+}
+
+/// Whether some refined pattern matches a value and its residual holds.
+fn refined_matches(signature: &Signature, refined: &[super::Refined], value: &Value) -> bool {
+    refined.iter().any(|(pattern, residual)| {
+        let mut ints = BTreeMap::new();
+        matched(signature, pattern, value, &mut vec![0], &mut ints)
+            && residual
+                .iter()
+                .all(|formula| residual_holds(formula, &ints))
+    })
+}
+
+/// Patterns over [`shapes`], each with the sort its complement is taken in.
+fn shape_patterns(shapes: &Shapes) -> Vec<(Pattern, Sort)> {
+    let a = || construct(&shapes.a, vec![]);
+    vec![
+        (binder(shapes.exp.clone()), kitem()),
+        (binder(shapes.shape.clone()), shapes.exp.clone()),
+        (binder(INT), kitem()),
+        (
+            construct(&shapes.circle, vec![binder(INT)]),
+            shapes.shape.clone(),
+        ),
+        (
+            construct(&shapes.circle, vec![int(3)]),
+            shapes.shape.clone(),
+        ),
+        (construct(&shapes.circle, vec![int(3)]), kitem()),
+        (
+            construct(&shapes.pair, vec![a(), binder(shapes.kind.clone())]),
+            shapes.shape.clone(),
+        ),
+        (
+            construct(&shapes.pair, vec![a(), construct(&shapes.b, vec![])]),
+            kitem(),
+        ),
+        (construct(&shapes.neg, vec![int(0)]), shapes.exp.clone()),
+        (int(0), INT),
+        (int(0), shapes.exp.clone()),
+        (boolean(true), BOOL),
+        (Pattern::Family(INT), shapes.exp.clone()),
+        (Pattern::Family(kitem()), kitem()),
+    ]
+}
+
+#[test]
+fn a_complement_matches_exactly_what_its_pattern_does_not() {
+    let shapes = shapes();
+    let signature = &shapes.signature;
+    for (pattern, sort) in shape_patterns(&shapes) {
+        let complement = super::complement(signature, &pattern, &sort, &[0]).unwrap();
+        let values = values(signature, &sort);
+        assert!(values.len() > 1, "{sort:?}");
+        for value in values {
+            let direct = matched(
+                signature,
+                &pattern,
+                &value,
+                &mut vec![0],
+                &mut BTreeMap::new(),
+            );
+            let complemented = refined_matches(signature, &complement, &value);
+            assert_ne!(
+                direct, complemented,
+                "{value:?}: {pattern:?} and its complement {complement:?} in {sort:?}"
+            );
+        }
+    }
+    // A union's complement is the intersection of the complements.
+    let union = [
+        construct(&shapes.circle, vec![binder(INT)]),
+        construct(
+            &shapes.pair,
+            vec![construct(&shapes.a, vec![]), binder(shapes.kind.clone())],
+        ),
+    ];
+    let complement = super::complement_all(signature, &union, &shapes.exp, &[0]).unwrap();
+    for value in values(signature, &shapes.exp) {
+        let direct = union.iter().any(|pattern| {
+            matched(
+                signature,
+                pattern,
+                &value,
+                &mut vec![0],
+                &mut BTreeMap::new(),
+            )
+        });
+        assert_ne!(
+            direct,
+            refined_matches(signature, &complement, &value),
+            "{value:?}"
+        );
+    }
+    // A binder of a family's sort would also match its subsorts' constructors.
+    let open = super::complement(
+        signature,
+        &construct(&shapes.neg, vec![binder(INT)]),
+        &kitem(),
+        &[0],
+    )
+    .unwrap();
+    assert!(
+        open.iter()
+            .any(|(pattern, _)| matches!(pattern, Pattern::Family(sort) if *sort == kitem()))
+    );
+    assert!(
+        !open
+            .iter()
+            .any(|(pattern, _)| matches!(pattern, Pattern::Binder(sort) if *sort == kitem()))
+    );
+}
+
+#[test]
+fn a_meet_matches_exactly_what_both_patterns_match() {
+    let shapes = shapes();
+    let signature = &shapes.signature;
+    let patterns = shape_patterns(&shapes);
+    for (left, _) in &patterns {
+        for (right, _) in &patterns {
+            let met = super::meet(signature, left, right).unwrap();
+            for value in values(signature, &kitem()) {
+                let both = matched(signature, left, &value, &mut vec![0], &mut BTreeMap::new())
+                    && matched(signature, right, &value, &mut vec![0], &mut BTreeMap::new());
+                let any = met.iter().any(|pattern| {
+                    matched(
+                        signature,
+                        pattern,
+                        &value,
+                        &mut vec![0],
+                        &mut BTreeMap::new(),
+                    )
+                });
+                assert_eq!(both, any, "{value:?} in {left:?} and {right:?}: {met:?}");
+            }
+        }
+    }
+    assert!(super::meet(signature, &Pattern::Opaque, &binder(INT)).is_none());
+}
+
+/// `k::matches!(Circle(_), shape)` on argument 0, as the atom `m`.
+fn circle_test(shapes: &Shapes) -> BTreeMap<String, super::Test> {
+    BTreeMap::from([(
+        "m".to_owned(),
+        super::Test {
+            subject: super::TestSubject::Binder(vec![0]),
+            sort: shapes.shape.clone(),
+            alternatives: vec![construct(&shapes.circle, vec![binder(INT)])],
+        },
+    )])
+}
+
+/// A pattern rendered with its head names.
+fn show(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Binder(sort) => format!("_:{}", super::sort_name(sort)),
+        Pattern::Constructor { id, arguments, .. } => format!(
+            "{}({})",
+            super::display_name(id),
+            arguments.iter().map(show).collect::<Vec<_>>().join(", ")
+        ),
+        Pattern::Literal { value, .. } => value.clone(),
+        Pattern::Family(sort) => format!("family {}", super::sort_name(sort)),
+        Pattern::Opaque => "opaque".to_owned(),
+    }
+}
+
+#[test]
+fn a_matches_test_expands_into_one_row_per_truth_assignment() {
+    let shapes = shapes();
+    // `notBool (k::matches!(Circle(_), shape) && flag > 5)`.
+    let guard = and(opaque("m"), bound("$1", Bound::Above, 5)).not();
+    let rows = super::expand(
+        &shapes.signature,
+        &[binder(shapes.shape.clone()), binder(INT)],
+        &guard,
+        &circle_test(&shapes),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let shown = rows
+        .iter()
+        .map(|(patterns, guard)| {
+            format!(
+                "{} if {guard:?}",
+                patterns.iter().map(show).collect::<Vec<_>>().join(", ")
+            )
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "Shapes::Pair(_:Kind, _:Kind), _:Int if Constant(true)",
+            "Shapes::Circle(_:Int), _:Int if Not(Atom(Bound { subject: \"$1\", bound: Above, constant: 5 }))",
+        ]
+    "#]]
+    .assert_debug_eq(&shown);
+}
+
+#[test]
+fn a_nested_catch_all_over_a_parameter_covers_the_other_shapes() {
+    let shapes = shapes();
+    let signature = &shapes.signature;
+    let flag = || bound("$1", Bound::Above, 0);
+    // `Area`: `if flag > 0 { match shape { Circle { r } => .., _ => 0 } } else { 1 }`.
+    let catch_all = and(flag(), opaque("m").not());
+    let mut rows = vec![
+        guarded(
+            vec![construct(&shapes.circle, vec![binder(INT)]), binder(INT)],
+            flag(),
+        ),
+        guarded(
+            vec![binder(shapes.shape.clone()), binder(INT)],
+            flag().not(),
+        ),
+    ];
+    // Read as an opaque atom, the catch-all leaves `Pair` uncovered.
+    let mut opaque_rows = rows.clone();
+    opaque_rows.push(guarded(
+        vec![binder(shapes.shape.clone()), binder(INT)],
+        catch_all.clone(),
+    ));
+    assert_eq!(
+        gaps(signature, &opaque_rows, &[shapes.shape.clone(), INT]),
+        ["(Shapes::Pair(_, _), 1)"]
+    );
+    let expanded = super::expand(
+        signature,
+        &[binder(shapes.shape.clone()), binder(INT)],
+        &catch_all,
+        &circle_test(&shapes),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    rows.extend(
+        expanded
+            .into_iter()
+            .map(|(patterns, guard)| guarded(patterns, guard)),
+    );
+    assert!(gaps(signature, &rows, &[shapes.shape, INT]).is_empty());
+}
 
 /// Every valuation in range that the counterexample's kept values,
 /// orders and truths describe falsifies every guard.
@@ -934,6 +1354,73 @@ fn atoms_that_only_matter_together_stay_in_the_condition() {
     assert_eq!(counterexample.values.len(), 1, "{counterexample:?}");
 }
 
+#[test]
+fn a_range_limits_the_values_the_decider_enumerates() {
+    let guards = [bound("$0", Bound::At, 1), bound("$0", Bound::At, -1)];
+    let guards = guards.iter().collect::<Vec<_>>();
+    let range = |intervals: &[(i64, i64)]| {
+        BTreeMap::from([(
+            "$0".to_owned(),
+            Fact::Within(
+                intervals
+                    .iter()
+                    .map(|(low, high)| (Some(BigInt::from(*low)), Some(BigInt::from(*high))))
+                    .collect(),
+            ),
+        )])
+    };
+    let two = range(&[(-1, -1), (1, 1)]);
+    assert!(matches!(
+        decide(&guards, &two, &Projections::new()),
+        Verdict::Valid
+    ));
+    let Verdict::Refuted(counterexample) = decide(&guards, &range(&[(-1, 1)]), &Projections::new())
+    else {
+        panic!("0 is in the range");
+    };
+    assert_eq!(counterexample.values.get("$0"), Some(&BigInt::from(0)));
+    // Unbounded on one side.
+    let above = BTreeMap::from([(
+        "$0".to_owned(),
+        Fact::Within(vec![(Some(BigInt::from(1)), None)]),
+    )]);
+    let Verdict::Refuted(counterexample) = decide(&guards, &above, &Projections::new()) else {
+        panic!("2 is in the range");
+    };
+    assert_eq!(counterexample.values.get("$0"), Some(&BigInt::from(2)));
+}
+
+#[test]
+fn ranges_merge_and_keep_their_kind() {
+    let interval = |low: i64, high: Option<i64>| (Some(BigInt::from(low)), high.map(BigInt::from));
+    let merged = super::merged(vec![
+        interval(5, Some(6)),
+        interval(0, Some(1)),
+        interval(2, Some(3)),
+        interval(10, None),
+        interval(12, Some(20)),
+    ]);
+    assert_eq!(
+        merged,
+        [
+            interval(0, Some(3)),
+            interval(5, Some(6)),
+            interval(10, None)
+        ]
+    );
+    let ints = super::Range::Ints(vec![interval(0, Some(0))]);
+    let bools = super::Range::Bools(BTreeSet::from([true]));
+    assert!(ints.clone().union(bools.clone()).is_none());
+    assert_eq!(
+        bools.union(super::Range::Bools(BTreeSet::from([false]))),
+        Some(super::Range::Bools(BTreeSet::from([false, true])))
+    );
+    assert_eq!(
+        ints.union(super::Range::Ints(vec![interval(1, Some(1))])),
+        Some(super::Range::Ints(vec![interval(0, Some(1))]))
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Reading guards with partial operations
 
@@ -943,7 +1430,7 @@ mod reading {
     use krs_ir::{ApplicationRef, BuiltinOperation, NodeOrigin, SemanticId, SourceMapKey};
     use krs_ir_levels::{SemanticSortRef as Sort, SemanticTerm};
 
-    use super::super::{Formula, GuardReader, Names, Projections, Signature, Verdict, decide};
+    use super::super::{Formula, GuardReader, Projections, Signature, Verdict, decide};
     use super::{BOOL, INT};
 
     use BuiltinOperation::{
@@ -983,13 +1470,7 @@ mod reading {
             (SemanticId::new("x".to_owned()).unwrap(), vec![0]),
             (SemanticId::new("w".to_owned()).unwrap(), vec![1]),
         ]);
-        let mut reader = GuardReader {
-            signature: &signature,
-            paths: &paths,
-            names: Names::new(),
-            projections: Projections::new(),
-            obligations: Vec::new(),
-        };
+        let mut reader = GuardReader::new(&signature, &paths, None);
         reader.guard(term)
     }
 
@@ -1081,6 +1562,237 @@ mod reading {
             ],
         );
         assert!(read(&compared).is_none());
+    }
+
+    fn declared(
+        id: &krs_ir::StableItemId,
+        sort: Sort,
+        arguments: Vec<SemanticTerm>,
+    ) -> SemanticTerm {
+        SemanticTerm::application(
+            origin(),
+            sort,
+            ApplicationRef::Declared(id.clone()),
+            arguments,
+        )
+    }
+
+    fn matches(subject: SemanticTerm, pattern: SemanticTerm) -> SemanticTerm {
+        SemanticTerm::matches(origin(), BOOL, subject, pattern, Vec::new())
+    }
+
+    /// Reads a guard over `shape` (argument 0) with [`super::shapes`]'
+    /// signature and `ranges`.
+    fn read_shapes(
+        shapes: &super::Shapes,
+        term: &SemanticTerm,
+        ranges: Option<&dyn super::super::RangeOf>,
+    ) -> Option<(Formula, Vec<String>)> {
+        let paths = BTreeMap::from([(SemanticId::new("shape".to_owned()).unwrap(), vec![0])]);
+        let mut reader = GuardReader::new(&shapes.signature, &paths, ranges);
+        let formula = reader.guard(term)?;
+        let tests = reader
+            .tests
+            .values()
+            .map(|test| format!("{:?} {}", test.subject, test.alternatives.len()))
+            .collect();
+        Some((formula, tests))
+    }
+
+    fn circle(shapes: &super::Shapes, argument: SemanticTerm) -> SemanticTerm {
+        declared(&shapes.circle, shapes.shape.clone(), vec![argument])
+    }
+
+    fn wildcard(ordinal: usize) -> SemanticTerm {
+        SemanticTerm::variable(origin(), INT, SemanticId::wildcard(ordinal))
+    }
+
+    #[test]
+    fn a_linear_matches_test_is_read_as_pattern_matching() {
+        let shapes = super::shapes();
+        let shape = || {
+            SemanticTerm::variable(
+                origin(),
+                shapes.shape.clone(),
+                SemanticId::new("shape".to_owned()).unwrap(),
+            )
+        };
+        let test = matches(shape(), circle(&shapes, wildcard(0)));
+        let (formula, tests) = read_shapes(&shapes, &test, None).unwrap();
+        assert!(
+            matches!(formula, Formula::Atom(super::Atom::Opaque(_))),
+            "{formula:?}"
+        );
+        assert_eq!(tests, ["Binder([0]) 1"]);
+        // The same test negated is the same atom.
+        let (negated, _) = read_shapes(&shapes, &apply(BoolNot, vec![test.clone()]), None).unwrap();
+        assert_eq!(format!("{negated:?}"), format!("{:?}", formula.not()));
+        // A pattern that repeats a local binder is an opaque atom only.
+        let pair = |left: SemanticTerm, right: SemanticTerm| {
+            declared(&shapes.pair, shapes.shape.clone(), vec![left, right])
+        };
+        let kind = |name: &str| {
+            SemanticTerm::variable(
+                origin(),
+                shapes.kind.clone(),
+                SemanticId::new(name.to_owned()).unwrap(),
+            )
+        };
+        let (repeated, tests) =
+            read_shapes(&shapes, &matches(shape(), pair(kind("k"), kind("k"))), None).unwrap();
+        assert!(tests.is_empty());
+        let (distinct, tests) =
+            read_shapes(&shapes, &matches(shape(), pair(kind("k"), kind("l"))), None).unwrap();
+        assert_eq!(tests, ["Binder([0]) 1"]);
+        assert_ne!(format!("{repeated:?}"), format!("{distinct:?}"));
+        // A binder the pattern does not bind leaves the guard unread.
+        let unbound = SemanticTerm::variable(
+            origin(),
+            shapes.shape.clone(),
+            SemanticId::new("other".to_owned()).unwrap(),
+        );
+        assert!(
+            read_shapes(
+                &shapes,
+                &matches(unbound, circle(&shapes, wildcard(0))),
+                None
+            )
+            .is_none()
+        );
+    }
+
+    /// A function `Classify` of `Shape`s whose range is `Kinds::A`, and a
+    /// function `Positive` whose range is `true`.
+    struct Ranges {
+        classify: krs_ir::StableItemId,
+        positive: krs_ir::StableItemId,
+        kind: Sort,
+        a: krs_ir::StableItemId,
+    }
+
+    impl super::super::RangeOf for Ranges {
+        fn range_of(&self, id: &krs_ir::StableItemId) -> Option<std::rc::Rc<super::super::Range>> {
+            let range = if *id == self.classify {
+                super::super::Range::Heads(std::collections::BTreeSet::from([
+                    super::Head::Constructor {
+                        id: self.a.clone(),
+                        instance: Vec::new(),
+                    },
+                ]))
+            } else if *id == self.positive {
+                super::super::Range::Bools(std::collections::BTreeSet::from([true]))
+            } else {
+                return None;
+            };
+            Some(std::rc::Rc::new(range))
+        }
+    }
+
+    #[test]
+    fn ranges_restrict_virtual_columns_and_fix_bool_atoms() {
+        let mut shapes = super::shapes();
+        let (classify, positive) = (
+            super::variant("Functions", "Classify"),
+            super::variant("Functions", "Positive"),
+        );
+        shapes.signature.total_functions.insert(classify.clone());
+        shapes.signature.total_functions.insert(positive.clone());
+        let ranges = Ranges {
+            classify: classify.clone(),
+            positive: positive.clone(),
+            kind: shapes.kind.clone(),
+            a: shapes.a.clone(),
+        };
+        let shape = SemanticTerm::variable(
+            origin(),
+            shapes.shape.clone(),
+            SemanticId::new("shape".to_owned()).unwrap(),
+        );
+        let classified = declared(&classify, ranges.kind.clone(), vec![shape.clone()]);
+        let test = matches(
+            classified,
+            declared(&shapes.a, shapes.kind.clone(), Vec::new()),
+        );
+        let paths = BTreeMap::from([(SemanticId::new("shape".to_owned()).unwrap(), vec![0])]);
+        let mut reader = GuardReader::new(&shapes.signature, &paths, Some(&ranges));
+        reader.guard(&test).unwrap();
+        let columns = reader.virtuals.values().collect::<Vec<_>>();
+        assert_eq!(columns.len(), 1);
+        assert_eq!(
+            columns[0]
+                .heads
+                .as_ref()
+                .map(std::collections::BTreeSet::len),
+            Some(1)
+        );
+        let applied = declared(&positive, BOOL, vec![shape]);
+        let (formula, _) = read_shapes(&shapes, &applied, Some(&ranges)).unwrap();
+        assert!(matches!(formula, Formula::Constant(true)), "{formula:?}");
+        let (formula, _) = read_shapes(&shapes, &applied, None).unwrap();
+        assert!(matches!(formula, Formula::Atom(_)), "{formula:?}");
+    }
+
+    #[test]
+    fn a_matches_test_on_a_ground_term_is_evaluated_as_matching() {
+        use crate::equation_domain::{Evaluator, Ground, guard_holds};
+        let shapes = super::shapes();
+        let evaluator = Evaluator::new(&shapes.signature);
+        let id = SemanticId::new("shape".to_owned()).unwrap();
+        let shape = || SemanticTerm::variable(origin(), shapes.shape.clone(), id.clone());
+        let circle_three = Ground::Term {
+            id: shapes.circle.clone(),
+            instance: Vec::new(),
+            arguments: vec![Ground::Int(3)],
+        };
+        let environment = BTreeMap::from([(&id, circle_three)]);
+        let holds = |pattern: SemanticTerm| {
+            guard_holds(&evaluator, &matches(shape(), pattern), &environment)
+        };
+        let typed = |sort: Sort| {
+            SemanticTerm::variable(origin(), sort, SemanticId::new("local".to_owned()).unwrap())
+        };
+        assert_eq!(holds(circle(&shapes, wildcard(0))), Some(true));
+        assert_eq!(holds(circle(&shapes, int(3))), Some(true));
+        assert_eq!(holds(circle(&shapes, int(4))), Some(false));
+        let pair = declared(
+            &shapes.pair,
+            shapes.shape.clone(),
+            vec![typed(shapes.kind.clone()), typed(shapes.kind.clone())],
+        );
+        assert_eq!(holds(pair), Some(false));
+        // A local binder matches the values of its sort and its subsorts'.
+        assert_eq!(holds(typed(shapes.exp.clone())), Some(true));
+        assert_eq!(holds(typed(super::kitem())), Some(true));
+        assert_eq!(holds(typed(shapes.kind.clone())), Some(false));
+        assert_eq!(
+            guard_holds(
+                &evaluator,
+                &apply(BoolNot, vec![matches(shape(), circle(&shapes, int(4)))]),
+                &environment,
+            ),
+            Some(true)
+        );
+        // A subject the evaluation cannot compute decides nothing; an
+        // undefined one makes the guard not hold.
+        let unknown = super::variant("Functions", "Unknown");
+        let applied = declared(&unknown, shapes.shape.clone(), Vec::new());
+        assert_eq!(
+            guard_holds(
+                &evaluator,
+                &matches(applied, circle(&shapes, wildcard(0))),
+                &environment
+            ),
+            None
+        );
+        let undefined = circle(&shapes, apply(IntTDiv, vec![int(1), int(0)]));
+        assert_eq!(
+            guard_holds(
+                &evaluator,
+                &matches(undefined, circle(&shapes, wildcard(0))),
+                &environment
+            ),
+            Some(false)
+        );
     }
 
     #[test]

@@ -7,13 +7,20 @@ use krs_ir::{
 };
 use krs_ir_levels::{SemanticSortRef as Sort, SemanticTerm};
 
-use super::{ColumnValues, Domain, EquationView, Undecided};
+use super::{ColumnValues, Domain, EquationView, Evaluator, Undecided};
+use crate::coverage::Signature;
 
 use BuiltinOperation::{
     BoolAndThen, BoolOrElse, IntBitRange, IntEqual, IntGreaterEqual, IntLess, IntNotEqual, IntTDiv,
 };
 
 const INT: Sort = Sort::Builtin(BuiltinSort::Int);
+
+/// An evaluator over no declarations: builtins only.
+fn evaluator() -> &'static Evaluator<'static> {
+    let signature: &'static Signature = Box::leak(Box::default());
+    Box::leak(Box::new(Evaluator::new(signature)))
+}
 const BOOL: Sort = Sort::Builtin(BuiltinSort::Bool);
 
 fn origin() -> NodeOrigin {
@@ -158,7 +165,7 @@ fn views(equations: &[Equation]) -> Vec<EquationView<'_>> {
 /// The first point where two equations apply with different results.
 fn overlap(columns: &[Sort], equations: &[Equation]) -> Option<(Vec<i128>, String, String)> {
     let views = views(equations);
-    let domain = Domain::new(columns, &views)?;
+    let domain = Domain::new(evaluator(), columns, &views)?;
     for point in domain.points() {
         let applying = (0..views.len())
             .filter(|index| domain.applies(*index, &point).unwrap())
@@ -232,7 +239,7 @@ fn templates_that_differ_in_a_fixed_bit_do_not_overlap() {
     ];
     assert_eq!(overlap(&[INT], &equations), None);
     let views = views(&equations);
-    let domain = Domain::new(&[INT], &views).unwrap();
+    let domain = Domain::new(evaluator(), &[INT], &views).unwrap();
     let ColumnValues::Int { values, bounded } = &domain.columns()[0] else {
         panic!("an Int column");
     };
@@ -281,7 +288,7 @@ fn an_unbounded_or_unreadable_guard_is_beyond_the_analysis() {
         Some(builtin(IntLess, vec![int(0), variable("x")])),
         int(1),
     )];
-    assert!(Domain::new(&[INT], &views(&unbounded)).is_none());
+    assert!(Domain::new(evaluator(), &[INT], &views(&unbounded)).is_none());
     // Seventeen bits: more points than the analysis enumerates.
     let wide = vec![equation(
         "wide",
@@ -289,7 +296,7 @@ fn an_unbounded_or_unreadable_guard_is_beyond_the_analysis() {
         Some(all(template("x", "0________________"))),
         int(1),
     )];
-    assert!(Domain::new(&[INT], &views(&wide)).is_none());
+    assert!(Domain::new(evaluator(), &[INT], &views(&wide)).is_none());
     // A guard that calls a function is not evaluated.
     let called = vec![equation(
         "called",
@@ -305,7 +312,7 @@ fn an_unbounded_or_unreadable_guard_is_beyond_the_analysis() {
         int(1),
     )];
     let views = views(&called);
-    let domain = Domain::new(&[INT], &views).unwrap();
+    let domain = Domain::new(evaluator(), &[INT], &views).unwrap();
     assert!(matches!(domain.applies(0, &[1]), Err(Undecided)));
     // Outside the bound, a false top-level conjunct decides.
     assert!(matches!(domain.applies(0, &[4]), Ok(false)));
@@ -341,7 +348,7 @@ fn an_undefined_guard_is_undecided_unless_a_conjunct_is_false() {
         equation("either", vec![variable("x")], Some(all(either)), int(1)),
     ];
     let views = views(&equations);
-    let domain = Domain::new(&[INT], &views).unwrap();
+    let domain = Domain::new(evaluator(), &[INT], &views).unwrap();
     assert!(matches!(domain.applies(0, &[0]), Ok(false)));
     assert!(matches!(domain.applies(0, &[4]), Ok(true)));
     assert!(matches!(domain.applies(1, &[0]), Err(Undecided)));
@@ -482,7 +489,8 @@ fn the_enumeration_decides_every_argument_as_brute_force_does() {
             })
             .collect::<Vec<_>>();
         let views = views(&equations);
-        let domain = Domain::new(&[INT, INT], &views).expect("small domains are enumerated");
+        let domain =
+            Domain::new(evaluator(), &[INT, INT], &views).expect("small domains are enumerated");
         // Each coordinate stands for itself when the domain lists it, and
         // otherwise for `outside`.
         let representative = |column: usize, value: i128| match &domain.columns()[column] {

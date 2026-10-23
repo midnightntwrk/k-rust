@@ -527,6 +527,58 @@ pub fn Small(value: Term<Int>) -> Term<Int> {{
     );
 }
 
+/// Equations whose overlap only a `k::matches!` test decides: the check
+/// evaluates the test on the concrete argument, and proves the negated test
+/// disjoint.
+#[test]
+fn a_pattern_test_in_a_guard_decides_an_overlap() {
+    let target = shared_fixture_target();
+    let width = |guard: &str| {
+        format!(
+            "{PRELUDE}
+#[k::function(total, internal)]
+pub fn Width(info: Term<TypeInfo>) -> Term<Int>;
+
+k::equations! {{
+    for Width;
+    #[k::requires({guard})]
+    width_tuple: info => 1;
+    width_empty: Info::TupleInfo {{ count: 0, size }} => 2;
+    #[k::equation(owise)]
+    width_other: _ => 3;
+}}
+"
+        )
+    };
+    let emitted = |name: &str, source: &str| {
+        let temporary = temp_dir();
+        package(temporary.path(), name, "ORG-KRS-MATCHES", source);
+        let manifest = workspace(temporary.path(), &[name]);
+        let (success, stderr, _) = emit(
+            target.path(),
+            &manifest,
+            name,
+            &temporary.path().join("emitted"),
+        );
+        (success, stderr)
+    };
+    let (success, stderr) = emitted(
+        "overlapping",
+        &width("k::matches!(info, Info::TupleInfo { .. })"),
+    );
+    assert!(!success, "{stderr}");
+    assert!(
+        stderr.contains("error[krs::analysis::overlapping-equations]: equations `width_empty` and `width_tuple` of `Width` both apply to `Width(Info::TupleInfo(0, 0))` at the same priority and give it different results, `2` and `1`"),
+        "{stderr}"
+    );
+    let (success, stderr) = emitted(
+        "disjoint",
+        &width("k::matches!(info, Info::TupleInfo { .. }).not::<Bool>()"),
+    );
+    assert!(success, "{stderr}");
+    assert!(!stderr.contains("error"), "{stderr}");
+}
+
 #[test]
 fn the_coverage_lint_reads_branches_as_equations() {
     let target = shared_fixture_target();

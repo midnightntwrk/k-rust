@@ -15,12 +15,21 @@
 //! Validity of `¬φ ∨ ¬ψ` proves the pair disjoint; a refuting valuation is a
 //! candidate overlap.
 //!
+//! A guard's `k::matches!` tests are read as the coverage lint reads them
+//! ([`expand`]): each equation becomes one alternative per truth assignment
+//! of its tests, with refined patterns and a residual guard, and the terms
+//! the tests read that are not binders are virtual columns both equations
+//! share. That reading over-approximates where an equation applies, so a
+//! pair it proves disjoint is disjoint; it only ever proposes candidates.
+//!
 //! Only an exact overlap is reported: the candidate's Int values are made
-//! concrete, both guards evaluate to `true` on them, and the two results,
-//! with the argument substituted and builtins on literals evaluated, differ.
-//! Anything less (an opaque pattern, a guard neither the reader nor the
-//! evaluation can read, a candidate whose guards do not both hold once
-//! concrete) reports nothing, as the ground analysis does when it gives up.
+//! concrete, both original guards evaluate to `true` on the concrete
+//! argument (a `k::matches!` on a ground term is matching), and the two
+//! results, with the argument substituted and builtins on literals
+//! evaluated, differ. Anything less (an opaque pattern, a guard neither the
+//! reader nor the evaluation can read, a candidate whose guards do not both
+//! hold once concrete) reports nothing, as the ground analysis does when it
+//! gives up.
 
 use std::collections::BTreeMap;
 
@@ -32,10 +41,13 @@ use krs_ir_levels::{
 use num_bigint::BigInt;
 
 use super::{
-    FUNCTION_VALUATION_BUDGET, Fact, Formula, GuardReader, Head, Names, Path, Pattern, Projections,
-    Signature, Verdict, argument_alternatives, decide_counted, display_name, path_text, snake_case,
+    FUNCTION_VALUATION_BUDGET, Fact, Formula, GuardReader, Head, Path, Pattern, Projections,
+    Signature, Test, Verdict, Virtual, argument_alternatives, decide_counted, display_name, expand,
+    path_text, pattern_at, snake_case,
 };
-use crate::equation_domain::{EquationOverlap, ground_literal, guard_holds};
+use crate::equation_domain::{
+    Environment, EquationOverlap, Evaluator, Ground, ground_literal, guard_holds,
+};
 
 /// The sorts and constructors equations are unified over.
 pub(crate) struct EquationSignature(Signature);
@@ -43,6 +55,11 @@ pub(crate) struct EquationSignature(Signature);
 impl EquationSignature {
     pub(crate) fn new(modules: &[SemanticModule]) -> Self {
         Self(Signature::new(modules))
+    }
+
+    /// An evaluator of ground terms over this signature.
+    pub(crate) fn evaluator(&self) -> Evaluator<'_> {
+        Evaluator::new(&self.0)
     }
 }
 
@@ -54,7 +71,17 @@ struct Side<'a> {
     /// Each binder's path from the argument list.
     paths: BTreeMap<SemanticId, Path>,
     guard: Option<&'a SemanticTerm>,
+    /// The guard as the coverage lint reads it, `None` when it cannot.
+    read: Option<Read>,
     result: &'a SemanticTerm,
+}
+
+/// A guard as the coverage lint reads it.
+struct Read {
+    formula: Formula,
+    projections: Projections,
+    tests: BTreeMap<String, Test>,
+    virtuals: BTreeMap<String, Virtual>,
 }
 
 /// The alternatives of an equation, or `None` when the check cannot read
@@ -81,11 +108,29 @@ fn sides<'a>(signature: &Signature, rule: &'a SemanticRule) -> Option<Vec<Side<'
                 return None;
             }
         }
+        let read = match guard {
+            None => Some(Read {
+                formula: Formula::Constant(true),
+                projections: Projections::new(),
+                tests: BTreeMap::new(),
+                virtuals: BTreeMap::new(),
+            }),
+            Some(term) => {
+                let mut reader = GuardReader::new(signature, &paths, None);
+                reader.guard(term).map(|formula| Read {
+                    formula,
+                    projections: reader.projections,
+                    tests: reader.tests,
+                    virtuals: reader.virtuals,
+                })
+            }
+        };
         sides.push(Side {
             rule,
             patterns,
             paths,
             guard,
+            read,
             result: body.to(),
         });
     }
@@ -102,6 +147,7 @@ enum Stop {
 
 /// The most specific pattern matching what both patterns match; an Int
 /// literal meeting a binder becomes a fact about its path.
+#[expect(clippy::too_many_lines, reason = "One case per pair of pattern kinds.")]
 fn unify(
     signature: &Signature,
     left: &Pattern,
@@ -191,22 +237,38 @@ fn unify(
                 Err(Stop::Disjoint)
             }
         }
-        (Pattern::Constructor { .. }, Pattern::Literal { .. })
-        | (Pattern::Literal { .. }, Pattern::Constructor { .. }) => Err(Stop::Disjoint),
+        (Pattern::Binder(binder), family @ Pattern::Family(sort))
+        | (family @ Pattern::Family(sort), Pattern::Binder(binder)) => {
+            if covers(binder, &Head::Family(sort.clone())) {
+                Ok(family.clone())
+            } else {
+                Err(Stop::Disjoint)
+            }
+        }
+        (Pattern::Family(first), Pattern::Family(second)) => {
+            if first == second {
+                Ok(left.clone())
+            } else {
+                Err(Stop::Disjoint)
+            }
+        }
+        (Pattern::Family(family), literal @ Pattern::Literal { sort, value })
+        | (literal @ Pattern::Literal { sort, value }, Pattern::Family(family)) => {
+            if family != sort {
+                return Err(Stop::Disjoint);
+            }
+            if matches!(sort, Sort::Builtin(BuiltinSort::Int))
+                && let Ok(number) = value.parse::<BigInt>()
+            {
+                facts.insert(path_text(path), Fact::Equal(number));
+            }
+            Ok(literal.clone())
+        }
+        (Pattern::Constructor { .. }, Pattern::Literal { .. } | Pattern::Family(_))
+        | (Pattern::Literal { .. } | Pattern::Family(_), Pattern::Constructor { .. }) => {
+            Err(Stop::Disjoint)
+        }
     }
-}
-
-/// The subpattern at `path` of an argument list.
-fn pattern_at<'p>(patterns: &'p [Pattern], path: &[usize]) -> Option<&'p Pattern> {
-    let (first, rest) = path.split_first()?;
-    let mut pattern = patterns.get(*first)?;
-    for index in rest {
-        let Pattern::Constructor { arguments, .. } = pattern else {
-            return None;
-        };
-        pattern = arguments.get(*index)?;
-    }
-    Some(pattern)
 }
 
 /// The concrete argument of a unified pattern: a comparison key and a
@@ -218,7 +280,7 @@ fn pattern_text(
     values: &BTreeMap<Path, i128>,
 ) -> (String, String) {
     match pattern {
-        Pattern::Binder(_) | Pattern::Opaque => match values.get(path) {
+        Pattern::Binder(_) | Pattern::Family(_) | Pattern::Opaque => match values.get(path) {
             Some(value) => (value.to_string(), value.to_string()),
             None => (path_text(path), "_".to_owned()),
         },
@@ -259,20 +321,21 @@ fn pattern_text(
 /// builtins on literals evaluated: a comparison key and a rendering, `None`
 /// for a form the check does not compare.
 fn substitute(
+    evaluator: &Evaluator<'_>,
     term: &SemanticTerm,
     side: &Side<'_>,
     unified: &[Pattern],
     values: &BTreeMap<Path, i128>,
-    environment: &BTreeMap<&SemanticId, i128>,
+    environment: &Environment<'_>,
 ) -> Option<(String, String)> {
-    if let Some(literal) = ground_literal(term, environment) {
+    if let Some(literal) = ground_literal(evaluator, term, environment) {
         return Some((literal.clone(), literal));
     }
     let list = |terms: &mut dyn Iterator<Item = &SemanticTerm>| {
         let mut keys = Vec::new();
         let mut texts = Vec::new();
         for term in terms {
-            let (key, text) = substitute(term, side, unified, values, environment)?;
+            let (key, text) = substitute(evaluator, term, side, unified, values, environment)?;
             keys.push(key);
             texts.push(text);
         }
@@ -361,7 +424,8 @@ fn int_values(
         values: &mut BTreeMap<Path, i128>,
     ) -> Option<()> {
         match pattern {
-            Pattern::Binder(Sort::Builtin(BuiltinSort::Int)) => {
+            Pattern::Binder(Sort::Builtin(BuiltinSort::Int))
+            | Pattern::Family(Sort::Builtin(BuiltinSort::Int)) => {
                 let value = candidate
                     .get(&path_text(path))
                     .map_or(Some(0), |value| i128::try_from(value).ok())?;
@@ -391,15 +455,79 @@ fn int_values(
     Some(values)
 }
 
-/// The values of a side's Int binders.
+/// The value of a unified pattern once its Int binders have values: `None`
+/// while some part of it is a binder of another sort.
+fn ground(pattern: &Pattern, path: &mut Path, values: &BTreeMap<Path, i128>) -> Option<Ground> {
+    match pattern {
+        Pattern::Binder(Sort::Builtin(BuiltinSort::Int))
+        | Pattern::Family(Sort::Builtin(BuiltinSort::Int)) => {
+            values.get(path).copied().map(Ground::Int)
+        }
+        Pattern::Literal { sort, value } => match sort {
+            Sort::Builtin(BuiltinSort::Int) => value.parse().ok().map(Ground::Int),
+            Sort::Builtin(BuiltinSort::Bool) => Some(Ground::Bool(value == "true")),
+            _ => None,
+        },
+        Pattern::Constructor {
+            id,
+            instance,
+            arguments,
+        } => {
+            let mut grounds = Vec::new();
+            for (index, argument) in arguments.iter().enumerate() {
+                path.push(index);
+                let value = ground(argument, path, values);
+                path.pop();
+                grounds.push(value?);
+            }
+            Some(Ground::Term {
+                id: id.clone(),
+                instance: instance.clone(),
+                arguments: grounds,
+            })
+        }
+        Pattern::Binder(_) | Pattern::Family(_) | Pattern::Opaque => None,
+    }
+}
+
+/// The values of a side's binders whose unified subpattern is ground.
 fn environment<'s>(
     side: &'s Side<'_>,
+    unified: &[Pattern],
     values: &BTreeMap<Path, i128>,
-) -> BTreeMap<&'s SemanticId, i128> {
+) -> Environment<'s> {
     side.paths
         .iter()
-        .filter_map(|(binder, path)| values.get(path).map(|value| (binder, *value)))
+        .filter_map(|(binder, path)| {
+            let value = ground(pattern_at(unified, path)?, &mut path.clone(), values)?;
+            Some((binder, value))
+        })
         .collect()
+}
+
+/// A side's alternatives with the virtual columns `layout` lays out after
+/// the arguments: its `k::matches!` tests expanded ([`expand`]), each with
+/// its residual guard; `None` when its guard cannot be read.
+fn expanded(
+    signature: &Signature,
+    side: &Side<'_>,
+    layout: &BTreeMap<String, (Path, Sort)>,
+) -> Option<Vec<(Vec<Pattern>, Formula)>> {
+    let read = side.read.as_ref()?;
+    let mut patterns = side.patterns.clone();
+    patterns.extend(
+        layout
+            .values()
+            .map(|(_, sort)| Pattern::Binder(sort.clone())),
+    );
+    let paths = layout
+        .iter()
+        .map(|(key, (path, _))| (key.clone(), path.clone()))
+        .collect();
+    Some(
+        expand(signature, &patterns, &read.formula, &read.tests, &paths)
+            .unwrap_or_else(|| vec![(patterns, read.formula.clone())]),
+    )
 }
 
 /// The overlap of one pair of alternatives: an argument both apply to with
@@ -408,6 +536,7 @@ fn environment<'s>(
 /// considered.
 fn pair(
     signature: &Signature,
+    evaluator: &Evaluator<'_>,
     production: &SemanticProduction,
     first: &Side<'_>,
     second: &Side<'_>,
@@ -416,70 +545,162 @@ fn pair(
     if first.patterns.len() != second.patterns.len() {
         return None;
     }
-    let mut facts = BTreeMap::new();
+    let arity = first.patterns.len();
     let mut unified = Vec::new();
     for (index, (left, right)) in first.patterns.iter().zip(&second.patterns).enumerate() {
-        match unify(signature, left, right, &mut vec![index], &mut facts) {
+        match unify(
+            signature,
+            left,
+            right,
+            &mut vec![index],
+            &mut BTreeMap::new(),
+        ) {
             Ok(pattern) => unified.push(pattern),
             Err(Stop::Disjoint | Stop::Unknown) => return None,
         }
     }
     // Results equal with every binder left symbolic agree wherever both
     // equations apply.
-    let symbolic = BTreeMap::new();
+    let symbolic = Environment::new();
     if let (Some(left), Some(right)) = (
-        substitute(first.result, first, &unified, &BTreeMap::new(), &symbolic),
-        substitute(second.result, second, &unified, &BTreeMap::new(), &symbolic),
+        substitute(
+            evaluator,
+            first.result,
+            first,
+            &unified,
+            &BTreeMap::new(),
+            &symbolic,
+        ),
+        substitute(
+            evaluator,
+            second.result,
+            second,
+            &unified,
+            &BTreeMap::new(),
+            &symbolic,
+        ),
     ) && left.0 == right.0
     {
         return None;
     }
-    let mut projections = Projections::new();
-    let mut read = |side: &Side<'_>| match side.guard {
-        None => Some(Formula::Constant(true)),
-        Some(term) => {
-            let mut reader = GuardReader {
-                signature,
-                paths: &side.paths,
-                names: Names::new(),
-                projections: Projections::new(),
-                obligations: Vec::new(),
-            };
-            let formula = reader.guard(term)?;
-            projections.extend(reader.projections);
-            Some(formula)
+    // The virtual columns of both sides, in one frame.
+    let mut layout = BTreeMap::<String, (Path, Sort)>::new();
+    for side in [first, second] {
+        for (key, column) in side
+            .read
+            .as_ref()
+            .map(|read| &read.virtuals)
+            .into_iter()
+            .flatten()
+        {
+            layout
+                .entry(key.clone())
+                .or_insert((Vec::new(), column.sort.clone()));
         }
-    };
-    let (Some(first_guard), Some(second_guard)) = (read(first), read(second)) else {
+    }
+    for (index, (path, _)) in layout.values_mut().enumerate() {
+        *path = vec![arity + index];
+    }
+    let (Some(lefts), Some(rights)) = (
+        expanded(signature, first, &layout),
+        expanded(signature, second, &layout),
+    ) else {
         return None;
     };
-    let negations = [first_guard.not(), second_guard.not()];
+    let mut projections = Projections::new();
+    for side in [first, second] {
+        if let Some(read) = &side.read {
+            projections.extend(read.projections.clone());
+        }
+    }
+    for (left_patterns, left_guard) in &lefts {
+        for (right_patterns, right_guard) in &rights {
+            if *valuations > FUNCTION_VALUATION_BUDGET {
+                return None;
+            }
+            let mut facts = BTreeMap::new();
+            let mut unified = Vec::new();
+            for (index, (left, right)) in left_patterns.iter().zip(right_patterns).enumerate() {
+                match unify(signature, left, right, &mut vec![index], &mut facts) {
+                    Ok(pattern) => unified.push(pattern),
+                    Err(Stop::Disjoint | Stop::Unknown) => break,
+                }
+            }
+            if unified.len() != left_patterns.len() {
+                continue;
+            }
+            let overlap = candidate(
+                evaluator,
+                production,
+                (first, second),
+                &unified[..arity],
+                [left_guard, right_guard],
+                &facts,
+                &projections,
+                valuations,
+            );
+            if overlap.is_some() {
+                return overlap;
+            }
+        }
+    }
+    None
+}
+
+/// The overlap of two unified alternatives, confirmed exactly: a valuation
+/// under which both residual guards may hold, made concrete, on which both
+/// original guards hold and the results differ.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "One candidate: the two sides, their unified argument, guards, facts, and the budget."
+)]
+fn candidate(
+    evaluator: &Evaluator<'_>,
+    production: &SemanticProduction,
+    (first, second): (&Side<'_>, &Side<'_>),
+    unified: &[Pattern],
+    guards: [&Formula; 2],
+    facts: &BTreeMap<String, Fact>,
+    projections: &Projections,
+    valuations: &mut u64,
+) -> Option<EquationOverlap> {
+    let negations = guards.map(|guard| guard.clone().not());
     let (verdict, count) = decide_counted(
         &negations.iter().collect::<Vec<_>>(),
-        &facts,
-        &projections,
+        facts,
+        projections,
         false,
     );
     *valuations = valuations.saturating_add(count);
     let Verdict::Refuted(candidate) = verdict else {
         return None;
     };
-    let values = int_values(&unified, &candidate.values)?;
-    let (first_environment, second_environment) =
-        (environment(first, &values), environment(second, &values));
-    let holds = |side: &Side<'_>, environment: &BTreeMap<&SemanticId, i128>| {
+    let values = int_values(unified, &candidate.values)?;
+    let (first_environment, second_environment) = (
+        environment(first, unified, &values),
+        environment(second, unified, &values),
+    );
+    let holds = |side: &Side<'_>, environment: &Environment<'_>| {
         side.guard
-            .is_none_or(|guard| guard_holds(guard, environment) == Some(true))
+            .is_none_or(|guard| guard_holds(evaluator, guard, environment) == Some(true))
     };
     if !holds(first, &first_environment) || !holds(second, &second_environment) {
         return None;
     }
     let (Some(left), Some(right)) = (
-        substitute(first.result, first, &unified, &values, &first_environment),
         substitute(
+            evaluator,
+            first.result,
+            first,
+            unified,
+            &values,
+            &first_environment,
+        ),
+        substitute(
+            evaluator,
             second.result,
             second,
-            &unified,
+            unified,
             &values,
             &second_environment,
         ),
@@ -508,6 +729,7 @@ fn pair(
 /// identity, pair by pair (see the module documentation).
 pub(crate) fn symbolic_overlap(
     signature: &EquationSignature,
+    evaluator: &Evaluator<'_>,
     production: &SemanticProduction,
     rules: &[&SemanticRule],
 ) -> Option<EquationOverlap> {
@@ -525,7 +747,14 @@ pub(crate) fn symbolic_overlap(
                     if valuations > FUNCTION_VALUATION_BUDGET {
                         return None;
                     }
-                    let overlap = pair(signature, production, left, right, &mut valuations);
+                    let overlap = pair(
+                        signature,
+                        evaluator,
+                        production,
+                        left,
+                        right,
+                        &mut valuations,
+                    );
                     if overlap.is_some() {
                         return overlap;
                     }

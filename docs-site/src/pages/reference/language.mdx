@@ -462,6 +462,7 @@ A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejecte
 
 `total` claims that a function has a value on every argument, and KRS trusts the claim: where no equation applies, the function still has a value, but the definition does not say which.
 Every command reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
+A condition is a refutation: every argument that satisfies it is uncovered, and an argument it does not constrain may be anything, shown as `0` for an Int, so ``has no equation for `SignedLess(0, right)` when `Sign(right)` is 0`` holds for every `left`.
 It is a warning, not an error, because the definition means something: an unconstrained value, not a contradiction.
 
 The check runs on the assembled definition, because a package that depends on another may add constructors, subsorts, or a parametric constructor to its sorts; a function covered in one definition can be uncovered in a larger one, and the witness names the constructor that uncovers it.
@@ -474,9 +475,20 @@ A guarded equation covers its pattern where its `requires` holds.
 When every equation of the function bounds each `Int` argument its `requires` reads to finitely many values, by a literal pattern, an or-pattern of literals, or top-level comparisons with constants (`0 <= x && x < 256`, which every [bit template](#bit-templates) has), and those values, with one more outside them per argument, are at most 2^16 argument vectors, the check evaluates every `requires` on each of them.
 That decides coverage exactly: outside the bounded values a bounded equation does not apply and the others do not read the argument, so one value there stands for all of them.
 The four templates `k::bits!("00 yyy zzz")` to `k::bits!("11 bbb zzz")` of `DecodeCb` cover `0..=255` and no more, so the witness is `DecodeCb(256)`.
-The evaluation is the builtins' definition on literals; a `requires` that calls a function, or is undefined somewhere (`12 / x` at `0`) unless a false top-level conjunct already rules that argument out, ends it, and the check falls back to the abstraction below.
+The evaluation is the builtins' definition on literals, with constructor terms as values and `k::matches!` of a value as matching; a `requires` that calls a function, or is undefined somewhere (`12 / x` at `0`) unless a false top-level conjunct already rules that argument out, ends it, and the check falls back to the abstraction below.
 
 Otherwise the check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
+
+An application of a `total` function in a guard, such as `Sign(left)` in `Sign(left) == 1`, is one unknown value of its result sort.
+Two applications are the same unknown when they apply the same function to the same arguments, binders compared by the argument they bind, so every equation that tests `Sign(left)` tests one value; the unknown is unrelated to every other term, its own arguments included.
+When the check finds the function's own equations cover every argument, the unknown is also one of their results, its range: each result that is a literal or a constant, a constructor application (its variant), an application of a function with a range, `x.bit_range::<Int>(o, l)` (`0` to `2^l - 1`), `x & m` (`0` to `m`), `x % c` with Euclidean `modInt` (`0` to `|c| - 1`), or a length or size (not negative), for constant `o`, `l`, `m >= 0`, `c != 0`; any other result, or an `underspecified`, hooked, or sort-parametric function, gives no range.
+So a `TwoSign` whose equations return `1` and `-1` makes `match (TwoSign(left), TwoSign(right))` over those four pairs cover every argument, while KEVM's `Sign`, which is also `0` outside `0..2^256`, leaves ``SignedLess(0, right)` when `Sign(right)` is 0``.
+A function is checked once, before the functions whose guards apply it; one still being checked when a guard asks for its range, in a cycle of functions whose guards apply each other, has none.
+
+A `k::matches!(t, Pattern)` test, which a [branching body](#branching-bodies) writes for a term scrutinee and for a nested catch-all, is read as pattern matching when `Pattern` binds each name once and the check decomposes it: the equation becomes one case where each test holds, its pattern for `t` narrowed by `Pattern`, and one where it fails, narrowed to the other values of `t`'s sort, the test replaced by `true` or `false` in the rest of the guard.
+For `t` a parameter, that refines the parameter's pattern, so a nested catch-all `_` guarded by `k::matches!(shape, Shapes::Circle { .. }).not::<Bool>()` covers `Shapes::Pair(..)` and the other values of `Shape`, injected Ints and `KItem`s included.
+For another term of a declared sort, such as `Classify(value)`, it is one more column of values of `t`, one unknown shared by every equation that tests `t`, and a witness names its value: `match Classify(value)` with arms for `Kinds::A()` and `Kinds::B()` only has no equation for ``PartialScore(value)` when `Classify(value)` is `Kinds::C` ``.
+A test whose pattern repeats a name or is not decomposed, or whose term is an Int, Bool, or other builtin, is an opaque Bool atom.
 A comparison `x.bit_range::<Int>(o, l) == v` or `(x & m) == v` with constant `o`, `l` and `m` also fixes bits of `x`, and the check skips valuations no integer `x` has, so a bit template's equation covers the values it matches.
 A guard holds only where it is defined, and the check reads a partial Int operation together with its domain: a division or remainder holds only where its divisor is not zero, a shift or exponent where its amount is not negative, and `bitRangeInt(x, o, l)`, which is `(x >>Int o) modInt (1 <<Int l)`, where `o` and `l` are not negative.
 So `w > 0 && x < 1 << (w - 1)` counts, because the shift is defined wherever `w > 0` holds, while `x / d >= 0` and `x / d < 0` leave `d == 0` uncovered.
@@ -484,7 +496,7 @@ Comparisons are read through constant summands, so `w - 1 >= 0` is `w >= 1`, and
 A lookup is read the same way: `map::get(m, k)` is defined where `map::in_keys(k, m)`, and `list::get(l, i)` where `-list::size(l) <= i < list::size(l)` (a negative index counts from the end); a length or size is never negative.
 A guard with any other operation that may be undefined, such as a call of a partial function, counts for nothing.
 A guard also counts for nothing when a partial operation is in the right operand of a negated `&&` or of a `||`, where a backend that evaluates them lazily and the strict reading of matching logic disagree on whether the guard holds.
-The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of `FieldX(opcode)`, and then report a gap that does not exist.
+The abstraction never calls an uncovered argument covered, but it can miss a fact, such as the range of a result it does not bound (`1 + StackSize(tail)`), a correlation between a call and its arguments (`Sign(x) == 1` only where `x >= 0`), or a partial function's value, and then report a gap that does not exist.
 A matching-logic `requires` and an equation with a [function context](#function-contexts) are not counted.
 
 Partial functions are not checked, since a missing case is what `partial` means, nor are hooked and `smt_hook` functions, which the backend or the SMT translation define, nor total functions, or instances of a sort-parametric one, with no equation at all, which are declared rather than defined.
@@ -538,6 +550,8 @@ pub fn Describe(value: k::Term<Val>) -> k::Term<Int> {
 }
 ```
 
+`Sign` is a helper whose equations return `1` or `-1`, which makes `SignedLess` covered (see [the coverage check](#coverage-of-total-functions)); KEVM's `Sign` is also `0` outside `0..2^256`, so there `SignedLess` states that gap with `underspecified`.
+
 A branch is a case of the function's definition, and K states cases as equations, so each branch is an equation whose `requires` is the condition under which Rust reaches the branch.
 `StorageValue` is `storage_value_1`, under `map::in_keys(index, storage)`, and `storage_value_2`, under `map::in_keys(index, storage).not::<Bool>()`.
 
@@ -552,6 +566,7 @@ The two readings agree when no two arms apply to one argument, because then ever
 The one exception is a last arm that matches everything, one without a guard whose every pattern is `_` or, for a parameter, a plain name: in the body's own `match` it is the `owise` equation, since "no other equation applies" is "every earlier arm failed" there.
 A catch-all arm that is not last is an error, since the arms after it could never apply.
 In a `match` nested in a branch, a catch-all arm cannot be `owise`, which is one priority for the whole function: there it is guarded by the negation of each earlier arm's test, `k::matches!(op, Op::Add(_, _)).not::<Bool>() && ..`, which needs each earlier arm's guard to read no name its pattern binds; when one does, move the nested `match` into a helper function, where its catch-all is `owise`.
+The coverage check reads those tests as pattern matching, so a nested catch-all covers exactly the values the earlier arms leave, whether its scrutinee is a parameter or another term.
 
 The [overlap check of equations](#overlapping-equations) checks the arms.
 Two arms it proves to apply to one argument with different results are `krs::analysis::overlapping-match-arms`, at the later arm, which Rust would not reach for that argument:
@@ -730,6 +745,7 @@ error[krs::analysis::overlapping-equations]: equations `lookup_known` and `looku
 
 Two arms of one [branching body](#branching-bodies) that overlap are `krs::analysis::overlapping-match-arms` instead, at the later arm.
 Identical results agree, so equations that overlap with them are no error.
+A `k::matches!` test is read as the coverage check reads it, which proves disjoint the equations a test and its negation separate, and evaluated on the concrete argument as matching.
 A pair is not reported when a pattern is one the check does not decompose (a collection pattern), when a `requires` calls a function or a partial operation the guard reading does not read, or when the integer values it finds do not make both `requires` evaluate to `true`; templates over more than 16 bits are compared pair by pair, and the table check above still compares unguarded rows' templates of any width.
 
 ### Sort-parametric productions
