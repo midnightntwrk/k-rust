@@ -85,7 +85,14 @@ pub use values::{Constraints, Value};
 /// the case sequence of a campaign that weighs the climb or the corpus: the run-time literals
 /// act only for a rule target, and the counts move a sequence only where a case is kept for a
 /// count alone. Blind, dictionary-only and solve-only campaigns keep theirs.
-pub const ENGINE_VERSION: u32 = 3;
+///
+/// Version 4 (phase 5): an `Int` span hole whose position reads no probed negative integer back
+/// as itself is generated from 0 (FZ-INTGEN), which moves the sequence of every campaign with
+/// such a hole; and the classes the proposers read move with the phase's judgements: differential
+/// ends as sets of final configurations under state sets with the one-path re-run (FZ-DIFFEND),
+/// the every-`<k>` natural end of threaded configurations (FZ-UNSUPPORTED), and ends judged as
+/// data (FZ-DATAEND).
+pub const ENGINE_VERSION: u32 = 4;
 
 #[cfg(test)]
 mod release_tests {

@@ -44,7 +44,14 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// and `runtime-probability`, `follow-probability`, `follow-depth`, `max-comparisons` and
 /// `runtime-condition-rules` to `identity.corpus`, and the corpus's count buckets (FZ-17),
 /// `count-exact-below` in `identity.corpus`; a version-3 reader refuses them as unknown fields.
-pub const REPORT_VERSION: u32 = 4;
+///
+/// Version 5 (phase 5) adds `identity.effective-constraints`, `identity.target-rule`,
+/// `totals.coverage.names`, `totals.unsupported-reasons`, `totals.baseline-incomplete-reasons`,
+/// the top-level `normal-end` and a witness side's `halts`, renames the clean-leaf facts of ends
+/// (`*-end-final`, `*-data`), adds the target's `data-end`, and changes the meaning of the
+/// definition digests and of the differential classes (`docs/compatibility.md`, "Format
+/// versions").
+pub const REPORT_VERSION: u32 = 5;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1271,7 +1278,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":4,"identity":{"engine-version":3,"#,
+            r#"{"schema":"krust-fuzz-report","version":5,"identity":{"engine-version":4,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,

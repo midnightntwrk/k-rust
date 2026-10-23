@@ -1607,7 +1607,7 @@ export interface FuzzTotals {
   solve?: FuzzSolveTotals
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 4 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 5 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number
