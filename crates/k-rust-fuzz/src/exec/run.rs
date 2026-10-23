@@ -275,8 +275,10 @@ pub(crate) struct Executor {
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
     /// The definition's overload data heads and refused symbols
-    /// ([`BackendDefinition::data_heads`]), which [`LeafReport::data_end`] reads.
-    data_heads: DataHeads,
+    /// ([`BackendDefinition::data_heads`]), which [`LeafReport::data_end`] reads; computed on
+    /// first need ([`Self::data_heads`]), since it runs the definition's full critical-pair
+    /// check, or given by the campaign's cache ([`Self::with_data_heads`]).
+    data_heads: Option<DataHeads>,
     /// The per-case safety limit, in milliseconds; wasm32 refuses it, so there it is never set.
     #[cfg(not(target_arch = "wasm32"))]
     safety_limit_ms: Option<u64>,
@@ -383,7 +385,6 @@ impl Executor {
                     message: format!("the main module does not load: {error}"),
                 })?;
         let load_stack_stops = load_stack_stops(&loaded);
-        let data_heads = loaded.data_heads();
         drop(loaded);
         let prepared = prepare_matcher(&mut backend, &normal_end.pattern)
             .map_err(|message| CampaignError::NormalEndPattern { message })?;
@@ -394,7 +395,7 @@ impl Executor {
             compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
-            data_heads,
+            data_heads: None,
             #[cfg(not(target_arch = "wasm32"))]
             safety_limit_ms: options.safety_limit_ms,
             #[cfg(not(target_arch = "wasm32"))]
@@ -409,7 +410,10 @@ impl Executor {
     /// internalizes here, is decided, and [`BackendDefinition::is_data`] holds with this
     /// definition's own heads. Any failure reads as not data.
     pub(crate) fn is_data_here(&mut self, state: &KorePattern) -> bool {
-        let heads = &self.data_heads;
+        if self.data_heads().is_err() {
+            return false;
+        }
+        let heads = self.data_heads.as_ref().expect("computed just above");
         self.backend
             .with_solver_over(None, &[state], |definition, _| {
                 Ok::<_, BackendError>(
@@ -424,6 +428,38 @@ impl Executor {
                 )
             })
             .unwrap_or(false)
+    }
+
+    /// The definition's data heads and the findings of its full critical-pair check
+    /// ([`BackendDefinition::data_heads`]), computed once.
+    ///
+    /// # Errors
+    ///
+    /// When the main module does not load.
+    pub(crate) fn data_heads(&mut self) -> Result<&DataHeads, String> {
+        if self.data_heads.is_none() {
+            let loaded = self
+                .backend
+                .select_definition(None)
+                .map_err(|error| error.to_string())?;
+            self.data_heads = Some(loaded.data_heads());
+        }
+        Ok(self.data_heads.as_ref().expect("computed just above"))
+    }
+
+    /// The data heads, when already computed.
+    pub(crate) fn computed_data_heads(&self) -> Option<&DataHeads> {
+        self.data_heads.as_ref()
+    }
+
+    /// This executor, with `heads` (computed for its definition) as its data heads, so that
+    /// the full critical-pair check does not run again.
+    #[must_use]
+    pub(crate) fn with_data_heads(mut self, heads: Option<DataHeads>) -> Self {
+        if heads.is_some() {
+            self.data_heads = heads;
+        }
+        self
     }
 
     /// The backend, for target resolution (`rule_catalog`) and pattern compilation.
@@ -486,6 +522,10 @@ impl Executor {
         execution: Execution,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
         let request = shape.request(initial.clone());
+        if shape.data_end {
+            // A main module that does not load fails the run itself.
+            let _ = self.data_heads();
+        }
         let judge = Judge {
             normal_end: &self.normal_end,
             default_normal_end: self.default_normal_end,
@@ -494,7 +534,11 @@ impl Executor {
                 max_iterations: self.max_simplification_iterations,
                 ..SimplificationOptions::default()
             },
-            data_heads: shape.data_end.then_some(&self.data_heads),
+            data_heads: if shape.data_end {
+                self.data_heads.as_ref()
+            } else {
+                None
+            },
             terminal_allowed: shape.has_terminal_rules(),
             load_stack_stops: self.load_stack_stops,
             forward: None,

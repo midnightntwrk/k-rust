@@ -9,7 +9,7 @@ use std::{
 
 use k_rust::{
     backend::{Backend, CancellationToken, HaltReasonOutput, StopCause},
-    k_rust_backend::definition::BackendDefinition,
+    k_rust_backend::{data_term::DataHeads, definition::BackendDefinition},
     kore::ast::Pattern as KorePattern,
 };
 
@@ -60,6 +60,9 @@ pub(crate) struct Side {
 #[derive(Clone, Copy, Default)]
 struct Seed<'a> {
     internalized: Option<&'a Arc<BackendDefinition>>,
+    /// The definition's data heads, when the campaign's own side computed them (they run the
+    /// full critical-pair check).
+    data_heads: Option<&'a DataHeads>,
     normal_end: Option<&'a NormalEnd>,
     resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
 }
@@ -96,7 +99,7 @@ impl Side {
             };
             (backend, internalized)
         };
-        let (mut executor, normal_end) = if let Some(normal_end) = seed.normal_end {
+        let (executor, normal_end) = if let Some(normal_end) = seed.normal_end {
             (
                 Executor::with_normal_end(backend, normal_end, &spec.options)?,
                 normal_end.clone(),
@@ -108,6 +111,7 @@ impl Side {
                 .with_compiler(compiler);
             (executor, normal_end)
         };
+        let mut executor = executor.with_data_heads(seed.data_heads.cloned());
         if let Some((holes, round_trip)) = seed.resolved {
             return Ok(Self {
                 definition: Arc::clone(definition),
@@ -463,6 +467,35 @@ impl LiveCases {
                     .map(|prepared| prepared.assembled)
             })
             .collect()
+    }
+
+    /// The report's warnings about each definition whose full critical-pair check is not clean
+    /// (`k_rust_backend::data_term`): none of its ends is data, so a differential case whose
+    /// ends it reads, or a hit that needs a data end, is `unsupported`. One line per finding,
+    /// prefixed `definition-not-confluent` and the side. Computed only when the campaign reads
+    /// data ends (a differential target, or `requires_data_end`); otherwise empty.
+    pub(crate) fn definition_findings(&mut self) -> Vec<String> {
+        let mut sides = vec![("baseline", &mut self.baseline)];
+        match &mut self.judge {
+            Judge::Differential(mutant) => sides.push(("mutant", mutant)),
+            Judge::Target(_) if self.spec.target.requires_data_end() => {}
+            Judge::Target(_) => return Vec::new(),
+        }
+        let mut warnings = Vec::new();
+        for (role, side) in sides {
+            match side.executor.data_heads() {
+                Ok(heads) => warnings.extend(heads.findings().iter().map(|finding| {
+                    format!(
+                        "definition-not-confluent ({role}): no end of this definition is data, \
+                         since its full critical-pair check reports: {finding}"
+                    )
+                })),
+                Err(error) => warnings.push(format!(
+                    "definition-not-confluent ({role}): the main module does not load: {error}"
+                )),
+            }
+        }
+        warnings
     }
 
     /// The baseline's internalized definition on the `source-execution` route, the campaign's
@@ -997,6 +1030,7 @@ pub(crate) struct DefinitionCache {
 /// One side's part of a [`DefinitionCache`].
 struct SideCache {
     internalized: Option<Arc<BackendDefinition>>,
+    data_heads: Option<DataHeads>,
     normal_end: NormalEnd,
     holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
@@ -1006,6 +1040,7 @@ impl SideCache {
     fn seed(&self) -> Seed<'_> {
         Seed {
             internalized: self.internalized.as_ref(),
+            data_heads: self.data_heads.as_ref(),
             normal_end: Some(&self.normal_end),
             resolved: Some((&self.holes, &self.round_trip)),
         }
@@ -1014,6 +1049,7 @@ impl SideCache {
     fn of(side: Side) -> Self {
         Self {
             internalized: side.internalized,
+            data_heads: side.executor.computed_data_heads().cloned(),
             normal_end: side.normal_end,
             holes: side.holes,
             round_trip: side.round_trip,
@@ -1034,18 +1070,30 @@ impl DefinitionCache {
         spec: &Arc<CampaignSpec>,
         cases: &LiveCases,
     ) -> Result<Self, CampaignError> {
-        let baseline = cases.baseline.internalized.clone();
-        let mutant = match &cases.judge {
-            Judge::Differential(mutant) => mutant.internalized.clone(),
-            Judge::Target(_) => None,
+        let of = |side: &Side| {
+            (
+                side.internalized.clone(),
+                side.executor.computed_data_heads().cloned(),
+            )
         };
-        let side = |definition, role, internalized: &Option<Arc<BackendDefinition>>| {
+        let baseline = of(&cases.baseline);
+        let mutant = match &cases.judge {
+            Judge::Differential(mutant) => of(mutant),
+            Judge::Target(_) => (None, None),
+        };
+        let side = |definition,
+                    role,
+                    (internalized, data_heads): &(
+            Option<Arc<BackendDefinition>>,
+            Option<DataHeads>,
+        )| {
             Side::build(
                 spec,
                 definition,
                 role,
                 Seed {
                     internalized: internalized.as_ref(),
+                    data_heads: data_heads.as_ref(),
                     ..Seed::default()
                 },
             )

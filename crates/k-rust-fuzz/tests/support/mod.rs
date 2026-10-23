@@ -607,6 +607,29 @@ pub const R2_OVER_PROGRAMS: &[Program] = &[program!("r2-over/go.pgm")];
 fixture!(R2_OVER, "r2-over/b.k", "KP", R2_OVER_PROGRAMS);
 fixture!(R2_OVER_M, "r2-over/m.k", "KP", R2_OVER_PROGRAMS);
 
+/// FZ-DATAEND review round 3: definitions whose equations are not confluent (an overlap modulo
+/// an overload axiom, a broken family reached through a function, two function equations with
+/// different results); each baseline stores `a` and its mutant `bb`, which its theory equates.
+pub const R3_MODOV_PROGRAMS: &[Program] = &[program!("r3-modov/go.pgm")];
+fixture!(R3_MODOV, "r3-modov/b.k", "MO", R3_MODOV_PROGRAMS);
+fixture!(R3_MODOV_M, "r3-modov/m.k", "MO", R3_MODOV_PROGRAMS);
+pub const R3_PROPAGATE_PROGRAMS: &[Program] = &[program!("r3-propagate/go.pgm")];
+fixture!(
+    R3_PROPAGATE,
+    "r3-propagate/b.k",
+    "PR",
+    R3_PROPAGATE_PROGRAMS
+);
+fixture!(
+    R3_PROPAGATE_M,
+    "r3-propagate/m.k",
+    "PR",
+    R3_PROPAGATE_PROGRAMS
+);
+pub const R3_PLAINQ_PROGRAMS: &[Program] = &[program!("r3-plainq/go.pgm")];
+fixture!(R3_PLAINQ, "r3-plainq/b.k", "PQ", R3_PLAINQ_PROGRAMS);
+fixture!(R3_PLAINQ_M, "r3-plainq/m.k", "PQ", R3_PLAINQ_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -799,7 +822,7 @@ fixture!(
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 61] = [
+pub static ALL: [&Fixture; 67] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -861,4 +884,10 @@ pub static ALL: [&Fixture; 61] = [
     &R2_ANYW_M,
     &R2_OVER,
     &R2_OVER_M,
+    &R3_MODOV,
+    &R3_MODOV_M,
+    &R3_PROPAGATE,
+    &R3_PROPAGATE_M,
+    &R3_PLAINQ,
+    &R3_PLAINQ_M,
 ];

@@ -22,7 +22,8 @@ use support::{
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
     KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
-    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M,
+    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
+    R3_PROPAGATE, R3_PROPAGATE_M,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -731,11 +732,63 @@ fn an_end_an_added_anywhere_rule_rewrites_is_never_compared() {
     assert_only_unsupported(&report);
 }
 
-/// R2-S1: an unused overload placed across `K` breaks only its own family; the ends `1` and `2`
-/// hold `kseq` and `dotk`, which it does not relate, so the anchor kills.
+/// R2-S1, revised by round 3: an unused overload placed across `K` is a premise violation the
+/// load reports, so the definition's equations are not shown confluent and none of its ends is
+/// data, `kseq` and `dotk` included: the ends `1` and `2` are not compared, and the report says
+/// why.
 #[test]
-fn a_broken_family_refuses_only_its_members() {
+fn an_unused_k_placed_overload_leaves_the_definition_without_data() {
     let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
-    let witness = report.witness().expect("a kill");
-    assert_eq!(witness.first.kill, Some(KillKind::AddedEnd));
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// The report names, for each of `sides`, why its definition has no data.
+fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
+    for side in sides {
+        let prefix = format!("definition-not-confluent ({side}): ");
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with(&prefix)),
+            "{prefix} missing in {:?}",
+            report.warnings
+        );
+    }
+}
+
+// ---- definitions whose equations are not confluent (FZ-DATAEND review round 3)
+
+/// R3-B1: `p(_:Id, _:Ids) => a` and `p(_:Exp, _:Exps) => bb` overlap modulo the overload axiom,
+/// so the theory equates `a` with `bb` and through every equation that tells them apart. The
+/// definitions' checks report the pair: no end is data, never a kill (main and fz26/diffend kill
+/// it), and the report carries the finding.
+#[test]
+fn a_definition_whose_check_reports_a_pair_has_no_data() {
+    let report = r2_report(&R3_MODOV, &R3_MODOV_M, "r3-modov/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// R3-B1: the broken diamond's identification of `.Ids` with `.Vals` reaches `a` and `bb`
+/// through `pick`. Never a kill (main and fz26/diffend kill it).
+#[test]
+fn an_identification_reached_through_a_function_is_never_a_kill() {
+    let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// R3-S1: `q(_) => a` and `q(_) => bb` equate `a` with `bb`; the load's check does not pair them
+/// (they withdraw no value claim), the full check the campaign runs at setup does. Never a kill.
+#[test]
+fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
+    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
 }

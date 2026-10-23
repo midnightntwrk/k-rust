@@ -1,6 +1,6 @@
 # Fixture definitions of the fuzz crate's tests
 
-Each directory holds one K definition (or, for `coin/`, `chosen/`, `mac/`, `vanish/`, `imp-diff/`, `claimstep/`, `diamond/`, `ov/`, `dia/`, `kplace/` and `r2-*/`, a baseline and its mutant(s); for `graph/`, three definitions) and the programs the tests run on it.
+Each directory holds one K definition (or, for `coin/`, `chosen/`, `mac/`, `vanish/`, `imp-diff/`, `claimstep/`, `diamond/`, `ov/`, `dia/`, `kplace/`, `r2-*/` and `r3-*/`, a baseline and its mutant(s); for `graph/`, three definitions) and the programs the tests run on it.
 `tests/support/mod.rs` registers every definition below as a `Fixture`, compiles it in-process in the portable build (`outer::load_for_compilation` with the embedded prelude and `CompilationBackend::Rust`, then `kompile::compile_loaded_definition`), once per test binary, refuses one that compiles with a diagnostic it does not declare (only TOY declares one, `MissingSyntaxModule`), and exposes the compiled definitions and the text of every program.
 Integration tests include it with `mod support;`; the crate's unit tests share one copy, `crate::support`, declared in `src/lib.rs`.
 `tests/fixtures.rs` checks that every fixture of `support::ALL` (every fixture but TOY, whose syntax module is its main module) converts to a campaign definition and assembles its programs, and runs the programs of IMP, UNSIGNED, CHOSEN, RULES, COIN, LEDGER, LOADCLAIM and TAINT through `Backend::execute`, checking the halt and the record this README promises (a "natural end" there is a clean one: a `stuck` leaf with an empty `<k>`, no constraint and no diagnostic, in a run with no stack stop, undecided solver answer, allowance refusal or unsupported hook); a fixture that stops doing what is written here fails there first.
@@ -78,7 +78,13 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | R2_ANYW | `r2-anyw/b.k`, `r2-anyw/go.pgm` | `AW` (`AW-SYNTAX`) | Ends at the constructor term `c(1)`. | FZ-DATAEND review R2-B2 (main kills it) |
 | | `r2-anyw/m.k` | | Adds `rule c(1) => d [anywhere]`. | never a kill |
 | R2_OVER | `r2-over/b.k`, `r2-over/go.pgm` | `KP` (`KP-SYNTAX`) | An unused `f(K)`/`f(Exp)` overload (broken family); stores `1`. | FZ-DATAEND review R2-S1 |
-| | `r2-over/m.k` | | Stores `2`. | a kill: the broken family refuses only its members |
+| | `r2-over/m.k` | | Stores `2`. | since FZ-DATAEND round 3: `unsupported`, the definition's check reports the K-placed family (`definition-not-confluent`) |
+| R3_MODOV | `r3-modov/b.k`, `r3-modov/go.pgm` | `MO` (`MO-SYNTAX`) | An unbroken ov.k-style family plus `p(_:Id, _:Ids) => a`, `p(_:Exp, _:Exps) => bb` (overlap modulo the overload axiom, `UnjoinedCriticalPair`). Stores `a`. | FZ-DATAEND review R3-B1 (main kills it) |
+| | `r3-modov/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` |
+| R3_PROPAGATE | `r3-propagate/b.k`, `r3-propagate/go.pgm` | `PR` (`PR-SYNTAX`) | The broken diamond plus `pick(.Ids) => a`, `pick(.Vals) => bb`. Stores `a`. | FZ-DATAEND review R3-B1 (main kills it) |
+| | `r3-propagate/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` |
+| R3_PLAINQ | `r3-plainq/b.k`, `r3-plainq/go.pgm` | `PQ` (`PQ-SYNTAX`) | `q(_) => a`, `q(_) => bb` (total), a pair only the full check classifies. Stores `a`. | FZ-DATAEND review R3-S1 |
+| | `r3-plainq/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (the full check runs at campaign setup) |
 
 ## Not covered here
 

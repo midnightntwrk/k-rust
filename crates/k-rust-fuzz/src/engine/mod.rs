@@ -114,7 +114,8 @@ impl Campaign {
             });
         }
         let spec = Arc::new(spec);
-        let cases = LiveCases::build(Arc::clone(&spec))?;
+        let mut cases = LiveCases::build(Arc::clone(&spec))?;
+        let definition_findings = cases.definition_findings();
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
@@ -191,10 +192,7 @@ impl Campaign {
                 .iter()
                 .flat_map(ResolvedHole::sort_overrides)
                 .collect(),
-            warnings: graph
-                .as_ref()
-                .map(|graph| graph.warnings().to_vec())
-                .unwrap_or_default(),
+            warnings: campaign_warnings(graph.as_deref(), definition_findings),
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
         };
@@ -811,6 +809,14 @@ fn debug_digest(value: &impl std::fmt::Debug) -> String {
 /// Canonical JSON of a spec part the identity digests.
 fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
     serde_json::to_string(value).expect("spec parts have string keys and no floats")
+}
+
+/// The campaign-level warnings known before the first case: the rule graph's, then each
+/// definition's `definition-not-confluent` findings ([`LiveCases::definition_findings`]).
+fn campaign_warnings(graph: Option<&GraphCheck>, definition_findings: Vec<String>) -> Vec<String> {
+    let mut warnings = graph.map_or_else(Vec::new, |graph| graph.warnings().to_vec());
+    warnings.extend(definition_findings);
+    warnings
 }
 
 /// The clean-leaf facts a hit of `spec`'s target rests on (ARCHITECTURE 4.3, 5.2), one per
