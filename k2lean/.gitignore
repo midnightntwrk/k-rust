@@ -2,3 +2,22 @@
 # k2lean's projects (rewritten whenever a lakefile changes).
 .lake/
 lake-manifest.json
+
+# The generated libraries, which demos/regen.sh and tests/gate.sh regenerate from the K sources.
+# A library's open-obligation lists and its hand-written invariant module are inputs of the
+# generation and are tracked: open-obligations.txt (the K equations stated without a proof),
+# open-invariant-cases.txt (the rule cases of a kind 1 invariant proved by hand) and
+# NS/InvariantsHand.lean (those proofs), which `k2lean gen` writes once and never overwrites.
+/generated/*/*
+!/generated/*/open-obligations.txt
+!/generated/*/open-invariant-cases.txt
+!/generated/*/*/
+/generated/*/*/*
+!/generated/*/*/InvariantsHand.lean
+/generated/*/.lake/
+
+# What `k2lean relate` writes into the demos (demos/regen.sh and tests/gate.sh regenerate it).
+/demos/*/correspondence.toml
+/demos/ImpRel/ImpRel/Bisim.lean
+/demos/ImpTypes/ImpTypes/Tr.lean
+/demos/ImpMut/ImpMut/Tr.lean
