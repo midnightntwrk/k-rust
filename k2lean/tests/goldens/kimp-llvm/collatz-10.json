@@ -1,0 +1,267 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "<kimp llvm>",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "<pgm>"
+  ],
+  "returncode": 0,
+  "stderr": "",
+  "term": {
+   "args": [
+    {
+     "args": [
+      {
+       "arity": 0,
+       "items": [],
+       "node": "KSequence"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<k>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "args": [
+            {
+             "args": [
+              {
+               "args": [
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Id",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "m"
+                },
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Int",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "2"
+                }
+               ],
+               "arity": 2,
+               "label": {
+                "name": "_|->_",
+                "node": "KLabel",
+                "params": []
+               },
+               "node": "KApply"
+              },
+              {
+               "args": [
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Id",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "n"
+                },
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Int",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "1"
+                }
+               ],
+               "arity": 2,
+               "label": {
+                "name": "_|->_",
+                "node": "KLabel",
+                "params": []
+               },
+               "node": "KApply"
+              }
+             ],
+             "arity": 2,
+             "label": {
+              "name": "_Map_",
+              "node": "KLabel",
+              "params": []
+             },
+             "node": "KApply"
+            },
+            {
+             "args": [
+              {
+               "node": "KToken",
+               "sort": {
+                "name": "Id",
+                "node": "KSort",
+                "params": []
+               },
+               "token": "q"
+              },
+              {
+               "node": "KToken",
+               "sort": {
+                "name": "Int",
+                "node": "KSort",
+                "params": []
+               },
+               "token": "1"
+              }
+             ],
+             "arity": 2,
+             "label": {
+              "name": "_|->_",
+              "node": "KLabel",
+              "params": []
+             },
+             "node": "KApply"
+            }
+           ],
+           "arity": 2,
+           "label": {
+            "name": "_Map_",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          },
+          {
+           "args": [
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Id",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "r"
+            },
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Int",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "3"
+            }
+           ],
+           "arity": 2,
+           "label": {
+            "name": "_|->_",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_Map_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        },
+        {
+         "args": [
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Id",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "s"
+          },
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Int",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "66"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_|->_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "arity": 2,
+       "label": {
+        "name": "_Map_",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<env>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "node": "KToken",
+       "sort": {
+        "name": "Int",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "0"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<generatedCounter>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    }
+   ],
+   "arity": 3,
+   "label": {
+    "name": "<generatedTop>",
+    "node": "KLabel",
+    "params": []
+   },
+   "node": "KApply"
+  }
+ },
+ "name": "collatz-10",
+ "origin": "programs/collatz.imp",
+ "provenance": "krun (K 7.1.337 frontend) on the kdist kimp LLVM definition (kompiled by K v7.1.318, imp-semantics 683a773)",
+ "source": "// Port of k-distribution/tests/regression-new/imp-llvm/collatz.imp (K tutorial IMP) to kimp IMP.\n// It tests the Collatz conjecture for all numbers up to m\n// and accumulates the total number of Collatz steps in s.\n// kimp has no declarations, so `int m, n, q, r, s;` becomes explicit zero initialisation.\n// The parameter N is the literal of the line that starts with `m =` (s = 66 when N is 10).\n\nn = 0;\nq = 0;\nr = 0;\ns = 0;\nm = 10;\nwhile (!(m<=2)) {\n  n = m;\n  m = m + -1;\n  while (!(n<=1)) {\n    s = s + 1;\n    q = n/2;\n    r = q+q + 1;\n    if (r<=n) {\n      n = n+n+n + 1;         // n becomes 3*n+1 if odd\n    } else {n=q;}          //        or   n/2 if even\n  }\n}\n"
+}

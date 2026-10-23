@@ -1,0 +1,467 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "<kimp llvm>",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "<pgm>"
+  ],
+  "returncode": 0,
+  "stderr": "",
+  "term": {
+   "args": [
+    {
+     "args": [
+      {
+       "arity": 0,
+       "items": [],
+       "node": "KSequence"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<k>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "args": [
+            {
+             "args": [
+              {
+               "args": [
+                {
+                 "args": [
+                  {
+                   "args": [
+                    {
+                     "args": [
+                      {
+                       "args": [
+                        {
+                         "args": [
+                          {
+                           "node": "KToken",
+                           "sort": {
+                            "name": "Id",
+                            "node": "KSort",
+                            "params": []
+                           },
+                           "token": "i"
+                          },
+                          {
+                           "node": "KToken",
+                           "sort": {
+                            "name": "Int",
+                            "node": "KSort",
+                            "params": []
+                           },
+                           "token": "2"
+                          }
+                         ],
+                         "arity": 2,
+                         "label": {
+                          "name": "_|->_",
+                          "node": "KLabel",
+                          "params": []
+                         },
+                         "node": "KApply"
+                        },
+                        {
+                         "args": [
+                          {
+                           "node": "KToken",
+                           "sort": {
+                            "name": "Id",
+                            "node": "KSort",
+                            "params": []
+                           },
+                           "token": "m"
+                          },
+                          {
+                           "node": "KToken",
+                           "sort": {
+                            "name": "Int",
+                            "node": "KSort",
+                            "params": []
+                           },
+                           "token": "30"
+                          }
+                         ],
+                         "arity": 2,
+                         "label": {
+                          "name": "_|->_",
+                          "node": "KLabel",
+                          "params": []
+                         },
+                         "node": "KApply"
+                        }
+                       ],
+                       "arity": 2,
+                       "label": {
+                        "name": "_Map_",
+                        "node": "KLabel",
+                        "params": []
+                       },
+                       "node": "KApply"
+                      },
+                      {
+                       "args": [
+                        {
+                         "node": "KToken",
+                         "sort": {
+                          "name": "Id",
+                          "node": "KSort",
+                          "params": []
+                         },
+                         "token": "n"
+                        },
+                        {
+                         "node": "KToken",
+                         "sort": {
+                          "name": "Int",
+                          "node": "KSort",
+                          "params": []
+                         },
+                         "token": "31"
+                        }
+                       ],
+                       "arity": 2,
+                       "label": {
+                        "name": "_|->_",
+                        "node": "KLabel",
+                        "params": []
+                       },
+                       "node": "KApply"
+                      }
+                     ],
+                     "arity": 2,
+                     "label": {
+                      "name": "_Map_",
+                      "node": "KLabel",
+                      "params": []
+                     },
+                     "node": "KApply"
+                    },
+                    {
+                     "args": [
+                      {
+                       "node": "KToken",
+                       "sort": {
+                        "name": "Id",
+                        "node": "KSort",
+                        "params": []
+                       },
+                       "token": "q"
+                      },
+                      {
+                       "node": "KToken",
+                       "sort": {
+                        "name": "Int",
+                        "node": "KSort",
+                        "params": []
+                       },
+                       "token": "0"
+                      }
+                     ],
+                     "arity": 2,
+                     "label": {
+                      "name": "_|->_",
+                      "node": "KLabel",
+                      "params": []
+                     },
+                     "node": "KApply"
+                    }
+                   ],
+                   "arity": 2,
+                   "label": {
+                    "name": "_Map_",
+                    "node": "KLabel",
+                    "params": []
+                   },
+                   "node": "KApply"
+                  },
+                  {
+                   "args": [
+                    {
+                     "node": "KToken",
+                     "sort": {
+                      "name": "Id",
+                      "node": "KSort",
+                      "params": []
+                     },
+                     "token": "r"
+                    },
+                    {
+                     "node": "KToken",
+                     "sort": {
+                      "name": "Int",
+                      "node": "KSort",
+                      "params": []
+                     },
+                     "token": "1"
+                    }
+                   ],
+                   "arity": 2,
+                   "label": {
+                    "name": "_|->_",
+                    "node": "KLabel",
+                    "params": []
+                   },
+                   "node": "KApply"
+                  }
+                 ],
+                 "arity": 2,
+                 "label": {
+                  "name": "_Map_",
+                  "node": "KLabel",
+                  "params": []
+                 },
+                 "node": "KApply"
+                },
+                {
+                 "args": [
+                  {
+                   "node": "KToken",
+                   "sort": {
+                    "name": "Id",
+                    "node": "KSort",
+                    "params": []
+                   },
+                   "token": "s"
+                  },
+                  {
+                   "node": "KToken",
+                   "sort": {
+                    "name": "Int",
+                    "node": "KSort",
+                    "params": []
+                   },
+                   "token": "10"
+                  }
+                 ],
+                 "arity": 2,
+                 "label": {
+                  "name": "_|->_",
+                  "node": "KLabel",
+                  "params": []
+                 },
+                 "node": "KApply"
+                }
+               ],
+               "arity": 2,
+               "label": {
+                "name": "_Map_",
+                "node": "KLabel",
+                "params": []
+               },
+               "node": "KApply"
+              },
+              {
+               "args": [
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Id",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "t"
+                },
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Int",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "0"
+                }
+               ],
+               "arity": 2,
+               "label": {
+                "name": "_|->_",
+                "node": "KLabel",
+                "params": []
+               },
+               "node": "KApply"
+              }
+             ],
+             "arity": 2,
+             "label": {
+              "name": "_Map_",
+              "node": "KLabel",
+              "params": []
+             },
+             "node": "KApply"
+            },
+            {
+             "args": [
+              {
+               "node": "KToken",
+               "sort": {
+                "name": "Id",
+                "node": "KSort",
+                "params": []
+               },
+               "token": "x"
+              },
+              {
+               "node": "KToken",
+               "sort": {
+                "name": "Int",
+                "node": "KSort",
+                "params": []
+               },
+               "token": "0"
+              }
+             ],
+             "arity": 2,
+             "label": {
+              "name": "_|->_",
+              "node": "KLabel",
+              "params": []
+             },
+             "node": "KApply"
+            }
+           ],
+           "arity": 2,
+           "label": {
+            "name": "_Map_",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          },
+          {
+           "args": [
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Id",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "y"
+            },
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Int",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "60"
+            }
+           ],
+           "arity": 2,
+           "label": {
+            "name": "_|->_",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_Map_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        },
+        {
+         "args": [
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Id",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "z"
+          },
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Int",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "30"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_|->_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "arity": 2,
+       "label": {
+        "name": "_Map_",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<env>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "node": "KToken",
+       "sort": {
+        "name": "Int",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "0"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<generatedCounter>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    }
+   ],
+   "arity": 3,
+   "label": {
+    "name": "<generatedTop>",
+    "node": "KLabel",
+    "params": []
+   },
+   "node": "KApply"
+  }
+ },
+ "name": "primes-30",
+ "origin": "programs/primes.imp",
+ "provenance": "krun (K 7.1.337 frontend) on the kdist kimp LLVM definition (kompiled by K v7.1.318, imp-semantics 683a773)",
+ "source": "// Port of k-distribution/tests/regression-new/imp-llvm/primes.imp (K tutorial IMP) to kimp IMP.\n// It counts in s all the prime numbers up to m.\n// kimp has no declarations, so `int i, m, n, q, r, s, t, x, y, z;` becomes explicit zero initialisation.\n// The parameter N is the literal of the line that starts with `m =` (s = 4 when N is 10).\n\ni = 0;\nq = 0;\nr = 0;\ns = 0;\nt = 0;\nx = 0;\ny = 0;\nz = 0;\nm = 30;  n = 2;\nwhile (n <= m) {\n  // checking primality of n and writing t to 1 or 0\n  i = 2;  q = n/i;  t = 1;\n  while (i<=q && 1<=t) {\n    x = i;\n    y = q;\n    // fast multiplication (base 2) algorithm\n    z = 0;\n    while (!(x <= 0)) {\n      q = x/2;\n      r = q+q + 1;\n      if (r <= x) { z = z+y; } else {}\n      x = q;\n      y = y+y;\n    } // end fast multiplication\n    if (n <= z) { t = 0; } else { i = i + 1;  q = n/i; }\n  } // end checking primality\n  if (1 <= t) { s = s + 1; } else {}\n  n = n + 1;\n}\n"
+}

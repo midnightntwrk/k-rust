@@ -1,0 +1,187 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "<kimp llvm>",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "<pgm>"
+  ],
+  "returncode": 0,
+  "stderr": "",
+  "term": {
+   "args": [
+    {
+     "args": [
+      {
+       "arity": 0,
+       "items": [],
+       "node": "KSequence"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<k>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "args": [
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Id",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "k"
+            },
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Int",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "11"
+            }
+           ],
+           "arity": 2,
+           "label": {
+            "name": "_|->_",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          },
+          {
+           "args": [
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Id",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "n"
+            },
+            {
+             "node": "KToken",
+             "sort": {
+              "name": "Int",
+              "node": "KSort",
+              "params": []
+             },
+             "token": "10"
+            }
+           ],
+           "arity": 2,
+           "label": {
+            "name": "_|->_",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_Map_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        },
+        {
+         "args": [
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Id",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "sum"
+          },
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Int",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "55"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_|->_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "arity": 2,
+       "label": {
+        "name": "_Map_",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<env>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "node": "KToken",
+       "sort": {
+        "name": "Int",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "0"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<generatedCounter>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    }
+   ],
+   "arity": 3,
+   "label": {
+    "name": "<generatedTop>",
+    "node": "KLabel",
+    "params": []
+   },
+   "node": "KApply"
+  }
+ },
+ "name": "example-sumto10",
+ "origin": "imp-semantics/examples",
+ "provenance": "krun (K 7.1.337 frontend) on the kdist kimp LLVM definition (kompiled by K v7.1.318, imp-semantics 683a773)",
+ "source": "sum = 0;\nn = 10;\nk = 0;\nwhile (k <= n) {\n  sum = sum + k;\n  k = k + 1;\n}\n"
+}

@@ -1,0 +1,116 @@
+# claims translated by `k2lean claims` (generated)
+[[claim]]
+label = "IMP-SIMPLE-SPEC.addition-1"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.addition-2"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.addition-var"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.pre-branch-proved"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.branching"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.branching-program"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.branching-deadcode"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.while-cut-rule"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.while-cut-rule-delayed"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.sum-loop"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.sum-N"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.bmc-loop-concrete"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SIMPLE-SPEC.bmc-loop-symbolic"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SUM-SPEC.sum-spec"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-SUM-SPEC.two-sum-spec"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-IFS-UINT64-SPEC.assignment"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-IFS-UINT64-SPEC.branching-if"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-TWO-SUM-AUX-SPEC.loop-n"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-TWO-SUM-AUX-SPEC.loop-m"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-TWO-SUM-AUX-SPEC.two-sum-spec"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-DIV0-SPEC.div0-seven"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-DIV0-SPEC.div0-any-int"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-DIV0-SPEC.div0-self"
+stated = true
+all_path = true
+

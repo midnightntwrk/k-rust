@@ -1,0 +1,147 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "<kimp llvm>",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "<pgm>"
+  ],
+  "returncode": 0,
+  "stderr": "",
+  "term": {
+   "args": [
+    {
+     "args": [
+      {
+       "arity": 0,
+       "items": [],
+       "node": "KSequence"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<k>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Id",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "x"
+          },
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Bool",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "true"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_|->_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        },
+        {
+         "args": [
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Id",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "y"
+          },
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Bool",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "true"
+          }
+         ],
+         "arity": 2,
+         "label": {
+          "name": "_|->_",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "arity": 2,
+       "label": {
+        "name": "_Map_",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<env>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "node": "KToken",
+       "sort": {
+        "name": "Int",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "0"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<generatedCounter>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    }
+   ],
+   "arity": 3,
+   "label": {
+    "name": "<generatedTop>",
+    "node": "KLabel",
+    "params": []
+   },
+   "node": "KApply"
+  }
+ },
+ "name": "probe-comparison-chain",
+ "origin": "semantic probe written for lean-imp",
+ "provenance": "krun (K 7.1.337 frontend) on the kdist kimp LLVM definition (kompiled by K v7.1.318, imp-semantics 683a773)",
+ "source": "x = 1 < 2 == 2 < 3; y = 3 >= 3 != 3 > 3;\n"
+}

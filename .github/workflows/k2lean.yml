@@ -1,0 +1,112 @@
+name: k2lean
+
+# The CI workflow builds, lints and tests k2lean's generator with the rest of the workspace
+# (k2lean/crates/* are members). This workflow runs k2lean's light gate
+# (`k2lean/tests/gate.sh light`, the `k2lean-light` entry of scripts/gates.toml): it compiles
+# kimp and the IMP demos with krust, regenerates their Lean libraries with the generator, builds
+# them and the demos with Lean, compares kimp's step traces with the K release's LLVM backend,
+# and compares every count, output and generated file with k2lean/tests/baseline.toml.
+
+on:
+  schedule:
+    - cron: "41 4 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k2lean-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  light-gate:
+    name: Light gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read the pinned K and kimp references
+        id: pins
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import tomllib
+
+          with open("scripts/reference-differential.toml", "rb") as manifest:
+              reference = tomllib.load(manifest)["reference"]
+          print(f"k-revision={reference['k']['revision']}")
+          print(f"k-version={reference['k']['version'].removeprefix('v')}")
+          print(f"imp-revision={reference['imp']['revision']}")
+          EOF
+
+      # The gate reads K's builtin modules from the K sources (k/), as the reference gates do.
+      - name: Check out pinned K sources
+        uses: actions/checkout@v7
+        with:
+          repository: runtimeverification/k
+          ref: ${{ steps.pins.outputs.k-revision }}
+          path: k
+          sparse-checkout: |
+            k-distribution/include/kframework/builtin
+
+      - name: Check out pinned kimp sources
+        uses: actions/checkout@v7
+        with:
+          repository: runtimeverification/imp-semantics
+          ref: ${{ steps.pins.outputs.imp-revision }}
+          path: imp-semantics
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # kompile with the LLVM backend builds kimp's interpreter for the step traces.
+      - name: Install pinned K release
+        env:
+          K_VERSION: ${{ steps.pins.outputs.k-version }}
+        run: |
+          curl -fsSLo /tmp/kframework.deb \
+            "https://github.com/runtimeverification/k/releases/download/v${K_VERSION}/kframework_${K_VERSION}_amd64_ubuntu_noble.deb"
+          sudo apt-get install -y /tmp/kframework.deb
+
+      # lake selects the toolchain that each project's lean-toolchain names (v4.30.0). elan itself
+      # is the release binary at a fixed version, checked against its published digest, as in
+      # differential.yml.
+      - name: Install elan
+        env:
+          ELAN_VERSION: 4.2.4
+          ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
+        run: |
+          curl -fsSLo /tmp/elan.tar.gz \
+            "https://github.com/leanprover/elan/releases/download/v${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ELAN_SHA256}  /tmp/elan.tar.gz" | sha256sum --check --strict
+          tar -xzf /tmp/elan.tar.gz -C /tmp elan-init
+          /tmp/elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build the release CLI
+        run: cargo build --release -p k-rust --bin krust --locked
+
+      - name: Run the light gate
+        env:
+          GATE_WORK: ${{ runner.temp }}/k2lean-gate/work
+          GATE_CACHE: ${{ runner.temp }}/k2lean-gate/cache
+        run: k2lean/tests/gate.sh light
+
+      - name: Keep the gate's measurements and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k2lean-light-gate
+          path: |
+            ${{ runner.temp }}/k2lean-gate/work/measured
+            ${{ runner.temp }}/k2lean-gate/work/logs
+          if-no-files-found: ignore
