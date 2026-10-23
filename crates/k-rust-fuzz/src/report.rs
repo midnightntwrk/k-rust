@@ -162,6 +162,11 @@ pub struct ReportIdentity {
     pub overlay_digest: String,
     /// [`digest_hex`] of the canonical JSON of the target.
     pub target_digest: String,
+    /// For a rule target, the catalog entry its reference resolved to (ARCHITECTURE 4.2): the
+    /// id the campaign judges by, with its names, so that a reader can check which rule a
+    /// label, a unique id or a source line named. Absent from the JSON for other targets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_rule: Option<TargetRule>,
     /// The case options as given, with [`CaseOptions::effective_max_work`] applied; they carry
     /// the backend's solver options.
     pub options: CaseOptions,
@@ -620,6 +625,16 @@ pub enum CampaignOutcome {
     },
 }
 
+/// The rule a rule target resolved to: its unique id and its names.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct TargetRule {
+    /// The unique id the campaign judges coverage and traces by.
+    pub id: String,
+    /// Its kind, label and source locations.
+    pub name: RuleName,
+}
+
 /// Counts over every case (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
@@ -1007,6 +1022,14 @@ mod tests {
                 program_digest: digest_hex(b"program"),
                 overlay_digest: digest_hex(b"overlay"),
                 target_digest: digest_hex(b"target"),
+                target_rule: Some(TargetRule {
+                    id: "a".into(),
+                    name: RuleName {
+                        kind: k_rust::backend::CompiledRuleKind::Rewrite,
+                        label: None,
+                        locations: Vec::new(),
+                    },
+                }),
                 options: CaseOptions {
                     max_work: Some(100_000),
                     ..CaseOptions::default()
@@ -1067,7 +1090,8 @@ mod tests {
                             kind: k_rust::backend::CompiledRuleKind::Rewrite,
                             label: Some("IMP.a".into()),
                             locations: vec![crate::target::RuleLocation {
-                                source: "imp.k".into(),
+                                source: "/w/imp.k".into(),
+                                reference: "imp.k".into(),
                                 line: 3,
                                 end_line: 4,
                             }],
@@ -1141,6 +1165,7 @@ mod tests {
             r#""execution-rewrite-order-digest":"#,
             r#""ORDER"}],"#,
             r#""program-digest":"PROGRAM","overlay-digest":"OVERLAY","target-digest":"TARGET","#,
+            r#""target-rule":{"id":"a","name":{"kind":"rewrite","label":null,"locations":[]}},"#,
             r#""options":{"paths":"one-path","max-depth":null,"max-work":100000,"#,
             r#""max-simplification-iterations":ITER,"normal-end-pattern":null,"#,
             r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3},"#,
@@ -1160,7 +1185,8 @@ mod tests {
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
             r#""coverage":{"applied":["a","b"],"matched":["c"],"names":{"a":{"kind":"rewrite","#,
-            r#""label":"IMP.a","locations":[{"source":"imp.k","line":3,"end-line":4}]}}},"#,
+            r#""label":"IMP.a","locations":[{"source":"/w/imp.k","reference":"imp.k","line":3,"#,
+            r#""end-line":4}]}}},"#,
             r#""target-blocked":3,"#,
             r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"#,

@@ -21,7 +21,7 @@ use k_rust::backend::CompiledRuleKind;
 use k_rust_fuzz::{
     Campaign,
     report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
-    target::{RuleMode, common_directory},
+    target::RuleMode,
 };
 
 use crate::{
@@ -519,6 +519,9 @@ fn summary(report: &FuzzReport) -> String {
         CampaignOutcome::Aborted { .. } => "no witness found: aborted",
     };
     let _ = writeln!(text, "{status}");
+    if let Some(rule) = &report.identity.target_rule {
+        let _ = writeln!(text, "target rule: {}", rule.name.describe(&rule.id));
+    }
     let classes = report
         .totals
         .classes
@@ -595,16 +598,10 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
                 .and_then(|name| name.locations.first());
             (location.is_none(), location.cloned(), (*id).clone())
         });
-        let base = common_directory(
-            ids.iter()
-                .filter_map(|id| coverage.names.get(id.as_str()))
-                .flat_map(|name| &name.locations)
-                .map(|location| location.source.as_str()),
-        );
         for id in ids.iter().take(LISTED_RULES) {
             match coverage.names.get(id.as_str()) {
                 Some(name) => {
-                    let _ = writeln!(text, "  {}", name.describe(id, &base));
+                    let _ = writeln!(text, "  {}", name.describe(id));
                 }
                 None => {
                     let _ = writeln!(text, "  (not in the catalog) unique id {id}");

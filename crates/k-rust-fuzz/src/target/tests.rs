@@ -200,7 +200,7 @@ fn an_unknown_reference_lists_candidates() {
         "{text}"
     );
     assert!(
-        text.contains("\n  rules/rules.k:33 [RULES.check-hit] unique id id-check-hit"),
+        text.contains("\n  rules.k:33 [RULES.check-hit] unique id id-check-hit"),
         "{text}"
     );
     assert!(
@@ -242,19 +242,19 @@ fn an_unknown_reference_lists_candidates() {
         "{text}"
     );
     assert!(
-        text.contains("rules/rules.k:30 [RULES.double] (function equation)"),
+        text.contains("rules.k:30 [RULES.double] (function equation)"),
         "{text}"
     );
 
     // A file that holds no entry: the files that hold rewrite rules.
     let elsewhere = unknown(resolve(source("nowhere.k", 3)));
     assert!(elsewhere.candidates.is_empty());
-    assert_eq!(elsewhere.sources, ["other/other.k", "rules/rules.k"]);
+    assert_eq!(elsewhere.sources, ["other.k", "rules.k"]);
     let text = TargetProblem::UnknownRule(Box::new(elsewhere)).to_string();
     assert_eq!(
         text,
         "no rule is written in `nowhere.k` (line 3); the rules are written in:\n  \
-         other/other.k\n  rules/rules.k"
+         other.k\n  rules.k"
     );
 }
 
@@ -268,8 +268,8 @@ fn an_ambiguity_names_each_rule() {
     assert_eq!(
         text,
         "the reference names 2 different rules; name one by its unique id:\n  \
-         rules/rules.k:44 [RULES.same-line-a] unique id id-same-line-a\n  \
-         rules/rules.k:44 [RULES.same-line-b] unique id id-same-line-b"
+         rules.k:44 [RULES.same-line-a] unique id id-same-line-a\n  \
+         rules.k:44 [RULES.same-line-b] unique id id-same-line-b"
     );
 }
 
@@ -857,66 +857,106 @@ fn a_relative_source_names_its_own_file_and_an_absolute_one_falls_back_to_a_suff
     assert_eq!(resolve("lib/rules.k", 12), Ok("lib-12".to_owned()));
     unknown(resolve("lib/rules.k", 30));
     assert_eq!(resolve("Source(lib/rules.k)", 20), Ok("lib-20".to_owned()));
-    // `rules.k` is a suffix of both paths at a `/`.
-    assert_eq!(
-        ambiguous(resolve("rules.k", 12)),
-        ["lib-12".to_owned(), "top-12".to_owned()]
-    );
+    // `rules.k` is the whole path of one file, which names that file alone, although it is
+    // also a suffix of `lib/rules.k`.
+    assert_eq!(resolve("rules.k", 12), Ok("top-12".to_owned()));
+    unknown(resolve("rules.k", 20));
     // An absolute path ends with the catalog's relative path.
-    assert_eq!(
-        resolve("/work/defs/lib/rules.k", 20),
-        Ok("lib-20".to_owned())
-    );
     assert_eq!(resolve("/work/defs/rules.k", 30), Ok("top-30".to_owned()));
-    // At line 12 both relative paths are suffixes of the absolute one: refused, not guessed.
-    assert!(matches!(
-        resolve("/work/defs/lib/rules.k", 12),
-        Err(TargetProblem::AmbiguousRule(_))
-    ));
+    // `/work/defs/lib/rules.k` ends with both relative paths: refused at every line, not
+    // resolved by the line.
+    for line in [12, 20, 30] {
+        assert_eq!(
+            resolve("/work/defs/lib/rules.k", line),
+            Err(TargetProblem::AmbiguousSource {
+                source: "/work/defs/lib/rules.k".to_owned(),
+                files: vec!["lib/rules.k".to_owned(), "rules.k".to_owned()],
+            }),
+            "line {line}"
+        );
+    }
 }
 
-/// FZ-RULEREF: a rule is described on one line, and absolute paths lose the directory they all
-/// start with, which leaves suffixes that still name their files.
+/// FZ-RULEREF review B1: a source that names two files is refused whatever the line, even when
+/// only one of the files holds a rule there (`a/rules.k` has a rule on line 5, where
+/// `b/rules.k` has a comment).
 #[test]
-fn rules_are_described_without_their_common_directory() {
-    use super::{RuleLocation, RuleName, common_directory};
-    assert_eq!(common_directory(["/w/defs/imp.k"]), "/w/defs/");
-    assert_eq!(
-        common_directory([
-            "/w/defs/imp.k",
-            "/w/defs/lib/a.k",
-            "krust-builtin://domains.md"
-        ]),
-        "/w/defs/"
-    );
-    assert_eq!(common_directory(["/w/defs/imp.k", "/w/de/b.k"]), "/w/");
-    assert_eq!(
-        common_directory(["imp.k", "krust-builtin://domains.md"]),
-        ""
-    );
-    let name = RuleName {
-        kind: CompiledRuleKind::FunctionEquation,
-        label: Some("IMP.lookup".into()),
-        locations: vec![
-            RuleLocation {
-                source: "/w/defs/imp.k".into(),
-                line: 7,
-                end_line: 9,
-            },
-            RuleLocation {
-                source: "krust-builtin://domains.md".into(),
-                line: 3,
-                end_line: 3,
-            },
-        ],
+fn a_source_that_names_two_files_is_refused_at_every_line() {
+    let at = |id: &str, source: &str, line: u32| {
+        let mut entry = entry(id, None, CompiledRuleKind::Rewrite, line);
+        entry.origins[0].source = Some(format!("Source({source})"));
+        entry
     };
+    let catalog = vec![
+        at("a-5", "/x/dup/a/rules.k", 5),
+        at("a-6", "/x/dup/a/rules.k", 6),
+        at("b-7", "/x/dup/b/rules.k", 7),
+        at("b-8", "/x/dup/b/rules.k", 8),
+    ];
+    let resolve = |given: &str, line| resolve_rule(&catalog, &source(given, line));
+    for line in [5, 7, 9] {
+        let refusal = resolve("rules.k", line).expect_err("two files are named");
+        assert_eq!(
+            refusal.to_string(),
+            "`rules.k` names 2 files of the definition; name one by a longer path:\n  \
+             a/rules.k\n  b/rules.k",
+            "line {line}"
+        );
+    }
+    assert_eq!(resolve("a/rules.k", 5), Ok("a-5".to_owned()));
+    assert_eq!(resolve("/x/dup/b/rules.k", 8), Ok("b-8".to_owned()));
+    // Line 5 of `b/rules.k` holds no rule: refused with `b`'s rules, printed by references
+    // that name `b/rules.k` alone.
+    let text = resolve("b/rules.k", 5).expect_err("no rule").to_string();
     assert_eq!(
-        name.describe("id-1", "/w/defs/").to_string(),
-        "imp.k:7-9, krust-builtin://domains.md:3 [IMP.lookup] (function equation) unique id id-1"
+        text,
+        "no rule or equation spans line 5 of `b/rules.k`; the nearest are:\n  \
+         b/rules.k:7 unique id b-7\n  b/rules.k:8 unique id b-8"
     );
+}
+
+/// FZ-RULEREF review S1: a rule is described on one line, each file by the shortest suffix that
+/// names it alone among the catalog's files.
+#[test]
+fn rules_are_described_by_references_that_name_one_file() {
+    use super::{rule::shortest_reference, rule_names};
+    let files = [
+        "/w/a/rules.k",
+        "/w/b/rules.k",
+        "/w/main.k",
+        "krust-builtin://domains.md",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(shortest_reference(&files, "/w/a/rules.k"), "a/rules.k");
+    assert_eq!(shortest_reference(&files, "/w/main.k"), "main.k");
     assert_eq!(
-        name.describe("id-1", "").to_string(),
-        "/w/defs/imp.k:7-9, krust-builtin://domains.md:3 [IMP.lookup] (function equation) \
-         unique id id-1"
+        shortest_reference(&files, "krust-builtin://domains.md"),
+        "domains.md"
+    );
+    // A whole relative path names its file alone, and a longer one needs its directory.
+    let files = ["rules.k", "lib/rules.k"].into_iter().collect();
+    assert_eq!(shortest_reference(&files, "rules.k"), "rules.k");
+    assert_eq!(shortest_reference(&files, "lib/rules.k"), "lib/rules.k");
+
+    let mut lookup = entry(
+        "id-1",
+        Some("lookup"),
+        CompiledRuleKind::FunctionEquation,
+        7,
+    );
+    lookup.origins[0].source = Some("Source(/w/a/rules.k)".to_owned());
+    lookup.origins[0].location = Some("Location(7,3,9,10)".to_owned());
+    let mut other = entry("id-2", None, CompiledRuleKind::Rewrite, 3);
+    other.origins[0].source = Some("Source(/w/b/rules.k)".to_owned());
+    let names = rule_names(&[lookup, other]);
+    assert_eq!(
+        names["id-1"].describe("id-1").to_string(),
+        "a/rules.k:7-9 [RULES.lookup] (function equation) unique id id-1"
+    );
+    assert_eq!(names["id-1"].locations[0].source, "/w/a/rules.k");
+    assert_eq!(
+        names["id-2"].describe("id-2").to_string(),
+        "b/rules.k:3 unique id id-2"
     );
 }

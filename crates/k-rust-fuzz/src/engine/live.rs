@@ -24,7 +24,9 @@ use crate::{
     },
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
-    report::{DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, WitnessSide},
+    report::{
+        DefinitionRole, HoleValue, KillKind, Reaching, RejectionReason, TargetRule, WitnessSide,
+    },
     score,
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
     target::{self, HitSite, ResolvedTarget, RuleName, TargetKind, differential},
@@ -345,6 +347,14 @@ enum Judge {
     Differential(Box<Side>),
 }
 
+/// The rule names of a campaign ([`LiveCases::rule_index`]).
+pub(crate) struct RuleIndex {
+    /// Every catalog id's names.
+    pub(crate) names: Arc<BTreeMap<String, RuleName>>,
+    /// The rule a rule target resolved to.
+    pub(crate) target: Option<TargetRule>,
+}
+
 /// The campaign's case execution: one baseline [`Side`] and the judge.
 pub(crate) struct LiveCases {
     spec: Arc<CampaignSpec>,
@@ -440,12 +450,14 @@ impl LiveCases {
     }
 
     /// The names of every id in the rule catalog of the definition whose coverage a case
-    /// records: the mutant's in a differential campaign ([`run_of`]), the baseline's otherwise.
+    /// records (the mutant's in a differential campaign, [`run_of`], the baseline's otherwise),
+    /// and the rule a rule target resolved to with its names.
     ///
     /// # Errors
     ///
     /// [`CampaignError::Definition`] when the backend gives no catalog.
-    pub(crate) fn rule_names(&mut self) -> Result<BTreeMap<String, RuleName>, CampaignError> {
+    pub(crate) fn rule_index(&mut self) -> Result<RuleIndex, CampaignError> {
+        let target = self.target_rule_id().map(str::to_owned);
         let side = match &mut self.judge {
             Judge::Differential(mutant) => mutant,
             Judge::Target(_) => &mut self.baseline,
@@ -457,7 +469,15 @@ impl LiveCases {
             .map_err(|error| CampaignError::Definition {
                 message: format!("the rule catalog is not available: {error}"),
             })?;
-        Ok(target::rule_names(&catalog))
+        let names = target::rule_names(&catalog);
+        let target = target.and_then(|id| {
+            let name = names.get(&id)?.clone();
+            Some(TargetRule { id, name })
+        });
+        Ok(RuleIndex {
+            names: Arc::new(names),
+            target,
+        })
     }
 
     /// The catalog id of a rule target's rule, as the target resolved it; `None` for every

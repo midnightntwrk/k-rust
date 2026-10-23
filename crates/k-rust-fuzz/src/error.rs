@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use crate::target::{RuleName, RuleRef, common_directory};
+use crate::target::{RuleName, RuleRef};
 
 /// Why a hole's span does not address exactly one literal (ARCHITECTURE 2.2, T-9).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,6 +78,14 @@ pub enum TargetProblem {
     /// Catalog entries with different ids match the rule reference: each id, in order, with its
     /// names.
     AmbiguousRule(Vec<(String, RuleName)>),
+    /// A source position whose file names several files of the catalog, whatever its line
+    /// ([`RuleRef::Source`]): the line of a rule in one file may be a comment in another.
+    AmbiguousSource {
+        /// The source as given.
+        source: String,
+        /// The files it names, each by the shortest reference that names it alone.
+        files: Vec<String>,
+    },
     /// The entry's id is shared by different entries (`shared_identity`).
     SharedIdentity,
     /// The entry is not executable.
@@ -108,21 +116,15 @@ pub struct UnknownRule {
     /// source position or unique id names.
     pub unlabelled: usize,
     /// For a source position in a file that holds no catalog entry: the files that hold
-    /// rewrite rules, as the catalog records them.
+    /// rewrite rules, each by the shortest reference that names it alone
+    /// ([`crate::target::RuleLocation::reference`]).
     pub sources: Vec<String>,
 }
 
-/// Candidate rules as lines of a refusal ([`RuleName::describe`]), with the directory every
-/// absolute source path among them starts with left out.
+/// Candidate rules as lines of a refusal ([`RuleName::describe`]).
 fn write_rules(f: &mut fmt::Formatter<'_>, rules: &[(String, RuleName)]) -> fmt::Result {
-    let base = common_directory(
-        rules
-            .iter()
-            .flat_map(|(_, name)| &name.locations)
-            .map(|location| location.source.as_str()),
-    );
     for (id, name) in rules {
-        write!(f, "\n  {}", name.describe(id, &base))?;
+        write!(f, "\n  {}", name.describe(id))?;
     }
     Ok(())
 }
@@ -151,13 +153,8 @@ impl fmt::Display for UnknownRule {
                     f,
                     "no rule is written in `{source}` (line {line}); the rules are written in:"
                 )?;
-                let base = common_directory(self.sources.iter().map(String::as_str));
                 for written in &self.sources {
-                    let shown = written
-                        .strip_prefix(base.as_str())
-                        .filter(|_| !base.is_empty())
-                        .unwrap_or(written);
-                    write!(f, "\n  {shown}")?;
+                    write!(f, "\n  {written}")?;
                 }
             }
             RuleRef::Source { source, line } => {
@@ -195,6 +192,17 @@ impl fmt::Display for TargetProblem {
                     rules.len()
                 )?;
                 write_rules(f, rules)
+            }
+            Self::AmbiguousSource { source, files } => {
+                write!(
+                    f,
+                    "`{source}` names {} files of the definition; name one by a longer path:",
+                    files.len()
+                )?;
+                for file in files {
+                    write!(f, "\n  {file}")?;
+                }
+                Ok(())
             }
             Self::SharedIdentity => f.write_str(
                 "the rule's unique id is shared by other catalog entries, so coverage and \

@@ -231,6 +231,7 @@ fn identity() -> ReportIdentity {
         program_digest: "p".into(),
         overlay_digest: "o".into(),
         target_digest: "t".into(),
+        target_rule: None,
         options: CaseOptions::default(),
         proposers: ProposerConfig::default(),
         bounds: GenerationBounds::default(),

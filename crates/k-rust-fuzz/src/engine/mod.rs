@@ -115,6 +115,7 @@ impl Campaign {
         }
         let spec = Arc::new(spec);
         let mut cases = LiveCases::build(Arc::clone(&spec))?;
+        let rules = cases.rule_index()?;
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
@@ -174,14 +175,13 @@ impl Campaign {
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
         let guidance = Guidance::build(&spec, &cases, graph.as_deref())?;
         let settings = LoopSettings {
-            identity: identity(&spec, &initial)?,
+            identity: ReportIdentity {
+                target_rule: rules.target,
+                ..identity(&spec, &initial)?
+            },
             rejection_cap: spec.rejection_cap,
             options: spec.options.clone(),
-            label: if spec.target.negated_property {
-                HitLabel::PropertyFailure
-            } else {
-                HitLabel::Hit
-            },
+            label: hit_label(&spec.target),
             clean_leaf_facts: clean_leaf_facts(&spec),
             constraints: holes
                 .iter()
@@ -197,7 +197,7 @@ impl Campaign {
                 .unwrap_or_default(),
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
-            rule_names: Arc::new(cases.rule_names()?),
+            rule_names: rules.names,
         };
         Ok(Campaign {
             spec,
@@ -706,6 +706,16 @@ fn generators(cases: &LiveCases, spec: &CampaignSpec) -> Result<Vec<Generator>, 
         .collect()
 }
 
+/// How a hit of `target` is reported: as a property failure when the target states a
+/// property's violation.
+fn hit_label(target: &crate::Target) -> HitLabel {
+    if target.negated_property {
+        HitLabel::PropertyFailure
+    } else {
+        HitLabel::Hit
+    }
+}
+
 /// The report identity of `spec`, with a placeholder budget the loop replaces
 /// (ARCHITECTURE 5.4, 9.3).
 fn identity(
@@ -763,6 +773,7 @@ fn identity(
         program_digest: digest_hex(program.as_bytes()),
         overlay_digest: digest_hex(json(&spec.holes).as_bytes()),
         target_digest: digest_hex(json(&spec.target).as_bytes()),
+        target_rule: None,
         options: CaseOptions {
             max_work: spec.options.effective_max_work(),
             ..spec.options.clone()

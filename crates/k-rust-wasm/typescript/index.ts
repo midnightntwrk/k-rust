@@ -1309,6 +1309,8 @@ export interface FuzzReportIdentity {
   'program-digest': string
   'overlay-digest': string
   'target-digest': string
+  /** For a rule target: the rule its reference resolved to. */
+  'target-rule'?: { id: string; name: FuzzRuleName }
   options: FuzzCaseOptions
   proposers: FuzzProposers
   bounds: FuzzGenerationBounds
@@ -1485,6 +1487,8 @@ export type FuzzRejectionReason =
 /** Where a catalog entry is written: its source file and the lines it spans. */
 export interface FuzzRuleLocation {
   source: string
+  /** The shortest path suffix that names this file alone: `reference:line` names the rule. */
+  reference: string
   line: number
   'end-line': number
 }

@@ -8,7 +8,7 @@
 //! `applied` whenever a rewrite rule's load-time definedness discharge used it, which the run
 //! never evaluated (`kb/coverage.rs:15-19`, `:71-72`), so equation targets are refused in M1.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::backend::{
     CompiledRuleKind, CompiledRuleOriginOutput, CompiledRuleOutput, RunCoverageOutput,
@@ -29,10 +29,12 @@ const CANDIDATES: usize = 5;
 /// - `Label` matches the entry whose label is the given text; when none is, the entries whose
 ///   label is `<module>.<text>`, so `div` names `RULES.div` when no other module has a `div`.
 /// - `UniqueId` matches the entries with that id.
-/// - `Source` matches the entries with an origin written in that source (the catalog's
-///   `Source(path)` text, the path inside it, or a suffix of that path at a `/`; failing all
-///   of those, an absolute path that ends with `/` and the catalog's relative path) whose
-///   location spans that line, from its first line to its last. A rule is a span of its source
+/// - `Source` first resolves its source to exactly one catalog file ([`files_named`]: the
+///   whole path; else a suffix of paths after a `/`; else, for an absolute source, the relative
+///   paths it ends with), refusing a source that names several files whatever the line
+///   ([`TargetProblem::AmbiguousSource`]). It then matches the entries with an origin in that
+///   file whose location spans the line, from its first line to its last. A rule is a span of
+///   its source
 ///   and rules do not nest, so a line inside a rule names that rule; two sentences written on
 ///   one line are an ambiguity. Equal written axioms are one catalog entry with all their
 ///   origins and one id, so a reference to one position also counts firings of an identical
@@ -68,7 +70,22 @@ pub(crate) fn resolve_rule(
             }
         }
         RuleRef::UniqueId(id) => catalog.iter().filter(|entry| entry.id == *id).collect(),
-        RuleRef::Source { source, line } => written_in(catalog, source, Some(*line)),
+        RuleRef::Source { source, line } => {
+            let files = catalog_files(catalog);
+            match files_named(&files, source)[..] {
+                [] => Vec::new(),
+                [file] => written_in(catalog, file, Some(*line)),
+                ref several => {
+                    return Err(TargetProblem::AmbiguousSource {
+                        source: source.clone(),
+                        files: several
+                            .iter()
+                            .map(|file| shortest_reference(&files, file))
+                            .collect(),
+                    });
+                }
+            }
+        }
     };
     let ids: BTreeSet<&str> = matching.iter().map(|entry| entry.id.as_str()).collect();
     if ids.len() > 1 {
@@ -98,48 +115,96 @@ pub(crate) fn resolve_rule(
     Ok(entry.id.clone())
 }
 
-/// The entries of `catalog` with an origin written in `source` (see [`resolve_rule`]) whose
-/// location spans `line`, or with any location when `line` is `None`.
+/// The entries of `catalog` with an origin written in the catalog file `file` whose location
+/// spans `line`, or with any location when `line` is `None`.
 fn written_in<'a>(
     catalog: &'a [CompiledRuleOutput],
-    source: &str,
+    file: &str,
     line: Option<u32>,
 ) -> Vec<&'a CompiledRuleOutput> {
-    let at = |matches: fn(&str, &str) -> bool| -> Vec<&CompiledRuleOutput> {
-        catalog
-            .iter()
-            .filter(|entry| {
-                entry.origins.iter().any(|origin| {
-                    in_source(origin, source, matches)
-                        && line.is_none_or(|line| {
-                            origin
-                                .location
-                                .as_deref()
-                                .and_then(span)
-                                .is_some_and(|(start, end)| start <= line && line <= end)
-                        })
-                })
+    catalog
+        .iter()
+        .filter(|entry| {
+            entry.origins.iter().any(|origin| {
+                origin_in(origin, file) && line.is_none_or(|line| spans(origin, line))
             })
-            .collect()
-    };
-    let named = at(source_names);
-    if named.is_empty() && source.starts_with('/') {
-        at(absolute_source_names)
-    } else {
-        named
-    }
+        })
+        .collect()
 }
 
-/// Whether `origin` is written in `source`, compared by `matches`.
-fn in_source(
-    origin: &CompiledRuleOriginOutput,
-    source: &str,
-    matches: fn(&str, &str) -> bool,
-) -> bool {
+/// Whether `origin` is written in the catalog file `file`.
+fn origin_in(origin: &CompiledRuleOriginOutput, file: &str) -> bool {
     origin
         .source
         .as_deref()
-        .is_some_and(|written| matches(catalog_path(written), source))
+        .is_some_and(|written| catalog_path(written) == file)
+}
+
+/// Whether `origin`'s location spans `line`.
+fn spans(origin: &CompiledRuleOriginOutput, line: u32) -> bool {
+    origin
+        .location
+        .as_deref()
+        .and_then(span)
+        .is_some_and(|(start, end)| start <= line && line <= end)
+}
+
+/// The distinct files `catalog`'s origins are written in, as the catalog records them (the
+/// path inside `Source(path)`).
+pub(super) fn catalog_files(catalog: &[CompiledRuleOutput]) -> BTreeSet<&str> {
+    catalog
+        .iter()
+        .flat_map(|entry| &entry.origins)
+        .filter_map(|origin| origin.source.as_deref().map(catalog_path))
+        .collect()
+}
+
+/// The files of `files` (catalog paths) that the source `given` names, in path order:
+/// - the file whose path is `given`, or whose `Source(path)` text is: a whole path names its
+///   file alone;
+/// - failing that, every file whose path ends with `given` right after a `/`;
+/// - failing that, for an absolute `given`, every relative path that `given` ends with right
+///   after a `/` (the compiler recorded it relative to where it ran).
+///
+/// More than one file is an ambiguity of the reference, whatever line it names: the line of a
+/// rule in one file may be a comment or lie between rules in the other.
+pub(super) fn files_named<'a>(files: &BTreeSet<&'a str>, given: &str) -> Vec<&'a str> {
+    let exact: Vec<&str> = files
+        .iter()
+        .copied()
+        .filter(|path| *path == given || format!("Source({path})") == given)
+        .collect();
+    if !exact.is_empty() {
+        return exact;
+    }
+    let suffix: Vec<&str> = files
+        .iter()
+        .copied()
+        .filter(|path| ends_at_directory(path, given))
+        .collect();
+    if !suffix.is_empty() || !given.starts_with('/') {
+        return suffix;
+    }
+    files
+        .iter()
+        .copied()
+        .filter(|path| !path.starts_with('/') && ends_at_directory(given, path))
+        .collect()
+}
+
+/// The shortest reference to the catalog file `path` that names it alone among `files`
+/// ([`files_named`]): its shortest suffix that starts after a `/`, or the whole path.
+pub(super) fn shortest_reference(files: &BTreeSet<&str>, path: &str) -> String {
+    path.char_indices()
+        .filter(|(_, character)| *character == '/')
+        .map(|(index, _)| &path[index + 1..])
+        .filter(|suffix| !suffix.is_empty())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .find(|suffix| files_named(files, suffix) == [path])
+        .unwrap_or(path)
+        .to_owned()
 }
 
 /// What `catalog` offers in place of `rule`, which no entry matches ([`UnknownRule`]).
@@ -198,8 +263,9 @@ fn unknown(catalog: &[CompiledRuleOutput], rule: &RuleRef) -> UnknownRule {
         }
         RuleRef::UniqueId(id) => unknown.candidates = with_names(starting_with(id)),
         RuleRef::Source { source, line } => {
-            let in_file = written_in(catalog, source, None);
-            if in_file.is_empty() {
+            let files = catalog_files(catalog);
+            let in_files = files_named(&files, source);
+            if in_files.is_empty() {
                 unknown.sources = catalog
                     .iter()
                     .filter(|entry| entry.kind == CompiledRuleKind::Rewrite)
@@ -207,20 +273,17 @@ fn unknown(catalog: &[CompiledRuleOutput], rule: &RuleRef) -> UnknownRule {
                     .filter_map(|origin| origin.source.as_deref().map(catalog_path))
                     .collect::<BTreeSet<_>>()
                     .into_iter()
-                    .map(str::to_owned)
+                    .map(|path| shortest_reference(&files, path))
                     .collect();
             } else {
                 // The entries written nearest the line, listed in the order they are written.
-                let mut near: Vec<(u32, u32, &str)> = in_file
+                let mut near: Vec<(u32, u32, &str)> = catalog
                     .iter()
                     .filter_map(|entry| {
                         entry
                             .origins
                             .iter()
-                            .filter(|origin| {
-                                in_source(origin, source, source_names)
-                                    || in_source(origin, source, absolute_source_names)
-                            })
+                            .filter(|origin| in_files.iter().any(|file| origin_in(origin, file)))
                             .filter_map(|origin| origin.location.as_deref().and_then(span))
                             .map(|(start, end)| {
                                 let distance = if *line < start {
@@ -295,19 +358,6 @@ fn ends_at_directory(long: &str, short: &str) -> bool {
         .is_some_and(|rest| rest.ends_with('/'))
 }
 
-/// Whether the catalog path `path` is the source `given`: the same path, its `Source(path)`
-/// text, or `given` is a suffix of it that starts after a `/`.
-fn source_names(path: &str, given: &str) -> bool {
-    path == given || format!("Source({path})") == given || ends_at_directory(path, given)
-}
-
-/// Whether the relative catalog path `path` is the absolute source `given`: `given` ends with
-/// `/` and `path`, which the compiler recorded relative to where it ran. Used only when no entry
-/// is [`source_names`]' match, so a relative `lib/rules.k` never names `Source(rules.k)`.
-fn absolute_source_names(path: &str, given: &str) -> bool {
-    !path.starts_with('/') && ends_at_directory(given, path)
-}
-
 /// The first and last lines of a catalog location
 /// `Location(start_line,start_column,end_line,end_column)`; a last line before the first is
 /// read as the first.
@@ -323,15 +373,24 @@ fn span(location: &str) -> Option<(u32, u32)> {
     Some((start, end.max(start)))
 }
 
-/// The source locations of `entry`'s origins ([`RuleLocation`]).
-pub(super) fn locations(entry: &CompiledRuleOutput) -> Vec<RuleLocation> {
+/// The source locations of `entry`'s origins ([`RuleLocation`]), each file's reference taken
+/// from `references` (catalog path to [`shortest_reference`]).
+pub(super) fn locations(
+    entry: &CompiledRuleOutput,
+    references: &BTreeMap<&str, String>,
+) -> Vec<RuleLocation> {
     entry
         .origins
         .iter()
         .filter_map(|origin| {
             let (line, end_line) = origin.location.as_deref().and_then(span)?;
+            let source = catalog_path(origin.source.as_deref()?);
             Some(RuleLocation {
-                source: catalog_path(origin.source.as_deref()?).to_owned(),
+                source: source.to_owned(),
+                reference: references
+                    .get(source)
+                    .cloned()
+                    .unwrap_or_else(|| source.to_owned()),
                 line,
                 end_line,
             })

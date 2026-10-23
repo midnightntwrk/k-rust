@@ -96,10 +96,12 @@ pub enum RuleRef {
     /// `line`, from the line the rule starts on to the line it ends on. A rule is a span of its
     /// source, and rules do not nest, so any line of a rule names that rule alone.
     Source {
-        /// The source file: the catalog's `Source(path)` text, the path inside it, a suffix of
-        /// that path that starts after a `/` (`rules.k` for `Source(tests/rules/rules.k)`), or
-        /// an absolute path that ends with `/` and the catalog's relative path. Equal written
-        /// axioms share one catalog entry, so a reference to one of their positions names all.
+        /// The source file, which must name exactly one file of the catalog: the catalog's
+        /// path or its `Source(path)` text (a whole path names its file alone); else a suffix
+        /// of a path that starts after a `/` (`rules.k` for `Source(tests/rules/rules.k)`);
+        /// else an absolute path that ends with `/` and a relative catalog path. A source that
+        /// names several files is refused, whatever the line. Equal written axioms share one
+        /// catalog entry, so a reference to one of their positions names all.
         source: String,
         /// A one-based line of the rule: the line it starts on, or any later line it spans.
         line: u32,
@@ -123,50 +125,20 @@ pub struct RuleName {
 }
 
 impl RuleName {
-    /// The rule `id` of this name on one line: where it is written, its label in brackets, its
-    /// kind when it is an equation, and its unique id, as in
-    /// `imp.k:56 [IMP.mul] unique id 5872…`. An absolute source path that starts with the
-    /// directory `base` (a [`common_directory`]) is written without it.
+    /// The rule `id` of this name on one line: where it is written (each file by its
+    /// [`RuleLocation::reference`], so `FILE:LINE` as printed is a reference to the rule), its
+    /// label in brackets, its kind when it is an equation, and its unique id, as in
+    /// `imp.k:56 [IMP.mul] unique id 5872…`.
     #[must_use]
-    pub fn describe<'a>(&'a self, id: &'a str, base: &'a str) -> impl fmt::Display + 'a {
-        Described {
-            id,
-            name: self,
-            base,
-        }
+    pub fn describe<'a>(&'a self, id: &'a str) -> impl fmt::Display + 'a {
+        Described { id, name: self }
     }
-}
-
-/// The longest directory (ending with `/`) that starts every absolute path of `paths`, or the
-/// empty text when there is none. Paths written without it stay valid source references: a
-/// reference may name a catalog path by any suffix that starts after a `/`
-/// ([`RuleRef::Source`]), and a suffix that also names another file makes a reference to a
-/// line both files hold an ambiguity, never a guess.
-pub fn common_directory<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
-    let mut common: Option<&str> = None;
-    for path in paths.into_iter().filter(|path| path.starts_with('/')) {
-        let directory = &path[..=path.rfind('/').unwrap_or(0)];
-        common = Some(match common {
-            None => directory,
-            Some(common) => {
-                let shared = common
-                    .char_indices()
-                    .zip(directory.chars())
-                    .take_while(|((_, left), right)| left == right)
-                    .last()
-                    .map_or(0, |((index, character), _)| index + character.len_utf8());
-                &common[..=common[..shared].rfind('/').unwrap_or(0)]
-            }
-        });
-    }
-    common.unwrap_or_default().to_owned()
 }
 
 /// [`RuleName::describe`].
 struct Described<'a> {
     id: &'a str,
     name: &'a RuleName,
-    base: &'a str,
 }
 
 impl fmt::Display for Described<'_> {
@@ -178,12 +150,7 @@ impl fmt::Display for Described<'_> {
             if index > 0 {
                 f.write_str(", ")?;
             }
-            let source = location
-                .source
-                .strip_prefix(self.base)
-                .filter(|_| !self.base.is_empty() && location.source.starts_with('/'))
-                .unwrap_or(&location.source);
-            write!(f, "{source}:{}", location.line)?;
+            write!(f, "{}:{}", location.reference, location.line)?;
             if location.end_line > location.line {
                 write!(f, "-{}", location.end_line)?;
             }
@@ -207,6 +174,9 @@ impl fmt::Display for Described<'_> {
 pub struct RuleLocation {
     /// The source file as the catalog records it (the path inside its `Source(path)` text).
     pub source: String,
+    /// The shortest reference that names this file alone among the catalog's files: its
+    /// shortest suffix after a `/`, or the whole path ([`RuleRef::Source`]).
+    pub reference: String,
     /// The one-based line the entry starts on.
     pub line: u32,
     /// The one-based line it ends on.
@@ -215,9 +185,14 @@ pub struct RuleLocation {
 
 /// The names of every id of `catalog` ([`RuleName`]).
 pub(crate) fn rule_names(catalog: &[CompiledRuleOutput]) -> BTreeMap<String, RuleName> {
+    let files = rule::catalog_files(catalog);
+    let references: BTreeMap<&str, String> = files
+        .iter()
+        .map(|file| (*file, rule::shortest_reference(&files, file)))
+        .collect();
     let mut names: BTreeMap<String, RuleName> = BTreeMap::new();
     for entry in catalog {
-        let locations = rule::locations(entry);
+        let locations = rule::locations(entry, &references);
         names
             .entry(entry.id.clone())
             .and_modify(|name| name.locations.extend(locations.iter().cloned()))

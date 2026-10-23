@@ -74,9 +74,26 @@ fn write_compiled(fixture: &'static Fixture, directory: &Path) {
 /// Write the compiled directory of the definition `source`, named `file`, whose main module is
 /// `main_module`, to `directory`, as `krust kcompile` writes it.
 fn write_compiled_source(file: &str, source: &str, main_module: &str, directory: &Path) {
+    write_compiled_with(file, source, main_module, &[], directory);
+}
+
+/// [`write_compiled_source`], with `requires` (name, text) resolving the definition's
+/// `requires` beside k-rust's embedded builtins.
+fn write_compiled_with(
+    file: &str,
+    source: &str,
+    main_module: &str,
+    requires: &[(&str, &str)],
+    directory: &Path,
+) {
     fs::create_dir_all(directory).expect("the compiled directory is created");
     let mut resolver = |_: &str, required: &str| {
-        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        requires
+            .iter()
+            .find(|(name, _)| *name == required)
+            .map(|(name, text)| ResolvedSource::new(*name, *text))
+            .or_else(|| embedded(required))
+            .ok_or_else(|| format!("unexpected require {required}"))
     };
     let options = LoadOptions {
         implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
@@ -1044,6 +1061,27 @@ fn an_unlabelled_rule_is_targeted_by_source_line_or_unique_id() {
         ],
     );
     assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    // A run without a witness still names the rule the reference resolved to (review S2).
+    let report = json_value(&output);
+    assert_eq!(report["outcome"]["status"], "no-witness-found", "{report}");
+    let target = &report["identity"]["target-rule"];
+    assert_eq!(target["name"]["locations"][0]["line"], 47, "{report}");
+    assert_eq!(
+        target["name"]["locations"][0]["reference"], "imp.k",
+        "{report}"
+    );
+    let id = target["id"].as_str().expect("the target rule's id");
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "and.toml", "--reach-rule", "imp.k:47"],
+    );
+    let stdout = text(&output.stdout);
+    assert!(
+        stdout.starts_with(&format!(
+            "no witness found\ntarget rule: imp.k:47 unique id {id}\n"
+        )),
+        "{stdout}"
+    );
 }
 
 /// FZ-RULEREF: a source reference names the rule whose span holds the line, not only the rule
@@ -1107,10 +1145,13 @@ fn an_unknown_rule_reference_lists_candidates() {
     // The rules starting nearest a line between rules (55 is blank; 56 is `*`).
     refused(
         "imp.k:55",
-        &["line 55 of `imp.k`", "imp/imp.k:56", "imp/imp.k:54"],
+        &["line 55 of `imp.k`", "\n  imp.k:56", "\n  imp.k:54"],
     );
     // A file that holds no rule: the files that do.
-    refused("nosuch.k:3", &["nosuch.k", "imp/imp.k"]);
+    refused(
+        "nosuch.k:3",
+        &["nosuch.k", "rules are written in:\n  imp.k"],
+    );
     // An id of no catalog entry.
     refused(&"0".repeat(64), &["unique id", &"0".repeat(64)]);
 }
@@ -1135,7 +1176,118 @@ fn the_summary_names_the_rules_the_campaign_reached() {
         "{stdout}{}",
         text(&output.stderr)
     );
-    for needle in ["imp/imp.k:57", "imp/imp.k:73", "IMP.assign"] {
+    for needle in [
+        "target rule: imp.k:57 unique id",
+        "\n  imp.k:73 [IMP.assign]",
+    ] {
         assert!(stdout.contains(needle), "no `{needle}` in {stdout}");
+    }
+}
+
+/// FZ-RULEREF review B1: a source position whose file names two files of the definition is
+/// refused whatever the line. `a/rules.k` has a rule on line 5, where `b/rules.k` has a comment;
+/// `rules.k:5` once resolved to `a`'s rule.
+#[test]
+fn a_file_that_names_two_files_is_refused_at_every_line() {
+    let campaign = "definition = \"main-kompiled\"\nprogram = \"p.pgm\"\ncases = 5\n\
+                    [[hole]]\nname = \"I\"\nsort = \"Int\"\nfind = \"3\"\nliteral = \"3\"\n";
+    let directory = workspace(
+        "rule-two-files",
+        &[],
+        &[
+            ("p.pgm", include_str!("data/dup/p.pgm")),
+            ("c.toml", campaign),
+        ],
+    );
+    write_compiled_with(
+        "dup/main.k",
+        include_str!("data/dup/main.k"),
+        "MAIN",
+        &[
+            ("a/rules.k", include_str!("data/dup/a/rules.k")),
+            ("b/rules.k", include_str!("data/dup/b/rules.k")),
+        ],
+        &directory.join("main-kompiled"),
+    );
+    for rule in ["rules.k:5", "rules.k:7"] {
+        let output = krust_fuzz(&directory, &["--campaign", "c.toml", "--reach-rule", rule]);
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{rule}: {stderr}");
+        assert!(
+            stderr.contains(
+                "`rules.k` names 2 files of the definition; name one by a longer \
+                             path:\n  a/rules.k\n  b/rules.k"
+            ),
+            "{rule}: {stderr}"
+        );
+    }
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "c.toml", "--reach-rule", "b/rules.k:5"],
+    );
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("\n  b/rules.k:7 unique id"), "{stderr}");
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "c.toml", "--reach-rule", "a/rules.k:5"],
+    );
+    let stdout = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&output.stderr)
+    );
+    assert!(
+        stdout.contains("\ntarget rule: a/rules.k:5 unique id "),
+        "{stdout}"
+    );
+}
+
+/// FZ-RULEREF review S3: SIMPLE untyped (the pl-tutorial definition, without its `stream`
+/// attributes), whose rules carry no label: TRIAL2 item 15's `popx`, which spans lines 915-916,
+/// and the `try` rule, which spans 908-913, are reached by any of their lines.
+#[test]
+fn a_simple_rule_is_targeted_by_any_line() {
+    let campaign = "definition = \"simple-kompiled\"\nprogram = \"exc.simple\"\nsort = \"Stmt\"\n\
+                    seed = 1\ncases = 50\n[target]\nmode = \"covered\"\nrun-to-completion = true\n\
+                    [options]\nmax-work = 50000\nnormal-end-pattern = \"<threads> .Bag </threads>\"\n\
+                    [[hole]]\nname = \"TH\"\nsort = \"Int\"\nfind = \"x > 5\"\nliteral = \"5\"\n\
+                    range = { min = 0, max = 20 }\n";
+    let directory = workspace(
+        "rule-simple",
+        &[],
+        &[
+            ("exc.simple", include_str!("data/simple/exc.simple")),
+            ("exc.toml", campaign),
+        ],
+    );
+    write_compiled_source(
+        "simple/simple.md",
+        include_str!("data/simple/simple.md"),
+        "SIMPLE-UNTYPED",
+        &directory.join("simple-kompiled"),
+    );
+    for (rule, location) in [
+        ("simple.md:915", "simple.md:915-916"),
+        ("simple.md:916", "simple.md:915-916"),
+        ("simple.md:910", "simple.md:908-913"),
+    ] {
+        let output = krust_fuzz(
+            &directory,
+            &["--campaign", "exc.toml", "--reach-rule", rule],
+        );
+        let stdout = text(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{rule}: {stdout}{}",
+            text(&output.stderr)
+        );
+        assert!(
+            stdout.contains(&format!("\ntarget rule: {location} unique id ")),
+            "{stdout}"
+        );
     }
 }
