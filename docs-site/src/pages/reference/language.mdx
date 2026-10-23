@@ -273,6 +273,70 @@ Narrowing one binder therefore means declaring all of them, each other one at it
 A partial or misordered list, a binder declared twice, and a declared binder the subject never binds are syntax errors.
 KRS has no strict cast `::S` or `{T}<:S`: rule bodies are resolved Rust paths, never parsed by K, so there is nothing to disambiguate; `k::project!` is the cast a rule computes with.
 
+### Typed collections
+
+A cell declared `env: Map<Id, Value>` says what every reachable configuration holds there: each key of the map is an `Id` and each value a `Value`.
+K's collections hold `KItem`s, so K neither states nor checks that; KRS checks it, and the element types are erased from the emitted K.
+A collection type is `Map<K, V>`, `List<T>`, or `Set<T>`; each argument is a sort, `k::Term<S>` or `k::Term<dyn S>` (read as `S`), or a collection type itself, as in KEVM's `accessed_storage: Map<Int, Set<Int>>`.
+A bare `Map`, `List`, or `Set` is untyped and accepts every write; `Map<Id>`, one argument where a map takes two, is an error.
+
+The check is an induction over transitions: if the initializer fits the declared types and every rule writes only fitting terms, assuming every binder matched in a typed cell has that cell's type, then every reachable configuration fits.
+So a pattern gives types and a written term is checked:
+
+- A binder matched at a typed position takes its type: `env: e` gives `e` the type `Map<Id, Value>`, as do the rest of a typed `map![..]` pattern, a typed child of a group or collection instance, and a value read from a typed map (`nested: { name -> s, .. }` gives `s` the type `Set<Int>`).
+  The binder's declared sort, `k::Term<Map>` in a `cells!` rule, names only the sort, which is why `krs expand`'s reference rules check exactly as the readable ones do.
+- A key, value, or element written into a typed collection (the `k` and `v` of `map::update(m, k, v)`, the `x` of `list::item(x)` or `set::item(x)`, an entry of `map![..]` or `k::map![..]`) is inferred at the element sort, like any other occurrence: a binder used there and nowhere narrower gets that sort, and one whose other occurrences share no sort with it is an error.
+- A collection written into a typed position must fit it. Collections are values, so every argument is covariant: a `Map<Id, Int>` fits `Map<Id, Value>` because `Int` is a `Value`, `.Map`, `.List`, and `.Set` fit every type, and a `Map<Id, Value>` does not fit `Map<Id, Int>`.
+- A read has the element sort: `map::get(e, name)` is a `Value`, projected to the sort its position expects, or a `Value` where no position expects a sort, so `map::get(locals, name) + 1` over a `Map<Id, Int>` is `Int` addition. A read that asks for a sort the collection never holds is an error: `map::get(e, name)` where a `Stmt` is expected, `where v: Stmt` on a value read from `env`, or `map::in_keys(n, e)` with an `Int` key.
+
+Every write path is checked: readable rule and claim results, claim left-hand sides, `cells!` rules, single-body rewrites, group and collection-instance records, `k::fragment!` terms, and initializer values.
+The operations type as their K meaning says:
+
+| Operation | Operands | Result |
+| --- | --- | --- |
+| `map::empty()`, `list::empty()`, `set::empty()` | | fits every type |
+| `map::update(m, k, v)`, `map::update_all(m, n)` | the maps at the position's type, `k` at `K`, `v` at `V` | the position's type |
+| `map::remove(m, k)`, `map::remove_all(m, s)` | `m` at the position's type, `k` read at `K` | the position's type |
+| `map::get(m, k)`, `map::get_or_default(m, k, d)` | `k` read at `K`, `d` at `V` | `V` |
+| `map::in_keys(k, m)` | `k` read at `K` | `Bool` |
+| `map::keys`, `keys_list`, `values` | | `Set<K>`, `List<K>`, `List<V>` |
+| `list::item(x)`, `list::make(n, x)`, `list::update(l, i, x)` | `x` at `T`, `l` at the position's type | the position's type |
+| `list::concat`, `list::range`, `list::update_all` | the lists at the position's type | the position's type |
+| `list::get(l, i)`, `list::contains(x, l)` | `x` read at `T` | `T`, `Bool` |
+| `set::item(x)`, `set::concat`, `set::union` | `x` at `T`, the sets at the position's type | the position's type |
+| `set::difference(a, b)`, `set::intersect(a, b)` | `a` at the position's type, `b` any set | the position's type |
+| `set::contains(x, s)` | `x` read at `T` | `Bool` |
+| `set::to_list(s)`, `set::from_list(l)` | | `List<T>`, `Set<T>` |
+| `kequal::ite(c, t, e)` | both branches at the position's type | the position's type |
+
+"At" a sort means inferred and checked there; "read at" means the operand must share a sort with the element sort, since a probe for an element of another sort is merely never found.
+A rule fn's binder declaration and a `where` narrowing still name only the sort (`where log: List` rather than `List<BusCycle>`, `krs::syntax::parametric-collection-sort`): a narrowing is a runtime sort test, and K cannot test the elements of a collection.
+
+The rule this check exists for stores a statement in a `Map<Id, Value>` store through a nested update:
+
+```rust
+store: {
+    k: [Assign(name, _), s, ..],
+    env: e,
+} => {
+    k: [..],
+    env: map::update(map::update(e, name, 0), name, s),
+}
+where s: Stmt;
+```
+
+```text
+error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value
+```
+
+K would accept the rule; the `Stmt` it stores makes a later read `Name |-> V:Value` of `env` fail to match, so the program gets stuck far from the cause.
+
+A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell or in a constructor field, a function's result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)`.
+Constructor fields and function signatures do not take element types yet, so writing an untyped collection into a typed cell is reported as `warning[krs::analysis::untyped-collection]` rather than rejected: `MarkAccountAccess(..)` returns an untyped `Set`, so nothing checks the elements it writes to the cell `accessed_accounts`, declared `Set<Int>`.
+KEVM's and KMIR's ports carry such writes (KEVM 42 in 30 rules, KMIR 6 in 6 rules), each of them from a function result or a constructor field.
+A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
+A configuration variable of `#[k::init]` is not checked here: its Rust type is the cell's, which rustc checks.
+
 ### Pattern aliases
 
 `p @ Pair(a, b)` in a left-hand side is the Rust pattern you know: it matches what `Pair(a, b)` matches and also binds `p` to the whole matched term.
@@ -1050,6 +1114,7 @@ The Rust item a constant expands to is a unit struct of the same name, which giv
 `KResult` marks terms that count as evaluated results for strictness.
 `KSequence` is the symbolic computation sequence sort.
 The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
+The arguments of a collection cell's type are its element types, which every term written into the cell is checked against ([Typed collections](#typed-collections)); K's collection sorts themselves are not parametric.
 K's `String` sort is `string::String`: write `use k::builtin::string;` and `string::String`, so Rust's own `String` stays in scope (`k::builtin::String` remains as a root spelling).
 
 ## Builtin operation catalog
@@ -1224,6 +1289,6 @@ assert_eq!(regs.as_map().unwrap()[&a], 7.into());
 - A configuration value is typed as its text would be, and must have at most the variable's declared sort. A value names its constructor, so it is never ambiguous: as text, a `Map` key is parsed at `KItem`, where a terminal two sorts share (`c`) has two readings.
 - A cell path is the chain of Rust field names below the configuration, joined by `.`, so a cell renamed with `#[k::cell(name = "eiPending")]` is still `ei_pending`. `StateView::value` reads a leaf cell, `at` a group cell as a sub-view, `present` whether an optional cell exists, and `instances` the instances of a repeated cell.
 - `Semantics::views` gives one view per disjunct of a search or proof state (`View::Bottom` for `#Bottom`), each with the predicates conjoined with its configuration as `constraints()`.
-- `Map<Reg, Int>`-style arguments of KRS collection types are Rust-side documentation: K's collections are not parametric, and a value is checked only against K's signature.
+- A configuration value is checked against K's signature only: the element types of a `Map<Reg, Int>` cell are checked in the definition's rules and initializer ([Typed collections](#typed-collections)), not in the values given to `configure` or `krs run -c`, which may hold elements of any sort.
 
 For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).

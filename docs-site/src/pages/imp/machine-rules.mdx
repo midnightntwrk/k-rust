@@ -33,7 +33,8 @@ Map lookup in a pattern and persistent update on a result are different operatio
 Neither reads or mutates a host `HashMap` during definition collection.
 
 `where name: Id` and `where value: Value` narrow binders to the sorts required by the cell and builtin operations.
-A narrowing is a sort test, so it names a sort: K's `List`, `Map`, and `Set` are each one unparameterized sort, and `where log: List<BusCycle>` is rejected with a pointer to `where log: List`; the same holds for a field's or a `k::Term<..>` sort.
+A narrowing is a sort test, so it names a sort: K's `List`, `Map`, and `Set` are each one unparameterized sort, and a test cannot see a collection's elements, so `where log: List<BusCycle>` is rejected with a pointer to `where log: List`; the same holds for a field's or a `k::Term<..>` sort.
+Element types are written on the cell instead: `env: Map<Id, Value>` makes `value` a `Value` because `assign` stores it in `env`, and rejects a rule that stores anything else there ([typed collections](/reference/language#typed-collections)).
 Clause source order remains semantically irrelevant.
 The clause names identify the authored rule sentences; constructor and cell identities still come from their Rust-resolved declarations.
 
