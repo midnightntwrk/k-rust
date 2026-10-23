@@ -608,6 +608,21 @@ fixture!(
     "IMP",
     IMP_DIFF_PROGRAMS
 );
+// FZ-POLISH: kink's `and-true-ignores-rhs` (TRIAL2 item 5, whose shrunk witness left `M = 8`
+// where 1 kills), and `add-becomes-sub`, which diverges on `sum.imp`'s loop while the baseline
+// ends (TRIAL2 S-T5).
+fixture!(
+    IMP_AND_TRUE_IGNORES_RHS,
+    "imp-diff/imp-and-true-ignores-rhs.k",
+    "IMP",
+    IMP_DIFF_PROGRAMS
+);
+fixture!(
+    IMP_ADD_BECOMES_SUB,
+    "imp-diff/imp-add-becomes-sub.k",
+    "IMP",
+    IMP_DIFF_PROGRAMS
+);
 
 /// The claim pair (FZ-DIFFEND): a baseline that stops abnormally on `go(0)` and three mutants
 /// whose step on `go(0)` is undefined, without a claim, against a `total` claim and against a
@@ -949,7 +964,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 74] = [
+pub static ALL: [&Fixture; 76] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -994,6 +1009,8 @@ pub static ALL: [&Fixture; 74] = [
     &IMP_DIV_GUARD_DROPPED,
     &IMP_DECL_ALLOWS_REDECLARATION,
     &IMP_ADD_COMMUTED,
+    &IMP_AND_TRUE_IGNORES_RHS,
+    &IMP_ADD_BECOMES_SUB,
     &CLAIMSTEP,
     &CLAIMSTEP_PARTIAL,
     &CLAIMSTEP_TOTAL,

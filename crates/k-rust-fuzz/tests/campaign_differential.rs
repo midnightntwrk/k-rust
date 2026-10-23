@@ -21,10 +21,10 @@ use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
-    IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
-    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
-    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
+    IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF,
+    IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE,
+    R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M,
+    R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -850,4 +850,36 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     assert!(report.witness().is_none(), "{:?}", report.outcome);
     assert_only_unsupported(&report);
     assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// TRIAL2 item 5 (FZ-POLISH N-T2): blind sampling at seed 8 kills `and-true-ignores-rhs` on
+/// `primes.imp` with `M = 8, N = 8, I = 1, T = 0`, as TRIAL2's seed did. `M` cannot shrink while
+/// `N` is 8 (the outer loop `n <= m` is not entered), and only once `N` has shrunk to 0 does
+/// `M = 1` kill; shrinking repeats its passes over every hole, value trees included, so `M` ends
+/// at 1 (TRIAL2 was left with `M = 8`, its tree having been spent before `N` moved).
+#[test]
+fn shrinking_revisits_every_hole_and_ends_at_m_1() {
+    let mut spec = trial_spec(
+        &IMP_DIFF,
+        &IMP_AND_TRUE_IGNORES_RHS,
+        "imp-diff/primes.imp",
+        primes_holes(),
+        Vec::new(),
+        PathMode::OnePath,
+    );
+    spec.seed = 8;
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(300), None);
+    let witness = report.witness().expect("a kill");
+    let show = |case: &k_rust_fuzz::report::WitnessCase| {
+        case.holes
+            .iter()
+            .map(|hole| format!("{}={}", hole.name, hole.k_text.as_deref().unwrap_or("?")))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    assert_eq!(show(&witness.first), "M=8, N=8, I=1, T=0");
+    let shrunk = witness.shrunk.as_ref().expect("a shrunk witness");
+    assert_eq!(show(shrunk), "M=1, N=0, I=1, T=0");
 }

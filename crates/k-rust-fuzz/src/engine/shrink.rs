@@ -1,11 +1,24 @@
 //! Shrinking a confirmed witness (ARCHITECTURE 7). Owner: FZ-06.
 //!
-//! Blindly generated values shrink along their proptest value trees, which stay inside the
-//! hole's sort and constraints. Other values (anchors, explicit assignments) shrink by integer
-//! moves towards the admissible value nearest zero and by length moves towards the shortest
-//! admissible prefix, each a bisection between the last candidate that still hit and the
-//! target. Every candidate goes through the caller's test, which confirms it; a candidate is
-//! kept only when the test says it still hits.
+//! Every hole first tries its least value: the admissible integer nearest zero (0, or the
+//! range's bound nearest it), or the shortest admissible prefix. A hole the witness does not
+//! need then ends there, whatever its value tree would have done: a tree shrinks by bisection,
+//! which stops early when the hit is not monotone in the hole (a kill that needs the value at
+//! 1 but not at 4).
+//!
+//! Blindly generated values then shrink along their proptest value trees, which stay inside the
+//! hole's sort and constraints. After that every hole, with a tree or not, shrinks by integer
+//! moves towards its least value and by length moves towards its shortest prefix, each a
+//! bisection between the last candidate that still hit and the target, in passes that repeat
+//! while one makes progress: a hole whose smaller values miss while another hole is large (a
+//! loop bound below its start) may shrink once the other has (TRIAL2 item 5).
+//!
+//! Each move changes one hole. A witness that needs a relation between holes (`X * 2 == Y +
+//! 1000`) keeps it only through values where one hole alone can move, so it may end larger
+//! than the smallest assignment that keeps the relation; joint moves are not tried.
+//!
+//! Every candidate goes through the caller's test, which confirms it; a candidate is kept only
+//! when the test says it still hits.
 
 use num_bigint::{BigInt, BigUint};
 use num_traits::{Signed as _, Zero as _};
@@ -38,23 +51,21 @@ pub(crate) fn shrink(
         test,
         stopped: false,
     };
-    let mut moved: Vec<bool> = vec![false; values.len()];
+    let default = Constraints::default();
+    let bounds = |hole: usize| constraints.get(hole).unwrap_or(&default);
     for (hole, tree) in trees.into_iter().enumerate() {
-        if let Some(tree) = tree {
-            moved[hole] = true;
+        if let Some(tree) = tree
+            && !shrinker.to_least(hole, bounds(hole))
+        {
             shrinker.along_tree(hole, tree);
         }
     }
-    // Moves of one hole can let another shrink further, so passes repeat until none progresses.
+    // Moves of one hole can let another shrink further, so passes over every hole repeat until
+    // none progresses.
     loop {
         let mut progressed = false;
-        for (hole, has_tree) in moved.iter().enumerate() {
-            if *has_tree {
-                continue;
-            }
-            let default = Constraints::default();
-            let bounds = constraints.get(hole).unwrap_or(&default);
-            progressed |= shrinker.by_moves(hole, bounds);
+        for hole in 0..shrinker.current.len() {
+            progressed |= shrinker.by_moves(hole, bounds(hole));
         }
         if !progressed || shrinker.stopped {
             break;
@@ -108,6 +119,15 @@ impl Shrinker<'_> {
             if !more {
                 return;
             }
+        }
+    }
+
+    /// Try hole `hole` at its least value ([`least`]), when that is another value; whether it
+    /// was kept.
+    fn to_least(&mut self, hole: usize, constraints: &Constraints) -> bool {
+        match least(&self.current[hole], constraints) {
+            Some(value) if value != self.current[hole] => self.try_value(hole, value),
+            _ => false,
         }
     }
 
@@ -172,6 +192,31 @@ impl Shrinker<'_> {
             } else {
                 miss = middle;
             }
+        }
+    }
+}
+
+/// The least value [`Shrinker::by_moves`] moves `value` towards: for an integer, the
+/// admissible integer nearest zero; for a value with a length, its shortest admissible prefix;
+/// `None` for any other value.
+fn least(value: &Value, constraints: &Constraints) -> Option<Value> {
+    match value {
+        Value::Int(_) => Some(Value::Int(int_target(constraints))),
+        Value::MInt { width, .. } => Some(Value::MInt {
+            width: *width,
+            value: int_target(constraints)
+                .max(BigInt::zero())
+                .to_biguint()
+                .unwrap_or_else(BigUint::zero),
+        }),
+        value => {
+            let length = length_of(value)?;
+            let target = constraints
+                .length
+                .and_then(|range| range.min)
+                .map_or(0, |min| usize::try_from(min).unwrap_or(usize::MAX))
+                .min(length);
+            Some(prefix(value, target))
         }
     }
 }
