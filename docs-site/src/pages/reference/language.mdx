@@ -235,7 +235,7 @@ A nested entry is a group binder, `_` (patterns only), or a complete group term;
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
 rustc resolves the record's path with the block's `use Cmd::*` in scope, as it resolves every unqualified path in the block, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
 At the group's own cell position, the subject's record matches the running configuration's cell, so it leaves the children it does not name unconstrained, with or without `..`: `frame: Frame { pc: p }` and `frame: Frame { pc: p, .. }` both emit `<frame> <pc> P:Int </pc> <gas> _ </gas> </frame>`.
-Anywhere else, a group record is the group's cell term, a value of its cell sort like any constructor term: in a list element (`list::item(saved @ Frame { pc: p, .. })`), a constructor argument (`Held { saved: Frame { pc: p, gas: g } }`), an alias target, or a result.
+Anywhere else, a group record is the group's cell term, a value of its cell sort like any constructor term: in a list element (`stack: [saved @ Frame { pc: p, .. }, rest @ ..]`), a constructor argument (`Held { saved: Frame { pc: p, gas: g } }`), an alias target, or a result.
 It means exactly `k::fragment![Frame { .. }]` there, which may also be written in each of those places, and as a value it is complete: a pattern ends in `..` to leave the children it does not name unconstrained, and without `..` names every child (`krs::analysis::invalid-term` otherwise).
 A record pattern may name no field at all, as in Rust: `Projection::DerefTruncate { .. }` or `frame: Frame { .. }` matches that constructor or group whatever its fields hold, and is the pattern that writes each field `_` (`krs expand` writes `DerefTruncate(_)`), in readable rules and claims, `k::equations!` rows, and the subjects of `#[k::rule]`, `#[k::equation]`, and `#[k::simplification]` fns, with or without `k::term![..]`; `Ctor()` and `Ctor {}` still name every field, so they are rejected for a constructor that has fields.
 A result group record names every child, or [updates a matched group](#updating-a-matched-record).
@@ -400,12 +400,12 @@ In a readable record, `frame: saved @ Frame { pc: p, .. }` matches the group and
 ```rust
 return_from_call: {
     k: [Return { gas_left }, ..],
-    call_stack: list::concat(list::item(saved @ CallState { word_stack: s, gas: g, .. }), rest),
+    call_stack: [saved @ CallState { word_stack: s, gas: g, .. }, ..],
     call_state: _,
 } => {
     k: [..],
-    call_stack: rest,
-    call_state: CallState { word_stack: Stack::StackCons(1, s), gas: int::add(g, gas_left), local_mem: bytes::empty(), ..saved },
+    call_stack: [..],
+    call_state: CallState { word_stack: [1, ..s], gas: int::add(g, gas_left), local_mem: bytes::empty(), ..saved },
 };
 ```
 
