@@ -443,6 +443,8 @@ fn configuration_content(
                     facade,
                     owner,
                     owner_key,
+                    cfg: &[],
+                    role: ProvenanceRole::ConfigurationCellContentArgument,
                     helpers,
                     slots,
                     ordinal: argument_ordinal,
@@ -491,19 +493,26 @@ fn configuration_content(
 
 /// What [`configuration_sort_arguments`] needs to emit one argument's
 /// `TypeId` helper and wire reference.
-struct SortArgumentContext<'a, 'b> {
-    facade: &'a Path,
-    owner: &'a Ident,
-    owner_key: &'a Ident,
-    helpers: &'a mut Vec<TokenStream>,
-    slots: &'a mut WireSlots,
-    /// The next `configuration_cell_content_argument` ordinal.
-    ordinal: &'b mut u32,
+pub(super) struct SortArgumentContext<'a, 'b> {
+    pub(super) facade: &'a Path,
+    /// The type whose associated helpers the keys are.
+    pub(super) owner: &'a Ident,
+    /// Distinguishes the helpers' names.
+    pub(super) owner_key: &'a Ident,
+    /// The `cfg` attributes the helpers carry.
+    pub(super) cfg: &'a [syn::Attribute],
+    /// The arguments' provenance role: a cell's content or a configuration
+    /// variable's type.
+    pub(super) role: ProvenanceRole,
+    pub(super) helpers: &'a mut Vec<TokenStream>,
+    pub(super) slots: &'a mut WireSlots,
+    /// The next ordinal of `role`.
+    pub(super) ordinal: &'b mut u32,
 }
 
-/// The wire tree of a leaf cell's collection arguments, numbered in
-/// preorder as the syntax numbers their provenance.
-fn configuration_sort_arguments(
+/// The wire tree of a cell's or a configuration variable's collection
+/// arguments, numbered in preorder as the syntax numbers their provenance.
+pub(super) fn configuration_sort_arguments(
     arguments: &[krs_syntax::SortArgument],
     context: &mut SortArgumentContext<'_, '_>,
 ) -> crate::Result<Vec<krs_ir::ProtocolSortArgument<WireSortReference>>> {
@@ -519,7 +528,9 @@ fn configuration_sort_arguments(
             context.owner_key,
             *context.ordinal
         );
+        let cfg = context.cfg;
         context.helpers.push(quote! {
+            #(#cfg)*
             #[doc(hidden)]
             pub fn #key() -> ::core::any::TypeId {
                 ::core::any::TypeId::of::<#ty>()
@@ -534,7 +545,7 @@ fn configuration_sort_arguments(
             )
         })?;
         let sort = WireSortReference {
-            key: wire_key(ProvenanceRole::ConfigurationCellContentArgument, ordinal),
+            key: wire_key(context.role, ordinal),
             target: WireTypeReference {
                 slot: context
                     .slots

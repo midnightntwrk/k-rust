@@ -45,10 +45,10 @@ use std::fmt::{self, Write as _};
 
 use krs_ir::{
     BuiltinSort, CellSortArgument, CollectionApplication, Descriptor, DescriptorApplicationRef,
-    DescriptorCellField, DescriptorIndex, DescriptorSortArgument, DescriptorSortRef,
-    DescriptorTerm, ListNotation, ListOperation, OperationSort, ProtocolCellContent,
-    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation,
-    StableItemId, TermMapOperation,
+    DescriptorCellField, DescriptorConfigurationVariable, DescriptorIndex, DescriptorSortArgument,
+    DescriptorSortRef, DescriptorTerm, ListNotation, ListOperation, OperationSort,
+    ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm,
+    ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
 };
 use krs_ir_levels::SemanticSortRef;
 
@@ -98,6 +98,25 @@ impl SortType {
             &sort.key,
         )?;
         Ok(Some(ty))
+    }
+
+    /// The declared type of a configuration variable: its parameter's sort
+    /// and, for a collection, the element types it states. A collection type
+    /// with the wrong number of arguments is an error.
+    pub(super) fn of_variable(
+        variable: &DescriptorConfigurationVariable,
+        descriptor: &Descriptor,
+    ) -> Result<Self, DescriptorLoweringError> {
+        let ty = Self {
+            sort: semantic_sort_ref(&variable.sort.sort),
+            arguments: variable.arguments.iter().map(Self::of_argument).collect(),
+        };
+        ty.check_arity(
+            &format!("{},", Owner::variable(variable).describe()),
+            descriptor,
+            &variable.sort.key,
+        )?;
+        Ok(ty)
     }
 
     /// The type of a production's field or result: its sort and the element
@@ -352,6 +371,37 @@ enum Owner {
     },
     /// A function's result.
     Result(String),
+    /// A configuration variable of an initializer, by its Rust binding and
+    /// its external name without `$`.
+    Variable { binding: String, external: String },
+}
+
+impl Owner {
+    fn variable(variable: &DescriptorConfigurationVariable) -> Self {
+        Self::Variable {
+            binding: variable.binding.clone(),
+            external: variable.external_name.clone(),
+        }
+    }
+
+    /// The owner alone, as in "`xs`, the configuration variable `$XS`".
+    fn describe(&self) -> String {
+        match self {
+            Self::Cell(cell) => format!("the cell `{cell}`"),
+            Self::Field {
+                production,
+                field,
+                parameter,
+            } => format!(
+                "the {} `{field}` of `{production}`",
+                if *parameter { "parameter" } else { "field" }
+            ),
+            Self::Result(function) => format!("the result of `{function}`"),
+            Self::Variable { binding, external } => {
+                format!("`{binding}`, the configuration variable `${external}`")
+            }
+        }
+    }
 }
 
 /// A typed position: a cell, a constructor field, a function parameter or
@@ -422,19 +472,7 @@ impl Position {
                 }
             }
         }
-        let _ = match &self.owner {
-            Owner::Cell(cell) => write!(text, "the cell `{cell}`"),
-            Owner::Field {
-                production,
-                field,
-                parameter,
-            } => write!(
-                text,
-                "the {} `{field}` of `{production}`",
-                if *parameter { "parameter" } else { "field" }
-            ),
-            Owner::Result(function) => write!(text, "the result of `{function}`"),
-        };
+        text.push_str(&self.owner.describe());
         text
     }
 
@@ -463,9 +501,10 @@ enum Matched {
     Typed(Box<(SortType, Position)>),
     /// Matched in a bare collection cell.
     Untyped(String),
-    /// Fits every type: a configuration variable of an initializer, whose
-    /// Rust type rustc checks is the cell's, or a claim's existential, which
-    /// stands for whatever the state holds.
+    /// Fits every type that sort inference lets it stand at: a configuration
+    /// variable of a sort that is not a collection, whose occurrences sort
+    /// inference checks against its declared sort, or a claim's existential,
+    /// which stands for whatever the state holds.
     Checked,
 }
 
@@ -662,6 +701,34 @@ impl<'a> Walker<'a> {
                 .binders
                 .insert(name.to_owned(), Matched::Checked);
         }
+    }
+
+    /// Binds each configuration variable of an initializer at its declared
+    /// type, as a typed function's equation binds its parameters: a variable
+    /// of a typed collection type is a binder of that type, whose every
+    /// placement is a checked flow; one of a bare collection type is an
+    /// untyped source; any other is checked by sort inference. Execution
+    /// checks each value against the same type, so the two meet at the
+    /// variable boundary wherever the initializer places it.
+    pub(super) fn variables(
+        &mut self,
+        variables: &[DescriptorConfigurationVariable],
+    ) -> Result<(), DescriptorLoweringError> {
+        for variable in variables {
+            let ty = SortType::of_variable(variable, self.descriptor)?;
+            let owner = Owner::variable(variable);
+            let matched = if ty.is_typed() {
+                Matched::Typed(Box::new((ty.clone(), Position::of(owner, ty))))
+            } else if ty.kind().is_some() {
+                Matched::Untyped(format!("{}, is declared `{ty}`", owner.describe()))
+            } else {
+                Matched::Checked
+            };
+            self.typing
+                .binders
+                .insert(variable.binding.clone(), matched);
+        }
+        Ok(())
     }
 
     /// The content type and position of a leaf cell.
@@ -1453,7 +1520,11 @@ impl<'a> Walker<'a> {
         match self.typing.binders.get(name) {
             Some(Matched::Typed(typed)) => Source::Typed(
                 Box::new(typed.0.clone()),
-                format!("`{name}`, matched as {},", typed.1.describe()),
+                if matches!(typed.1.owner, Owner::Variable { .. }) {
+                    format!("{},", typed.1.describe())
+                } else {
+                    format!("`{name}`, matched as {},", typed.1.describe())
+                },
             ),
             Some(Matched::Untyped(reason)) => Source::Untyped(reason.clone()),
             Some(Matched::Checked) => Source::Fits,

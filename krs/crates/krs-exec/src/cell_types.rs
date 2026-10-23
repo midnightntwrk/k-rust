@@ -1,14 +1,18 @@
-//! The element types of typed collection cells, checked on the values a configuration is given.
+//! The element types of collection-typed configuration variables, checked on the values a
+//! configuration is given.
 //!
 //! A cell declared `env: Map<Id, Value>` states an invariant of every reachable configuration:
 //! each key of the cell is an `Id` and each value a `Value`. K erases element types, so K neither
 //! states nor checks it. The compiler proves the induction step, that every rule keeps the
-//! invariant (`krs::analysis::collection-element-sort`), and checks the initializer's own terms.
-//! The base case also needs every configuration variable that fills a typed cell to hold a value
-//! of the cell's type, and only execution sees that value: [`CellTypes::check`] is that check,
-//! which [`crate::Semantics::configure`] and [`crate::Semantics::configure_surface`] apply to
-//! every configuration they assemble, whether a variable was given as text (`krs run -c
-//! NAME=TEXT`) or as a [`crate::Value`].
+//! invariant (`krs::analysis::collection-element-sort`), and checks the initializer's terms
+//! assuming each configuration variable holds a value of its declared type: its `#[k::init]`
+//! parameter's type, element types included (`xs: List<Value>`). The base case also needs each
+//! value to have that type, and only execution sees the value: [`CellTypes::check`] is that
+//! check, which [`crate::Semantics::configure`] and [`crate::Semantics::configure_surface`] apply
+//! to every configuration they assemble, whether a variable was given as text (`krs run -c
+//! NAME=TEXT`) or as a [`crate::Value`]. It needs no knowledge of where the initializer places
+//! the variable: the whole content of a cell, an operand of `list::concat`, an argument, or an
+//! untyped position alike.
 //!
 //! An element fits when its sort is at most the declared element sort in the definition's sort
 //! lattice, and a nested collection is checked against its own element types. A part is
@@ -27,10 +31,8 @@ use k_rust::{
     k_rust_backend::{definition::BackendDefinition, matching::SortGraph, term::Sort},
     kore::ast::Pattern,
 };
-use krs_ir::{BuiltinSort, CellSortArgument, FixedCell, FixedCellContent, FixedInitializerCell};
-use krs_ir_levels::{
-    DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, IrTermKind, SymbolId,
-};
+use krs_ir::{BuiltinSort, CellSortArgument};
+use krs_ir_levels::{DefinitionIr, DefinitionSentence, DefinitionSortRef, SymbolId};
 
 use crate::values::{ValueIndex, kore_sort_name};
 
@@ -46,11 +48,11 @@ struct CellType {
     display: String,
 }
 
-/// One typed cell a configuration variable fills.
+/// The declared type of one collection-typed configuration variable.
 #[derive(Debug)]
-struct TypedCell {
-    /// The Rust field that declares the cell.
-    field: String,
+struct TypedVariable {
+    /// The `#[k::init]` parameter that declares the variable.
+    parameter: String,
     ty: CellType,
 }
 
@@ -70,9 +72,9 @@ pub(crate) enum Step<'p> {
 /// A configuration value part that does not fit its declared element type.
 #[derive(Debug)]
 pub(crate) struct Mismatch<'p> {
-    /// The Rust field of the cell.
-    pub(crate) cell: String,
-    /// The cell's declared type.
+    /// The `#[k::init]` parameter that declares the variable.
+    pub(crate) parameter: String,
+    /// The variable's declared type.
     pub(crate) declared: String,
     /// Where the part is, from the value's root.
     pub(crate) path: Vec<Step<'p>>,
@@ -84,17 +86,17 @@ pub(crate) struct Mismatch<'p> {
     pub(crate) expected: String,
 }
 
-/// The typed cells of a definition by the configuration variables that fill them, and the sort
+/// The declared types of a definition's collection-typed configuration variables, and the sort
 /// lattice their elements are checked in.
 #[derive(Debug, Default)]
 pub(crate) struct CellTypes {
     /// By K name of the variable, without `$`.
-    variables: BTreeMap<String, Vec<TypedCell>>,
+    variables: BTreeMap<String, TypedVariable>,
     sorts: SortGraph,
 }
 
 impl CellTypes {
-    /// Index the typed cells whose whole content is a configuration variable.
+    /// Index the configuration variables declared with a typed collection type.
     pub(crate) fn new(
         definition: &DefinitionIr,
         backend: &BackendDefinition,
@@ -112,30 +114,27 @@ impl CellTypes {
                 _ => None,
             })
             .collect::<BTreeMap<_, _>>();
-        let mut variables = BTreeMap::<String, Vec<TypedCell>>::new();
+        let mut variables = BTreeMap::new();
         for module in definition.modules() {
             for sentence in module.sentences() {
                 let DefinitionSentence::Configuration(configuration) = sentence else {
                     continue;
                 };
-                let mut cells = BTreeMap::new();
-                typed_cells(configuration.cells(), &sort_names, values, &mut cells);
-                let names = configuration
-                    .variables()
-                    .iter()
-                    .map(|variable| (variable.id(), variable.external_name()))
-                    .collect::<BTreeMap<_, _>>();
-                let mut filled = Vec::new();
-                variable_cells(configuration.initializer(), &mut filled);
-                for (cell, variable) in filled {
-                    let (Some((field, ty)), Some(name)) = (cells.remove(cell), names.get(variable))
-                    else {
+                for variable in configuration.variables() {
+                    if variable.arguments().is_empty() {
                         continue;
-                    };
-                    variables
-                        .entry((*name).to_owned())
-                        .or_default()
-                        .push(TypedCell { field, ty });
+                    }
+                    if let Some(ty) =
+                        cell_type(variable.sort(), variable.arguments(), &sort_names, values)
+                    {
+                        variables.insert(
+                            variable.external_name().to_owned(),
+                            TypedVariable {
+                                parameter: variable.id().as_str().to_owned(),
+                                ty,
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -146,25 +145,24 @@ impl CellTypes {
     }
 
     /// The first part of the value bound to `variable` (its K name without `$`) that does not
-    /// fit the typed cell it fills, if any.
+    /// fit the variable's declared type, if any.
     pub(crate) fn check<'p>(
         &self,
         values: &ValueIndex,
         variable: &str,
         value: &'p Pattern,
     ) -> Option<Mismatch<'p>> {
-        self.variables.get(variable)?.iter().find_map(|cell| {
-            let mut path = Vec::new();
-            self.part(values, value, &cell.ty, &mut path)
-                .map(|(element, sort, expected)| Mismatch {
-                    cell: cell.field.clone(),
-                    declared: cell.ty.display.clone(),
-                    path,
-                    element,
-                    sort: values.sort_display(&sort),
-                    expected: values.sort_display(expected),
-                })
-        })
+        let typed = self.variables.get(variable)?;
+        let mut path = Vec::new();
+        self.part(values, value, &typed.ty, &mut path)
+            .map(|(element, sort, expected)| Mismatch {
+                parameter: typed.parameter.clone(),
+                declared: typed.ty.display.clone(),
+                path,
+                element,
+                sort: values.sort_display(&sort),
+                expected: values.sort_display(expected),
+            })
     }
 
     /// The first part of `pattern` that does not fit `ty`, with its sort and the sort it is not
@@ -211,29 +209,6 @@ impl CellTypes {
     }
 }
 
-/// The typed leaf cells of `cells`, by symbol, with their Rust fields and types.
-fn typed_cells(
-    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
-    sort_names: &BTreeMap<SymbolId, String>,
-    values: &ValueIndex,
-    output: &mut BTreeMap<SymbolId, (String, CellType)>,
-) {
-    for cell in cells {
-        match cell.content() {
-            FixedCellContent::Term { sort, arguments } if !arguments.is_empty() => {
-                if let Some(ty) = cell_type(sort, arguments, sort_names, values) {
-                    let field = cell.field().unwrap_or(cell.name()).to_owned();
-                    output.insert(cell.id().clone(), (field, ty));
-                }
-            }
-            FixedCellContent::Term { .. } => {}
-            FixedCellContent::Children { children } => {
-                typed_cells(children, sort_names, values, output);
-            }
-        }
-    }
-}
-
 /// The type of a sort with its element types; `None` when a sort has no KORE name to check.
 fn cell_type(
     sort: &DefinitionSortRef,
@@ -275,25 +250,6 @@ fn cell_type(
         arguments,
         display,
     })
-}
-
-/// Each leaf cell whose initial content is exactly a configuration variable, with the variable.
-fn variable_cells<'d>(
-    cells: &'d [FixedInitializerCell<SymbolId, DefinitionTerm>],
-    output: &mut Vec<(&'d SymbolId, &'d krs_ir::SemanticId)>,
-) {
-    for cell in cells {
-        match cell.content() {
-            krs_ir::FixedInitializerContent::Term { term } => {
-                if let IrTermKind::Variable { variable } = term.kind() {
-                    output.push((cell.cell(), variable));
-                }
-            }
-            krs_ir::FixedInitializerContent::Children { children } => {
-                variable_cells(children, output);
-            }
-        }
-    }
 }
 
 /// Where `path` leads inside a value, from its innermost step (``the value at key `x` ``,

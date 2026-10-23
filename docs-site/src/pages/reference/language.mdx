@@ -75,6 +75,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
+Its declared type is its parameter's type, element types included (`xs: List<Value>`, `sets: Map<Int, Set<Int>>`), and the initializer may place it anywhere that type fits ([typed collections](#typed-collections)).
 An initializer's terms are KRS terms, written as in a rule result: constructors, positional (`Tag(v)`) or with every field named (`Tag { b: v }`), function calls, builtin operations, literals, and configuration variables, in a `k::k![..]` item, a `k::map![..]` key or value, or a call's argument, as in `k: k::k![pgm, StmtSyntax::Tag { b: bytes::empty() }, Init(n)]`; a function is evaluated when the configuration is built.
 A record update (`..base`) and an open record (`..`) are not initializer terms (`krs::expand::initializer-record-update`), since an initializer matches no record to take fields from; a cell's whole value written as a struct literal is a nested cell group's initializer, so a record constructor stands below a cell root, in a `k::k![..]` item, or in a `k::map![..]` entry.
 rustc resolves every name in them and checks the Rust type of a configuration variable that is a cell's whole content, which must be the cell's; KRS checks the terms' sorts.
@@ -405,14 +406,19 @@ error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, s
 
 The fix is to declare the element types where the collection comes from: the cell, the constructor field, or the function's signature.
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
-A configuration variable of `#[k::init]` is not checked here: its Rust type is the cell's, which rustc checks.
+A configuration variable of `#[k::init]` is a binder of its parameter's type, as a typed function's parameter is: placed as a cell's whole content, rustc checks that its type is the cell's; placed anywhere else, KRS checks the flow, so `xs: List<Stmt>` in `stack: list::concat(xs, list::item(1))` is `collection-element-sort` and a bare `xs: List` there is `untyped-collection`.
+A variable of any other sort is checked by sort inference, as any occurrence is.
+
+```text
+error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, has type `List<Stmt>`, which does not fit the cell `stack`, declared `List<Value>`: Stmt is not a Value
+```
 
 The value a configuration variable is given at run time is the induction's other base case, and only execution sees it.
-`krs-exec` checks it when it assembles the initial configuration, for `krs run -c NAME=TEXT`, `krs search`, and a value given to `Semantics::configure` alike: a variable that fills a typed cell must hold a value of the cell's type, key by key, value by value, and element by element, nested collections against their own element types, each element's sort at most the declared one in the definition's sort lattice (an `Int` or a `Ptr` declared `Ptr: Value` fits `Value`).
+`krs-exec` checks it when it assembles the initial configuration, for `krs run -c NAME=TEXT`, `krs search`, and a value given to `Semantics::configure` alike: a variable declared with a typed collection type must hold a value of that type, wherever the initializer places it, key by key, value by value, and element by element, nested collections against their own element types, each element's sort at most the declared one in the definition's sort lattice (an `Int` or a `Ptr` declared `Ptr: Value` fits `Value`).
 
 ```text
 $ krs run -c 'ENV=x |-> skip' ..
-error[krs::exec::collection-element-sort]: configuration variable `$ENV`: the cell `env` is declared `Map<Id, Value>`, but the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value
+error[krs::exec::collection-element-sort]: configuration variable `$ENV`, declared `Map<Id, Value>`: the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value
 ```
 
 A part the configuration leaves unevaluated is checked at the sort its symbol declares, which bounds every value it can take: `x |-> noop(1)` is rejected when `noop` returns a `Stmt`, but the elements of a set that `evens(1)` would compute are not seen.

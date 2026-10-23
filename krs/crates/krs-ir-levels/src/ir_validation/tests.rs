@@ -1137,3 +1137,74 @@ fn cell_element_types_fit_their_collection_and_name_declared_sorts() {
     };
     assert!(theory(vec![int(), undeclared]).is_err());
 }
+
+#[test]
+fn configuration_variable_element_types_fit_their_collection_and_name_declared_sorts() {
+    let cell_id = SemanticId::new("cell").unwrap();
+    let int = || krs_ir::CellSortArgument {
+        sort: SemanticSortRef::int(),
+        arguments: Vec::new(),
+    };
+    let theory = |arguments: Vec<krs_ir::CellSortArgument<SemanticSortRef>>| {
+        let variable = krs_ir::FixedConfigurationVariable::new(
+            testing::origin("variable"),
+            SemanticId::new("env").unwrap(),
+            "ENV",
+            SemanticSortRef::map(),
+            false,
+        )
+        .unwrap()
+        .with_arguments(arguments);
+        let configuration = FixedConfiguration::new(
+            testing::origin("configuration"),
+            SemanticId::new("configuration").unwrap(),
+            krs_ir::ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    testing::origin("cell"),
+                    cell_id.clone(),
+                    "env",
+                    vec![],
+                    SemanticSortRef::map(),
+                )
+                .unwrap(),
+            ],
+            testing::origin("initializer"),
+            SemanticId::new("initializer").unwrap(),
+            vec![variable],
+            vec![FixedInitializerCell::term(
+                testing::origin("initialized-cell"),
+                cell_id.clone(),
+                SemanticTerm::variable(
+                    testing::origin("use"),
+                    SemanticSortRef::map(),
+                    SemanticId::new("env").unwrap(),
+                ),
+            )],
+        )
+        .unwrap();
+        crate::SemanticTheory::new(vec![crate::SemanticModule::new(
+            testing::origin("module"),
+            krs_ir::ModuleId::new("CELLS").unwrap(),
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Some(configuration),
+            vec![],
+        )])
+    };
+    assert!(theory(Vec::new()).is_ok());
+    assert!(theory(vec![int(), int()]).is_ok());
+    assert_eq!(
+        theory(vec![int()]),
+        Err(SemanticValidationError::CellArgumentArity)
+    );
+    let undeclared = krs_ir::CellSortArgument {
+        sort: SemanticSortRef::declared(testing::item("cells", "Value", ItemKind::Sort)),
+        arguments: Vec::new(),
+    };
+    assert!(theory(vec![int(), undeclared]).is_err());
+}

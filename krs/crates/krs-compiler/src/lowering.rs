@@ -1489,6 +1489,9 @@ fn lower_fixed_configuration(
                     variable.is_main(),
                 )
                 .map_err(state_shape_error)
+                .and_then(|lowered| {
+                    Ok(lowered.with_arguments(lower_cell_arguments(variable.arguments(), names)?))
+                })
             })
             .collect::<Result<Vec<_>, _>>()?,
         lower_initializer_cells(configuration.initializer(), names, origins)?,

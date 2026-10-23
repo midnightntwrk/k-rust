@@ -24,7 +24,9 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, FnArg, Ident, Path, parse_quote};
 
-use super::configuration::cell_marker_function;
+use super::configuration::{
+    SortArgumentContext, cell_marker_function, configuration_sort_arguments,
+};
 use super::island_checks::initializer_state_island_import_checks;
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, WireSlots, wire_key};
@@ -104,6 +106,9 @@ fn init_inner(
     let nonce = expansion_nonce(env, "initializer", &initializer.item().sig.ident, fallback);
     let mut builder = InitializerBuilder::new(&facade, nonce, &cfg, &bindings);
     let mut variables = Vec::new();
+    let self_type = Ident::new("Self", Span::call_site());
+    let arguments_key = format_ident!("initializer_variable_{nonce:016x}");
+    let mut argument_ordinal = 0;
     for (index, variable) in initializer.variables().iter().enumerate() {
         let ordinal = u32::try_from(index).map_err(|_| {
             ExpandError::new(
@@ -132,6 +137,19 @@ fn init_inner(
             .is_main()
             .then_some(wire_key(configuration_variable_main_role, ordinal));
         let authored = spelling(variable.sort());
+        let arguments = configuration_sort_arguments(
+            variable.arguments(),
+            &mut SortArgumentContext {
+                facade: &facade,
+                owner: &self_type,
+                owner_key: &arguments_key,
+                cfg: &cfg,
+                role: ProvenanceRole::ConfigurationVariableTypeArgument,
+                helpers: &mut builder.key_functions,
+                slots: &mut builder.slots,
+                ordinal: &mut argument_ordinal,
+            },
+        )?;
         variables.push(WireConfigurationVariable {
             binding_key: wire_key(configuration_variable_role, ordinal),
             binding,
@@ -146,6 +164,7 @@ fn init_inner(
                     authored_path: authored,
                 },
             },
+            arguments,
             main_key,
         });
     }

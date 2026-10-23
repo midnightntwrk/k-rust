@@ -234,7 +234,8 @@ pub(crate) fn require_sort<L: Validation>(
     Ok(())
 }
 
-/// Every element type of a leaf cell names a declared sort, and each
+/// Every element type of a leaf cell or a configuration variable names a
+/// declared sort, and each
 /// collection sort carries the number of element types it takes: two for a
 /// `Map`, one for a `List` or `Set`, none for a bare collection or any other
 /// sort.
@@ -304,6 +305,7 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
     let mut main_count = 0_usize;
     for variable in configuration.variables() {
         require_sort::<L>(declarations, variable.sort())?;
+        require_cell_arguments::<L>(declarations, variable.sort(), variable.arguments())?;
         if scope
             .insert(variable.id().clone(), variable.sort().clone())
             .is_some()

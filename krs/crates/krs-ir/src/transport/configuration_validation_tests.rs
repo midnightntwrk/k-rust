@@ -419,6 +419,7 @@ fn variable<S>(sort: S) -> ProtocolConfigurationVariable<S> {
         external_name_key: key(ProvenanceRole::ConfigurationVariableName),
         external_name: "$INPUT".into(),
         sort,
+        arguments: Vec::new(),
         main_key: None,
     }
 }

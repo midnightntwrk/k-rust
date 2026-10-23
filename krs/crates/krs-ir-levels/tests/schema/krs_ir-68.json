@@ -1525,6 +1525,13 @@
         "sort": "STR"
       },
       {
+        "arguments": {
+          "SEQ": {
+            "TYPENAME": "ProtocolSortArgument"
+          }
+        }
+      },
+      {
         "main_key": {
           "OPTION": {
             "TYPENAME": "ProvenanceKeyWire"

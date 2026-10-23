@@ -17,7 +17,7 @@ use crate::parse::{
     unsupported_initializer_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
-use crate::term_sort::{TermSort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
     TermExpression, TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,
@@ -66,6 +66,7 @@ pub struct ConfigurationVariable {
     attribute: ConfigurationVariableAttribute,
     term_sort: Option<TermSort>,
     sort: Path,
+    arguments: Vec<crate::SortArgument>,
 }
 
 impl ConfigurationVariable {
@@ -103,6 +104,13 @@ impl ConfigurationVariable {
     #[must_use]
     pub const fn optional_term_sort(&self) -> Option<&TermSort> {
         self.term_sort.as_ref()
+    }
+    /// Returns the element types of a collection type (`Value` of
+    /// `xs: List<Value>`, `Int` and `Set<Int>` of `Map<Int, Set<Int>>`),
+    /// read as a cell's are; empty for a bare collection and every other sort.
+    #[must_use]
+    pub fn arguments(&self) -> &[crate::SortArgument] {
+        &self.arguments
     }
 }
 
@@ -320,6 +328,7 @@ impl InitializerFunction {
     ///
     /// Returns an endpoint error only if a parsed node emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut argument_ordinal = 0;
         let mut anchors = vec![
             ProvenanceAnchor::new(
                 ProvenanceRole::InitializerDeclaration,
@@ -357,6 +366,18 @@ impl InitializerFunction {
                 ordinal,
                 TokenRange::for_tokens(&*variable.parameter.ty)?,
             ));
+            for argument in crate::SortArgument::preorder(&variable.arguments) {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ConfigurationVariableTypeArgument,
+                    checked_ordinal(
+                        argument_ordinal,
+                        ProvenanceRole::ConfigurationVariableTypeArgument,
+                        argument.path.span(),
+                    )?,
+                    TokenRange::for_tokens(&argument.path)?,
+                ));
+                argument_ordinal += 1;
+            }
             if let Some(main) = &variable.attribute.main {
                 anchors.push(ProvenanceAnchor::new(
                     ProvenanceRole::ConfigurationVariableMain,
@@ -437,6 +458,24 @@ impl InitializerFunction {
                     )?,
                 ),
                 path: variable.sort.clone(),
+                kind: (),
+            });
+        }
+        let arguments = self
+            .variables
+            .iter()
+            .flat_map(|variable| crate::SortArgument::preorder(&variable.arguments));
+        for (ordinal, argument) in arguments.enumerate() {
+            candidates.push(ReferenceCandidate {
+                key: canonical_key(
+                    ProvenanceRole::ConfigurationVariableTypeArgument,
+                    checked_ordinal(
+                        ordinal,
+                        ProvenanceRole::ConfigurationVariableTypeArgument,
+                        argument.path.span(),
+                    )?,
+                ),
+                path: argument.path.clone(),
                 kind: (),
             });
         }
@@ -600,9 +639,12 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
             inferred_main: false,
         }
     };
-    let (term_sort, sort) = if let Ok(term_sort) = parse_term_sort((*parameter.ty).clone()) {
+    let (term_sort, sort, arguments) = if let Ok(term_sort) =
+        parse_typed_term_sort((*parameter.ty).clone())
+    {
         let sort = term_sort.sort().clone();
-        (Some(term_sort), sort)
+        let arguments = term_sort.arguments().to_vec();
+        (Some(term_sort), sort, arguments)
     } else {
         let Type::Path(type_path) = &*parameter.ty else {
             return Err(unsupported_variable(
@@ -623,7 +665,9 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
                 parameter.ty.span(),
             ));
         }
-        (None, sort)
+        let arguments =
+            crate::configuration::collection_arguments(&parameter.ty, invalid_variable_argument)?;
+        (None, sort, arguments)
     };
     Ok(ConfigurationVariable {
         parameter,
@@ -631,7 +675,15 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
         attribute,
         term_sort,
         sort,
+        arguments,
     })
+}
+
+fn invalid_variable_argument(span: proc_macro2::Span) -> SyntaxError {
+    unsupported_variable(
+        "a collection argument is a sort (`Int`, `k::Term<dyn Value>`) or a collection type (`Set<Int>`)",
+        span,
+    )
 }
 
 fn parse_config_var_attribute(

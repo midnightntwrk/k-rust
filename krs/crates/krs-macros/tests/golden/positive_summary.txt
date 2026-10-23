@@ -1,7 +1,7 @@
 krs|KItem|Sort|1
 krs|KResult|Sort|2
 krs_macros_positive|EcdsaRecover|Constructor|7
-krs_macros_positive|ExplicitEquivalentMachine|Configuration|31
+krs_macros_positive|ExplicitEquivalentMachine|Configuration|33
 krs_macros_positive|Expr|Sort|2
 krs_macros_positive|False|Constructor|7
 krs_macros_positive|Guarded|Constructor|4
@@ -14,7 +14,7 @@ krs_macros_positive|Keccak256Raw|Constructor|4
 krs_macros_positive|Machine|Configuration|25
 krs_macros_positive|NestedMachine|Configuration|23
 krs_macros_positive|Pair|Constructor|5
-krs_macros_positive|ReadableEquivalentMachine|Configuration|31
+krs_macros_positive|ReadableEquivalentMachine|Configuration|33
 krs_macros_positive|Ripemd160Raw|Constructor|4
 krs_macros_positive|Secondary|Configuration|19
 krs_macros_positive|Sha256Raw|Constructor|4
@@ -78,7 +78,7 @@ krs_macros_positive::readable_imp_grammar|Ne|Constructor|23
 krs_macros_positive::readable_imp_grammar|Neg|Constructor|15
 krs_macros_positive::readable_imp_grammar|Not|Constructor|15
 krs_macros_positive::readable_imp_grammar|Or|Constructor|22
-krs_macros_positive::readable_imp_grammar|ReadableRuleMachine|Configuration|31
+krs_macros_positive::readable_imp_grammar|ReadableRuleMachine|Configuration|33
 krs_macros_positive::readable_imp_grammar|Sequence|Constructor|16
 krs_macros_positive::readable_imp_grammar|Sub|Constructor|23
 krs_macros_positive::readable_imp_grammar|While|Constructor|23

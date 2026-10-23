@@ -404,6 +404,11 @@ protocol_shape! {
         pub external_name: String => [keep],
         /// Typed variable sort and exact type-path provenance.
         pub sort: S => [sort_map],
+        /// The element types of a collection-typed variable (`Value` of
+        /// `xs: List<Value>`), nested ones kept; empty for a bare collection
+        /// and for every other sort.
+        #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ProtocolSortArgument<S>> => [vec nested sort_map],
         /// Exact optional `main` marker provenance.
         pub main_key: Option<ProvenanceKey> => [keep],
     }
@@ -1474,6 +1479,7 @@ fn validate_variables<S: ConfigurationValidationStage>(
     let mut bindings = BTreeSet::new();
     let mut external_names = BTreeSet::new();
     let mut main_count = 0;
+    let mut argument_ordinal = 0;
     for (index, variable) in variables.iter().enumerate() {
         let ordinal = checked_index(index)?;
         validate_rust_field(&variable.binding)?;
@@ -1512,6 +1518,17 @@ fn validate_variables<S: ConfigurationValidationStage>(
         S::validate_sort(&variable.sort).map_err(|_| {
             StateTransportError::InvalidCellContent(StateCellContentReason::InvalidVariableSort)
         })?;
+        for argument in ProtocolSortArgument::preorder(&variable.arguments) {
+            let argument = &argument.sort;
+            insert_exact(
+                keys,
+                S::sort_key(argument),
+                ProvenanceRole::ConfigurationVariableTypeArgument,
+                argument_ordinal,
+            )?;
+            S::validate_sort_argument(argument)?;
+            argument_ordinal = increment(argument_ordinal)?;
+        }
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
             insert_exact(

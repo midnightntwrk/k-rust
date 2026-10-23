@@ -140,7 +140,16 @@ fn readable_initializer_infers_variables_wrappers_and_main_input() {
         .into_iter()
         .map(|candidate| candidate.path_spelling())
         .collect::<Vec<_>>();
-    assert_eq!(candidates, ["Self", "model::Stmt", "builtin::Map"]);
+    assert_eq!(
+        candidates,
+        [
+            "Self",
+            "model::Stmt",
+            "builtin::Map",
+            "builtin::Id",
+            "model::Value"
+        ]
+    );
 
     let roles = initializer
         .provenance()
@@ -367,5 +376,53 @@ fn notation_for_a_builtin_call_is_a_readable_initializer_term() {
             SyntaxErrorKind::InvalidExpressionNotation { .. }
         ),
         "{error}"
+    );
+}
+
+/// A collection-typed configuration variable keeps its element types, in
+/// either type form, with nested ones, each anchored in preorder across the
+/// variables and offered for name resolution.
+#[test]
+fn configuration_variables_keep_their_element_types() {
+    let initializer = krs_syntax::InitializerFunction::parse_source(
+        "fn init(\
+            xs: List<Value>,\
+            sets: k::Term<Map<Id, Set<Int>>>,\
+            n: Int,\
+         ) -> Self {\
+            Self { stack: list::concat(xs, list::item(n)), seen: sets }\
+         }",
+    )
+    .unwrap();
+    let arguments = initializer
+        .variables()
+        .iter()
+        .map(|variable| {
+            krs_syntax::SortArgument::preorder(variable.arguments())
+                .into_iter()
+                .map(|argument| quote::ToTokens::to_token_stream(&argument.path).to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        arguments,
+        [vec!["Value"], vec!["Id", "Set", "Int"], Vec::<&str>::new()]
+    );
+    let anchors = initializer
+        .provenance()
+        .unwrap()
+        .into_iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::ConfigurationVariableTypeArgument)
+        .map(|anchor| anchor.ordinal())
+        .collect::<Vec<_>>();
+    assert_eq!(anchors, [0, 1, 2, 3]);
+    let candidates = initializer.reference_candidates().unwrap();
+    let paths = candidates
+        .iter()
+        .map(krs_syntax::ReferenceCandidate::path_spelling)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths[..8],
+        ["Self", "List", "Map", "Int", "Value", "Id", "Set", "Int"]
     );
 }

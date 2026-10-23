@@ -122,6 +122,7 @@ fn variable() -> DescriptorConfigurationVariable {
         external_name_key: key(1),
         external_name: "INPUT".to_owned(),
         sort: sort(2),
+        arguments: Vec::new(),
         main_key: Some(key(3)),
     }
 }

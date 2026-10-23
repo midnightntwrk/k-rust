@@ -573,6 +573,10 @@ provenance_roles! {
     /// Field name of one record argument (`Tag { b: .. }`) in an initializer's
     /// terms, in expansion order.
     InitializerRecordFieldName => "initializer_record_field_name",
+    /// Sort path of one element type of a configuration variable's
+    /// collection type (`Value` of `xs: List<Value>`), nested ones included,
+    /// in preorder across the initializer's variables.
+    ConfigurationVariableTypeArgument => "configuration_variable_type_argument",
 }
 
 impl Serialize for ProvenanceRole {

@@ -910,6 +910,7 @@ mod tests {
                 external_name_key: key(ProvenanceRole::ConfigurationVariable),
                 external_name: "INPUT".to_owned(),
                 sort: wire_sort(),
+                arguments: Vec::new(),
                 main_key: None,
             }],
             cells: vec![ProtocolInitializerCell {
@@ -954,6 +955,7 @@ mod tests {
                 external_name_key: key(ProvenanceRole::ConfigurationVariable),
                 external_name: "INPUT".to_owned(),
                 sort: host_sort(),
+                arguments: Vec::new(),
                 main_key: None,
             }],
             cells: vec![ProtocolInitializerCell {

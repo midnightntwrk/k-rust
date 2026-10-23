@@ -99,6 +99,7 @@ fn variable(
             ordinal,
             sort_value,
         ),
+        arguments: Vec::new(),
         main_key: main.then(|| key(ProvenanceRole::ConfigurationVariableMain, ordinal)),
     }
 }

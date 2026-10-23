@@ -1045,3 +1045,156 @@ fn every_term_kind_at_an_element_position_names_the_position() {
     let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
     assert!(success, "{stderr}");
 }
+
+/// The initializer with `parameters` after `pgm`, and `fields` replacing the
+/// `k`, `env`, and `stack` values.
+fn initializer_with(parameters: &str, k: &str, env: &str, stack: &str) -> String {
+    let source = PREAMBLE
+        .replace(
+            "pgm: Stmt) -> Self {",
+            &format!("pgm: Stmt, {parameters}) -> Self {{"),
+        )
+        .replace(
+            "            k: k::k![pgm],",
+            &format!("            k: {k},"),
+        )
+        .replace(
+            "            env: map::empty(),",
+            &format!("            env: {env},"),
+        )
+        .replace(
+            "            stack: list::empty(),",
+            &format!("            stack: {stack},"),
+        );
+    assert!(source.contains(parameters) && source.contains(stack));
+    source
+}
+
+/// A configuration variable is a binder of its `#[k::init]` parameter's
+/// type, element types included, as a typed function's parameter is: every
+/// place the initializer puts a typed-collection variable is a checked flow,
+/// a bare-collection variable is an untyped source, and any other variable is
+/// checked by sort inference. Execution checks each value against the same
+/// type (`typed_configuration.rs`).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Two tables of initializers, each with its expected outcome."
+)]
+fn configuration_variables_are_binders_of_their_declared_types() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let accepted = [
+        (
+            "typed-concat",
+            "xs: List<Value>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+        ),
+        (
+            "covariant",
+            "xs: List<Int>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+        ),
+        (
+            "whole-content",
+            "e: Map<Id, Value>",
+            "k::k![pgm]",
+            "e",
+            "list::empty()",
+        ),
+        (
+            "scalar",
+            "x: Value",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::item(x)",
+        ),
+        (
+            "typed-field",
+            "m: Map<Id, Value>",
+            "k::k![pgm, StmtSyntax::Keep(m)]",
+            "map::empty()",
+            "list::empty()",
+        ),
+    ];
+    for (name, parameters, k, env, stack) in accepted {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &initializer_with(parameters, k, env, stack),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}:\n{stderr}");
+        assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
+    }
+    let stack = "the cell `stack`, declared `List<Value>`";
+    let rejected = [
+        (
+            "ill-typed-concat",
+            "xs: List<Stmt>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+            format!(
+                "error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, has type `List<Stmt>`, which does not fit {stack}: Stmt is not a Value"
+            ),
+            "xs",
+        ),
+        (
+            "bare-concat",
+            "xs: List",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+            format!(
+                "error[krs::analysis::untyped-collection]: `xs`, the configuration variable `$XS`, is declared `List`, so nothing checks the elements it writes to {stack}"
+            ),
+            "xs",
+        ),
+        (
+            "update-all",
+            "e: Map<Id, Stmt>",
+            "k::k![pgm]",
+            "map::update_all(map::empty(), e)",
+            "list::empty()",
+            "error[krs::analysis::collection-element-sort]: `e`, the configuration variable `$E`, has type `Map<Id, Stmt>`, which does not fit the cell `env`, declared `Map<Id, Value>`: Stmt is not a Value".to_owned(),
+            "e",
+        ),
+        (
+            "field",
+            "m: Map<Id, Stmt>",
+            "k::k![pgm, StmtSyntax::Keep(m)]",
+            "map::empty()",
+            "list::empty()",
+            "error[krs::analysis::collection-element-sort]: `m`, the configuration variable `$M`, has type `Map<Id, Stmt>`, which does not fit the field `m` of `Keep`, declared `Map<Id, Value>`: Stmt is not a Value".to_owned(),
+            "m",
+        ),
+        (
+            "variable-arity",
+            "xs: Map<Id>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::empty()",
+            "error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, is declared `Map<Id>`: a `Map` takes a key and a value type, `Map<K, V>`, or none, `Map`".to_owned(),
+            "Map<Id>",
+        ),
+    ];
+    for (name, parameters, k, env, stack, headline, marked) in rejected {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &initializer_with(parameters, k, env, stack),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first(),
+            Some(&(headline, marked.to_owned())),
+            "{name}:\n{stderr}"
+        );
+    }
+}

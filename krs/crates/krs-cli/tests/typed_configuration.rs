@@ -1,7 +1,8 @@
-//! `krs-exec` checks the values configuration variables give typed collection cells: a variable
-//! that fills a `Map<Id, Value>` cell must hold `Id` keys and `Value` values, in the definition's
-//! sort lattice, recursively through nested collections, whether it is given as text
-//! (`krs run -c NAME=TEXT`) or as a value.
+//! `krs-exec` checks the value of every configuration variable declared with a typed collection
+//! type: a variable declared `Map<Id, Value>` must hold `Id` keys and `Value` values, in the
+//! definition's sort lattice, recursively through nested collections, wherever the initializer
+//! places it (a cell's whole content, an operand of `list::concat`, an item of the `k` cell), and
+//! whether it is given as text (`krs run -c NAME=TEXT`) or as a value.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use krs_ir_levels::DefinitionIr;
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 const FIXTURE: &str = r#"
-use k::builtin::{Id, Int, KSequence, List, Map, Set, set};
+use k::builtin::{Id, Int, KSequence, List, Map, Set, list, set};
 use k::{KResult, Term};
 
 k::sorts! {
@@ -94,11 +95,13 @@ impl Machine {
         #[k::config_var(name = "NESTED")] nested: Map<Id, Set<Int>>,
         #[k::config_var(name = "RAW")] raw: Map,
         #[k::config_var(name = "LOCALS")] locals: Map<Id, Int>,
+        #[k::config_var(name = "PREFIX")] prefix: List<Value>,
+        #[k::config_var(name = "QUEUE")] queue: List<Value>,
     ) -> Self {
         Self {
-            k: k::k![],
+            k: k::k![queue],
             env,
-            stack,
+            stack: list::concat(prefix, stack),
             nested,
             raw,
             frame: Frame { locals },
@@ -181,12 +184,14 @@ fn with_semantics(test: impl FnOnce(&mut Semantics) + Send) {
 }
 
 /// Values that fit every typed cell, as text.
-const FITTING: [(&str, &str); 5] = [
+const FITTING: [(&str, &str); 7] = [
     ("ENV", "x |-> 1"),
     ("STACK", "ListItem(1)"),
     ("NESTED", "x |-> SetItem(1)"),
     ("RAW", "x |-> skip"),
     ("LOCALS", "x |-> 1"),
+    ("PREFIX", "ListItem(2)"),
+    ("QUEUE", ".List"),
 ];
 
 /// Configure with the fitting texts, `variable` replaced by `value`.
@@ -225,7 +230,7 @@ fn a_statement_stored_in_a_map_of_values_is_rejected_and_a_value_is_accepted() {
             rejected,
             ElementSortMismatch {
                 variable: "ENV".to_owned(),
-                cell: "env".to_owned(),
+                parameter: "env".to_owned(),
                 declared: "Map<Id, Value>".to_owned(),
                 position: "the value at key `x`".to_owned(),
                 element: "skip".to_owned(),
@@ -235,7 +240,7 @@ fn a_statement_stored_in_a_map_of_values_is_rejected_and_a_value_is_accepted() {
         );
         assert_eq!(
             ExecError::CollectionElementSort(Box::new(rejected)).to_string(),
-            "configuration variable `$ENV`: the cell `env` is declared `Map<Id, Value>`, but the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value"
+            "configuration variable `$ENV`, declared `Map<Id, Value>`: the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value"
         );
         configure_with(semantics, "ENV", "x |-> 1".into()).unwrap();
         // The surface route that renders each variable for another tool checks the same.
@@ -249,7 +254,7 @@ fn a_statement_stored_in_a_map_of_values_is_rejected_and_a_value_is_accepted() {
         assert!(
             error
                 .to_string()
-                .contains("but the value at key `x` is `skip`"),
+                .contains(": the value at key `x` is `skip`"),
             "{error}"
         );
         // An untyped cell takes any element.
@@ -290,11 +295,11 @@ fn nested_collections_are_checked_against_their_own_element_types() {
             (rejected.element.as_str(), rejected.sort.as_str()),
             ("skip", "Stmt")
         );
-        // A typed cell inside a group cell is checked as well.
+        // A variable that fills a typed cell inside a group cell is checked as well.
         let rejected = mismatch(semantics, "LOCALS", "x |-> ptr(1)");
         assert_eq!(
             (
-                rejected.cell.as_str(),
+                rejected.parameter.as_str(),
                 rejected.declared.as_str(),
                 rejected.sort.as_str()
             ),
@@ -366,7 +371,7 @@ fn krs_run_rejects_a_configuration_variable_that_breaks_its_cell_type() {
     assert!(
         stderr.contains("krs::exec::collection-element-sort")
             && stderr.contains(
-                "the cell `env` is declared `Map<Id, Value>`, but the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value"
+                "configuration variable `$ENV`, declared `Map<Id, Value>`: the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value"
             ),
         "{stderr}"
     );
@@ -377,4 +382,50 @@ fn krs_run_rejects_a_configuration_variable_that_breaks_its_cell_type() {
         "{}",
         String::from_utf8_lossy(&accepted.stderr)
     );
+}
+
+/// A variable is checked against its own declared type wherever the initializer places it: an
+/// operand of `list::concat` in a typed cell, and an item of the untyped `k` cell.
+#[test]
+fn a_variable_is_checked_wherever_the_initializer_places_it() {
+    with_semantics(|semantics| {
+        configure_with(semantics, "PREFIX", "ListItem(1) ListItem(ptr(2))".into()).unwrap();
+        let rejected = mismatch(semantics, "PREFIX", "ListItem(skip)");
+        assert_eq!(
+            ExecError::CollectionElementSort(Box::new(rejected)).to_string(),
+            "configuration variable `$PREFIX`, declared `List<Value>`: the element at index 0 is `skip` of sort Stmt, which is not a subsort of Value"
+        );
+        configure_with(semantics, "QUEUE", "ListItem(1)".into()).unwrap();
+        let rejected = mismatch(semantics, "QUEUE", "ListItem(1) ListItem(skip)");
+        assert_eq!(
+            (
+                rejected.parameter.as_str(),
+                rejected.declared.as_str(),
+                rejected.position.as_str()
+            ),
+            ("queue", "List<Value>", "the element at index 1")
+        );
+        // The surface route checks a placed variable as well.
+        let mut surface = FITTING
+            .iter()
+            .map(|(name, text)| ((*name).to_owned(), serde_json::Value::from(*text)))
+            .collect::<serde_json::Map<_, _>>();
+        surface.insert("PREFIX".to_owned(), "ListItem(skip)".into());
+        let error = semantics.configure_surface(&surface).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("configuration variable `$PREFIX`"),
+            "{error}"
+        );
+        // A value given as a value is checked as text is.
+        let index = semantics.values();
+        let skip = index.ctor("StmtSyntax::Skip", []).unwrap();
+        let Err(ExecError::CollectionElementSort(rejected)) =
+            configure_with(semantics, "PREFIX", Value::list([skip]).into())
+        else {
+            panic!("a statement value is accepted in a list of values");
+        };
+        assert_eq!(rejected.variable, "PREFIX");
+    });
 }
