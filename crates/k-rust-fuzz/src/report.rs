@@ -212,7 +212,8 @@ pub struct ReportIdentity {
 }
 
 /// A hole whose generation constraints are narrower than its declared ones (see
-/// [`ReportIdentity::effective_constraints`]).
+/// [`ReportIdentity::effective_constraints`]). Every field is a function of the campaign's
+/// inputs; the human explanation, with any parser message, is the report's warning.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct EffectiveConstraints {
@@ -222,8 +223,46 @@ pub struct EffectiveConstraints {
     pub declared: Constraints,
     /// The constraints its values are generated under.
     pub effective: Constraints,
-    /// Why they differ: the probed value and what the program's syntax made of it at the hole.
-    pub reason: String,
+    /// Why they differ.
+    pub reason: NarrowingReason,
+    /// The definition whose grammar refused every probe.
+    pub side: DefinitionRole,
+    /// Every probe, in the order tried; each was refused.
+    pub probes: Vec<NarrowingProbe>,
+}
+
+/// Why a hole's generation constraints were narrowed.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NarrowingReason {
+    /// No probed negative integer, written at the hole, read back as itself: values are
+    /// generated from 0.
+    NegativeNotReadBack,
+}
+
+/// One refused probe of a narrowed hole.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct NarrowingProbe {
+    /// The value written at the hole, as K text (`-1`).
+    pub value: String,
+    /// What the program's syntax made of it.
+    pub outcome: ProbeOutcome,
+    /// For [`ProbeOutcome::ReadsAs`], the term the configuration held at the hole's position
+    /// instead, as K text (`- 1`), or as KORE (cut at 200 bytes) when it has no K text. Absent
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_as: Option<String>,
+}
+
+/// How the program's syntax refused a probe.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProbeOutcome {
+    /// The program parsed, but the hole's position held another term than the value.
+    ReadsAs,
+    /// The program did not parse with the value at the hole.
+    DoesNotParse,
 }
 
 /// The fixed parameters of the solve proposer (ARCHITECTURE 8.6), which with the definitions,

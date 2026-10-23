@@ -677,11 +677,18 @@ fixture!(
     &[program!("tally/run.pgm", "KEYS" = "tally/run.keys")]
 );
 
+// The narrowing of Int holes to the program's syntax (FZ-INTGEN): a terminal that spells one
+// negative literal, a grammar with no unary minus, and UNSIGNED with signed literals.
+pub const INTGEN_PROGRAMS: &[Program] = &[program!("intgen/sum.pgm")];
+fixture!(MINUSONE, "intgen/minusone.k", "MINUSONE", INTGEN_PROGRAMS);
+fixture!(NOMINUS, "intgen/nominus.k", "NOMINUS", INTGEN_PROGRAMS);
+fixture!(SIGNED, "intgen/signed.k", "UNSIGNED", INTGEN_PROGRAMS);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 37] = [
+pub static ALL: [&Fixture; 40] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -719,4 +726,7 @@ pub static ALL: [&Fixture; 37] = [
     &TALLY,
     &NOISE,
     &DRAIN,
+    &MINUSONE,
+    &NOMINUS,
+    &SIGNED,
 ];

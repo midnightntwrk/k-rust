@@ -13,13 +13,13 @@ use k_rust_fuzz::{
     Budget, CallerIdentity, Campaign, CampaignError, CampaignSpec, CaseOptions, Definitions,
     HoleDecl, HoleLocation, OutcomeClass, ProgramInput, ProposerConfig, SpanAddress, Target,
     TargetKind, Value,
-    report::FuzzReport,
+    report::{DefinitionRole, FuzzReport, NarrowingProbe, NarrowingReason, ProbeOutcome},
     spec::DEFAULT_REJECTION_CAP,
-    target::{PatternAt, PatternTarget},
+    target::{DifferentialTarget, PatternAt, PatternTarget},
     values::{Constraints, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{Fixture, IMP, UNSIGNED};
+use support::{Fixture, IMP, MINUSONE, SIGNED, UNSIGNED};
 
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
     HoleDecl {
@@ -122,19 +122,39 @@ fn the_report_records_the_effective_constraints_and_warns() {
             max: None,
         })
     );
-    assert!(narrowed.reason.contains("`-1`"), "{}", narrowed.reason);
+    assert_eq!(narrowed.reason, NarrowingReason::NegativeNotReadBack);
+    assert_eq!(narrowed.side, DefinitionRole::Baseline);
+    let probe = |value: &str, reads_as: &str| NarrowingProbe {
+        value: value.into(),
+        outcome: ProbeOutcome::ReadsAs,
+        reads_as: Some(reads_as.into()),
+    };
+    assert_eq!(
+        narrowed.probes,
+        vec![probe("-1", "- 1"), probe("-999", "- 999")]
+    );
     assert!(
-        report
-            .warnings
-            .iter()
-            .any(|warning| warning.starts_with("hole `B`: values are generated from 0")),
+        report.warnings.iter().any(|warning| warning.starts_with(
+            "hole `B`: values are generated from 0 (declared: no minimum), since no negative \
+             integer probed at the hole reads back as itself (on the baseline, `-1` reads as \
+             `- 1` and `-999` reads as `- 999`). To fuzz negative values, write the program \
+             with a unary minus before the literal (`- 5`)"
+        ) && warning
+            .ends_with("declare `range = { min = 0 }`.")),
         "{:?}",
         report.warnings
     );
     // The field reads back.
     let json = report.to_canonical_json();
     assert!(
-        json.contains(r#""effective-constraints":[{"hole":"B""#),
+        json.contains(concat!(
+            r#""effective-constraints":[{"hole":"B","declared":"#,
+            r#"{"range":null,"length":null,"elements":null,"choices":null},"#,
+            r#""effective":{"range":{"min":"0","max":null},"length":null,"elements":null,"#,
+            r#""choices":null},"reason":"negative-not-read-back","side":"baseline","#,
+            r#""probes":[{"value":"-1","outcome":"reads-as","reads-as":"- 1"},"#,
+            r#"{"value":"-999","outcome":"reads-as","reads-as":"- 999"}]}]"#
+        )),
         "{json}"
     );
     assert_eq!(FuzzReport::from_json(&json).expect("reads back"), report);
@@ -196,7 +216,77 @@ fn a_range_of_negative_values_only_is_refused_where_none_can_be_written() {
     };
     assert!(
         matches!(&error, CampaignError::InvalidConstraints { hole, message }
-            if hole == "B" && message.contains("`-2`")),
+            if hole == "B" && message.contains("`-2` reads as `- 2` and `-40` reads as `- 40`")),
         "{error}"
     );
+}
+
+/// MINUSONE reads `-1` as a production of its own but every other negative literal as an `Int`
+/// (review S1): the `-1` probe is refused, the `-999` probe reads back, so nothing is narrowed
+/// and negative witnesses are still drawn.
+fn minusone_campaign(range: Option<IntRange>) -> CampaignSpec {
+    let mut hole = int_hole("B", "intgen/sum.pgm", "+ 5", "5");
+    hole.constraints.range = range;
+    spec(
+        &MINUSONE,
+        "intgen/sum.pgm",
+        vec![hole],
+        "<out> ListItem(N:Int) </out> requires N <Int 0",
+        ProposerConfig::default(),
+    )
+}
+
+#[test]
+fn a_terminal_that_spells_one_negative_literal_narrows_nothing() {
+    let report = run(minusone_campaign(None), 300);
+    assert!(
+        report.identity.effective_constraints.is_empty(),
+        "{:?}",
+        report.identity.effective_constraints
+    );
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+
+    // A range of negative values only, -1 among them, is a campaign with witnesses.
+    let report = run(
+        minusone_campaign(Some(IntRange {
+            min: Some(BigInt::from(-40)),
+            max: Some(BigInt::from(-1)),
+        })),
+        300,
+    );
+    assert!(report.identity.effective_constraints.is_empty());
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+}
+
+#[test]
+fn either_side_of_a_differential_narrows_by_its_own_grammar() {
+    for (baseline, program, mutant, side) in [
+        (&SIGNED, "intgen/sum.pgm", &UNSIGNED, DefinitionRole::Mutant),
+        (
+            &UNSIGNED,
+            "unsigned/sum.pgm",
+            &SIGNED,
+            DefinitionRole::Baseline,
+        ),
+    ] {
+        let mut spec = spec(
+            baseline,
+            program,
+            vec![int_hole("B", program, "+ 5", "5")],
+            "<k> .K </k>",
+            ProposerConfig::default(),
+        );
+        spec.definitions.mutant = Some(Arc::new(mutant.compiled().definition()));
+        spec.target.kind = TargetKind::Differential(DifferentialTarget::default());
+        let report = run(spec, 100);
+        let [narrowed] = report.identity.effective_constraints.as_slice() else {
+            panic!(
+                "one narrowed hole: {:?}",
+                report.identity.effective_constraints
+            );
+        };
+        assert_eq!(narrowed.side, side);
+        // No case is spent on a negative value either grammar refuses.
+        assert!(report.totals.rejections.is_empty(), "{:?}", report.totals);
+    }
 }

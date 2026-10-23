@@ -589,6 +589,7 @@ pub(super) fn check(
     let failure = |hole: usize, found: String| RoundTripFailure {
         hole: check.names[hole].clone(),
         found,
+        held: None,
     };
     // Each entry is a pair of nodes at one path and the check points below it: a contiguous
     // range of `points`, all of whose paths extend that path, of length `depth`.
@@ -617,7 +618,10 @@ pub(super) fn check(
                     (Point::Injection, Some((_, child))) => child,
                     _ => actual,
                 };
-                return Err(failure(here.hole, quote(found)));
+                return Err(RoundTripFailure {
+                    held: Some(Box::new(found.clone())),
+                    ..failure(here.hole, quote(found))
+                });
             }
             continue;
         }

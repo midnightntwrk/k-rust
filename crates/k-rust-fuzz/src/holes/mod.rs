@@ -206,6 +206,9 @@ impl ResolvedHole {
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedHoles {
     pub(crate) holes: Vec<ResolvedHole>,
+    /// The definition's K-text syntax, when it was built with one; the narrowing explanations
+    /// print terms with it ([`narrow`]).
+    pub(crate) text: Option<TextSyntax>,
 }
 
 /// A value of one hole, printed: its K text (for span and configuration-variable holes) and its
@@ -249,6 +252,9 @@ pub(crate) struct RoundTripFailure {
     /// What the configuration holds at the hole's position instead, as KORE text, or why the
     /// position could not be read.
     pub(crate) found: String,
+    /// The term the hole's position holds instead, when the configuration has the anchors'
+    /// shape down to it; `None` when the difference lies above or outside the position.
+    pub(crate) held: Option<Box<KorePattern>>,
 }
 
 /// Resolve `decls` against the unmodified `program` and the baseline definition
@@ -383,7 +389,7 @@ pub(crate) fn resolve(
             narrowing: None,
         });
     }
-    Ok(ResolvedHoles { holes })
+    Ok(ResolvedHoles { holes, text })
 }
 
 /// The hole-sort rule (ARCHITECTURE 2.4 as amended by D17, R-11, T-9). Refused: `K`, `KItem`,

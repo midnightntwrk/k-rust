@@ -147,14 +147,12 @@ impl Side {
         // (FZ-INTGEN, `holes::narrow`).
         holes.narrow(holes::probe_negatives(
             &holes,
+            holes.text.as_ref(),
             &round_trip,
             &assembly,
             definition,
             &spec.program,
-            match role {
-                DefinitionRole::Baseline => "baseline",
-                DefinitionRole::Mutant => "mutant",
-            },
+            role,
         )?)?;
         Ok(Self {
             definition: Arc::clone(definition),
@@ -407,11 +405,12 @@ impl LiveCases {
             // `rejected`, so the mutant's narrowings bound the baseline's generation too.
             baseline.holes.narrow(holes::probe_negatives(
                 &baseline.holes,
+                mutant.holes.text.as_ref(),
                 &mutant.round_trip,
                 &mutant.assembly,
                 &mutant.definition,
                 &spec.program,
-                "mutant",
+                DefinitionRole::Mutant,
             )?)?;
             baseline.shape = CaseRequestShape::new(&spec.options, &plan.baseline);
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);

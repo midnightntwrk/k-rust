@@ -1347,8 +1347,21 @@ export interface FuzzEffectiveConstraints {
   hole: string
   declared: FuzzConstraints
   effective: FuzzConstraints
-  /** The probed value and what the program's syntax made of it at the hole. */
-  reason: string
+  /** No probed negative integer, written at the hole, read back as itself. */
+  reason: 'negative-not-read-back'
+  /** The definition whose grammar refused every probe. */
+  side: FuzzDefinitionRole
+  /** Every probe, in the order tried; each was refused. */
+  probes: FuzzNarrowingProbe[]
+}
+
+/** One refused probe of a narrowed hole. */
+export interface FuzzNarrowingProbe {
+  /** The value written at the hole, as K text (`-1`). */
+  value: string
+  outcome: 'reads-as' | 'does-not-parse'
+  /** For `reads-as`: the term the position held instead, as K text (or KORE without one). */
+  'reads-as'?: string
 }
 
 /** Probabilities are `[numerator, denominator]`. */

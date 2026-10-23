@@ -56,12 +56,15 @@ In the library, the same hole is a `HoleDecl` with a `HoleLocation::Span(SpanAdd
 
 A span hole can take only the values whose printed text the grammar reads back, at the hole's position, as that value: every case is round-trip-checked, and a value that reads as something else is `rejected`.
 For an `Int` hole the difference is the sign. Digits read back wherever the anchor's did, but whether `-` followed by digits reads back as a negative integer depends on the grammar there: a signed literal token (`INT-SYNTAX`) reads it as the value, while a grammar of unsigned literals (`UNSIGNED-INT-SYNTAX`, as in IMP and SIMPLE) reads a unary minus applied to the magnitude, or does not parse it.
-So `Campaign::new` probes each `Int` span hole whose range admits a negative value (and whose anchor is not negative) once, with the admissible negative value nearest zero, through the same round-trip check at the same position; when the probe does not read back, the hole's effective bounds start at 0.
-Generators, the dictionary, the climb, the corpus, the solve proposer and shrinking use the effective bounds; the declared constraints still judge each case, so an explicit negative value is tried and rejected by the round-trip check as before.
-The report lists every narrowed hole in `identity.effective-constraints` (the declared and effective constraints, the probe and what the grammar made of it), and a warning says the same.
-A declared range that holds only negative values is refused at such a hole, since no value of it can be written there.
+So `Campaign::new` probes each `Int` span hole whose range admits a negative value (and whose anchor is not negative) with two admissible negative values of different digit strings, through the same round-trip check at the same position: the one nearest zero (`-1`, or the range's maximum) and the one of greatest magnitude with at most three digits (`-999`, or the range's minimum).
+Only when every probe is refused do the hole's effective bounds start at 0.
+The probes establish that those values cannot be written there, not that no negative value can: a grammar may spell one negative literal as a terminal of its own (a production `"-1"` beside signed literals) or read a sign before some digit strings only, and two probes of different lengths make such a collision unlikely to narrow a hole, but do not rule it out.
+Narrowing is an economy of generation, not a judgement: generators, the dictionary, the climb, the corpus, the solve proposer and shrinking use the effective bounds, while the declared constraints and the round-trip check still judge each case, so an explicit negative value is still run and judged as before.
+The report lists every narrowed hole in `identity.effective-constraints`: the declared and effective constraints, a reason code (`negative-not-read-back`), the side whose grammar refused, and each probe with its outcome (`reads-as`, with the term the position held instead as K text, or `does-not-parse`).
+A warning says the same in words, with the parser's message for a probe that does not parse, and what to do.
+A declared range that holds only negative values is refused at such a hole when every probe is refused, since no probed value of it can be written there.
 Configuration-variable and KORE-template holes, holes with `choices`, and other sorts are not narrowed: a binding is parsed whole at its variable's sort, a template's values are never printed, and a choice set is the author's own list.
-To give such a language a negative input, write the program with a unary minus before the literal (`- 5`) and keep the hole on the digits.
+To give such a language a negative input, write the program with a unary minus before the literal (`- 5`) and keep the hole on the digits; to silence the warning, declare `range = { min = 0 }`.
 
 A hole is data, and `Campaign::new` enforces it (ARCHITECTURE 2.4).
 It refuses a hole whose sort is `K`, `KItem`, a cell sort, or a user sort in the closure of the program start sort's productions (a sort in which programs are written, such as `AExp` or `Stmt` in IMP).

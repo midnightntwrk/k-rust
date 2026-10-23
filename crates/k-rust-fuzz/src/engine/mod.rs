@@ -178,7 +178,7 @@ impl Campaign {
         let guidance = Guidance::build(&spec, &cases, graph.as_deref())?;
         let mut identity = identity(&spec, &initial)?;
         identity.effective_constraints = effective_constraints(holes);
-        let warnings = campaign_warnings(&identity.effective_constraints, graph.as_deref());
+        let warnings = campaign_warnings(holes, graph.as_deref());
         let settings = LoopSettings {
             identity,
             rejection_cap: spec.rejection_cap,
@@ -710,44 +710,22 @@ fn generators(cases: &LiveCases, spec: &CampaignSpec) -> Result<Vec<Generator>, 
 fn effective_constraints(holes: &[ResolvedHole]) -> Vec<EffectiveConstraints> {
     holes
         .iter()
-        .filter_map(|hole| {
-            let narrowing = hole.narrowing.as_ref()?;
-            Some(EffectiveConstraints {
-                hole: hole.decl.name.clone(),
-                declared: hole.decl.constraints.clone(),
-                effective: hole.constraints.clone(),
-                reason: narrowing.reason(),
-            })
-        })
+        .filter_map(|hole| Some(hole.narrowing.as_ref()?.record(hole)))
         .collect()
 }
 
 /// The warnings every report of the campaign starts with: one per narrowed hole, then the rule
 /// graph's (ARCHITECTURE 6.3).
-fn campaign_warnings(narrowed: &[EffectiveConstraints], graph: Option<&GraphCheck>) -> Vec<String> {
-    narrowed
+fn campaign_warnings(holes: &[ResolvedHole], graph: Option<&GraphCheck>) -> Vec<String> {
+    holes
         .iter()
-        .map(narrowed_warning)
+        .filter_map(|hole| Some(hole.narrowing.as_ref()?.warning(hole)))
         .chain(
             graph
                 .map(|graph| graph.warnings().to_vec())
                 .unwrap_or_default(),
         )
         .collect()
-}
-
-/// The report's warning for a hole whose generation range was narrowed (FZ-INTGEN).
-fn narrowed_warning(narrowed: &EffectiveConstraints) -> String {
-    let declared = narrowed
-        .declared
-        .range
-        .as_ref()
-        .and_then(|range| range.min.as_ref())
-        .map_or_else(|| "no minimum".to_owned(), |min| format!("minimum {min}"));
-    format!(
-        "hole `{}`: values are generated from 0 (declared: {declared}), since {}",
-        narrowed.hole, narrowed.reason
-    )
 }
 
 /// The report identity of `spec`, with a placeholder budget the loop replaces
