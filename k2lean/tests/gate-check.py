@@ -41,7 +41,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-LIBS = {"kimp": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
+LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
         "imptypes": ("KImpTypes", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
         "simpleinv": ("KSimpleInv", "heavy")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
@@ -63,8 +63,8 @@ OUTPUTS = {  # recorded output → (tier, normalization)
     "replay/sum-loop.toml": ("heavy", "strip-seconds"),
 }
 # generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
-NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean"}
-SOURCE_DIRS = {"light": ["generated/kimp", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv"],
+NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean"}
+SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv"],
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv"]}
 DEMO_SOURCES = ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                 "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",

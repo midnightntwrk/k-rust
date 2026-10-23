@@ -35,8 +35,13 @@ fn files(root: &Path) -> Vec<PathBuf> {
 /// Generate the fixture's project into a fresh directory and return it.
 pub fn generate(name: &str, ns: &str, extra: &[&str]) -> PathBuf {
     let fx = fixture(name);
-    let out =
-        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("snap-{name}-{}", extra.len()));
+    let tag: String = extra
+        .iter()
+        .map(|x| x.trim_start_matches('-'))
+        .filter(|x| !x.contains('/'))
+        .collect::<Vec<_>>()
+        .join("-");
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("snap-{name}-{tag}"));
     let _ = std::fs::remove_dir_all(&out);
     let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
         .arg("gen")
@@ -144,4 +149,11 @@ fn measure() {
         &["--termination", side.to_str().unwrap()],
         "expected",
     );
+}
+
+/// The counter fixture with `--det2`: determinism through relations split by the first `<k>`
+/// item, with one certificate per surviving pair of rules, per priority rank.
+#[test]
+fn counter_det2() {
+    snapshot_with("counter", "Counter", &["--det2"], "expected-det2");
 }

@@ -4,7 +4,8 @@
 # builds them in a scratch work tree, and compares what it measures with tests/baseline.toml.
 #
 #   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
-#                                 against krust and the K LLVM backend), krsimp, kmut, imptypes; the
+#                                 against krust and the K LLVM backend), kimp-d2 (kimp's determinism
+#                                 along the rule index, `--det2`), krsimp, kmut, imptypes; the
 #                                 demos ImpRel, ImpTypes, ImpMut, KrsImpTyping; the kind 1
 #                                 invariants of kimpinv (a K function, demos/k/kimp-inv) and krsimp
 #                                 (the KRS sidecar), and the negative check: on KRS IMP with an
@@ -262,6 +263,11 @@ lib kimp KImp && {
       && ok kimp-test "$MEAS/kimp-test.out" || bad kimp-test "$MEAS/kimp-test.out"
   else bad "build kimp-test" "$L/build-kimp-test.log"; fi
 }
+# kimp with determinism along the rule index (tests/libs.sh): Terms … Equations are kimp's, so
+# its build starts from kimp's (only Determinism and the guard differ)
+mkdir -p "$GEN/kimp-d2"
+[ -d "$GEN/kimp-d2/.lake" ] || { [ -d "$GEN/kimp/.lake" ] && cp -a "$GEN/kimp/.lake" "$GEN/kimp-d2/.lake"; }
+lib kimp-d2 KImp
 lib krsimp KrsImp
 lib kmut KMut
 lib imptypes KImpTypes

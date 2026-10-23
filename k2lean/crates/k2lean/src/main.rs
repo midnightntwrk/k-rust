@@ -7,6 +7,7 @@ mod casediff;
 mod cases;
 mod claims;
 mod convert;
+mod det2;
 mod drivers;
 mod eqns;
 mod funcs;
@@ -21,6 +22,7 @@ mod model;
 mod multi;
 mod names;
 mod overload;
+mod pairs;
 mod preserves;
 mod ranked;
 mod relate;
@@ -378,6 +380,38 @@ fn main() {
                     &with_hooks(rules::emit_determinism(&top, ns, &unfold), ns, &fgen.params),
                 );
             }
+            // determinism along the rule index, modulo the overlapping pairs (`det2`)
+            let mut det_overlaps = 0;
+            if a.rest.iter().any(|x| x == "--det2") {
+                if multi {
+                    eprintln!(
+                        "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
+                    );
+                } else {
+                    let d = det2::emit(
+                        &def,
+                        &m,
+                        &rs,
+                        &prios,
+                        ranked,
+                        &top,
+                        ns,
+                        &rules::ctor_info(&m),
+                        &unfold,
+                        &fgen.fns,
+                        &det2::Opts::from_args(&a.rest),
+                    );
+                    write(
+                        &out.join(ns).join("Determinism.lean"),
+                        &with_hooks(d.text, ns, &fgen.params),
+                    );
+                    eprintln!(
+                        "determinism: {} overlapping pairs\n{}",
+                        d.overlaps, d.report
+                    );
+                    det_overlaps = d.overlaps;
+                }
+            }
             // the per-rule preservation principle, and the initial configuration
             let ranks = if ranked { Some(prios.as_slice()) } else { None };
             let pctors = preserves::ctors(&rs, ranks);
@@ -586,7 +620,11 @@ fn main() {
                 .collect();
             write(
                 &out.join(format!("{ns}Test")).join("Axioms.lean"),
-                &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
+                &det2::fix_guard(
+                    &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
+                    ns,
+                    det_overlaps,
+                ),
             );
             write(
                 &out.join(format!("{ns}Bench")).join("Main.lean"),
@@ -650,6 +688,8 @@ fn main() {
             eprintln!("note: unsupported hooked sorts: {:?}", m.unsupported);
         }
         "configs" => goldens::configs(&def, &a.rest, &a.name),
+        // the classification of rule pairs behind `gen --det2`, as a report (read-only)
+        "pairs" => pairs::run(&def, &a.rest, &a.kore, a.runtime.as_deref()),
         other => panic!("unknown command {other}"),
     }
 }

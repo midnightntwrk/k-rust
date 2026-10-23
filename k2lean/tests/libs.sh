@@ -37,7 +37,7 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple) echo KSimple ;; simpleinv) echo KSimpleInv ;;
+    kimp|kimp-d2) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple) echo KSimple ;; simpleinv) echo KSimpleInv ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -49,6 +49,12 @@ libs_gen() {
     kimp) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
             --out "$o" --name KImp --prelude ../../lean/prelude \
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" ;;
+    # kimp with determinism along the rule index (`--det2`), and one exclusive pair of rules listed
+    # as overlapping, so that the conditional statements (`Step.deterministic_of`) are built too
+    kimp-d2) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
+            --out "$o" --name KImp --prelude ../../lean/prelude \
+            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
+            --det2 --det2-overlap IMP.if-true,IMP.if-false ;;
     kimpinv) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
             --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
             --invariant envOk@env ;;

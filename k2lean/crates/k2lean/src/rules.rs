@@ -28,6 +28,9 @@ pub struct Rule {
     pub exec_multi: String,
     /// Whether the left-hand side has a free-key map pattern (several matches).
     pub multi: bool,
+    /// The KORE left-hand side, requires and right-hand side of this variant (the pair
+    /// classification of `det2`).
+    pub kore: (P, P, P),
 }
 
 /// A sort the pattern needs that the term universe does not have (an unsupported builtin such
@@ -227,6 +230,7 @@ pub fn collect_with(
                 exec,
                 exec_multi,
                 multi,
+                kore: (lhs.clone(), req.clone(), rhs.clone()),
             });
         }
     }
