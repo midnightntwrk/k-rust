@@ -380,6 +380,18 @@ impl InitializerFunction {
             &mut constructor_ordinal,
             &mut term_ordinal,
         )?;
+        // Constant islands are numbered per kind over the initializer's terms
+        // in the order expansion visits them.
+        let mut terms = Vec::new();
+        collect_initializer_terms(&self.cells, &mut terms);
+        crate::state_rule::append_claim_node_anchors(
+            terms.iter().map(|term| term.nodes()),
+            &mut anchors,
+        )?;
+        let mut lexeme_ordinal = 0;
+        for term in &terms {
+            crate::term::push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexeme_ordinal)?;
+        }
         Ok(anchors)
     }
 
@@ -809,9 +821,12 @@ fn parse_initializer_cell(
     }
     // A literal, or a call of a qualified path other than `Cell::new`/`KCell::new` (such as
     // `list::empty()`), is a readable plain term, as a path is, and so is the notation for a
-    // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call.
+    // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call. A
+    // compiler-owned island (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`) is a term too,
+    // so a constant can be a cell's whole value and any other island reports its own error.
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) => true,
+        Expr::Macro(ExprMacro { mac, .. }) => crate::term::is_island_macro(&mac.path),
         expression if crate::notation::is_expression_notation(expression) => true,
         Expr::Call(ExprCall { func, .. }) => {
             !is_cell_constructor(func)
@@ -1016,7 +1031,9 @@ fn parse_initializer_state_term(
     expression: &Expr,
     computation: bool,
 ) -> Result<StateTerm, SyntaxError> {
-    if let Expr::Macro(ExprMacro { attrs, mac }) = expression {
+    if let Expr::Macro(ExprMacro { attrs, mac }) = expression
+        && !(attrs.is_empty() && !computation && crate::term::is_island_macro(&mac.path))
+    {
         let (true, Some(last)) = (attrs.is_empty(), plain_path_last(&mac.path)) else {
             return Err(unsupported_body(
                 "state macro paths must be plain",
@@ -1121,6 +1138,22 @@ fn append_initializer_anchors(
         }
     }
     Ok(())
+}
+
+/// The initializer's terms in expansion order: cells in order, a leaf's term,
+/// a `k!`'s items, a `map!`'s key then value, an update's base, key, value.
+fn collect_initializer_terms<'a>(
+    cells: &'a [FixedCellInitializer],
+    output: &mut Vec<&'a TermExpression>,
+) {
+    for cell in cells {
+        match &cell.content {
+            InitializerCellContent::Leaf { value, .. } => output.extend(value.terms()),
+            InitializerCellContent::Nested { children, .. } => {
+                collect_initializer_terms(children, output);
+            }
+        }
+    }
 }
 
 fn append_state_term_anchors(

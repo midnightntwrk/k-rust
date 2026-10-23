@@ -2,13 +2,14 @@
 
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
+use krs_ir::bytes_token;
 use krs_ir::wire::{
     WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
     WireConfigurationInitializer, WireConfigurationVariable, WireInitializerCell,
     WireSortReference, WireTerm, WireTypeReference,
 };
 use krs_ir::{
-    CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
+    BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
     ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
     ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
     ProvenanceKey,
@@ -315,14 +316,16 @@ fn inject_initializer_value(
     Ok(())
 }
 
-/// A literal, call, or named-constant term (`1`, `-1`, `list::empty()`, `PC_START`, or
-/// notation for a call such as `a && b`), which is not a Rust value of the cell's marker type;
+/// A literal, call, island, or named-constant term (`1`, `-1`, `list::empty()`,
+/// `k::bytes!(b"..")`, `PC_START`, or notation for a call such as `a && b`), which is not a
+/// Rust value of the cell's marker type;
 /// a binding path and a state macro are.
 fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
     matches!(
         expression,
         syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
-    ) || krs_syntax::is_expression_notation(expression)
+    ) || matches!(expression, syn::Expr::Macro(island) if krs_syntax::is_island_macro(&island.mac.path))
+        || krs_syntax::is_expression_notation(expression)
         || matches!(expression, syn::Expr::Path(path)
         if path.qself.is_none()
             && path.path.segments.last().is_some_and(|segment| {
@@ -366,6 +369,8 @@ struct InitializerCounters {
     map_key: u32,
     map_value: u32,
     map_update_base: u32,
+    id_token: u32,
+    bytes_token: u32,
 }
 
 struct InitializerBuilder<'a> {
@@ -692,24 +697,39 @@ impl<'a> InitializerBuilder<'a> {
                 Span::call_site(),
                 "initializer terms cannot contain wildcards",
             )),
-            TermTree::IdToken { .. }
-            | TermTree::BytesToken { .. }
-            | TermTree::Anonymous { .. }
-            | TermTree::OrBool { .. } => Err(ExpandError::new(
+            // A builtin literal is one constant of its sort, in an initializer as anywhere.
+            TermTree::IdToken { literal } => {
+                let ordinal = take_counter(&mut self.counters.id_token)?;
+                Ok(WireTerm::BuiltinToken {
+                    key: wire_key(ProvenanceRole::ClaimIdToken, ordinal),
+                    sort: BuiltinSort::Id,
+                    value: literal.value(),
+                })
+            }
+            TermTree::BytesToken { literal } => {
+                let ordinal = take_counter(&mut self.counters.bytes_token)?;
+                Ok(WireTerm::BuiltinToken {
+                    key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
+                    sort: BuiltinSort::Bytes,
+                    value: bytes_token::encode(&literal.value()),
+                })
+            }
+            TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
                 expand::CLAIM_ONLY_TERM,
-                Span::call_site(),
-                "claim-only terms cannot occur in initializers",
+                spelling.span(),
+                "`k::anonymous!` is a claim's symbolic value; an initializer builds the initial configuration from constants and configuration variables",
+            )),
+            TermTree::OrBool { range, .. } => Err(ExpandError::new(
+                expand::CLAIM_ONLY_TERM,
+                range.first(),
+                "`k::or_bool!` joins a claim's symbolic conditions; an initializer holds no condition",
             )),
             TermTree::Cell(cell) => Err(ExpandError::new(
                 expand::INITIALIZER_FRAGMENT,
                 cell.owner().span(),
                 "fragment! is not an initializer term; construct nested initializer cells directly",
             )),
-            TermTree::Lexeme { text, .. } => Err(ExpandError::new(
-                expand::CLAIM_ONLY_TERM,
-                text.span(),
-                "lexeme! is a rule and claim term; initializers cannot contain it",
-            )),
+            TermTree::Lexeme { sort, text } => self.terms.lexeme_wire(sort, text, &mut self.slots),
             TermTree::SortTest { range, .. } => Err(ExpandError::new(
                 expand::CLAIM_ONLY_TERM,
                 range.first(),

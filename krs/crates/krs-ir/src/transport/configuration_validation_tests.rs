@@ -552,6 +552,73 @@ fn initializer_context_preserves_restrictions_and_first_errors_on_both_stages() 
     assert_initializer_context::<HostStage>();
 }
 
+/// A builtin literal and a lexeme are constants: an initializer term with
+/// its own provenance ordinal, and the literal must be valid for its sort.
+fn assert_initializer_constants<S: ConfigurationValidationStage>(sort: impl Fn() -> S::Sort) {
+    for (sort_of_token, value, role) in [
+        (BuiltinSort::Id, "$main", ProvenanceRole::ClaimIdToken),
+        (
+            BuiltinSort::Bytes,
+            r#"b"\x7f\x45""#,
+            ProvenanceRole::ClaimBytesToken,
+        ),
+    ] {
+        assert_eq!(
+            initializer_term::<S>(Term::BuiltinToken {
+                key: key(role),
+                sort: sort_of_token,
+                value: value.into(),
+            }),
+            Ok(())
+        );
+        assert_eq!(
+            initializer_term::<S>(Term::BuiltinToken {
+                key: ProvenanceKey::new(role, 1),
+                sort: sort_of_token,
+                value: value.into(),
+            }),
+            Err(StateTransportError::UnexpectedProvenance {
+                expected: key(role),
+                actual: ProvenanceKey::new(role, 1),
+            })
+        );
+    }
+    assert_eq!(
+        initializer_term::<S>(Term::BuiltinToken {
+            key: key(ProvenanceRole::ClaimIdToken),
+            sort: BuiltinSort::Id,
+            value: "main".into(),
+        }),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidCompilerOwnedBuiltinToken
+        ))
+    );
+    assert_eq!(
+        initializer_term::<S>(Term::Lexeme {
+            key: key(ProvenanceRole::LexemeText),
+            sort: sort(),
+            text: "entry".into(),
+        }),
+        Ok(())
+    );
+    assert_eq!(
+        initializer_term::<S>(Term::Lexeme {
+            key: key(ProvenanceRole::LexemeText),
+            sort: sort(),
+            text: String::new(),
+        }),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::EmptyLexemeText
+        ))
+    );
+}
+
+#[test]
+fn initializer_constants_are_accepted_on_both_stages() {
+    assert_initializer_constants::<DescriptorStage>(|| descriptor_sort(ProvenanceRole::LexemeSort));
+    assert_initializer_constants::<HostStage>(|| host_sort(ProvenanceRole::LexemeSort));
+}
+
 fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Application) {
     let named = || TermArgument::Named {
         key: key(ProvenanceRole::InitializerTermPath),

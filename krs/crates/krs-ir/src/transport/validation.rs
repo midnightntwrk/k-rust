@@ -13,6 +13,31 @@ use super::grammar::{
     SortTestKind, Term,
 };
 
+/// The provenance role of a builtin `Id` or `Bytes` literal, one constant of
+/// its builtin sort wherever it stands, or `None` when `value` is not a valid
+/// literal of `sort`.
+pub(crate) fn builtin_token_literal_role(
+    sort: BuiltinSort,
+    value: &str,
+) -> Option<crate::ProvenanceRole> {
+    match sort {
+        BuiltinSort::Id
+            if value.strip_prefix('$').is_some_and(|tail| {
+                !tail.is_empty()
+                    && tail
+                        .chars()
+                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            }) =>
+        {
+            Some(crate::ProvenanceRole::ClaimIdToken)
+        }
+        BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
+            Some(crate::ProvenanceRole::ClaimBytesToken)
+        }
+        _ => None,
+    }
+}
+
 /// Host references carry Rust type keys without stable item kinds or field text.
 /// Collector output must pass `Descriptor::new` after resolution, which runs the descriptor-stage contracts.
 pub(crate) trait ValidationStage: Stage {

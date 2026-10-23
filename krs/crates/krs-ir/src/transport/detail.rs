@@ -145,7 +145,6 @@ details! {
         InvalidAnonymousSort => "invalid anonymous sort",
         InvalidLexemeSort => "invalid lexeme sort",
         EmptyLexemeText => "lexeme text must not be empty",
-        InitializerLexeme => "lexeme! terms are not allowed in initializers",
         InvalidSortTestSort => "invalid is! or project! sort",
         InitializerSortTest => "is! and project! terms are not allowed in initializers",
         InvalidApplicationTarget => "invalid application target",

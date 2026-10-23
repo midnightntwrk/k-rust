@@ -1541,6 +1541,9 @@ struct InitializerCounters {
     map_key: u32,
     map_value: u32,
     map_update_base: u32,
+    id_token: u32,
+    bytes_token: u32,
+    lexeme: u32,
 }
 
 fn validate_initializer_cells<S: ConfigurationValidationStage>(
@@ -1989,27 +1992,61 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    /// A builtin literal is one constant of its sort, an initializer term as any constant is.
     fn builtin_token(
         &mut self,
-        _: &ProvenanceKey,
-        _: BuiltinSort,
-        _: &str,
+        key: &ProvenanceKey,
+        sort: BuiltinSort,
+        value: &str,
     ) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerClaimTerm,
-        ))
+        let role = super::validation::builtin_token_literal_role(sort, value).ok_or(
+            StateTransportError::InvalidTerm(StateTermReason::InvalidCompilerOwnedBuiltinToken),
+        )?;
+        let counter = if role == ProvenanceRole::ClaimIdToken {
+            &mut self.counters.id_token
+        } else {
+            &mut self.counters.bytes_token
+        };
+        insert_exact(self.keys, key, role, *counter)?;
+        *counter = increment(*counter)?;
+        Ok(())
     }
 
+    /// An unknown value has no place in the initial configuration a run starts from.
     fn anonymous(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerClaimTerm,
         ))
     }
 
-    fn lexeme(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerLexeme,
-        ))
+    /// A lexeme is one constant of its token sort.
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        text: &str,
+    ) -> Result<(), Self::Error> {
+        if text.is_empty() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::EmptyLexemeText,
+            ));
+        }
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidLexemeSort))?;
+        insert_exact(
+            self.keys,
+            S::sort_key(sort),
+            ProvenanceRole::LexemeSort,
+            self.counters.lexeme,
+        )?;
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::LexemeText,
+            self.counters.lexeme,
+        )?;
+        self.counters.lexeme = increment(self.counters.lexeme)?;
+        Ok(())
     }
 
     fn sort_test(

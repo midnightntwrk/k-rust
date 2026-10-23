@@ -1111,13 +1111,13 @@ The configuration may then name only what `<NS>-CONFIGURATION` imports: an initi
 | Island | Result |
 | --- | --- |
 | `k::term![...]` | checked symbolic term/pattern application; a pattern reads every island below without it, so around a pattern it changes nothing, and `krs expand` keeps it around fn subjects as the reference spelling. A term in ordinary Rust code, outside any KRS sentence, still needs it |
-| `k::id![...]` | builtin `Id` literal, one constant of `Id`: a rule, an equation, or a claim matches or builds it like any constant |
-| `k::bytes![...]` | builtin `Bytes` literal, one constant of `Bytes`: `IsElf(k::bytes!(b"\x7fELF"))` in an equation's subject matches exactly those bytes, and `k::bytes!(b"")` in a result is the empty `Bytes` |
-| `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result |
-| `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules and claims |
+| `k::id![...]` | builtin `Id` literal, one constant of `Id`: a rule, an equation, or a claim matches or builds it like any constant, and an initializer holds it |
+| `k::bytes![...]` | builtin `Bytes` literal, one constant of `Bytes`: `IsElf(k::bytes!(b"\x7fELF"))` in an equation's subject matches exactly those bytes, `k::bytes!(b"")` in a result is the empty `Bytes`, and `mem: k::bytes!(b"\x7fELF")` in an initializer starts the cell at those bytes |
+| `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result or an initializer |
+| `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules, claims, and initializers |
 | `k::is!(Sort, t)` | K's generated sort predicate `isSort(T)`: a total Bool in results, guards, and claims, never in a pattern |
 | `k::project!(Sort, t)` | K's generated projection `{T}:>Sort` (`project:Sort`): a partial function with no value when `t` is not a `Sort`, never in a pattern |
-| `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands |
+| `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands, never in an initializer |
 | `k::fragment![...]` | nominal nested-cell term, anywhere a pattern or a term stands; a record of the `#[k::cell]` struct means the same ([whole nested-cell variables](#whole-nested-cell-variables)) |
 | `k::k![...]` | K sequence, including tails/splice/erase notation |
 | `k::map![...]` | builtin Map pattern or value in a `cells!` entry or an initializer: `map![]` or `map![.Map]` is the empty map, `map![k -> v, ..]` a framed one; a term writes `map::empty()` |
@@ -1167,8 +1167,10 @@ KRS spells each value one way in the emitted K: `"\u{c1}"` in Rust is `"\xc1"` i
 A `char` literal is rejected (K has no `Char` sort; write `"a"`), and so is a byte string (write `k::bytes!(b"..")`).
 Code points from U+0080 to U+00FF evaluate alike on every backend, with one exception: Java K's LLVM backend does not match a rule's `"\xc1"` against a program's, which k-rust does.
 
-`k::bytes!(b"..")` is one K `Bytes` token and `k::id!("$name")` one K `Id` token, in rules, equations, and claims, in patterns as well as results, as a string literal is: `fn is_elf(IsElf(k::bytes!(b"\x7fELF")): k::Term<Int>) -> k::Term<Int> { 1 }` emits `rule isElf ( b"\x7f\x45\x4c\x46" ) => 1`, which matches exactly those four bytes, and `k::id!("$main")` emits `#token("$main","Id")`.
+`k::bytes!(b"..")` is one K `Bytes` token and `k::id!("$name")` one K `Id` token, in rules, equations, claims, and initializers, in patterns as well as results, as a string literal is: `fn is_elf(IsElf(k::bytes!(b"\x7fELF")): k::Term<Int>) -> k::Term<Int> { 1 }` emits `rule isElf ( b"\x7f\x45\x4c\x46" ) => 1`, which matches exactly those four bytes, and `k::id!("$main")` emits `#token("$main","Id")`.
 A call such as `bytes::empty()` computes a value and cannot be matched; the literal can.
+An initializer holds a literal wherever it holds a term, since a constant has the same value there as in a rule: `mem: k::bytes!(b"\x7fELF")`, `who: k::id!("$main")`, `label: k::lexeme!(Label, "entry")`, `env: k::map![k::id!("$x") -> 1]`, and `list::item(k::bytes!(b"ab"))` start the configuration at those values, and a rule's literal pattern matches them.
+`k::anonymous!` and `k::or_bool!` are not initializer terms (`krs::expand::claim-only-term`): an unknown value makes the initial configuration symbolic, so no run could start from it, and an initializer holds no condition.
 
 K has one `Float` sort, and every value carries its precision and exponent range in its token.
 Rust's `f32` and `f64` are K's binary32 and binary64: `0.1f32` is the K token `0.1f`, `1.5f64` is `1.5d`, and an unsuffixed `1.5` is K's default, binary64.
