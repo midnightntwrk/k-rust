@@ -52,7 +52,7 @@ Enum helper `#[k::precedence(...)]` names intra-family tiers, using explicit `le
 A chain, when written, lists every variant exactly once (`krs::syntax::invalid-enum-precedence`).
 It is required exactly when it could change a parse: when some variant's template begins or ends with a field whose sort admits the family's sort, that is, the sort itself, one of its supersorts in the whole definition, or `KItem` or `K`.
 Such a field lets one of the family's productions sit directly at the edge of another, the only position its tiers constrain.
-Without a chain the variants belong to no production group; a family that needs one and has none is `krs::analysis::missing-precedence-chain`, an error in every command that lowers the definition (`check`, `emit-k`, `build`, `run`, `prove`).
+Without a chain the variants belong to no production group; a family that needs one and has none is `krs::analysis::missing-precedence-chain`, an error in every command that lowers the definition (`check`, `expand`, `emit-k`, `build`, and the run commands).
 A variant's `group` comes from the chain, so it is rejected without one; a reference family names a `group` on every variant or on none.
 Declaration order never supplies precedence.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
@@ -523,7 +523,7 @@ A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejecte
 ### Coverage of total functions
 
 `total` claims that a function has a value on every argument, and KRS trusts the claim: where no equation applies, the function still has a value, but the definition does not say which.
-Every command reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
+Every command that lowers the definition reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
 A condition is a refutation: every argument that satisfies it is uncovered, and an argument it does not constrain may be anything, shown as `0` for an Int, so ``has no equation for `SignedLess(0, right)` when `Sign(right)` is 0`` holds for every `left`.
 It is a warning, not an error, because the definition means something: an unconstrained value, not a contradiction.
 
