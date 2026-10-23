@@ -835,19 +835,12 @@ impl LiveCases {
             Ok((judgement, reason)) => {
                 run.class = judgement.class;
                 run.unjudged = reason;
-                run.warnings.extend(partial_warnings(
-                    if judgement.class == OutcomeClass::BaselineIncomplete {
-                        &baseline
-                    } else {
-                        mutated
-                    },
-                    reason,
-                ));
-                run.cut = cut_of(if judgement.class == OutcomeClass::BaselineIncomplete {
-                    &baseline
-                } else {
-                    mutated
-                });
+                let judged = match judgement.class {
+                    OutcomeClass::BaselineIncomplete => &baseline,
+                    _ => mutated,
+                };
+                run.warnings.extend(partial_warnings(judged, reason));
+                run.cut = cut_of(judged);
                 if judgement.class == OutcomeClass::Hit {
                     // An added end: the killing mutant leaf. A removed end (all-paths mode, or the
                     // one-path mode's all-paths re-run): the
