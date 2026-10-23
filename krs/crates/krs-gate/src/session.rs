@@ -404,7 +404,7 @@ impl Session {
             .get("variables")
             .and_then(Value::as_object)
             .ok_or("request field `variables` must be an object")?;
-        self.semantics()?.configuration_mut().configure(variables)
+        self.semantics()?.configure_surface(variables)
     }
 
     /// `krs run` through `krs-exec`: configure from `program` and `variables`, then run with `depth` and `trace`.

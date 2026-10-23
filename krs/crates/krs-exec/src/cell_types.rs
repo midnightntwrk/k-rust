@@ -6,8 +6,9 @@
 //! invariant (`krs::analysis::collection-element-sort`), and checks the initializer's own terms.
 //! The base case also needs every configuration variable that fills a typed cell to hold a value
 //! of the cell's type, and only execution sees that value: [`CellTypes::check`] is that check,
-//! which [`crate::Semantics::configure`] applies to every configuration it assembles, whether a
-//! variable was given as text (`krs run -c NAME=TEXT`) or as a [`crate::Value`].
+//! which [`crate::Semantics::configure`] and [`crate::Semantics::configure_surface`] apply to
+//! every configuration they assemble, whether a variable was given as text (`krs run -c
+//! NAME=TEXT`) or as a [`crate::Value`].
 //!
 //! An element fits when its sort is at most the declared element sort in the definition's sort
 //! lattice, and a nested collection is checked against its own element types. A part is

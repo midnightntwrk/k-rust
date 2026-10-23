@@ -225,6 +225,15 @@ impl Configuration {
     ///
     /// Returns an error for an unknown, missing, or non-text variable, or a surface parse failure.
     pub fn configure(&mut self, variables: &Map<String, Value>) -> Result<Value, Box<dyn Error>> {
+        self.configure_pattern(variables)
+            .map(|(_, configured)| configured)
+    }
+
+    /// [`Self::configure`], with the assembled pattern itself.
+    pub(crate) fn configure_pattern(
+        &mut self,
+        variables: &Map<String, Value>,
+    ) -> Result<(Pattern, Value), Box<dyn Error>> {
         self.assembler.clear();
         let configured = self.assemble(variables);
         if configured.is_err() {
@@ -233,7 +242,10 @@ impl Configuration {
         configured
     }
 
-    fn assemble(&mut self, variables: &Map<String, Value>) -> Result<Value, Box<dyn Error>> {
+    fn assemble(
+        &mut self,
+        variables: &Map<String, Value>,
+    ) -> Result<(Pattern, Value), Box<dyn Error>> {
         let mut names = variables.keys().collect::<Vec<_>>();
         names.sort_by_key(|name| (name.as_str() != "PGM", name.as_str()));
         let mut rendered = Map::new();
@@ -261,7 +273,8 @@ impl Configuration {
         self.assembler
             .bind_stream_defaults(false, true, || Ok::<_, ConfigurationError>(Vec::new()))?;
         let pattern = self.assembler.finish()?;
-        Ok(json!({"pattern": pattern.to_string(), "variables": rendered}))
+        let configured = json!({"pattern": pattern.to_string(), "variables": rendered});
+        Ok((pattern, configured))
     }
 
     /// The declared configuration variables (K names without `$`) and their sorts.

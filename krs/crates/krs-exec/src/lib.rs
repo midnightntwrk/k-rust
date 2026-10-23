@@ -972,6 +972,23 @@ impl Semantics {
         Ok(())
     }
 
+    /// Assemble the initial configuration from surface text as [`Configuration::configure`] does,
+    /// and check the typed cells its variables fill as [`Self::configure`] does: the JSON
+    /// holds the pattern and each variable rendered on its own as KORE, for routes that pass a
+    /// value to another tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns the assembler's error, or [`ExecError::CollectionElementSort`].
+    pub fn configure_surface(
+        &mut self,
+        variables: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let (pattern, configured) = self.configuration.configure_pattern(variables)?;
+        self.check_cell_types(&pattern)?;
+        Ok(configured)
+    }
+
     fn resolve_variable(&self, written: &str) -> Result<&ConfigVariable, ExecError> {
         let name = written.strip_prefix('$').unwrap_or(written);
         self.variables

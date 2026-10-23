@@ -238,6 +238,20 @@ fn a_statement_stored_in_a_map_of_values_is_rejected_and_a_value_is_accepted() {
             "configuration variable `$ENV`: the cell `env` is declared `Map<Id, Value>`, but the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value"
         );
         configure_with(semantics, "ENV", "x |-> 1".into()).unwrap();
+        // The surface route that renders each variable for another tool checks the same.
+        let mut surface = FITTING
+            .iter()
+            .map(|(name, text)| ((*name).to_owned(), serde_json::Value::from(*text)))
+            .collect::<serde_json::Map<_, _>>();
+        semantics.configure_surface(&surface).unwrap();
+        surface.insert("ENV".to_owned(), "x |-> skip".into());
+        let error = semantics.configure_surface(&surface).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("but the value at key `x` is `skip`"),
+            "{error}"
+        );
         // An untyped cell takes any element.
         configure_with(semantics, "RAW", "x |-> skip y |-> 1".into()).unwrap();
         // A key is checked too.
