@@ -32,10 +32,12 @@ A row that fits only without the alignment's padding stays on one line, unaligne
 Cell records put one cell per line.
 Inside a term, a group too long for its line breaks from the outside in, as the Rust formatter breaks calls and struct literals: one argument, field, or element per line, indented, and an inner group breaks only when it still does not fit.
 An or-pattern too long for its line puts one alternative per line with a leading `|` under the first; in parentheses, as in `op @ (A | B)`, it hugs them.
-A condition breaks before `||`, else before `&&`, one level deeper.
+A condition breaks before `||`, else before `&&`, else before a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), one level deeper.
+A call whose one argument is a delimited term (`f(..)`, `Record { .. }`, `m![..]`, or `[..]`) and which does not fit on its line hugs it, as the Rust formatter does: the call's delimiters stay on the argument's first and last lines, `list::item(Entry {` / fields / `}),`, and only the argument breaks; an argument with an alias, an operator, or a comment does not hug.
 A `where` list too long for its line puts one binder per line under `where`.
 A one-line attribute too long for its line breaks inside its arguments; one written over several lines keeps its layout.
-`fmt` never adds, removes, or reorders a token, so a broken list keeps the commas its source has: a trailing comma appears only where the author wrote one.
+`fmt` never reorders a token, and the only token it adds or removes is a list's trailing comma: as the Rust formatter does, a list broken over lines ends with a comma and a list on one line has none, whatever the source wrote.
+A record's rest (`..`, `..base`) takes none, as in Rust, while a bracket's `..` or `rest @ ..` is an element and takes one; a `where` list takes none before its `;`, and `(a,)`, whose comma makes a 1-tuple, keeps it.
 A line comment inside a delimited group keeps its place and breaks the group; any other comment of a clause moves to the lines before the clause, and so do all of the clause's comments when one of them would otherwise move before a comment kept in place.
 Only a doc comment, a literal, or another token longer than the line leaves a line of a KRS body over the width.
 

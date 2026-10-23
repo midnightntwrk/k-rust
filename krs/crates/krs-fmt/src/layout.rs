@@ -9,8 +9,12 @@
 //! line with its operator leading.
 //! Layout depends only on the tokens and on where line comments sit between
 //! them, never on the input's whitespace, so formatting is idempotent.
-//! Tokens are never added, removed, or reordered: a broken list keeps exactly
-//! the commas its source has.
+//! Tokens are never reordered, and the only token added or removed is a
+//! list's trailing comma: a broken comma list ends with one and a list on one
+//! line has none, as Rust's own lists do, except where a comma is no list's
+//! end (a 1-tuple `(a,)`, a record's rest `..base`, a `where` list before
+//! its `;`). A call whose one argument is a delimited term hugs it, keeping
+//! its delimiters on the argument's first and last lines.
 
 use krs_syntax::SourceRange;
 use proc_macro2::{Delimiter, Group, Spacing, TokenTree};
@@ -40,6 +44,17 @@ pub(crate) enum Doc {
     /// result fits there whole, or when the result must break anyway and
     /// its first line fits; otherwise `=> result` starts a new line.
     Arm(Box<Doc>),
+    /// Text printed, and measured, only when the enclosing group breaks: a
+    /// list's trailing comma.
+    IfBreak(&'static str),
+    /// A call whose one argument is a delimited term: `fallback` (the call
+    /// as a group) when it fits on one line, else `hugged` (the call's
+    /// delimiters around the argument, which breaks on its own) when its
+    /// first line fits, else `fallback` broken.
+    Hug {
+        hugged: Box<Doc>,
+        fallback: Box<Doc>,
+    },
 }
 
 impl Doc {
@@ -82,6 +97,21 @@ pub(crate) fn print(doc: &Doc, width: usize) -> Vec<String> {
     while let Some((indent, mode, doc)) = stack.pop() {
         match doc {
             Doc::Text(text) | Doc::Comment(text) => printer.push(text),
+            Doc::IfBreak(text) => {
+                if mode != Mode::Flat {
+                    printer.push(text);
+                }
+            }
+            Doc::Hug { hugged, fallback } => {
+                let remaining = width.saturating_sub(printer.column);
+                if mode == Mode::Flat || fits(remaining, &[(Mode::Flat, fallback)], &stack) {
+                    stack.push((indent, Mode::Flat, fallback));
+                } else if fits(remaining, &[(Mode::Head, hugged)], &stack) {
+                    stack.push((indent, Mode::Break, hugged));
+                } else {
+                    stack.push((indent, Mode::Break, fallback));
+                }
+            }
             Doc::Line(flat) if mode == Mode::Flat => printer.push(flat),
             Doc::Line(_) | Doc::Hard => printer.newline(indent),
             Doc::Nest(extra, inner) => stack.push((indent + extra, mode, inner)),
@@ -148,6 +178,14 @@ fn fits(remaining: usize, first: &[(Mode, &Doc)], rest: &[(usize, Mode, &Doc)]) 
                 None => return false,
             },
             Doc::Comment(_) => {}
+            Doc::IfBreak(_) if mode == Mode::Flat => {}
+            Doc::IfBreak(text) => match remaining.checked_sub(text.width()) {
+                Some(left) => remaining = left,
+                None => return false,
+            },
+            // The hugged form's first line is longer than the broken
+            // call's, which the printer falls back to.
+            Doc::Hug { fallback, .. } => stack.push((mode, fallback)),
             Doc::Line(flat) if mode == Mode::Flat => match remaining.checked_sub(flat.width()) {
                 Some(left) => remaining = left,
                 None => return false,
@@ -329,11 +367,15 @@ pub(crate) fn render(tokens: &[TokenTree]) -> String {
 
 /// The layout of a comma-separated list of top-level items, such as a
 /// `where` list: flat after a space, or one item per line, indented.
+/// The list takes no trailing comma: it ends at the clause's `;`, before
+/// which Rust writes none (`where T: A, U: B;`).
 pub(crate) fn list(component: &Component, context: Context, comments: Comments<'_>) -> Doc {
     let atoms = atoms(&component.tokens, component.offset, context, comments);
     let spaces = spacing(&atoms);
+    let mut items = split_items(&atoms);
+    drop_trailing_comma(&atoms, &mut items);
     let mut body = Vec::new();
-    for (range, separator) in split_items(&atoms) {
+    for (range, separator) in items {
         body.push(Doc::Line(" "));
         body.push(item(&atoms, &spaces, range, &[], context));
         if let Some(separator) = separator {
@@ -341,6 +383,16 @@ pub(crate) fn list(component: &Component, context: Context, comments: Comments<'
         }
     }
     Doc::group(Doc::nest(INDENT, Doc::Concat(body)))
+}
+
+/// Removes the separator of the last item when it is a comma: a trailing
+/// comma, which a list's layout writes or leaves out itself.
+fn drop_trailing_comma(atoms: &[Atom], items: &mut [(std::ops::Range<usize>, Option<usize>)]) {
+    if let Some((_, separator)) = items.last_mut()
+        && separator.is_some_and(|index| atoms[index].is(","))
+    {
+        *separator = None;
+    }
 }
 
 /// The layout of a delimited group; `broken` puts its items on their own
@@ -382,13 +434,12 @@ fn atoms(
                 } else {
                     context
                 };
-                let shape = if output
-                    .last()
-                    .is_some_and(|atom| matches!(atom.kind, AtomKind::Word | AtomKind::Group(_)))
-                {
-                    Shape::Arguments
-                } else {
-                    Shape::Free
+                let shape = match output.last() {
+                    Some(atom) if atom.is("!") => Shape::Macro,
+                    Some(atom) if matches!(atom.kind, AtomKind::Word | AtomKind::Group(_)) => {
+                        Shape::Arguments
+                    }
+                    _ => Shape::Free,
                 };
                 output.push(Atom {
                     kind: AtomKind::Group(group.delimiter()),
@@ -605,12 +656,92 @@ struct ItemComments {
 /// How a delimited group may be laid out besides one item per line.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Shape {
-    /// A parenthesized term, which hugs a chain of alternatives.
+    /// A group with no head: a parenthesized term, which hugs a chain of
+    /// alternatives, a tuple, a list, or a brace list.
     Free,
-    /// A call's or constructor's arguments.
+    /// A call's or constructor's arguments, a record's fields, or an index.
     Arguments,
+    /// A macro's arguments, after `!`.
+    Macro,
     /// Always one item per line, as a cell record is.
     Broken,
+}
+
+/// Whether a comma list ends with a comma.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Trailing {
+    /// As written: a comma that tells a 1-tuple `(a,)` from a parenthesized
+    /// term `(a)`, a `{ t }` block's, an index's, or a group whose items
+    /// are no comma list (`;` separates them).
+    Keep,
+    /// After the last item when the group breaks, as Rust's own lists.
+    WhenBroken,
+    /// Never: a record's rest `..` or `..base` ends it, as in Rust.
+    Never,
+}
+
+impl Trailing {
+    fn of(
+        delimiter: Delimiter,
+        shape: Shape,
+        atoms: &[Atom],
+        items: &[(std::ops::Range<usize>, Option<usize>)],
+    ) -> Self {
+        let separators_are_commas = items
+            .iter()
+            .all(|(_, separator)| separator.is_none_or(|index| atoms[index].is(",")));
+        let single = items.len() == 1;
+        let headless = shape == Shape::Free;
+        let keep = !separators_are_commas
+            || match delimiter {
+                Delimiter::None => true,
+                Delimiter::Parenthesis | Delimiter::Brace => headless && single,
+                Delimiter::Bracket => shape == Shape::Arguments,
+            };
+        let rest = items
+            .last()
+            .is_some_and(|(range, _)| is_rest(&atoms[range.clone()]));
+        if keep {
+            Self::Keep
+        } else if delimiter == Delimiter::Brace && rest {
+            Self::Never
+        } else {
+            Self::WhenBroken
+        }
+    }
+}
+
+/// Whether an item is a rest: `..`, `..base`, or `name @ ..`.
+fn is_rest(item: &[Atom]) -> bool {
+    match item {
+        [rest] => rest.is(".."),
+        [rest, base] => rest.is("..") && matches!(base.kind, AtomKind::Word),
+        [name, at, rest] => matches!(name.kind, AtomKind::Word) && at.is("@") && rest.is(".."),
+        _ => false,
+    }
+}
+
+/// Whether a call's one argument is a single delimited term it may hug:
+/// `path(..)`, `Path { .. }`, `path![..]`, or `[..]`, a path written with
+/// words, `::`, and turbofish brackets only.
+fn huggable(item: &[Atom]) -> bool {
+    let Some((last, head)) = item.split_last() else {
+        return false;
+    };
+    let AtomKind::Group(delimiter) = last.kind else {
+        return false;
+    };
+    match head {
+        [] => delimiter == Delimiter::Bracket,
+        [first, ..] => {
+            matches!(first.kind, AtomKind::Word)
+                && head.iter().all(|atom| match &atom.kind {
+                    AtomKind::Word => true,
+                    AtomKind::Punctuation(text) => matches!(text.as_str(), "::" | "<" | ">" | "!"),
+                    AtomKind::Group(_) => false,
+                })
+        }
+    }
 }
 
 /// Where a group's own comments go.
@@ -622,6 +753,29 @@ struct Placement {
     items: Vec<ItemComments>,
     /// Comments inside an item, before the atom of the same index.
     stray: Vec<Vec<Placed>>,
+}
+
+impl Placement {
+    /// Whether the group holds a comment of its own.
+    fn has_comments(&self) -> bool {
+        !self.after_open.is_empty()
+            || !self.dangling.is_empty()
+            || self
+                .items
+                .iter()
+                .any(|comments| !comments.leading.is_empty() || !comments.trailing.is_empty())
+            || self.stray.iter().any(|placed| !placed.is_empty())
+    }
+}
+
+/// A group's open and close delimiters and the space inside them on one line.
+fn delimiters(delimiter: Delimiter) -> (&'static str, &'static str, &'static str) {
+    match delimiter {
+        Delimiter::Parenthesis => ("(", ")", ""),
+        Delimiter::Bracket => ("[", "]", ""),
+        Delimiter::Brace => ("{", "}", " "),
+        Delimiter::None => ("", "", ""),
+    }
 }
 
 /// Places the comments directly in a group, not in a nested one: they keep
@@ -697,22 +851,23 @@ fn group_doc(
     let tokens = group.stream().into_iter().collect::<Vec<_>>();
     let atoms = atoms(&tokens, offset, context, comments);
     let spaces = spacing(&atoms);
-    let (open, close, pad) = match group.delimiter() {
-        Delimiter::Parenthesis => ("(", ")", ""),
-        Delimiter::Bracket => ("[", "]", ""),
-        Delimiter::Brace => ("{", "}", " "),
-        Delimiter::None => ("", "", ""),
-    };
+    let (open, close, pad) = delimiters(group.delimiter());
     let open_end = offset + group.span_open().byte_range().end;
     let close_start = offset + group.span_close().byte_range().start;
-    let items = split_items(&atoms);
+    let mut items = split_items(&atoms);
+    let trailing = Trailing::of(group.delimiter(), shape, &atoms, &items);
+    if trailing != Trailing::Keep {
+        drop_trailing_comma(&atoms, &mut items);
+    }
 
+    let placement = place_comments(&atoms, &items, open_end, close_start, comments);
+    let commented = placement.has_comments();
     let Placement {
         after_open,
         dangling,
         items: item_comments,
         stray,
-    } = place_comments(&atoms, &items, open_end, close_start, comments);
+    } = placement;
 
     if atoms.is_empty() && after_open.is_empty() && dangling.is_empty() {
         return if broken {
@@ -741,6 +896,23 @@ fn group_doc(
             Doc::text(close),
         ]);
     }
+    // A call's one argument that is a delimited term may be hugged: the
+    // call's delimiters stay on the argument's first and last lines.
+    let hugged = (matches!(shape, Shape::Arguments | Shape::Macro)
+        && matches!(
+            group.delimiter(),
+            Delimiter::Parenthesis | Delimiter::Bracket
+        )
+        && trailing == Trailing::WhenBroken
+        && !commented
+        && matches!(items.as_slice(), [(range, None)] if huggable(&atoms[range.clone()])))
+    .then(|| {
+        Doc::Concat(vec![
+            Doc::text(open),
+            item(&atoms, &spaces, items[0].0.clone(), &stray, context),
+            Doc::text(close),
+        ])
+    });
 
     let mut body = Vec::new();
     for text in after_open {
@@ -756,6 +928,8 @@ fn group_doc(
         body.push(item(&atoms, &spaces, range.clone(), &stray, context));
         if let Some(separator) = separator {
             body.push(Doc::text(&atoms[*separator].text));
+        } else if index + 1 == items.len() && trailing == Trailing::WhenBroken {
+            body.push(Doc::IfBreak(","));
         }
         for text in comments.trailing {
             body.push(Doc::Comment(format!(" {text}")));
@@ -766,7 +940,7 @@ fn group_doc(
         body.push(Doc::Hard);
         body.push(Doc::Comment(text));
     }
-    Doc::Group {
+    let call = Doc::Group {
         doc: Box::new(Doc::Concat(vec![
             Doc::text(open),
             Doc::nest(INDENT, Doc::Concat(body)),
@@ -774,31 +948,58 @@ fn group_doc(
             Doc::text(close),
         ])),
         broken,
+    };
+    match hugged {
+        Some(hugged) => Doc::Hug {
+            hugged: Box::new(hugged),
+            fallback: Box::new(call),
+        },
+        None => call,
     }
 }
 
-/// The operators an item may break before, loosest first.
-fn operators(context: Context) -> &'static [&'static str] {
+/// The operators an item may break before, loosest rank first; the
+/// operators of one rank bind alike.
+fn operators(context: Context) -> &'static [&'static [&'static str]] {
     match context {
-        Context::Pattern => &["|"],
-        Context::Expression => &["||", "&&"],
+        Context::Pattern => &[&["|"]],
+        Context::Expression => &[&["||"], &["&&"], &["==", "!=", "<=", ">=", "<", ">"]],
         Context::Macro => &[],
     }
 }
 
-/// The loosest of `operators` at an item's top level and where it occurs.
-fn operator_splits<'o>(
+/// The loosest rank of `operators` at an item's top level and where its
+/// operators occur. A turbofish's angle brackets (`eq::<Int>`) are no
+/// comparisons.
+fn operator_splits(
     atoms: &[Atom],
     range: std::ops::Range<usize>,
-    operators: &'o [&'o str],
+    operators: &[&[&str]],
 ) -> Option<(usize, Vec<usize>)> {
-    operators.iter().enumerate().find_map(|(rank, operator)| {
+    let angles = turbofish_angles(atoms);
+    operators.iter().enumerate().find_map(|(rank, operators)| {
         // An operator first in the item is a prefix, as a leading `|` is.
         let splits = (range.start + 1..range.end)
-            .filter(|&index| atoms[index].is(operator))
+            .filter(|&index| !angles[index] && operators.iter().any(|op| atoms[index].is(op)))
             .collect::<Vec<_>>();
         (!splits.is_empty()).then_some((rank, splits))
     })
+}
+
+/// Which atoms are a turbofish's `<` or its closing `>`.
+fn turbofish_angles(atoms: &[Atom]) -> Vec<bool> {
+    let mut angles = vec![false; atoms.len()];
+    let mut depth = 0_usize;
+    for (index, atom) in atoms.iter().enumerate() {
+        if index > 0 && atom.is("<") && atoms[index - 1].is("::") {
+            depth += 1;
+            angles[index] = true;
+        } else if depth > 0 && atom.is(">") {
+            depth -= 1;
+            angles[index] = true;
+        }
+    }
+    angles
 }
 
 fn item(
@@ -819,7 +1020,7 @@ fn operands(
     range: std::ops::Range<usize>,
     stray: &[Vec<Placed>],
     context: Context,
-    operators: &[&str],
+    operators: &[&[&str]],
 ) -> Doc {
     let Some((rank, splits)) = operator_splits(atoms, range.clone(), operators) else {
         return run(atoms, spaces, range, stray);
@@ -945,7 +1146,7 @@ mod tests {
                 | Op::Pop
                 | Op::Swap),
                 second_element,
-                rest @ ..
+                rest @ ..,
             ]"]]
         .assert_eq(&print(&doc, 24).join("\n"));
     }
@@ -963,7 +1164,7 @@ mod tests {
             requires(
                 first.gt(0)
                     && second.lt(third)
-                    && fourth
+                    && fourth,
             )"]]
         .assert_eq(&print(&call, 30).join("\n"));
         let parenthesized = sequence(

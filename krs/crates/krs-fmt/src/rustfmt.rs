@@ -269,6 +269,9 @@ pub(crate) fn run(source: &str, edition: Edition, directory: &Path) -> Result<St
     })
 }
 
+/// Checks that formatting kept each DSL body's tokens, modulo trailing
+/// commas (which the layout writes or removes), and that each formatted
+/// body parses with the `krs-syntax` entry its macro formats with.
 pub(crate) fn validate_token_payload(
     before: &str,
     after: &str,
@@ -294,17 +297,26 @@ pub(crate) fn validate_token_payload(
                     FormatErrorKind::RustSyntax,
                     format!("cannot tokenize KRS DSL body {index} before formatting: {error}"),
                 )
-            })?
-            .to_string();
-        let after_body = TokenStream::from_str(&after[after_range.start..after_range.end])
-            .map_err(|error| {
-                FormatError::new(
-                    FormatErrorKind::OutputDoesNotParse,
-                    format!("cannot tokenize formatted KRS DSL body {index}: {error}"),
-                )
-            })?
-            .to_string();
-        if before_body != after_body {
+            })?;
+        let after_source = &after[after_range.start..after_range.end];
+        let after_body = TokenStream::from_str(after_source).map_err(|error| {
+            FormatError::new(
+                FormatErrorKind::OutputDoesNotParse,
+                format!("cannot tokenize formatted KRS DSL body {index}: {error}"),
+            )
+        })?;
+        reparse_body(after_range.entry, after_source).map_err(|error| {
+            FormatError::new(
+                FormatErrorKind::OutputDoesNotParse,
+                format!(
+                    "formatted `{}!` body {index} does not parse: {error}",
+                    after_range.entry.name()
+                ),
+            )
+        })?;
+        if without_trailing_commas(before_body).to_string()
+            != without_trailing_commas(after_body).to_string()
+        {
             return Err(FormatError::new(
                 FormatErrorKind::TokenPayloadChanged,
                 format!("formatting changed the span-blind token payload of KRS DSL body {index}"),
@@ -312,6 +324,47 @@ pub(crate) fn validate_token_payload(
         }
     }
     Ok(())
+}
+
+/// Parses a formatted body with the entry the formatter parsed it with.
+fn reparse_body(entry: FunctionMacro, source: &str) -> Result<(), krs_syntax::SyntaxError> {
+    match entry {
+        FunctionMacro::Equations => {
+            krs_syntax::parse_equation_table_source_with_trivia(source).map(drop)
+        }
+        FunctionMacro::Claims => krs_syntax::parse_claim_block_source_with_trivia(source).map(drop),
+        _ => krs_syntax::parse_rule_block_source_with_trivia(source).map(drop),
+    }
+}
+
+/// The tokens without the commas directly before a closing delimiter or a
+/// `;`: a trailing comma adds no element, and the layout decides it.
+fn without_trailing_commas(tokens: TokenStream) -> TokenStream {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut output = Vec::with_capacity(tokens.len());
+    for (index, token) in tokens.iter().enumerate() {
+        let is_comma = matches!(token, TokenTree::Punct(punct) if punct.as_char() == ',');
+        let ends = match tokens.get(index + 1) {
+            None => true,
+            Some(TokenTree::Punct(next)) => next.as_char() == ';',
+            Some(_) => false,
+        };
+        if is_comma && ends {
+            continue;
+        }
+        output.push(match token {
+            TokenTree::Group(group) => {
+                let mut stripped = proc_macro2::Group::new(
+                    group.delimiter(),
+                    without_trailing_commas(group.stream()),
+                );
+                stripped.set_span(group.span());
+                TokenTree::Group(stripped)
+            }
+            other => other.clone(),
+        });
+    }
+    output.into_iter().collect()
 }
 
 pub(crate) fn validate_comment_payload(before: &str, after: &str) -> Result<(), FormatError> {

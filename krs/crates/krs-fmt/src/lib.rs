@@ -3,7 +3,7 @@
 //! Rustfmt owns ordinary Rust layout.
 //! KRS `rules!` bodies reached through Rust syntax are selected by [`krs_syntax::surface::invocations`] under the configured facade aliases and the file's module bindings.
 //! These bodies are elided before Rustfmt runs, formatted through the shared `krs-syntax` parser, and spliced back at the invocation's Rustfmt-selected indentation.
-//! Their clauses and terms wrap within Rustfmt's configured `max_width` (`layout`), breaking groups from the outside in without adding, removing, or reordering a token.
+//! Their clauses and terms wrap within Rustfmt's configured `max_width` (`layout`), breaking groups from the outside in without reordering a token; a broken comma list ends with a trailing comma and a list on one line has none, as Rustfmt writes Rust's lists, and a call hugs its one delimited argument.
 //! Other macros and calls inside raw macro tokens remain under Rustfmt's formatting policy.
 //! The default facade alias is `k`; callers with package metadata must supply that package's aliases in [`FormatOptions::facade_aliases`].
 
@@ -621,13 +621,13 @@ k::rules!(a, b);
                     one:
                         A(
                             // interior
-                            value
+                            value,
                         ) => value;  // trailing
                     // between
                     two:
                         A(
                             // kept
-                            value
+                            value,
                         ) => value;
                     // interior
                     // after

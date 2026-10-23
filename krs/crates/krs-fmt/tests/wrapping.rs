@@ -50,11 +50,11 @@ quiet: Push(n) | PushZero(n) | PushOne(n) | PushTwo(n) | PushThree(n) | PushFour
                     | Op::Caller
                     | Op::CallValue
                     | Op::CallDataSize),
-                    ..
+                    ..,
                 ],
-                gas: g
+                gas: g,
             } => {
-                k: [Charge(op, g, 2), ..]
+                k: [Charge(op, g, 2), ..],
             };
         }
         k::equations! {
@@ -66,7 +66,7 @@ quiet: Push(n) | PushZero(n) | PushOne(n) | PushTwo(n) | PushThree(n) | PushFour
                     EnumType(_, _, layout)
                     | StructType(_, layout)
                     | UnionType(_, layout)
-                    | TupleType(layout)
+                    | TupleType(layout),
                 ) => Size(layout);
         }
         k::rules! {
@@ -99,11 +99,10 @@ assign: (place, value) => Assign(Place(0, Projections::Empty()), Use(Operand::Co
             assign:
                 (place, value) => Assign(
                     Place(0, Projections::Empty()),
-                    Use(
-                        Operand::Copy(
-                            Place(3, Projections::Cons(Projection::Field(value), Projections::Empty()))
-                        )
-                    )
+                    Use(Operand::Copy(Place(
+                        3,
+                        Projections::Cons(Projection::Field(value), Projections::Empty()),
+                    ))),
                 );
         }
     "]]
@@ -128,29 +127,29 @@ copy: { k: [t @ CopyBytes { memory: PrepareMemory { memory, used, start: argumen
                             memory,
                             used,
                             start: argument_start,
-                            width: argument_width
+                            width: argument_width,
                         },
                         destination,
                         ..
                     },
-                    ..
+                    ..,
                 ],
                 pc,
-                gas
+                gas,
             } => {
                 k: [
                     CopyBytes {
                         memory: MemoryUsage {
                             used,
                             start: argument_start,
-                            width: argument_width
+                            width: argument_width,
                         },
                         ..t
                     },
-                    ..
+                    ..,
                 ],
                 pc,
-                gas: int::sub(gas, 3)
+                gas: int::sub(gas, 3),
             };
         }
     "]]
@@ -172,9 +171,9 @@ long_row: Resolve(height, place, mutability, metadata) => place where height: In
         k::rules! {
             for Machine;
             step: {
-                k: [Resolve(height, place, mutability, metadata, destination), ..]
+                k: [Resolve(height, place, mutability, metadata, destination), ..],
             } => {
-                k: [..]
+                k: [..],
             }
             where
                 height: Int,
@@ -183,9 +182,9 @@ long_row: Resolve(height, place, mutability, metadata) => place where height: In
                 metadata: Metadata,
                 destination: Place;
             short: {
-                k: [Done(v), ..]
+                k: [Done(v), ..],
             } => {
-                k: [..]
+                k: [..],
             }
             where v: Int;
         }
@@ -261,15 +260,15 @@ call: {
                         // the target
                         target,
                         arguments, // still the caller's
-                        gas
+                        gas,
                         // nothing after the gas
                     ),
-                    ..
+                    ..,
                 ],
                 gas: g, // charged later
             } => {
                 k: [Enter(target, arguments, gas), ..],
-                gas: g
+                gas: g,
             };
         }
     "]]
@@ -295,7 +294,7 @@ Union(a)) => a;
                     Enum(a) // before the bar
                     | Struct(a)
                     | // after the bar
-                    Union(a)
+                    Union(a),
                 ) => a;
         }
     "]]
@@ -317,12 +316,10 @@ keep: Keep(a) => a;
     expect_test::expect![[r"
         k::rules! {
             for Expr;
-            #[k::requires(
-                SameTypeInfo {
-                    first: map::get(types, element),
-                    second: PrimitiveType { primitive: Unsigned(U8()) }
-                }
-            )]
+            #[k::requires(SameTypeInfo {
+                first: map::get(types, element),
+                second: PrimitiveType { primitive: Unsigned(U8()) },
+            })]
             cast: Cast(element, types) => element;
             #[k::requires(a.gt::<Int>(2)
                 || a.eq::<Int>(0))]
@@ -370,14 +367,238 @@ simple_addition: { instrs: [Const(IntegerType::I64, 3), Const(IntegerType::I64, 
                     Const(IntegerType::I64, 3),
                     Const(IntegerType::I64, 4),
                     Binary(IntegerType::I64, Add),
-                    ..
+                    ..,
                 ],
-                stack: Empty()
+                stack: Empty(),
             } => {
                 instrs: [..],
-                stack: Cons(Value(IntegerType::I64, 7), Empty())
+                stack: Cons(Value(IntegerType::I64, 7), Empty()),
             };
         }
     "]]
     .assert_eq(&format(source, 80));
+}
+
+/// A broken comma list ends with a comma and a list on one line has none,
+/// whatever the source wrote: calls, records, brackets, macro arguments, and
+/// table rows. A one-element row `(0,)` and a `where` list before its `;`
+/// keep their own spelling.
+#[test]
+fn trailing_commas_follow_the_layout() {
+    let source = "k::rules! { for Machine;
+step: { k: [Resolve(first_argument, second_argument, third_argument, fourth_argument), ..], gas: g, } => { k: [Pair(g, g,), ..,], gas: g, } where g: Int,;
+}
+k::equations! { for Size;
+one: (0,) => 1;
+pair: (0, b,) => Wrap(b,);
+long: (first_argument, second_argument) => Combine(first_argument, second_argument, first_argument);
+}
+k::claims! { for Machine;
+#[k::claim(all_paths)]
+loads: { program: k::bytes!(b\"\\x60\\x02\\x60\\x07\\x05\\x60\\x02\\x60\\x07\\x07\\x60\\x05\\x60\\x06\\x60\"), pc: 0 } => { program: k::bytes!(b\"\\x60\\x02\",), pc: 2 };
+}
+";
+    expect_test::expect![[r#"
+        k::rules! {
+            for Machine;
+            step: {
+                k: [
+                    Resolve(
+                        first_argument,
+                        second_argument,
+                        third_argument,
+                        fourth_argument,
+                    ),
+                    ..,
+                ],
+                gas: g,
+            } => {
+                k: [Pair(g, g), ..],
+                gas: g,
+            }
+            where g: Int;
+        }
+        k::equations! {
+            for Size;
+            one : (0,)   => 1;
+            pair: (0, b) => Wrap(b);
+            long:
+                (first_argument, second_argument)
+                => Combine(first_argument, second_argument, first_argument);
+        }
+        k::claims! {
+            for Machine;
+            #[k::claim(all_paths)]
+            loads: {
+                program: k::bytes!(
+                    b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60",
+                ),
+                pc: 0,
+            } => {
+                program: k::bytes!(b"\x60\x02"),
+                pc: 2,
+            };
+        }
+    "#]]
+    .assert_eq(&format(source, 80));
+}
+
+/// A rest ends a record without a comma, as in Rust; in brackets it is an
+/// element like any other and takes one.
+#[test]
+fn a_rest_takes_a_comma_in_brackets_and_none_in_braces() {
+    let source = "k::rules! { for Machine;
+copy: { k: [CopyBytes { memory_region: m, destination_offset: d, source_offset: s, .. }, rest @ ..], acc: saved } => { k: [Done(m, d, s), ..rest], acc: Frame { pc: first_program_counter, depth: call_depth, ..saved } };
+}
+";
+    expect_test::expect![[r"
+        k::rules! {
+            for Machine;
+            copy: {
+                k: [
+                    CopyBytes {
+                        memory_region: m,
+                        destination_offset: d,
+                        source_offset: s,
+                        ..
+                    },
+                    rest @ ..,
+                ],
+                acc: saved,
+            } => {
+                k: [Done(m, d, s), ..rest],
+                acc: Frame {
+                    pc: first_program_counter,
+                    depth: call_depth,
+                    ..saved
+                },
+            };
+        }
+    "]]
+    .assert_eq(&format(source, 72));
+}
+
+/// A call whose one argument is a delimited term hugs it, nested calls too;
+/// an argument with an alias, an operator, or a comment does not hug.
+#[test]
+fn a_call_hugs_its_one_delimited_argument() {
+    let source = "k::rules! { for Machine;
+log: { k: [Log(address, memory, start, width), ..], logs } => { k: [..], logs: list::concat(logs, list::item(LogRecord::Entry { address, topics: StackTakeList { stack, remaining }, data: ReturnBytes(memory, start, width) })) };
+nested: { k: [Add(lhs, rhs, width, signed), ..] } => { k: [Boolean(TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs), ..] };
+}
+k::equations! { for Restore;
+alias: Restore(saved @ CallState { program_counter: caller_frame_value, call_depth: depth, .. }) => saved;
+operator: Restore(state) => Wrap(Frame { program_counter: caller_frame_value, depth } != Frame::empty());
+}
+";
+    expect_test::expect![[r"
+        k::rules! {
+            for Machine;
+            log: {
+                k: [Log(address, memory, start, width), ..],
+                logs,
+            } => {
+                k: [..],
+                logs: list::concat(
+                    logs,
+                    list::item(LogRecord::Entry {
+                        address,
+                        topics: StackTakeList { stack, remaining },
+                        data: ReturnBytes(memory, start, width),
+                    }),
+                ),
+            };
+            nested: {
+                k: [Add(lhs, rhs, width, signed), ..],
+            } => {
+                k: [
+                    Boolean(
+                        TruncateInteger { value: lhs + rhs, width, signed }
+                            != lhs + rhs,
+                    ),
+                    ..,
+                ],
+            };
+        }
+        k::equations! {
+            for Restore;
+            alias:
+                Restore(
+                    saved @ CallState {
+                        program_counter: caller_frame_value,
+                        call_depth: depth,
+                        ..
+                    },
+                ) => saved;
+            operator:
+                Restore(state) => Wrap(
+                    Frame { program_counter: caller_frame_value, depth }
+                        != Frame::empty(),
+                );
+        }
+    "]]
+    .assert_eq(&format(source, 80));
+}
+
+/// KMIR's `Boolean(..)` argument fills its line to exactly 100 columns: the
+/// call hugs it, so its trailing comma does not reflow the record.
+#[test]
+fn a_hugged_argument_at_the_width_keeps_its_record_whole() {
+    let source = "k::rules! { for Machine;
+add_checked: { k: [BinaryOperation(lhs, rhs, width, signed), ..] } => { k: [SetLocalValue { place, value: Aggregate { variant: 0, fields: list::concat(list::item(Integer { value: TruncateInteger { value: lhs + rhs, width, signed }, width, signed }), list::concat(list::item(Boolean(TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs)), list::empty())) } }, ..] };
+}
+";
+    expect_test::expect![[r"
+        k::rules! {
+            for Machine;
+            add_checked: {
+                k: [BinaryOperation(lhs, rhs, width, signed), ..],
+            } => {
+                k: [
+                    SetLocalValue {
+                        place,
+                        value: Aggregate {
+                            variant: 0,
+                            fields: list::concat(
+                                list::item(Integer {
+                                    value: TruncateInteger { value: lhs + rhs, width, signed },
+                                    width,
+                                    signed,
+                                }),
+                                list::concat(
+                                    list::item(Boolean(
+                                        TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs,
+                                    )),
+                                    list::empty(),
+                                ),
+                            ),
+                        },
+                    },
+                    ..,
+                ],
+            };
+        }
+    "]].assert_eq(&format(source, 100));
+}
+
+/// A comparison too long for its line breaks before its operator, one
+/// level deeper, after `||` and `&&`; a turbofish's brackets are no
+/// comparison.
+#[test]
+fn a_long_comparison_breaks_before_its_operator() {
+    let source = "k::equations! { for Check;
+wide: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width, signed } != lhs.add::<Int>(rhs));
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Check;
+            wide:
+                (lhs, rhs) => Boolean(
+                    TruncateInteger { value: lhs + rhs, width, signed }
+                        != lhs.add::<Int>(rhs),
+                );
+        }
+    "]]
+    .assert_eq(&format(source, 76));
 }
