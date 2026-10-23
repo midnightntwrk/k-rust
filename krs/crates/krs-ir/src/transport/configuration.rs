@@ -236,6 +236,41 @@ impl TryFrom<DescriptorCellTypeWire> for DescriptorCellType {
 }
 
 protocol_shape! {
+    /// One argument of a cell's collection content type: a sort, or a
+    /// collection type with its own arguments (`Set<Int>` in
+    /// `Map<Int, Set<Int>>`).
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(
+        deny_unknown_fields,
+        bound(serialize = "S: Serialize", deserialize = "S: Deserialize<'de>")
+    )]
+    pub struct ProtocolSortArgument<S => sort_map => S2> {
+        /// The argument's sort.
+        pub sort: S => [sort_map],
+        /// The arguments of a collection argument, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ProtocolSortArgument<S>> => [vec nested sort_map],
+    }
+}
+
+impl<S> ProtocolSortArgument<S> {
+    /// Every argument and nested argument of `arguments`, in preorder: the
+    /// order of their `configuration_cell_content_argument` ordinals.
+    #[must_use]
+    pub fn preorder(arguments: &[Self]) -> Vec<&Self> {
+        let mut output = Vec::new();
+        for argument in arguments {
+            output.push(argument);
+            output.extend(Self::preorder(&argument.arguments));
+        }
+        output
+    }
+}
+
+/// Stable collection argument of a cell's content type.
+pub type DescriptorSortArgument = ProtocolSortArgument<DescriptorSortReference>;
+
+protocol_shape! {
     /// Leaf or nominally nested content of one fixed cell declaration field.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(
@@ -256,9 +291,12 @@ protocol_shape! {
             wrapper: CellWrapper => [keep],
             /// Exact declared or builtin content sort.
             sort: S => [sort_map],
-            /// Generic object-sort arguments retained for cell-pattern inference.
+            /// The arguments of a collection content type (`Id` and `Value`
+            /// of `Map<Id, Value>`), which semantic analysis checks every
+            /// term written into or read from the cell against; empty for a
+            /// bare collection.
             #[serde(default, skip_serializing_if = "Vec::is_empty")]
-            arguments: Vec<S> => [vec sort_map],
+            arguments: Vec<ProtocolSortArgument<S>> => [vec nested sort_map],
         },
         /// Field whose type is another nominal `#[k::cell]` declaration.
         Nested {
@@ -1260,7 +1298,8 @@ fn validate_declaration<S: ConfigurationValidationStage>(
                     ordinal,
                 )?;
                 S::validate_leaf_sort(*wrapper, sort)?;
-                for argument in arguments {
+                for argument in ProtocolSortArgument::preorder(arguments) {
+                    let argument = &argument.sort;
                     insert_exact(
                         keys,
                         S::sort_key(argument),

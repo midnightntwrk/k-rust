@@ -801,6 +801,7 @@ fn registry() -> Registry {
     trace!(ProtocolKSequenceItem: ProtocolKSequenceItem<String>);
     trace!(ProtocolKSequence: ProtocolKSequence<String>);
     trace!(ProtocolMapItem: ProtocolMapItem<String>);
+    trace!(ProtocolSortArgument: ProtocolSortArgument<String>);
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
     trace!(HeadRuleClaim: HeadRuleClaim);

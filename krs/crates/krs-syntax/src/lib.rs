@@ -46,7 +46,7 @@ pub use attribute::{
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
-    option_content,
+    SortArgument, option_content,
 };
 pub use constant::ConstantItem;
 pub use enum_constructor::{

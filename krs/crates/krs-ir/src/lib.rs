@@ -123,15 +123,15 @@ pub use transport::configuration::{
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationRoot, DescriptorConfigurationVariable, DescriptorFixedConfiguration,
     DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorKSequenceNotation,
-    FixedConfiguration as TransportFixedConfiguration, HostCellDeclaration,
+    DescriptorSortArgument, FixedConfiguration as TransportFixedConfiguration, HostCellDeclaration,
     HostCellDeclarationReference, HostCellField, HostCellIdentity, HostCellReference,
     HostConfigurationDeclaration, HostConfigurationInitializer, HostConfigurationVariable,
     HostFixedConfiguration, HostInitializerCell, HostInitializerStateTerm, ProtocolCellContent,
     ProtocolCellDeclaration, ProtocolCellField, ProtocolConfigurationInitializer,
     ProtocolConfigurationVariable, ProtocolInitializerCell, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, StageCellDeclaration,
-    StageConfigurationInitializer, StateTransportError,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, ProtocolSortArgument,
+    StageCellDeclaration, StageConfigurationInitializer, StateTransportError,
 };
 pub use transport::constant::{ConstantDescriptor, ConstantPayload};
 pub use transport::grammar::{
@@ -206,7 +206,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(63);
+    pub const CURRENT: Self = Self(64);
 }
 
 impl Default for SchemaVersion {

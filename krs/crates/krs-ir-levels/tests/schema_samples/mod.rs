@@ -2085,6 +2085,18 @@ impl<
         )
     }
 }
+/// A collection argument with a nested argument, as in `Map<Int, Set<Int>>`.
+impl<S: Sample> Sample for ProtocolSortArgument<S> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<S>(),
+            arguments: vec![Self {
+                sort: sample::<S>(),
+                arguments: Vec::new(),
+            }],
+        }]
+    }
+}
 impl<
     S: Sample + Clone + Serialize + DeserializeOwned,
     N: Sample + Clone + Serialize + DeserializeOwned,
@@ -2097,7 +2109,7 @@ impl<
                     wrapper_key: sample::<ProvenanceKey>(),
                     wrapper: sample::<CellWrapper>(),
                     sort: sample::<S>(),
-                    arguments: sample::<Vec<S>>(),
+                    arguments: sample::<Vec<ProtocolSortArgument<S>>>(),
                 },
                 Self::Nested {
                     declaration: sample::<N>(),

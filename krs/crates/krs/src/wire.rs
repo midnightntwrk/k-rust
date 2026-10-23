@@ -774,7 +774,10 @@ mod tests {
                         wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                         wrapper: CellWrapper::Cell,
                         sort: wire_sort(),
-                        arguments: vec![wire_sort()],
+                        arguments: vec![krs_ir::ProtocolSortArgument {
+                            sort: wire_sort(),
+                            arguments: Vec::new(),
+                        }],
                     },
                 },
                 ProtocolCellField {
@@ -819,7 +822,10 @@ mod tests {
                         wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                         wrapper: CellWrapper::Cell,
                         sort: host_sort(),
-                        arguments: vec![host_sort()],
+                        arguments: vec![krs_ir::ProtocolSortArgument {
+                            sort: host_sort(),
+                            arguments: Vec::new(),
+                        }],
                     },
                 },
                 ProtocolCellField {

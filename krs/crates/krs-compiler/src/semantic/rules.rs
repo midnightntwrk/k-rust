@@ -829,7 +829,10 @@ fn seed_head_rule_sorts(
         {
             map_argument_sorts.insert(
                 cell.cell.clone(),
-                (semantic_sort_ref(&key.sort), semantic_sort_ref(&value.sort)),
+                (
+                    semantic_sort_ref(&key.sort.sort),
+                    semantic_sort_ref(&value.sort.sort),
+                ),
             );
         }
         if let krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } = extra

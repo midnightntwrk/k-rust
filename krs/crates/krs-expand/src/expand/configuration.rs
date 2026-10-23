@@ -437,37 +437,17 @@ fn configuration_content(
                     ::core::any::TypeId::of::<#sort>()
                 }
             });
-            let mut argument_references = Vec::new();
-            for argument in arguments {
-                let generated = call_site_path(argument)?;
-                let authored_path = spelling(argument);
-                let key = format_ident!(
-                    "__krs_configuration_sort_argument_{}_{}",
+            let argument_references = configuration_sort_arguments(
+                arguments,
+                &mut SortArgumentContext {
+                    facade,
+                    owner,
                     owner_key,
-                    argument_ordinal
-                );
-                helpers.push(quote! {
-                    #[doc(hidden)]
-                    pub fn #key() -> ::core::any::TypeId {
-                        ::core::any::TypeId::of::<#generated>()
-                    }
-                });
-                let ordinal = *argument_ordinal;
-                *argument_ordinal = argument_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        argument.span(),
-                        "too many configuration sort arguments",
-                    )
-                })?;
-                argument_references.push(WireSortReference {
-                    key: wire_key(ProvenanceRole::ConfigurationCellContentArgument, ordinal),
-                    target: WireTypeReference {
-                        slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#key))),
-                        authored_path,
-                    },
-                });
-            }
+                    helpers,
+                    slots,
+                    ordinal: argument_ordinal,
+                },
+            )?;
             ProtocolCellContent::Leaf {
                 wrapper_key: wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
                 wrapper: if *computation {
@@ -507,4 +487,65 @@ fn configuration_content(
         }
     };
     Ok(content)
+}
+
+/// What [`configuration_sort_arguments`] needs to emit one argument's
+/// `TypeId` helper and wire reference.
+struct SortArgumentContext<'a, 'b> {
+    facade: &'a Path,
+    owner: &'a Ident,
+    owner_key: &'a Ident,
+    helpers: &'a mut Vec<TokenStream>,
+    slots: &'a mut WireSlots,
+    /// The next `configuration_cell_content_argument` ordinal.
+    ordinal: &'b mut u32,
+}
+
+/// The wire tree of a leaf cell's collection arguments, numbered in
+/// preorder as the syntax numbers their provenance.
+fn configuration_sort_arguments(
+    arguments: &[krs_syntax::SortArgument],
+    context: &mut SortArgumentContext<'_, '_>,
+) -> crate::Result<Vec<krs_ir::ProtocolSortArgument<WireSortReference>>> {
+    let mut output = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let facade = context.facade;
+        let owner = context.owner;
+        let generated = call_site_path(&argument.path)?;
+        let ty = super::tokens::sort_type_tokens(facade, &generated, argument.dynamic);
+        let authored_path = spelling(&argument.path);
+        let key = format_ident!(
+            "__krs_configuration_sort_argument_{}_{}",
+            context.owner_key,
+            *context.ordinal
+        );
+        context.helpers.push(quote! {
+            #[doc(hidden)]
+            pub fn #key() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#ty>()
+            }
+        });
+        let ordinal = *context.ordinal;
+        *context.ordinal = context.ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                argument.path.span(),
+                "too many configuration sort arguments",
+            )
+        })?;
+        let sort = WireSortReference {
+            key: wire_key(ProvenanceRole::ConfigurationCellContentArgument, ordinal),
+            target: WireTypeReference {
+                slot: context
+                    .slots
+                    .type_slot(quote!(#facade::HostTypeKey(#owner::#key))),
+                authored_path,
+            },
+        };
+        output.push(krs_ir::ProtocolSortArgument {
+            sort,
+            arguments: configuration_sort_arguments(&argument.arguments, context)?,
+        });
+    }
+    Ok(output)
 }

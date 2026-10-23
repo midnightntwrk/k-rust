@@ -212,7 +212,16 @@ fn declaration() -> DescriptorCellDeclaration {
                     wrapper_key: key(2),
                     wrapper: cfg::CellWrapper::Cell,
                     sort: sort(3),
-                    arguments: vec![sort(4), sort(5)],
+                    arguments: vec![
+                        cfg::ProtocolSortArgument {
+                            sort: sort(4),
+                            arguments: Vec::new(),
+                        },
+                        cfg::ProtocolSortArgument {
+                            sort: sort(5),
+                            arguments: Vec::new(),
+                        },
+                    ],
                 },
             ),
             field(

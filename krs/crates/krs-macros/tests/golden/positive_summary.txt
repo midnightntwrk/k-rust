@@ -11,14 +11,14 @@ krs_macros_positive|Increment|Constructor|4
 krs_macros_positive|KItem|Sort|1
 krs_macros_positive|KResult|Sort|2
 krs_macros_positive|Keccak256Raw|Constructor|4
-krs_macros_positive|Machine|Configuration|23
+krs_macros_positive|Machine|Configuration|25
 krs_macros_positive|NestedMachine|Configuration|23
 krs_macros_positive|Pair|Constructor|5
 krs_macros_positive|ReadableEquivalentMachine|Configuration|31
 krs_macros_positive|Ripemd160Raw|Constructor|4
 krs_macros_positive|Secondary|Configuration|19
 krs_macros_positive|Sha256Raw|Constructor|4
-krs_macros_positive|Store|Cell|4
+krs_macros_positive|Store|Cell|6
 krs_macros_positive|Tagged|Constructor|12
 krs_macros_positive|True|Constructor|7
 krs_macros_positive|TwoComputationMachine|Configuration|20
