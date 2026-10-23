@@ -592,3 +592,99 @@ fn a_pool_without_candidates_leaves_the_mutations_unchanged() {
     // mutations are those of a case without a pool.
     assert_eq!(run(Vec::new()), run(vec![equal(99, 100)]));
 }
+
+/// A `miss` observation that applied rule `r` `count` times, with the pool `comparisons`.
+fn counted_miss(count: u64, comparisons: Vec<Compared>) -> Observation {
+    Observation {
+        applied_counts: BTreeMap::from([("r".to_owned(), count)]),
+        comparisons,
+        ..observation(OutcomeClass::Miss, &["r"], None)
+    }
+}
+
+/// FZ-16 x FZ-17: a case kept only because it applied a rule in a new count bucket keeps its
+/// pool of run-time literals, so a later proposal from it can be the run-time change; and a
+/// corpus follow-up that reaches a new count bucket is kept and moves the count history.
+#[test]
+fn a_count_only_keep_carries_its_pool_and_a_follow_up_in_a_new_bucket_is_kept() {
+    // (a) The second case reaches no new rule, only `r` applied twice (a new bucket); its guard
+    // compared its 7 with the state's 200.
+    let start = vec![Value::List(vec![int(100), int(7)])];
+    let fixed = vec![Value::List(vec![int(100), int(200)])];
+    let mut found = 0;
+    for seed in 0..8 {
+        let mut corpus = CorpusProposer::new(
+            vec![hole(list_of_ints(), Constraints::default())],
+            &harvest(&[]),
+            bounds(),
+            seed,
+        );
+        corpus.observe_all(
+            &Proposal::plain(Origin::Explicit, vec![Value::List(vec![int(1)])]),
+            &counted_miss(1, Vec::new()),
+        );
+        corpus.observe_all(
+            &Proposal::plain(Origin::Explicit, start.clone()),
+            &counted_miss(2, vec![equal(7, 200)]),
+        );
+        assert_eq!(corpus.entries().len(), 2, "kept for its count bucket");
+        found += (0..8)
+            .filter(|_| propose(&mut corpus).values == fixed)
+            .count();
+    }
+    assert!((4..=40).contains(&found), "{found}");
+
+    // (b) The corpus's own case applies `r` once (a known bucket) and is not kept; its
+    // follow-up applies it twice (a new bucket) and is kept; a third case applying it twice
+    // is not, since the follow-up moved the history.
+    let mut followed = 0;
+    for seed in 0..16 {
+        let mut corpus = CorpusProposer::new(
+            vec![hole(list_of_ints(), Constraints::default())],
+            &harvest(&[]),
+            bounds(),
+            seed,
+        );
+        corpus.observe_all(
+            &Proposal::plain(Origin::Explicit, vec![Value::List(vec![int(1)])]),
+            &counted_miss(1, Vec::new()),
+        );
+        let child = propose(&mut corpus);
+        let Value::List(keys) = &child.values[0] else {
+            panic!("a list")
+        };
+        let Some(Value::Int(last)) = keys.last() else {
+            continue;
+        };
+        let last = i64::try_from(last).unwrap_or(0);
+        if last == 42 || keys.iter().filter(|key| **key == int(last)).count() > 1 {
+            continue;
+        }
+        let seen = counted_miss(1, vec![equal(last, 42)]);
+        corpus.observe(&child, &seen, false);
+        corpus.observe_all(&child, &seen);
+        assert_eq!(corpus.entries().len(), 1, "a known bucket: not kept");
+        let mut repaired = keys.clone();
+        *repaired.last_mut().expect("a key") = int(42);
+        let follow_up = propose(&mut corpus);
+        if follow_up.values != [Value::List(repaired)] {
+            continue;
+        }
+        followed += 1;
+        let reached = counted_miss(2, Vec::new());
+        corpus.observe(&follow_up, &reached, false);
+        corpus.observe_all(&follow_up, &reached);
+        assert_eq!(
+            corpus.entries().len(),
+            2,
+            "the follow-up's new bucket: kept"
+        );
+        assert_eq!(corpus.entries()[1], follow_up.values.as_slice());
+        corpus.observe_all(
+            &Proposal::plain(Origin::Explicit, vec![Value::List(vec![int(9)])]),
+            &counted_miss(2, Vec::new()),
+        );
+        assert_eq!(corpus.entries().len(), 2, "the bucket is known now");
+    }
+    assert!((3..=15).contains(&followed), "{followed}");
+}

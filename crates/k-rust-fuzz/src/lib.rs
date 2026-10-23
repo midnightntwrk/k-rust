@@ -80,9 +80,10 @@ pub use values::{Constraints, Value};
 /// Version 3: the climb and the corpus propose run-time literals from the comparisons of the
 /// guards a case refuted (FZ-16), and their campaigns record the condition entries of the
 /// dictionary's guard rules; the corpus also keeps a `miss` case that applied a rule a number of
-/// times in a bucket no earlier `miss` case did (FZ-17, k-rust's applied counts). Both move the
-/// case sequence of every campaign that weighs the climb or the corpus; blind, dictionary-only
-/// and solve-only campaigns keep theirs.
+/// times in a bucket no earlier `miss` case did (FZ-17, k-rust's applied counts). Both can move
+/// the case sequence of a campaign that weighs the climb or the corpus: the run-time literals
+/// act only for a rule target, and the counts move a sequence only where a case is kept for a
+/// count alone. Blind, dictionary-only and solve-only campaigns keep theirs.
 pub const ENGINE_VERSION: u32 = 3;
 
 #[cfg(test)]
