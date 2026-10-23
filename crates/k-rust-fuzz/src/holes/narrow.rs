@@ -42,6 +42,7 @@
 //! probed: their printed forms vary in more than one way (width suffixes, escapes), so a few
 //! probes would not decide a whole class of values.
 
+use k_rust::{kast::identifier::decode_label, kore::ast::Pattern as KorePattern};
 use num_bigint::{BigInt, Sign};
 use num_traits::Zero;
 
@@ -82,9 +83,16 @@ pub(crate) struct Probe {
 /// How the grammar refused a probe.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Refusal {
-    /// The program parsed, and the hole's position held this term instead: K text when the
-    /// definition prints it, otherwise its KORE (cut at 200 bytes).
-    ReadsAs(String),
+    /// The program parsed, and the hole's position held another term instead.
+    ReadsAs {
+        /// The term as K text when the definition prints it, otherwise its KORE (cut at 200
+        /// bytes).
+        term: String,
+        /// The K label of the term's head symbol, below injections, when it is an application:
+        /// K text alone can look like the probe (`-1` printed from the unary minus applied to
+        /// `1`).
+        head: Option<String>,
+    },
     /// The program did not parse; the parser's message, for the warning only (its text may
     /// depend on the process environment, so the report's identity does not hold it).
     DoesNotParse(String),
@@ -103,23 +111,25 @@ impl Narrowing {
                 .probes
                 .iter()
                 .map(|probe| match &probe.refusal {
-                    Refusal::ReadsAs(term) => NarrowingProbe {
+                    Refusal::ReadsAs { term, head } => NarrowingProbe {
                         value: probe.text.clone(),
                         outcome: ProbeOutcome::ReadsAs,
                         reads_as: Some(term.clone()),
+                        head: head.clone(),
                     },
                     Refusal::DoesNotParse(_) => NarrowingProbe {
                         value: probe.text.clone(),
                         outcome: ProbeOutcome::DoesNotParse,
                         reads_as: None,
+                        head: None,
                     },
                 })
                 .collect(),
         }
     }
 
-    /// What the probes showed, as one clause: "on the baseline, `-1` reads as `- 1` and `-999`
-    /// reads as `- 999`".
+    /// What the probes showed, as one clause: "on the baseline, `-1` reads as `- 1`, an
+    /// application of `neg`; `-999` reads as `- 999`, an application of `neg`".
     fn evidence(&self) -> String {
         let side = match self.side {
             DefinitionRole::Baseline => "baseline",
@@ -129,13 +139,22 @@ impl Narrowing {
             .probes
             .iter()
             .map(|probe| match &probe.refusal {
-                Refusal::ReadsAs(term) => format!("`{}` reads as `{term}`", probe.text),
+                Refusal::ReadsAs {
+                    term,
+                    head: Some(head),
+                } => format!(
+                    "`{}` reads as `{term}`, an application of `{head}`",
+                    probe.text
+                ),
+                Refusal::ReadsAs { term, head: None } => {
+                    format!("`{}` reads as `{term}`", probe.text)
+                }
                 Refusal::DoesNotParse(message) => {
                     format!("`{}` does not parse ({message})", probe.text)
                 }
             })
             .collect::<Vec<_>>()
-            .join(" and ");
+            .join("; ");
         format!("on the {side}, {probes}")
     }
 
@@ -267,11 +286,12 @@ pub(crate) fn probe(
             let refusal = match assembler.assemble(&instantiate(program, holes, &case)) {
                 Err(error) => Some(Refusal::DoesNotParse(first_line(&error.message))),
                 Ok(configuration) => check.check(&configuration, &case).err().map(|failure| {
-                    let shown = failure
-                        .held
-                        .as_ref()
-                        .and_then(|term| text.and_then(|text| text.show(term)));
-                    Refusal::ReadsAs(shown.unwrap_or(failure.found))
+                    let held = failure.held.as_deref();
+                    let shown = held.and_then(|term| text.and_then(|text| text.show(term)));
+                    Refusal::ReadsAs {
+                        term: shown.unwrap_or(failure.found),
+                        head: held.and_then(head_label),
+                    }
                 }),
             };
             match refusal {
@@ -289,6 +309,20 @@ pub(crate) fn probe(
         }));
     }
     Ok(narrowings)
+}
+
+/// The K label of the head symbol of `term`, below injections, when it is an application.
+fn head_label(term: &KorePattern) -> Option<String> {
+    let mut term = term;
+    loop {
+        match term {
+            KorePattern::Application { symbol, arguments } if symbol.name == "inj" => {
+                term = arguments.first()?;
+            }
+            KorePattern::Application { symbol, .. } => return decode_label(&symbol.name).ok(),
+            _ => return None,
+        }
+    }
 }
 
 /// The first line of `message`, cut at [`MESSAGE_LIMIT`] bytes.

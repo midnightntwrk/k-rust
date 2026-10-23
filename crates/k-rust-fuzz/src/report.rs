@@ -253,6 +253,11 @@ pub struct NarrowingProbe {
     /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reads_as: Option<String>,
+    /// For [`ProbeOutcome::ReadsAs`], the K label of that term's head symbol (below
+    /// injections) when it is an application, since its K text alone can look like the value
+    /// (`-1` printed from a unary minus applied to `1`). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
 }
 
 /// How the program's syntax refused a probe.

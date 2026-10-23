@@ -1354,6 +1354,8 @@ export interface FuzzNarrowingProbe {
   outcome: 'reads-as' | 'does-not-parse'
   /** For `reads-as`: the term the position held instead, as K text (or KORE without one). */
   'reads-as'?: string
+  /** For `reads-as`: the K label of that term's head symbol, when it is an application. */
+  head?: string
 }
 
 /** Probabilities are `[numerator, denominator]`. */

@@ -128,6 +128,7 @@ fn the_report_records_the_effective_constraints_and_warns() {
         value: value.into(),
         outcome: ProbeOutcome::ReadsAs,
         reads_as: Some(reads_as.into()),
+        head: Some("neg".into()),
     };
     assert_eq!(
         narrowed.probes,
@@ -137,7 +138,8 @@ fn the_report_records_the_effective_constraints_and_warns() {
         report.warnings.iter().any(|warning| warning.starts_with(
             "hole `B`: values are generated from 0 (declared: no minimum), since no negative \
              integer probed at the hole reads back as itself (on the baseline, `-1` reads as \
-             `- 1` and `-999` reads as `- 999`). To fuzz negative values, write the program \
+             `- 1`, an application of `neg`; `-999` reads as `- 999`, an application of \
+             `neg`). To fuzz negative values, write the program \
              with a unary minus before the literal (`- 5`)"
         ) && warning
             .ends_with("declare `range = { min = 0 }`.")),
@@ -152,8 +154,8 @@ fn the_report_records_the_effective_constraints_and_warns() {
             r#"{"range":null,"length":null,"elements":null,"choices":null},"#,
             r#""effective":{"range":{"min":"0","max":null},"length":null,"elements":null,"#,
             r#""choices":null},"reason":"negative-not-read-back","side":"baseline","#,
-            r#""probes":[{"value":"-1","outcome":"reads-as","reads-as":"- 1"},"#,
-            r#"{"value":"-999","outcome":"reads-as","reads-as":"- 999"}]}]"#
+            r#""probes":[{"value":"-1","outcome":"reads-as","reads-as":"- 1","head":"neg"},"#,
+            r#"{"value":"-999","outcome":"reads-as","reads-as":"- 999","head":"neg"}]}]"#
         )),
         "{json}"
     );
@@ -216,7 +218,7 @@ fn a_range_of_negative_values_only_is_refused_where_none_can_be_written() {
     };
     assert!(
         matches!(&error, CampaignError::InvalidConstraints { hole, message }
-            if hole == "B" && message.contains("`-2` reads as `- 2` and `-40` reads as `- 40`")),
+            if hole == "B" && message.contains("`-2` reads as `- 2`, an application of `neg`; `-40`")),
         "{error}"
     );
 }

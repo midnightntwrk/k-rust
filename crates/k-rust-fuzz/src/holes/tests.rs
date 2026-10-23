@@ -1617,11 +1617,17 @@ fn an_unsigned_literal_position_narrows_an_int_hole_to_non_negative_values() {
             vec![
                 Probe {
                     text: "-1".to_owned(),
-                    refusal: Refusal::ReadsAs("- 1".to_owned()),
+                    refusal: Refusal::ReadsAs {
+                        term: "- 1".to_owned(),
+                        head: Some("neg".to_owned()),
+                    },
                 },
                 Probe {
                     text: "-999".to_owned(),
-                    refusal: Refusal::ReadsAs("- 999".to_owned()),
+                    refusal: Refusal::ReadsAs {
+                        term: "- 999".to_owned(),
+                        head: Some("neg".to_owned()),
+                    },
                 },
             ]
         );
@@ -1714,7 +1720,10 @@ fn narrowing_starts_the_range_at_zero_and_refuses_an_all_negative_range() {
         .expect("narrowed")
         .warning(&holes.holes[0]);
     assert!(
-        warning.contains("on the mutant, `-1` reads as `- 1` and `-40` reads as `- 40`"),
+        warning.contains(
+            "on the mutant, `-1` reads as `- 1`, an application of `neg`; `-40` reads as `- 40`, an \
+             application of `neg`"
+        ),
         "{warning}"
     );
     assert!(warning.contains("(`- 5`)"), "{warning}");
@@ -1732,7 +1741,7 @@ fn narrowing_starts_the_range_at_zero_and_refuses_an_all_negative_range() {
         matches!(&error, CampaignError::InvalidConstraints { hole, message }
             if hole == "B"
                 && message.contains("every value of its range is negative")
-                && message.contains("`-2` reads as `- 2` and `-40` reads as `- 40`")
+                && message.contains("`-2` reads as `- 2`, an application of `neg`; `-40` reads as")
                 && message.contains("(`- 5`)")),
         "{error}"
     );
