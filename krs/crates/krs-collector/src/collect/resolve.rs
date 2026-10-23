@@ -687,6 +687,7 @@ fn group_record_term(
         arguments,
         instance,
         open: authored_open,
+        update,
         ..
     } = &term
     else {
@@ -695,9 +696,11 @@ fn group_record_term(
     let HostApplicationTarget::Nominal(target) = &reference.target else {
         return term;
     };
-    // A record, `Frame { pc: p }`, or a pattern naming no child, `Frame { .. }`.
-    let record =
-        matches!(arguments, Arguments::Named(_)) || (*authored_open && arguments.is_empty());
+    // A record, `Frame { pc: p }`, a pattern naming no child, `Frame { .. }`,
+    // or an update listing none, `Frame { ..saved }`: the matched group
+    // unchanged (N7).
+    let record = matches!(arguments, Arguments::Named(_))
+        || ((*authored_open || update.is_some()) && arguments.is_empty());
     if !instance.is_empty()
         || !record
         || !matches!(

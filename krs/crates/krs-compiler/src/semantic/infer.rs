@@ -17,6 +17,7 @@ use super::catalog::{
 use super::collection_types::{CollectionTyping, share_a_sort};
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
+use super::record_updates::Fill;
 
 /// The reason given for `A | B` outside a left-hand side (KF-030).
 const PATTERN_OR_OUTSIDE_LHS: &str = "`|` is a pattern alternative (K's #Or) and occurs only on a left-hand side; for Bool disjunction use `||`, bool::or, or k::or_bool!";
@@ -1706,6 +1707,11 @@ impl StructuredTermBuilder<'_> {
                 if !self.binding_names.contains(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
                 }
+                // A whole use of an alias over a group record is the group
+                // rebuilt from its children's binders (N7).
+                if self.record_updates.updates.reconstructed(name).is_some() {
+                    return self.rebuild_group(name, key, expected_sort);
+                }
                 let sort = self.binding_sorts.get(name).cloned().ok_or_else(|| {
                     self.invalid_term(format!("variable {name:?} has no inferred sort"))
                 })?;
@@ -2331,6 +2337,15 @@ impl StructuredTermBuilder<'_> {
                     declaration: nested,
                 } => match value {
                     Some(value) => {
+                        // A group child a base's fills rebuild binds its own
+                        // children (N7).
+                        if let Some(alias) = &record.alias
+                            && let Some(Fill::Group(child)) =
+                                self.record_updates.updates.fill(alias, &field_id)
+                            && matches!(value, DescriptorTerm::Cell { .. })
+                        {
+                            self.record_updates.alias = Some(child.clone());
+                        }
                         self.lower(value, Some(&self.cell_k_item_sort()?), record.subject)?
                     }
                     None => self.lower_record_field(
@@ -2364,7 +2379,6 @@ impl StructuredTermBuilder<'_> {
         sort: Option<&SemanticSortRef>,
         record: &RecordContext<'_>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        use super::record_updates::Fill;
         let fill = |updates: &super::record_updates::RecordUpdates, base: &str| {
             updates.fill(base, field).cloned()
         };
@@ -2397,20 +2411,7 @@ impl StructuredTermBuilder<'_> {
         }
         if let Some(DescriptorTerm::Variable { key, name, .. }) = record.update {
             return match fill(&self.record_updates.updates, name) {
-                Some(Fill::Binder(binder)) => {
-                    let binder_sort = self.binding_sorts.get(&binder).cloned().ok_or_else(|| {
-                        self.invalid_term(format!("variable {binder:?} has no inferred sort"))
-                    })?;
-                    Ok(SemanticTerm::variable(
-                        self.generated_record_origin(key, "record-update-field")?,
-                        binder_sort,
-                        SemanticId::new(binder)?,
-                    ))
-                }
-                Some(Fill::Hidden(id)) => {
-                    let sort = self.record_field_sort(sort, field)?;
-                    self.hidden_record_binder(&id, &sort, key)
-                }
+                Some(fill) => self.lower_fill(fill, sort, field, key),
                 None => Err(self.invalid_record_update(
                     key,
                     format!(
@@ -2424,6 +2425,105 @@ impl StructuredTermBuilder<'_> {
             self.invalid_term("a record rest at a parameter position needs a turbofish")
         })?;
         self.lower_record_rest_wildcard(&sort)
+    }
+
+    /// The term that fills `field`, which an update leaves out, from its
+    /// base's fill.
+    fn lower_fill(
+        &mut self,
+        fill: Fill,
+        sort: Option<&SemanticSortRef>,
+        field: &ProductionFieldId,
+        key: &ProvenanceKey,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        match fill {
+            Fill::Binder(binder) => {
+                let binder_sort = self.binding_sorts.get(&binder).cloned().ok_or_else(|| {
+                    self.invalid_term(format!("variable {binder:?} has no inferred sort"))
+                })?;
+                Ok(SemanticTerm::variable(
+                    self.generated_record_origin(key, "record-update-field")?,
+                    binder_sort,
+                    SemanticId::new(binder)?,
+                ))
+            }
+            Fill::Hidden(id) => {
+                let sort = self.record_field_sort(sort, field)?;
+                self.hidden_record_binder(&id, &sort, key)
+            }
+            // A group child is written as an authored child is, at the
+            // KItem sort.
+            Fill::Group(child) => {
+                let k_item = self.cell_k_item_sort()?;
+                self.rebuild_group(&child, key, Some(&k_item))
+            }
+        }
+    }
+
+    /// The cell of the group record `name` (an alias over a group record, or
+    /// a group child below a base) rebuilt from its children: each child is
+    /// the binder the record's pattern gives it, a hidden binder, or a group
+    /// child rebuilt in turn (N7). The rebuilt term matches exactly the cells
+    /// the record's pattern matches, so it denotes the matched cell without
+    /// a conjunction among a cell's children.
+    fn rebuild_group(
+        &mut self,
+        name: &str,
+        key: &ProvenanceKey,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let owner = self
+            .record_updates
+            .updates
+            .group(name)
+            .cloned()
+            .expect("a rebuilt record is a group record");
+        let whole = SemanticSortRef::Cell(owner.clone());
+        let sort = if expected_sort == Some(&whole) {
+            whole
+        } else {
+            self.cell_k_item_sort()?
+        };
+        let declaration = self.cell_declaration(&owner)?.clone();
+        let mut children = Vec::with_capacity(declaration.fields.len());
+        for declared in &declaration.fields {
+            let field = ProductionFieldId::new(&declared.rust_field)?;
+            let fill = self
+                .record_updates
+                .updates
+                .fill(name, &field)
+                .cloned()
+                .expect("a rebuilt record fills every child");
+            let child = match &declared.content {
+                ProtocolCellContent::Leaf { sort, .. } => {
+                    let content =
+                        self.lower_fill(fill, Some(&semantic_sort_ref(&sort.sort)), &field, key)?;
+                    SemanticTerm::cell(
+                        self.generated_record_origin(key, "cell-term-child")?,
+                        self.cell_k_item_sort()?,
+                        semantic_cell_id(&declared.reference.cell)?,
+                        vec![content],
+                    )
+                }
+                ProtocolCellContent::Nested {
+                    declaration: nested,
+                } => self.lower_fill(
+                    fill,
+                    Some(&SemanticSortRef::Cell(nested.declaration.clone())),
+                    &field,
+                    key,
+                )?,
+            };
+            children.push(child);
+        }
+        let identity = self.cell_identity_for_declaration(&owner)?;
+        let identity = semantic_cell_id(identity)?;
+        Ok(SemanticTerm::cell(
+            self.generated_record_origin(key, "record-rebuild")?,
+            sort,
+            identity,
+            children,
+        ))
     }
 
     /// The sort a field left out of a record is filled at: the field's

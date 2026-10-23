@@ -410,6 +410,10 @@ Three inputs stay unchecked: those computed elements, configuration values Java 
 K writes the name last, `( pair ( A:Exp , B:Exp ) #as P:Exp )`, and KRS emits exactly that, always parenthesised.
 Like `tail @ ..`, `name @ pattern` binds what its pattern matched; unlike Rust's `@`, which copies or moves a value, K's alias is the matched term itself (a conjunction of patterns), so a result can reuse it without rebuilding it.
 `dup_pair: Dup(p @ Pair(a, b)) => Pair(p, Pair(b, a));` turns `dup(pair(1, 2))` into `pair(pair(1, 2), pair(2, 1))`.
+A group record is the exception: a use of `saved @ Frame { .. }` is the update `Frame { ..saved }` (see [updating a matched record](#updating-a-matched-record)), the matched cell rebuilt from its children, which the alias's pattern binds.
+A cell's children are placed by their labels, not matched as terms, so KRS names each child instead of writing `#as` among them; the rule means the same, in rules and claims alike.
+`push: { k: [Push(), ..], stack: s, frame: saved @ Frame { pc: 0, .. } } => { k: [..], stack: [saved, ..s] }` emits `<frame> <pc> ( 0 #as Krs_UpdateSavedPc:Int ) </pc> <gas> Krs_UpdateSavedGas:Int </gas> </frame>` and pushes `ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <gas> Krs_UpdateSavedGas:Int </gas> </frame>)`.
+An alias over a group record bound inside `|` or more than once matches no one record, so it keeps `#as`.
 An alias may name any subterm of a rule subject, a `cells!` cell value, a `k!` item, a `map!` key or value, or a readable clause pattern, a group's cell term included (`saved @ CallState { .. }` or `saved @ k::fragment![CallState { .. }]` in a list element), but not a whole rule subject, whose root is the matched constructor or function.
 A readable `for Machine` record's computation items and cell values are not rule subjects, so an alias may name a whole one: `charge: { k: [op @ (Push() | Pop()), ..], gas: g } => { k: [Charged(op), ..], gas: int::sub(g, 3) }` emits `<k> ( ( push #Or pop ) #as Op:Op ) => charged ( Op:Op ) ... </k>`.
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
@@ -433,7 +437,7 @@ deref_truncate: {
 
 K has no field projection on a term, so `..t` is defined by expansion: every field an update of `t` leaves out is bound in `t`'s pattern, to the binder the pattern gives it (`tail` above) or to a hidden binder, and the update writes that binder back.
 A field the pattern leaves out or writes `_` is matched by the hidden binder instead of a wildcard, and one it matches with another pattern `p` by `( p #as Hidden )`.
-Nothing new reaches K: the rule is the one written with every field named, and an alias used only as a base is matched without `#as`; `krs expand` writes that long form, naming each hidden binder after its alias and field (`t_target`).
+Nothing new reaches K: the rule is the one written with every field named, and an alias over a group record, and any alias used only as a base, is matched without `#as`; `krs expand` writes that long form, naming each hidden binder after its alias and the path of fields below it (`t_target`, `o_frame_pc`), with a number added when two paths would read the same.
 The base is a matched record, not a field projection, so it must be an alias `t @ Ctor { .. }` or `t @ Ctor(..)` of one record of the update's constructor, bound once and outside `|`: a binder of the whole term (`t` matched as `t`), an alias of another constructor, and a name bound by `let` or `k::matches!` are rejected (`krs::analysis::invalid-record-update`), and so are a base that is not one binder and a field listed twice (`krs::syntax::invalid-record-update`).
 An update may nest, `Outer { inner: Inner { x: 1, ..i }, ..o }`, and stands in readable rules and claims, `k::equations!` rows (whose records may end in `..` like a readable rule's), and `#[k::rule]` and `#[k::equation]` fns; a reference `cells!` term names every field (`krs::expand::invalid-record-update`).
 
@@ -453,6 +457,8 @@ return_from_call: {
 ```
 
 In the list element, `CallState { .. }` is the group's cell term, as `k::fragment![CallState { .. }]` is, and it ends in `..` because a cell term outside the group's own cell position is complete; `krs expand` writes it as the fragment.
+`Frame { ..saved }` with no listed field is the matched frame unchanged, which is what a use of `saved` means.
+A group child that the base's pattern matches with a group record is rebuilt from that record's children in turn: with `outer: o @ Outer { frame: Frame { pc: 0, .. }, .. }`, the result `outer: Outer { flag: 7, ..o }` writes back the matched `<frame>` (its `<pc>` and `<gas>` through hidden binders) and sets `<flag>`.
 
 ### Pattern alternatives
 

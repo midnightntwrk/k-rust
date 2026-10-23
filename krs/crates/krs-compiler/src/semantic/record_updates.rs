@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorIndex, DescriptorTerm, ProductionFieldId,
-    ProvenanceKey, SemanticId, StableItemId,
+    ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId,
 };
 
 use super::catalog::ProductionSignature;
@@ -38,34 +38,63 @@ pub(super) enum Fill {
     Binder(String),
     /// A hidden binder the alias's pattern binds the field to.
     Hidden(SemanticId),
+    /// A group child the pattern matches with a group record: the child cell
+    /// rebuilt from that record's own fills, which are those of the named
+    /// record (its alias, or a generated name for a record with none) (N7).
+    Group(String),
 }
 
-/// One base alias: where it is bound and how its updates are filled.
+/// One base: where it is bound and how its updates are filled.
 #[derive(Clone, Debug)]
 struct Alias {
     /// The `name @ pattern` provenance, the origin of the hidden binders.
     key: ProvenanceKey,
+    /// The `#[k::cell]` group the record is, for a group record.
+    group: Option<StableItemId>,
     fills: BTreeMap<ProductionFieldId, Fill>,
 }
 
 /// The record updates of one sentence, read before its terms are inferred.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RecordUpdates {
+    /// Each base by its alias. A group record below a base with no alias of
+    /// its own is named by its path, `o.frame`, which no binder spells.
     aliases: BTreeMap<String, Alias>,
-    /// Aliases that occur only as update bases: their pattern is matched
-    /// without `#as`.
+    /// Aliases matched without `#as`: those that occur only as update bases,
+    /// and every alias over a group record that can be rebuilt (N7).
     dropped: BTreeSet<String>,
+    /// Aliases over a group record that the sentence uses whole: each use is
+    /// the group rebuilt from its children, `G { ..o }` (N7).
+    reconstructed: BTreeSet<String>,
+}
+
+/// A record whose fields the sentence takes, while the scan computes which.
+struct Base<'a> {
+    key: ProvenanceKey,
+    record: Record,
+    fields: PatternFields<'a>,
+    /// The fields some update leaves out, or every field of a record rebuilt
+    /// whole.
+    needed: BTreeSet<ProductionFieldId>,
 }
 
 impl RecordUpdates {
     /// Reads the updates of a sentence whose terms are `terms`: patterns,
     /// results, and conditions.
     ///
+    /// A whole use of an alias over a group record, `o @ G { .. }`, is the
+    /// update that lists no field, `G { ..o }`: a group cell has fixed
+    /// children, so the matched cell is the cell over its children's
+    /// binders, and no conjunction has to stand among a cell's children
+    /// (N7). A group child that a base's pattern matches with a group record
+    /// is rebuilt the same way, from its own children.
+    ///
     /// # Errors
     ///
     /// Returns [`DescriptorLoweringError::InvalidRecordUpdate`] for a base
     /// that is not the alias of exactly one record of the update's
-    /// constructor or cell, outside `|`.
+    /// constructor or cell, outside `|`, and for a group child that must be
+    /// rebuilt but is matched by a pattern no record rebuilds.
     pub(super) fn scan(
         descriptor: &Descriptor,
         terms: &[&DescriptorTerm],
@@ -76,89 +105,37 @@ impl RecordUpdates {
         for term in terms {
             scan.walk(term, false);
         }
-        if scan.updates.is_empty() {
+        let groups = scan.group_aliases(declarations);
+        if scan.updates.is_empty() && groups.is_empty() {
             return Ok(Self::default());
         }
-        let error = |key: &ProvenanceKey, reason: String| invalid(descriptor, key, reason);
-        let mut aliases = BTreeMap::new();
-        for (base, sites) in &scan.updates {
-            let (key, _) = &sites[0];
-            let occurrences = scan.aliases.get(base).map_or(&[][..], Vec::as_slice);
-            let [found] = occurrences else {
-                return Err(error(
-                    key,
-                    if occurrences.is_empty() {
-                        format!(
-                            "`..{base}` takes the fields it does not list from a record matched as `{base} @ Ctor {{ .. }}` in the left-hand side, but `{base}` is no such alias; a binder of the whole term names no fields K can read"
-                        )
-                    } else {
-                        format!(
-                            "`..{base}` needs one record to take its fields from, but the left-hand side binds `{base}` with `@` more than once"
-                        )
-                    },
-                ));
-            };
-            if found.alternative {
-                return Err(error(
-                    key,
-                    format!(
-                        "`..{base}` needs the one record `{base}` matched, but `{base}` is bound inside a `|` alternative, which may match different records"
-                    ),
-                ));
-            }
-            let Some((record, pattern_fields)) =
-                pattern_record(found.pattern, catalog, declarations)?
-            else {
-                return Err(error(
-                    &found.key,
-                    format!(
-                        "`..{base}` updates a record, so `{base}` must alias a record pattern `{base} @ Ctor {{ .. }}` or `{base} @ Group {{ .. }}`"
-                    ),
-                ));
-            };
-            let declared = record_fields(&record, catalog, declarations)?;
-            let mut needed = BTreeSet::new();
-            for (site_key, site) in sites {
-                let site_record = &site.record;
-                if *site_record != record {
-                    return Err(error(
-                        site_key,
-                        format!(
-                            "`..{base}` builds a `{}` from `{base}`, which matched a `{}`; an update keeps the constructor of its base",
-                            record_name(site_record),
-                            record_name(&record)
-                        ),
-                    ));
-                }
-                needed.extend(
-                    declared
-                        .iter()
-                        .filter(|field| !site.listed.contains(*field))
-                        .cloned(),
-                );
-            }
-            let mut fills = BTreeMap::new();
-            for field in needed {
-                let fill = match pattern_fields.get(&field) {
-                    Some(DescriptorTerm::Variable { name, .. }) => Fill::Binder(name.clone()),
-                    _ => Fill::Hidden(hidden_binder(base, &field)?),
-                };
-                fills.insert(field, fill);
-            }
-            aliases.insert(
-                base.clone(),
-                Alias {
-                    key: found.key.clone(),
-                    fills,
-                },
-            );
-        }
-        let dropped = aliases
+        let mut bases = update_bases(descriptor, &scan, catalog, declarations)?;
+        let reconstructed = groups
+            .keys()
+            .filter(|name| scan.whole.contains(*name))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        rebuild_children(
+            descriptor,
+            &mut bases,
+            &groups,
+            &reconstructed,
+            catalog,
+            declarations,
+        )?;
+        let aliases = alias_fills(&bases, catalog, declarations)?;
+        let dropped = scan
+            .updates
             .keys()
             .filter(|name| !scan.whole.contains(*name))
+            .chain(groups.keys())
             .cloned()
             .collect();
-        Ok(Self { aliases, dropped })
+        Ok(Self {
+            aliases,
+            dropped,
+            reconstructed,
+        })
     }
 
     /// Whether `name` is the alias of a base: its record pattern binds the
@@ -167,10 +144,25 @@ impl RecordUpdates {
         self.aliases.contains_key(name)
     }
 
-    /// Whether the alias `name` occurs only as an update base, so its pattern
-    /// is matched without `#as`.
+    /// Whether the alias `name` is matched without `#as`: it occurs only as
+    /// an update base, or it aliases a group record (N7).
     pub(super) fn is_dropped(&self, name: &str) -> bool {
         self.dropped.contains(name)
+    }
+
+    /// The group whose cell a use of `name` rebuilds, for an alias over a
+    /// group record that the sentence uses whole (N7).
+    pub(super) fn reconstructed(&self, name: &str) -> Option<&StableItemId> {
+        if !self.reconstructed.contains(name) {
+            return None;
+        }
+        self.group(name)
+    }
+
+    /// The group of the group record named `name` (an alias, or the path of
+    /// a group child below one).
+    pub(super) fn group(&self, name: &str) -> Option<&StableItemId> {
+        self.aliases.get(name)?.group.as_ref()
     }
 
     /// How an update of `base` fills `field`, which it leaves out.
@@ -184,17 +176,265 @@ impl RecordUpdates {
     }
 }
 
-/// The hidden binder that matches `field` of the record aliased `base`.
-fn hidden_binder(
-    base: &str,
-    field: &ProductionFieldId,
-) -> Result<SemanticId, DescriptorLoweringError> {
-    let field = field.as_str();
-    let field = field.strip_prefix("r#").unwrap_or(field);
-    Ok(SemanticId::new(format!(
-        "{}update_{base}_{field}",
-        krs_ir::ir::RESERVED_MARKER
-    ))?)
+/// The bases of the sentence's explicit updates, each with the fields its
+/// updates leave out.
+fn update_bases<'a>(
+    descriptor: &Descriptor,
+    scan: &Scan<'a>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: Option<&DescriptorIndex<'_>>,
+) -> Result<BTreeMap<String, Base<'a>>, DescriptorLoweringError> {
+    let error = |key: &ProvenanceKey, reason: String| invalid(descriptor, key, reason);
+    let mut bases = BTreeMap::<String, Base<'a>>::new();
+    for (base, sites) in &scan.updates {
+        let (key, _) = &sites[0];
+        let occurrences = scan.aliases.get(base).map_or(&[][..], Vec::as_slice);
+        let [found] = occurrences else {
+            return Err(error(
+                key,
+                if occurrences.is_empty() {
+                    format!(
+                        "`..{base}` takes the fields it does not list from a record matched as `{base} @ Ctor {{ .. }}` in the left-hand side, but `{base}` is no such alias; a binder of the whole term names no fields K can read"
+                    )
+                } else {
+                    format!(
+                        "`..{base}` needs one record to take its fields from, but the left-hand side binds `{base}` with `@` more than once"
+                    )
+                },
+            ));
+        };
+        if found.alternative {
+            return Err(error(
+                key,
+                format!(
+                    "`..{base}` needs the one record `{base}` matched, but `{base}` is bound inside a `|` alternative, which may match different records"
+                ),
+            ));
+        }
+        let Some((record, pattern_fields)) = pattern_record(found.pattern, catalog, declarations)?
+        else {
+            return Err(error(
+                &found.key,
+                format!(
+                    "`..{base}` updates a record, so `{base}` must alias a record pattern `{base} @ Ctor {{ .. }}` or `{base} @ Group {{ .. }}`"
+                ),
+            ));
+        };
+        let declared = record_fields(&record, catalog, declarations)?;
+        let mut needed = BTreeSet::new();
+        for (site_key, site) in sites {
+            let site_record = &site.record;
+            if *site_record != record {
+                return Err(error(
+                    site_key,
+                    format!(
+                        "`..{base}` builds a `{}` from `{base}`, which matched a `{}`; an update keeps the constructor of its base",
+                        record_name(site_record),
+                        record_name(&record)
+                    ),
+                ));
+            }
+            needed.extend(
+                declared
+                    .iter()
+                    .filter(|field| !site.listed.contains(*field))
+                    .cloned(),
+            );
+        }
+        bases.insert(
+            base.clone(),
+            Base {
+                key: found.key.clone(),
+                record,
+                fields: pattern_fields,
+                needed,
+            },
+        );
+    }
+    Ok(bases)
+}
+
+/// Makes each whole-used group alias a record rebuilt whole, and each
+/// group child that a rebuilt or updated record takes and its pattern
+/// matches with a group record a record rebuilt from its own children: a
+/// child alias by its name, a record with no alias by its path (N7).
+fn rebuild_children<'a>(
+    descriptor: &Descriptor,
+    bases: &mut BTreeMap<String, Base<'a>>,
+    groups: &BTreeMap<String, (ProvenanceKey, &'a DescriptorTerm)>,
+    reconstructed: &BTreeSet<String>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: Option<&DescriptorIndex<'_>>,
+) -> Result<(), DescriptorLoweringError> {
+    let error = |key: &ProvenanceKey, reason: String| invalid(descriptor, key, reason);
+    let mut pending = Vec::new();
+    for name in reconstructed {
+        pending.push(name.clone());
+        whole_group(bases, name, &groups[name], catalog, declarations)?;
+    }
+    pending.extend(bases.keys().cloned());
+    // A group child an update takes is rebuilt from its own children, so
+    // each child record that must be rebuilt needs every field in turn.
+    while let Some(name) = pending.pop() {
+        for (field, nested) in children_to_rebuild(&bases[&name], declarations)? {
+            let child = match bases[&name].fields.get(&field).copied() {
+                Some(DescriptorTerm::As { name: alias, .. }) if groups.contains_key(alias) => {
+                    whole_group(bases, alias, &groups[alias], catalog, declarations)?
+                        .then(|| alias.clone())
+                }
+                Some(pattern @ DescriptorTerm::Cell { declaration, .. })
+                    if *declaration == nested =>
+                {
+                    let child = format!("{name}.{}", field.as_str());
+                    let key = bases[&name].key.clone();
+                    whole_group(bases, &child, &(key, pattern), catalog, declarations)?
+                        .then_some(child)
+                }
+                _ => {
+                    return Err(error(
+                        &bases[&name].key,
+                        format!(
+                            "the group child `{}` of `{}` is taken whole, so it must be bound: write a binder, `_`, or a group record for it",
+                            field.as_str(),
+                            name.split('.').next().unwrap_or(&name)
+                        ),
+                    ));
+                }
+            };
+            pending.extend(child);
+        }
+    }
+    Ok(())
+}
+
+/// How each base fills the fields its updates take, with the hidden
+/// binders of the sentence allocated in a stable order.
+fn alias_fills(
+    bases: &BTreeMap<String, Base<'_>>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: Option<&DescriptorIndex<'_>>,
+) -> Result<BTreeMap<String, Alias>, DescriptorLoweringError> {
+    let mut names = HiddenNames::default();
+    let mut aliases = BTreeMap::new();
+    for (name, base) in bases {
+        let children = record_children(&base.record, catalog, declarations)?;
+        let mut fills = BTreeMap::new();
+        for (field, nested) in children {
+            if !base.needed.contains(&field) {
+                continue;
+            }
+            let fill = match (base.fields.get(&field).copied(), nested) {
+                (Some(DescriptorTerm::Variable { name: binder, .. }), _) => {
+                    Fill::Binder(binder.clone())
+                }
+                (Some(DescriptorTerm::As { name: alias, .. }), Some(_)) => {
+                    Fill::Group(alias.clone())
+                }
+                (Some(DescriptorTerm::Cell { .. }), Some(_)) => {
+                    Fill::Group(format!("{name}.{}", field.as_str()))
+                }
+                _ => Fill::Hidden(names.allocate(name, &field)?),
+            };
+            fills.insert(field, fill);
+        }
+        aliases.insert(
+            name.clone(),
+            Alias {
+                key: base.key.clone(),
+                group: match &base.record {
+                    Record::Cell(id) => Some(id.clone()),
+                    Record::Production(_) => None,
+                },
+                fills,
+            },
+        );
+    }
+    Ok(aliases)
+}
+
+/// Makes `name`, the group record `occurrence` matches, a record the
+/// sentence rebuilds whole, so every one of its fields is needed; whether
+/// it newly needs a field.
+fn whole_group<'a>(
+    bases: &mut BTreeMap<String, Base<'a>>,
+    name: &str,
+    (key, pattern): &(ProvenanceKey, &'a DescriptorTerm),
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: Option<&DescriptorIndex<'_>>,
+) -> Result<bool, DescriptorLoweringError> {
+    let Some((record, fields)) = pattern_record(pattern, catalog, declarations)? else {
+        return Ok(false);
+    };
+    let declared = record_fields(&record, catalog, declarations)?;
+    let base = bases.entry(name.to_owned()).or_insert_with(|| Base {
+        key: key.clone(),
+        record,
+        fields,
+        needed: BTreeSet::new(),
+    });
+    let before = base.needed.len();
+    base.needed.extend(declared);
+    Ok(base.needed.len() != before)
+}
+
+/// The needed group children of a group base whose pattern names them,
+/// with each child's group: those the base's fills rebuild.
+fn children_to_rebuild(
+    base: &Base<'_>,
+    declarations: Option<&DescriptorIndex<'_>>,
+) -> Result<Vec<(ProductionFieldId, StableItemId)>, DescriptorLoweringError> {
+    let Record::Cell(_) = &base.record else {
+        return Ok(Vec::new());
+    };
+    Ok(
+        record_children(&base.record, &BTreeMap::new(), declarations)?
+            .into_iter()
+            .filter_map(|(field, nested)| {
+                let nested = nested?;
+                let named = base.fields.get(&field).copied();
+                (base.needed.contains(&field)
+                    && !matches!(
+                        named,
+                        None | Some(
+                            DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. }
+                        )
+                    ))
+                .then_some((field, nested))
+            })
+            .collect(),
+    )
+}
+
+/// The hidden binders of one sentence. A binder is named by its alias and
+/// the path of fields below it, `update_o_frame_pc`, and one whose name is
+/// already taken gets an ordinal, so distinct paths never share a binder
+/// (`a.x_y` and `a_x.y` would otherwise both read `update_a_x_y`).
+#[derive(Default)]
+struct HiddenNames {
+    taken: BTreeSet<String>,
+}
+
+impl HiddenNames {
+    fn allocate(
+        &mut self,
+        alias: &str,
+        field: &ProductionFieldId,
+    ) -> Result<SemanticId, DescriptorLoweringError> {
+        let path = alias
+            .split('.')
+            .chain(std::iter::once(field.as_str()))
+            .map(|segment| segment.strip_prefix("r#").unwrap_or(segment))
+            .collect::<Vec<_>>()
+            .join("_");
+        let base = format!("{}update_{path}", krs_ir::ir::RESERVED_MARKER);
+        let mut name = base.clone();
+        let mut ordinal = 2_usize;
+        while !self.taken.insert(name.clone()) {
+            name = format!("{base}_{ordinal}");
+            ordinal += 1;
+        }
+        Ok(SemanticId::new(name)?)
+    }
 }
 
 fn invalid(
@@ -298,6 +538,35 @@ fn record_fields(
     }
 }
 
+/// The declared fields of a record, in declaration order, each with the
+/// group a group child of a `#[k::cell]` record is.
+fn record_children(
+    record: &Record,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: Option<&DescriptorIndex<'_>>,
+) -> Result<Vec<(ProductionFieldId, Option<StableItemId>)>, DescriptorLoweringError> {
+    let (Record::Cell(id), Some(declarations)) = (record, declarations) else {
+        return Ok(record_fields(record, catalog, declarations)?
+            .into_iter()
+            .map(|field| (field, None))
+            .collect());
+    };
+    declarations
+        .cell(id)?
+        .fields
+        .iter()
+        .map(|field| {
+            let nested = match &field.content {
+                ProtocolCellContent::Nested { declaration } => {
+                    Some(declaration.declaration.clone())
+                }
+                ProtocolCellContent::Leaf { .. } => None,
+            };
+            Ok((ProductionFieldId::new(&field.rust_field)?, nested))
+        })
+        .collect()
+}
+
 /// One `name @ pattern` occurrence.
 struct AliasOccurrence<'a> {
     key: ProvenanceKey,
@@ -321,6 +590,32 @@ struct Scan<'a> {
 }
 
 impl<'a> Scan<'a> {
+    /// The aliases over a group record that a sentence binds once, outside
+    /// `|`, with the provenance and pattern of each: the matched cell is
+    /// fixed by its children, which the pattern can bind (N7). None without
+    /// the cell declarations, which give the children.
+    fn group_aliases(
+        &self,
+        declarations: Option<&DescriptorIndex<'_>>,
+    ) -> BTreeMap<String, (ProvenanceKey, &'a DescriptorTerm)> {
+        if declarations.is_none() {
+            return BTreeMap::new();
+        }
+        self.aliases
+            .iter()
+            .filter_map(|(name, occurrences)| match occurrences.as_slice() {
+                [
+                    found @ AliasOccurrence {
+                        pattern: DescriptorTerm::Cell { .. },
+                        alternative: false,
+                        ..
+                    },
+                ] => Some((name.clone(), (found.key.clone(), found.pattern))),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn update(&mut self, base: &DescriptorTerm, site: UpdateSite) {
         if let DescriptorTerm::Variable { key, name, .. } = base {
             self.updates
@@ -451,8 +746,9 @@ impl RecordUpdates {
     /// The long form of `term`, which names every field: what `krs expand`
     /// writes (F5). A base alias's record pattern binds the fields its
     /// updates take to their hidden binders, an alias used only as a base
-    /// loses its `@`, an update lists every field, and a group pattern's
-    /// omitted children are `_`.
+    /// or over a group record loses its `@`, an update lists every field, a
+    /// whole use of an alias over a group record is the group rebuilt from
+    /// its children (N7), and a group pattern's omitted children are `_`.
     ///
     /// # Errors
     ///
@@ -480,7 +776,7 @@ impl RecordUpdates {
             .flat_map(|alias| alias.fills.values())
             .filter_map(|fill| match fill {
                 Fill::Hidden(id) => Some(id.clone()),
-                Fill::Binder(_) => None,
+                Fill::Binder(_) | Fill::Group(_) => None,
             })
             .collect()
     }
@@ -505,10 +801,15 @@ impl LongForm<'_, '_> {
             DescriptorTerm::As { name, pattern, .. } => {
                 let base = self.updates.is_base(name).then(|| name.clone());
                 let long = self.term(pattern, base.as_deref())?;
-                if base.is_some() && self.updates.is_dropped(name) {
+                if self.updates.is_dropped(name) {
                     return Ok(long);
                 }
                 **pattern = long;
+            }
+            DescriptorTerm::Variable { key, name, .. } => {
+                if let Some(group) = self.updates.reconstructed(name) {
+                    return self.rebuilt(key, group, name);
+                }
             }
             DescriptorTerm::Application {
                 reference,
@@ -537,7 +838,7 @@ impl LongForm<'_, '_> {
                     *value = self.term(value, None)?;
                 }
                 let base = update.take();
-                self.fill(&declared, &mut values, alias, base.as_deref(), &key);
+                self.fill(&declared, &mut values, alias, base.as_deref(), &key)?;
                 // A pattern's omitted fields are wildcards in the long form,
                 // which `krs expand` writes positionally.
                 let named = declared
@@ -568,11 +869,11 @@ impl LongForm<'_, '_> {
                     .into_iter()
                     .map(|field| (field.field, *field.value))
                     .collect::<BTreeMap<_, _>>();
-                for value in values.values_mut() {
-                    *value = self.term(value, None)?;
+                for (field, value) in &mut values {
+                    *value = self.term(value, self.child_record(alias, field, value))?;
                 }
                 let base = update.take();
-                self.fill(&declared, &mut values, alias, base.as_deref(), key);
+                self.fill(&declared, &mut values, alias, base.as_deref(), key)?;
                 if *open {
                     for field in &declared {
                         values
@@ -599,6 +900,49 @@ impl LongForm<'_, '_> {
         Ok(term)
     }
 
+    /// The record whose fills a group child `value` of the base alias's
+    /// record `alias` binds: a group child the alias's fills rebuild binds
+    /// its own children (N7).
+    fn child_record<'a>(
+        &'a self,
+        alias: Option<&str>,
+        field: &ProductionFieldId,
+        value: &DescriptorTerm,
+    ) -> Option<&'a str> {
+        match (
+            alias.and_then(|alias| self.updates.fill(alias, field)),
+            value,
+        ) {
+            (Some(Fill::Group(child)), DescriptorTerm::Cell { .. }) => Some(child),
+            _ => None,
+        }
+    }
+
+    /// The group record `name` rebuilt from its children: what a whole use
+    /// of an alias over a group record, or a group child an update takes,
+    /// stands for (N7).
+    fn rebuilt(
+        &self,
+        key: &ProvenanceKey,
+        group: &StableItemId,
+        name: &str,
+    ) -> Result<DescriptorTerm, DescriptorLoweringError> {
+        self.term(
+            &DescriptorTerm::Cell {
+                key: key.clone(),
+                declaration: group.clone(),
+                fields: Vec::new(),
+                open: false,
+                update: Some(Box::new(DescriptorTerm::Variable {
+                    key: key.clone(),
+                    path_key: key.clone(),
+                    name: name.to_owned(),
+                })),
+            },
+            None,
+        )
+    }
+
     /// Fills the fields an update or a base alias's record pattern takes.
     fn fill(
         &self,
@@ -607,7 +951,7 @@ impl LongForm<'_, '_> {
         alias: Option<&str>,
         base: Option<&DescriptorTerm>,
         key: &ProvenanceKey,
-    ) {
+    ) -> Result<(), DescriptorLoweringError> {
         let variable = |name: &str| DescriptorTerm::Variable {
             key: key.clone(),
             path_key: key.clone(),
@@ -635,10 +979,18 @@ impl LongForm<'_, '_> {
                 let value = match fill {
                     Fill::Binder(binder) => variable(binder),
                     Fill::Hidden(id) => variable(id.as_str()),
+                    Fill::Group(child) => {
+                        let group = self
+                            .updates
+                            .group(child)
+                            .expect("a rebuilt group child is a group record");
+                        self.rebuilt(key, group, child)?
+                    }
                 };
                 values.insert(field.clone(), value);
             }
         }
+        Ok(())
     }
 
     /// Replaces each direct subterm of `term` by its long form.
@@ -819,8 +1171,11 @@ pub(crate) fn structured_rule_long_form(
         .chain(rule.requires.iter().map(|condition| &condition.term))
         .chain(rule.ensures.iter().map(|condition| &condition.term))
         .collect::<Vec<_>>();
-    let updates = RecordUpdates::scan(descriptor, &terms, &catalog, None)?;
-    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, None);
+    // The long form reads the cell declarations, as lowering does: a group
+    // record's children come from its declaration.
+    let declarations = DescriptorIndex::new(bundle);
+    let updates = RecordUpdates::scan(descriptor, &terms, &catalog, Some(&declarations))?;
+    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, Some(&declarations));
     let mut rule = rule.clone();
     rule.subject = long(&rule.subject)?;
     if let Some(result) = &mut rule.result {

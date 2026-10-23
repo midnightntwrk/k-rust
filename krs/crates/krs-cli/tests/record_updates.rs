@@ -543,3 +543,401 @@ fn a_record_pattern_may_name_no_field() {
     "#]]
     .assert_debug_eq(&errors);
 }
+
+/// Rules that use an alias over a group record whole (N7): `save` pushes
+/// the matched frame with `use_spelling`, `restore` writes a frame popped
+/// from the stack back, and `peek` matches a stacked frame equal to the
+/// current one. `Pair` sequences two programs.
+fn whole_group_rules(use_spelling: &str) -> String {
+    format!(
+        r"
+k::rules! {{
+    for Machine;
+    use Cmd::*;
+
+    step: {{ k: [Pair {{ x, y }}, ..] }} => {{ k: [x, y, ..] }};
+    save: {{ k: [Save(), ..], stack: s, frame: saved @ Frame {{ pc: 1, .. }} }} => {{ k: [..], stack: [{use_spelling}, ..s] }};
+    restore: {{ k: [Restore(), ..], stack: [saved @ Frame {{ .. }}, s @ ..], frame: _ }} => {{ k: [..], stack: s, frame: saved }};
+    peek: {{ k: [Peek(), ..], gas: _, stack: [saved, ..], frame: saved @ Frame {{ .. }} }} => {{ k: [..], gas: 0 }};
+    jump: {{ k: [Jump(), ..], frame: f @ Frame {{ pc: p, .. }} }} => {{ k: [..], frame: Frame {{ pc: int::add(p, 10), ..f }} }};
+}}
+
+k::claims! {{
+    for Machine;
+    use Cmd::*;
+
+    #[k::claim(all_paths)]
+    saves: {{ k: [Save()], stack: s, frame: saved @ Frame {{ pc: 1, .. }} }} => {{ k: [], stack: [saved, ..s] }};
+}}
+"
+    )
+}
+
+/// The emitted rule or claim `label`, up to the next sentence or the end of
+/// its module.
+fn sentence(k: &str, label: &str) -> String {
+    let start = k
+        .find(&format!("[{label}]"))
+        .unwrap_or_else(|| panic!("`{label}` is emitted:\n{k}"));
+    let end = ["\n  rule ", "\n  claim ", "\nendmodule"]
+        .iter()
+        .filter_map(|next| k[start..].find(next))
+        .min()
+        .map_or(k.len(), |end| start + end);
+    k[start..end].to_owned()
+}
+
+/// `definition.k` and `spec.k` of the package.
+fn emitted(target: &Path, manifest: &Path) -> (String, String) {
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target,
+        manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    (
+        fs::read_to_string(output.join("definition.k")).unwrap(),
+        fs::read_to_string(output.join("spec.k")).unwrap_or_default(),
+    )
+}
+
+/// The final `k`, `gas`, and `frame` contents after `krs run` of `program`,
+/// or of the configuration it is stuck in.
+fn frame_outcome(target: &Path, manifest: &Path, program: &str) -> String {
+    let file = manifest.with_file_name("program.txt");
+    fs::write(&file, program).unwrap();
+    let (_, stdout, stderr) = krs(target, manifest, "run", &[file.to_str().unwrap()]);
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cell = |name: &str| {
+        let open = format!("<{name}> ");
+        let start = flat
+            .find(&open)
+            .unwrap_or_else(|| panic!("{stdout}\n{stderr}"));
+        let end = start + flat[start..].find(&format!(" </{name}>")).unwrap();
+        flat[start + open.len()..end].to_owned()
+    };
+    format!(
+        "{program} => k: {} | gas: {} | frame: {}",
+        cell("k"),
+        cell("gas"),
+        cell("frame")
+    )
+}
+
+/// A whole use of `saved @ Frame { .. }` is the update listing no field,
+/// `Frame { ..saved }`: the matched frame rebuilt from its children's
+/// binders, with no `#as` among a cell's children (N7). The three spellings
+/// emit the same K, the rules run (a subject use matches only an equal
+/// frame), the readable claim proves, and `krs expand` writes the rebuilt
+/// frame in full, which runs the same.
+#[test]
+fn a_whole_use_of_a_group_alias_is_the_group_rebuilt() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let spellings = [
+        "saved",
+        "k::fragment![Frame { ..saved }]",
+        "Frame { ..saved }",
+    ];
+    let manifests = spellings.map(|spelling| {
+        let name = match spelling {
+            "saved" => "whole",
+            "Frame { ..saved }" => "record",
+            _ => "fragment",
+        };
+        package(
+            temporary.path(),
+            name,
+            &format!("{PREAMBLE}{}", whole_group_rules(spelling)),
+        )
+    });
+    let [whole, fragment, record] = manifests
+        .each_ref()
+        .map(|manifest| emitted(target.path(), manifest));
+    assert_eq!(whole.0, fragment.0);
+    assert_eq!(whole.0, record.0);
+    assert!(!whole.0.contains("#as Saved"), "{}", whole.0);
+    expect_test::expect![[r"
+        [save]:
+            <k> save => .K ... </k>
+            <stack> S:List => ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) S:List </stack>
+            <frame> <pc> ( 1 #as Krs_UpdateSavedPc:Int ) </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>
+        [restore]:
+            <k> restore => .K ... </k>
+            <stack> ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) S:List => S:List </stack>
+            (_:FrameCell => <frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>)
+        [peek]:
+            <k> peek => .K ... </k>
+            <gas> _ => 0 </gas>
+            <stack> ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) Krs_RestStack:List </stack>
+            <frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>
+        [saves]:
+            <k> save => .K </k>
+            <stack> S:List => ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) S:List </stack>
+            <frame> <pc> ( 1 #as Krs_UpdateSavedPc:Int ) </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>"]].assert_eq(&format!(
+        "{}\n{}\n{}\n{}",
+        sentence(&whole.0, "save"),
+        sentence(&whole.0, "restore"),
+        sentence(&whole.0, "peek"),
+        sentence(&whole.1, "saves")
+    ));
+    let manifest = &manifests[0];
+    let programs = [
+        "pair(save, pair(jump, restore))",
+        "pair(save, peek)",
+        "pair(save, pair(jump, peek))",
+    ];
+    let outcomes = programs.map(|program| frame_outcome(target.path(), manifest, program));
+    expect_test::expect![[r#"
+        [
+            "pair(save, pair(jump, restore)) => k: .K | gas: 5 | frame: <pc> 1 </pc> <fuel> 2 </fuel> <depth> 3 </depth>",
+            "pair(save, peek) => k: .K | gas: 0 | frame: <pc> 1 </pc> <fuel> 2 </fuel> <depth> 3 </depth>",
+            "pair(save, pair(jump, peek)) => k: peek ~> .K | gas: 5 | frame: <pc> 1 </pc> <fuel> 2 </fuel> <depth> 3 </depth>",
+        ]
+    "#]].assert_debug_eq(&outcomes);
+    let (success, stdout, stderr) = krs(target.path(), manifest, "prove", &[]);
+    assert!(success, "{stdout}\n{stderr}");
+    assert!(stdout.contains("SPEC.saves: proven"), "{stdout}");
+
+    let (success, expanded, stderr) = krs(target.path(), manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    assert!(!expanded.contains("saved @"), "{expanded}");
+    let reference = package(temporary.path(), "reference", &expanded);
+    assert_eq!(
+        programs.map(|program| frame_outcome(target.path(), &reference, program)),
+        outcomes
+    );
+    let start = expanded.find("pub fn save(").unwrap();
+    let end = start + expanded[start..].find("\n}\n").unwrap() + 2;
+    expect_test::expect![[r"
+        pub fn save(
+            s: k::Term<k::builtin::List>,
+            saved_pc: k::Term<k::builtin::Int>,
+            saved_fuel: k::Term<k::builtin::Int>,
+            saved_depth: k::Term<k::builtin::Int>,
+            k::cells! {
+                k : k::configuration::KCell(crate ::Cmd::Save(), tail @ ..), stack :
+                k::configuration::Cell(s), frame : k::fragment![crate ::Frame { pc : saved_pc @
+                1, fuel : saved_fuel, depth : saved_depth }], state @ ..
+            }: crate::Machine,
+        ) -> crate::Machine {
+            k::cells! {
+                k : k::configuration::KCell(..tail), stack :
+                k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(k::fragment![crate
+                ::Frame { pc : saved_pc, fuel : saved_fuel, depth : saved_depth }]), s)), ..state
+            }
+        }"]].assert_eq(&expanded[start..end]);
+}
+
+/// An alias over a group record bound inside `|` matches one of several
+/// records, so it has no one set of children to rebuild from: a whole use
+/// keeps `#as`, at a list element where the term layer reads it.
+#[test]
+fn a_group_alias_inside_an_alternative_keeps_its_as() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "alternative",
+        &format!(
+            "{PREAMBLE}
+k::rules! {{
+    for Machine;
+    use Cmd::*;
+
+    restore: {{ k: [Restore(), ..], stack: list::concat(list::item(saved @ Frame {{ pc: 0, .. }} | saved @ Frame {{ pc: 1, .. }}), s) }} => {{ k: [saved, ..], stack: s }};
+}}
+"
+        ),
+    );
+    let (definition, _) = emitted(target.path(), &manifest);
+    expect_test::expect![[r"
+        [restore]:
+            <k> restore => Saved:FrameCell ... </k>
+            <stack> ListItem(( ( <frame> <pc> 0 </pc> <fuel> _ </fuel> <depth> _ </depth> </frame> #as Saved:FrameCell ) #Or ( <frame> <pc> 1 </pc> <fuel> _ </fuel> <depth> _ </depth> </frame> #as Saved:FrameCell ) )) S:List => S:List </stack>"]].assert_eq(&sentence(&definition, "restore"));
+}
+
+/// Hidden binders are named by their alias and field path, and two paths
+/// whose underscores join to the same name get distinct binders: `a.x_y`
+/// and `a_x.y` are two fields, not one.
+#[test]
+fn hidden_binders_of_distinct_paths_are_distinct() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "paths",
+        &format!(
+            "{PREAMBLE}
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Both, Left, Right))]
+pub enum Pr {{
+    #[k::syntax(\"both({{l}}, {{r}})\")]
+    Both {{ l: Exp, r: Exp }},
+    #[k::syntax(\"left({{x_y}}, {{w}})\")]
+    Left {{ x_y: Int, w: Int }},
+    #[k::syntax(\"right({{y}}, {{w}})\")]
+    Right {{ y: Int, w: Int }},
+}}
+
+k::rules! {{
+    for Machine;
+    use Pr::*;
+
+    both: {{ k: [Both {{ l: a @ Left {{ w: 0, .. }}, r: a_x @ Right {{ w: 1, .. }} }}, ..] }} => {{ k: [Both {{ l: Left {{ w: 5, ..a }}, r: Right {{ w: 6, ..a_x }} }}, ..] }};
+}}
+"
+        ),
+    );
+    let (definition, _) = emitted(target.path(), &manifest);
+    let file = manifest.with_file_name("program.txt");
+    fs::write(&file, "both(left(7, 0), right(9, 1))").unwrap();
+    let (_, stdout, _) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    expect_test::expect![[r"
+        [both]:
+            <k> both ( left ( Krs_UpdateAXY:Int , 0 ) , right ( Krs_UpdateAXY2:Int , 1 ) ) => both ( left ( Krs_UpdateAXY:Int , 5 ) , right ( Krs_UpdateAXY2:Int , 6 ) ) ... </k>
+        <k> both(left(7, 5), right(9, 6)) ~> .K </k>"]].assert_eq(&format!(
+        "{}\n{}",
+        sentence(&definition, "both"),
+        &flat[flat.find("<k>").unwrap()..flat.find("</k>").unwrap() + 4]
+    ));
+}
+
+/// A configuration whose `outer` group nests the `frame` group, and rules
+/// that save, change, and restore them through aliases over group records.
+const TWO_LEVEL: &str = r#"
+use k::builtin::{Int, KSequence, List, int, list};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Seq, Push, Pop, Bump, Flag, Report))]
+pub enum Cmd {
+    #[k::syntax("seq({a}, {b})")]
+    Seq { a: Stmt, b: Stmt },
+    #[k::syntax("push")]
+    Push(),
+    #[k::syntax("pop")]
+    Pop(),
+    #[k::syntax("bump")]
+    Bump(),
+    #[k::syntax("flag")]
+    Flag(),
+    #[k::syntax("report")]
+    Report(),
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub gas: Int,
+}
+
+#[k::cell]
+pub struct Outer {
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell]
+    pub flag: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell(nested)]
+    pub outer: Outer,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            outer: Outer { frame: Frame { pc: 0, gas: 100 }, flag: 0 },
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    seq: { k: [Seq { a, b }, ..] } => { k: [a, b, ..] };
+    push: { k: [Push(), ..], stack: s, outer: o @ Outer { flag: 0, .. } } => { k: [..], stack: [o, ..s] };
+    pop: { k: [Pop(), ..], stack: [saved @ Outer { .. }, s @ ..], outer: _ } => { k: [..], stack: s, outer: saved };
+    bump: { k: [Bump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 1), gas: int::add(g, 1000) } };
+    flag: { k: [Flag(), ..], outer: o @ Outer { frame: Frame { pc: 0, .. }, .. } } => { k: [..], outer: Outer { flag: 7, ..o } };
+    report: { k: [Report(), ..], frame: Frame { pc: p, gas: g }, flag: f } => { k: [int::add(int::add(p, g), f), ..] };
+}
+"#;
+
+/// Below a base, a group child its pattern constrains with a group record
+/// is rebuilt from that record's own children, so an update that takes it
+/// keeps the matched child (`flag` keeps `<frame>`); a whole use of an
+/// alias over the outer group rebuilds it, nested child included (N7).
+#[test]
+fn a_group_child_below_a_base_is_rebuilt_from_its_children() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "nested", TWO_LEVEL);
+    let (definition, _) = emitted(target.path(), &manifest);
+    expect_test::expect![[r"
+        [push]:
+            <k> push => .K ... </k>
+            <stack> S:List => ListItem(<outer> Krs_UpdateOFrame:FrameCell <flag> Krs_UpdateOFlag:Int </flag> </outer>) S:List </stack>
+            <outer> Krs_UpdateOFrame:FrameCell <flag> ( 0 #as Krs_UpdateOFlag:Int ) </flag> </outer>
+        [pop]:
+            <k> pop => .K ... </k>
+            <stack> ListItem(<outer> Krs_UpdateSavedFrame:FrameCell <flag> Krs_UpdateSavedFlag:Int </flag> </outer>) S:List => S:List </stack>
+            (_:OuterCell => <outer> Krs_UpdateSavedFrame:FrameCell <flag> Krs_UpdateSavedFlag:Int </flag> </outer>)
+        [flag]:
+            <k> flag => .K ... </k>
+            (<outer> <frame> <pc> ( 0 #as Krs_UpdateOFramePc:Int ) </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> _ </flag> </outer> => <outer> <frame> <pc> Krs_UpdateOFramePc:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> 7 </flag> </outer>)"]].assert_eq(&format!(
+        "{}\n{}\n{}",
+        sentence(&definition, "push"),
+        sentence(&definition, "pop"),
+        sentence(&definition, "flag")
+    ));
+    let outcomes = [
+        "seq(push, seq(bump, seq(pop, report)))",
+        "seq(push, seq(bump, report))",
+        "seq(flag, report)",
+    ]
+    .map(|program| {
+        let file = manifest.with_file_name("program.txt");
+        fs::write(&file, program).unwrap();
+        let (success, stdout, stderr) =
+            krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("<k>"),
+            "{program}: {success}\n{stdout}\n{stderr}"
+        );
+        format!(
+            "{program} => {}",
+            &flat[flat.find("<k>").unwrap()..flat.find("</k>").unwrap() + 4]
+        )
+    });
+    expect_test::expect![[r#"
+        [
+            "seq(push, seq(bump, seq(pop, report))) => <k> 100 ~> .K </k>",
+            "seq(push, seq(bump, report)) => <k> 1101 ~> .K </k>",
+            "seq(flag, report) => <k> 107 ~> .K </k>",
+        ]
+    "#]]
+    .assert_debug_eq(&outcomes);
+}
