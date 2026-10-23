@@ -344,14 +344,14 @@ pub enum SavedWorldState {
         balance: Int,
         code: Bytes,
         nonce: Int,
-        storage: Map,
-        original_storage: Map,
-        self_destruct: Set,
-        logs: List,
+        storage: Map<Int, Int>,
+        original_storage: Map<Int, Int>,
+        self_destruct: Set<Int>,
+        logs: List<LogEntry>,
         refund: Int,
-        accessed_accounts: Set,
-        accessed_storage: Map,
-        created_accounts: Set,
+        accessed_accounts: Set<Int>,
+        accessed_storage: Map<Int, Set<Int>>,
+        created_accounts: Set<Int>,
     },
 }
 
@@ -1276,7 +1276,7 @@ pub fn Maximum(left: k::Term<Int>, right: k::Term<Int>) -> k::Term<Int> {
 }
 
 #[k::function(total, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
-pub fn MarkAccountAccess(accessed: k::Term<Set>, account: k::Term<Int>) -> k::Term<Set> {
+pub fn MarkAccountAccess(accessed: k::Term<Set<Int>>, account: k::Term<Int>) -> k::Term<Set<Int>> {
     set::union(accessed, set::item(account))
 }
 
@@ -1376,10 +1376,10 @@ pub fn StorageWarm(
     syntax = "#kevmMarkStorageAccess({accessed}, {account}, {index})"
 )]
 pub fn MarkStorageAccess(
-    accessed: k::Term<Map>,
+    accessed: k::Term<Map<Int, Set<Int>>>,
     account: k::Term<Int>,
     index: k::Term<Int>,
-) -> k::Term<Map> {
+) -> k::Term<Map<Int, Set<Int>>> {
     if map::in_keys(account, accessed) {
         map::update(
             accessed,

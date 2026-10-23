@@ -2194,7 +2194,7 @@ pub enum MirLocalDecls {
 pub enum MirFunctionBody {
     #[k::syntax("body({blocks}, {locals}, {arg_count})")]
     Body {
-        blocks: List,
+        blocks: List<BasicBlock>,
         locals: LocalDecls,
         arg_count: Int,
     },
@@ -2222,7 +2222,7 @@ pub enum MirStackFrame {
         dest: Place,
         target: MaybeBasicBlockIdx,
         unwind: UnwindAction,
-        locals: List,
+        locals: List<TypedLocal>,
         span: Int,
     },
 }
@@ -2369,7 +2369,7 @@ k::equations! {
 }
 
 #[k::function(total, syntax = "#reserveFor({locals})")]
-pub fn ReserveFor(locals: k::Term<LocalDecls>) -> k::Term<List>;
+pub fn ReserveFor(locals: k::Term<LocalDecls>) -> k::Term<List<TypedLocal>>;
 
 k::equations! {
     for ReserveFor;
@@ -2380,7 +2380,7 @@ k::equations! {
 }
 
 #[k::function(total, syntax = "#functionBlocks({function})")]
-pub fn FunctionBlocks(function: k::Term<Function>) -> k::Term<List>;
+pub fn FunctionBlocks(function: k::Term<Function>) -> k::Term<List<BasicBlock>>;
 
 k::equations! {
     for FunctionBlocks;
@@ -2389,7 +2389,7 @@ k::equations! {
 }
 
 #[k::function(total, syntax = "#functionLocals({function})")]
-pub fn FunctionLocals(function: k::Term<Function>) -> k::Term<List>;
+pub fn FunctionLocals(function: k::Term<Function>) -> k::Term<List<TypedLocal>>;
 
 k::equations! {
     for FunctionLocals;
