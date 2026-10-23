@@ -9,6 +9,8 @@ mod collection_item_sorts;
 mod collection_roles;
 #[path = "backend/confluence_budget.rs"]
 mod confluence_budget;
+#[path = "backend/data_terms.rs"]
+mod data_terms;
 #[path = "backend/deferred_definedness.rs"]
 mod deferred_definedness;
 #[path = "backend/definedness_classes.rs"]
