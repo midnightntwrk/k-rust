@@ -579,6 +579,34 @@ pub const KPLACE_PROGRAMS: &[Program] = &[program!("kplace/go.pgm")];
 fixture!(KPLACE, "kplace/kp.k", "KP", KPLACE_PROGRAMS);
 fixture!(KPLACE_M, "kplace/kp-m.k", "KP", KPLACE_PROGRAMS);
 
+/// FZ-DATAEND review round 2: each a baseline and a mutant whose theories read one end
+/// differently (a parametric subsort, an added overload member, an added `anywhere` rule), and
+/// a broken family that must not refuse unrelated symbols.
+/// The parametric pair needs Z3 sort inference to compile, so it is not in [`ALL`], which the
+/// portable build judges too; its campaign test is `z3`-gated.
+pub const R2_PARAM_PROGRAMS: &[Program] = &[program!("r2-param/go.pgm")];
+fixture!(R2_PARAM, "r2-param/b.k", "PM", R2_PARAM_PROGRAMS);
+fixture!(R2_PARAM_M, "r2-param/m.k", "PM", R2_PARAM_PROGRAMS);
+pub const R2_ADDMEMBER_PROGRAMS: &[Program] = &[program!("r2-addmember/go.pgm")];
+fixture!(
+    R2_ADDMEMBER,
+    "r2-addmember/b.k",
+    "AM",
+    R2_ADDMEMBER_PROGRAMS
+);
+fixture!(
+    R2_ADDMEMBER_M,
+    "r2-addmember/m.k",
+    "AM",
+    R2_ADDMEMBER_PROGRAMS
+);
+pub const R2_ANYW_PROGRAMS: &[Program] = &[program!("r2-anyw/go.pgm")];
+fixture!(R2_ANYW, "r2-anyw/b.k", "AW", R2_ANYW_PROGRAMS);
+fixture!(R2_ANYW_M, "r2-anyw/m.k", "AW", R2_ANYW_PROGRAMS);
+pub const R2_OVER_PROGRAMS: &[Program] = &[program!("r2-over/go.pgm")];
+fixture!(R2_OVER, "r2-over/b.k", "KP", R2_OVER_PROGRAMS);
+fixture!(R2_OVER_M, "r2-over/m.k", "KP", R2_OVER_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -771,7 +799,7 @@ fixture!(
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 55] = [
+pub static ALL: [&Fixture; 61] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -827,4 +855,10 @@ pub static ALL: [&Fixture; 55] = [
     &DIA_M,
     &KPLACE,
     &KPLACE_M,
+    &R2_ADDMEMBER,
+    &R2_ADDMEMBER_M,
+    &R2_ANYW,
+    &R2_ANYW_M,
+    &R2_OVER,
+    &R2_OVER_M,
 ];

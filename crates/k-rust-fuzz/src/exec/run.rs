@@ -274,10 +274,8 @@ pub(crate) struct Executor {
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
-    /// The overload heads whose irreducible applications a data end may hold
-    /// ([`LeafReport::data_end`]): the definition's own ([`BackendDefinition::data_heads`]), or,
-    /// in a differential campaign, those the two definitions agree on
-    /// ([`Self::admit_data_heads`]).
+    /// The definition's overload data heads and refused symbols
+    /// ([`BackendDefinition::data_heads`]), which [`LeafReport::data_end`] reads.
     data_heads: DataHeads,
     /// The per-case safety limit, in milliseconds; wasm32 refuses it, so there it is never set.
     #[cfg(not(target_arch = "wasm32"))]
@@ -406,15 +404,26 @@ impl Executor {
         })
     }
 
-    /// The overload heads a data end may hold ([`Self::admit_data_heads`]).
-    pub(crate) fn data_heads(&self) -> &DataHeads {
-        &self.data_heads
-    }
-
-    /// Admit only `heads` (a subset of [`Self::data_heads`]: the heads both definitions of a
-    /// differential campaign agree on, `DataHeads::agreeing_with`) in data ends.
-    pub(crate) fn admit_data_heads(&mut self, heads: DataHeads) {
-        self.data_heads = heads;
+    /// Whether `state`, an end of the other definition of a differential pair, is data in this
+    /// executor's definition as well (`k_rust_backend::data_term`, "Two definitions"): it
+    /// internalizes here, is decided, and [`BackendDefinition::is_data`] holds with this
+    /// definition's own heads. Any failure reads as not data.
+    pub(crate) fn is_data_here(&mut self, state: &KorePattern) -> bool {
+        let heads = &self.data_heads;
+        self.backend
+            .with_solver_over(None, &[state], |definition, _| {
+                Ok::<_, BackendError>(
+                    definition
+                        .admit_unverified(state, &[])
+                        .internalize_pattern()
+                        .is_ok_and(|pattern| {
+                            pattern.constraints.is_empty()
+                                && pattern.term.attributes().variables.is_empty()
+                                && definition.is_data(&pattern.term, heads)
+                        }),
+                )
+            })
+            .unwrap_or(false)
     }
 
     /// The backend, for target resolution (`rule_catalog`) and pattern compilation.

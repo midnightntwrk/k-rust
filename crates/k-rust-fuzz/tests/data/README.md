@@ -1,6 +1,6 @@
 # Fixture definitions of the fuzz crate's tests
 
-Each directory holds one K definition (or, for `coin/`, `chosen/`, `mac/`, `vanish/`, `imp-diff/`, `claimstep/`, `diamond/`, `ov/`, `dia/` and `kplace/`, a baseline and its mutant(s); for `graph/`, three definitions) and the programs the tests run on it.
+Each directory holds one K definition (or, for `coin/`, `chosen/`, `mac/`, `vanish/`, `imp-diff/`, `claimstep/`, `diamond/`, `ov/`, `dia/`, `kplace/` and `r2-*/`, a baseline and its mutant(s); for `graph/`, three definitions) and the programs the tests run on it.
 `tests/support/mod.rs` registers every definition below as a `Fixture`, compiles it in-process in the portable build (`outer::load_for_compilation` with the embedded prelude and `CompilationBackend::Rust`, then `kompile::compile_loaded_definition`), once per test binary, refuses one that compiles with a diagnostic it does not declare (only TOY declares one, `MissingSyntaxModule`), and exposes the compiled definitions and the text of every program.
 Integration tests include it with `mod support;`; the crate's unit tests share one copy, `crate::support`, declared in `src/lib.rs`.
 `tests/fixtures.rs` checks that every fixture of `support::ALL` (every fixture but TOY, whose syntax module is its main module) converts to a campaign definition and assembles its programs, and runs the programs of IMP, UNSIGNED, CHOSEN, RULES, COIN, LEDGER, LOADCLAIM and TAINT through `Backend::execute`, checking the halt and the record this README promises (a "natural end" there is a clean one: a `stuck` leaf with an empty `<k>`, no constraint and no diagnostic, in a run with no stack stop, undecided solver answer, allowance refusal or unsupported hook); a fixture that stops doing what is written here fails there first.
@@ -71,6 +71,14 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | | `dia/dia-m.k` | | Stores `.Vals`. | FZ-DATAEND review B2: never a kill (main and diffend kill it) |
 | KPLACE | `kplace/kp.k`, `kplace/go.pgm` | `KP` (`KP-SYNTAX`) | `f(K)` and `f(Exp)` both `overload(f)`: the overload equation `f_K(kseq(inj(X), dotk)) = f_Exp(X)` is not canonical (`ValueClaimPrecondition`). Stores `f(bar ~> .K)`. | FZ-DATAEND review B1: a head with a non-canonical overload equation is not a data head |
 | | `kplace/kp-m.k` | | Adds `Exp ::= Bar`, so the stored term lowers to `f(bar)` at `Exp`. | FZ-DATAEND review B1: never a kill |
+| R2_PARAM | `r2-param/b.k`, `r2-param/go.pgm` | `PM` (`PM-SYNTAX`) | Family `f(Exp)`/`f(Nm)` with `Exp ::= Nm \| MInt{8}`; stores `f(2p8)`, irreducible here. | FZ-DATAEND review R2-B1 (needs Z3 sort inference: not in `ALL`, its test is `z3`-gated) |
+| | `r2-param/m.k` | | Adds `Nm ::= MInt{8}`: the end lowers to `f_Nm`. | never a kill |
+| R2_ADDMEMBER | `r2-addmember/b.k`, `r2-addmember/go.pgm` | `AM` (`AM-SYNTAX`) | Family `f(Exp)`/`f(Nm)`, `Bot < Nm < Exp`; ends at `f_Nm(inj(b))`, `f_Nm` free. | FZ-DATAEND review R2-B2 (main kills it) |
+| | `r2-addmember/m.k` | | Adds the member `Bot ::= f(Bot)`: `f_Nm(inj(b))` lowers to `f_Bot(b)`. | never a kill |
+| R2_ANYW | `r2-anyw/b.k`, `r2-anyw/go.pgm` | `AW` (`AW-SYNTAX`) | Ends at the constructor term `c(1)`. | FZ-DATAEND review R2-B2 (main kills it) |
+| | `r2-anyw/m.k` | | Adds `rule c(1) => d [anywhere]`. | never a kill |
+| R2_OVER | `r2-over/b.k`, `r2-over/go.pgm` | `KP` (`KP-SYNTAX`) | An unused `f(K)`/`f(Exp)` overload (broken family); stores `1`. | FZ-DATAEND review R2-S1 |
+| | `r2-over/m.k` | | Stores `2`. | a kill: the broken family refuses only its members |
 
 ## Not covered here
 

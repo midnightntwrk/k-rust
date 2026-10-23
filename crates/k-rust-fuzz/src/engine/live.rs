@@ -420,15 +420,6 @@ impl LiveCases {
                     .map(SideCache::seed)
                     .unwrap_or_default(),
             )?;
-            // Condition 4 compares ends across the two definitions: an irreducible overload
-            // application denotes the same value in both only where both give its head the same
-            // overload equations (`k_rust_backend::data_term`, "Two definitions").
-            let agreeing = baseline
-                .executor
-                .data_heads()
-                .agreeing_with(mutant.executor.data_heads());
-            baseline.executor.admit_data_heads(agreeing.clone());
-            mutant.executor.admit_data_heads(agreeing);
             baseline.shape = CaseRequestShape::new(&spec.options, &plan.baseline);
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);
             mutant.all_paths_shape = plan
@@ -730,17 +721,12 @@ impl LiveCases {
             Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
         };
         let side = &mut self.baseline;
-        let baseline = side
-            .executor
-            .run(&baseline_case.assembled, &side.shape, &[], cancel)?;
-        let one_path = mutant
-            .executor
-            .run(&mutant_case.assembled, &mutant.shape, &[], cancel)?;
         let run_to_completion = self.spec.target.run_to_completion;
-        let rerun = mutant.rerun_on_all_paths(
+        let (baseline, one_path, rerun) = run_sides(
+            side,
+            mutant,
+            &baseline_case.assembled,
             &mutant_case.assembled,
-            &baseline,
-            &one_path,
             run_to_completion,
             cancel,
         )?;
@@ -896,6 +882,52 @@ pub(crate) fn refused(result: &CaseResult) -> bool {
 
 fn index_u64(index: usize) -> u64 {
     u64::try_from(index).expect("a leaf index fits in u64")
+}
+
+/// Run both sides of a differential case on their initial configurations, the mutant also on
+/// all paths where [`Side::rerun_on_all_paths`] asks for it, each leaf's data judgement checked
+/// by the other definition too ([`judge_data_in`]): the baseline's result, the mutant's one-path
+/// result and its all-paths re-run.
+fn run_sides(
+    baseline_side: &mut Side,
+    mutant: &mut Side,
+    baseline_state: &KorePattern,
+    mutant_state: &KorePattern,
+    run_to_completion: bool,
+    cancel: Option<&CancellationToken>,
+) -> Result<(CaseResult, CaseResult, Option<CaseResult>), Abort> {
+    let mut baseline =
+        baseline_side
+            .executor
+            .run(baseline_state, &baseline_side.shape, &[], cancel)?;
+    let mut one_path = mutant
+        .executor
+        .run(mutant_state, &mutant.shape, &[], cancel)?;
+    judge_data_in(&mut mutant.executor, &mut baseline);
+    judge_data_in(&mut baseline_side.executor, &mut one_path);
+    let mut rerun = mutant.rerun_on_all_paths(
+        mutant_state,
+        &baseline,
+        &one_path,
+        run_to_completion,
+        cancel,
+    )?;
+    if let Some(all_paths) = &mut rerun {
+        judge_data_in(&mut baseline_side.executor, all_paths);
+    }
+    Ok((baseline, one_path, rerun))
+}
+
+/// Keep a leaf of `result` judged data only where `other`, the executor of the pair's other
+/// definition, judges its state data too ([`Executor::is_data_here`]). Condition 4 compares ends
+/// across the two definitions, so each compared end must be data in both, each judged by its own
+/// definition (`k_rust_backend::data_term`, "Two definitions").
+fn judge_data_in(other: &mut Executor, result: &mut CaseResult) {
+    for leaf in &mut result.leaves {
+        if leaf.data_end == Some(true) && !other.is_data_here(&leaf.state) {
+            leaf.data_end = Some(false);
+        }
+    }
 }
 
 fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> WitnessSide {

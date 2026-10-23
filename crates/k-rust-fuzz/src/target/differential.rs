@@ -37,11 +37,12 @@
 //! (`k_rust_backend::data_term`): built from free constructors, injections, domain values,
 //! well-formed collections and irreducible applications of overload heads, so that it denotes
 //! itself and syntactic inequality is inequality of values (condition 4); the baseline's ends
-//! must pass the same test, or one of them may denote the mutant's end (D15). An irreducible
-//! overload application denotes itself in each definition, and the same value in both only
-//! where both give its head the same overload equations over the same subsort order, so each
-//! side's ends are judged against the overload heads the two definitions agree on
-//! (`DataHeads::agreeing_with`, set on both executors when the campaign is built). An
+//! must pass the same test, or one of them may denote the mutant's end (D15). Each definition
+//! reads the ends with its own theory, so every compared end must be data in both, each judged
+//! by its own definition (its own overload families, taint, equations and subsort order): then
+//! two different ends denote different values of each definition's initial model, whichever
+//! theory reads them (`k_rust_backend::data_term`, "Two definitions"; the engine judges each
+//! side's leaves again with the other side's executor, `Executor::is_data_here`). An
 //! implementation-chosen value on either side would make the comparison depend on a choice
 //! k-rust made, not on the definitions; a contradicted claim (a `total` or
 //! `preserves-definedness` attribute the run refuted) makes that side's theory inconsistent on

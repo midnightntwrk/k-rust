@@ -21,8 +21,11 @@ use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
-    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE,
+    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
+    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M,
 };
+#[cfg(feature = "z3")]
+use support::{R2_PARAM, R2_PARAM_M};
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
     spec_on(&COIN, mutant, "coin/flip.pgm", None)
@@ -676,4 +679,63 @@ fn an_overload_of_another_shape_is_never_compared_through() {
     );
     assert!(report.witness().is_none(), "{:?}", report.outcome);
     assert_only_unsupported(&report);
+}
+
+// ---- each end judged by both definitions (FZ-DATAEND review round 2)
+
+/// 8 cases of `go(N)` on `baseline` and `mutant`, without engine defects.
+fn r2_report(
+    baseline: &'static Fixture,
+    mutant: &'static Fixture,
+    program: &str,
+) -> k_rust_fuzz::FuzzReport {
+    let report = Campaign::new(spec_on(baseline, mutant, program, None))
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    report
+}
+
+/// R2-B1: the mutant adds `Nm ::= MInt{8}`, so the baseline's normal form
+/// `f_Exp(inj{MInt{8},Exp}(2p8))` lowers in the mutant to the mutant's end. Data in the baseline,
+/// not in the mutant: never a kill (the round-1 head killed it). Parametric sorts need Z3 sort
+/// inference to compile.
+#[cfg(feature = "z3")]
+#[test]
+fn an_end_a_parametric_subsort_makes_reducible_in_the_mutant_is_never_compared() {
+    let report = r2_report(&R2_PARAM, &R2_PARAM_M, "r2-param/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// R2-B2: the mutant adds the overload member `Bot ::= f(Bot)`, so the baseline's free
+/// constructor `f_Nm` is an overload head of the mutant, and `f_Nm(inj(b))` its lowering's
+/// source. Never a kill (main and fz26/diffend kill it).
+#[test]
+fn an_end_an_added_overload_member_lowers_is_never_compared() {
+    let report = r2_report(&R2_ADDMEMBER, &R2_ADDMEMBER_M, "r2-addmember/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// R2-B2 without overloads: the mutant adds `rule c(1) => d [anywhere]`, so the baseline's end
+/// `c(1)` is the mutant's end `d` in the mutant's theory. Never a kill (main kills it).
+#[test]
+fn an_end_an_added_anywhere_rule_rewrites_is_never_compared() {
+    let report = r2_report(&R2_ANYW, &R2_ANYW_M, "r2-anyw/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// R2-S1: an unused overload placed across `K` breaks only its own family; the ends `1` and `2`
+/// hold `kseq` and `dotk`, which it does not relate, so the anchor kills.
+#[test]
+fn a_broken_family_refuses_only_its_members() {
+    let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
+    let witness = report.witness().expect("a kill");
+    assert_eq!(witness.first.kill, Some(KillKind::AddedEnd));
 }

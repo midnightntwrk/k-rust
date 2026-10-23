@@ -298,8 +298,10 @@ pub struct LeafReport {
     /// When the request asked for it and the leaf is a decided end: the leaf's internalized
     /// configuration is data (`k_rust_backend::definition::BackendDefinition::is_data`): free
     /// constructors, injections, domain values, well-formed collections and irreducible
-    /// applications of the overload heads the executor admits, so that it denotes itself and
-    /// differs from every other data term (differential condition 4, ARCHITECTURE 4.3, T-16;
+    /// applications of the definition's overload data heads, no member of a broken overload
+    /// family, so that it denotes itself and differs from every other data term; in a
+    /// differential pair, data in the other definition too (differential condition 4,
+    /// ARCHITECTURE 4.3, T-16;
     /// the data-end requirement of rule and pattern targets, [`crate::Target::data_end`]).
     /// `None` otherwise.
     pub data_end: Option<bool>,
