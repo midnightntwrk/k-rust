@@ -172,6 +172,50 @@ fn an_unjoined_critical_pair_withdraws_the_head() {
     let heads = definition.data_heads();
     assert!(!heads.names().any(|name| name.as_ref() == "exps"));
     assert!(!data(&definition, &heads, FUN_EXPS));
+    // The tainted family's overload equations mention the constructors they lower to; the
+    // family may identify those too (FZ-DATAEND review B2), so no term holding one is data,
+    // constructor-like or not.
+    let refused: Vec<String> = heads.refused().map(ToString::to_string).collect();
+    for symbol in ["bottoms", "dotBottoms", "vals", "exps"] {
+        assert!(refused.iter().any(|name| name == symbol), "{refused:?}");
+    }
+    assert!(!data(&definition, &heads, EMPTY_EXPS));
+    assert!(data(&definition, &heads, "fun{}()"));
+}
+
+/// An overload equation whose argument is not a variable or an injection of one (here the
+/// constant `one`, as an overload placed across `K` has `kseq(inj(X), dotk)`, FZ-DATAEND review
+/// B1) is outside the argument: whether it applies reads more than injection sorts. Its head is
+/// not a data head.
+#[test]
+fn a_head_with_an_overload_equation_of_another_shape_is_not_a_data_head() {
+    let definition = with_sentences(
+        r#"
+    axiom{} \equals{SortExps{}, SortExps{}}(
+        exps{}(inj{SortVal{}, SortExp{}}(one{}()), inj{SortVals{}, SortExps{}}(K1:SortVals{})),
+        inj{SortVals{}, SortExps{}}(vals{}(one{}(), K1:SortVals{})))
+        [symbol-overload{}(exps{}(), vals{}())]
+"#,
+    );
+    let heads = definition.data_heads();
+    assert!(!heads.names().any(|name| name.as_ref() == "exps"));
+    assert!(!data(&definition, &heads, FUN_EXPS));
+    // The load only reports the shape (`ViolationKind::OverloadShape`); the family's lowering is
+    // then outside the check's premises, so no member of the family, and nothing its overload
+    // equations lower to, is data.
+    assert!(
+        definition
+            .value_claims()
+            .violations()
+            .iter()
+            .any(|violation| !violation.kind.withdraws())
+    );
+    assert!(heads.refused().any(|name| name.as_ref() == "vals"));
+    assert!(!data(
+        &definition,
+        &heads,
+        &format!("vals{{}}(one{{}}(), {EMPTY_VALS})")
+    ));
 }
 
 #[test]
