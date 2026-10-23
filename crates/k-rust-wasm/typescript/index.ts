@@ -1201,7 +1201,7 @@ export type FuzzHoleLocation =
   | { kind: 'kore-variable'; name: string }
 
 export interface FuzzConstraints {
-  range?: { min?: string; max?: string } | null
+  range?: { min?: string | null; max?: string | null } | null
   length?: { min?: number | null; max?: number | null } | null
   elements?:
     | { collection: 'elements'; element: string }
@@ -1334,6 +1334,36 @@ export interface FuzzReportIdentity {
    * the WebAssembly package, which refuses that weight).
    */
   solve?: FuzzSolveParameters
+  /**
+   * The holes generated under narrower constraints than they declare, because the program's
+   * syntax cannot hold the values left out at the hole (an `Int` literal position that reads no
+   * negative integer back); absent when no hole was narrowed.
+   */
+  'effective-constraints'?: FuzzEffectiveConstraints[]
+}
+
+/** A hole whose generation constraints are narrower than its declared ones. */
+export interface FuzzEffectiveConstraints {
+  hole: string
+  declared: FuzzConstraints
+  effective: FuzzConstraints
+  /** No probed negative integer, written at the hole, read back as itself. */
+  reason: 'negative-not-read-back'
+  /** The definition whose grammar refused every probe. */
+  side: FuzzDefinitionRole
+  /** Every probe, in the order tried; each was refused. */
+  probes: FuzzNarrowingProbe[]
+}
+
+/** One refused probe of a narrowed hole. */
+export interface FuzzNarrowingProbe {
+  /** The value written at the hole, as K text (`-1`). */
+  value: string
+  outcome: 'reads-as' | 'does-not-parse'
+  /** For `reads-as`: the term the position held instead, as K text (or KORE without one). */
+  'reads-as'?: string
+  /** For `reads-as`: the K label of that term's head symbol, when it is an application. */
+  head?: string
 }
 
 /** Probabilities are `[numerator, denominator]`. */

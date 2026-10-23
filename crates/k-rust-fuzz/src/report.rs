@@ -19,7 +19,7 @@ use crate::{
     exec::OutcomeClass,
     holes::HoleLocation,
     spec::{Budget, CaseOptions, PathMode, ProposerConfig},
-    values::{GenerationBounds, Value},
+    values::{Constraints, GenerationBounds, Value},
 };
 
 /// The report's `schema` field.
@@ -202,6 +202,72 @@ pub struct ReportIdentity {
     /// proposer has a positive weight; absent from the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solve: Option<SolveParameters>,
+    /// The holes whose values are generated under narrower constraints than they declare,
+    /// because the program's syntax cannot hold the values left out at the hole (an `Int`
+    /// literal position that reads no negative integer back): one entry per such hole, in the
+    /// order of the holes, with both constraints and the reason. Absent from the JSON when no
+    /// hole was narrowed. The declared constraints stay the ones every case is checked against.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effective_constraints: Vec<EffectiveConstraints>,
+}
+
+/// A hole whose generation constraints are narrower than its declared ones (see
+/// [`ReportIdentity::effective_constraints`]). Every field is a function of the campaign's
+/// inputs; the human explanation, with any parser message, is the report's warning.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct EffectiveConstraints {
+    /// The hole's name.
+    pub hole: String,
+    /// The constraints the hole declares.
+    pub declared: Constraints,
+    /// The constraints its values are generated under.
+    pub effective: Constraints,
+    /// Why they differ.
+    pub reason: NarrowingReason,
+    /// The definition whose grammar refused every probe.
+    pub side: DefinitionRole,
+    /// Every probe, in the order tried; each was refused.
+    pub probes: Vec<NarrowingProbe>,
+}
+
+/// Why a hole's generation constraints were narrowed.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NarrowingReason {
+    /// No probed negative integer, written at the hole, read back as itself: values are
+    /// generated from 0.
+    NegativeNotReadBack,
+}
+
+/// One refused probe of a narrowed hole.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct NarrowingProbe {
+    /// The value written at the hole, as K text (`-1`).
+    pub value: String,
+    /// What the program's syntax made of it.
+    pub outcome: ProbeOutcome,
+    /// For [`ProbeOutcome::ReadsAs`], the term the configuration held at the hole's position
+    /// instead, as K text (`- 1`), or as KORE (cut at 200 bytes) when it has no K text. Absent
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_as: Option<String>,
+    /// For [`ProbeOutcome::ReadsAs`], the K label of that term's head symbol (below
+    /// injections) when it is an application, since its K text alone can look like the value
+    /// (`-1` printed from a unary minus applied to `1`). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+}
+
+/// How the program's syntax refused a probe.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProbeOutcome {
+    /// The program parsed, but the hole's position held another term than the value.
+    ReadsAs,
+    /// The program did not parse with the value at the hole.
+    DoesNotParse,
 }
 
 /// The fixed parameters of the solve proposer (ARCHITECTURE 8.6), which with the definitions,
@@ -1028,6 +1094,7 @@ mod tests {
                 climb: None,
                 corpus: None,
                 solve: None,
+                effective_constraints: Vec::new(),
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {

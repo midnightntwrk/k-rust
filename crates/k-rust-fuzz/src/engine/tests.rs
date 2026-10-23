@@ -244,6 +244,7 @@ fn identity() -> ReportIdentity {
         climb: None,
         corpus: None,
         solve: None,
+        effective_constraints: Vec::new(),
     }
 }
 

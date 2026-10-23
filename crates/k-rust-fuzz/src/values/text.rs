@@ -206,6 +206,20 @@ impl TextSyntax {
         }
     }
 
+    /// `pattern` as one line of K program text, for a reader only: unlike [`Self::print`] the
+    /// text is not checked by reading it back, so it may be ambiguous. `None` when the unparser
+    /// warns (a symbol without a printable production).
+    pub(crate) fn show(&self, pattern: &KorePattern) -> Option<String> {
+        let options = Options {
+            mode: Mode::Program,
+            color: false,
+            reverse_aliases: false,
+            sort_collections: false,
+        };
+        let printed = self.0.unparser.print_kore(pattern, &options);
+        printed.warnings.is_empty().then(|| one_line(&printed.text))
+    }
+
     /// `text` read at the sort whose K name is `sort`, as the configuration assembler reads a
     /// configuration value of that sort: parsed in the main module, macro-expanded, injected at
     /// the sort, and converted to KORE. The injection to `sort` around the whole value is

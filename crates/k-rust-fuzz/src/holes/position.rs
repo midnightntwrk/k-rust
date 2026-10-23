@@ -127,7 +127,7 @@ fn names(holes: &ResolvedHoles) -> Vec<String> {
 
 /// A source hole's anchor as a [`PrintedValue`]: its text exactly as the program has it, so the
 /// anchor configuration is the unmodified program's, and its KORE.
-fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, CampaignError> {
+pub(super) fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, CampaignError> {
     let (Some(text), Some(anchor)) = (&hole.anchor_text, &hole.anchor) else {
         unreachable!("resolve gives every source hole an anchor");
     };
@@ -166,7 +166,7 @@ fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, CampaignError> {
     })
 }
 
-fn printed(value: &Value, hole: &ResolvedHole) -> Result<PrintedValue, String> {
+pub(super) fn printed(value: &Value, hole: &ResolvedHole) -> Result<PrintedValue, String> {
     let k_text = print_k_text(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
     let (kore, sort) =
         to_kore_with_sort(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
@@ -589,6 +589,7 @@ pub(super) fn check(
     let failure = |hole: usize, found: String| RoundTripFailure {
         hole: check.names[hole].clone(),
         found,
+        held: None,
     };
     // Each entry is a pair of nodes at one path and the check points below it: a contiguous
     // range of `points`, all of whose paths extend that path, of length `depth`.
@@ -617,7 +618,10 @@ pub(super) fn check(
                     (Point::Injection, Some((_, child))) => child,
                     _ => actual,
                 };
-                return Err(failure(here.hole, quote(found)));
+                return Err(RoundTripFailure {
+                    held: Some(Box::new(found.clone())),
+                    ..failure(here.hole, quote(found))
+                });
             }
             continue;
         }

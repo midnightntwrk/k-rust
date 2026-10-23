@@ -17,12 +17,15 @@ use num_bigint::BigInt;
 
 use super::{
     HoleDecl, HoleLocation, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHole,
-    ResolvedHoles, RoundTripCheck, SpanAddress, SpanText, check_hole_sort, instantiate, resolve,
+    ResolvedHoles, RoundTripCheck, SpanAddress, SpanText, check_hole_sort, instantiate,
+    narrow::{Probe, Refusal},
+    resolve,
 };
 use crate::{
     BackendRoute,
     assemble::{ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal, SpanProblem},
+    report::DefinitionRole,
     spec::{CompiledDefinition, ProgramInput, ProgramSource, ProgramText},
     support,
     values::{
@@ -43,6 +46,7 @@ const SETTLE_TX: &str = include_str!("../../tests/data/ledger/settle.tx");
 const ELEMENTS_PGM: &str = include_str!("../../tests/data/elements/sum.pgm");
 const SYNTAXVARS_PGM: &str = include_str!("../../tests/data/syntaxvars/go.pgm");
 const LOCATED_PGM: &str = include_str!("../../tests/data/located/sum.pgm");
+const INTGEN_SUM_PGM: &str = include_str!("../../tests/data/intgen/sum.pgm");
 
 fn values() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
@@ -87,6 +91,11 @@ fn elements() -> &'static CompiledDefinition {
 fn syntaxvars() -> &'static CompiledDefinition {
     static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
     DEFINITION.get_or_init(|| support::SYNTAXVARS.compiled().definition())
+}
+
+fn nominus() -> &'static CompiledDefinition {
+    static DEFINITION: OnceLock<CompiledDefinition> = OnceLock::new();
+    DEFINITION.get_or_init(|| support::NOMINUS.compiled().definition())
 }
 
 fn located() -> &'static CompiledDefinition {
@@ -505,7 +514,10 @@ fn a_configuration_variable_hole_replaces_its_binding() {
             anchor_text: Some(SETTLE_TX.trim_end().to_owned()),
             anchor: None,
             refusals: Vec::new(),
+            constraints: Constraints::default(),
+            narrowing: None,
         }],
+        text: None,
     };
     let value = PrintedValue {
         k_text: Some("transfer(5, 0)".to_owned()),
@@ -657,9 +669,12 @@ fn every_free_template_variable_is_a_hole() {
         anchor_text: None,
         anchor: None,
         refusals: Vec::new(),
+        constraints: Constraints::default(),
+        narrowing: None,
     };
     let holes = ResolvedHoles {
         holes: vec![hole("A", "VarA"), hole("B", "VarB")],
+        text: None,
     };
     let InstantiatedProgram::Kore(pattern) = instantiate(&template, &holes, &[int(4), int(-9)])
     else {
@@ -888,7 +903,14 @@ fn a_case_binds_the_streams_as_krun_does_with_an_empty_standard_input() {
     let initial = assembly
         .assemble(
             definition,
-            &instantiate(&program, &ResolvedHoles { holes: Vec::new() }, &[]),
+            &instantiate(
+                &program,
+                &ResolvedHoles {
+                    holes: Vec::new(),
+                    text: None,
+                },
+                &[],
+            ),
         )
         .expect("the program assembles");
     // krun binds `$PGM`, then the `-c` values in order, then `$IO` and `$STDIN`; the
@@ -921,7 +943,10 @@ fn a_case_binds_the_streams_as_krun_does_with_an_empty_standard_input() {
 fn a_reused_assembler_gives_the_one_shot_configuration() {
     let definition = streams();
     let program = program("streams/go.pgm", GO_PGM, &[("LIMIT", "3")]);
-    let empty = ResolvedHoles { holes: Vec::new() };
+    let empty = ResolvedHoles {
+        holes: Vec::new(),
+        text: None,
+    };
     let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
     let expected = assembly
         .assemble(definition, &instantiate(&program, &empty, &[]))
@@ -1519,4 +1544,236 @@ fn a_configuration_variable_hole_takes_values_of_the_variable_sort() {
         resolve_err(&[config_var("T", "Account", "TX")], &program, definition),
         mismatch("T", "Tx")
     );
+}
+
+/// The narrowings `super::probe_negatives` gives `decls` on `definition` (FZ-INTGEN).
+fn narrowings(
+    decls: &[HoleDecl],
+    program: &ProgramInput,
+    definition: &CompiledDefinition,
+) -> Vec<Option<super::Narrowing>> {
+    let holes = resolve_ok(decls, program, definition);
+    probe(&holes, program, definition, DefinitionRole::Baseline)
+}
+
+fn probe(
+    holes: &ResolvedHoles,
+    program: &ProgramInput,
+    definition: &CompiledDefinition,
+    side: DefinitionRole,
+) -> Vec<Option<super::Narrowing>> {
+    let assembly = ProgramAssembly::new(definition).expect("the grammar resolves");
+    let check = RoundTripCheck::new(&assembly, definition, program, holes)
+        .expect("the anchors parse back at their positions");
+    super::probe_negatives(
+        holes,
+        holes.text.as_ref(),
+        &check,
+        &assembly,
+        definition,
+        program,
+        side,
+    )
+    .expect("the probe runs")
+}
+
+fn ranged(mut decl: HoleDecl, min: Option<i64>, max: Option<i64>) -> HoleDecl {
+    decl.constraints.range = Some(crate::values::IntRange {
+        min: min.map(BigInt::from),
+        max: max.map(BigInt::from),
+    });
+    decl
+}
+
+/// The probed values of a narrowing, as K text.
+fn probed(narrowing: Option<&super::Narrowing>) -> Vec<&str> {
+    narrowing.map_or_else(Vec::new, |narrowing| {
+        narrowing
+            .probes
+            .iter()
+            .map(|probe| probe.text.as_str())
+            .collect()
+    })
+}
+
+#[test]
+fn an_unsigned_literal_position_narrows_an_int_hole_to_non_negative_values() {
+    let definition = unsigned();
+    let program = program("unsigned/sum.pgm", SUM_PGM, &[]);
+    let decls = [
+        span("A", "Int", "unsigned/sum.pgm", None, "7 +", "7"),
+        span("B", "Int", "unsigned/sum.pgm", None, "+ 5", "5"),
+    ];
+    let found = narrowings(&decls, &program, definition);
+    for (name, narrowing) in ["A", "B"].iter().zip(&found) {
+        let narrowing = narrowing
+            .as_ref()
+            .unwrap_or_else(|| panic!("hole {name} is narrowed"));
+        assert_eq!(narrowing.side, DefinitionRole::Baseline);
+        // Each probe reads as the negation `neg(N)`, an application, not the domain value,
+        // shown as K text.
+        assert_eq!(
+            narrowing.probes,
+            vec![
+                Probe {
+                    text: "-1".to_owned(),
+                    refusal: Refusal::ReadsAs {
+                        term: "- 1".to_owned(),
+                        head: Some("neg".to_owned()),
+                    },
+                },
+                Probe {
+                    text: "-999".to_owned(),
+                    refusal: Refusal::ReadsAs {
+                        term: "- 999".to_owned(),
+                        head: Some("neg".to_owned()),
+                    },
+                },
+            ]
+        );
+    }
+
+    // The probes are the admissible negative value nearest zero and the admissible negative
+    // value of greatest magnitude with at most three digits (else the range's minimum).
+    for ((min, max), expected) in [
+        ((Some(-50), Some(-7)), vec!["-7", "-50"]),
+        ((Some(-1_000_000), Some(10)), vec!["-1", "-999"]),
+        ((Some(-5000), Some(-2000)), vec!["-2000", "-5000"]),
+        ((Some(-1), Some(4)), vec!["-1"]),
+    ] {
+        let found = narrowings(&[ranged(decls[1].clone(), min, max)], &program, definition);
+        assert_eq!(probed(found[0].as_ref()), expected, "{min:?} ..= {max:?}");
+    }
+
+    // Bounds that admit no negative value, and a choice set, are not probed.
+    let mut chosen = decls[1].clone();
+    chosen.constraints.choices = Some(vec![Value::Int(BigInt::from(-3))]);
+    let found = narrowings(
+        &[ranged(decls[0].clone(), Some(0), None), chosen],
+        &program,
+        definition,
+    );
+    assert_eq!(found, vec![None, None]);
+}
+
+#[test]
+fn a_probe_that_does_not_parse_keeps_the_parser_message_out_of_the_record() {
+    // NOMINUS has unsigned literals and no unary minus: `print 7 + -1 ;` does not parse.
+    let definition = nominus();
+    let program = program("intgen/sum.pgm", INTGEN_SUM_PGM, &[]);
+    let decl = span("B", "Int", "intgen/sum.pgm", None, "+ 5", "5");
+    let mut holes = resolve_ok(std::slice::from_ref(&decl), &program, definition);
+    let found = probe(&holes, &program, definition, DefinitionRole::Baseline);
+    let narrowing = found[0].clone().expect("narrowed");
+    assert_eq!(probed(Some(&narrowing)), vec!["-1", "-999"]);
+    assert!(
+        narrowing.probes.iter().all(
+            |probe| matches!(&probe.refusal, Refusal::DoesNotParse(message)
+                if !message.is_empty() && !message.contains('\n'))
+        ),
+        "{narrowing:?}"
+    );
+    holes.narrow(found).expect("narrows");
+    let hole = &holes.holes[0];
+    let record = narrowing.record(hole);
+    assert_eq!(
+        record.reason,
+        crate::report::NarrowingReason::NegativeNotReadBack
+    );
+    assert!(record.probes.iter().all(|probe| {
+        probe.outcome == crate::report::ProbeOutcome::DoesNotParse && probe.reads_as.is_none()
+    }));
+    let warning = narrowing.warning(hole);
+    assert!(warning.contains("`-1` does not parse ("), "{warning}");
+    assert!(warning.contains("`range = { min = 0 }`"), "{warning}");
+}
+
+#[test]
+fn narrowing_starts_the_range_at_zero_and_refuses_an_all_negative_range() {
+    let definition = unsigned();
+    let program = program("unsigned/sum.pgm", SUM_PGM, &[]);
+    let decl = ranged(
+        span("B", "Int", "unsigned/sum.pgm", None, "+ 5", "5"),
+        Some(-40),
+        Some(4),
+    );
+    let mut holes = resolve_ok(std::slice::from_ref(&decl), &program, definition);
+    let found = probe(&holes, &program, definition, DefinitionRole::Mutant);
+    holes.narrow(found.clone()).expect("the range keeps 0 .. 4");
+    let hole = &holes.holes[0];
+    assert_eq!(
+        hole.constraints.range,
+        Some(crate::values::IntRange {
+            min: Some(BigInt::from(0)),
+            max: Some(BigInt::from(4)),
+        })
+    );
+    assert_eq!(
+        hole.decl.constraints, decl.constraints,
+        "the declaration is kept"
+    );
+    let side = |holes: &ResolvedHoles| holes.holes[0].narrowing.as_ref().map(|n| n.side);
+    assert_eq!(side(&holes), Some(DefinitionRole::Mutant));
+    let warning = holes.holes[0]
+        .narrowing
+        .as_ref()
+        .expect("narrowed")
+        .warning(&holes.holes[0]);
+    assert!(
+        warning.contains(
+            "on the mutant, `-1` reads as `- 1`, an application of `neg`; `-40` reads as `- 40`, an \
+             application of `neg`"
+        ),
+        "{warning}"
+    );
+    assert!(warning.contains("(`- 5`)"), "{warning}");
+    // A second narrowing of a narrowed hole keeps the first.
+    holes.narrow(found).expect("idempotent");
+    assert_eq!(side(&holes), Some(DefinitionRole::Mutant));
+
+    let negative = ranged(decl, Some(-40), Some(-2));
+    let mut holes = resolve_ok(std::slice::from_ref(&negative), &program, definition);
+    let found = probe(&holes, &program, definition, DefinitionRole::Baseline);
+    let error = holes
+        .narrow(found)
+        .expect_err("no value of -40 .. -2 can be written");
+    assert!(
+        matches!(&error, CampaignError::InvalidConstraints { hole, message }
+            if hole == "B"
+                && message.contains("every value of its range is negative")
+                && message.contains("`-2` reads as `- 2`, an application of `neg`; `-40` reads as")
+                && message.contains("(`- 5`)")),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_position_that_reads_negative_literals_is_not_narrowed() {
+    // IMP's Int literals are signed: `-1` is one token, the domain value -1.
+    let definition = imp();
+    let program = program("imp/commute.imp", COMMUTE_IMP, &[]);
+    let found = narrowings(
+        &[span("X", "Int", "imp/commute.imp", None, "x = 3;", "3")],
+        &program,
+        definition,
+    );
+    assert_eq!(found, vec![None]);
+
+    // Signed literals inside located expressions: the columns after the hole move, nothing
+    // else does.
+    let definition = located();
+    let program = self::program("located/sum.pgm", LOCATED_PGM, &[]);
+    let found = narrowings(
+        &[span("Y", "Int", "located/sum.pgm", None, "22", "22")],
+        &program,
+        definition,
+    );
+    assert_eq!(found, vec![None]);
+
+    // A configuration-variable hole replaces a whole binding, not a literal of program text,
+    // and is never probed.
+    let definition = streams();
+    let program = self::program("streams/go.pgm", GO_PGM, &[("LIMIT", "3")]);
+    let found = narrowings(&[config_var("L", "Int", "LIMIT")], &program, definition);
+    assert_eq!(found, vec![None]);
 }

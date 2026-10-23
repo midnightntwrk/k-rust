@@ -38,8 +38,8 @@ use crate::{
     },
     report::{
         CampaignOutcome, ClimbParameters, CorpusParameters, DefinitionIdentity, DefinitionRole,
-        DictionaryParameters, FuzzReport, GenerationCaps, HitLabel, ReportIdentity,
-        SolveParameters, Totals, digest_hex,
+        DictionaryParameters, EffectiveConstraints, FuzzReport, GenerationCaps, HitLabel,
+        ReportIdentity, SolveParameters, Totals, digest_hex,
     },
     score::{RuleScorer, Scorer},
     spec::{
@@ -87,7 +87,10 @@ impl Campaign {
     /// definition's backend on its route and its program assembly, resolve the holes
     /// ([`crate::holes`]) and their generators ([`crate::values`]), resolve the target
     /// ([`crate::target`]), check the explicit assignments against the holes' constraints, and
-    /// assemble and round-trip-check the program with its anchor values.
+    /// assemble and round-trip-check the program with its anchor values. Each `Int` span hole
+    /// whose bounds admit negative values is probed once with one (`holes::narrow`): when the
+    /// program's syntax does not read it back at the hole, values are generated from 0, and the
+    /// report records the effective constraints with a warning.
     ///
     /// The backend's acceptance of the anchors' initial state is not executed here: the first
     /// case runs it, and a refusal is a `rejected` case with the reason `backend-refused`.
@@ -173,8 +176,11 @@ impl Campaign {
         };
         let graph = GraphCheck::build(&spec, &cases).map(Arc::new);
         let guidance = Guidance::build(&spec, &cases, graph.as_deref())?;
+        let mut identity = identity(&spec, &initial)?;
+        identity.effective_constraints = effective_constraints(holes);
+        let warnings = campaign_warnings(holes, graph.as_deref());
         let settings = LoopSettings {
-            identity: identity(&spec, &initial)?,
+            identity,
             rejection_cap: spec.rejection_cap,
             options: spec.options.clone(),
             label: if spec.target.negated_property {
@@ -183,18 +189,12 @@ impl Campaign {
                 HitLabel::Hit
             },
             clean_leaf_facts: clean_leaf_facts(&spec),
-            constraints: holes
-                .iter()
-                .map(|hole| hole.decl.constraints.clone())
-                .collect(),
+            constraints: holes.iter().map(|hole| hole.constraints.clone()).collect(),
             sort_overrides: holes
                 .iter()
                 .flat_map(ResolvedHole::sort_overrides)
                 .collect(),
-            warnings: graph
-                .as_ref()
-                .map(|graph| graph.warnings().to_vec())
-                .unwrap_or_default(),
+            warnings,
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
         };
@@ -310,7 +310,7 @@ impl Campaign {
                 .zip(generators)
                 .map(|(hole, generator)| ClimbHole {
                     sort: hole.sort.clone(),
-                    constraints: hole.decl.constraints.clone(),
+                    constraints: hole.constraints.clone(),
                     generator,
                 })
                 .collect();
@@ -356,7 +356,7 @@ impl Campaign {
             .zip(generators)
             .map(|(hole, generator)| CorpusHole {
                 sort: hole.sort.clone(),
-                constraints: hole.decl.constraints.clone(),
+                constraints: hole.constraints.clone(),
                 generator,
             })
             .collect();
@@ -695,13 +695,36 @@ fn generators(cases: &LiveCases, spec: &CampaignSpec) -> Result<Vec<Generator>, 
         .holes
         .iter()
         .map(|hole| {
-            Generator::new(&hole.sort, &hole.decl.constraints, &spec.bounds).map_err(|message| {
+            Generator::new(&hole.sort, &hole.constraints, &spec.bounds).map_err(|message| {
                 CampaignError::InvalidConstraints {
                     hole: hole.decl.name.clone(),
                     message,
                 }
             })
         })
+        .collect()
+}
+
+/// The report's record of every hole whose generation constraints were narrowed to the
+/// program's syntax (FZ-INTGEN), in the order of the holes.
+fn effective_constraints(holes: &[ResolvedHole]) -> Vec<EffectiveConstraints> {
+    holes
+        .iter()
+        .filter_map(|hole| Some(hole.narrowing.as_ref()?.record(hole)))
+        .collect()
+}
+
+/// The warnings every report of the campaign starts with: one per narrowed hole, then the rule
+/// graph's (ARCHITECTURE 6.3).
+fn campaign_warnings(holes: &[ResolvedHole], graph: Option<&GraphCheck>) -> Vec<String> {
+    holes
+        .iter()
+        .filter_map(|hole| Some(hole.narrowing.as_ref()?.warning(hole)))
+        .chain(
+            graph
+                .map(|graph| graph.warnings().to_vec())
+                .unwrap_or_default(),
+        )
         .collect()
 }
 
@@ -782,6 +805,8 @@ fn identity(
         corpus: (weight(&spec.proposers, ProposerKind::Corpus) > 0)
             .then(|| CorpusParameters::for_target(&spec.target.kind)),
         solve: (weight(&spec.proposers, ProposerKind::Solve) > 0).then(SolveParameters::current),
+        // Filled by `Campaign::new` from the resolved holes.
+        effective_constraints: Vec::new(),
     })
 }
 

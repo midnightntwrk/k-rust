@@ -791,7 +791,7 @@ pub(crate) fn pools(
 ) -> Vec<HolePool> {
     holes
         .iter()
-        .map(|hole| HolePool::new(harvest, &hole.sort, &hole.decl.constraints, &spec.bounds))
+        .map(|hole| HolePool::new(harvest, &hole.sort, &hole.constraints, &spec.bounds))
         .collect()
 }
 

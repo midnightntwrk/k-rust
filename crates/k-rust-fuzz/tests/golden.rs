@@ -40,10 +40,14 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 /// campaign, whose shrunk witness guards version 2's shrinking of map holes by whole entries:
 /// a change to the map shrinker moves it. Version 3 (the run-time literals and the corpus's
 /// count buckets) left it as it was at version 2: blind campaigns record no conditions and ask
-/// for no counts.
+/// for no counts. FZ-INTGEN moved it (from `3467dc44…`) through the UNSIGNED campaign alone:
+/// its hole's range `-40 ..= 4` is generated as `0 ..= 4`, since UNSIGNED's literals read no
+/// negative value back, and the campaign tries one explicit negative value so that it keeps a
+/// round-trip rejection. It is re-pinned at version 3 on the branch; the integration round that
+/// bumps `ENGINE_VERSION` re-pins it under the new version.
 const PINNED: Option<(u32, &str)> = Some((
     3,
-    "3467dc44eb5c354ad40f63d31f772e20887bda003d72049f6f4946b309272d8c",
+    "78acdd4634fdfb3f7122ba61f905123719610d56f4356d1909d849530e1d2a13",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
@@ -183,7 +187,9 @@ fn violation(pattern: &str) -> Target {
 /// - COIN against COIN-KILL in all-paths mode under a work budget: a differential witness with
 ///   both sides' leaves, and all-paths leaf order;
 /// - UNSIGNED with a range that excludes the anchor and admits negative values, which do not
-///   round-trip: rejections for two reasons;
+///   round-trip there, so generation starts at 0 (FZ-INTGEN), and an explicit negative value,
+///   which the declared range admits: rejections for two reasons (the anchor's constraint and
+///   the explicit value's round-trip);
 /// - VALUES with a `Map` configuration-variable hole and a target that needs three entries: a
 ///   map witness that shrinks by whole entries (`ENGINE_VERSION` 2);
 /// - DICT's `goal` with blind and the dictionary: a witness of harvested values, shrunk by
@@ -250,6 +256,10 @@ fn golden_reports() -> Vec<FuzzReport> {
             max: Some(BigInt::from(4)),
         });
         spec.holes = vec![hole];
+        spec.proposers.explicit = vec![BTreeMap::from([(
+            "B".to_owned(),
+            k_rust_fuzz::Value::Int((-3).into()),
+        )])];
         spec.target = violation("<k> .K </k> <out> ListItem(N:Int) </out> requires N ==Int 9");
         spec
     };
