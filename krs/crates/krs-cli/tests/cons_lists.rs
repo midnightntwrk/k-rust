@@ -492,7 +492,7 @@ fn check_error(target: &Path, item: &str) -> String {
 fn malformed_and_misplaced_lists_are_errors() {
     let target = shared_fixture_target();
     let errors = [
-        // A list is matched from its front.
+        // A cons list is matched from its front.
         "#[k::function(total, internal)]
          pub fn Last(stack: Term<WordStack>) -> Term<Int> {
              match stack { [.., x] => x, _ => 0 }
@@ -533,15 +533,15 @@ fn malformed_and_misplaced_lists_are_errors() {
     .map(|item| check_error(target.path(), item));
     expect_test::expect![[r#"
         [
-            "error[krs::syntax::invalid-list-notation]: `..` may only end a list: a cons list is matched and built from its front, so its back is no constructor pattern; name the elements before the rest",
-            "error[krs::syntax::invalid-list-notation]: `..` may only end a list: a cons list is matched and built from its front, so its back is no constructor pattern; name the elements before the rest",
+            "error[krs::analysis::invalid-list-notation]: a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest",
+            "error[krs::analysis::invalid-list-notation]: a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest",
             "error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, and the second is the binder `rest` itself",
             "error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result",
-            "error[krs::syntax::invalid-list-notation]: the pattern's `..` keeps the rest of the list, so the result ends in `..` too; to drop or move the rest, name it: `rest @ ..`",
-            "error[krs::syntax::invalid-list-notation]: `..` may only end a list: a cons list is matched from its front, so its back is no constructor pattern",
-            "error[krs::analysis::invalid-list-notation]: list notation builds a cons list, but this position has sort `Int`, which is not one: a cons list is a `#[k::syntax_list]` sort or the sort of a `#[k::cons_list]` constructors enum",
-            "error[krs::analysis::invalid-list-notation]: the cell `gas` holds `Int`, which is not a cons list: a bracketed cell value is the computation cell's items, a List collection's instances, or the elements of a cell whose sort is a `#[k::syntax_list]` sort or a `#[k::cons_list]` enum's",
-            "error[krs::collect::invalid-configuration]: `k` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a cons-list cell",
+            "error[krs::syntax::invalid-list-notation]: the pattern's `..` keeps the rest of the list, so the result holds `..` too; to drop or move the rest, name it: `rest @ ..`",
+            "error[krs::analysis::invalid-list-notation]: a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest",
+            "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `Int`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",
+            "error[krs::analysis::invalid-list-notation]: the cell `gas` holds `Int`, which is not a list: a bracketed cell value is the computation cell's items, a List collection's instances, or the elements of a cell whose sort is the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's",
+            "error[krs::collect::invalid-configuration]: `k` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a list cell",
         ]
     "#]].assert_debug_eq(&errors);
 }

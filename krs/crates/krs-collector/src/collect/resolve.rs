@@ -795,10 +795,12 @@ fn placeholder_term() -> krs_ir::HostTerm {
 /// Keeps the reading of a bracketed cell value that the cell's declared
 /// type gives (KF-023). `job: [Job { payload: p }, ..] => job: [..]` reads
 /// both as the computation cell's head and as a List collection's front
-/// instance; the macro carries it as a head with its List reading beside it,
-/// and a `*` collection cell takes the List reading, its instances in place
-/// of the head. Any other cell keeps the head, which names the computation
-/// cell or is reported as naming none.
+/// instance, and `job: [.., Job { payload: p }]` both as a list's elements
+/// and as a back instance; the macro carries the head or the elements with
+/// the List reading beside them, and a `*` collection cell takes the List
+/// reading, its instances in place of the head or the elements. Any other
+/// cell keeps the reading the macro took, which names the computation cell,
+/// a list cell, or is reported as naming neither.
 fn readable_bracket_reading(
     mut rule: krs_ir::HostHeadRule,
     targets: &[HeadRuleTarget],
@@ -819,8 +821,17 @@ fn readable_bracket_reading(
     if let [candidate] = named.as_slice()
         && candidate.collection
     {
-        rule.head = None;
-        rule.computation_cell_name = None;
+        if rule.computation_cell_name.as_ref() == Some(&cell.name) {
+            rule.head = None;
+            rule.computation_cell_name = None;
+        }
+        rule.extras.retain(|extra| {
+            !matches!(
+                extra,
+                krs_ir::ProtocolHeadRuleExtra::RewriteList { cell: list, .. }
+                    if list.name == cell.name
+            )
+        });
         rule.bindings = alternative.bindings;
         rule.extras.push(alternative.extra);
     }
@@ -829,7 +840,7 @@ fn readable_bracket_reading(
 
 /// Gives a readable record's sequence values the readings their cells'
 /// declared types give (F6). `[a, b, ..] => [c, ..]` reads alike as the
-/// computation cell's items and as a cons list's elements, and only the
+/// computation cell's items and as a list's elements, and only the
 /// configuration says which cell is which: the macro reads one such value
 /// as the head, a cell named `k` if there is one, and the others as list
 /// cells. The computation cell is the configuration's one `KCell` leaf, so a
@@ -907,6 +918,7 @@ fn readable_list_reading(
             let empty = || krs_ir::ProtocolHeadRuleList {
                 items: Vec::new(),
                 rest: krs_ir::ProtocolHeadRuleListRest::Exact,
+                back: Vec::new(),
             };
             *extra = krs_ir::ProtocolHeadRuleExtra::RewriteList {
                 cell,
@@ -967,6 +979,7 @@ fn head_list(
             krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
         },
         rest: rest(),
+        back: Vec::new(),
     });
     krs_ir::ProtocolHeadRuleExtra::RewriteList {
         cell: krs_ir::HostHeadRuleCellReference {
@@ -977,14 +990,15 @@ fn head_list(
         before: krs_ir::ProtocolHeadRuleList {
             items: head.items,
             rest: rest(),
+            back: Vec::new(),
         },
         after,
     }
 }
 
 /// The head reading of a list read on the computation cell `cell`, whose
-/// rest is anonymous: K's sequence is matched from its front and its rest
-/// kept by `..`, never named.
+/// rest is anonymous and last: K's sequence is matched from its front, the
+/// next step first, and its rest kept by `..`, never named.
 fn list_head(
     cell: &krs_ir::HostHeadRuleCellReference,
     before: krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>,
@@ -994,12 +1008,25 @@ fn list_head(
         CollectionError::new(
             CollectionErrorKind::InvalidConfiguration,
             format!(
-                "`{}` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a cons-list cell",
+                "`{}` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a list cell",
                 cell.name
             ),
         )
         .with_reference_key(cell.key.clone())
     };
+    let back = || {
+        CollectionError::new(
+            CollectionErrorKind::InvalidConfiguration,
+            format!(
+                "`..` may only end the computation cell `{}`'s items: it is matched from its front, the next step first, so name the items before the rest",
+                cell.name
+            ),
+        )
+        .with_reference_key(cell.key.clone())
+    };
+    if !before.back.is_empty() || after.as_ref().is_some_and(|after| !after.back.is_empty()) {
+        return Err(back());
+    }
     let exact = match before.rest {
         krs_ir::ProtocolHeadRuleListRest::Exact => true,
         krs_ir::ProtocolHeadRuleListRest::Shared => false,

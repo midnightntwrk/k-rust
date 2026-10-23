@@ -126,12 +126,15 @@ impl VisitMut for Denote<'_> {
                 path.segments.extend(head.path.segments.iter().cloned());
                 head.path = path;
             }
-            // One bracket level leaves the remaining brackets as its tail,
-            // whose elements are already denoted.
-            if matches!(expression, Expr::Array(_))
-                && let Some(tail) = call.args.iter_mut().nth(1)
-            {
-                self.visit_expr_mut(tail);
+            // One bracket level leaves the remaining brackets as one
+            // operand, the tail of a cons or the init of a snoc, whose
+            // elements are already denoted.
+            if matches!(expression, Expr::Array(_)) {
+                for remaining in &mut call.args {
+                    if matches!(remaining, Expr::Array(_)) {
+                        self.visit_expr_mut(remaining);
+                    }
+                }
             }
             *expression = Expr::Call(call);
         }
@@ -154,7 +157,7 @@ pub(crate) fn denoted_call(expression: &Expr) -> Result<Option<ExprCall>, Syntax
             .map(|operator| unary_call(unary, operator))
             .transpose(),
         Expr::MethodCall(call) => method_call(call).map(Some),
-        // `[a, ..rest]` is a cons-list constructor (F6).
+        // `[a, ..rest]` is one level of list notation.
         Expr::Array(array) => crate::list_notation::result_level(array).map(Some),
         _ => Ok(None),
     }

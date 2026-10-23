@@ -1,28 +1,37 @@
-//! Bracket list notation over cons lists (F6).
+//! Bracket list notation over cons lists (F6) and K's builtin `List`.
 //!
 //! A cons list is a sort with one empty constructor and one cons constructor
 //! whose second field is the list itself: a `#[k::syntax_list]` sort, or the
 //! sort of a `#[k::cons_list]` constructors enum. In a term, `[]` denotes its
 //! empty constructor and each level `[head, ..tail]` its cons constructor, so
 //! the notation means exactly the nested constructor term an author would
-//! otherwise write. The brackets do not say which list they build; the
-//! position does: a constructor field, a cell, or a function argument has a
-//! declared sort, and that sort is the list. Inference and lowering therefore
-//! replace each level by the constructor of the cons list the position
-//! expects, and every later phase (emission, coverage, overlap) sees that
-//! constructor. A position whose expected sort is unknown or not a cons list
-//! has no constructor the brackets could denote, and is an error rather than
-//! a guess. K's builtin `List` is no cons list, but it has an empty list:
-//! `[]` at a `List` position is `.List`, so `[]` is the empty list of every
-//! list sort, while brackets holding elements build cons lists only.
+//! otherwise write. A cons list is built from its front, so a level taken
+//! from the back, `[..init, last]`, has no constructor to denote.
+//!
+//! K's builtin `List` is the other list sort. Its concatenation `_List_` is
+//! associative and total with unit `.List`, so elements and at most one list
+//! term in a row have one meaning however they nest: at a `List` position,
+//! `[a, ..mid, z]` is `ListItem(a) mid ListItem(z)`, the list whose first
+//! element is `a`, whose last is `z`, and whose middle is `mid`. The brackets
+//! name that `list::item`/`list::concat` term and nothing more: `[a, b]` is
+//! `ListItem(a) ListItem(b)`, since a trailing `.List` adds nothing to a
+//! concatenation, and `[]` is `.List`.
+//!
+//! The brackets do not say which list they build; the position does: a
+//! constructor field, a cell, or a function argument has a declared sort,
+//! and that sort is the list. Inference and lowering therefore replace each
+//! level by the terms of the list the position expects, and every later
+//! phase (emission, coverage, overlap) sees those terms. A position whose
+//! expected sort is unknown or no list has nothing the brackets could
+//! denote, and is an error rather than a guess.
 
 use std::collections::BTreeMap;
 
 use krs_ir::{
-    ApplicationRef, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorCellReference, DescriptorPayload, DescriptorProductionAttribute,
-    DescriptorProductionItem, GrammarDescriptor, ListNotation, ListOperation,
-    ProtocolHeadRuleListRest, ProvenanceKey, SemanticId, StableItemId,
+    ApplicationRef, CollectionOperandSort, Descriptor, DescriptorApplicationRef,
+    DescriptorApplicationReference, DescriptorCellReference, DescriptorPayload,
+    DescriptorProductionAttribute, DescriptorProductionItem, GrammarDescriptor, ListNotation,
+    ListOperation, NodeOrigin, ProtocolHeadRuleListRest, ProvenanceKey, SemanticId, StableItemId,
 };
 use krs_ir_levels::{ListOperands, SemanticSortRef, SemanticTerm, SemanticVariable};
 
@@ -35,8 +44,8 @@ use super::overload::sort_name;
 /// One side of a readable record's list cell (F6).
 type DescriptorHeadRuleList = krs_ir::ProtocolHeadRuleList<krs_ir::DescriptorTerm>;
 
-/// The constructors of one cons-list sort, or of the builtin `List`, whose
-/// only bracket is `[]`.
+/// The constructors of one cons-list sort, or of the builtin `List`, which
+/// is built with `list::item` and `list::concat`.
 pub(super) struct ConsListConstructors {
     /// The two-field constructor `Cons(head, tail)`; `None` for the builtin
     /// `List`, which is built with `list::item` and `list::concat`.
@@ -44,8 +53,80 @@ pub(super) struct ConsListConstructors {
     /// The zero-field constructor; `None` for the builtin `List`, whose
     /// empty list is `.List`.
     pub(super) empty: Option<StableItemId>,
-    /// The sort of the cons constructor's first field, the list's elements.
+    /// The sort of the cons constructor's first field, the list's elements;
+    /// the builtin `List` itself for the builtin `List`, whose elements'
+    /// sort only a typed collection declares.
     pub(super) element: SemanticSortRef,
+}
+
+/// A bracket list at the builtin `List`, flattened: the elements before its
+/// rest, each with the key of its level, the rest, and the elements after
+/// it. A closed list has no rest and no back.
+struct BuiltinList<'t> {
+    front: Vec<(ProvenanceKey, &'t krs_ir::DescriptorTerm)>,
+    rest: Option<&'t krs_ir::DescriptorTerm>,
+    back: Vec<(ProvenanceKey, &'t krs_ir::DescriptorTerm)>,
+}
+
+/// One element of a lowered builtin list: the `list::item` it is wrapped in
+/// and the `list::concat` that joins it to its neighbors share its level's
+/// key, under these origins.
+struct BuiltinElement {
+    item: NodeOrigin,
+    concat: NodeOrigin,
+    element: SemanticTerm,
+}
+
+const BUILTIN_LIST: SemanticSortRef = SemanticSortRef::Builtin(krs_ir::BuiltinSort::List);
+
+/// Whether a position expects K's builtin `List`, where brackets are
+/// `list::item`/`list::concat` terms.
+pub(super) fn is_builtin_list(expected_sort: Option<&SemanticSortRef>) -> bool {
+    expected_sort == Some(&BUILTIN_LIST)
+}
+
+/// The builtin `List` term of `front`, `rest`, and `back`, nested as an
+/// author writes it: each front element's `list::item` joined to the rest of
+/// the list, `list::concat(list::item(a), ..)`, and each back element's
+/// appended to the list before it, `list::concat(.., list::item(z))`. The
+/// last front element of a closed list is its `list::item` alone.
+fn builtin_list_term(
+    front: Vec<BuiltinElement>,
+    rest: Option<SemanticTerm>,
+    back: Vec<BuiltinElement>,
+    empty: NodeOrigin,
+) -> SemanticTerm {
+    let item = |element: BuiltinElement| {
+        (
+            SemanticTerm::list(
+                element.item,
+                BUILTIN_LIST,
+                ListOperands::Item {
+                    element: element.element,
+                },
+            ),
+            element.concat,
+        )
+    };
+    let concat = |origin, left, right| {
+        SemanticTerm::list(origin, BUILTIN_LIST, ListOperands::Concat { left, right })
+    };
+    let mut list = rest;
+    for element in back {
+        let (item, origin) = item(element);
+        list = Some(match list {
+            Some(init) => concat(origin, init, item),
+            None => item,
+        });
+    }
+    for element in front.into_iter().rev() {
+        let (item, origin) = item(element);
+        list = Some(match list {
+            Some(tail) => concat(origin, item, tail),
+            None => item,
+        });
+    }
+    list.unwrap_or_else(|| SemanticTerm::list(empty, BUILTIN_LIST, ListOperands::Empty))
 }
 
 /// One level of a bracket list's spine (see `list_spine`).
@@ -68,8 +149,8 @@ struct ListSpine<'t> {
     tail_sort: SemanticSortRef,
 }
 
-/// Why brackets holding elements denote nothing at the builtin `List`.
-const BUILTIN_LIST_ELEMENTS: &str = "brackets holding elements build a cons list, but this position has the builtin sort `List`, whose only bracket is the empty list `[]`: build its elements with `list::item(..)` and `list::concat(..)`";
+/// Why a cons list has no level taken from its back.
+const CONS_LIST_BACK: &str = "a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest";
 
 impl StructuredTermBuilder<'_> {
     /// The constructors of `sort` when it is a cons list.
@@ -112,24 +193,27 @@ impl StructuredTermBuilder<'_> {
         let Some(expected) = expected_sort else {
             return Err(self.invalid_list_notation(
                 &reference.key,
-                "list notation builds a cons list, but nothing gives this position a sort, so the brackets name no list; use them where a constructor field, a cell, a function parameter, or a result declares a cons-list sort".to_owned(),
+                "list notation builds a list, but nothing gives this position a sort, so the brackets name no list; use them where a constructor field, a cell, a function parameter, or a result declares the builtin `List` or a cons-list sort".to_owned(),
             ));
         };
         let Some(list) = self.cons_list_of(expected) else {
             return Err(self.invalid_list_notation(
                 &reference.key,
                 format!(
-                    "list notation builds a cons list, but this position has sort `{}`, which is not one: a cons list is a `#[k::syntax_list]` sort or the sort of a `#[k::cons_list]` constructors enum",
+                    "list notation builds a list, but this position has sort `{}`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",
                     sort_name(expected)
                 ),
             ));
         };
         let application = match (notation, list.cons, list.empty) {
             (ListNotation::Cons, Some(cons), _) => DescriptorApplicationRef::Declared(cons),
-            (ListNotation::Cons, None, _) => {
-                return Err(
-                    self.invalid_list_notation(&reference.key, BUILTIN_LIST_ELEMENTS.to_owned())
-                );
+            (ListNotation::Snoc, Some(_), _) => {
+                return Err(self.invalid_list_notation(&reference.key, CONS_LIST_BACK.to_owned()));
+            }
+            (ListNotation::Cons | ListNotation::Snoc, None, _) => {
+                return Err(self.invalid_term(
+                    "a bracket level at the builtin `List` is lowered as one list, never alone",
+                ));
             }
             (ListNotation::Empty, _, Some(empty)) => DescriptorApplicationRef::Declared(empty),
             (ListNotation::Empty, _, None) => DescriptorApplicationRef::List(ListOperation::Empty),
@@ -153,6 +237,11 @@ impl StructuredTermBuilder<'_> {
         arguments: &'t krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
     ) -> Result<ListSpine<'t>, DescriptorLoweringError> {
+        if reference.application == DescriptorApplicationRef::ListNotation(ListNotation::Snoc) {
+            // A level taken from the back denotes nothing at a cons list.
+            self.list_constructor(reference, ListNotation::Snoc, expected_sort)?;
+            return Err(self.invalid_term("a cons list has no level taken from its back"));
+        }
         let mut levels = Vec::new();
         let mut reference = reference.clone();
         let mut arguments = arguments;
@@ -223,6 +312,18 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
+        if is_builtin_list(expected_sort) {
+            let list = self.builtin_list(reference, arguments)?;
+            for (_, element) in list.front.iter().chain(&list.back) {
+                let expected =
+                    self.collection_operand_expected(element, CollectionOperandSort::Element)?;
+                self.infer(element, expected.as_ref(), subject)?;
+            }
+            if let Some(rest) = list.rest {
+                self.infer(rest, Some(&BUILTIN_LIST), subject)?;
+            }
+            return Ok(());
+        }
         let spine = self.list_spine(reference, arguments, expected_sort)?;
         for level in &spine.levels {
             self.infer(level.head, Some(&level.element), subject)?;
@@ -240,6 +341,9 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if is_builtin_list(expected_sort) {
+            return self.lower_builtin_list(reference, arguments, subject);
+        }
         let spine = self.list_spine(reference, arguments, expected_sort)?;
         let heads = spine
             .levels
@@ -259,6 +363,139 @@ impl StructuredTermBuilder<'_> {
             );
         }
         Ok(list)
+    }
+
+    /// A bracket list at the builtin `List`, flattened ([`BuiltinList`]):
+    /// its `cons` levels give the front elements, front first, its `snoc`
+    /// levels the back elements, and the term the innermost level holds is
+    /// its rest; the empty list ends a closed list. The levels are walked in
+    /// a loop, so a list's length does not drive the stack depth.
+    fn builtin_list<'t>(
+        &self,
+        reference: &DescriptorApplicationReference,
+        arguments: &'t krs_ir::Arguments<krs_ir::DescriptorStage>,
+    ) -> Result<BuiltinList<'t>, DescriptorLoweringError> {
+        /// The level a term is, when it is one.
+        fn level(
+            term: &krs_ir::DescriptorTerm,
+        ) -> Option<(
+            &DescriptorApplicationReference,
+            ListNotation,
+            &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        )> {
+            match term {
+                krs_ir::DescriptorTerm::Application {
+                    reference,
+                    arguments,
+                    instance,
+                    update: None,
+                    ..
+                } if instance.is_empty() => match reference.application {
+                    DescriptorApplicationRef::ListNotation(notation) => {
+                        Some((reference, notation, arguments))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        let operands = |arguments: &'t krs_ir::Arguments<krs_ir::DescriptorStage>| match arguments {
+            krs_ir::Arguments::Positional(values) => match values.as_slice() {
+                [first, second] => Ok((first.as_ref(), second.as_ref())),
+                _ => Err(self.invalid_term("a list notation level has two operands")),
+            },
+            krs_ir::Arguments::Named(_) => {
+                Err(self.invalid_term("a list notation level has two operands"))
+            }
+        };
+        let mut list = BuiltinList {
+            front: Vec::new(),
+            rest: None,
+            back: Vec::new(),
+        };
+        let mut key = reference.key.clone();
+        let DescriptorApplicationRef::ListNotation(mut notation) = reference.application else {
+            return Err(self.invalid_term("a builtin list starts at a list notation level"));
+        };
+        let mut arguments = arguments;
+        loop {
+            let (first, second) = operands(arguments)?;
+            let next = match notation {
+                ListNotation::Cons => {
+                    list.front.push((key, first));
+                    match level(second) {
+                        Some((_, ListNotation::Empty, _)) => break,
+                        Some(next) => next,
+                        None => {
+                            list.rest = Some(second);
+                            break;
+                        }
+                    }
+                }
+                ListNotation::Snoc => {
+                    list.back.push((key, second));
+                    if let Some(next @ (_, ListNotation::Snoc, _)) = level(first) {
+                        next
+                    } else {
+                        list.rest = Some(first);
+                        break;
+                    }
+                }
+                ListNotation::Empty => {
+                    return Err(self.invalid_term("the empty list is no level of a list"));
+                }
+            };
+            key = next.0.key.clone();
+            notation = next.1;
+            arguments = next.2;
+        }
+        list.back.reverse();
+        Ok(list)
+    }
+
+    /// Lowers a bracket list at the builtin `List` to the
+    /// `list::item`/`list::concat` term it denotes ([`builtin_list_term`]),
+    /// lowering the front elements, the rest, and the back elements in the
+    /// order they are written.
+    fn lower_builtin_list(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let list = self.builtin_list(reference, arguments)?;
+        let front = self.lower_builtin_elements(&list.front, subject)?;
+        let rest = list
+            .rest
+            .map(|rest| self.lower(rest, Some(&BUILTIN_LIST), subject))
+            .transpose()?;
+        let back = self.lower_builtin_elements(&list.back, subject)?;
+        let empty = semantic_origin(
+            self.descriptor,
+            reference.key.clone(),
+            "list-notation-empty",
+        )?;
+        Ok(builtin_list_term(front, rest, back, empty))
+    }
+
+    /// Lowers the elements of a builtin list, each at the element sort its
+    /// typed collection declares, if any, with the origins of its level.
+    fn lower_builtin_elements(
+        &mut self,
+        elements: &[(ProvenanceKey, &krs_ir::DescriptorTerm)],
+        subject: bool,
+    ) -> Result<Vec<BuiltinElement>, DescriptorLoweringError> {
+        elements
+            .iter()
+            .map(|(key, element)| {
+                let expected = self.collection_element_sort(element);
+                Ok(BuiltinElement {
+                    item: semantic_origin(self.descriptor, key.clone(), "list-notation-item")?,
+                    concat: semantic_origin(self.descriptor, key.clone(), "list-notation-concat")?,
+                    element: self.lower(element, expected.as_ref(), subject)?,
+                })
+            })
+            .collect()
     }
 
     pub(super) fn invalid_list_notation(
@@ -374,14 +611,14 @@ pub(super) fn check_cons_lists(
 }
 
 impl StructuredTermBuilder<'_> {
-    /// The cons list a readable record's list cell holds: `stack: [a, ..]`
-    /// reads the cell `stack` as list elements, so its declared sort, `sort`,
-    /// must be a cons list.
+    /// The list a readable record's list cell holds: `stack: [a, ..]` reads
+    /// the cell `stack` as list elements, so its declared sort, `sort`, must
+    /// be the builtin `List` or a cons list.
     ///
     /// # Errors
     ///
     /// Returns [`DescriptorLoweringError::InvalidListNotation`] at the cell
-    /// when it is not a leaf of a cons-list sort.
+    /// when it is not a leaf of a list sort.
     pub(super) fn list_cell(
         &self,
         cell: &DescriptorCellReference,
@@ -395,7 +632,7 @@ impl StructuredTermBuilder<'_> {
             self.invalid_list_notation(
                 &cell.key,
                 format!(
-                    "the cell `{}` holds {held}, which is not a cons list: a bracketed cell value is the computation cell's items, a List collection's instances, or the elements of a cell whose sort is a `#[k::syntax_list]` sort or a `#[k::cons_list]` enum's",
+                    "the cell `{}` holds {held}, which is not a list: a bracketed cell value is the computation cell's items, a List collection's instances, or the elements of a cell whose sort is the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's",
                     cell.cell.field
                 ),
             )
@@ -403,7 +640,9 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// Infers one side of a list cell: its elements at the list's element
-    /// sort and a named rest at the list's sort.
+    /// sort (at the builtin `List`, the sort its typed collection declares,
+    /// if any) and a named rest at the list's sort. A cons list has no
+    /// elements after its rest.
     pub(super) fn infer_list(
         &mut self,
         list: &DescriptorHeadRuleList,
@@ -412,16 +651,26 @@ impl StructuredTermBuilder<'_> {
         cell: &DescriptorCellReference,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        if constructors.cons.is_none()
-            && (!list.items.is_empty() || list.rest != ProtocolHeadRuleListRest::Exact)
-        {
-            return Err(self.invalid_list_notation(&cell.key, BUILTIN_LIST_ELEMENTS.to_owned()));
+        if constructors.cons.is_some() && !list.back.is_empty() {
+            return Err(self.invalid_list_notation(&cell.key, CONS_LIST_BACK.to_owned()));
         }
+        let element = |builder: &mut Self, item: &krs_ir::DescriptorTerm| {
+            if constructors.cons.is_some() {
+                Ok(Some(constructors.element.clone()))
+            } else {
+                builder.collection_operand_expected(item, CollectionOperandSort::Element)
+            }
+        };
         for item in &list.items {
-            self.infer(item, Some(&constructors.element), subject)?;
+            let expected = element(self, item)?;
+            self.infer(item, expected.as_ref(), subject)?;
         }
         if let ProtocolHeadRuleListRest::Term(rest) = &list.rest {
             self.infer(rest, Some(sort), subject)?;
+        }
+        for item in &list.back {
+            let expected = element(self, item)?;
+            self.infer(item, expected.as_ref(), subject)?;
         }
         Ok(())
     }
@@ -447,10 +696,13 @@ impl StructuredTermBuilder<'_> {
         Ok(id)
     }
 
-    /// Lowers one side of a list cell to the constructor term it denotes:
-    /// each element consed, front last, onto the rest, which is the empty
-    /// list, the shared rest variable, or the named rest. `side` names the
-    /// side in the generated nodes' origins, which share the cell's key.
+    /// Lowers one side of a list cell to the term it denotes. For a cons
+    /// list, each element consed, front last, onto the rest, which is the
+    /// empty list, the shared rest variable, or the named rest; for the
+    /// builtin `List`, the `list::item`/`list::concat` term of the front
+    /// elements, the rest, and the back elements ([`builtin_list_term`]).
+    /// `side` names the side in the generated nodes' origins, which share
+    /// the cell's key.
     pub(super) fn lower_list(
         &mut self,
         list: &DescriptorHeadRuleList,
@@ -461,6 +713,9 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let descriptor = self.descriptor;
+        let Some(cons) = &constructors.cons else {
+            return self.lower_builtin_list_cell(list, cell, side, subject);
+        };
         let items = list
             .items
             .iter()
@@ -487,13 +742,6 @@ impl StructuredTermBuilder<'_> {
             ),
             ProtocolHeadRuleListRest::Term(rest) => self.lower(rest, Some(sort), subject)?,
         };
-        let cons = match &constructors.cons {
-            Some(cons) => cons,
-            None if items.is_empty() => return Ok(list_term),
-            None => {
-                return Err(self.invalid_list_notation(&cell.key, BUILTIN_LIST_ELEMENTS.to_owned()));
-            }
-        };
         for (index, item) in items.into_iter().enumerate().rev() {
             list_term = SemanticTerm::application(
                 semantic_origin(
@@ -507,5 +755,53 @@ impl StructuredTermBuilder<'_> {
             );
         }
         Ok(list_term)
+    }
+
+    /// Lowers one side of a builtin `List` cell, its elements at the sort
+    /// its typed collection declares, if any.
+    fn lower_builtin_list_cell(
+        &mut self,
+        list: &DescriptorHeadRuleList,
+        cell: &DescriptorCellReference,
+        side: &str,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let descriptor = self.descriptor;
+        let elements = |builder: &mut Self, items: &[krs_ir::DescriptorTerm], part: &str| {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let expected = builder.collection_element_sort(item);
+                    let origin = |role: &str| {
+                        semantic_origin(
+                            descriptor,
+                            cell.key.clone(),
+                            &format!("list-{role}-{side}-{part}{index}"),
+                        )
+                    };
+                    Ok(BuiltinElement {
+                        item: origin("item")?,
+                        concat: origin("concat")?,
+                        element: builder.lower(item, expected.as_ref(), subject)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, DescriptorLoweringError>>()
+        };
+        let front = elements(self, &list.items, "")?;
+        let rest = match &list.rest {
+            ProtocolHeadRuleListRest::Exact => None,
+            ProtocolHeadRuleListRest::Shared => Some(SemanticTerm::variable(
+                semantic_origin(descriptor, cell.key.clone(), &format!("list-rest-{side}"))?,
+                BUILTIN_LIST,
+                self.shared_list_rest(cell, &BUILTIN_LIST)?,
+            )),
+            ProtocolHeadRuleListRest::Term(rest) => {
+                Some(self.lower(rest, Some(&BUILTIN_LIST), subject)?)
+            }
+        };
+        let back = elements(self, &list.back, "back-")?;
+        let empty = semantic_origin(descriptor, cell.key.clone(), &format!("list-empty-{side}"))?;
+        Ok(builtin_list_term(front, rest, back, empty))
     }
 }

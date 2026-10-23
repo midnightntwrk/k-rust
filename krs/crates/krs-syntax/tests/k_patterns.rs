@@ -80,17 +80,28 @@ fn a_binder_repeated_across_items_is_one_nonlinear_binding() {
     assert_eq!(block.clauses()[0].bindings(), ["n"]);
 }
 
+/// `k: [.., x]` and `k: [x, .., y]` read as list elements, which a `List`
+/// cell may hold; the collector, which knows `k` is the computation cell,
+/// rejects an element after its rest.
+#[test]
+fn a_k_value_with_a_back_reads_as_list_elements() {
+    for source in [
+        "a: { k: [.., x] } => { k: [..] };",
+        "a: { k: [x, .., y] } => { k: [..] };",
+    ] {
+        let block = block(source);
+        let clause = &block.clauses()[0];
+        assert!(clause.computation_cell().is_none(), "{source}");
+        assert!(
+            matches!(clause.extras(), [krs_syntax::RuleExtra::RewriteList { before, .. }] if before.back().len() == 1),
+            "{source}"
+        );
+    }
+}
+
 #[test]
 fn unsupported_shapes_are_rejected_with_their_reason() {
     for (clause, reason) in [
-        (
-            "a: { k: [.., x] } => { k: [..] };",
-            "`..` may only end a k pattern",
-        ),
-        (
-            "a: { k: [x, .., y] } => { k: [..] };",
-            "`..` may only end a k pattern",
-        ),
         (
             "a: { k: [..], acc: 0 } => { k: [Op::Boundary, ..] };",
             "`[..]` matches any computation",

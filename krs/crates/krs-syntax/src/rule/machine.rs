@@ -35,12 +35,12 @@ enum MachinePatternCell {
     },
     /// `Some(p)`, `None`, or an instance list (KF-023).
     State(Box<StateTerm>),
-    /// A cons list's `[p1, .., pn]`, `[p1, .., pn, ..]`, or
-    /// `[p1, .., pn, rest @ ..]` (F6).
+    /// A list's `[p1, .., pn]` or `[p1, .., pi, .., pn]` with the rest `..`
+    /// or `rest @ ..` (F6).
     List(Box<ListPattern>),
     /// A bracketed value: the computation cell's `[head, ..]`, a List
-    /// collection's instances (KF-023), or a cons list's elements (F6),
-    /// read once the clause is assembled.
+    /// collection's instances (KF-023), or a list's elements (F6), read once
+    /// the clause is assembled.
     Bracket(proc_macro2::Group),
 }
 
@@ -52,26 +52,28 @@ enum MachineResultCell {
     Term(Box<Expr>),
     /// `Some(e)`, `None`, or an instance list (KF-023).
     State(Box<StateTerm>),
-    /// A cons list's `[e1, .., en]`, `[e1, .., en, ..]`, or
-    /// `[e1, .., en, ..t]` (F6).
+    /// A list's `[e1, .., en]` or `[e1, .., ei, .., en]` with the rest `..`
+    /// or `..t` (F6).
     List(Box<ListResult>),
     /// A bracketed value, read like the subject's.
     Bracket(proc_macro2::Group),
 }
 
-/// A cons-list cell's matched list, as parsed (F6): the elements, front
-/// first, and the rest.
+/// A list cell's matched list, as parsed (F6): the elements before the
+/// rest, front first, the rest, and the elements after it.
 #[derive(Clone)]
 struct ListPattern {
     items: Vec<(Pat, NegativeLiteralSpans)>,
     rest: RuleListRest<Ident>,
+    back: Vec<(Pat, NegativeLiteralSpans)>,
 }
 
-/// A cons-list cell's rewritten list, as parsed (F6).
+/// A list cell's rewritten list, as parsed (F6).
 #[derive(Clone)]
 struct ListResult {
     items: Vec<Expr>,
     rest: RuleListRest<Expr>,
+    back: Vec<Expr>,
 }
 
 /// A computation-cell pattern: its items, front first, and whether it names
@@ -812,11 +814,11 @@ struct MachineClause<'a> {
 
 /// The readings a bracketed subject value admits with its result: the
 /// computation cell's `[head, ..] => [items.., ..]`, a List collection's
-/// instances, and a cons list's elements (F6).
+/// instances, and a list's elements (F6).
 struct BracketReadings {
     computation: bool,
     collection: bool,
-    cons: bool,
+    elements: bool,
 }
 
 impl BracketReadings {
@@ -836,9 +838,9 @@ impl BracketReadings {
                 }
                 Some(_) => false,
             };
-        // A cons list's result may also be one term, the whole new list;
-        // the anonymous `..` is one rest, on both sides or neither.
-        let cons = list_pattern(group).is_ok_and(|pattern| match result {
+        // A list's result may also be one term, the whole new list; the
+        // anonymous `..` is one rest, on both sides or neither.
+        let elements = list_pattern(group).is_ok_and(|pattern| match result {
             None => true,
             Some(MachineResultCell::Term(_)) => !pattern.rest.is_shared(),
             Some(MachineResultCell::Bracket(result)) => list_result(result)
@@ -848,7 +850,7 @@ impl BracketReadings {
         Self {
             computation,
             collection,
-            cons,
+            elements,
         }
     }
 }
@@ -861,9 +863,13 @@ impl BracketReadings {
 /// with the cell as the computation cell when no other cell is, and carries
 /// its List reading beside it. Values that read as heads but not as
 /// instances read as one computation cell, a cell named `k` if there is
-/// one, and every other one as a cons list: the collector, which knows which
+/// one, and every other one as a list: the collector, which knows which
 /// cell is the computation cell, moves the head to it, so the choice here
-/// only keeps the reading of a clause that names one computation cell.
+/// only keeps the reading of a clause that names one computation cell. A
+/// value that reads as a list's elements and as instances, such as
+/// `job: [.., Job { payload: p }]`, and is not read as the computation cell,
+/// is read as elements and carries its List reading beside it, when no head
+/// carries one.
 fn read_machine_clause(
     clause: &MachineClause<'_>,
     subject_cells: &[(Ident, MachinePatternCell)],
@@ -873,6 +879,7 @@ fn read_machine_clause(
     let mut ambiguous = Vec::new();
     let mut unreadable = Vec::new();
     let mut lists = Vec::new();
+    let mut elements_or_instances = Vec::new();
     for (cell, pattern) in subject_cells {
         let MachinePatternCell::Bracket(group) = pattern else {
             continue;
@@ -886,47 +893,73 @@ fn read_machine_clause(
             (true, false) => definite.push(cell),
             (true, true) => ambiguous.push(cell),
             (false, true) => {}
-            (false, false) if readings.cons => {}
+            (false, false) if readings.elements => {}
             (false, false) => unreadable.push((cell, group)),
         }
-        // Any value but instances that is not read as the computation cell
-        // is read as a cons list's elements, or reports why it is none.
-        if !readings.collection
-            && (readings.cons || readings.computation || !readable_bracket_is_list(group))
+        if readings.collection && readings.elements {
+            elements_or_instances.push(cell.clone());
+        }
+        // Any value but instances only that is not read as the computation
+        // cell is read as a list's elements, or reports why it is none.
+        if (!readings.collection || readings.elements)
+            && (readings.elements || readings.computation || !readable_bracket_is_list(group))
         {
             lists.push(cell.clone());
         }
     }
-    let read = |computation: Option<&Ident>| {
-        let (subject, result) = read_brackets(subject_cells, result_cells, computation, &lists)?;
+    let read = |computation: Option<&Ident>, lists: &[Ident]| {
+        let (subject, result) = read_brackets(subject_cells, result_cells, computation, lists)?;
         assemble_machine_clause(clause, &subject, &result)
+    };
+    let without = |cell: &Ident| {
+        lists
+            .iter()
+            .filter(|list| list.unraw() != cell.unraw())
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    // A value read as elements that also reads as instances carries that
+    // reading beside it, when no head carries one.
+    let with_instances = |mut primary: RuleClause, computation: Option<&Ident>| {
+        let elements = elements_or_instances
+            .iter()
+            .find(|cell| computation.is_none_or(|computation| computation.unraw() != cell.unraw()));
+        if primary.bracket_alternative.is_none()
+            && let Some(cell) = elements
+            && let Ok(instances) = read(computation, &without(cell))
+        {
+            primary.bracket_alternative = BracketAlternative::from_list_reading(instances, cell);
+        }
+        primary
     };
     let named_k = definite.iter().find(|cell| cell.unraw() == "k");
     if let Some(cell) = named_k.or(definite.first()) {
-        return match read(Some(cell)) {
-            Ok(clause) => Ok(clause),
+        return match read(Some(cell), &lists) {
+            Ok(primary) => Ok(with_instances(primary, Some(cell))),
             // A head the rule subject cannot take, such as a cons list's
             // `[top @ Pair(a, b), ..]`, may still read as list elements.
-            Err(error) => read(None).map_err(|_| error),
+            Err(error) => read(None, &lists)
+                .map(|primary| with_instances(primary, None))
+                .map_err(|_| error),
         };
     }
     let Some(cell) = ambiguous.first() else {
         // A value that reads no way reports the error of the reading its
         // shape suggests: instances report the collection's, a cell named
-        // `k` the computation cell's, and any other value the cons list's.
+        // `k` the computation cell's, and any other value the list's.
         let computation = unreadable
             .iter()
             .find(|(cell, group)| cell.unraw() == "k" && !readable_bracket_is_list(group))
             .map(|(cell, _)| *cell);
-        return read(computation);
+        return read(computation, &lists).map(|primary| with_instances(primary, computation));
     };
-    match (read(Some(cell)), read(None)) {
+    match (read(Some(cell), &lists), read(None, &without(cell))) {
         (Ok(mut computation), Ok(list)) => {
             computation.bracket_alternative = BracketAlternative::from_list_reading(list, cell);
-            Ok(computation)
+            Ok(with_instances(computation, Some(cell)))
         }
-        (Ok(computation), Err(_)) => Ok(computation),
-        (Err(_), Ok(list)) => Ok(list),
+        (Ok(computation), Err(_)) => Ok(with_instances(computation, Some(cell))),
+        (Err(_), Ok(list)) => Ok(with_instances(list, None)),
         (Err(error), Err(_)) => Err(error),
     }
 }
@@ -938,8 +971,8 @@ type MachineCells = (
 );
 
 /// Reads every bracketed value: `computation`'s as the computation cell's
-/// `[head, ..]`, each of `lists` as a cons list's elements (F6), and every
-/// other one as a List collection's instances.
+/// `[head, ..]`, each of `lists` as a list's elements (F6), and every other
+/// one as a List collection's instances.
 fn read_brackets(
     subject_cells: &[(Ident, MachinePatternCell)],
     result_cells: &[(Ident, MachineResultCell)],
@@ -954,12 +987,12 @@ fn read_brackets(
                 && matches!(pattern, MachinePatternCell::Bracket(_))
         })
     };
-    let is_cons = |cell: &Ident| {
+    let is_elements = |cell: &Ident| {
         !is_computation(cell)
             && bracketed(cell)
             && lists.iter().any(|list| list.unraw() == cell.unraw())
     };
-    let is_list = |cell: &Ident| !is_computation(cell) && !is_cons(cell) && bracketed(cell);
+    let is_list = |cell: &Ident| !is_computation(cell) && !is_elements(cell) && bracketed(cell);
     let matched_by_term = |cell: &Ident| {
         subject_cells.iter().any(|(subject_cell, pattern)| {
             subject_cell.unraw() == cell.unraw()
@@ -972,7 +1005,7 @@ fn read_brackets(
             MachinePatternCell::Bracket(group) if is_computation(cell) => {
                 MachinePatternCell::KItems(Box::new(bracket_prefix(group)?))
             }
-            MachinePatternCell::Bracket(group) if is_cons(cell) => {
+            MachinePatternCell::Bracket(group) if is_elements(cell) => {
                 MachinePatternCell::List(Box::new(list_pattern(group)?))
             }
             MachinePatternCell::Bracket(group) => MachinePatternCell::State(Box::new(
@@ -985,7 +1018,7 @@ fn read_brackets(
     let mut result = Vec::with_capacity(result_cells.len());
     for (cell, value) in result_cells {
         let value = match value {
-            MachineResultCell::Bracket(group) if is_cons(cell) => {
+            MachineResultCell::Bracket(group) if is_elements(cell) => {
                 MachineResultCell::List(Box::new(list_result(group)?))
             }
             MachineResultCell::Bracket(group) if is_list(cell) => {
@@ -995,7 +1028,7 @@ fn read_brackets(
                 )?)))
             }
             // A cell its subject matches with one term is written with
-            // one term, which brackets spell in list notation (F6).
+            // one term, which brackets spell in list notation.
             MachineResultCell::Bracket(group) if matched_by_term(cell) => {
                 MachineResultCell::Term(Box::new(syn::parse2::<Expr>(TokenStream::from(
                     TokenTree::Group(group.clone()),
@@ -1037,7 +1070,7 @@ fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
                 if !sequence.is_empty() {
                     return Err(syn::Error::new(
                         dots.spans[0],
-                        "`..` may only end a k pattern or a list: the computation cell is matched from its front, the next step first, and a cons list from its first element",
+                        "`..` may only end a k pattern: the computation cell is matched from its front, the next step first",
                     ));
                 }
                 if items.is_empty() {
@@ -1109,16 +1142,42 @@ fn list_error(reason: &str, span: proc_macro2::Span) -> ParseError {
     .into()
 }
 
-/// One entry of a bracketed cons-list value: an element or a rest.
+/// One entry of a bracketed list value: an element or a rest.
 enum ListEntry<T, R> {
     Item(T),
     Rest(proc_macro2::Span, Token![..], Option<R>),
 }
 
-/// Reads a bracketed subject value as a cons list's elements (F6):
-/// `[p1, .., pn]` (exactly those elements), `[p1, .., pn, ..]` (at least
-/// those, the rest kept), or `[p1, .., pn, rest @ ..]` (the rest named). A
-/// cons list is matched from its front, so a rest only ends the pattern.
+/// The elements of a bracketed list value before and after its one rest,
+/// and the rest; a second rest is an error.
+type ListParts<T, R> = (
+    Vec<T>,
+    Option<(proc_macro2::Span, Token![..], Option<R>)>,
+    Vec<T>,
+);
+
+fn list_parts<T, R>(entries: Vec<ListEntry<T, R>>) -> Result<ListParts<T, R>, ParseError> {
+    let mut front = Vec::new();
+    let mut rest = None;
+    let mut back = Vec::new();
+    for entry in entries {
+        match entry {
+            ListEntry::Item(item) if rest.is_some() => back.push(item),
+            ListEntry::Item(item) => front.push(item),
+            ListEntry::Rest(start, ..) if rest.is_some() => {
+                return Err(list_error(crate::list_notation::TWO_RESTS, start));
+            }
+            ListEntry::Rest(start, dots, name) => rest = Some((start, dots, name)),
+        }
+    }
+    Ok((front, rest, back))
+}
+
+/// Reads a bracketed subject value as a list's elements (F6): `[p1, .., pn]`
+/// (exactly those elements) or `[p1, .., pi, .., pn]` with the rest `..`
+/// (the rest kept) or `rest @ ..` (the rest named) anywhere: the elements
+/// before it are the list's front and those after it its back. Only a
+/// builtin `List` has a back; analysis rejects one on a cons list.
 fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
     let parser = |input: ParseStream<'_>| {
         let sequence;
@@ -1149,39 +1208,27 @@ fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
         Ok(entries)
     };
     let entries = parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?;
-    let count = entries.len();
-    let mut items = Vec::new();
-    let mut rest = RuleListRest::Exact;
-    for (index, entry) in entries.into_iter().enumerate() {
-        match entry {
-            ListEntry::Item(item) => items.push(item),
-            ListEntry::Rest(start, ..) if index + 1 != count => {
-                return Err(list_error(
-                    "`..` may only end a list: a cons list is matched from its front, so its back is no constructor pattern",
-                    start,
-                ));
-            }
-            ListEntry::Rest(start, ..) if items.is_empty() => {
-                return Err(list_error(
-                    "`[..]` and `[rest @ ..]` name no element: leave the cell out of the rule to keep it unchanged, or bind the whole list with `cell: rest`",
-                    start,
-                ));
-            }
-            ListEntry::Rest(_, dots, None) => {
-                rest = RuleListRest::Shared(TokenRange::for_tokens(&dots)?);
-            }
-            ListEntry::Rest(_, _, Some(name)) => {
-                validate_authored_binder(&name.to_string(), name.span())?;
-                rest = RuleListRest::Named(name);
-            }
+    let (items, rest, back) = list_parts(entries)?;
+    let rest = match rest {
+        None => RuleListRest::Exact,
+        Some((start, ..)) if items.is_empty() && back.is_empty() => {
+            return Err(list_error(
+                "`[..]` and `[rest @ ..]` name no element: leave the cell out of the rule to keep it unchanged, or bind the whole list with `cell: rest`",
+                start,
+            ));
         }
-    }
-    Ok(ListPattern { items, rest })
+        Some((_, dots, None)) => RuleListRest::Shared(TokenRange::for_tokens(&dots)?),
+        Some((_, _, Some(name))) => {
+            validate_authored_binder(&name.to_string(), name.span())?;
+            RuleListRest::Named(name)
+        }
+    };
+    Ok(ListPattern { items, rest, back })
 }
 
-/// Reads a bracketed result value as a cons list's elements (F6):
-/// `[e1, .., en]` (the whole new list), `[e1, .., en, ..]` (before the rest
-/// the pattern's `..` matched), or `[e1, .., en, ..t]` (before the list `t`).
+/// Reads a bracketed result value as a list's elements (F6): `[e1, .., en]`
+/// (the whole new list) or `[e1, .., ei, .., en]` with the rest `..` (the
+/// rest the pattern's `..` matched) or `..t` (the list `t`) anywhere.
 fn list_result(group: &proc_macro2::Group) -> Result<ListResult, ParseError> {
     let parser = |input: ParseStream<'_>| {
         let sequence;
@@ -1207,36 +1254,29 @@ fn list_result(group: &proc_macro2::Group) -> Result<ListResult, ParseError> {
         Ok(entries)
     };
     let entries = parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?;
-    let count = entries.len();
-    let mut items = Vec::new();
-    let mut rest = RuleListRest::Exact;
-    for (index, entry) in entries.into_iter().enumerate() {
-        match entry {
-            ListEntry::Item(item) => items.push(item),
-            ListEntry::Rest(start, ..) if index + 1 != count => {
-                return Err(list_error("a list's rest `..` ends its result", start));
-            }
-            ListEntry::Rest(_, dots, None) => {
-                rest = RuleListRest::Shared(TokenRange::for_tokens(&dots)?);
-            }
-            ListEntry::Rest(_, _, Some(term)) => rest = RuleListRest::Named(term),
-        }
-    }
-    Ok(ListResult { items, rest })
+    let (items, rest, back) = list_parts(entries)?;
+    let rest = match rest {
+        None => RuleListRest::Exact,
+        Some((_, dots, None)) => RuleListRest::Shared(TokenRange::for_tokens(&dots)?),
+        Some((_, _, Some(term))) => RuleListRest::Named(term),
+    };
+    Ok(ListResult { items, rest, back })
 }
 
-/// The matched list of a cons-list cell: each element and a named rest are
+/// The matched list of a list cell: each element and a named rest are
 /// ordinary cell patterns.
 fn rule_list_pattern(pattern: &ListPattern) -> Result<RuleListPattern, ParseError> {
     let item = |pattern: Pat, signs| {
         let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
         Ok::<_, ParseError>(RuleHeadItem { pattern, tree })
     };
-    let items = pattern
-        .items
-        .iter()
-        .map(|(pattern, signs)| item(pattern.clone(), signs.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
+    let items = |patterns: &[(Pat, NegativeLiteralSpans)]| {
+        patterns
+            .iter()
+            .map(|(pattern, signs)| item(pattern.clone(), signs.clone()))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let front = items(&pattern.items)?;
     let rest = match &pattern.rest {
         RuleListRest::Exact => RuleListRest::Exact,
         RuleListRest::Shared(range) => RuleListRest::Shared(*range),
@@ -1245,23 +1285,34 @@ fn rule_list_pattern(pattern: &ListPattern) -> Result<RuleListPattern, ParseErro
             NegativeLiteralSpans::default(),
         )?),
     };
-    Ok(RuleListPattern { items, rest })
+    Ok(RuleListPattern {
+        items: front,
+        rest,
+        back: items(&pattern.back)?,
+    })
 }
 
-/// The rewritten list of a cons-list cell whose pattern ends as `before`
-/// does: the anonymous `..` is one rest, so the result ends in `..` exactly
-/// when the pattern does. A result that is one term is the whole new list.
+/// The rewritten list of a list cell whose pattern is `before`: the
+/// anonymous `..` is one rest, so the result holds `..` exactly when the
+/// pattern does, wherever each holds it. A result that is one term is the
+/// whole new list.
 fn rule_list_result(
     cell: &Ident,
     before: &ListPattern,
     after: &MachineResultCell,
 ) -> Result<RuleListResult, ParseError> {
-    let (items, rest) = match after {
-        MachineResultCell::List(after) => (after.items.clone(), after.rest.clone()),
-        MachineResultCell::Term(term) => (Vec::new(), RuleListRest::Named((**term).clone())),
+    let (items, rest, back) = match after {
+        MachineResultCell::List(after) => {
+            (after.items.clone(), after.rest.clone(), after.back.clone())
+        }
+        MachineResultCell::Term(term) => (
+            Vec::new(),
+            RuleListRest::Named((**term).clone()),
+            Vec::new(),
+        ),
         _ => {
             return Err(list_error(
-                "a cons-list cell's result is a list `[..]` or one term",
+                "a list cell's result is a list `[..]` or one term",
                 cell.span(),
             ));
         }
@@ -1269,23 +1320,26 @@ fn rule_list_result(
     match (before.rest.is_shared(), rest.is_shared()) {
         (true, false) => {
             return Err(list_error(
-                "the pattern's `..` keeps the rest of the list, so the result ends in `..` too; to drop or move the rest, name it: `rest @ ..`",
+                "the pattern's `..` keeps the rest of the list, so the result holds `..` too; to drop or move the rest, name it: `rest @ ..`",
                 cell.span(),
             ));
         }
         (false, true) => {
             return Err(list_error(
-                "the pattern ends in no anonymous `..`, so there is no rest for the result's `..` to keep; name the rest with `rest @ ..` and write `..rest`",
+                "the pattern holds no anonymous `..`, so there is no rest for the result's `..` to keep; name the rest with `rest @ ..` and write `..rest`",
                 cell.span(),
             ));
         }
         _ => {}
     }
-    Ok(RuleListResult {
-        items: items
+    let terms = |items: Vec<Expr>| {
+        items
             .into_iter()
             .map(TermExpression::from_expression)
-            .collect::<Result<_, _>>()?,
+            .collect::<Result<Vec<_>, _>>()
+    };
+    Ok(RuleListResult {
+        items: terms(items)?,
         rest: match rest {
             RuleListRest::Exact => RuleListRest::Exact,
             RuleListRest::Shared(range) => RuleListRest::Shared(range),
@@ -1293,6 +1347,7 @@ fn rule_list_result(
                 RuleListRest::Named(TermExpression::from_expression(term)?)
             }
         },
+        back: terms(back)?,
     })
 }
 
@@ -1726,7 +1781,7 @@ fn substitute_fields(
             }
             MachineResultCell::Term(term) => fields.substitute(term)?,
             MachineResultCell::List(list) => {
-                for item in &mut list.items {
+                for item in list.items.iter_mut().chain(&mut list.back) {
                     fields.substitute(item)?;
                 }
             }

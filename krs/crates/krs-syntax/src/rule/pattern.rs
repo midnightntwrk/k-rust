@@ -610,7 +610,7 @@ fn validate_native_pattern(
                 open: false,
             }))
         }
-        // `[p1, .., pn, rest @ ..]` is a cons-list constructor (F6).
+        // `[p1, .., pn, rest @ ..]` is one level of list notation.
         Pat::Slice(slice) => {
             let (head, elements) = crate::list_notation::pattern_level(slice)?;
             paths.push(head.clone());

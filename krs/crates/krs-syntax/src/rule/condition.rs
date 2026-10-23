@@ -136,9 +136,10 @@ pub enum RuleExtra {
         /// The result state.
         after: Option<Box<crate::StateTerm>>,
     },
-    /// A cell of a cons-list sort in list notation (F6), `stack: [a, b, ..]`,
+    /// A cell of a list sort in list notation (F6), `stack: [a, b, ..]`,
     /// and its rewritten list when the result record restates the cell.
-    /// Whether the cell's sort is a cons list is checked once sorts resolve.
+    /// Whether the cell's sort is the builtin `List` or a cons list is
+    /// checked once sorts resolve.
     RewriteList {
         /// Named cell, in the subject record.
         cell: Ident,

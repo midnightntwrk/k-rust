@@ -156,7 +156,7 @@ pub struct RuleHeadItem {
     pub(super) tree: TermTree,
 }
 
-/// The rest of one side of a cons-list cell in a readable record (F6).
+/// The rest of one side of a list cell in a readable record (F6).
 #[derive(Clone, Debug)]
 pub enum RuleListRest<T> {
     /// No rest: the list ends after the elements (`[a, b]`).
@@ -176,35 +176,43 @@ impl<T> RuleListRest<T> {
     }
 }
 
-/// The matched side of a cons-list cell in a readable record (F6):
-/// `stack: [a, b, ..]`.
+/// The matched side of a list cell in a readable record (F6):
+/// `stack: [a, b, ..]`, `queue: [.., z]`.
 #[derive(Clone, Debug)]
 pub struct RuleListPattern {
     pub(super) items: Vec<RuleHeadItem>,
     pub(super) rest: RuleListRest<RuleHeadItem>,
+    pub(super) back: Vec<RuleHeadItem>,
 }
 
 impl RuleListPattern {
-    /// The matched elements, front first.
+    /// The matched elements before the rest, front first.
     #[must_use]
     pub fn items(&self) -> &[RuleHeadItem] {
         &self.items
     }
 
-    /// What the pattern matches after the elements.
+    /// What the pattern matches between its front and back elements.
     #[must_use]
     pub const fn rest(&self) -> &RuleListRest<RuleHeadItem> {
         &self.rest
     }
 
-    /// The element patterns, then the named rest's binder, in expansion
-    /// order.
+    /// The matched elements after the rest, front first; only a builtin
+    /// `List` has them.
+    #[must_use]
+    pub fn back(&self) -> &[RuleHeadItem] {
+        &self.back
+    }
+
+    /// The front element patterns, the named rest's binder, then the back
+    /// element patterns, in expansion order.
     pub(super) fn patterns(&self) -> impl Iterator<Item = &RuleHeadItem> {
         let rest = match &self.rest {
             RuleListRest::Named(rest) => Some(rest),
             RuleListRest::Exact | RuleListRest::Shared(_) => None,
         };
-        self.items.iter().chain(rest)
+        self.items.iter().chain(rest).chain(&self.back)
     }
 
     /// The binders the pattern introduces, in order.
@@ -213,35 +221,43 @@ impl RuleListPattern {
     }
 }
 
-/// The rewritten side of a cons-list cell in a readable record (F6):
-/// `stack: [c, ..]`.
+/// The rewritten side of a list cell in a readable record (F6):
+/// `stack: [c, ..]`, `logs: [..logs, entry]`.
 #[derive(Clone, Debug)]
 pub struct RuleListResult {
     pub(super) items: Vec<TermExpression>,
     pub(super) rest: RuleListRest<TermExpression>,
+    pub(super) back: Vec<TermExpression>,
 }
 
 impl RuleListResult {
-    /// The written elements, front first.
+    /// The written elements before the rest, front first.
     #[must_use]
     pub fn items(&self) -> &[TermExpression] {
         &self.items
     }
 
-    /// What follows the elements.
+    /// What stands between the front and back elements.
     #[must_use]
     pub const fn rest(&self) -> &RuleListRest<TermExpression> {
         &self.rest
     }
 
-    /// The element terms, then the named rest's term, in expansion order.
+    /// The written elements after the rest, front first.
+    #[must_use]
+    pub fn back(&self) -> &[TermExpression] {
+        &self.back
+    }
+
+    /// The front element terms, the named rest's term, then the back
+    /// element terms, in expansion order.
     #[must_use]
     pub fn terms(&self) -> Vec<&TermExpression> {
         let rest = match &self.rest {
             RuleListRest::Named(rest) => Some(rest),
             RuleListRest::Exact | RuleListRest::Shared(_) => None,
         };
-        self.items.iter().chain(rest).collect()
+        self.items.iter().chain(rest).chain(&self.back).collect()
     }
 }
 
@@ -308,11 +324,12 @@ pub(super) enum ReadableSentence {
 }
 
 /// The List-collection reading of a cell-record clause whose bracketed
-/// value reads both as the computation cell's `[head, ..]` and as a List
-/// collection's instances, such as `job: [Job { payload: p }, ..] => job:
-/// [..]` (KF-023). Only the cell's declared type, which the collector knows,
-/// tells them apart: the clause is parsed in its computation-cell reading
-/// and carries this one beside it.
+/// value reads both as a List collection's instances and as the computation
+/// cell's `[head, ..]` or a list's elements, such as `job: [Job { payload:
+/// p }, ..] => job: [..]` (KF-023) or `job: [.., Job { payload: p }]`. Only
+/// the cell's declared type, which the collector knows, tells them apart:
+/// the clause is parsed in its computation-cell or elements reading and
+/// carries this one beside it.
 #[derive(Clone, Debug)]
 pub struct BracketAlternative {
     pub(super) cell: Ident,
@@ -438,10 +455,7 @@ impl RuleClause {
                 RuleExtra::RewriteCell { before, .. } => nodes.push(before.nodes()),
                 RuleExtra::RewriteState { before, .. } => state_nodes(before, &mut nodes),
                 RuleExtra::RewriteList { before, .. } => {
-                    nodes.extend(before.items.iter().map(|item| item.pattern.nodes()));
-                    if let RuleListRest::Named(rest) = &before.rest {
-                        nodes.push(rest.pattern.nodes());
-                    }
+                    nodes.extend(before.patterns().map(|item| item.pattern.nodes()));
                 }
                 RuleExtra::UpdateMap { .. } => {}
             }
@@ -465,10 +479,7 @@ impl RuleClause {
                 RuleExtra::RewriteList {
                     after: Some(after), ..
                 } => {
-                    nodes.extend(after.items.iter().map(TermExpression::nodes));
-                    if let RuleListRest::Named(rest) = &after.rest {
-                        nodes.push(rest.nodes());
-                    }
+                    nodes.extend(after.terms().into_iter().map(TermExpression::nodes));
                 }
                 _ => {}
             }

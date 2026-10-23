@@ -304,15 +304,13 @@ fn check_errors(target: &Path, manifest: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Brackets with elements build cons lists only, `map![..]` is a `cells!`
-/// spelling, and braces name collection instances: each error names the
-/// spelling of the empty collection.
+/// `map![..]` is a `cells!` spelling, and braces name collection instances:
+/// each error names the spelling of the empty collection.
 #[test]
 fn other_spellings_name_the_empty_collections() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let errors = [
-        ("elements", "stack: _ } => { k: [..], stack: [1] };"),
         ("map-macro", "functions: _ } => { k: [..], functions: k::map![] };"),
         ("braces", "functions: {} } => { k: [..] };"),
     ]
@@ -328,10 +326,6 @@ fn other_spellings_name_the_empty_collections() {
     });
     expect_test::expect![[r#"
         [
-            [
-                "error[krs::analysis::invalid-list-notation]: brackets holding elements build a cons list, but this position has the builtin sort `List`, whose only bracket is the empty list `[]`: build its elements with `list::item(..)` and `list::concat(..)`",
-                "--> src/lib.rs:63:64",
-            ],
             [
                 "error[krs::syntax::unsupported-term-expression]: unsupported term expression: `map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and `map::update(..)` adds an entry",
                 "--> src/lib.rs:63:71",

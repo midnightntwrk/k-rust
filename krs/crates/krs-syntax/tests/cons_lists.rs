@@ -1,8 +1,9 @@
 //! Bracket list notation (F6): each bracket level is a call of the list
-//! marker, so `[a, b, ..rest]` is `__list::cons(a, __list::cons(b, rest))`
-//! and `[]` is `__list::empty()`; a readable record reads a bracketed value
-//! as list elements when it is not the computation cell's or a List
-//! collection's.
+//! marker, so `[a, b, ..rest]` is `__list::cons(a, __list::cons(b, rest))`,
+//! `[..rest, z]` is `__list::snoc(rest, z)`, and `[]` is `__list::empty()`;
+//! a bracket holds at most one rest, anywhere. A readable record reads a
+//! bracketed value as list elements when it is not the computation cell's or
+//! a List collection's.
 
 use krs_syntax::{
     KrsSyntax, RuleBlock, RuleExtra, RuleListRest, TermArguments, TermExpression, TermTree,
@@ -79,11 +80,68 @@ fn each_bracket_level_is_one_marker_call() {
     );
 }
 
+/// Once the rest leads, each level takes the last element: the front is
+/// consed onto the back, which is snoc'ed onto the rest.
+#[test]
+fn a_rest_anywhere_takes_the_back_elements_from_the_end() {
+    assert_eq!(pattern("Run([.., z])"), "Run(__list::snoc!(_, z))");
+    assert_eq!(
+        pattern("Run([rest @ .., z])"),
+        "Run(__list::snoc!(rest, z))"
+    );
+    assert_eq!(
+        pattern("Run([a, mid @ .., y, z])"),
+        "Run(__list::cons!(a, __list::snoc!(__list::snoc!(mid, y), z)))"
+    );
+    assert_eq!(
+        pattern("Run([a, .., z])"),
+        "Run(__list::cons!(a, __list::snoc!(_, z)))"
+    );
+    assert_eq!(
+        expression("Run([..rest, z])"),
+        "Run(__list::snoc!(rest, z))"
+    );
+    assert_eq!(
+        expression("Run([a, ..mid, y, z])"),
+        "Run(__list::cons!(a, __list::snoc!(__list::snoc!(mid, y), z)))"
+    );
+    assert_eq!(
+        expression("[..log, [x, ..xs]]"),
+        "__list::snoc!(log, __list::cons!(x, xs))"
+    );
+}
+
+/// Each level's marker spans from its own element to the end of the
+/// brackets, so no two levels of one bracket share a span.
+#[test]
+fn each_level_is_anchored_at_its_own_element() {
+    let term =
+        TermExpression::from_expression(syn::parse_str("[a, ..mid, y, z]").unwrap()).unwrap();
+    let mut starts = Vec::new();
+    let mut pending = vec![term.tree()];
+    while let Some(tree) = pending.pop() {
+        if let TermTree::Application(application) = tree {
+            if application.is_notation() {
+                starts.push(application.head().segments[0].ident.span().start().column);
+            }
+            if let TermArguments::Positional(arguments) = application.arguments() {
+                pending.extend(arguments);
+            }
+        }
+    }
+    starts.sort_unstable();
+    // `a`, `y`, and `z` start the three levels.
+    assert_eq!(starts, [1, 11, 14]);
+}
+
 #[test]
 fn malformed_lists_are_rejected_with_their_reason() {
     for (source, reason) in [
-        ("Run([.., x])", "`..` may only end a list"),
-        ("Run([x, .., y])", "`..` may only end a list"),
+        ("Run([.., x, ..])", "a list holds at most one rest `..`"),
+        (
+            "Run([a, rest @ .., b, ..])",
+            "a list holds at most one rest `..`",
+        ),
         ("Run([..])", "`[..]` and `[rest @ ..]` name no element"),
         (
             "Run([rest @ ..])",
@@ -96,7 +154,14 @@ fn malformed_lists_are_rejected_with_their_reason() {
         assert!(error.contains(reason), "{source}: {error}");
     }
     for (source, reason) in [
-        ("Run([..rest, x])", "`..` may only end a list"),
+        (
+            "Run([..xs, ..ys])",
+            "join two lists with `list::concat(xs, ys)`",
+        ),
+        (
+            "Run([a, ..xs, b, ..ys])",
+            "a list holds at most one rest `..`",
+        ),
         ("Run([..rest])", "it is the list `rest` itself"),
         (
             "Run([x, ..])",
@@ -118,8 +183,8 @@ fn read(source: &str) -> krs_syntax::RuleClause {
         .clone()
 }
 
-/// The list extras of a clause: cell, element count, pattern rest, and
-/// result rest.
+/// The list extras of a clause: cell, front element count, pattern rest,
+/// and result rest.
 fn lists(clause: &krs_syntax::RuleClause) -> Vec<(String, usize, &'static str, &'static str)> {
     fn rest<T>(rest: &RuleListRest<T>) -> &'static str {
         match rest {
@@ -191,6 +256,82 @@ fn a_named_rest_or_a_term_result_reads_only_as_a_list() {
     assert!(lists(&clause).is_empty());
 }
 
+/// A rest may stand anywhere: the elements after it are the list's back.
+#[test]
+fn a_record_list_has_a_front_and_a_back() {
+    let back = |clause: &krs_syntax::RuleClause| -> Vec<(usize, usize)> {
+        clause
+            .extras()
+            .iter()
+            .filter_map(|extra| match extra {
+                RuleExtra::RewriteList { before, after, .. } => Some((
+                    before.back().len(),
+                    after.as_ref().map_or(0, |after| after.back().len()),
+                )),
+                _ => None,
+            })
+            .collect()
+    };
+    let clause = read(
+        "last: { k: [Last(), ..], queue: [.., v], acc: _ } => { k: [..], queue: [..], acc: v };",
+    );
+    assert_eq!(
+        lists(&clause),
+        [("queue".to_owned(), 0, "shared", "shared")]
+    );
+    assert_eq!(back(&clause), [(1, 0)]);
+    clause.provenance().unwrap();
+
+    let clause =
+        read("swap: { k: [Swap(), ..], queue: [a, .., z] } => { k: [..], queue: [z, .., a] };");
+    assert_eq!(
+        lists(&clause),
+        [("queue".to_owned(), 1, "shared", "shared")]
+    );
+    assert_eq!(back(&clause), [(1, 1)]);
+    assert_eq!(clause.bindings(), ["a", "z"]);
+
+    let clause = read(
+        "rot: { k: [Rot(), ..], queue: [a, mid @ .., y, z] } => { k: [..], queue: [y, z, ..mid, a] };",
+    );
+    assert_eq!(lists(&clause), [("queue".to_owned(), 1, "named", "named")]);
+    assert_eq!(back(&clause), [(2, 1)]);
+    assert_eq!(clause.bindings(), ["a", "mid", "y", "z"]);
+    clause.provenance().unwrap();
+
+    let clause =
+        read("log: { k: [Log(e), ..], logs: [first, ..] } => { k: [..], logs: [first, .., e] };");
+    assert_eq!(back(&clause), [(0, 1)]);
+}
+
+/// A value that reads as list elements and as a List collection's
+/// instances, but is not the computation cell, is read as elements and
+/// carries its List reading beside it for the collector.
+#[test]
+fn elements_that_read_as_instances_carry_the_instances_beside_them() {
+    for source in [
+        "pop: { k: [Pop(), ..], job: [.., Job { payload: p }] } => { k: [p, ..], job: [..] };",
+        "drop: { k: [Drop(), ..], job: [first @ Job { payload: p }, ..] } => { k: [p, ..], job: [..] };",
+    ] {
+        let clause = read(source);
+        assert_eq!(clause.computation_cell().unwrap(), "k", "{source}");
+        assert_eq!(lists(&clause).len(), 1, "{source}");
+        assert_eq!(
+            clause.bracket_alternative().unwrap().cell().to_string(),
+            "job",
+            "{source}"
+        );
+        clause.provenance().unwrap();
+    }
+    // Instances whose children are not all `name: value` read only as
+    // instances or only as elements.
+    let clause = read(
+        "pop: { k: [Pop(), ..], job: [.., Job { payload, .. }] } => { k: [payload, ..], job: [..] };",
+    );
+    assert_eq!(lists(&clause).len(), 1);
+    assert!(clause.bracket_alternative().is_none());
+}
+
 #[test]
 fn a_list_cells_rest_is_one_rest_on_both_sides() {
     for (source, reason) in [
@@ -200,11 +341,15 @@ fn a_list_cells_rest_is_one_rest_on_both_sides() {
         ),
         (
             "a: { k: [A(), ..], stack: [x, rest @ ..] } => { k: [..], stack: [x, ..] };",
-            "the pattern ends in no anonymous `..`",
+            "the pattern holds no anonymous `..`",
         ),
         (
-            "a: { k: [A(), ..], stack: [.., x] } => { k: [..] };",
-            "`..` may only end a list",
+            "a: { k: [A(), ..], stack: [.., x, ..] } => { k: [..] };",
+            "a list holds at most one rest `..`",
+        ),
+        (
+            "a: { k: [A(), ..], stack: [x, rest @ ..] } => { k: [..], stack: [..rest, x, ..more] };",
+            "a list holds at most one rest `..`",
         ),
     ] {
         let error = RuleBlock::parse_source(&format!("for Machine; use Op::*; {source}"))

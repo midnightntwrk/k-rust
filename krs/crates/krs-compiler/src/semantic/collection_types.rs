@@ -37,9 +37,9 @@ use std::fmt::{self, Write as _};
 use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
     BuiltinSort, CollectionApplication, Descriptor, DescriptorApplicationRef, DescriptorCellField,
-    DescriptorIndex, DescriptorSortArgument, DescriptorTerm, ListOperation, OperationSort,
-    ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm,
-    ProvenanceKey, SetOperation, TermMapOperation,
+    DescriptorIndex, DescriptorSortArgument, DescriptorTerm, ListNotation, ListOperation,
+    OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, TermMapOperation,
 };
 use krs_ir_levels::SemanticSortRef;
 
@@ -462,6 +462,12 @@ pub(super) enum Root<'t> {
         map: &'t krs_ir::ProtocolMap<DescriptorTerm>,
         ty: Option<(SortType, Position)>,
     },
+    /// An element of a list cell of `ty`, written in brackets.
+    Element {
+        term: &'t DescriptorTerm,
+        ty: Option<(SortType, Position)>,
+        subject: bool,
+    },
     /// A binder matched as the whole content of a cell of `ty`.
     Binder {
         name: &'t str,
@@ -537,6 +543,10 @@ impl<'a> Walker<'a> {
     fn root(&mut self, root: &Root<'_>) -> Result<(), DescriptorLoweringError> {
         match root {
             Root::Term { term, ty, subject } => self.walk(term, ty.as_ref(), *subject),
+            Root::Element { term, ty, subject } => {
+                let operated = ty.as_ref().filter(|(ty, _)| ty.is_typed());
+                self.element(term, operated, Step::Element, *subject)
+            }
             Root::Map { map, ty, subject } => self.rule_map(map, ty.as_ref(), *subject),
             Root::InitializerMap { map, ty } => {
                 let at = ty.as_ref();
@@ -909,9 +919,30 @@ impl<'a> Walker<'a> {
                 }
                 Ok(())
             }
-            DescriptorApplicationRef::Ml(_)
-            | DescriptorApplicationRef::Operator(_)
-            | DescriptorApplicationRef::ListNotation(_) => {
+            // Brackets at a `List` position are its elements and its rest,
+            // as `list::item(head)` and the list it is concatenated with.
+            DescriptorApplicationRef::ListNotation(notation) => {
+                let carried =
+                    at.filter(|(ty, _)| ty.sort == SemanticSortRef::Builtin(BuiltinSort::List));
+                let operated = carried.filter(|(ty, _)| ty.is_typed());
+                match (notation, values.as_slice()) {
+                    (ListNotation::Cons, [head, tail]) => {
+                        self.element(head, operated, Step::Element, subject)?;
+                        self.walk(tail, carried, subject)
+                    }
+                    (ListNotation::Snoc, [init, last]) => {
+                        self.walk(init, carried, subject)?;
+                        self.element(last, operated, Step::Element, subject)
+                    }
+                    _ => {
+                        for value in values {
+                            self.walk(value, None, subject)?;
+                        }
+                        Ok(())
+                    }
+                }
+            }
+            DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::Operator(_) => {
                 for value in values {
                     self.walk(value, None, subject)?;
                 }

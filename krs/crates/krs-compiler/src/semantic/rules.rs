@@ -347,14 +347,33 @@ fn head_rule_typing(
                     walker.state_roots(after, field, false, &mut roots)?;
                 }
             }
-            krs_ir::ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
-                roots.extend(before.terms().into_iter().map(|term| untyped(term, true)));
-                roots.extend(
-                    after
-                        .iter()
-                        .flat_map(krs_ir::ProtocolHeadRuleList::terms)
-                        .map(|term| untyped(term, false)),
-                );
+            krs_ir::ProtocolHeadRuleExtra::RewriteList {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                // A typed `List<T>` cell's elements are its elements and a
+                // named rest its whole content.
+                let ty = selected_cell_type(&walker, cell, declarations)?;
+                for (list, subject) in
+                    std::iter::once((before, true)).chain(after.iter().map(|after| (after, false)))
+                {
+                    for item in list.items.iter().chain(&list.back) {
+                        roots.push(Root::Element {
+                            term: item,
+                            ty: ty.clone(),
+                            subject,
+                        });
+                    }
+                    if let krs_ir::ProtocolHeadRuleListRest::Term(rest) = &list.rest {
+                        roots.push(Root::Term {
+                            term: rest,
+                            ty: ty.clone(),
+                            subject,
+                        });
+                    }
+                }
             }
         }
     }
@@ -1130,7 +1149,7 @@ fn infer_head_rule(
                 } => {
                     let sort = seeds.cell_sorts.get(&cell.cell);
                     let list = builder.list_cell(cell, sort)?;
-                    let sort = sort.expect("a cons-list cell is a leaf of its sort");
+                    let sort = sort.expect("a list cell is a leaf of its sort");
                     builder.infer_list(before, sort, &list, cell, true)?;
                     if let Some(after) = after {
                         builder.infer_list(after, sort, &list, cell, false)?;

@@ -602,3 +602,51 @@ wide: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width, signed } 
     "]]
     .assert_eq(&format(source, 76));
 }
+
+/// A builtin `List` bracket with its rest in front or in the middle wraps
+/// like any other: one element per line, the rest in place, a trailing
+/// comma after the last.
+#[test]
+fn long_lists_with_a_rest_anywhere_put_one_entry_per_line() {
+    let source = "k::rules! { for Machine;
+rotate: { k: [Rotate(), ..], queue: [first_element, second_element, middle @ .., last_element] } => { k: [..], queue: [last_element, ..middle, second_element, first_element] };
+log: { k: [Log(entry), ..], logs } => { k: [..], logs: [..logs, LogRecord::Entry { account: entry, topics: entry }] };
+}
+";
+    expect_test::expect![[r"
+        k::rules! {
+            for Machine;
+            rotate: {
+                k: [Rotate(), ..],
+                queue: [
+                    first_element,
+                    second_element,
+                    middle @ ..,
+                    last_element,
+                ],
+            } => {
+                k: [..],
+                queue: [
+                    last_element,
+                    ..middle,
+                    second_element,
+                    first_element,
+                ],
+            };
+            log: {
+                k: [Log(entry), ..],
+                logs,
+            } => {
+                k: [..],
+                logs: [
+                    ..logs,
+                    LogRecord::Entry {
+                        account: entry,
+                        topics: entry,
+                    },
+                ],
+            };
+        }
+    "]]
+    .assert_eq(&format(source, 60));
+}

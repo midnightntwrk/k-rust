@@ -264,6 +264,10 @@ fn expand_head_rule(
                         )?)
                     }
                 };
+                let mut back = Vec::with_capacity(before.back().len());
+                for item in before.back() {
+                    back.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+                }
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
@@ -275,7 +279,7 @@ fn expand_head_rule(
                 list_befores.push((
                     cell.unraw().to_string(),
                     ordinal,
-                    krs_ir::wire::WireHeadRuleList { items, rest },
+                    krs_ir::wire::WireHeadRuleList { items, rest, back },
                 ));
             }
             krs_syntax::RuleExtra::UpdateMap { .. } => {}
@@ -443,6 +447,14 @@ fn expand_head_rule(
                                 )?)
                             }
                         };
+                        let mut back = Vec::with_capacity(after.back().len());
+                        for item in after.back() {
+                            back.push(builder.expand_wire(
+                                item.tree(),
+                                TermSide::Right,
+                                &mut slots,
+                            )?);
+                        }
                         let right_ordinal = update_ordinal;
                         update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
                             ExpandError::new(
@@ -453,7 +465,7 @@ fn expand_head_rule(
                         })?;
                         (
                             Some(rule_right_cells_field_role.key(right_ordinal)),
-                            Some(krs_ir::wire::WireHeadRuleList { items, rest }),
+                            Some(krs_ir::wire::WireHeadRuleList { items, rest, back }),
                         )
                     }
                     _ => (None, None),
@@ -471,19 +483,41 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::HaveMap { .. } => {}
         }
     }
-    let bracket_alternative = match (alternative, &head) {
-        (Some(alternative), Some(head)) => Some(bracket_alternative_wire(
-            alternative,
-            head,
-            &bindings,
-            &mut BracketCounters {
-                left: &mut left_states,
-                right: &mut right_states,
-                left_cell: have_ordinal,
-                right_cell: update_ordinal,
-            },
-        )?),
-        _ => None,
+    // The List reading of a bracketed value stands beside the reading the
+    // clause took: the computation cell's head, or the cell's list elements.
+    let bracket_alternative = match alternative {
+        None => None,
+        Some(alternative) => {
+            let name = alternative.cell().unraw().to_string();
+            let records = update_extras
+                .iter()
+                .find_map(|extra| match extra {
+                    krs_ir::wire::WireHeadRuleExtra::RewriteList {
+                        cell,
+                        before,
+                        after,
+                        ..
+                    } if cell.name == name => {
+                        Some(AlternativeRecords::list(before, after.as_ref()))
+                    }
+                    _ => None,
+                })
+                .or_else(|| head.as_ref().map(AlternativeRecords::head));
+            match records {
+                Some(records) => Some(bracket_alternative_wire(
+                    alternative,
+                    &records,
+                    &bindings,
+                    &mut BracketCounters {
+                        left: &mut left_states,
+                        right: &mut right_states,
+                        left_cell: have_ordinal,
+                        right_cell: update_ordinal,
+                    },
+                )?),
+                None => None,
+            }
+        }
     };
     let mut extras = have_extras;
     extras.extend(update_extras);
@@ -870,12 +904,57 @@ struct BracketCounters<'a> {
     right_cell: u32,
 }
 
+/// The records a bracket alternative's instances take their children from:
+/// the terms of the reading the clause took, before and after the rest, on
+/// each side.
+struct AlternativeRecords<'t> {
+    subject: (
+        Vec<&'t krs_ir::wire::WireTerm>,
+        Vec<&'t krs_ir::wire::WireTerm>,
+    ),
+    result: (
+        Vec<&'t krs_ir::wire::WireTerm>,
+        Vec<&'t krs_ir::wire::WireTerm>,
+    ),
+}
+
+impl<'t> AlternativeRecords<'t> {
+    /// A computation-cell head's items and result, all before its rest.
+    fn head(head: &'t krs_ir::wire::WireHeadRuleHead) -> Self {
+        let result = match &head.result {
+            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => vec![term],
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(terms)) => terms.iter().collect(),
+            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => Vec::new(),
+        };
+        Self {
+            subject: (head.items.iter().collect(), Vec::new()),
+            result: (result, Vec::new()),
+        }
+    }
+
+    /// A list cell's elements before and after its rest.
+    fn list(
+        before: &'t krs_ir::wire::WireHeadRuleList,
+        after: Option<&'t krs_ir::wire::WireHeadRuleList>,
+    ) -> Self {
+        let (result_front, result_back) = after.map_or_else(
+            || (Vec::new(), Vec::new()),
+            |after| (after.items.iter().collect(), after.back.iter().collect()),
+        );
+        Self {
+            subject: (before.items.iter().collect(), before.back.iter().collect()),
+            result: (result_front, result_back),
+        }
+    }
+}
+
 /// The wire form of a clause's List-collection reading (KF-023): the cell's
 /// instance lists, keyed after every other extra as the parser anchors them,
-/// whose children are the head records' already-expanded terms.
+/// whose children are the already-expanded terms of the reading the clause
+/// took, the computation cell's head or the cell's list elements.
 fn bracket_alternative_wire(
     alternative: &krs_syntax::BracketAlternative,
-    head: &krs_ir::wire::WireHeadRuleHead,
+    records: &AlternativeRecords<'_>,
     bindings: &[krs_ir::wire::WireHeadRuleBinding],
     counters: &mut BracketCounters<'_>,
 ) -> crate::Result<krs_ir::wire::WireHeadRuleBracketAlternative> {
@@ -883,24 +962,17 @@ fn bracket_alternative_wire(
         ExpandError::new(
             expand::CELL_STATE_FAMILY_MISMATCH,
             alternative.cell().span(),
-            "the List reading of a bracketed cell value does not match its computation-cell reading",
+            "the List reading of a bracketed cell value does not match its other reading",
         )
     };
-    let subject = head
-        .items
-        .iter()
-        .map(|item| record_children(item).ok_or_else(mismatch))
-        .collect::<crate::Result<Vec<_>>>()?;
-    let results = match &head.result {
-        Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
-            vec![record_children(term).ok_or_else(mismatch)?]
-        }
-        Some(krs_ir::ProtocolHeadRuleResult::Splice(terms)) => terms
+    let children = |terms: &[&krs_ir::wire::WireTerm]| {
+        terms
             .iter()
             .map(|term| record_children(term).ok_or_else(mismatch))
-            .collect::<crate::Result<Vec<_>>>()?,
-        Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => Vec::new(),
+            .collect::<crate::Result<Vec<_>>>()
     };
+    let subject = (children(&records.subject.0)?, children(&records.subject.1)?);
+    let results = (children(&records.result.0)?, children(&records.result.1)?);
     let before = alternative_instances(
         alternative.before(),
         krs_syntax::RuleSide::Left,
@@ -961,44 +1033,56 @@ fn record_children(term: &krs_ir::wire::WireTerm) -> Option<Vec<krs_ir::wire::Wi
     }
 }
 
-/// One side's instance list of a bracket alternative, whose records take
-/// their children from `records` in order.
+/// One side's instance list of a bracket alternative, whose records before
+/// and after its rest take their children from `records` in order, keyed in
+/// the order the parser anchors them: the records front first, then the
+/// rest.
 fn alternative_instances(
     state: &krs_syntax::StateTerm,
     side: krs_syntax::RuleSide,
     counters: &mut krs_syntax::ReadableStateCounters,
-    records: Vec<Vec<krs_ir::wire::WireTerm>>,
+    records: (
+        Vec<Vec<krs_ir::wire::WireTerm>>,
+        Vec<Vec<krs_ir::wire::WireTerm>>,
+    ),
 ) -> Option<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>> {
     use krs_syntax::{RuleRole, StateMacroRemainder, StateTerm};
     let StateTerm::Instances(list) = state else {
         return None;
     };
-    if !list.back().is_empty() || list.front().len() != records.len() {
+    let (front_records, back_records) = records;
+    if list.front().len() != front_records.len() || list.back().len() != back_records.len() {
         return None;
     }
     let key =
         |role: RuleRole, counter: &mut usize| ReadableStateContext::key(role, side, counter).ok();
-    let mut front = Vec::with_capacity(records.len());
-    for (item, children) in list.front().iter().zip(records) {
-        if item.fields().len() != children.len() {
-            return None;
-        }
-        let instance = key(RuleRole::CellsInstance, &mut counters.instance)?;
-        let mut fields = Vec::with_capacity(children.len());
-        for (field, value) in item.fields().iter().zip(children) {
-            fields.push(krs_ir::ProtocolRuleInstanceField {
-                key: key(RuleRole::CellsInstanceField, &mut counters.instance_field)?,
-                field: field.name().to_string(),
-                value: krs_ir::ProtocolRuleStateTerm::Term(value),
+    let mut instances = |items: &[krs_syntax::InstanceItem],
+                         records: Vec<Vec<krs_ir::wire::WireTerm>>| {
+        let mut instances = Vec::with_capacity(records.len());
+        for (item, children) in items.iter().zip(records) {
+            if item.fields().len() != children.len() {
+                return None;
+            }
+            let instance = key(RuleRole::CellsInstance, &mut counters.instance)?;
+            let mut fields = Vec::with_capacity(children.len());
+            for (field, value) in item.fields().iter().zip(children) {
+                fields.push(krs_ir::ProtocolRuleInstanceField {
+                    key: key(RuleRole::CellsInstanceField, &mut counters.instance_field)?,
+                    field: field.name().to_string(),
+                    value: krs_ir::ProtocolRuleStateTerm::Term(value),
+                });
+            }
+            instances.push(krs_ir::ProtocolRuleInstance {
+                key: instance,
+                label: item.label().map(ToString::to_string),
+                fields,
+                rest: super::state_rules::instance_rest(item.rest()),
             });
         }
-        front.push(krs_ir::ProtocolRuleInstance {
-            key: instance,
-            label: item.label().map(ToString::to_string),
-            fields,
-            rest: super::state_rules::instance_rest(item.rest()),
-        });
-    }
+        Some(instances)
+    };
+    let front = instances(list.front(), front_records)?;
+    let back = instances(list.back(), back_records)?;
     let rest = match list.rest() {
         StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
         _ => krs_ir::ProtocolRuleFrame::Anonymous {
@@ -1010,7 +1094,7 @@ fn alternative_instances(
             delimiter: krs_ir::InstanceDelimiter::Bracket,
             front,
             rest,
-            back: Vec::new(),
+            back,
         },
     ))
 }

@@ -13,9 +13,9 @@ use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, Descriptor,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle, DescriptorHeadRule,
     DescriptorIndex, DescriptorPayload, DescriptorStage, DescriptorTerm,
-    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, OriginFrame, PackageId, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap, Sha256Digest, SourceFileId,
-    SourceMapKey, StableItemId, Stage,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, ListNotation, OriginFrame, PackageId,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap,
+    Sha256Digest, SourceFileId, SourceMapKey, StableItemId, Stage,
 };
 use krs_ir_levels::{
     IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm, SemanticTheory,
@@ -1201,6 +1201,93 @@ fn render_list(
     Ok(rendered)
 }
 
+/// Renders one side of a builtin `List` cell as the term its brackets
+/// denote: `list::concat(list::item(a), rest)`, nested as
+/// [`render_builtin_list_level`] nests a term's brackets.
+fn render_builtin_list(
+    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    shared: Option<&Ident>,
+    pattern: bool,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let item = render_facade_marker(krs_ir::ListOperation::Item.facade_marker());
+    let concat = render_facade_marker(krs_ir::ListOperation::Concat.facade_marker());
+    let mut rendered = match &list.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => None,
+        krs_ir::ProtocolHeadRuleListRest::Shared => {
+            let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+            Some(quote!(#rest))
+        }
+        krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+            Some(render_term(rest, pattern, package, bundle)?)
+        }
+    };
+    for element in &list.back {
+        let element = render_term(element, pattern, package, bundle)?;
+        rendered = Some(rendered.map_or_else(
+            || quote!(#item(#element)),
+            |init| quote!(#concat(#init, #item(#element))),
+        ));
+    }
+    for element in list.items.iter().rev() {
+        let element = render_term(element, pattern, package, bundle)?;
+        rendered = Some(rendered.map_or_else(
+            || quote!(#item(#element)),
+            |tail| quote!(#concat(#item(#element), #tail)),
+        ));
+    }
+    Ok(rendered.unwrap_or_else(|| {
+        let empty = render_facade_marker(krs_ir::ListOperation::Empty.facade_marker());
+        quote!(#empty())
+    }))
+}
+
+/// Renders one level of brackets at the builtin `List` as the term it
+/// denotes: `[a, ..tail]` is `list::concat(list::item(a), tail)`, or
+/// `list::item(a)` when the tail is the empty list, and `[..init, z]` is
+/// `list::concat(init, list::item(z))`.
+fn render_builtin_list_level(
+    notation: ListNotation,
+    arguments: &krs_ir::Arguments<DescriptorStage>,
+    pattern: bool,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let krs_ir::Arguments::Positional(operands) = arguments else {
+        return Err(ReferenceExpansionError::UnresolvedListNotation);
+    };
+    let [first, second] = operands.as_slice() else {
+        return Err(ReferenceExpansionError::UnresolvedListNotation);
+    };
+    let item = render_facade_marker(krs_ir::ListOperation::Item.facade_marker());
+    let concat = render_facade_marker(krs_ir::ListOperation::Concat.facade_marker());
+    let is_empty = |term: &DescriptorTerm| {
+        matches!(
+            term,
+            DescriptorTerm::Application { reference, .. }
+                if reference.application
+                    == DescriptorApplicationRef::ListNotation(ListNotation::Empty)
+        )
+    };
+    let render = |term| render_term(term, pattern, package, bundle);
+    Ok(match notation {
+        ListNotation::Cons if is_empty(second) => {
+            let head = render(first)?;
+            quote!(#item(#head))
+        }
+        ListNotation::Cons => {
+            let (head, tail) = (render(first)?, render(second)?);
+            quote!(#concat(#item(#head), #tail))
+        }
+        ListNotation::Snoc => {
+            let (init, last) = (render(first)?, render(second)?);
+            quote!(#concat(#init, #item(#last)))
+        }
+        ListNotation::Empty => return Err(ReferenceExpansionError::UnresolvedListNotation),
+    })
+}
+
 /// Whether `id` is the closed sort of a `#[k::syntax_list]` enum, whose
 /// reference type is the enum itself.
 fn is_list_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
@@ -1876,23 +1963,32 @@ fn render_rule(
                 after,
                 ..
             } => {
-                // `[]` on a cell of the builtin `List` is `.List`, the only
-                // bracket that sort has.
-                let empty = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
-                    list.items.is_empty() && list.rest == krs_ir::ProtocolHeadRuleListRest::Exact
-                };
+                // A cell of the builtin `List` is the `list::item` and
+                // `list::concat` term its brackets denote; its anonymous
+                // `..` is a parameter both sides name.
                 let Some(list) = cell_cons_list(&cell.cell, bundle) else {
-                    if !empty(before) || !after.as_ref().is_none_or(empty) {
-                        return Err(ReferenceExpansionError::UnresolvedListNotation);
-                    }
-                    let unit = render_facade_marker(krs_ir::ListOperation::Empty.facade_marker());
+                    let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
+                        .then(|| {
+                            let rest = fresh_ident("rest", &mut reserved);
+                            let ty = render_sort_type(
+                                &SemanticSortRef::Builtin(krs_ir::BuiltinSort::List),
+                                package,
+                            )?;
+                            parameters.push((rest.to_string(), quote!(#rest: #ty)));
+                            Ok::<_, ReferenceExpansionError>(rest)
+                        })
+                        .transpose()?;
                     let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                    let before =
+                        render_builtin_list(before, shared.as_ref(), true, package, bundle)?;
                     left_cells.push(quote! {
-                        #field: k::configuration::Cell(#unit())
+                        #field: k::configuration::Cell(#before)
                     });
-                    if after.is_some() {
+                    if let Some(after) = after {
+                        let after =
+                            render_builtin_list(after, shared.as_ref(), false, package, bundle)?;
                         right_cells.push(quote! {
-                            #field: k::configuration::Cell(#unit())
+                            #field: k::configuration::Cell(#after)
                         });
                     }
                     continue;
@@ -2533,8 +2629,12 @@ fn render_term(
                         operator.symbol(),
                     ));
                 }
-                DescriptorApplicationRef::ListNotation(_) => {
-                    return Err(ReferenceExpansionError::UnresolvedListNotation);
+                // [`OperatorCalls`] leaves a level a notation only where it
+                // builds the builtin `List`.
+                DescriptorApplicationRef::ListNotation(notation) => {
+                    return render_builtin_list_level(
+                        *notation, arguments, pattern, package, bundle,
+                    );
                 }
             };
             if arguments.is_empty()
@@ -2900,6 +3000,9 @@ struct OperatorCalls<'a> {
     constructors: BTreeMap<SourceMapKey, StableItemId>,
     /// The keys of `.List` terms: `[]` at a builtin `List` position.
     list_units: BTreeSet<SourceMapKey>,
+    /// The keys of every builtin `List` term, among them the `list::item`
+    /// of each bracket level at a builtin `List` position.
+    list_terms: BTreeSet<SourceMapKey>,
 }
 
 impl<'a> OperatorCalls<'a> {
@@ -2907,6 +3010,7 @@ impl<'a> OperatorCalls<'a> {
         let mut operations = BTreeMap::new();
         let mut constructors = BTreeMap::new();
         let mut list_units = BTreeSet::new();
+        let mut list_terms = BTreeSet::new();
         let mut pending = semantic_rule_terms(rule);
         while let Some(term) = pending.pop() {
             match term.kind() {
@@ -2922,10 +3026,11 @@ impl<'a> OperatorCalls<'a> {
                 } => {
                     constructors.insert(term.origin().key().clone(), id.clone());
                 }
-                IrTermKind::List(operands)
-                    if matches!(**operands, krs_ir_levels::ListOperands::Empty) =>
-                {
-                    list_units.insert(term.origin().key().clone());
+                IrTermKind::List(operands) => {
+                    if matches!(**operands, krs_ir_levels::ListOperands::Empty) {
+                        list_units.insert(term.origin().key().clone());
+                    }
+                    list_terms.insert(term.origin().key().clone());
                 }
                 _ => {}
             }
@@ -2936,6 +3041,7 @@ impl<'a> OperatorCalls<'a> {
             operations,
             constructors,
             list_units,
+            list_terms,
         }
     }
 }
@@ -2980,16 +3086,25 @@ impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
         &mut self,
         reference: DescriptorApplicationReference,
     ) -> Result<DescriptorApplicationReference, Self::Error> {
-        if let DescriptorApplicationRef::ListNotation(_) = reference.application {
+        if let DescriptorApplicationRef::ListNotation(notation) = reference.application {
             let constructor =
                 crate::semantic::application_source_key(self.descriptor, &reference.key)
                     .and_then(|key| self.constructors.get(&key).cloned());
             let unit = crate::semantic::list_operation_source_key(self.descriptor, &reference.key)
                 .is_some_and(|key| self.list_units.contains(&key));
+            // A level at the builtin `List` stays notation, which
+            // [`render_term`] spells as the `list::item`/`list::concat` term
+            // it lowered to; so does the `[]` that ends a closed one, which
+            // lowered to nothing of its own.
+            let builtin =
+                crate::semantic::list_notation_source_key(self.descriptor, &reference.key)
+                    .is_some_and(|key| self.list_terms.contains(&key));
             let application = if let Some(constructor) = constructor {
                 DescriptorApplicationRef::Declared(constructor)
             } else if unit {
                 DescriptorApplicationRef::List(krs_ir::ListOperation::Empty)
+            } else if builtin || notation == ListNotation::Empty {
+                DescriptorApplicationRef::ListNotation(notation)
             } else {
                 return Err(ReferenceExpansionError::UnresolvedListNotation);
             };

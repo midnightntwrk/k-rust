@@ -1011,7 +1011,7 @@ impl TermExpression {
             // `a && b`, `a + b`, `!a`, `-a`, and `recv.op::<D>(..)` denote
             // builtin calls.
             other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
-            // `[a, ..rest]` denotes a cons-list constructor (F6).
+            // `[a, ..rest]` denotes one level of list notation.
             Expr::Array(_) => TermRootKind::Call,
             // The minus of a literal, which `validate_expression` checks.
             Expr::Unary(ExprUnary {

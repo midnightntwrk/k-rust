@@ -1079,20 +1079,24 @@ pub mod __operator {
     pub use Sub as sub;
 }
 
-/// Markers for bracket list notation (`[head, ..tail]`, `[]`) in a term,
-/// before KRS knows the cons-list sort it builds (F6).
+/// Markers for bracket list notation (`[head, ..tail]`, `[..init, last]`,
+/// `[]`) in a term, before KRS knows the list sort it builds (F6).
 ///
 /// Expansion writes each bracket level as a call of one of these markers, so
 /// rustc checks the elements without reading the brackets as a Rust array or
 /// slice. Each marker accepts operands of any type: semantic analysis replaces
-/// it by the constructor of the cons list the position expects.
+/// it by the terms of the list the position expects, a cons list's
+/// constructor or K's `List` items.
 #[doc(hidden)]
 pub mod __list {
     /// Marker for `[head, ..tail]`.
     pub struct Cons<A = (), B = ()>(pub A, pub B);
     /// Marker for `[]`.
     pub struct Empty();
+    /// Marker for `[..init, last]`.
+    pub struct Snoc<A = (), B = ()>(pub A, pub B);
 
     pub use Cons as cons;
     pub use Empty as empty;
+    pub use Snoc as snoc;
 }

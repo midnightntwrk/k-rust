@@ -1,5 +1,5 @@
 {
-  "schema_version": 64,
+  "schema_version": 65,
   "main_module": "SMOKE",
   "modules": [
     {

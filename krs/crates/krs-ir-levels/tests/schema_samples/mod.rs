@@ -2193,10 +2193,12 @@ impl<
                     before: ProtocolHeadRuleList {
                         items: vec![sample::<T>()],
                         rest: ProtocolHeadRuleListRest::Shared,
+                        back: Vec::new(),
                     },
                     after: Some(ProtocolHeadRuleList {
                         items: Vec::new(),
                         rest: ProtocolHeadRuleListRest::Shared,
+                        back: vec![sample::<T>()],
                     }),
                 },
                 Self::RewriteList {
@@ -2205,10 +2207,12 @@ impl<
                     before: ProtocolHeadRuleList {
                         items: vec![sample::<T>()],
                         rest: ProtocolHeadRuleListRest::Term(sample::<T>()),
+                        back: vec![sample::<T>()],
                     },
                     after: Some(ProtocolHeadRuleList {
                         items: vec![sample::<T>()],
                         rest: ProtocolHeadRuleListRest::Exact,
+                        back: Vec::new(),
                     }),
                 },
             ],
@@ -2295,6 +2299,7 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
         vec![Self {
             items: vec![sample::<T>()],
             rest: sample::<ProtocolHeadRuleListRest<T>>(),
+            back: Vec::new(),
         }]
     }
 }

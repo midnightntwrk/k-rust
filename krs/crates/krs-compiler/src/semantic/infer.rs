@@ -1201,7 +1201,7 @@ impl StructuredTermBuilder<'_> {
                     subject,
                 );
             }
-            DescriptorApplicationRef::ListNotation(ListNotation::Cons) => {
+            DescriptorApplicationRef::ListNotation(ListNotation::Cons | ListNotation::Snoc) => {
                 return self.infer_list_spine(reference, arguments, expected_sort, subject);
             }
             DescriptorApplicationRef::ListNotation(notation) => {
@@ -1373,10 +1373,19 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
+    /// The sort an element of a typed collection is lowered at, if `term`
+    /// is one.
+    pub(super) fn collection_element_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
+        self.collections
+            .typing
+            .element(term)
+            .map(|site| site.sort.clone())
+    }
+
     /// The sort an operand is inferred at: its row's builtin sort, or for an
     /// element of a typed collection its element sort. A probe into a typed
     /// collection must share a sort with its elements.
-    fn collection_operand_expected(
+    pub(super) fn collection_operand_expected(
         &mut self,
         operand: &DescriptorTerm,
         sort: CollectionOperandSort,
@@ -2120,7 +2129,9 @@ impl StructuredTermBuilder<'_> {
                     head,
                 );
             }
-            DescriptorApplicationRef::ListNotation(ListNotation::Cons) if !head => {
+            DescriptorApplicationRef::ListNotation(ListNotation::Cons | ListNotation::Snoc)
+                if !head || super::cons_lists::is_builtin_list(expected_sort) =>
+            {
                 return self.lower_list_spine(reference, arguments, expected_sort, subject);
             }
             DescriptorApplicationRef::ListNotation(notation) => {

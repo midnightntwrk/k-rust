@@ -99,7 +99,8 @@ protocol_shape! {
 }
 
 protocol_shape! {
-    /// The rest of one side of a cons-list cell (F6).
+    /// The rest of one side of a list cell: a cons list's (F6) or K's
+    /// builtin `List`'s.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(
         tag = "list_rest_kind",
@@ -119,36 +120,46 @@ protocol_shape! {
 }
 
 protocol_shape! {
-    /// One side of a cons-list cell (F6): the elements, front first, and
-    /// the rest of the list after them.
+    /// One side of a list cell: a cons list's (F6) or K's builtin `List`'s.
+    /// The elements before the rest, front first, the rest, and the
+    /// elements after it, which only a builtin `List` has: a cons list is
+    /// built from its front.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolHeadRuleList<T => term_map => U> {
-        /// The elements, front first.
+        /// The elements before the rest, front first.
         pub items: Vec<T> => [vec term_map],
-        /// What follows the elements.
+        /// What follows those elements.
         pub rest: ProtocolHeadRuleListRest<T> => [nested term_map],
+        /// The elements after the rest, front first; empty when the rest is
+        /// [`ProtocolHeadRuleListRest::Exact`].
+        pub back: Vec<T> => [vec term_map],
     }
 }
 
 impl<T> ProtocolHeadRuleList<T> {
-    /// The elements, then a named rest's term, in order.
+    /// The elements before the rest, a named rest's term, then the elements
+    /// after it, in order.
     #[must_use]
     pub fn terms(&self) -> Vec<&T> {
         let rest = match &self.rest {
             ProtocolHeadRuleListRest::Term(rest) => Some(rest),
             ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => None,
         };
-        self.items.iter().chain(rest).collect()
+        self.items.iter().chain(rest).chain(&self.back).collect()
     }
 
-    /// The elements, then a named rest's term, in order, for rewriting.
+    /// The terms in [`Self::terms`] order, for rewriting.
     pub fn terms_mut(&mut self) -> Vec<&mut T> {
         let rest = match &mut self.rest {
             ProtocolHeadRuleListRest::Term(rest) => Some(rest),
             ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => None,
         };
-        self.items.iter_mut().chain(rest).collect()
+        self.items
+            .iter_mut()
+            .chain(rest)
+            .chain(&mut self.back)
+            .collect()
     }
 }
 
@@ -598,9 +609,10 @@ fn readable_state_extra<T>(
     }
 }
 
-/// A cons-list cell (F6) has a result key exactly when it is rewritten, and
-/// its anonymous `..` is one rest on both sides: a rewritten list keeps it
-/// exactly when the matched one has it.
+/// A list cell has a result key exactly when it is rewritten, its anonymous
+/// `..` is one rest on both sides (a rewritten list keeps it exactly when
+/// the matched one has it), and each side has elements after its rest only
+/// when it has a rest.
 fn list_extra<T>(
     result_key: Option<&ProvenanceKey>,
     before: &ProtocolHeadRuleList<T>,
@@ -608,8 +620,12 @@ fn list_extra<T>(
 ) -> bool {
     let shared =
         |list: &ProtocolHeadRuleList<T>| matches!(list.rest, ProtocolHeadRuleListRest::Shared);
+    let back = |list: &ProtocolHeadRuleList<T>| {
+        list.back.is_empty() || !matches!(list.rest, ProtocolHeadRuleListRest::Exact)
+    };
     result_key.is_some() == after.is_some()
-        && after.is_none_or(|after| shared(before) == shared(after))
+        && back(before)
+        && after.is_none_or(|after| shared(before) == shared(after) && back(after))
 }
 
 /// Whether an extra that is a cons-list cell pairs its rests and its result
@@ -850,8 +866,9 @@ impl HostHeadRule {
             }
         }
         if let Some(alternative) = &self.bracket_alternative {
-            // The List reading replaces the head of the same cell, so it
-            // exists only beside a head and names the computation cell.
+            // The List reading replaces the reading of the same cell the
+            // clause took: the head, when it names the computation cell, or
+            // the cell's list elements.
             let ProtocolHeadRuleExtra::RewriteState {
                 cell,
                 result_key,
@@ -863,9 +880,16 @@ impl HostHeadRule {
                     StateTermReason::InvalidReadableStateExtra,
                 ));
             };
-            if self.head.is_none()
-                || self.computation_cell_name.as_deref() != Some(cell.name.as_str())
-                || cells.contains(cell.name.as_str())
+            let replaces_head = self.head.is_some()
+                && self.computation_cell_name.as_deref() == Some(cell.name.as_str());
+            let replaces_list = self.extras.iter().any(|extra| {
+                matches!(
+                    extra,
+                    ProtocolHeadRuleExtra::RewriteList { cell: list, .. }
+                        if list.name == cell.name
+                )
+            });
+            if !(replaces_list || replaces_head && !cells.contains(cell.name.as_str()))
                 || cell.key.role() != ProvenanceRole::RuleLeftCellsField
                 || result_key
                     .as_ref()
