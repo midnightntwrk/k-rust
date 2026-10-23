@@ -19,6 +19,7 @@ use std::{
 use clap::{Parser, ValueEnum};
 use k_rust_fuzz::{
     Campaign,
+    exec::UnjudgedReason,
     report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
     target::RuleMode,
 };
@@ -548,6 +549,7 @@ fn summary(report: &FuzzReport) -> String {
     if let Some(no_witness) = report.no_witness() {
         let _ = writeln!(text, "{}", no_witness.statement);
     }
+    write_unjudged(&mut text, report);
     for warning in &report.warnings {
         let _ = writeln!(text, "warning: {warning}");
     }
@@ -555,6 +557,42 @@ fn summary(report: &FuzzReport) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// For a report with a witness, its `unsupported` and `baseline-incomplete` cases per reason,
+/// largest first, with the largest one's remedy (a report without a witness says the same in
+/// its no-witness statement). The every-`<k>` default is named by a report warning
+/// (`every-k: …`), which the summary prints with the others.
+fn write_unjudged(text: &mut String, report: &FuzzReport) {
+    use std::fmt::Write as _;
+    if report.witness().is_some() {
+        for (label, reasons) in [
+            ("unsupported", &report.totals.unsupported_reasons),
+            (
+                "baseline-incomplete",
+                &report.totals.baseline_incomplete_reasons,
+            ),
+        ] {
+            let mut ranked: Vec<(UnjudgedReason, u64)> = reasons
+                .iter()
+                .map(|(reason, count)| (*reason, *count))
+                .collect();
+            ranked.sort_by(|(left, left_count), (right, right_count)| {
+                right_count.cmp(left_count).then(left.cmp(right))
+            });
+            let Some((top, _)) = ranked.first() else {
+                continue;
+            };
+            let counts: Vec<String> = ranked
+                .iter()
+                .map(|(reason, count)| format!("{count} {}", reason.name()))
+                .collect();
+            let _ = writeln!(text, "{label} cases by reason: {}", counts.join(", "));
+            if let Some(remedy) = top.remedy() {
+                let _ = writeln!(text, "  for {}: {remedy}", top.name());
+            }
+        }
+    }
 }
 
 fn write_case(text: &mut String, case: &WitnessCase) {

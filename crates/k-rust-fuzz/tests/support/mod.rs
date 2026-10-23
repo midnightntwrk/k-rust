@@ -751,12 +751,40 @@ pub const INTGEN_PROGRAMS: &[Program] = &[program!("intgen/sum.pgm")];
 fixture!(MINUSONE, "intgen/minusone.k", "MINUSONE", INTGEN_PROGRAMS);
 fixture!(NOMINUS, "intgen/nominus.k", "NOMINUS", INTGEN_PROGRAMS);
 fixture!(SIGNED, "intgen/signed.k", "UNSIGNED", INTGEN_PROGRAMS);
+// A threaded language: its <k> cell lies under the multiplicity cell <thread>, so the default
+// normal end is judged on every <k> cell (FZ-UNSUPPORTED).
+fixture!(
+    THREADS,
+    "threads/threads.k",
+    "THREADS",
+    &[
+        program!("threads/spawn.pgm"),
+        program!("threads/keep.pgm"),
+        program!("threads/fail.pgm"),
+    ]
+);
+
+// The <k> cell under a `?` cell absent from the initial configuration, the program in <code>
+// (FZ-UNSUPPORTED review N1).
+fixture!(
+    QOPT,
+    "qopt/qopt.k",
+    "QOPT",
+    &[program!("qopt/bad.pgm"), program!("qopt/start.pgm")]
+);
+
+/// The re-run pair (INT7): a baseline with the ends `a(N)`, `c(N)` and `b(opaque(N))` (clean,
+/// not data) and a mutant without the last, whose one path reaches `a(N)` and whose all-paths
+/// re-run decides the case.
+pub const RERUN_PROGRAMS: &[Program] = &[program!("rerun/go.pgm")];
+fixture!(RERUN, "rerun/rerun.k", "RERUN", RERUN_PROGRAMS);
+fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 50] = [
+pub static ALL: [&Fixture; 54] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -807,4 +835,8 @@ pub static ALL: [&Fixture; 50] = [
     &CLAIMSTEP_PRESERVES,
     &DIAMOND,
     &DIAMOND_PLUS,
+    &THREADS,
+    &QOPT,
+    &RERUN,
+    &RERUN_DROP,
 ];

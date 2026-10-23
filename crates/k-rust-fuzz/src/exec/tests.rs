@@ -207,7 +207,11 @@ fn a_leaf_holding_a_lookup_of_a_missing_key_is_not_ceil_free() {
     let partial = parse_pattern(&end.replace("dotk{}()", lookup)).expect("the edited state");
     let mut executor = imp().executor(&CaseOptions::default());
     let reasons = executor.judge_stuck_state(partial);
-    assert!(reasons.contains(&UncleanReason::NotCeilFree), "{reasons:?}");
+    // The reason names the partial function's K label.
+    assert!(
+        reasons.contains(&UncleanReason::NotCeilFree(Some("Map:lookup".to_owned()))),
+        "{reasons:?}"
+    );
     // The unedited end is ceil-free.
     let reasons = executor.judge_stuck_state(only_leaf(&result).state.clone());
     assert!(reasons.is_empty(), "{reasons:?}");
@@ -228,7 +232,10 @@ fn a_natural_looking_end_holding_a_partial_application_is_not_ceil_free() {
             .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
             .collect();
         assert_eq!(stuck.len(), 1, "{result:#?}");
-        assert_eq!(stuck[0].unclean, [UncleanReason::NotCeilFree]);
+        assert_eq!(
+            stuck[0].unclean,
+            [UncleanReason::NotCeilFree(Some("find".to_owned()))]
+        );
         assert!(!stuck[0].natural_end);
         for run_to_completion in [false, true] {
             for reached in [false, true] {
@@ -521,6 +528,140 @@ fn a_supplied_normal_end_pattern_decides_natural_ends() {
     assert_eq!(class(&four, &[false], false), OutcomeClass::Stuck);
 }
 
+// ---------------------------------------------------------------- threads: the every-<k> default
+
+fn threads() -> &'static Compiled {
+    support::THREADS.compiled()
+}
+
+/// THREADS' `<k>` lies under the multiplicity cell `<thread>`: the default normal end holds when
+/// every `<k>` cell is empty, none left included; IMP keeps the single-`<k>` default, and a
+/// supplied pattern is the campaign's.
+#[test]
+fn the_default_normal_end_follows_where_the_configuration_puts_k() {
+    let kind = |fixture: &Compiled, options: &CaseOptions| {
+        PatternCompiler::new(&fixture.definition())
+            .expect("the execution definition resolves")
+            .normal_end(&fixture.grammar, options)
+            .expect("the pattern compiles")
+            .kind()
+    };
+    let default = CaseOptions::default();
+    assert_eq!(kind(threads(), &default), NormalEndKind::EveryK);
+    assert_eq!(kind(imp(), &default), NormalEndKind::SingleK);
+    assert_eq!(kind(rules(), &default), NormalEndKind::SingleK);
+    let pattern = CaseOptions {
+        normal_end_pattern: Some("<errors> 0 </errors>".to_owned()),
+        ..CaseOptions::default()
+    };
+    assert_eq!(kind(threads(), &pattern), NormalEndKind::Pattern);
+}
+
+/// A finished threaded program is a natural end without a normal-end pattern, whether its
+/// finished threads were removed (no `<k>` left) or kept with an empty `<k>`; at base both were
+/// `unsupported` (`natural-end-undecided`), since the default applied only to one `<k>` cell.
+#[test]
+fn a_finished_threaded_program_is_a_miss_under_the_default() {
+    for options in budgets() {
+        for program in ["go(5) ; wait(5)", "noreap ; go(5) ; wait(5)", "fail(3)"] {
+            let result = threads().run_with(program, &options, &TargetNeeds::default(), &[]);
+            let leaf = only_leaf(&result);
+            assert_eq!(leaf.halt, HaltReasonOutput::Stuck, "{program}");
+            assert!(leaf.unclean.is_empty(), "{program}: {:?}", leaf.unclean);
+            assert!(leaf.natural_end, "{program}");
+            assert_eq!(
+                class(&result, &[false], false),
+                OutcomeClass::Miss,
+                "{program}"
+            );
+            assert_eq!(
+                classify_explained(&result, &[false], false).expect("no defect"),
+                (OutcomeClass::Miss, None)
+            );
+        }
+    }
+}
+
+/// A deadlocked thread leaves its computation in its `<k>`: an abnormal stop, `stuck`, also
+/// beside threads that finished.
+#[test]
+fn a_deadlocked_thread_is_stuck_under_the_default() {
+    for program in ["go(5) ; wait(4)", "noreap ; go(5) ; wait(4)"] {
+        let result = threads().run(program);
+        let leaf = only_leaf(&result);
+        assert!(leaf.is_clean(), "{program}: {:?}", leaf.unclean);
+        assert!(!leaf.natural_end_undecided(), "{program}");
+        assert!(!leaf.natural_end, "{program}");
+        assert_eq!(
+            class(&result, &[false], false),
+            OutcomeClass::Stuck,
+            "{program}"
+        );
+    }
+}
+
+/// A semantics that removes a thread on error: under the default its end is a natural end (no
+/// computation is left in any thread), which is the documented limit of the convention; with a
+/// pattern over `<errors>` the pattern decides, as for any definition.
+#[test]
+fn a_thread_removed_on_error_follows_a_supplied_pattern() {
+    let crashed = threads().run("fail(0)");
+    assert!(only_leaf(&crashed).natural_end);
+    assert_eq!(class(&crashed, &[false], false), OutcomeClass::Miss);
+    let options = CaseOptions {
+        normal_end_pattern: Some("<errors> 0 </errors>".to_owned()),
+        ..CaseOptions::default()
+    };
+    let crashed = threads().run_with("fail(0)", &options, &TargetNeeds::default(), &[]);
+    assert!(!only_leaf(&crashed).natural_end);
+    assert_eq!(class(&crashed, &[false], false), OutcomeClass::Stuck);
+    let finished = threads().run_with("fail(3)", &options, &TargetNeeds::default(), &[]);
+    assert!(only_leaf(&finished).natural_end);
+    assert_eq!(class(&finished, &[false], false), OutcomeClass::Miss);
+}
+
+/// Review N1: `<k>` under a `?` cell absent from the initial configuration, the program in
+/// `<code>`. A leaf with no `<k>` left is not a natural end when the initial configuration had
+/// no `<k>` either: `bad(3)` stopped having done nothing, and was `miss` before the hardening.
+#[test]
+fn no_k_left_is_no_natural_end_when_the_initial_configuration_had_none() {
+    let fixture = support::QOPT.compiled();
+    let kind = PatternCompiler::new(&fixture.definition())
+        .expect("the execution definition resolves")
+        .normal_end(&fixture.grammar, &CaseOptions::default())
+        .expect("the pattern compiles")
+        .kind();
+    assert_eq!(kind, NormalEndKind::EveryK);
+    for program in ["bad(3)", "start(3)"] {
+        let result = fixture.run(program);
+        let leaf = only_leaf(&result);
+        assert_eq!(leaf.halt, HaltReasonOutput::Stuck, "{program}");
+        assert!(!leaf.natural_end, "{program}");
+        assert_eq!(
+            leaf.unclean,
+            [UncleanReason::NaturalEndUndecided],
+            "{program}"
+        );
+        assert_eq!(
+            classify_explained(&result, &[false], false).expect("no defect"),
+            (
+                OutcomeClass::Unsupported,
+                Some(UnjudgedReason::NaturalEndUndecided)
+            ),
+            "{program}"
+        );
+    }
+    // The answer is kept per executor: a second run on the same executor agrees.
+    let mut executor = fixture.executor(&CaseOptions::default());
+    let shape = CaseRequestShape::new(&CaseOptions::default(), &TargetNeeds::default());
+    for _ in 0..2 {
+        let result = executor
+            .run(&fixture.initial_of("bad(3)"), &shape, &[], None)
+            .expect("no solver prelude fails");
+        assert!(!only_leaf(&result).natural_end);
+    }
+}
+
 // ---------------------------------------------------------------- stops and refusals
 
 #[test]
@@ -673,7 +814,7 @@ fn a_leaf_unclean_beyond_its_halt_is_unsupported_whether_or_not_it_reaches() {
     use UncleanReason as U;
     let reasons = [
         U::Undecided,
-        U::NotCeilFree,
+        U::NotCeilFree(None),
         U::ImplementationChosenValue,
         U::ContradictedClaim,
         U::IterationExhaustion,
@@ -1044,7 +1185,10 @@ fn a_cut_leaf_is_judged_and_reaches_unfinished_only_when_clean_apart_from_its_ha
     assert_eq!(cut.len(), 1, "{result:#?}");
     assert_eq!(
         cut[0].unclean,
-        [UncleanReason::Halt, UncleanReason::NotCeilFree]
+        [
+            UncleanReason::Halt,
+            UncleanReason::NotCeilFree(Some("find".to_owned()))
+        ]
     );
     let reached: Vec<bool> = result
         .leaves
@@ -1238,6 +1382,122 @@ fn a_vanished_candidate_s_chosen_value_flags_the_all_paths_run() {
         );
         assert!(!one_path.run_facts_off_leaves);
     }
+}
+
+// ---------------------------------------------------------------- reasons (FZ-UNSUPPORTED)
+
+fn reason(result: &CaseResult, reached: &[bool], run_to_completion: bool) -> UnjudgedReason {
+    let (class, reason) =
+        classify_explained(result, reached, run_to_completion).expect("no engine defect");
+    assert_eq!(class, OutcomeClass::Unsupported, "{result:#?}");
+    reason.expect("an unsupported case has a reason")
+}
+
+#[test]
+fn an_unsupported_case_names_the_reason_the_engine_decided() {
+    // A leaf holding an undefined application of the partial function `find` (TAINT `get(2)`).
+    let partial = taint().run("get(2)");
+    let none = vec![false; partial.leaves.len()];
+    assert_eq!(reason(&partial, &none, false), UnjudgedReason::NotCeilFree);
+    // A contradicted `total` claim met in the run (TAINT `guard(0)`).
+    let claim = taint().run("guard(0)");
+    assert_eq!(
+        reason(&claim, &[false], false),
+        UnjudgedReason::ContradictedClaim
+    );
+    // VANISH `pick(1, 2)` on all paths: under the work budget k-rust copies every run fact onto
+    // every leaf (KINK-27's conservative copy), so the vanished path's chosen value is on the
+    // surviving leaf; without a budget it is on no leaf.
+    let fixture = support::VANISH.compiled();
+    let text = include_str!("../../tests/data/vanish/pick.pgm");
+    let budgeted = CaseOptions {
+        paths: PathMode::AllPaths,
+        ..CaseOptions::default()
+    };
+    let copied = fixture.run_with(text, &budgeted, &TargetNeeds::default(), &[]);
+    assert_eq!(
+        reason(&copied, &[false], false),
+        UnjudgedReason::ImplementationChosenValue
+    );
+    let unbudgeted = CaseOptions {
+        max_depth: Some(10_000),
+        ..budgeted
+    };
+    let off = fixture.run_with(text, &unbudgeted, &TargetNeeds::default(), &[]);
+    assert_eq!(
+        reason(&off, &[false], false),
+        UnjudgedReason::RunFactOffLeaves
+    );
+    // A target reached on the state before an undefined step, without run-to-completion
+    // (RULES `div(10, 0)`); with it the case is `reached-unfinished`.
+    let undefined = rules().run("div(10, 0)");
+    assert_eq!(only_leaf(&undefined).halt, HaltReasonOutput::Trivial);
+    assert_eq!(
+        reason(&undefined, &[true], false),
+        UnjudgedReason::ReachedUndefinedStep
+    );
+    assert_eq!(
+        class(&undefined, &[true], true),
+        OutcomeClass::ReachedUnfinished
+    );
+}
+
+#[test]
+fn reasons_of_halts_failures_and_natural_ends() {
+    use HaltReasonOutput as H;
+    for (halt, expected) in [
+        (H::Indeterminate, UnjudgedReason::HaltIndeterminate),
+        (H::UnsupportedHook, UnjudgedReason::HaltUnsupportedHook),
+        (
+            H::SimplificationError,
+            UnjudgedReason::HaltSimplificationError,
+        ),
+        (H::Vacuous, UnjudgedReason::HaltVacuous),
+    ] {
+        let mut halted = halted(halt);
+        halted.depth = 2;
+        assert_eq!(reason(&result(vec![halted]), &[false], false), expected);
+    }
+    // A clean leaf whose natural end is undecided.
+    let undecided = leaf(H::Stuck, &[UncleanReason::NaturalEndUndecided], false);
+    assert_eq!(
+        reason(&result(vec![undecided.clone()]), &[false], false),
+        UnjudgedReason::NaturalEndUndecided
+    );
+    // Of two leaves' reasons, the first in the declared order.
+    let partial = leaf(H::Stuck, &[UncleanReason::NotCeilFree(None)], false);
+    assert_eq!(
+        reason(&result(vec![undecided, partial]), &[false, false], false),
+        UnjudgedReason::NotCeilFree
+    );
+    // A reach on a path cut by the work bound, without run-to-completion.
+    assert_eq!(
+        reason(&result(vec![halted(H::WorkBound)]), &[true], false),
+        UnjudgedReason::ReachedCutPath
+    );
+    // An `Err` result other than a clock stop or a refused state.
+    let failed = CaseResult {
+        failure: Some(CaseFailure::other("boom")),
+        ..result(Vec::new())
+    };
+    assert_eq!(reason(&failed, &[], false), UnjudgedReason::BackendError);
+    // A hit candidate outside the determinism contract without a clock (a load stack stop).
+    let unstable = CaseResult {
+        load_records: vec![LoadRecord {
+            kind: LOAD_STACK_STOP.to_owned(),
+            detail: "1 stop".to_owned(),
+        }],
+        ..result(vec![natural()])
+    };
+    assert_eq!(
+        reason(&unstable, &[true], false),
+        UnjudgedReason::StackStops
+    );
+    // Every other class has no reason.
+    assert_eq!(
+        classify_explained(&result(vec![natural()]), &[false], false).expect("no defect"),
+        (OutcomeClass::Miss, None)
+    );
 }
 
 #[test]

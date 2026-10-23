@@ -13,6 +13,7 @@ use k_rust_fuzz::{
     report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
     spec::DEFAULT_REJECTION_CAP,
     spec::PathMode,
+    exec::UnjudgedReason,
     target::DifferentialTarget,
     values::{Constraints, GenerationBounds, IntRange, Value},
 };
@@ -20,7 +21,7 @@ use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIAMOND, DIAMOND_PLUS, Fixture, IMP_ADD_COMMUTED,
-    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL,
+    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL, RERUN, RERUN_DROP,
 };
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
@@ -566,4 +567,39 @@ fn a_mark_that_a_state_set_merge_moved_to_the_result_list_is_no_evidence() {
         "{:?}",
         report.outcome
     );
+}
+
+#[test]
+fn a_re_run_case_is_judged_and_explained_by_the_re_run() {
+    // INT7 (the merge of FZ-DIFFEND and FZ-UNSUPPORTED): RERUN_DROP's one path reaches a(N),
+    // inside the baseline's set, and misses the baseline's data end c(N), so the one-path mode
+    // re-runs it on all paths. The class, the reason and the cut come from that all-paths
+    // result in the all-paths mode: its set {a(N), c(N)} lacks the baseline's b(opaque(N)),
+    // which is not data, so no case can be judged. Judging the one path in the one-path mode
+    // would give `miss`; judging it as an all-paths set would remove c(N), a false kill.
+    for paths in [PathMode::OnePath, PathMode::AllPaths] {
+        let mut spec = spec_on(&RERUN, &RERUN_DROP, "rerun/go.pgm", None);
+        spec.holes[0] = int_hole("N", "rerun/go.pgm", "5", "5", 9);
+        spec.proposers.explicit.clear();
+        spec.options.paths = paths;
+        let report = Campaign::new(spec)
+            .expect("valid")
+            .run(Budget::Cases(4), None);
+        assert!(
+            report.engine_defects.is_empty(),
+            "{paths:?}: {:?}",
+            report.engine_defects
+        );
+        assert!(report.no_witness().is_some(), "{paths:?}: {:?}", report.outcome);
+        assert_eq!(
+            report.totals.classes,
+            BTreeMap::from([(OutcomeClass::Unsupported, 4)]),
+            "{paths:?}"
+        );
+        assert_eq!(
+            report.totals.unsupported_reasons,
+            BTreeMap::from([(UnjudgedReason::BaselineEndNotData, 4)]),
+            "{paths:?}"
+        );
+    }
 }

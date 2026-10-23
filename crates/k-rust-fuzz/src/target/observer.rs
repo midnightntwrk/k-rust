@@ -57,7 +57,10 @@ use serde_json::Value;
 use super::{HitSite, Judgement, Resolved, ResolvedTarget};
 use crate::{
     error::{CampaignError, TargetProblem},
-    exec::{self, Abort, CaseRequestShape, CaseResult, DeterminismBreak, Executor, OutcomeClass},
+    exec::{
+        self, Abort, CaseRequestShape, CaseResult, DeterminismBreak, Executor, OutcomeClass,
+        UnjudgedReason,
+    },
     report::EngineDefect,
 };
 
@@ -455,8 +458,8 @@ impl ResolvedTarget {
         let run_to_completion = self.target.run_to_completion;
         if result.failure.is_some() {
             // A failed run is classed by its failure alone.
-            return exec::classify(result, &[], run_to_completion)
-                .map(|class| (plain(class), None, None));
+            return exec::classify_explained(result, &[], run_to_completion)
+                .map(|(class, reason)| (explained(class, reason), None, None));
         }
         let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
         let breaks = result.determinism_breaks();
@@ -481,11 +484,16 @@ impl ResolvedTarget {
         }
         let paths = walk_paths(&**handle, leaves);
         let reached: Vec<bool> = paths.hit_steps.iter().map(Option::is_some).collect();
-        let class = exec::classify(result, &reached, run_to_completion)?;
+        let (class, reason) = exec::classify_explained(result, &reached, run_to_completion)?;
         if class != OutcomeClass::Hit && paths.unobservable {
             // A configuration the observer could not be shown may lead to the target: never a
             // `miss`.
-            return Ok((plain(OutcomeClass::Unsupported), None, None));
+            let reason = reason.unwrap_or(UnjudgedReason::Unobservable);
+            return Ok((
+                explained(OutcomeClass::Unsupported, Some(reason)),
+                None,
+                None,
+            ));
         }
         let (hit_site, hit_step) = if class == OutcomeClass::Hit {
             let leaf = result
@@ -509,6 +517,7 @@ impl ResolvedTarget {
                 class,
                 hit_site,
                 blocked: false,
+                reason,
             },
             hit_step,
             paths.progress,
@@ -516,12 +525,14 @@ impl ResolvedTarget {
     }
 }
 
-/// The judgement of a class with no hit site and no blocked rule.
-fn plain(class: OutcomeClass) -> Judgement {
+/// The judgement of a class with no hit site and no blocked rule, and the reason of an
+/// `unsupported` class.
+fn explained(class: OutcomeClass, reason: Option<UnjudgedReason>) -> Judgement {
     Judgement {
         class,
         hit_site: None,
         blocked: false,
+        reason,
     }
 }
 
@@ -535,12 +546,23 @@ fn unobserved(
     clock: bool,
 ) -> Result<Judgement, EngineDefect> {
     let unreached = vec![false; result.leaves.len()];
-    let class = exec::classify(result, &unreached, run_to_completion)?;
-    Ok(plain(match class {
-        OutcomeClass::Unsupported | OutcomeClass::Rejected | OutcomeClass::Timeout => class,
-        _ if clock => OutcomeClass::Timeout,
-        _ => OutcomeClass::Unsupported,
-    }))
+    let (class, reason) = exec::classify_explained(result, &unreached, run_to_completion)?;
+    Ok(match class {
+        OutcomeClass::Unsupported | OutcomeClass::Rejected | OutcomeClass::Timeout => {
+            explained(class, reason)
+        }
+        _ if clock => explained(OutcomeClass::Timeout, None),
+        _ => {
+            // Outside the determinism contract without a clock: the break is the reason.
+            let reason = result
+                .determinism_breaks()
+                .into_iter()
+                .map(UnjudgedReason::of_break)
+                .min()
+                .unwrap_or(UnjudgedReason::EngineDefect);
+            explained(OutcomeClass::Unsupported, Some(reason))
+        }
+    })
 }
 
 fn defect(description: &str) -> EngineDefect {

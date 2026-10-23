@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    exec::OutcomeClass,
+    exec::{NormalEndKind, OutcomeClass, UnjudgedReason},
     holes::HoleLocation,
     spec::{Budget, CaseOptions, PathMode, ProposerConfig},
     values::{Constraints, GenerationBounds, Value},
@@ -59,6 +59,10 @@ pub struct FuzzReport {
     pub outcome: CampaignOutcome,
     /// Counts over every case.
     pub totals: Totals,
+    /// Which normal end each definition's classes rest on (ARCHITECTURE 5.2); absent from a
+    /// report that ran no case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normal_end: Option<NormalEnds>,
     /// Records the definitions' loads observed, reported once per campaign; they taint no leaf
     /// (T-5).
     pub load_records: Vec<LoadRecord>,
@@ -702,6 +706,15 @@ pub struct Totals {
     /// Rejected cases per reason; reasons with no case are omitted. The counts sum to the
     /// `rejected` entry of [`Self::classes`].
     pub rejections: BTreeMap<RejectionReason, u64>,
+    /// `unsupported` cases per reason ([`UnjudgedReason`]); reasons with no case are omitted.
+    /// Each case is counted once, under the first of its reasons in [`UnjudgedReason`]'s order,
+    /// so the counts sum to the `unsupported` entry of [`Self::classes`].
+    #[serde(default)]
+    pub unsupported_reasons: BTreeMap<UnjudgedReason, u64>,
+    /// `baseline-incomplete` cases per reason, counted as [`Self::unsupported_reasons`] are;
+    /// the counts sum to the `baseline-incomplete` entry of [`Self::classes`].
+    #[serde(default)]
+    pub baseline_incomplete_reasons: BTreeMap<UnjudgedReason, u64>,
     /// Rules the cases reached (see [`CoverageTotals`]).
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
@@ -723,6 +736,18 @@ pub struct Totals {
     /// the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solve: Option<SolveTotals>,
+}
+
+/// Which normal end the classes of each definition of a campaign rest on (ARCHITECTURE 5.2):
+/// the campaign's pattern, or the default on the one `<k>` cell or on every `<k>` cell.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct NormalEnds {
+    /// The baseline's.
+    pub baseline: NormalEndKind,
+    /// The mutant's, for a differential campaign.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutant: Option<NormalEndKind>,
 }
 
 /// The rules the campaign's cases reached (ARCHITECTURE 6.1, 9.3).
@@ -1129,6 +1154,8 @@ mod tests {
                     (RejectionReason::RoundTrip, 1),
                     (RejectionReason::BackendRefused, 1),
                 ]),
+                unsupported_reasons: BTreeMap::from([(UnjudgedReason::NaturalEndUndecided, 2)]),
+                baseline_incomplete_reasons: BTreeMap::new(),
                 coverage: CoverageTotals {
                     applied: BTreeSet::from(["b".to_owned(), "a".to_owned()]),
                     matched: BTreeSet::from(["c".to_owned()]),
@@ -1140,6 +1167,10 @@ mod tests {
                 case_sequence_digest: digest_hex(b"cases"),
                 solve: None,
             },
+            normal_end: Some(NormalEnds {
+                baseline: NormalEndKind::EveryK,
+                mutant: None,
+            }),
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),
                 detail: "total".into(),
@@ -1218,9 +1249,11 @@ mod tests {
             r#""totals":{"cases":40,"work":1234,"#,
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
+            r#""unsupported-reasons":{"natural-end-undecided":2},"#,
+            r#""baseline-incomplete-reasons":{},"#,
             r#""coverage":{"applied":["a","b"],"matched":["c"]},"target-blocked":3,"#,
             r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
-            r#""case-sequence-digest":"CASES"},"#,
+            r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,
             r#""load-records":[{"kind":"contradicted-claim","#,
             r#""detail":"total"}],"sort-overrides":[{"hole":"X","sort":"Id","#,
             r#""refusal":"Token"}],"warnings":["statically-unreachable"],"#,

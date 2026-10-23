@@ -26,7 +26,10 @@ pub(crate) use rule::resolve_rule;
 use crate::{
     assemble::ProgramAssembly,
     error::{CampaignError, TargetProblem},
-    exec::{self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds},
+    exec::{
+        self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds,
+        UnjudgedReason,
+    },
     report::EngineDefect,
     spec::{CompiledDefinition, PathMode},
 };
@@ -165,6 +168,8 @@ pub(crate) struct Judgement {
     /// The target rule is in coverage `matched` but not `applied`: its condition was entered
     /// and it built no successor (a blocked rule, ARCHITECTURE 6.2).
     pub(crate) blocked: bool,
+    /// Why the case is `unsupported` ([`crate::exec::reasons`]); `Some` exactly then.
+    pub(crate) reason: Option<UnjudgedReason>,
 }
 
 /// A target resolved against one definition: rules mapped to catalog ids, patterns compiled for
@@ -411,12 +416,14 @@ impl ResolvedTarget {
                 ..
             }
         );
-        let mut class = exec::classify(result, &reached, run_to_completion)?;
+        let (mut class, mut reason) =
+            exec::classify_explained(result, &reached, run_to_completion)?;
         if class == OutcomeClass::Hit && coverage_mode && result.run_facts_off_leaves {
             // A candidate that vanished from every leaf (its successor was no state, and a
             // sibling took its instances) left its applications in coverage and its facts on no
             // leaf, so the coverage fact may rest on that unclean work (ARCHITECTURE 5.3, D18).
             class = OutcomeClass::Unsupported;
+            reason = Some(UnjudgedReason::RunFactOffLeaves);
         }
         let hit_site = if class == OutcomeClass::Hit {
             let leaf = result
@@ -448,6 +455,7 @@ impl ResolvedTarget {
             class,
             hit_site,
             blocked,
+            reason,
         })
     }
 }

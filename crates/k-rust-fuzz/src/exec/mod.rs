@@ -11,6 +11,7 @@
 //! so that every target kind shares one precedence: the target's judge decides which leaves
 //! reach it, and `classify` decides what that makes the case.
 
+pub mod reasons;
 pub(crate) mod run;
 #[cfg(test)]
 mod tests;
@@ -26,6 +27,7 @@ use k_rust::{
 };
 use serde::{Deserialize, Serialize};
 
+pub use reasons::UnjudgedReason;
 pub(crate) use run::{CompiledPattern, Executor, LeafMatcher, NormalEnd, PatternCompiler};
 
 use crate::{
@@ -208,8 +210,9 @@ pub enum UncleanReason {
     /// (D16, review B2). Not a decided state.
     Undecided,
     /// Its internalized term is not `ceil_free`: an application of a partial function or a
-    /// malformed map or set (T-1).
-    NotCeilFree,
+    /// malformed map or set (T-1). The K label of the first partial function application found
+    /// (in preorder), when there is one.
+    NotCeilFree(Option<String>),
     /// Its diagnostics carry an implementation-chosen value.
     ImplementationChosenValue,
     /// Its diagnostics carry a contradicted claim.
@@ -246,6 +249,26 @@ pub enum UncleanReason {
     /// matters only where the natural end does: `run-to-completion`, and `miss` against `stuck`
     /// (FZ-05 review N6).
     NaturalEndUndecided,
+}
+
+/// Which normal end a campaign's classes rest on (ARCHITECTURE 5.2): what makes a clean
+/// `stuck` leaf a natural end (`miss`, a run-to-completion hit, a differential end) rather than
+/// an abnormal stop (`stuck`).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NormalEndKind {
+    /// The default for a configuration with one `<k>` cell, not under a multiplicity cell: the
+    /// leaf matches `<k> .K </k>` with the rest of the configuration free.
+    SingleK,
+    /// The default for a configuration whose `<k>` cell lies under a cell of multiplicity `*`
+    /// or `?` (threads): every `<k>` cell of the leaf holds `.K`, and a leaf with no `<k>` cell
+    /// left (every thread finished and was removed) is a natural end too when the initial
+    /// configuration had a `<k>` cell. A semantics that
+    /// removes a thread on error, or leaves a result in a finished thread's `<k>`, needs its own
+    /// pattern.
+    EveryK,
+    /// The campaign's normal-end pattern.
+    Pattern,
 }
 
 /// A fact of a case that puts it outside the determinism contract (ARCHITECTURE 5.4). Such a
@@ -596,8 +619,27 @@ pub(crate) fn classify(
     reached: &[bool],
     run_to_completion: bool,
 ) -> Result<OutcomeClass, EngineDefect> {
+    classify_explained(result, reached, run_to_completion).map(|(class, _)| class)
+}
+
+/// [`classify`], with the reason of an `unsupported` class ([`reasons`]): `Some` exactly when the
+/// class is `unsupported`. Of the reasons of the leaves that are `unsupported` (or of the fact
+/// that lifts the case to `unsupported`), the first in [`UnjudgedReason`]'s order.
+///
+/// # Errors
+///
+/// As [`classify`].
+pub(crate) fn classify_explained(
+    result: &CaseResult,
+    reached: &[bool],
+    run_to_completion: bool,
+) -> Result<(OutcomeClass, Option<UnjudgedReason>), EngineDefect> {
     if let Some(failure) = &result.failure {
-        return Ok(failure_class(result, failure));
+        let class = failure_class(result, failure);
+        return Ok((
+            class,
+            (class == OutcomeClass::Unsupported).then(|| UnjudgedReason::of_failure(failure)),
+        ));
     }
     if reached.len() != result.leaves.len() {
         return Err(defect(format!(
@@ -612,7 +654,7 @@ pub(crate) fn classify(
         .all(|leaf| leaf.halt == HaltReasonOutput::Vacuous && leaf.depth == 0)
     {
         // Also a result with no leaf: the initial state has no instance.
-        return Ok(OutcomeClass::Rejected);
+        return Ok((OutcomeClass::Rejected, None));
     }
     let breaks = result.determinism_breaks();
     let mut best = None::<OutcomeClass>;
@@ -624,6 +666,7 @@ pub(crate) fn classify(
     if result.safety_limit_hit {
         consider(OutcomeClass::Timeout);
     }
+    let mut reasons = Vec::new();
     for (index, (leaf, reached)) in result.leaves.iter().zip(reached).enumerate() {
         let class = leaf_class(leaf, *reached, run_to_completion)
             .map_err(|description| defect(format!("leaf {index}: {description}")))?;
@@ -631,18 +674,57 @@ pub(crate) fn classify(
             if breaks.contains(&DeterminismBreak::Clock) {
                 OutcomeClass::Timeout
             } else {
+                reasons.extend(breaks.iter().copied().map(UnjudgedReason::of_break));
                 OutcomeClass::Unsupported
             }
         } else {
+            if class == OutcomeClass::Unsupported {
+                reasons.push(leaf_reason(leaf, *reached));
+            }
             class
         };
         consider(class);
     }
     let best = best.expect("a result with a leaf has a class");
     if result.run_facts_off_leaves && matches!(best, OutcomeClass::Miss | OutcomeClass::Stuck) {
-        return Ok(OutcomeClass::Unsupported);
+        return Ok((
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::RunFactOffLeaves),
+        ));
     }
-    Ok(best)
+    let reason = (best == OutcomeClass::Unsupported).then(|| {
+        reasons
+            .into_iter()
+            .min()
+            .unwrap_or(UnjudgedReason::EngineDefect)
+    });
+    Ok((best, reason))
+}
+
+/// Why a leaf whose class is `unsupported` is so (the [`OutcomeClass`] rustdoc, "The class of
+/// one leaf"): a reason beyond its halt; for a clean leaf, its undecided natural end; for a
+/// leaf unclean by its halt alone, that halt, or, when it reaches the target, that the target
+/// was reached on no end.
+fn leaf_reason(leaf: &LeafReport, reached: bool) -> UnjudgedReason {
+    if let Some(reason) = reasons::beyond_halt(leaf) {
+        return reason;
+    }
+    if leaf.is_clean() {
+        return UnjudgedReason::NaturalEndUndecided;
+    }
+    match UnjudgedReason::of_halt(leaf.halt) {
+        None if reached && leaf.halt == HaltReasonOutput::Trivial => {
+            UnjudgedReason::ReachedUndefinedStep
+        }
+        Some(
+            UnjudgedReason::WorkBound
+            | UnjudgedReason::DepthBound
+            | UnjudgedReason::Clock
+            | UnjudgedReason::Cancelled,
+        ) if reached => UnjudgedReason::ReachedCutPath,
+        Some(reason) => reason,
+        None => UnjudgedReason::EngineDefect,
+    }
 }
 
 /// The class of an `Err` result (FZ-01 review S8).

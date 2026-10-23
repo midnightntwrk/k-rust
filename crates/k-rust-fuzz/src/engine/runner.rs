@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use k_rust::backend::CancellationToken;
 
 use crate::{
-    exec::{Abort, OutcomeClass},
+    exec::{Abort, OutcomeClass, UnjudgedReason},
     report::{HoleValue, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide},
     score::{Guards, records::Compared},
     values::Value,
@@ -47,6 +47,9 @@ pub(crate) struct CaseRun {
     pub(crate) outside_determinism: bool,
     /// Why the case was rejected; `Some` exactly when `class` is `rejected`.
     pub(crate) rejection: Option<RejectionReason>,
+    /// Why the case could not be judged; `Some` exactly when `class` is `unsupported` or
+    /// `baseline-incomplete` ([`crate::exec::reasons`]).
+    pub(crate) unjudged: Option<UnjudgedReason>,
     /// Records the definitions' loads observed (T-5).
     pub(crate) load_records: Vec<LoadRecord>,
     /// Engine defects the case's judgement met, without their case number.
@@ -91,6 +94,7 @@ impl CaseRun {
             progress: None,
             outside_determinism: false,
             rejection: Some(reason),
+            unjudged: None,
             load_records: Vec::new(),
             defects: Vec::new(),
             warnings: Vec::new(),

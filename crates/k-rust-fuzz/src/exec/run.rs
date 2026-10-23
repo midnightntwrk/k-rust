@@ -7,7 +7,7 @@ use k_rust::{
         ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, HaltReasonOutput,
         ObservedInOutput, ObservedRequest, StopCause, search::prepare_backend_match_target,
     },
-    definition::{AttributeKey, Attributes, ResolvedDefinition},
+    definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
     k_rust_backend::{
         definition::BackendDefinition,
         evaluation::{EvaluationMode, with_evaluation},
@@ -16,15 +16,16 @@ use k_rust::{
         simplify::SimplificationOptions,
         smt::{SmtError, SmtSolver},
         stop::Stoppable,
-        term::{HeadRole, Term},
+        term::{FunctionType, HeadRole, SymbolType, Term, TermKind},
     },
     kompile::{CompiledSearchPattern, ProgramGrammar, compile_search_pattern},
     kore::{ast::Pattern as KorePattern, codec},
+    names::{BuiltinSort, WellKnownSymbol},
 };
 
 use super::{
     Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
-    LOAD_STACK_STOP, LeafReport, UncleanReason,
+    LOAD_STACK_STOP, LeafReport, NormalEndKind, UncleanReason,
 };
 use crate::{
     assemble::ProgramAssembly,
@@ -45,6 +46,9 @@ const DEFAULT_NORMAL_END: &str = "<k> .K </k>";
 pub(crate) struct PatternCompiler {
     execution_resolved: ResolvedDefinition,
     main_module: String,
+    /// The configuration's `<k>` cell lies under a cell of multiplicity `*` or `?`
+    /// ([`k_under_multiplicity`]), so the default normal end is [`NormalEndKind::EveryK`].
+    k_under_multiplicity: bool,
 }
 
 impl PatternCompiler {
@@ -58,9 +62,12 @@ impl PatternCompiler {
             .map_err(|error| CampaignError::Definition {
                 message: format!("the execution definition does not resolve: {error}"),
             })?;
+        let k_under_multiplicity =
+            k_under_multiplicity(&execution_resolved, &definition.main_module);
         Ok(Self {
             execution_resolved,
             main_module: definition.main_module.clone(),
+            k_under_multiplicity,
         })
     }
 
@@ -85,7 +92,10 @@ impl PatternCompiler {
         .map_err(|error| error.to_string())
     }
 
-    /// Compile the normal-termination pattern of `options`: the given one, or `<k> .K </k>`.
+    /// Compile the normal-termination pattern of `options`: the given one
+    /// ([`NormalEndKind::Pattern`]), or `<k> .K </k>`, which is judged on every `<k>` cell when
+    /// the configuration's `<k>` cell lies under a multiplicity cell ([`NormalEndKind::EveryK`])
+    /// and on the one `<k>` cell otherwise ([`NormalEndKind::SingleK`]).
     ///
     /// # Errors
     ///
@@ -95,14 +105,15 @@ impl PatternCompiler {
         grammar: &ProgramGrammar,
         options: &CaseOptions,
     ) -> Result<NormalEnd, CampaignError> {
-        let (text, default) = match options.normal_end_pattern.as_deref() {
-            Some(pattern) => (pattern, false),
-            None => (DEFAULT_NORMAL_END, true),
+        let (text, kind) = match options.normal_end_pattern.as_deref() {
+            Some(pattern) => (pattern, NormalEndKind::Pattern),
+            None if self.k_under_multiplicity => (DEFAULT_NORMAL_END, NormalEndKind::EveryK),
+            None => (DEFAULT_NORMAL_END, NormalEndKind::SingleK),
         };
         let pattern = self
             .compile(grammar, text)
             .map_err(|message| CampaignError::NormalEndPattern { message })?;
-        Ok(NormalEnd { pattern, default })
+        Ok(NormalEnd { pattern, kind })
     }
 }
 
@@ -124,9 +135,80 @@ impl CompiledPattern {
 #[derive(Clone, Debug)]
 pub(crate) struct NormalEnd {
     pattern: CompiledPattern,
-    /// It is the default `<k> .K </k>`, which applies only to a configuration with exactly one
-    /// `<k>` cell.
-    default: bool,
+    /// Which normal end applies: the campaign's pattern, or the default `<k> .K </k>` on the one
+    /// `<k>` cell or on every `<k>` cell.
+    kind: NormalEndKind,
+}
+
+impl NormalEnd {
+    /// Which normal end applies.
+    pub(crate) fn kind(&self) -> NormalEndKind {
+        self.kind
+    }
+}
+
+/// Whether the `<k>` cell of the configuration `definition`'s main module declares lies under
+/// (or is) a cell of multiplicity `*` or `?`, so that a configuration may hold any number of
+/// `<k>` cells, none included.
+///
+/// The configuration's cells are the productions with the `cell` attribute, each with its
+/// declared `multiplicity`; a cell's children are the cell sorts among its non-terminals (a
+/// child of multiplicity `*` appears through its collection sort, which is no cell sort). Cell
+/// names are unique in a configuration, so the `<k>` cell has one path from `<generatedTop>`.
+/// The answer is `true` exactly when that path is not one of multiplicity-1 cells: the `<k>`
+/// cell is declared, and it cannot be reached from `<generatedTop>` through cells of
+/// multiplicity 1 alone. A definition whose top cell or `<k>` cell is not found gives `false`,
+/// which keeps the single-`<k>` default.
+fn k_under_multiplicity(definition: &ResolvedDefinition, main_module: &str) -> bool {
+    let Some(module) = definition.module_id(main_module) else {
+        return false;
+    };
+    // Cell sort -> (multiplicity is 1, non-terminal sorts).
+    let mut cells = std::collections::BTreeMap::<String, (bool, Vec<String>)>::new();
+    for sentence in definition.sentences(module) {
+        let Sentence::Production {
+            sort,
+            items,
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if !attributes.has(AttributeKey::Cell) {
+            continue;
+        }
+        let single = attributes
+            .string(AttributeKey::Multiplicity)
+            .is_none_or(|multiplicity| multiplicity == "1");
+        let children = items.iter().filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort.name.clone()),
+            _ => None,
+        });
+        let entry = cells
+            .entry(sort.name.clone())
+            .or_insert_with(|| (single, Vec::new()));
+        entry.0 &= single;
+        entry.1.extend(children);
+    }
+    let top = BuiltinSort::GeneratedTopCell.k_name();
+    let k = k_rust::definition::configuration::cell_sort_name("k");
+    if !cells.contains_key(top) || !cells.contains_key(&k) {
+        return false;
+    }
+    let mut seen = std::collections::BTreeSet::from([top.to_owned()]);
+    let mut stack = vec![top.to_owned()];
+    while let Some(cell) = stack.pop() {
+        if cell == k {
+            return false;
+        }
+        for child in &cells[&cell].1 {
+            if cells.get(child).is_some_and(|(single, _)| *single) && seen.insert(child.clone()) {
+                stack.push(child.clone());
+            }
+        }
+    }
+    true
 }
 
 /// A pattern prepared for leaf matching in one definition: `compile_search_pattern` over the
@@ -265,8 +347,13 @@ fn only_free_constructors(term: &Term) -> bool {
 pub(crate) struct Executor {
     backend: Backend,
     normal_end: LeafMatcher,
-    /// The normal-termination pattern is the default `<k> .K </k>`.
-    default_normal_end: bool,
+    /// Which normal end applies ([`NormalEnd::kind`]).
+    normal_end_kind: NormalEndKind,
+    /// Under [`NormalEndKind::EveryK`], whether the definition's initial configuration holds a
+    /// `<k>` cell, found on the first leaf with no `<k>` cell left ([`initial_has_k`]) and kept:
+    /// the cells of the initial configuration are fixed by the configuration declaration, which
+    /// configuration variables only fill.
+    initial_has_k: std::cell::Cell<Option<bool>>,
     /// The pattern compiler, built on the first [`Self::compile_pattern`] when the executor was
     /// built from a compiled normal-end pattern without one.
     compiler: Option<PatternCompiler>,
@@ -385,7 +472,8 @@ impl Executor {
         Ok(Self {
             backend,
             normal_end: prepared,
-            default_normal_end: normal_end.default,
+            normal_end_kind: normal_end.kind,
+            initial_has_k: std::cell::Cell::new(None),
             compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
@@ -460,7 +548,8 @@ impl Executor {
         let request = shape.request(initial.clone());
         let judge = Judge {
             normal_end: &self.normal_end,
-            default_normal_end: self.default_normal_end,
+            normal_end_kind: self.normal_end_kind,
+            initial_has_k: &self.initial_has_k,
             matchers,
             options: SimplificationOptions {
                 max_iterations: self.max_simplification_iterations,
@@ -523,7 +612,8 @@ impl Executor {
         };
         let judge = Judge {
             normal_end: &self.normal_end,
-            default_normal_end: self.default_normal_end,
+            normal_end_kind: self.normal_end_kind,
+            initial_has_k: &self.initial_has_k,
             matchers: &[],
             options: SimplificationOptions::default(),
             constructor_only: false,
@@ -557,7 +647,8 @@ enum Execution {
 /// What one case's judgement needs besides the backend.
 struct Judge<'a> {
     normal_end: &'a LeafMatcher,
-    default_normal_end: bool,
+    normal_end_kind: NormalEndKind,
+    initial_has_k: &'a std::cell::Cell<Option<bool>>,
     matchers: &'a [&'a LeafMatcher],
     options: SimplificationOptions,
     constructor_only: bool,
@@ -583,6 +674,9 @@ struct Internal {
     reasons: Vec<UncleanReason>,
     /// The normal-termination pattern matched (a `stuck` leaf whose state was decided).
     normal_end: bool,
+    /// The every-`<k>` default matched a leaf with no `<k>` cell left: a natural end only when
+    /// the initial configuration held a `<k>` cell ([`Judge::judge`]).
+    vacuous: bool,
     matches: Vec<bool>,
     constructor_only: Option<bool>,
     /// Solver `unknown`s the leaf's matching met, in either evaluation mode (review 2, NI-2).
@@ -596,6 +690,10 @@ impl Judge<'_> {
         request: ExecuteRequest,
         execution: Execution,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+        // The initial state, kept for the one probe of whether it holds a `<k>` cell.
+        let probe = (self.normal_end_kind == NormalEndKind::EveryK
+            && self.initial_has_k.get().is_none())
+        .then(|| request.state.clone());
         let executed = match execution {
             Execution::Plain => backend.execute(request),
             Execution::Observed { rules } => {
@@ -609,7 +707,7 @@ impl Judge<'_> {
         }
         match executed {
             Ok(result) => {
-                let judged = self.judge(backend, &result)?;
+                let judged = self.judge(backend, &result, probe.as_ref())?;
                 Ok((judged, result.leaves))
             }
             Err(error) => Ok((self.failed(failure_of(&error)?), Vec::new())),
@@ -642,7 +740,12 @@ impl Judge<'_> {
         })
     }
 
-    fn judge(&self, backend: &mut Backend, result: &ExecutionResult) -> Result<CaseResult, Abort> {
+    fn judge(
+        &self,
+        backend: &mut Backend,
+        result: &ExecutionResult,
+        probe: Option<&KorePattern>,
+    ) -> Result<CaseResult, Abort> {
         let run_allowance_refusals = result
             .allowance_refusals
             .iter()
@@ -688,10 +791,31 @@ impl Judge<'_> {
                 constructor_only: None,
             });
         }
-        let internal = match self.judge_internally(backend, &leaves) {
+        let mut internal = match self.judge_internally(backend, &leaves) {
             Ok(internal) => internal,
             Err(error) => return Ok(self.failed(failure_of(&error)?)),
         };
+        // A leaf with no `<k>` cell left is a natural end only when the initial configuration
+        // held one: otherwise no thread ever ran there, and the program may have stopped
+        // elsewhere having done nothing (FZ-UNSUPPORTED review N1).
+        if internal
+            .iter()
+            .any(|judged| judged.vacuous && judged.normal_end)
+        {
+            let known = self.initial_has_k.get().or_else(|| {
+                let found = probe.and_then(|state| initial_has_k(backend, state));
+                if found.is_some() {
+                    self.initial_has_k.set(found);
+                }
+                found
+            });
+            if known != Some(true) {
+                for judged in internal.iter_mut().filter(|judged| judged.vacuous) {
+                    judged.normal_end = false;
+                    judged.reasons.push(UncleanReason::NaturalEndUndecided);
+                }
+            }
+        }
         let mut smt_unknowns = result.smt_unknowns;
         for (leaf, internal) in leaves.iter_mut().zip(internal) {
             smt_unknowns = smt_unknowns.saturating_add(internal.smt_unknowns);
@@ -847,7 +971,11 @@ impl Judge<'_> {
             internal.reasons.push(UncleanReason::Undecided);
         }
         if !attributes.ceil_free() {
-            internal.reasons.push(UncleanReason::NotCeilFree);
+            internal
+                .reasons
+                .push(UncleanReason::NotCeilFree(partial_application(
+                    &pattern.term,
+                )));
         }
         if !decided || !end_like {
             return Ok(internal);
@@ -856,21 +984,23 @@ impl Judge<'_> {
             internal.constructor_only = Some(attributes.constructor_like);
         }
         if leaf.halt == HaltReasonOutput::Stuck {
-            if self.default_normal_end && attributes.k_cells() != 1 {
-                internal.reasons.push(UncleanReason::NaturalEndUndecided);
-            } else {
-                match self.match_leaf(
-                    definition,
-                    solver,
-                    self.normal_end,
-                    &pattern,
-                    &mut internal,
-                )? {
-                    MatchVerdict::Matched => internal.normal_end = true,
-                    MatchVerdict::NotMatched => {}
-                    MatchVerdict::Undecided => {
-                        internal.reasons.push(UncleanReason::NaturalEndUndecided);
-                    }
+            let verdict = match self.normal_end_kind {
+                NormalEndKind::EveryK => {
+                    let verdict = every_k_cell_empty(&pattern.term);
+                    internal.vacuous =
+                        verdict == MatchVerdict::Matched && attributes.k_cells() == 0;
+                    verdict
+                }
+                NormalEndKind::SingleK if attributes.k_cells() != 1 => MatchVerdict::Undecided,
+                NormalEndKind::SingleK | NormalEndKind::Pattern => {
+                    self.match_leaf(definition, solver, self.normal_end, &pattern, &mut internal)?
+                }
+            };
+            match verdict {
+                MatchVerdict::Matched => internal.normal_end = true,
+                MatchVerdict::NotMatched => {}
+                MatchVerdict::Undecided => {
+                    internal.reasons.push(UncleanReason::NaturalEndUndecided);
                 }
             }
         }
@@ -928,6 +1058,185 @@ impl Judge<'_> {
         } else {
             MatchVerdict::Undecided
         })
+    }
+}
+
+/// The every-`<k>` default normal end on a decided leaf term (ARCHITECTURE 5.2, as amended by
+/// FZ-UNSUPPORTED): `Matched` when every `<k>` cell not nested in a `<k>` cell holds `.K`, none
+/// included; `NotMatched` when some `<k>` cell holds a K sequence `kseq(_, _)`, which is never
+/// `.K` (a sequence's head is a `KItem`, and `.K` is no `KItem`), whatever the other cells
+/// hold; `Undecided` otherwise (a cell holding a function application or anything else whose
+/// equality with `.K` the term alone does not decide). These are the verdicts the matcher gives
+/// `<k> .K </k>` on each cell: it matches `dotk` against `dotk`, refutes it against the
+/// constructor `kseq`, and refutes no function-headed subject.
+pub(super) fn every_k_cell_empty(term: &Term) -> MatchVerdict {
+    let mut verdict = MatchVerdict::Matched;
+    visit_k_cells(term, &mut |cell| {
+        let TermKind::Application { arguments, .. } = cell.kind() else {
+            verdict = both(verdict, MatchVerdict::Undecided);
+            return;
+        };
+        let cell_verdict = match arguments.as_slice() {
+            [contents] => match contents.kind() {
+                TermKind::Application {
+                    symbol, arguments, ..
+                } if symbol.is(WellKnownSymbol::DotK) && arguments.is_empty() => {
+                    MatchVerdict::Matched
+                }
+                TermKind::Application { symbol, .. } if symbol.is(WellKnownSymbol::KSeq) => {
+                    MatchVerdict::NotMatched
+                }
+                _ => MatchVerdict::Undecided,
+            },
+            _ => MatchVerdict::Undecided,
+        };
+        verdict = both(verdict, cell_verdict);
+    });
+    verdict
+}
+
+/// Whether the initial configuration `state` holds a `<k>` cell: `state` run to depth 0, so
+/// that the configuration's initializers are evaluated, and its one leaf internalized. `None`
+/// when that run or the internalization fails (then nothing is kept, and the leaf it was asked
+/// for stays undecided).
+fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
+    let request = ExecuteRequest {
+        max_depth: Some(0),
+        max_work: None,
+        max_breadth: None,
+        terminal_rules: Vec::new(),
+        cut_point_rules: Vec::new(),
+        stop_at_branch: false,
+        collect_coverage: false,
+        collect_offered: false,
+        trace: false,
+        step_timeout_ms: None,
+        ..ExecuteRequest::new(state.clone())
+    };
+    let result = backend.execute(request).ok()?;
+    let leaf = result.leaves.first()?;
+    let initial = codec::from_value(&leaf.state).ok()?;
+    backend
+        .with_solver_over(None, &[&initial], |definition, _solver| {
+            Ok::<_, BackendError>(
+                definition
+                    .admit_unverified(&initial, &[])
+                    .internalize_pattern()
+                    .ok()
+                    .map(|pattern| pattern.term.attributes().k_cells() > 0),
+            )
+        })
+        .ok()
+        .flatten()
+}
+
+/// The K label of the first application of a partial function in `term`, in preorder, looking
+/// only into subterms that are not `ceil_free`; `None` when the term is not ceil-free for
+/// another reason (a malformed map or set, a set variable).
+fn partial_application(term: &Term) -> Option<String> {
+    if term.attributes().ceil_free() {
+        return None;
+    }
+    let mut children: Vec<&Term> = Vec::new();
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
+                let name: &str = &symbol.name;
+                return Some(
+                    k_rust::kast::identifier::decode_label(name)
+                        .unwrap_or_else(|_| name.to_owned()),
+                );
+            }
+            children.extend(arguments);
+        }
+        TermKind::And(left, right) => children.extend([left, right]),
+        TermKind::Injection { term, .. } => children.push(term),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                children.extend([key, value]);
+            }
+            children.extend(rest);
+        }
+        TermKind::List { heads, rest, .. } => {
+            children.extend(heads);
+            if let Some((middle, tails)) = rest {
+                children.push(middle);
+                children.extend(tails);
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            children.extend(elements);
+            children.extend(rest);
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+    }
+    children.into_iter().find_map(partial_application)
+}
+
+/// The verdict on two cells together: refuted when either is, undecided when either is,
+/// matched otherwise.
+fn both(left: MatchVerdict, right: MatchVerdict) -> MatchVerdict {
+    use MatchVerdict as V;
+    match (left, right) {
+        (V::NotMatched, _) | (_, V::NotMatched) => V::NotMatched,
+        (V::Undecided, _) | (_, V::Undecided) => V::Undecided,
+        (V::Matched, V::Matched) => V::Matched,
+    }
+}
+
+/// Call `visit` on every `<k>` cell of `term`, not descending into a `<k>` cell.
+fn visit_k_cells<'a>(term: &'a Term, visit: &mut impl FnMut(&'a Term)) {
+    if term.attributes().k_cells() == 0 {
+        return;
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                visit(term);
+                return;
+            }
+            for argument in arguments {
+                visit_k_cells(argument, visit);
+            }
+        }
+        TermKind::And(left, right) => {
+            visit_k_cells(left, visit);
+            visit_k_cells(right, visit);
+        }
+        TermKind::Injection { term, .. } => visit_k_cells(term, visit),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                visit_k_cells(key, visit);
+                visit_k_cells(value, visit);
+            }
+            if let Some(rest) = rest {
+                visit_k_cells(rest, visit);
+            }
+        }
+        TermKind::List { heads, rest, .. } => {
+            for head in heads {
+                visit_k_cells(head, visit);
+            }
+            if let Some((middle, tails)) = rest {
+                visit_k_cells(middle, visit);
+                for tail in tails {
+                    visit_k_cells(tail, visit);
+                }
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            for element in elements {
+                visit_k_cells(element, visit);
+            }
+            if let Some(rest) = rest {
+                visit_k_cells(rest, visit);
+            }
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
 }
 

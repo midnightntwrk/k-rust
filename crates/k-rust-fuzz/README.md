@@ -34,6 +34,23 @@ A leaf that is unclean for a reason other than its halt (an implementation-chose
 `rejected` is decided before execution, and `baseline-incomplete` by the differential judge before the mutant's leaves are looked at; neither is chosen by precedence.
 A stuck, truncated, timed-out, undefined or unsupported run is never reported as a pass.
 
+### Natural ends
+
+`miss` against `stuck`, a run-to-completion hit and a differential end all rest on the natural end: a clean `stuck` leaf on which the program finished.
+A campaign's `normal-end-pattern` (`CaseOptions::normal_end_pattern`) decides it when given; otherwise the default reads the `<k>` cells:
+
+- `single-k`, for a configuration whose `<k>` cell is not under a multiplicity cell: the leaf matches `<k> .K </k>` with the rest of the configuration free;
+- `every-k`, for a configuration whose `<k>` cell lies under a cell of multiplicity `*` or `?` (threads, as in SIMPLE or KOOL): every `<k>` cell of the leaf holds `.K`, and a leaf with no `<k>` cell left (every thread finished and was removed, `<threads> .Bag </threads>`) is a natural end too, provided the initial configuration had a `<k>` cell (otherwise no thread ever ran, and the program may have stopped elsewhere: the leaf's natural end is undecided). A leaf with one thread's computation left is an abnormal stop (a deadlock or a stuck thread).
+
+The report's `normal-end` records which applied to each definition, and when `every-k` decided cases, a warning (`every-k: …`) says so and how to override it.
+The default reads only the `<k>` cells, so a semantics that removes a thread on error, or whose finished threads keep a value in `<k>`, needs its own pattern (for example over an error cell).
+
+### Why a case is unsupported
+
+Every `unsupported` and `baseline-incomplete` case has a reason, counted in `totals.unsupported-reasons` and `totals.baseline-incomplete-reasons` (each sums to its class's count).
+A case is counted once, under the first of its reasons in the order of `exec::UnjudgedReason`, which runs from facts of the run (an `Err`, a bound, a halt) through facts of a leaf (`not-ceil-free`, `undecided-state`, `implementation-chosen-value`, …) to facts of a judgement (`natural-end-undecided`, `reached-undefined-step`, `mutant-end-not-data`, …).
+The no-witness statement, and the summary of a report with a witness, list the reasons, largest first, with the largest one's remedy (`UnjudgedReason::remedy`); a remedy only suggests actions that keep verdicts sound (a bound, a pattern, another program or hole range), never a change to the definition's claims, and names options by campaign key and command-line flag; a `not-ceil-free` case also adds a warning naming the partial function whose application a leaf holds.
+
 ## Hole declarations
 
 A hole replaces a span of the unmodified program, addressed by `program`, an optional `line`, `find` (a text that occurs exactly once in the addressed line or program) and `literal` (the hole's literal, which occurs exactly once in `find`).

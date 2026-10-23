@@ -12,11 +12,11 @@ use super::{
     shrink::{Verdict, shrink},
 };
 use crate::{
-    exec::{Abort, OutcomeClass},
+    exec::{Abort, NormalEndKind, OutcomeClass, UnjudgedReason},
     report::{
         CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord, NoWitness,
-        REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride, Totals,
-        Witness, WitnessCase, digest_hex,
+        NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride,
+        Totals, Witness, WitnessCase, digest_hex,
     },
     score::{Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
@@ -51,6 +51,8 @@ pub(crate) struct LoopSettings {
     /// The rank of each recorded rule in a case's pool of run-time literals, its rule-graph
     /// distance to the target (`crate::proposers::runtime::pool`); empty when no pool is read.
     pub(crate) pool_rank: std::collections::BTreeMap<String, u64>,
+    /// Which normal end each definition's classes rest on, for the report.
+    pub(crate) normal_end: Option<NormalEnds>,
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -91,7 +93,7 @@ pub(crate) fn run_loop(
         };
         let case = state.totals.cases;
         state.sequence(&proposal.values);
-        let run = match run_proposal(runner, &mut state, &proposal, cancel) {
+        let mut run = match run_proposal(runner, &mut state, &proposal, cancel) {
             Ok(run) => run,
             Err(abort) => {
                 state.abort = Some(abort.reason);
@@ -131,12 +133,17 @@ pub(crate) fn run_loop(
                     state.totals.unconfirmed += 1;
                     state.defect(Some(case), description);
                     class = OutcomeClass::Unsupported;
+                    run.unjudged = Some(UnjudgedReason::Unconfirmed);
                 }
                 Confirmed::Aborted(reason) => {
                     // The fresh backend failed as every run would: the campaign aborts, and the
                     // candidate stays unconfirmed (ARCHITECTURE 5.3).
                     state.unconfirmed(case, &proposal.values, "aborted");
-                    state.record(&run, OutcomeClass::Unsupported);
+                    let aborted = CaseRun {
+                        unjudged: Some(UnjudgedReason::Unconfirmed),
+                        ..run
+                    };
+                    state.record(&aborted, OutcomeClass::Unsupported);
                     state.abort = Some(reason);
                     break Ending::Aborted;
                 }
@@ -606,6 +613,18 @@ impl State {
             OutcomeClass::BaselineIncomplete => self.cuts.incomplete.add(run.cut),
             _ => {}
         }
+        // `Totals::unsupported_reasons` and `baseline_incomplete_reasons` sum to their classes' counts;
+        // every runner gives a reason.
+        let reasons = match class {
+            OutcomeClass::Unsupported => Some(&mut self.totals.unsupported_reasons),
+            OutcomeClass::BaselineIncomplete => Some(&mut self.totals.baseline_incomplete_reasons),
+            _ => None,
+        };
+        if let Some(reasons) = reasons {
+            debug_assert!(run.unjudged.is_some(), "an unjudged case without a reason");
+            let reason = run.unjudged.unwrap_or(UnjudgedReason::EngineDefect);
+            *reasons.entry(reason).or_insert(0) += 1;
+        }
         if class == OutcomeClass::Rejected {
             // `Totals::rejections` sums to the `rejected` count; every runner gives a reason.
             debug_assert!(run.rejection.is_some(), "a rejected case without a reason");
@@ -643,6 +662,9 @@ impl State {
         outcome: CampaignOutcome,
     ) -> FuzzReport {
         let totals = self.totals_snapshot();
+        if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
+            self.warn(warning);
+        }
         FuzzReport {
             schema: REPORT_SCHEMA.into(),
             version: REPORT_VERSION,
@@ -653,11 +675,71 @@ impl State {
             outcome,
             totals,
             load_records: self.load_records.into_iter().collect(),
+            normal_end: settings.normal_end,
             sort_overrides: settings.sort_overrides.clone(),
             warnings: self.warnings,
             engine_defects: self.defects,
         }
     }
+}
+
+/// When the every-`<k>` default normal end applied to a definition and some case's class rests
+/// on a natural end judgement (`miss`, `stuck`, `hit`, `reached-unfinished`), the warning that
+/// says so and how to override it: the default reads only the `<k>` cells, so a semantics that
+/// removes a thread on error gives `miss` where its program failed (FZ-UNSUPPORTED review S3).
+pub(crate) fn every_k_warning(normal_end: Option<NormalEnds>, totals: &Totals) -> Option<String> {
+    let ends = normal_end?;
+    let every_k =
+        ends.baseline == NormalEndKind::EveryK || ends.mutant == Some(NormalEndKind::EveryK);
+    let decided = [
+        OutcomeClass::Miss,
+        OutcomeClass::Stuck,
+        OutcomeClass::Hit,
+        OutcomeClass::ReachedUnfinished,
+    ]
+    .iter()
+    .any(|class| totals.classes.get(class).is_some_and(|count| *count > 0));
+    (every_k && decided).then(|| {
+        "every-k: no normal-end pattern was given and the configuration's <k> cell lies under a \
+         multiplicity cell, so a stuck run counted as finished when every <k> cell held .K or \
+         no <k> cell was left (the initial configuration having had one); a semantics that \
+         removes a thread on error, or leaves a value in a finished thread's <k>, needs a \
+         pattern of its finished configuration: campaign key `normal-end-pattern`, command \
+         line `--normal-end`, library `CaseOptions::normal_end_pattern`"
+            .to_owned()
+    })
+}
+
+/// The clause of the no-witness statement that counts unjudged cases per reason
+/// ([`UnjudgedReason`]), largest first, and gives the largest one's remedy when it has one.
+fn reason_clause(text: &mut String, reasons: &std::collections::BTreeMap<UnjudgedReason, u64>) {
+    let ranked = ranked_reasons(reasons);
+    let Some((top, _)) = ranked.first() else {
+        return;
+    };
+    let counts: Vec<String> = ranked
+        .iter()
+        .map(|(reason, count)| format!("{count} {}", reason.name()))
+        .collect();
+    write!(text, " By reason: {}.", counts.join(", ")).expect("writing to a String");
+    if let Some(remedy) = top.remedy() {
+        write!(text, " For {}: {remedy}.", top.name()).expect("writing to a String");
+    }
+}
+
+/// `reasons` with their counts, largest count first, ties in [`UnjudgedReason`]'s order.
+pub(crate) fn ranked_reasons(
+    reasons: &std::collections::BTreeMap<UnjudgedReason, u64>,
+) -> Vec<(UnjudgedReason, u64)> {
+    let mut ranked: Vec<(UnjudgedReason, u64)> = reasons
+        .iter()
+        .filter(|(_, count)| **count > 0)
+        .map(|(reason, count)| (*reason, *count))
+        .collect();
+    ranked.sort_by(|(left, left_count), (right, right_count)| {
+        right_count.cmp(left_count).then(left.cmp(right))
+    });
+    ranked
 }
 
 /// Why a campaign ended without a witness.
@@ -769,6 +851,7 @@ pub(crate) fn no_witness(
             plural(unsupported, "case")
         )
         .expect("writing to a String");
+        reason_clause(&mut text, &totals.unsupported_reasons);
     }
     let incomplete = count(OutcomeClass::BaselineIncomplete);
     if incomplete > 0 {
@@ -778,6 +861,7 @@ pub(crate) fn no_witness(
             plural(incomplete, "case")
         )
         .expect("writing to a String");
+        reason_clause(&mut text, &totals.baseline_incomplete_reasons);
         bound_advice(&mut text, &cuts.incomplete, options, "a baseline path", "");
         if cuts.incomplete.none > 0 {
             write!(
