@@ -17,7 +17,7 @@ use crate::parse::{
     unsupported_initializer_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
-use crate::term_sort::{TermSort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
     TermExpression, TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,
@@ -66,6 +66,7 @@ pub struct ConfigurationVariable {
     attribute: ConfigurationVariableAttribute,
     term_sort: Option<TermSort>,
     sort: Path,
+    arguments: Vec<crate::SortArgument>,
 }
 
 impl ConfigurationVariable {
@@ -103,6 +104,13 @@ impl ConfigurationVariable {
     #[must_use]
     pub const fn optional_term_sort(&self) -> Option<&TermSort> {
         self.term_sort.as_ref()
+    }
+    /// Returns the element types of a collection type (`Value` of
+    /// `xs: List<Value>`, `Int` and `Set<Int>` of `Map<Int, Set<Int>>`),
+    /// read as a cell's are; empty for a bare collection and every other sort.
+    #[must_use]
+    pub fn arguments(&self) -> &[crate::SortArgument] {
+        &self.arguments
     }
 }
 
@@ -320,6 +328,7 @@ impl InitializerFunction {
     ///
     /// Returns an endpoint error only if a parsed node emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut argument_ordinal = 0;
         let mut anchors = vec![
             ProvenanceAnchor::new(
                 ProvenanceRole::InitializerDeclaration,
@@ -357,6 +366,18 @@ impl InitializerFunction {
                 ordinal,
                 TokenRange::for_tokens(&*variable.parameter.ty)?,
             ));
+            for argument in crate::SortArgument::preorder(&variable.arguments) {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ConfigurationVariableTypeArgument,
+                    checked_ordinal(
+                        argument_ordinal,
+                        ProvenanceRole::ConfigurationVariableTypeArgument,
+                        argument.path.span(),
+                    )?,
+                    TokenRange::for_tokens(&argument.path)?,
+                ));
+                argument_ordinal += 1;
+            }
             if let Some(main) = &variable.attribute.main {
                 anchors.push(ProvenanceAnchor::new(
                     ProvenanceRole::ConfigurationVariableMain,
@@ -380,6 +401,34 @@ impl InitializerFunction {
             &mut constructor_ordinal,
             &mut term_ordinal,
         )?;
+        // Constant islands are numbered per kind over the initializer's terms
+        // in the order expansion visits them.
+        let mut terms = Vec::new();
+        collect_initializer_terms(&self.cells, &mut terms);
+        crate::state_rule::append_claim_node_anchors(
+            terms.iter().map(|term| term.nodes()),
+            &mut anchors,
+        )?;
+        let mut lexeme_ordinal = 0;
+        for term in &terms {
+            crate::term::push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexeme_ordinal)?;
+        }
+        // Record field names, numbered in preorder across the terms.
+        let mut fields = Vec::new();
+        for term in &terms {
+            term.tree().record_field_names_preorder(&mut fields);
+        }
+        for (ordinal, field) in fields.iter().enumerate() {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::InitializerRecordFieldName,
+                checked_ordinal(
+                    ordinal,
+                    ProvenanceRole::InitializerRecordFieldName,
+                    field.span(),
+                )?,
+                TokenRange::for_tokens(field)?,
+            ));
+        }
         Ok(anchors)
     }
 
@@ -409,6 +458,24 @@ impl InitializerFunction {
                     )?,
                 ),
                 path: variable.sort.clone(),
+                kind: (),
+            });
+        }
+        let arguments = self
+            .variables
+            .iter()
+            .flat_map(|variable| crate::SortArgument::preorder(&variable.arguments));
+        for (ordinal, argument) in arguments.enumerate() {
+            candidates.push(ReferenceCandidate {
+                key: canonical_key(
+                    ProvenanceRole::ConfigurationVariableTypeArgument,
+                    checked_ordinal(
+                        ordinal,
+                        ProvenanceRole::ConfigurationVariableTypeArgument,
+                        argument.path.span(),
+                    )?,
+                ),
+                path: argument.path.clone(),
                 kind: (),
             });
         }
@@ -572,9 +639,12 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
             inferred_main: false,
         }
     };
-    let (term_sort, sort) = if let Ok(term_sort) = parse_term_sort((*parameter.ty).clone()) {
+    let (term_sort, sort, arguments) = if let Ok(term_sort) =
+        parse_typed_term_sort((*parameter.ty).clone())
+    {
         let sort = term_sort.sort().clone();
-        (Some(term_sort), sort)
+        let arguments = term_sort.arguments().to_vec();
+        (Some(term_sort), sort, arguments)
     } else {
         let Type::Path(type_path) = &*parameter.ty else {
             return Err(unsupported_variable(
@@ -595,7 +665,9 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
                 parameter.ty.span(),
             ));
         }
-        (None, sort)
+        let arguments =
+            crate::configuration::collection_arguments(&parameter.ty, invalid_variable_argument)?;
+        (None, sort, arguments)
     };
     Ok(ConfigurationVariable {
         parameter,
@@ -603,7 +675,15 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
         attribute,
         term_sort,
         sort,
+        arguments,
     })
+}
+
+fn invalid_variable_argument(span: proc_macro2::Span) -> SyntaxError {
+    unsupported_variable(
+        "a collection argument is a sort (`Int`, `k::Term<dyn Value>`) or a collection type (`Set<Int>`)",
+        span,
+    )
 }
 
 fn parse_config_var_attribute(
@@ -809,9 +889,12 @@ fn parse_initializer_cell(
     }
     // A literal, or a call of a qualified path other than `Cell::new`/`KCell::new` (such as
     // `list::empty()`), is a readable plain term, as a path is, and so is the notation for a
-    // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call.
+    // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call. A
+    // compiler-owned island (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`) is a term too,
+    // so a constant can be a cell's whole value and any other island reports its own error.
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) => true,
+        Expr::Macro(ExprMacro { mac, .. }) => crate::term::is_island_macro(&mac.path),
         expression if crate::notation::is_expression_notation(expression) => true,
         Expr::Call(ExprCall { func, .. }) => {
             !is_cell_constructor(func)
@@ -1016,7 +1099,9 @@ fn parse_initializer_state_term(
     expression: &Expr,
     computation: bool,
 ) -> Result<StateTerm, SyntaxError> {
-    if let Expr::Macro(ExprMacro { attrs, mac }) = expression {
+    if let Expr::Macro(ExprMacro { attrs, mac }) = expression
+        && !(attrs.is_empty() && !computation && crate::term::is_island_macro(&mac.path))
+    {
         let (true, Some(last)) = (attrs.is_empty(), plain_path_last(&mac.path)) else {
             return Err(unsupported_body(
                 "state macro paths must be plain",
@@ -1121,6 +1206,22 @@ fn append_initializer_anchors(
         }
     }
     Ok(())
+}
+
+/// The initializer's terms in expansion order: cells in order, a leaf's term,
+/// a `k!`'s items, a `map!`'s key then value, an update's base, key, value.
+fn collect_initializer_terms<'a>(
+    cells: &'a [FixedCellInitializer],
+    output: &mut Vec<&'a TermExpression>,
+) {
+    for cell in cells {
+        match &cell.content {
+            InitializerCellContent::Leaf { value, .. } => output.extend(value.terms()),
+            InitializerCellContent::Nested { children, .. } => {
+                collect_initializer_terms(children, output);
+            }
+        }
+    }
 }
 
 fn append_state_term_anchors(

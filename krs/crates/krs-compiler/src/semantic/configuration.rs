@@ -56,18 +56,22 @@ pub(super) fn lower_fixed_configuration_descriptor(
     for variable in &configuration.initializer.variables {
         let id = SemanticId::new(variable.binding.clone())?;
         let sort = semantic_sort_ref(&variable.sort.sort);
+        let arguments = SortType::of_variable(variable, descriptor)?.ir_arguments();
         binding_sorts.insert(variable.binding.clone(), sort.clone());
-        variables.push(FixedConfigurationVariable::new(
-            semantic_origin(
-                descriptor,
-                variable.binding_key.clone(),
-                "configuration-variable",
-            )?,
-            id,
-            variable.external_name.clone(),
-            sort,
-            variable.main_key.is_some(),
-        )?);
+        variables.push(
+            FixedConfigurationVariable::new(
+                semantic_origin(
+                    descriptor,
+                    variable.binding_key.clone(),
+                    "configuration-variable",
+                )?,
+                id,
+                variable.external_name.clone(),
+                sort,
+                variable.main_key.is_some(),
+            )?
+            .with_arguments(arguments),
+        );
     }
     let typing = initializer_typing(
         descriptor,
@@ -461,8 +465,8 @@ struct InitializerTables<'a> {
 }
 
 /// The element types of an initializer: each leaf cell's value at the
-/// cell's type. A configuration variable's Rust type is the cell's, which
-/// rustc checks, so it fits.
+/// cell's type, with each configuration variable a binder of its declared
+/// type ([`Walker::variables`]).
 fn initializer_typing(
     descriptor: &Descriptor,
     configuration: &DescriptorFixedConfiguration,
@@ -507,13 +511,7 @@ fn initializer_typing(
         Ok(())
     }
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
-    walker.checked_binders(
-        configuration
-            .initializer
-            .variables
-            .iter()
-            .map(|variable| variable.binding.as_str()),
-    );
+    walker.variables(&configuration.initializer.variables)?;
     let mut output = Vec::new();
     roots(
         &walker,

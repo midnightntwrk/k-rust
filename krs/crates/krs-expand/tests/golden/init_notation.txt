@@ -1,9 +1,18 @@
 #[allow(clippy::must_use_candidate, clippy::needless_pass_by_value)]
 pub fn init(ready: Bool, cap: Int) -> Self {
     Self {
-        k: ::k::configuration::KCell::new(k::k![Start(ready || false)]),
-        flag: ::k::configuration::Cell::new(::k::configuration::__term()),
-        limit: k::configuration::Cell::new(::k::configuration::__term()),
+        k: ::k::configuration::KCell::new({
+            let _ = &ready;
+            ::k::configuration::__term()
+        }),
+        flag: ::k::configuration::Cell::new({
+            let _ = &ready;
+            ::k::configuration::__term()
+        }),
+        limit: k::configuration::Cell::new({
+            let _ = &cap;
+            ::k::configuration::__term()
+        }),
     }
 }
 #[doc(hidden)]

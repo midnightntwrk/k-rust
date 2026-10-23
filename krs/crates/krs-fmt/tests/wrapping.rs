@@ -603,6 +603,215 @@ wide: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width, signed } 
     .assert_eq(&format(source, 76));
 }
 
+/// An operator after a left operand that breaks anyway joins the line of its
+/// closing delimiters, and its own operand continues from there at the
+/// chain's indentation: `} != rhs`, also when that operand breaks in turn.
+#[test]
+fn an_operator_joins_the_closing_line_of_a_broken_left_operand() {
+    let source = "k::equations! { for Check;
+wide: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } != lhs.add::<Int>(rhs));
+both: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } == TruncateInteger { value: rhs, width: some_long_width_name, signed: signedness_flag_value });
+call: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } != some_function_with_long_name(lhs, rhs, some_long_width_name, signedness_flag_value));
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Check;
+            wide:
+                (lhs, rhs) => Boolean(
+                    TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    } != lhs.add::<Int>(rhs),
+                );
+            both:
+                (lhs, rhs) => Boolean(
+                    TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    } == TruncateInteger {
+                        value: rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    },
+                );
+            call:
+                (lhs, rhs) => Boolean(
+                    TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    } != some_function_with_long_name(
+                        lhs,
+                        rhs,
+                        some_long_width_name,
+                        signedness_flag_value,
+                    ),
+                );
+        }
+    "]]
+    .assert_eq(&format(source, 100));
+}
+
+/// A row whose result is a chain with a first operand that fits on no line
+/// keeps `=>` on the pattern line, as it does for that operand alone; a
+/// first operand that fits whole on the arm's own line moves the arm there
+/// and stays whole.
+#[test]
+fn an_arm_measures_a_chain_by_its_first_operands_first_line() {
+    let source = "k::equations! { for Check;
+cmp: (lhs, rhs) => TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } != rhs;
+plain: (lhs, rhs) => TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value };
+whole: (left_operand_name, right_operand_name) => TruncateInteger { value: lhs + rhs, width: some_width, signed: flag } != rhs.add::<Int>(right_operand_name);
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Check;
+            cmp:
+                (lhs, rhs) => TruncateInteger {
+                    value: lhs + rhs,
+                    width: some_long_width_name,
+                    signed: signedness_flag_value,
+                } != rhs;
+            plain:
+                (lhs, rhs) => TruncateInteger {
+                    value: lhs + rhs,
+                    width: some_long_width_name,
+                    signed: signedness_flag_value,
+                };
+            whole:
+                (left_operand_name, right_operand_name)
+                => TruncateInteger { value: lhs + rhs, width: some_width, signed: flag }
+                    != rhs.add::<Int>(right_operand_name);
+        }
+    "]]
+    .assert_eq(&format(source, 100));
+}
+
+/// The join applies to every expression rank: after a broken operand, `&&`
+/// and `||` join as a comparison does, and a looser operator after a joined
+/// comparison starts its line; a middle operand's closing line sits deeper
+/// than the chain's continuation, so the operator after it starts its line.
+#[test]
+fn logical_operators_join_a_broken_left_operand_too() {
+    let source = "k::equations! { for Check;
+mixed: (lhs, rhs) => TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } != rhs && other_condition;
+chain: (lhs, rhs) => Boolean(Holds(TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value }) && second_operand_name && third_operand_name);
+middle: (lhs, rhs) => Boolean(first_operand_name_that_is_long && TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } && third);
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Check;
+            mixed:
+                (lhs, rhs) => TruncateInteger {
+                    value: lhs + rhs,
+                    width: some_long_width_name,
+                    signed: signedness_flag_value,
+                } != rhs
+                    && other_condition;
+            chain:
+                (lhs, rhs) => Boolean(
+                    Holds(TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    }) && second_operand_name
+                        && third_operand_name,
+                );
+            middle:
+                (lhs, rhs) => Boolean(
+                    first_operand_name_that_is_long
+                        && TruncateInteger {
+                            value: lhs + rhs,
+                            width: some_long_width_name,
+                            signed: signedness_flag_value,
+                        }
+                        && third,
+                );
+        }
+    "]]
+    .assert_eq(&format(source, 100));
+}
+
+/// A left operand no wider than one level keeps the operator and the first
+/// line of a breaking right operand on its line.
+#[test]
+fn an_operator_joins_a_short_left_operand() {
+    let source = "k::equations! { for Check;
+tiny: (lhs, rhs) => Boolean(x != TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value });
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Check;
+            tiny:
+                (lhs, rhs) => Boolean(
+                    x != TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    },
+                );
+        }
+    "]]
+    .assert_eq(&format(source, 100));
+}
+
+/// A line comment before or after an operator keeps the operator at the
+/// start of its line; an or-pattern's alternatives never join.
+#[test]
+fn comments_and_or_patterns_keep_the_operator_leading() {
+    let source = "k::equations! { for Check;
+before: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } // the truncated sum
+!= lhs.add::<Int>(rhs));
+after: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width: some_long_width_name, signed: signedness_flag_value } != // the plain sum
+lhs.add::<Int>(rhs));
+}
+k::rules! { for Step;
+alternatives: Frame { value: SOME_LONG_VALUE_NAME, width: SOME_LONG_WIDTH_NAME, signed: SIGNEDNESS_FLAG_VALUE } | Other => Done;
+}
+";
+    expect_test::expect![[r"
+        k::equations! {
+            for Check;
+            before:
+                (lhs, rhs) => Boolean(
+                    TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    } // the truncated sum
+                        != lhs.add::<Int>(rhs),
+                );
+            after:
+                (lhs, rhs) => Boolean(
+                    TruncateInteger {
+                        value: lhs + rhs,
+                        width: some_long_width_name,
+                        signed: signedness_flag_value,
+                    }
+                        != // the plain sum
+                        lhs.add::<Int>(rhs),
+                );
+        }
+        k::rules! {
+            for Step;
+            alternatives:
+                Frame {
+                    value: SOME_LONG_VALUE_NAME,
+                    width: SOME_LONG_WIDTH_NAME,
+                    signed: SIGNEDNESS_FLAG_VALUE,
+                }
+                | Other => Done;
+        }
+    "]]
+    .assert_eq(&format(source, 100));
+}
+
 /// A builtin `List` bracket with its rest in front or in the middle wraps
 /// like any other: one element per line, the rest in place, a trailing
 /// comma after the last.

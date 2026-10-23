@@ -23,7 +23,8 @@ partition end to end on both routes:
   and K has no LIST-SYNTAX module, so both are placed in `KRS-EVM`; the
   `krs check --partition` text is pinned and programs cannot contain them;
 - `program-warning`: the same production marked `program` gives the pinned
-  `krs::partition::not-program-syntax` warning;
+  `krs::partition::not-program-syntax` warning, which `krs expand` and
+  `krs run` report as `krs check` does;
 - `prefer`: `prefer` on `IfThen` resolves the dangling else, so
   `if true then if false then first else second` parses as
   `stmtSyntaxIfThen(true, stmtSyntaxIfThenElse(false, first, second))` on both routes and runs to
@@ -125,7 +126,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
-from support.fixture_gate import Emitted, Fixture, FixtureGate, Program, kore_attribute_lines  # noqa: E402
+from support.fixture_gate import Emitted, Fixture, FixtureGate, Program, diagnostic_lines, kore_attribute_lines  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
@@ -708,7 +709,11 @@ def main() -> int:
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):
             raise GateError(f"program-warning: no not-program-syntax warning: {warnings}")
-        print("PASS program-warning: pinned krs::partition::not-program-syntax warning")
+        for command in ("expand", "run"):
+            reported = diagnostic_lines(harness._krs(PROGRAM_WARNING, command).stderr)
+            if reported != warnings:
+                raise GateError(f"program-warning: krs {command} reports {reported}, krs check {warnings}")
+        print("PASS program-warning: pinned krs::partition::not-program-syntax warning, also reported by expand and run")
 
         for name, directory, package, dependencies in NEGATIVE:
             manifest = materialize(directory, workspace)

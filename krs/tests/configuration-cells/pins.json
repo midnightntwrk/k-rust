@@ -178,7 +178,6 @@
       "error[krs::syntax::unsupported-configuration-field]: unsupported fixed configuration field: an Option field is an optional cell: add `multiplicity = \"?\"` to its `#[k::cell(..)]`"
     ],
     "optional-none-template": [
-      "error[E0599]: no associated function or constant named `__krs_initializer_payload` found for struct `Machine` in the current scope",
       "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: K needs a template for a `?` cell; write Some(<template>) and add `initial` if the cell starts present"
     ],
     "unknown-instance-label": [

@@ -404,6 +404,11 @@ protocol_shape! {
         pub external_name: String => [keep],
         /// Typed variable sort and exact type-path provenance.
         pub sort: S => [sort_map],
+        /// The element types of a collection-typed variable (`Value` of
+        /// `xs: List<Value>`), nested ones kept; empty for a bare collection
+        /// and for every other sort.
+        #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ProtocolSortArgument<S>> => [vec nested sort_map],
         /// Exact optional `main` marker provenance.
         pub main_key: Option<ProvenanceKey> => [keep],
     }
@@ -1474,6 +1479,7 @@ fn validate_variables<S: ConfigurationValidationStage>(
     let mut bindings = BTreeSet::new();
     let mut external_names = BTreeSet::new();
     let mut main_count = 0;
+    let mut argument_ordinal = 0;
     for (index, variable) in variables.iter().enumerate() {
         let ordinal = checked_index(index)?;
         validate_rust_field(&variable.binding)?;
@@ -1512,6 +1518,17 @@ fn validate_variables<S: ConfigurationValidationStage>(
         S::validate_sort(&variable.sort).map_err(|_| {
             StateTransportError::InvalidCellContent(StateCellContentReason::InvalidVariableSort)
         })?;
+        for argument in ProtocolSortArgument::preorder(&variable.arguments) {
+            let argument = &argument.sort;
+            insert_exact(
+                keys,
+                S::sort_key(argument),
+                ProvenanceRole::ConfigurationVariableTypeArgument,
+                argument_ordinal,
+            )?;
+            S::validate_sort_argument(argument)?;
+            argument_ordinal = increment(argument_ordinal)?;
+        }
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
             insert_exact(
@@ -1541,6 +1558,10 @@ struct InitializerCounters {
     map_key: u32,
     map_value: u32,
     map_update_base: u32,
+    id_token: u32,
+    bytes_token: u32,
+    lexeme: u32,
+    record_field: u32,
 }
 
 fn validate_initializer_cells<S: ConfigurationValidationStage>(
@@ -1989,27 +2010,61 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    /// A builtin literal is one constant of its sort, an initializer term as any constant is.
     fn builtin_token(
         &mut self,
-        _: &ProvenanceKey,
-        _: BuiltinSort,
-        _: &str,
+        key: &ProvenanceKey,
+        sort: BuiltinSort,
+        value: &str,
     ) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerClaimTerm,
-        ))
+        let role = super::validation::builtin_token_literal_role(sort, value).ok_or(
+            StateTransportError::InvalidTerm(StateTermReason::InvalidCompilerOwnedBuiltinToken),
+        )?;
+        let counter = if role == ProvenanceRole::ClaimIdToken {
+            &mut self.counters.id_token
+        } else {
+            &mut self.counters.bytes_token
+        };
+        insert_exact(self.keys, key, role, *counter)?;
+        *counter = increment(*counter)?;
+        Ok(())
     }
 
+    /// An unknown value has no place in the initial configuration a run starts from.
     fn anonymous(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerClaimTerm,
         ))
     }
 
-    fn lexeme(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerLexeme,
-        ))
+    /// A lexeme is one constant of its token sort.
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        text: &str,
+    ) -> Result<(), Self::Error> {
+        if text.is_empty() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::EmptyLexemeText,
+            ));
+        }
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidLexemeSort))?;
+        insert_exact(
+            self.keys,
+            S::sort_key(sort),
+            ProvenanceRole::LexemeSort,
+            self.counters.lexeme,
+        )?;
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::LexemeText,
+            self.counters.lexeme,
+        )?;
+        self.counters.lexeme = increment(self.counters.lexeme)?;
+        Ok(())
     }
 
     fn sort_test(
@@ -2111,16 +2166,29 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    /// A record argument names its field; each name has its own provenance.
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
-        _: &mut BTreeSet<ProductionFieldId>,
+        fields: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         match argument {
             crate::TermArgumentRef::Positional { .. } => Ok(()),
-            crate::TermArgumentRef::Named { .. } => Err(StateTransportError::InvalidTerm(
-                StateTermReason::InitializerRecordFieldProvenance,
-            )),
+            crate::TermArgumentRef::Named { key, field, .. } => {
+                if !fields.insert(field.clone()) {
+                    return Err(StateTransportError::DuplicateValue(
+                        TransportField::RuleApplicationRecordFields,
+                    ));
+                }
+                insert_exact(
+                    self.keys,
+                    key,
+                    ProvenanceRole::InitializerRecordFieldName,
+                    self.counters.record_field,
+                )?;
+                self.counters.record_field = increment(self.counters.record_field)?;
+                Ok(())
+            }
         }
     }
 

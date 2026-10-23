@@ -140,6 +140,7 @@ fn initializer_variable(
             ordinal,
             DescriptorSortRef::Builtin(sort),
         ),
+        arguments: Vec::new(),
         main_key: main.then(|| key(ProvenanceRole::ConfigurationVariableMain, ordinal)),
     }
 }

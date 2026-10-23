@@ -255,12 +255,13 @@ impl CommandOutcome {
 
 struct PreparedDefinition {
     /// Allowed quoted hooks and `raw_k!` sentences, and functions only Z3
-    /// can evaluate (`smt_hook` without equations), reported on every command.
+    /// can evaluate (`smt_hook` without equations), reported by every
+    /// command that lowers the definition ([`definition_warnings`]).
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
     /// `k::is!` and `k::project!` terms that test nothing, optional or
     /// collection cells K starts present without `initial`, and total
-    /// functions with arguments no equation defines, reported on every
-    /// command.
+    /// functions with arguments no equation defines, reported by every
+    /// command that lowers the definition ([`definition_warnings`]).
     sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
@@ -427,7 +428,7 @@ fn execute_with_sources(
     outcome.map(|value| value.outcome)
 }
 
-/// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings.
+/// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings ([`definition_warnings`]), the trusted claims `prove` assumes, and the stage-cache warning.
 fn exec_command(
     prepared: &PreparedDefinition,
     request: &CommandRequest,
@@ -453,7 +454,7 @@ fn exec_command(
         },
         measurement,
     )?;
-    outcome.warnings = raw_k_warnings(prepared);
+    outcome.warnings = definition_warnings(prepared);
     if matches!(request.command, Command::Prove(_)) {
         push_trusted_claim_warnings(prepared, &mut outcome.warnings);
     }
@@ -792,12 +793,20 @@ fn push_trusted_claim_warnings(
     }
 }
 
-/// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
-/// the package's allowed raw K, then the `krs::analysis::trivial-sort-test`,
+/// Returns the warnings about the definition itself, which every command
+/// that collects and lowers it reports (all but `fmt`): the
+/// `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of the
+/// package's allowed raw K, the `krs::analysis::trivial-sort-test`,
 /// `krs::analysis::collection-config-var-without-initial`,
 /// `krs::analysis::uncovered-total-function`, and
-/// `krs::analysis::stale-underspecified` warnings; every command reports them.
-fn raw_k_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
+/// `krs::analysis::stale-underspecified` warnings, then
+/// `warning[krs::partition::not-program-syntax]` for each `program`
+/// production that lowering placed in its package's semantics module.
+///
+/// The warnings of a backend route (k-rust's native compile, concrete
+/// execution, trusted claims) are not among them: only the commands that
+/// judge that route report those.
+fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
     let mut reports = crate::DiagnosticReports::default();
     for diagnostic in prepared
         .raw_k_warnings
@@ -819,14 +828,6 @@ fn raw_k_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
             });
         }
     }
-    reports
-}
-
-/// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
-/// allowed raw K, then `warning[krs::partition::not-program-syntax]` for each
-/// `program` production that lowering placed in its package's semantics module.
-fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
-    let mut reports = raw_k_warnings(prepared);
     for warning in prepared.lowered.partition().warnings() {
         let diagnostic = warning.to_diagnostic();
         if let Some(envelope) =
@@ -876,7 +877,7 @@ fn expand(
     Ok(CommandOutcome {
         stderr: Vec::new(),
         exit_code: 0,
-        warnings: crate::DiagnosticReports::default(),
+        warnings: definition_warnings(prepared),
         stdout: expanded.into_bytes(),
     })
 }

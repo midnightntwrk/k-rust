@@ -1989,8 +1989,20 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
 }
 
 /// Whether `path` names a compiler-owned term island.
-pub(crate) fn is_island_macro(path: &Path) -> bool {
+#[must_use]
+pub fn is_island_macro(path: &Path) -> bool {
     special_macro_kind(path).is_some()
+}
+
+/// Whether `path` names an island that denotes one constant of its sort:
+/// `k::bytes!`, `k::id!`, or `k::lexeme!`. Such a term has the same value in
+/// every sentence and in an initializer.
+#[must_use]
+pub fn is_constant_island_macro(path: &Path) -> bool {
+    matches!(
+        special_macro_kind(path),
+        Some(TermMacroKind::Bytes | TermMacroKind::Id | TermMacroKind::Lexeme)
+    )
 }
 
 /// Whether `path` names `k::fragment!`, a complete nested-cell term.

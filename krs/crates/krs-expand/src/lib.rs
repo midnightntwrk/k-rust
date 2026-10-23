@@ -35,7 +35,7 @@ pub use error::{ExpandError, Result};
 /// # Errors
 ///
 /// Returns the invocation's diagnostics; `krs-macros` renders them with
-/// [`syn::Error::into_compile_error`].
+/// [`ExpandError::into_compile_error`].
 pub fn expand_attribute(
     entry: AttributeMacro,
     env: &dyn MacroEnvironment,
@@ -84,7 +84,7 @@ pub fn expand_attribute(
 /// # Errors
 ///
 /// Returns the invocation's diagnostics; `krs-macros` renders them with
-/// [`syn::Error::into_compile_error`].
+/// [`ExpandError::into_compile_error`].
 pub fn expand_function(
     entry: FunctionMacro,
     env: &dyn MacroEnvironment,

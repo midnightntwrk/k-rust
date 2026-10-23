@@ -507,6 +507,12 @@ pub struct FixedConfigurationVariable<S> {
     id: SemanticId,
     external_name: String,
     sort: S,
+    /// The element types of a collection sort (`Value` of `xs: List<Value>`),
+    /// nested ones kept; empty for a bare collection and every other sort.
+    /// K erases them; execution checks every value of the variable against
+    /// them, wherever the initializer places it.
+    #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+    arguments: Vec<CellSortArgument<S>>,
     main: bool,
 }
 
@@ -531,8 +537,24 @@ impl<S> FixedConfigurationVariable<S> {
                 external_name.into(),
             )?,
             sort,
+            arguments: Vec::new(),
             main,
         })
+    }
+
+    /// Records the element types of a collection-typed variable
+    /// (`Value` of `xs: List<Value>`).
+    #[must_use]
+    pub fn with_arguments(mut self, arguments: Vec<CellSortArgument<S>>) -> Self {
+        self.arguments = arguments;
+        self
+    }
+
+    /// Returns the element types of a collection-typed variable; empty for a
+    /// bare collection and every other sort.
+    #[must_use]
+    pub fn arguments(&self) -> &[CellSortArgument<S>] {
+        &self.arguments
     }
 
     /// Returns provenance for the authored configuration variable.

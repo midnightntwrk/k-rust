@@ -562,6 +562,41 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "Members",
         ),
         (
+            "keys-of-built",
+            rules(
+                "probe: { k: [Put(name, s), ..], seen: _ } => { k: [..], seen: map::keys(map::update(map::empty(), s, 1)) };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "a key of the map whose keys `map::keys(..)` writes to the cell `seen`, declared `Set<Id>`",
+                "an Id",
+            ),
+            "s",
+        ),
+        (
+            "from-built-list",
+            rules(
+                "probe: { k: [Put(name, s), ..], seen: _ } => { k: [..], seen: set::from_list([name, s]) };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "an element of the list whose elements `set::from_list(..)` writes to the cell `seen`, declared `Set<Id>`",
+                "an Id",
+            ),
+            "s",
+        ),
+        (
+            "keys-of-bare",
+            rules("probe: { k: [Skip(), ..], seen: _, raw: r } => { k: [..], seen: map::keys(r) };"),
+            untyped(
+                "`map::keys(..)` reads a collection whose element types are not declared",
+                "the cell `seen`, declared `Set<Id>`",
+            ),
+            "map::keys",
+        ),
+        (
             "claim-left",
             "k::claims! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    probe: { k: [Put(name, s)], env: map::update(map::empty(), name, s) } => { k: [] };\n}\n".to_owned(),
             stored("s", "Stmt", env_value, "a Value"),
@@ -689,4 +724,680 @@ fn a_user_function_result_is_typed_by_its_signature() {
             "Put3".to_owned()
         )]
     );
+}
+
+/// A reading operation whose operand the sentence builds is checked
+/// through: `map::keys(m)` at `Set<K>` checks `m` at `Map<K, KItem>`,
+/// `set::from_list(l)` at `Set<T>` checks `l` at `List<T>`, and so on, the
+/// discarded parts unconstrained, in readable rules, `cells!` rules, claims,
+/// initializers, typed arguments, and typed function results; a binder
+/// stored there narrows as at any element, and one only at a discarded part
+/// is a `KItem`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One package of built collections, with the K each emits."
+)]
+fn built_collections_are_checked_through_reading_operations() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let library = format!(
+        "{}{}{}",
+        PREAMBLE.replace(
+            "stack: list::empty(),",
+            "stack: set::to_list(set::item(1)),"
+        ),
+        rules(
+            "keys: { k: [Op(1), Put(name, s), ..], seen: _ } => { k: [..], seen: map::keys(map::update(map::empty(), name, s)) };
+    empty_keys: { k: [Op(2), ..], seen: _ } => { k: [..], seen: map::keys(map::empty()) };
+    from_item: { k: [Op(3), Put(name, _), ..], seen: _ } => { k: [..], seen: set::from_list(list::item(name)) };
+    from_brackets: { k: [Op(4), Put(name, _), ..], seen: _ } => { k: [..], seen: set::from_list([name, name]) };
+    values: { k: [Op(5), Put(name, _), ..], stack: _ } => { k: [..], stack: map::values(map::update(map::empty(), name, 1)) };
+    to_list: { k: [Op(6), ..], stack: _ } => { k: [..], stack: set::to_list(set::item(1)) };
+    nested: { k: [Op(7), Put(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, map::keys(map::update(map::empty(), 0, Skip()))) };
+    union: { k: [Op(8), Put(name, s), ..], seen: x } => { k: [..], seen: set::union(x, map::keys(map::update(map::empty(), name, s))) };
+    counted: { k: [Op(9), Put(name, _), ..], raw: r } => { k: [..], raw: map::update(r, name, Count(set::from_list([name]))) };
+    get_nested: { k: [Op(10), Put(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, map::get(map::update(map::empty(), 1, set::item(2)), 1)) };
+    choose: { k: [Op(11), Put(name, _), ..], seen: _ } => { k: [..], seen: k::builtin::kequal::ite(true, map::keys(map::update(map::empty(), name, 0)), set::empty()) };
+    narrow: { k: [Op(12), Put(name, _), ..], stack: [x, ..], nested: n } => { k: [..], nested: map::update(n, name, set::from_list([x])) };
+    discarded: { k: [Op(13), Put(name, _), ..], raw: { name -> y, .. }, seen: _ } => { k: [..], seen: map::keys(map::update(map::empty(), name, y)) };"
+        ),
+        r"
+/// The number of distinct identifiers.
+#[k::function(total, internal)]
+pub fn Count(xs: Term<Set<Id>>) -> Term<Int> {
+    set::size(xs)
+}
+
+/// Two identifiers as a set.
+#[k::function(total, internal)]
+pub fn Both(a: Term<Id>, b: Term<Id>) -> Term<Set<Id>> {
+    set::from_list([a, b])
+}
+
+#[k::rule]
+pub fn cells_keys(
+    name: Term<Id>,
+    s: Term<Stmt>,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::Op(14), StmtSyntax::Put(name, s), tail @ ..), seen: k::configuration::Cell(_), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), seen: k::configuration::Cell(map::keys(map::update(map::empty(), name, s))), ..state }
+}
+
+k::claims! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::claim(all_paths)]
+    keys_claim: { k: [Op(1), Put(name, s)], seen: _ } => { k: [], seen: map::keys(map::update(map::empty(), name, s)) };
+}
+",
+    );
+    let manifest = package(temporary.path(), "built", &library);
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    assert_eq!(diagnostics(&stderr), [], "{stderr}");
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    expect_test::expect![[r#"
+        [
+            "<k> op 1 ~> put Name:Id S:Stmt => .K ... </k> <seen> _ => keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
+            "<k> op 2 => .K ... </k> <seen> _ => keys(.Map) </seen>",
+            "<k> op 3 ~> put Name:Id _ => .K ... </k> <seen> _ => List2Set(ListItem(Name:Id)) </seen>",
+            "<k> op 4 ~> put Name:Id _ => .K ... </k> <seen> _ => List2Set(ListItem(Name:Id) ListItem(Name:Id)) </seen>",
+            "<k> op 5 ~> put Name:Id _ => .K ... </k> <stack> _ => values(.Map [ Name:Id <- 1 ]) </stack> endmodule",
+            "<k> op 6 => .K ... </k> <stack> _ => Set2List(SetItem(1)) </stack>",
+            "<k> op 7 ~> put Name:Id _ => .K ... </k> <nested> N:Map => N:Map [ Name:Id <- keys(.Map [ 0 <- skip ]) ] </nested>",
+            "<k> op 8 ~> put Name:Id S:Stmt => .K ... </k> <seen> X:Set => X:Set |Set keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
+            "<k> op 9 ~> put Name:Id _ => .K ... </k> <raw> R:Map => R:Map [ Name:Id <- count ( List2Set(ListItem(Name:Id)) ) ] </raw>",
+            "<k> op 10 ~> put Name:Id _ => .K ... </k> <nested> N:Map => N:Map [ Name:Id <- {.Map [ 1 <- SetItem(2) ] [ 1 ]}:>Set ] </nested>",
+            "<k> op 11 ~> put Name:Id _ => .K ... </k> <seen> _ => #if true #then keys(.Map [ Name:Id <- 0 ]) #else .Set #fi </seen>",
+            "<k> op 12 ~> put Name:Id _ => .K ... </k> <stack> ListItem(X:Int) Krs_RestStack:List </stack> <nested> N:Map => N:Map [ Name:Id <- List2Set(ListItem(X:Int)) ] </nested>",
+            "<k> op 13 ~> put Name:Id _ => .K ... </k> <raw> Name:Id |-> Y:KItem ... </raw> <seen> _ => keys(.Map [ Name:Id <- Y:KItem ]) </seen>",
+            "<k> op 14 ~> put Name:Id S:Stmt ~> Tail:K => .K ~> Tail:K </k> <seen> _ => keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
+        ]
+    "#]].assert_debug_eq(
+        &[
+            "keys",
+            "empty-keys",
+            "from-item",
+            "from-brackets",
+            "values",
+            "to-list",
+            "nested",
+            "union",
+            "counted",
+            "get-nested",
+            "choose",
+            "narrow",
+            "discarded",
+            "cells_keys",
+        ]
+        .map(|label| rule(&definition, label)),
+    );
+    let both = definition
+        .lines()
+        .find(|line| line.contains("rule both"))
+        .unwrap_or_else(|| panic!("{definition}"));
+    assert!(
+        both.contains("List2Set(ListItem(A:Id) ListItem(B:Id))"),
+        "{both}"
+    );
+}
+
+/// Every kind of term at a typed element position whose sort is not the
+/// element sort is `collection-element-sort`, naming the term, its sort, and
+/// the position: tokens, `k::anonymous!`, operator expressions, sort tests,
+/// a literal rewrite side, and initializer values; a probe of any kind into
+/// a typed collection must share a sort with its elements. Elsewhere a
+/// mis-sorted term stays `invalid-term`, naming both sorts.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of rejected terms, each with its expected diagnostic."
+)]
+fn every_term_kind_at_an_element_position_names_the_position() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let stored = |term: &str, sort: &str, position: &str, element: &str| {
+        format!(
+            "error[krs::analysis::collection-element-sort]: `{term}` of sort {sort} is stored as {position}, and {sort} is not {element}"
+        )
+    };
+    let read = |term: &str, sort: &str, position: &str, element: &str| {
+        format!(
+            "error[krs::analysis::collection-element-sort]: `{term}` of sort {sort} reads {position}, which is always {element} and never {}",
+            if sort.starts_with(['A', 'E', 'I', 'O', 'U']) {
+                format!("an {sort}")
+            } else {
+                format!("a {sort}")
+            }
+        )
+    };
+    let stack = "an element of the cell `stack`, declared `List<Value>`";
+    let env_value = "a value of the cell `env`, declared `Map<Id, Value>`";
+    let env_key = "a key of the cell `env`, declared `Map<Id, Value>`";
+    let seen = "an element of the cell `seen`, declared `Set<Id>`";
+    let probe = |head: &str, result: &str| {
+        rules(&format!(
+            "probe: {{ k: [{head}, ..], stack: l, env: e, seen: x }} => {{ k: [..], {result} }};"
+        ))
+    };
+    let mut cases = vec![
+        (
+            "id-in-list",
+            probe("Skip()", "stack: list::item(k::id!(\"$x\"))"),
+            stored("k::id!(..)", "Id", stack, "a Value"),
+            "\"$x\"",
+        ),
+        (
+            "id-in-brackets",
+            probe("Skip()", "stack: [k::id!(\"$x\"), ..l]"),
+            stored("k::id!(..)", "Id", stack, "a Value"),
+            "\"$x\"",
+        ),
+        (
+            "bytes-in-set",
+            probe("Skip()", "seen: set::item(k::bytes!(b\"a\"))"),
+            stored("k::bytes!(..)", "Bytes", seen, "an Id"),
+            "b\"a\"",
+        ),
+        (
+            "bytes-as-value",
+            probe("Put(name, _)", "env: map::update(e, name, k::bytes!(b\"ab\"))"),
+            stored("k::bytes!(..)", "Bytes", env_value, "a Value"),
+            "b\"ab\"",
+        ),
+        (
+            "bytes-as-key",
+            probe("Skip()", "env: map::update(e, k::bytes!(b\"k\"), 1)"),
+            stored("k::bytes!(..)", "Bytes", env_key, "an Id"),
+            "b\"k\"",
+        ),
+        (
+            "concatenation",
+            probe("Skip()", "stack: [\"a\" + \"b\", ..l]"),
+            stored(".. + ..", "String", stack, "a Value"),
+            "+",
+        ),
+        (
+            "comparison",
+            probe("Skip()", "stack: [1 == 2, ..l]"),
+            stored(".. == ..", "Bool", stack, "a Value"),
+            "==",
+        ),
+        (
+            "projection",
+            probe("Put(_, s)", "stack: [k::project!(Stmt, s), ..l]"),
+            stored("k::project!(Stmt, ..)", "Stmt", stack, "a Value"),
+            "k::project!(Stmt, s)",
+        ),
+        (
+            "sort-test",
+            probe("Put(_, s)", "stack: [k::is!(Stmt, s), ..l]"),
+            stored("k::is!(Stmt, ..)", "Bool", stack, "a Value"),
+            "k::is!(Stmt, s)",
+        ),
+        (
+            "anonymous",
+            "k::claims! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    probe: { k: [Put(name, _)], env: map::update(map::empty(), name, k::anonymous!(Stmt, \"_S\")) } => { k: [] };\n}\n".to_owned(),
+            stored("k::anonymous!(..)", "Stmt", env_value, "a Value"),
+            "\"_S\"",
+        ),
+        (
+            "rewrite-side",
+            "#[k::rule]\npub fn probe(\n    k::cells! { k: k::configuration::KCell(k::rewrite!(StmtSyntax::Skip() => ()), ..), env: k::configuration::Cell(map![k::id!(\"$x\") -> k::rewrite!(_ => true), ..]), .. }: Machine,\n) {}\n".to_owned(),
+            stored("true", "Bool", env_value, "a Value"),
+            "true",
+        ),
+        (
+            "read-bytes",
+            "k::rules! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::requires(set::contains(k::bytes!(b\"a\"), x))]\n    probe: { k: [Skip(), ..], seen: x } => { k: [..] };\n}\n".to_owned(),
+            read("k::bytes!(..)", "Bytes", seen, "an Id"),
+            "b\"a\"",
+        ),
+        (
+            "remove-bytes",
+            probe("Skip()", "env: map::remove(e, k::bytes!(b\"a\"))"),
+            read("k::bytes!(..)", "Bytes", env_key, "an Id"),
+            "b\"a\"",
+        ),
+        (
+            "remove-sum",
+            probe("Skip()", "env: map::remove(e, 1 + 2)"),
+            read(".. + ..", "Int", env_key, "an Id"),
+            "+",
+        ),
+        (
+            "in-keys-comparison",
+            "k::rules! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::requires(map::in_keys(1 == 2, e))]\n    probe: { k: [Skip(), ..], env: e } => { k: [..] };\n}\n".to_owned(),
+            read(".. == ..", "Bool", env_key, "an Id"),
+            "==",
+        ),
+        (
+            "field",
+            probe("Skip()", "k: [PutI(k::bytes!(b\"x\"), 1), ..]").replace("k: [..], k:", "k:"),
+            "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-TYPED::probe (rule): builtin token `b\"\\x78\"` of sort Bytes is not admissible at sort Id".to_owned(),
+            "b\"x\"",
+        ),
+    ];
+    for (name, from, to, headline, marked) in [
+        (
+            "initializer-comparison",
+            "stack: list::empty(),",
+            "stack: list::item(1 == 2),",
+            stored(".. == ..", "Bool", stack, "a Value"),
+            "==",
+        ),
+        (
+            "initializer-map-comparison",
+            "slots: map::empty() }",
+            "slots: k::map![1 -> 1 == 2] }",
+            stored(
+                ".. == ..",
+                "Bool",
+                "a value of the cell `slots`, declared `Map<Int, Value>`",
+                "a Value",
+            ),
+            "==",
+        ),
+    ] {
+        assert!(PREAMBLE.contains(from), "{name}");
+        cases.push((
+            name,
+            format!("{}\n", PREAMBLE.replace(from, to)),
+            headline,
+            marked,
+        ));
+    }
+    let mut mismatches = Vec::new();
+    for (name, source, headline, marked) in cases {
+        let library = if source.starts_with('\n') {
+            source
+        } else {
+            format!("{PREAMBLE}{source}")
+        };
+        let manifest = package(temporary.path(), name, &library);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        let first = diagnostics(&stderr).into_iter().next();
+        if success || first != Some((headline, marked.to_owned())) {
+            mismatches.push(format!("{name}: {first:?}\n{stderr}"));
+        }
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+
+    // A probe of the element sort is found, whatever kind of term it is.
+    let manifest = package(
+        temporary.path(),
+        "fitting-probes",
+        &format!(
+            "{PREAMBLE}{}",
+            "k::rules! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::requires(set::contains(k::id!(\"$x\"), x))]\n    probe: { k: [Skip(), ..], seen: x, env: e } => { k: [..], env: map::remove(e, k::id!(\"$x\")) };\n}\n"
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+}
+
+/// The initializer with `parameters` after `pgm`, and `fields` replacing the
+/// `k`, `env`, and `stack` values.
+fn initializer_with(parameters: &str, k: &str, env: &str, stack: &str) -> String {
+    let source = PREAMBLE
+        .replace(
+            "pgm: Stmt) -> Self {",
+            &format!("pgm: Stmt, {parameters}) -> Self {{"),
+        )
+        .replace(
+            "            k: k::k![pgm],",
+            &format!("            k: {k},"),
+        )
+        .replace(
+            "            env: map::empty(),",
+            &format!("            env: {env},"),
+        )
+        .replace(
+            "            stack: list::empty(),",
+            &format!("            stack: {stack},"),
+        );
+    assert!(source.contains(parameters) && source.contains(stack));
+    source
+}
+
+/// A configuration variable is a binder of its `#[k::init]` parameter's
+/// type, element types included, as a typed function's parameter is: every
+/// place the initializer puts a typed-collection variable is a checked flow,
+/// a bare-collection variable is an untyped source, and any other variable is
+/// checked by sort inference. Execution checks each value against the same
+/// type (`typed_configuration.rs`).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Two tables of initializers, each with its expected outcome."
+)]
+fn configuration_variables_are_binders_of_their_declared_types() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let accepted = [
+        (
+            "typed-concat",
+            "xs: List<Value>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+        ),
+        (
+            "covariant",
+            "xs: List<Int>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+        ),
+        (
+            "whole-content",
+            "e: Map<Id, Value>",
+            "k::k![pgm]",
+            "e",
+            "list::empty()",
+        ),
+        (
+            "scalar",
+            "x: Value",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::item(x)",
+        ),
+        (
+            "typed-field",
+            "m: Map<Id, Value>",
+            "k::k![pgm, StmtSyntax::Keep(m)]",
+            "map::empty()",
+            "list::empty()",
+        ),
+    ];
+    for (name, parameters, k, env, stack) in accepted {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &initializer_with(parameters, k, env, stack),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}:\n{stderr}");
+        assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
+    }
+    let stack = "the cell `stack`, declared `List<Value>`";
+    let rejected = [
+        (
+            "ill-typed-concat",
+            "xs: List<Stmt>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+            format!(
+                "error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, has type `List<Stmt>`, which does not fit {stack}: Stmt is not a Value"
+            ),
+            "xs",
+        ),
+        (
+            "bare-concat",
+            "xs: List",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::concat(xs, list::item(1))",
+            format!(
+                "error[krs::analysis::untyped-collection]: `xs`, the configuration variable `$XS`, is declared `List`, so nothing checks the elements it writes to {stack}"
+            ),
+            "xs",
+        ),
+        (
+            "update-all",
+            "e: Map<Id, Stmt>",
+            "k::k![pgm]",
+            "map::update_all(map::empty(), e)",
+            "list::empty()",
+            "error[krs::analysis::collection-element-sort]: `e`, the configuration variable `$E`, has type `Map<Id, Stmt>`, which does not fit the cell `env`, declared `Map<Id, Value>`: Stmt is not a Value".to_owned(),
+            "e",
+        ),
+        (
+            "field",
+            "m: Map<Id, Stmt>",
+            "k::k![pgm, StmtSyntax::Keep(m)]",
+            "map::empty()",
+            "list::empty()",
+            "error[krs::analysis::collection-element-sort]: `m`, the configuration variable `$M`, has type `Map<Id, Stmt>`, which does not fit the field `m` of `Keep`, declared `Map<Id, Value>`: Stmt is not a Value".to_owned(),
+            "m",
+        ),
+        (
+            "variable-arity",
+            "xs: Map<Id>",
+            "k::k![pgm]",
+            "map::empty()",
+            "list::empty()",
+            "error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, is declared `Map<Id>`: a `Map` takes a key and a value type, `Map<K, V>`, or none, `Map`".to_owned(),
+            "Map<Id>",
+        ),
+    ];
+    for (name, parameters, k, env, stack, headline, marked) in rejected {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &initializer_with(parameters, k, env, stack),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first(),
+            Some(&(headline, marked.to_owned())),
+            "{name}:\n{stderr}"
+        );
+    }
+}
+
+/// A transition's `#[k::exists(m: Map)]` is a value the step introduces, any
+/// map at all, so writing it into a typed position is an untyped source in
+/// every rule form; a claim's existential stands for what the target state
+/// holds, and a scalar existential is checked by sort inference. These
+/// checks run on the Haskell route, since the default route refuses
+/// existential rules first.
+#[test]
+fn transition_existentials_of_collection_sorts_are_untyped_sources() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cells_rule = r#"
+#[k::rule(label = "probe")]
+#[k::exists(m: Map)]
+pub fn probe(
+    k::cells! {
+        k: k::configuration::KCell(crate::StmtSyntax::Op(1), tail @ ..),
+        env: k::configuration::Cell(_),
+        state @ ..
+    }: crate::Machine,
+) -> crate::Machine {
+    k::cells! { k: k::configuration::KCell(..tail), env: k::configuration::Cell(m), ..state }
+}
+"#;
+    let env = "the cell `env`, declared `Map<Id, Value>`";
+    let untyped = |name: &str, kind: &str, position: &str| {
+        format!(
+            "error[krs::analysis::untyped-collection]: `{name}` is an existential `{kind}`, an unknown {} whose elements nothing constrains, so nothing checks the elements it writes to {position}",
+            kind.to_lowercase()
+        )
+    };
+    let rejected = [
+        (
+            "readable",
+            rules("#[k::exists(m: Map)]\n    probe: { k: [Op(1), ..], env: _ } => { k: [..], env: m };"),
+            untyped("m", "Map", env),
+        ),
+        ("cells-rule", cells_rule.to_owned(), untyped("m", "Map", env)),
+        (
+            "term-rule",
+            "k::rules! {\n    for Stmt;\n    use StmtSyntax::*;\n\n    #[k::exists(m: Map)]\n    probe: Op(1) => Keep(m);\n}\n".to_owned(),
+            untyped("m", "Map", "the field `m` of `Keep`, declared `Map<Id, Value>`"),
+        ),
+        (
+            "list-concat",
+            rules("#[k::exists(m: List)]\n    probe: { k: [Op(1), ..], stack: l } => { k: [..], stack: list::concat(m, l) };"),
+            untyped("m", "List", "the cell `stack`, declared `List<Value>`"),
+        ),
+    ];
+    for (name, source, headline) in rejected {
+        let manifest = package(temporary.path(), name, &format!("{PREAMBLE}{source}"));
+        let (success, _, stderr) =
+            krs(target.path(), &manifest, "check", &["--backend", "haskell"]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first().map(|(headline, _)| headline),
+            Some(&headline),
+            "{name}:\n{stderr}"
+        );
+    }
+    let accepted = [
+        (
+            "untyped-cell",
+            rules("#[k::exists(m: Map)]\n    probe: { k: [Op(1), ..], raw: _ } => { k: [..], raw: m };"),
+        ),
+        (
+            "scalar",
+            rules("#[k::exists(v: Value)]\n    probe: { k: [Put(name, _), ..], env: e } => { k: [..], env: map::update(e, name, v) };"),
+        ),
+        (
+            "claim",
+            "k::claims! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    #[k::exists(m: Map)]\n    probe: { k: [Op(1)], env: _ } => { k: [], env: m };\n}\n".to_owned(),
+        ),
+    ];
+    for (name, source) in accepted {
+        let manifest = package(temporary.path(), name, &format!("{PREAMBLE}{source}"));
+        let (success, _, stderr) =
+            krs(target.path(), &manifest, "check", &["--backend", "haskell"]);
+        assert!(success, "{name}:\n{stderr}");
+        assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
+    }
+}
+
+/// How configuration variables and rule existentials meet element
+/// positions: a typed part of a nested collection checks a typed variable
+/// by its type and rejects a bare variable or a collection existential as
+/// untyped; a scalar existential and a collection existential stored as an
+/// element are checked at the element sort, as any binder is; and reading
+/// an element out of a bare-collection variable is a `KItem` that the
+/// position projects, never a write of the untyped collection itself.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of sentences, each with its expected outcome."
+)]
+fn untyped_sources_meet_typed_element_positions() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let nested = |parameters: &str| {
+        initializer_with(parameters, "k::k![pgm]", "map::empty()", "list::empty()").replace(
+            "            nested: map::empty(),",
+            "            nested: map::update(map::empty(), k::id!(\"$x\"), s),",
+        )
+    };
+    let nested_value = "a value of the cell `nested`, declared `Map<Id, Set<Int>>`";
+    let accepted = [
+        ("typed-part", nested("s: Set<Int>")),
+        (
+            "bare-read",
+            initializer_with(
+                "xs: List",
+                "k::k![pgm]",
+                "map::empty()",
+                "list::item(list::get(xs, 0))",
+            ),
+        ),
+    ];
+    for (name, source) in accepted {
+        let manifest = package(temporary.path(), name, &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}:\n{stderr}");
+        assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
+    }
+    // The read is projected to the element sort, so no non-Value reaches the cell.
+    let manifest = temporary.path().join("bare-read/Cargo.toml");
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    assert!(
+        fs::read_to_string(output.join("definition.k"))
+            .unwrap()
+            .contains("<stack> ListItem({$XS:List [ 0 ]}:>Value) </stack>")
+    );
+    let rejected = [
+        (
+            "ill-typed-part",
+            nested("s: Set<Stmt>"),
+            format!(
+                "error[krs::analysis::collection-element-sort]: `s`, the configuration variable `$S`, has type `Set<Stmt>`, which does not fit {nested_value}: Stmt is not an Int"
+            ),
+            "s",
+        ),
+        (
+            "bare-part",
+            nested("s: Set"),
+            format!(
+                "error[krs::analysis::untyped-collection]: `s`, the configuration variable `$S`, is declared `Set`, so nothing checks the elements it writes to {nested_value}"
+            ),
+            "s",
+        ),
+        (
+            "existential-part",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "#[k::exists(s: Set)]\n    probe: { k: [Op(1), PutI(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, s) };"
+                )
+            ),
+            format!(
+                "error[krs::analysis::untyped-collection]: `s` is an existential `Set`, an unknown set whose elements nothing constrains, so nothing checks the elements it writes to {nested_value}"
+            ),
+            "s",
+        ),
+        (
+            "existential-scalar",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "#[k::exists(v: Stmt)]\n    probe: { k: [Put(name, _), ..], env: e } => { k: [..], env: map::update(e, name, v) };"
+                )
+            ),
+            "error[krs::analysis::collection-element-sort]: `v` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value".to_owned(),
+            "v",
+        ),
+        (
+            "existential-element",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "#[k::exists(m: Map)]\n    probe: { k: [Op(1), ..], stack: l } => { k: [..], stack: [m, ..l] };"
+                )
+            ),
+            "error[krs::analysis::collection-element-sort]: `m` of sort Map is stored as an element of the cell `stack`, declared `List<Value>`, and Map is not a Value".to_owned(),
+            "m",
+        ),
+    ];
+    for (name, source, headline, marked) in rejected {
+        let manifest = package(temporary.path(), name, &source);
+        let (success, _, stderr) =
+            krs(target.path(), &manifest, "check", &["--backend", "haskell"]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first(),
+            Some(&(headline, marked.to_owned())),
+            "{name}:\n{stderr}"
+        );
+    }
 }

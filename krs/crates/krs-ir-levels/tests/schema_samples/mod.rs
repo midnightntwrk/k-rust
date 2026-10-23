@@ -858,6 +858,7 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolConfig
             external_name_key: sample::<ProvenanceKey>(),
             external_name: sample::<String>(),
             sort: sample::<S>(),
+            arguments: sample::<Vec<ProtocolSortArgument<S>>>(),
             main_key: sample::<Option<ProvenanceKey>>(),
         }]
     }
@@ -3729,7 +3730,7 @@ impl<
 }
 impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigurationVariable<S> {
     fn samples() -> Vec<Self> {
-        vec![
+        let variable = || {
             Self::new(
                 sample::<NodeOrigin>(),
                 sample::<SemanticId>(),
@@ -3737,7 +3738,12 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigura
                 sample::<S>(),
                 sample::<bool>(),
             )
-            .unwrap(),
+            .unwrap()
+        };
+        vec![
+            variable(),
+            // A collection-typed variable, `xs: Map<Int, Set<Int>>`.
+            variable().with_arguments(sample::<Vec<CellSortArgument<S>>>()),
         ]
     }
 }

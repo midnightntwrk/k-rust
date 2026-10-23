@@ -14,11 +14,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::SemanticLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_group_cell_parents, insert_node, require_kind,
-    require_sort, validate_context_alias, validate_context_alias_frames,
-    validate_fixed_configuration, validate_initializer_cell_references, validate_precedence_order,
-    validate_production_shape, validate_rule, validate_rule_cell_references,
-    validate_subsort_order, validate_term_cell_references,
+    collect_configuration_nodes, insert_k_item_parents, insert_node, require_kind, require_sort,
+    validate_context_alias, validate_context_alias_frames, validate_fixed_configuration,
+    validate_initializer_cell_references, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_rule_cell_references, validate_subsort_order,
+    validate_term_cell_references,
 };
 use krs_ir::sorted::{SortKey, SortedByKey};
 use krs_ir::{
@@ -339,7 +339,15 @@ impl SemanticTheory {
             .find(|id| is_framework_k_item(id))
             .cloned()
             .map(SemanticSortRef::Declared);
-        insert_group_cell_parents::<SemanticLevel>(fixed_configuration, k_item, &mut sort_parents);
+        insert_k_item_parents::<_, SemanticLevel>(
+            fixed_configuration,
+            k_item,
+            self.modules
+                .iter()
+                .flat_map(|module| &module.sorts)
+                .map(|sort| sort.id.clone()),
+            &mut sort_parents,
+        );
 
         for module in &self.modules {
             for import in &module.imports {

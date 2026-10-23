@@ -255,3 +255,5 @@ ConstantDeclaration=constant_declaration
 ConstantType=constant_type
 ConstantValue=constant_value
 InlinedConstant=inlined_constant
+InitializerRecordFieldName=initializer_record_field_name
+ConfigurationVariableTypeArgument=configuration_variable_type_argument

@@ -1559,21 +1559,12 @@ fn builtin_token_role<'a>(
     value: &str,
     counters: &'a mut RuleCounters,
 ) -> Result<(ProvenanceRole, &'a mut u32), StateTransportError> {
-    match sort {
-        crate::BuiltinSort::Id
-            if value.strip_prefix('$').is_some_and(|tail| {
-                !tail.is_empty()
-                    && tail
-                        .chars()
-                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-            }) =>
-        {
+    match super::validation::builtin_token_literal_role(sort, value) {
+        Some(ProvenanceRole::ClaimIdToken) => {
             Ok((ProvenanceRole::ClaimIdToken, &mut counters.id_token))
         }
-        crate::BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
-            Ok((ProvenanceRole::ClaimBytesToken, &mut counters.bytes_token))
-        }
-        _ => Err(StateTransportError::InvalidTerm(
+        Some(role) => Ok((role, &mut counters.bytes_token)),
+        None => Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidCompilerOwnedBuiltinToken,
         )),
     }

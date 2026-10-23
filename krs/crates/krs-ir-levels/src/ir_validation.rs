@@ -2,7 +2,7 @@
 
 use crate::ir_level::{
     IrClaim, IrCondition, IrLevel, IrMlKind, IrMlPredicate, IrPredicateRewrite, IrRulePriority,
-    IrSimplification, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
+    IrSimplification, IrSortRef, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
 };
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellCollectionType,
@@ -234,7 +234,8 @@ pub(crate) fn require_sort<L: Validation>(
     Ok(())
 }
 
-/// Every element type of a leaf cell names a declared sort, and each
+/// Every element type of a leaf cell or a configuration variable names a
+/// declared sort, and each
 /// collection sort carries the number of element types it takes: two for a
 /// `Map`, one for a `List` or `Set`, none for a bare collection or any other
 /// sort.
@@ -304,6 +305,7 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
     let mut main_count = 0_usize;
     for variable in configuration.variables() {
         require_sort::<L>(declarations, variable.sort())?;
+        require_cell_arguments::<L>(declarations, variable.sort(), variable.arguments())?;
         if scope
             .insert(variable.id().clone(), variable.sort().clone())
             .is_some()
@@ -442,23 +444,52 @@ fn configuration_leaf_sorts<L: Validation>(
     Ok(leaf_sorts)
 }
 
-/// Adds K's `Cell(d) <: KItem` edge for every nested (group) cell of the
-/// configuration, so a whole-group binder may stand wherever a `KItem` is
-/// expected, as the compiler's inference catalog already allows.
-pub(crate) fn insert_group_cell_parents<L: Validation>(
+/// Completes the judging graph with K's `S <: KItem` for every sort `S` but
+/// `K`: each declared sort in `declared`, each builtin sort other than `K`,
+/// each sort the graph already names, and the generated sort of every nested
+/// (group) cell of the configuration. In the emitted K every sort but `K` is
+/// a `KItem`, whether or not a subsort sentence states it, so a term of any
+/// of them may stand wherever a `KItem` is expected, as the compiler's
+/// inference catalog also allows. Sort parameters are not sorts and get no
+/// edge.
+pub(crate) fn insert_k_item_parents<D, L>(
     configuration: Option<&Configuration<L>>,
-    k_item: Option<L::Sort>,
+    k_item: Option<IrSortRef<D>>,
+    declared: impl IntoIterator<Item = D>,
     parents: &mut SortParents<L>,
-) {
-    let (Some(configuration), Some(k_item)) = (configuration, k_item) else {
+) where
+    D: Clone + Ord,
+    L: Validation<Sort = IrSortRef<D>>,
+{
+    let Some(k_item) = k_item else {
         return;
     };
-    for (sort, _) in configuration_groups::<L>(configuration).into_values() {
-        if let Some(sort) = sort {
-            let entry = parents.entry(sort).or_default();
-            if !entry.contains(&k_item) {
-                entry.push(k_item.clone());
-            }
+    let mut sorts = declared
+        .into_iter()
+        .map(IrSortRef::Declared)
+        .chain(BuiltinSort::ALL.into_iter().map(IrSortRef::Builtin))
+        .chain(parents.keys().cloned())
+        .chain(parents.values().flatten().cloned())
+        .collect::<BTreeSet<_>>();
+    if let Some(configuration) = configuration {
+        sorts.extend(
+            configuration_groups::<L>(configuration)
+                .into_values()
+                .filter_map(|(sort, _)| sort),
+        );
+    }
+    for sort in sorts {
+        if sort == k_item
+            || matches!(
+                sort,
+                IrSortRef::Builtin(BuiltinSort::KSequence) | IrSortRef::Parameter(_)
+            )
+        {
+            continue;
+        }
+        let entry = parents.entry(sort).or_default();
+        if !entry.contains(&k_item) {
+            entry.push(k_item.clone());
         }
     }
 }

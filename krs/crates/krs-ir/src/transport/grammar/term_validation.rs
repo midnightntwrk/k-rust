@@ -766,24 +766,9 @@ fn builtin_token_role(
     sort: BuiltinSort,
     value: &str,
 ) -> Result<ProvenanceRole, GrammarTransportError> {
-    match sort {
-        BuiltinSort::Id
-            if value.strip_prefix('$').is_some_and(|tail| {
-                !tail.is_empty()
-                    && tail
-                        .chars()
-                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-            }) =>
-        {
-            Ok(ProvenanceRole::ClaimIdToken)
-        }
-        BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
-            Ok(ProvenanceRole::ClaimBytesToken)
-        }
-        _ => Err(GrammarTransportError::InvalidTerm(
-            GrammarTermReason::InvalidCompilerOwnedBuiltinToken,
-        )),
-    }
+    crate::transport::validation::builtin_token_literal_role(sort, value).ok_or(
+        GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidCompilerOwnedBuiltinToken),
+    )
 }
 
 fn unsupported_claim_term() -> Result<(), GrammarTransportError> {

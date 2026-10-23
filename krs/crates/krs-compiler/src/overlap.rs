@@ -351,15 +351,6 @@ impl SortGraph {
                     .insert(edge.supersort().clone());
             }
         }
-        // Every generated group-cell sort (KF-016) is a subsort of KItem.
-        let k_item = graph
-            .candidates
-            .iter()
-            .find(|sort| {
-                matches!(sort, SemanticSortRef::Declared(id)
-                    if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
-            })
-            .cloned();
         for module in modules {
             let mut groups = Vec::new();
             if let Some(configuration) = module.configuration() {
@@ -367,16 +358,10 @@ impl SortGraph {
             }
             for (cell, sort, descendants) in groups {
                 graph.descendants.insert(cell, descendants);
-                graph.candidates.insert(sort.clone());
-                if let Some(k_item) = &k_item {
-                    graph
-                        .parents
-                        .entry(sort)
-                        .or_default()
-                        .insert(k_item.clone());
-                }
+                graph.candidates.insert(sort);
             }
         }
+        graph.complete_k_item();
         // An anywhere rule rewrites its head wherever it occurs, so that
         // head's applications are not free terms; a head the check cannot
         // name leaves no constructor free.
@@ -403,6 +388,37 @@ impl SortGraph {
         graph.build_closure();
         graph.resolve_overload_roots();
         graph
+    }
+
+    /// Makes every candidate sort but `K` a subsort of `KItem`, as in the
+    /// emitted K: each declared and builtin sort and every generated
+    /// group-cell sort (KF-016), whether or not a subsort sentence says so.
+    fn complete_k_item(&mut self) {
+        let k_item = self
+            .candidates
+            .iter()
+            .find(|sort| {
+                matches!(sort, SemanticSortRef::Declared(id)
+                    if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
+            })
+            .cloned();
+        let Some(k_item) = k_item else {
+            return;
+        };
+        for sort in &self.candidates {
+            if *sort != k_item
+                && !matches!(
+                    sort,
+                    SemanticSortRef::Builtin(BuiltinSort::KSequence)
+                        | SemanticSortRef::Parameter(_)
+                )
+            {
+                self.parents
+                    .entry(sort.clone())
+                    .or_default()
+                    .insert(k_item.clone());
+            }
+        }
     }
 
     /// Replaces each member's authored target by the root of its chain.

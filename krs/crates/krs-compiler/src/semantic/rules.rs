@@ -265,12 +265,8 @@ fn head_rule_typing(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<CollectionTyping, DescriptorLoweringError> {
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
-    walker.checked_binders(
-        rule.existentials
-            .iter()
-            .chain(&rule.fresh)
-            .map(|binder| binder.name.as_str()),
-    );
+    walker.existentials(&rule.existentials, rule.claim.is_some());
+    walker.checked_binders(rule.fresh.iter().map(|binder| binder.name.as_str()));
     let mut roots = Vec::new();
     let untyped = |term, subject| Root::Term {
         term,
@@ -399,7 +395,10 @@ fn structured_rule_typing(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<CollectionTyping, DescriptorLoweringError> {
-    let walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    // A term rule is a transition or an equation; claims are `cells!` rules.
+    walker.existentials(&rule.existentials, false);
+    walker.checked_binders(rule.fresh.iter().map(|binder| binder.name.as_str()));
     let mut roots = Vec::new();
     for cell in rule
         .function_context
@@ -526,7 +525,9 @@ pub(super) fn lower_head_rule_descriptor(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
-        declared_binders: BTreeMap::new(),
+        declared_binders: super::infer::declared_existentials(
+            rule.existentials.iter().chain(&rule.fresh),
+        ),
         subject_keys: BTreeMap::new(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: CollectionUse::new(&typing),
@@ -1096,6 +1097,17 @@ fn infer_head_rule(
                     for entry in entries {
                         let expected = builder.collections.element_sort(&entry.key);
                         builder.infer(&entry.key, expected.as_ref(), true)?;
+                        // A value read from a bare map is any `KItem`; a typed
+                        // map's value binder is seeded with its value sort.
+                        if !builder.binding_sorts.contains_key(&entry.value_binding)
+                            && let Some(k_item) = builder.collections.untyped_element()
+                        {
+                            builder
+                                .binding_constraints
+                                .entry(entry.value_binding.clone())
+                                .or_default()
+                                .insert(k_item.clone());
+                        }
                     }
                 }
                 krs_ir::ProtocolHeadRuleExtra::UpdateMap {
@@ -1905,6 +1917,9 @@ pub(super) fn lower_structured_rule_descriptor(
                 ),
             )
         })
+        .chain(super::infer::declared_existentials(
+            rule.existentials.iter().chain(&rule.fresh),
+        ))
         .collect::<BTreeMap<_, _>>();
     // A function context matches cells, and a subject matches arguments;
     // their binders have the cells' and parameters' element types.

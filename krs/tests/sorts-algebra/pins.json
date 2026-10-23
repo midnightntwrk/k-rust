@@ -119,7 +119,7 @@
       "error[krs::analysis::incompatible-binder]: binder `a` is declared `Exp` but this occurrence needs `Int`"
     ],
     "undetermined-instance": [
-      "error[krs::analysis::parametric-instance]: K cannot determine the sort parameter `S` of `Same` from its arguments (Int, Bool) and position: they have no common sort; give an argument a narrower sort with a typed binder or `where`"
+      "error[krs::analysis::parametric-instance]: K cannot determine the sort parameter `S` of `Same` from its arguments (K, Bool) and position: they have no common sort; give an argument a narrower sort with a typed binder or `where`"
     ],
     "native-instance": [
       "error[krs::analysis::native-instance]: label sort parameters cannot be written natively, so k-rust fixes this head's instance from its argument sorts: it would solve S = Int, not the turbofish's S = Exp. Give at least one parametric argument a variable of sort Exp."

@@ -1275,4 +1275,9 @@ fn map_patterns_reject_a_key_named_twice() {
         krs_syntax::parse::tokens_from_source("a -> x, b -> y, ..").unwrap(),
     )
     .unwrap();
+    // Two `_` keys match two distinct entries.
+    krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source("_ -> x, _ -> y, ..").unwrap(),
+    )
+    .unwrap();
 }

@@ -316,7 +316,7 @@ impl StructuredTermBuilder<'_> {
             let list = self.builtin_list(reference, arguments)?;
             for (_, element) in list.front.iter().chain(&list.back) {
                 let expected =
-                    self.collection_operand_expected(element, CollectionOperandSort::Element)?;
+                    self.collection_operand_expected(element, CollectionOperandSort::Element);
                 self.infer(element, expected.as_ref(), subject)?;
             }
             if let Some(rest) = list.rest {
@@ -656,20 +656,20 @@ impl StructuredTermBuilder<'_> {
         }
         let element = |builder: &mut Self, item: &krs_ir::DescriptorTerm| {
             if constructors.cons.is_some() {
-                Ok(Some(constructors.element.clone()))
+                Some(constructors.element.clone())
             } else {
                 builder.collection_operand_expected(item, CollectionOperandSort::Element)
             }
         };
         for item in &list.items {
-            let expected = element(self, item)?;
+            let expected = element(self, item);
             self.infer(item, expected.as_ref(), subject)?;
         }
         if let ProtocolHeadRuleListRest::Term(rest) = &list.rest {
             self.infer(rest, Some(sort), subject)?;
         }
         for item in &list.back {
-            let expected = element(self, item)?;
+            let expected = element(self, item);
             self.infer(item, expected.as_ref(), subject)?;
         }
         Ok(())

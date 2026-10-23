@@ -84,7 +84,7 @@ operation, and a corpus of programs that apply them to concrete values:
   is outside K's default hook namespaces (its LLVM backend would need the
   blockchain plugin).
   Each `krs check` pins its `krs::semantic::raw-k` or `krs::expand::raw-hook`
-  warning. `raw-denied` (no opt-in) and `raw-strict` (`profile = "strict"`)
+  warning, which `krs expand` reports too (without `check`'s route warnings). `raw-denied` (no opt-in) and `raw-strict` (`profile = "strict"`)
   each fail with both errors, `krs check --profile strict` fails on `raw-k`,
   and `raw-parse-error`, a `raw_k!` rule K cannot parse, fails `krs build`
   closed with `krs::native::raw-k-parse` at the `raw_k!` text.
@@ -842,13 +842,21 @@ def console_log(harness: FixtureGate) -> None:
 
 
 def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
-    """Require `krs check` to pass with the raw K warning `code` and pin its warnings."""
+    """Require `krs check` to pass with the raw K warning `code` and pin its warnings.
+
+    `krs expand` must report the same `code` warnings, a fact about the
+    definition, and none of the warnings of the backend routes `check` judges.
+    """
 
     process = harness._krs(fixture, "check", check=False)
     lines = diagnostic_lines(process.stderr)
     if process.returncode != 0 or not any(line.startswith(f"warning[{code}]: ") for line in lines):
         raise GateError(f"{fixture.package}: krs check exited {process.returncode} without warning[{code}]:\n{process.stderr}")
     harness.pins.expect(("raw_warnings", fixture.package), lines)
+    expanded = diagnostic_lines(harness._krs(fixture, "expand").stderr)
+    definition = [line for line in lines if line.startswith(f"warning[{code}]: ")]
+    if expanded != definition:
+        raise GateError(f"{fixture.package}: krs expand reports {expanded}, expected {definition}")
 
 
 def sort_test_diagnostics(harness: FixtureGate) -> None:

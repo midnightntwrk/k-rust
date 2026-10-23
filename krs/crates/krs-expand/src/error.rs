@@ -11,6 +11,9 @@ use quote::ToTokens;
 #[derive(Debug)]
 pub struct ExpandError {
     failures: Vec<Failure>,
+    // Items emitted after the diagnostics so that dependents of the failed
+    // item still resolve and rustc reports nothing beyond the KRS failure.
+    stand_in: TokenStream,
 }
 
 #[derive(Debug)]
@@ -51,12 +54,30 @@ impl ExpandError {
                 diagnostic,
                 rustc_spans: None,
             }],
+            stand_in: TokenStream::new(),
         }
     }
 
-    /// Appends another failure's diagnostics without changing their order.
+    /// Appends another failure's diagnostics without changing their order,
+    /// and its stand-in items after this one's.
     pub fn combine(&mut self, another: Self) {
         self.failures.extend(another.failures);
+        self.stand_in.extend(another.stand_in);
+    }
+
+    /// Attaches items that stand in for the failed item's generated interface.
+    /// They are emitted after the diagnostics, so they never run: the
+    /// diagnostics' `compile_error!` stops every build that contains them.
+    #[must_use]
+    pub fn with_stand_in(mut self, stand_in: TokenStream) -> Self {
+        self.stand_in.extend(stand_in);
+        self
+    }
+
+    /// Returns the stand-in items emitted after the diagnostics.
+    #[must_use]
+    pub fn stand_in(&self) -> &TokenStream {
+        &self.stand_in
     }
 
     /// Returns the diagnostics in reporting order.
@@ -67,6 +88,15 @@ impl ExpandError {
     /// Consumes the failure and returns its diagnostics in reporting order.
     pub fn into_diagnostics(self) -> impl Iterator<Item = Diagnostic> {
         self.failures.into_iter().map(|failure| failure.diagnostic)
+    }
+
+    /// Renders the diagnostics as `compile_error!` tokens followed by the stand-in items.
+    #[must_use]
+    pub fn into_compile_error(mut self, call_site: Span) -> TokenStream {
+        let stand_in = std::mem::take(&mut self.stand_in);
+        let mut tokens = self.into_syn_error(call_site).into_compile_error();
+        tokens.extend(stand_in);
+        tokens
     }
 
     /// Renders one rustc sub-error per diagnostic, retaining available span endpoints.
@@ -139,6 +169,7 @@ impl From<syn::Error> for ExpandError {
                     }
                 })
                 .collect(),
+            stand_in: TokenStream::new(),
         }
     }
 }

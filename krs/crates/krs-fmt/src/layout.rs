@@ -6,7 +6,11 @@
 //! The printer lays a group out on one line when it fits in the remaining
 //! width, and otherwise breaks it, outside in: a delimited group puts one
 //! item per line, indented, and an alternative chain puts one alternative per
-//! line with its operator leading.
+//! line with its operator leading. In an expression chain an operator instead
+//! joins the line that ends the operand before it when that line ends at or
+//! before the operator's own indentation (a broken record's or call's closing
+//! delimiters, or an operand no wider than one level) and the operator and
+//! its operand's first line fit there: `} != rhs`.
 //! Layout depends only on the tokens and on where line comments sit between
 //! them, never on the input's whitespace, so formatting is idempotent.
 //! Tokens are never reordered, and the only token added or removed is a
@@ -43,7 +47,16 @@ pub(crate) enum Doc {
     /// A clause's ` => result`: it stays on the current line when the
     /// result fits there whole, or when the result must break anyway and
     /// its first line fits; otherwise `=> result` starts a new line.
+    /// The first line of a chain whose first operand fits on no line is
+    /// that operand's own first line.
     Arm(Box<Doc>),
+    /// An operator and its right operand in a broken expression chain: on a
+    /// new line at the nesting indentation, unless the line so far holds no
+    /// more than that indentation's width (a broken left operand's closing
+    /// delimiters, or an operand no wider than one level) and the operator
+    /// and the operand's first line fit after it; they then continue that
+    /// line, the operand at the chain's own indentation, one level less.
+    Join(Box<Doc>),
     /// Text printed, and measured, only when the enclosing group breaks: a
     /// list's trailing comma.
     IfBreak(&'static str),
@@ -87,6 +100,9 @@ enum Mode {
     /// Inside that outermost group, whose own breaks end the line and whose
     /// nested groups stay flat.
     Outer,
+    /// Measuring a document's first line when every group before its first
+    /// break breaks: an expression chain whose first operand must break.
+    Lead,
 }
 
 /// Lays `doc` out in `width` columns; a line exceeds the width only where
@@ -114,6 +130,26 @@ pub(crate) fn print(doc: &Doc, width: usize) -> Vec<String> {
             }
             Doc::Line(flat) if mode == Mode::Flat => printer.push(flat),
             Doc::Line(_) | Doc::Hard => printer.newline(indent),
+            Doc::Join(operand) if mode == Mode::Flat => {
+                printer.push(" ");
+                stack.push((indent, Mode::Flat, operand));
+            }
+            Doc::Join(operand) => {
+                let joins = !printer.current.trim().is_empty()
+                    && printer.column <= indent
+                    && fits(
+                        width.saturating_sub(printer.column + 1),
+                        &[(Mode::Head, operand)],
+                        &stack,
+                    );
+                if joins {
+                    printer.push(" ");
+                    stack.push((indent.saturating_sub(INDENT), Mode::Break, operand));
+                } else {
+                    printer.newline(indent);
+                    stack.push((indent, Mode::Break, operand));
+                }
+            }
             Doc::Nest(extra, inner) => stack.push((indent + extra, mode, inner)),
             Doc::Concat(items) => stack.extend(items.iter().rev().map(|item| (indent, mode, item))),
             Doc::Group { doc: inner, broken } => {
@@ -132,7 +168,9 @@ pub(crate) fn print(doc: &Doc, width: usize) -> Vec<String> {
                 let next_line = width.saturating_sub(indent + ARROW.trim_start().len());
                 let same_line = whole
                     || (!fits(next_line, &[(Mode::Flat, result)], &stack)
-                        && fits(remaining, &[(Mode::Head, result)], &stack));
+                        && (fits(remaining, &[(Mode::Head, result)], &stack)
+                            || (!fits(next_line, &[(Mode::Head, result)], &stack)
+                                && fits(remaining, &[(Mode::Lead, result)], &stack))));
                 if same_line {
                     printer.push(ARROW);
                 } else {
@@ -201,7 +239,14 @@ fn fits(remaining: usize, first: &[(Mode, &Doc)], rest: &[(usize, Mode, &Doc)]) 
                 }
                 None => return false,
             },
-            Doc::Line(_) | Doc::Arm(_) => return true,
+            Doc::Join(operand) if mode == Mode::Flat => match remaining.checked_sub(1) {
+                Some(left) => {
+                    remaining = left;
+                    stack.push((mode, operand));
+                }
+                None => return false,
+            },
+            Doc::Line(_) | Doc::Arm(_) | Doc::Join(_) => return true,
             // A group that follows may still break at its first line, so
             // only the text before that line must fit.
             Doc::Group { doc: inner, broken } => stack.push((
@@ -211,6 +256,7 @@ fn fits(remaining: usize, first: &[(Mode, &Doc)], rest: &[(usize, Mode, &Doc)]) 
                     Mode::Flat | Mode::Outer => Mode::Flat,
                     Mode::Break => Mode::Break,
                     Mode::Head => Mode::Outer,
+                    Mode::Lead => Mode::Lead,
                 },
                 inner,
             )),
@@ -1033,9 +1079,18 @@ fn operands(
         let part = operands(atoms, spaces, start..split, stray, context, tighter);
         if first.is_none() {
             first = Some(part);
+        } else if context == Context::Expression
+            && stray.get(start - 1).is_none_or(Vec::is_empty)
+            && stray.get(start).is_none_or(Vec::is_empty)
+        {
+            rest.push(Doc::Join(Box::new(Doc::Concat(vec![
+                Doc::text(&atoms[start - 1].text),
+                Doc::text(" "),
+                part,
+            ]))));
         } else {
             // A comment before the operator ends the previous operand's line
-            // or takes a line of its own.
+            // or takes a line of its own, so the operator starts its line.
             rest.extend(comments_before(stray.get(start - 1)));
             rest.push(Doc::Line(" "));
             rest.push(Doc::text(&atoms[start - 1].text));

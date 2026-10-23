@@ -262,6 +262,82 @@ fn machine_map_patterns_read_several_entries_of_one_cell() {
     assert_eq!(ordinals(ProvenanceRole::RuleLeftMapValue), [0, 1, 2]);
 }
 
+fn clause_bindings(source: &str) -> Vec<String> {
+    let block = krs_syntax::RuleBlock::parse_source(source)
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+    block.clauses()[0]
+        .bindings()
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// A map read's key is a pattern: a name nothing else in the subject binds
+/// is bound by the read (any entry); a name bound elsewhere, in any cell
+/// order, looks its entry up; a qualified path or a call's head binds
+/// nothing, and a key equal to its value keeps that meaning.
+#[test]
+fn machine_map_read_keys_bind_the_names_nothing_else_binds() {
+    for (source, expected) in [
+        (
+            "for Machine; pick: { computation: [Pick(), ..], env: { kk -> vv, .. } } => { computation: [vv, ..] };",
+            &["vv", "kk"][..],
+        ),
+        (
+            "for Machine; var: { computation: [name, ..], env: { name -> v, .. } } => { computation: [v, ..] };",
+            &["name", "v"][..],
+        ),
+        (
+            "for Machine; cur: { computation: [Go(), ..], env: { name -> v, .. }, cur: name } => { computation: [v, ..] };",
+            &["v", "name"][..],
+        ),
+        (
+            "for Machine; same: { computation: [Go(), ..], env: { key -> key, .. } } => { computation: [key, ..] };",
+            &["key"][..],
+        ),
+        (
+            "for Machine; pair: { computation: [Go(), ..], env: { Pair(a, Reg::B) -> v, .. } } => { computation: [a, v, ..] };",
+            &["v", "a"][..],
+        ),
+        (
+            "for Machine; two: { computation: [Go(), ..], env: { a -> x, b -> y, .. } } => { computation: [x, y, ..] };",
+            &["x", "y", "a", "b"][..],
+        ),
+        (
+            "for Machine; typed: { computation: [Go(), ..], raw: { kk -> vv, .. } } => { computation: [vv, ..] } where kk: Id, vv: Value;",
+            &["vv", "kk"][..],
+        ),
+    ] {
+        assert_eq!(clause_bindings(source), expected, "{source}");
+    }
+}
+
+/// `_` reads any entry without naming its key; two `_` keys are two
+/// distinct entries, and each is a left wildcard of the clause.
+#[test]
+fn machine_map_reads_accept_wildcard_keys() {
+    let source = "for Machine; any: { computation: [Go(), ..], env: { _ -> x, _ -> y, .. } } => { computation: [x, y, ..] };";
+    assert_eq!(clause_bindings(source), ["x", "y"]);
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let clause = &block.clauses()[0];
+    let [RuleExtra::HaveMap { entries, .. }] = clause.extras() else {
+        panic!("expected one map read, got {:?}", clause.extras());
+    };
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry.key.root_kind() == krs_syntax::TermRootKind::Wildcard)
+    );
+    let wildcards = clause
+        .provenance()
+        .unwrap()
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
+        .map(krs_syntax::ProvenanceAnchor::ordinal)
+        .collect::<Vec<_>>();
+    assert_eq!(wildcards, [0, 1]);
+}
+
 #[test]
 fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
     let block = krs_syntax::RuleBlock::parse_source(
@@ -481,6 +557,14 @@ fn malformed_blocks_fail_at_the_local_construct() {
         (
             "for Expr; x: Wrap(a) => a where have env[a => let v];",
             "`=>` is reserved for rewrites; map entries use `->`",
+        ),
+        (
+            "for Expr; x: Wrap(a) => a where have env[kk -> let v];",
+            "`kk` is bound nowhere in this rule; `have` reads the entry at a key the rule already knows; to read any entry, bind the key with a record read `env: { kk -> v, .. }`",
+        ),
+        (
+            "for Expr; x: Wrap(a) => a where have env[Key(a, other) -> let v];",
+            "`other` is bound nowhere in this rule",
         ),
         (
             "for Machine; x: { computation: [a, ..], env: { a => v, .. } } => { computation: [a, ..] };",

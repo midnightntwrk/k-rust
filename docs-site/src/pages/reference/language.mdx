@@ -42,7 +42,7 @@ The imports combine as Rust's do: an explicit `use Boxed::Load;` shadows the `Lo
 
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
 Constructor families put `#[k::constructors(sort = ..., result = ...)]` (readable) or `#[k::constructors(sort = ..., reference)]` on an enum and attach syntax to its variants; every variant constructs `sort` itself, and the enum is not a sort.
-A family whose productions need a sort of their own declares that sort in `k::sorts!`, for example `Freezer: KItem;`, and names it with `sort = Freezer`.
+A family whose productions need a sort of their own declares that sort in `k::sorts!`, for example `Freezer: KItem;` (every sort is a `KItem` anyway, [declared or not](#framework-and-builtin-sorts)), and names it with `sort = Freezer`.
 The family form is preferred when a closed set of alternatives shares an open result sort; the standalone form remains useful for declarations owned independently.
 
 ## Helper attributes
@@ -52,7 +52,7 @@ Enum helper `#[k::precedence(...)]` names intra-family tiers, using explicit `le
 A chain, when written, lists every variant exactly once (`krs::syntax::invalid-enum-precedence`).
 It is required exactly when it could change a parse: when some variant's template begins or ends with a field whose sort admits the family's sort, that is, the sort itself, one of its supersorts in the whole definition, or `KItem` or `K`.
 Such a field lets one of the family's productions sit directly at the edge of another, the only position its tiers constrain.
-Without a chain the variants belong to no production group; a family that needs one and has none is `krs::analysis::missing-precedence-chain`, an error in every command that lowers the definition (`check`, `emit-k`, `build`, `run`, `prove`).
+Without a chain the variants belong to no production group; a family that needs one and has none is `krs::analysis::missing-precedence-chain`, an error in every command that lowers the definition (`check`, `expand`, `emit-k`, `build`, and the run commands).
 A variant's `group` comes from the chain, so it is rejected without one; a reference family names a `group` on every variant or on none.
 Declaration order never supplies precedence.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
@@ -75,6 +75,10 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
+Its declared type is its parameter's type, element types included (`xs: List<Value>`, `sets: Map<Int, Set<Int>>`), and the initializer may place it anywhere that type fits ([typed collections](#typed-collections)).
+An initializer's terms are KRS terms, written as in a rule result: constructors, positional (`Tag(v)`) or with every field named (`Tag { b: v }`), function calls, builtin operations, literals, and configuration variables, in a `k::k![..]` item, a `k::map![..]` key or value, or a call's argument, as in `k: k::k![pgm, StmtSyntax::Tag { b: bytes::empty() }, Init(n)]`; a function is evaluated when the configuration is built.
+A record update (`..base`) and an open record (`..`) are not initializer terms (`krs::expand::initializer-record-update`), since an initializer matches no record to take fields from; a cell's whole value written as a struct literal is a nested cell group's initializer, so a record constructor stands below a cell root, in a `k::k![..]` item, or in a `k::map![..]` entry.
+rustc resolves every name in them and checks the Rust type of a configuration variable that is a cell's whole content, which must be the cell's; KRS checks the terms' sorts.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
 `#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
@@ -184,7 +188,10 @@ swap: { k: [Swap(), ..], queue: [a, .., z] } => { k: [..], queue: [z, .., a] };
 log:  { k: [Log(e), ..], logs }              => { k: [..], logs: [..logs, e] };
 ```
 
-`swap` emits `<queue> ListItem(A:Int) Krs_RestQueue:List ListItem(Z:Int) => ListItem(Z:Int) Krs_RestQueue:List ListItem(A:Int) </queue>`.
+`swap` emits `<queue> ListItem(A:Int) Krs_RestQueue:List ListItem(Z:Int) => ListItem(Z:Int) Krs_RestQueue:List ListItem(A:Int) </queue>`: these examples' `queue` is a `List<Int>`.
+On a bare `List` an element is any `KItem`, as in K: `[_, ..] => [..]` drops the front element whatever it is, `[a, ..] => [.., a]` rotates whatever the list holds (`ListItem(A:KItem)`), and a binder that another occurrence sorts takes that sort (`[v, ..] => acc: v` with an `Int` cell `acc` emits `ListItem(V:Int)`).
+A `KItem` chooses no operator, so `[a, .., z] => acc: a + z` on a bare `List` needs `where a: Int, z: Int` or a `List<Int>` cell (`krs::analysis::ambiguous-operator` names the binders and the narrowing).
+The same holds for the keys and values of a bare `Map` and the elements of a bare `Set`, and a read such as `list::get(q, 0)` that no position sorts is a `KItem`.
 A named rest, `[a, b, rest @ ..] => [b, a, ..rest]`, may be used elsewhere, and a result may also be one term, `[_, rest @ ..] => rest` or `s => [v, ..s]`.
 A bracketed value reads by the cell's declared type: the computation cell reads items, a List collection instances, and a list cell elements.
 The macro cannot see declared types, so it reads one bracketed value of a record as the computation cell's, a cell named `k` if there is one, and the collector moves that reading to the configuration's computation cell; a record may therefore name the stack first, `{ word_stack: [a, ..], k: [Pop(), ..] }`, and a configuration may call its computation cell anything.
@@ -214,10 +221,15 @@ The omitted computation cell is framed like every omitted cell, so the rule fire
 Such a rule is rejected when it changes no cell, for instance when it only reads (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
 
-A readable record reads entries of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
+A readable record reads entries of a Map cell with `env: { name -> value, .. }`: `value` binds what the entry maps to, and the cell is left unchanged, so the result record does not restate `env`.
+The key is a pattern, like every other position of the subject record.
+A key name the subject binds elsewhere looks its entry up, so the rule applies only where that key is present: `var: { k: [name, ..], env: { name -> value, .. } } => { k: [value, ..] }`.
+A key name that nothing else in the subject binds matches the key of any entry and binds it, so the rule applies once per entry, a nondeterministic choice that `krs search` shows as one solution per entry: `pick: { k: [Pick(), ..], threads: { tid -> t, .. } } => ..` emits `<threads> Tid |-> T ... </threads>`, and a `Map<K, V>` cell gives `tid` the type `K`.
+`{ _ -> value, .. }` reads the value of any entry without naming its key.
 It may read several, `regs: { a -> x, b -> y, .. }`, which is K's `<regs> A |-> X B |-> Y ... </regs>` and the `cells!` entry `regs: k::configuration::Cell(map![a -> x, b -> y, ..])`.
 Each item is a different entry of the map, so the pattern matches only where the keys differ: with `a` and `b` bound to one key, the rule does not apply.
 Two keys written as the same term could never differ, so `{ a -> x, a -> y, .. }` is a syntax error, and so is the pattern `map![a -> x, a -> y, ..]` in a `cells!` entry; read one entry and bind its value once instead.
+Two `_` keys are two distinct entries: `{ _ -> x, _ -> y, .. }` matches a map with at least two.
 Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is in an initializer.
 
 A leaf cell of a builtin collection sort is emptied, or matched only when empty, with the term for the empty collection: `functions: map::empty()`, `seen: set::empty()`, and `stack: []` (or `list::empty()`) are K's `.Map`, `.Set`, and `.List`, on either side of a readable rule or claim and in every other term.
@@ -230,13 +242,15 @@ Braces on a leaf cell are no empty map: `{ .. }` names a Set or Map collection's
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.
 In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: [f, ..s] }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
 The group clause is written bare, never inside `<frame>...</frame>`, and a group the rule names covers every cell inside it.
-As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: [Held { saved: f }, ..s]` emits `ListItem(held ( F:FrameCell ))`.
+As in K, every generated cell sort is a subsort of `KItem`, like [every sort but `K`](#framework-and-builtin-sorts), so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: [Held { saved: f }, ..s]` emits `ListItem(held ( F:FrameCell ))`.
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
+Inside a group record, a group child may likewise be a binder or `_`: with `outer` holding the `frame` group, `outer: Outer { frame: fr, .. }` binds the `<frame>` cell as `Fr:FrameCell`, and a result `outer: Outer { frame: fr, flag: x }` writes it back; an alias over a group child, `frame: fr @ Frame { pc: p, .. }`, names the matched child, and a use of it is that child [rebuilt from its children](#pattern-aliases).
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
 rustc resolves the record's path with the block's `use Cmd::*` in scope, as it resolves every unqualified path in the block, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
-At the group's own cell position, the subject's record matches the running configuration's cell, so it leaves the children it does not name unconstrained, with or without `..`: `frame: Frame { pc: p }` and `frame: Frame { pc: p, .. }` both emit `<frame> <pc> P:Int </pc> <gas> _ </gas> </frame>`.
-Anywhere else, a group record is the group's cell term, a value of its cell sort like any constructor term: in a list element (`stack: [saved @ Frame { pc: p, .. }, rest @ ..]`), a constructor argument (`Held { saved: Frame { pc: p, gas: g } }`), an alias target, or a result.
+At a configuration cell's own position (the value of the entry that names the group, and each group child of a record there), the subject's record matches the running configuration's cell, so it leaves the children it does not name unconstrained, with or without `..`: `frame: Frame { pc: p }` and `frame: Frame { pc: p, .. }` both emit `<frame> <pc> P:Int </pc> <gas> _ </gas> </frame>`, and with `outer` holding the `frame` group, `outer: Outer { frame: Frame { pc: p }, flag: f }` leaves `<gas>` unconstrained the same way, since that record is the configuration's `<frame>` reached through `outer`.
+Anywhere else, a group record is the group's cell term, a value of its cell sort like any constructor term: in a list element (`stack: [saved @ Frame { pc: p, .. }, rest @ ..]`), a constructor argument (`Held { saved: Frame { pc: p, gas: g } }`), the content of a leaf cell (`slot: Frame { pc: p, .. }` in a `KItem` cell), a group nested in such a value, an alias target, or a result.
 It means exactly `k::fragment![Frame { .. }]` there, which may also be written in each of those places, and as a value it is complete: a pattern ends in `..` to leave the children it does not name unconstrained, and without `..` names every child (`krs::analysis::invalid-term` otherwise).
+`k::fragment!` is exact at every position: it names every child or ends in `..`.
 A record pattern may name no field at all, as in Rust: `Projection::DerefTruncate { .. }` or `frame: Frame { .. }` matches that constructor or group whatever its fields hold, and is the pattern that writes each field `_` (`krs expand` writes `DerefTruncate(_)`), in readable rules and claims, `k::equations!` rows, and the subjects of `#[k::rule]`, `#[k::equation]`, and `#[k::simplification]` fns, with or without `k::term![..]`; `Ctor()` and `Ctor {}` still name every field, so they are rejected for a constructor that has fields.
 A result group record names every child, or [updates a matched group](#updating-a-matched-record).
 Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
@@ -288,6 +302,7 @@ In KRS it is the binder's declared type: `where x: Int` after a readable clause,
 A rule fn's subject is a pattern, so it needs no wrapper: `fn unwrap(Wrap { value: v }: Term<Exp>)` is `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>)`, compiler-owned islands below its root included; `krs expand` and this reference write the `k::term![..]` spelling.
 `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` infers `v` at the sort of `Wrap`'s field, emits `rule wrap(V:Exp) => V:Exp`, and matches every expression; `fn unwrap(v: Term<Int>, k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` emits `rule wrap(V:Int) => V:Int`, so `wrap(1 + 2)` no longer matches.
 A declared sort may be narrower than inference would choose, never wider or unrelated: a binder declared `Bool` in an `Exp` position is rejected (`krs::analysis::incompatible-binder`, "binder `x` is declared `Bool` but this occurrence needs `Exp`").
+A `KItem` occurrence never narrows a binder, because every sort but `K` is a `KItem`: with `Hold { saved: k::KItem }`, `{ k: [Hold { saved: s }, ..] } => { k: [s, ..] } where s: Stmt` emits `hold ( S:Stmt ) => S:Stmt`, a binder that also occurs in a `Stmt` field is a `Stmt`, and one that occurs only at `KItem` positions is a `KItem`.
 A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Exp, k::term![IsExpression(_e)]: Term<Bool>) -> Term<Bool>` emits `rule isExpression(_E:Exp) => true`.
 
 The binder list is all or nothing.
@@ -303,7 +318,7 @@ A cell declared `env: Map<Id, Value>` says what every reachable configuration ho
 K's collections hold `KItem`s, so K neither states nor checks that; KRS checks it, and the element types are erased from the emitted K.
 A collection type is `Map<K, V>`, `List<T>`, or `Set<T>`; each argument is a sort, `k::Term<S>` or `k::Term<dyn S>` (read as `S`), or a collection type itself, as in KEVM's `accessed_storage: Map<Int, Set<Int>>`.
 A cell, a constructor field, and a function parameter or result take a collection type: `Body { blocks: List<BasicBlock> }`, `fn MarkAccountAccess(accessed: k::Term<Set<Int>>, account: k::Term<Int>) -> k::Term<Set<Int>>`, and in the long form `#[k::function(sort = Set<Int>, ..)]`.
-A bare `Map`, `List`, or `Set` is untyped and accepts every write; `Map<Id>`, one argument where a map takes two, is an error, as is an element type that is neither a sort nor a collection type (`krs::syntax::invalid-collection-argument`).
+A bare `Map`, `List`, or `Set` is untyped and accepts every write, and its keys, values, and elements are `KItem`s; `Map<Id>`, one argument where a map takes two, is an error, as is an element type that is neither a sort nor a collection type (`krs::syntax::invalid-collection-argument`).
 
 The check is an induction over transitions: if the initializer fits the declared types and every rule writes only fitting terms, assuming every binder matched at a typed position has that position's type, then every reachable configuration fits.
 So a pattern gives types and a written term is checked:
@@ -312,8 +327,9 @@ So a pattern gives types and a written term is checked:
   The binder's declared sort, `k::Term<Map>` in a `cells!` rule, names only the sort, which is why `krs expand`'s reference rules check exactly as the readable ones do.
 - A key, value, or element written into a typed collection (the `k` and `v` of `map::update(m, k, v)`, the `x` of `list::item(x)` or `set::item(x)`, an element of [list brackets](#list-notation) `[x, ..rest]`, an entry of `map![..]` or `k::map![..]`) is inferred at the element sort, like any other occurrence: a binder used there and nowhere narrower gets that sort, and one whose other occurrences share no sort with it is an error.
 - A collection written into a typed position must fit it. Collections are values, so every argument is covariant: a `Map<Id, Int>` fits `Map<Id, Value>` because `Int` is a `Value`, `.Map`, `.List`, and `.Set` fit every type, and a `Map<Id, Value>` does not fit `Map<Id, Int>`.
-- A read has the element sort: `map::get(e, name)` is a `Value`, projected to the sort its position expects, or a `Value` where no position expects a sort, so `map::get(locals, name) + 1` over a `Map<Id, Int>` is `Int` addition. A read that asks for a sort the collection never holds is an error: `map::get(e, name)` where a `Stmt` is expected, `where v: Stmt` on a value read from `env`, or `map::in_keys(n, e)` with an `Int` key.
+- A read has the element sort: `map::get(e, name)` is a `Value`, projected to the sort its position expects, or a `Value` where no position expects a sort, so `map::get(locals, name) + 1` over a `Map<Id, Int>` is `Int` addition. A read that asks for a sort the collection never holds is an error: `map::get(e, name)` where a `Stmt` is expected, `where v: Stmt` on a value read from `env`, or `map::in_keys(n, e)` with an `Int` key; a probe that is not a binder is checked at its final sort, so `set::contains(k::bytes!(b"a"), seen)` over a `Set<Id>` and `map::remove(e, 1 + 2)` are errors too.
 
+Every term written at an element position is checked, whatever its kind: a constant such as `k::id!("$x")` or `k::bytes!(..)`, a `k::anonymous!` value, an operator expression (`1 == 2` is a `Bool`), a sort test, or a constructor, and the error names the term, its sort, and the position (`krs::analysis::collection-element-sort`).
 Every write path is checked: readable rule and claim results, claim left-hand sides, `cells!` rules, single-body rewrites, group and collection-instance records, `k::fragment!` terms, initializer values, the arguments of typed constructor fields and function parameters, and a typed function's equation results.
 The operations type as their K meaning says:
 
@@ -335,6 +351,9 @@ The operations type as their K meaning says:
 | `kequal::ite(c, t, e)` | both branches at the position's type | the position's type |
 
 "At" a sort means inferred and checked there; "read at" means the operand must share a sort with the element sort, since a probe for an element of another sort is merely never found.
+A reading operation (`map::keys`, `keys_list`, `values`, `get`, `get_or_default`, `list::get`, `set::to_list`, `set::from_list`) whose operand the sentence builds itself, so that no declaration types it, is checked through: at `Set<K>`, `map::keys(m)` checks `m` at `Map<K, KItem>`, `map::values(m)` at `List<V>` checks it at `Map<KItem, V>`, `set::from_list(l)` at `Set<T>` checks `l` at `List<T>`, and a `get` at a collection type `T` checks its map or list at values or elements of `T`; the parts the operation discards are `KItem`s, unconstrained.
+So `set::from_list([a, b, c])` is how to write a set of elements at a typed position, `seen: map::keys(map::update(map::empty(), name, s))` checks `name` as an element of `seen` whatever `s` is, and a wrong key is reported where it is written, as "stored as a key of the map whose keys `map::keys(..)` writes to the cell `seen`".
+An operand that comes from outside the sentence keeps its own type: a typed binder's result type is computed and checked, and an untyped one is still an error.
 A rule fn's binder declaration, an equation fn's subject and result sort, and a `where` narrowing still name only the sort (`where log: List` rather than `List<BusCycle>`, `krs::syntax::parametric-collection-sort`): a narrowing is a runtime sort test, and K cannot test the elements of a collection, while a binder takes its type from the position that matches it and an equation from its function's signature.
 
 The rule this check exists for stores a statement in a `Map<Id, Value>` store through a nested update:
@@ -378,6 +397,7 @@ A rule then writes `accessed_storage: MarkStorageAccess { accessed, account, ind
 `krs expand` writes the types into the long form, `#[k::function(sort = Map<Int, Set<Int>>, ..)]`, and its equations as `k::Term<Map>`.
 
 A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell, field, or parameter, a function's untyped result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)`.
+A collection the sentence builds, such as `map::update(map::empty(), 1, s)`, is not untyped: it has no type of its own and is checked where it is written.
 Writing one into a typed position is an error, since nothing would check its elements:
 
 ```text
@@ -385,15 +405,22 @@ error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, s
 ```
 
 The fix is to declare the element types where the collection comes from: the cell, the constructor field, or the function's signature.
+A rule's `#[k::exists(m: Map)]` is an untyped source too: the step may put any map there, so writing `m` into a typed position is `untyped-collection` in every rule form; a claim's existential is not, since it stands for what the target state holds.
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
-A configuration variable of `#[k::init]` is not checked here: its Rust type is the cell's, which rustc checks.
+A configuration variable of `#[k::init]` is a binder of its parameter's type, as a typed function's parameter is: placed as a cell's whole content, rustc checks that its type is the cell's; placed anywhere else, KRS checks the flow, so `xs: List<Stmt>` in `stack: list::concat(xs, list::item(1))` is `collection-element-sort` and a bare `xs: List` there is `untyped-collection`.
+A variable of any other sort is checked by sort inference, as any occurrence is.
+Reading an element out of a bare-collection variable is not a write of the collection: `list::item(list::get(xs, 0))` in a `List<Value>` cell reads a `KItem` and emits the projection `{$XS:List [ 0 ]}:>Value`.
+
+```text
+error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, has type `List<Stmt>`, which does not fit the cell `stack`, declared `List<Value>`: Stmt is not a Value
+```
 
 The value a configuration variable is given at run time is the induction's other base case, and only execution sees it.
-`krs-exec` checks it when it assembles the initial configuration, for `krs run -c NAME=TEXT`, `krs search`, and a value given to `Semantics::configure` alike: a variable that fills a typed cell must hold a value of the cell's type, key by key, value by value, and element by element, nested collections against their own element types, each element's sort at most the declared one in the definition's sort lattice (an `Int` or a `Ptr` declared `Ptr: Value` fits `Value`).
+`krs-exec` checks it when it assembles the initial configuration, for `krs run -c NAME=TEXT`, `krs search`, and a value given to `Semantics::configure` alike: a variable declared with a typed collection type must hold a value of that type, wherever the initializer places it, key by key, value by value, and element by element, nested collections against their own element types, each element's sort at most the declared one in the definition's sort lattice (an `Int` or a `Ptr` declared `Ptr: Value` fits `Value`).
 
 ```text
 $ krs run -c 'ENV=x |-> skip' ..
-error[krs::exec::collection-element-sort]: configuration variable `$ENV`: the cell `env` is declared `Map<Id, Value>`, but the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value
+error[krs::exec::collection-element-sort]: configuration variable `$ENV`, declared `Map<Id, Value>`: the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value
 ```
 
 A part the configuration leaves unevaluated is checked at the sort its symbol declares, which bounds every value it can take: `x |-> noop(1)` is rejected when `noop` returns a `Stmt`, but the elements of a set that `evens(1)` would compute are not seen.
@@ -405,6 +432,10 @@ Three inputs stay unchecked: those computed elements, configuration values Java 
 K writes the name last, `( pair ( A:Exp , B:Exp ) #as P:Exp )`, and KRS emits exactly that, always parenthesised.
 Like `tail @ ..`, `name @ pattern` binds what its pattern matched; unlike Rust's `@`, which copies or moves a value, K's alias is the matched term itself (a conjunction of patterns), so a result can reuse it without rebuilding it.
 `dup_pair: Dup(p @ Pair(a, b)) => Pair(p, Pair(b, a));` turns `dup(pair(1, 2))` into `pair(pair(1, 2), pair(2, 1))`.
+A group record is the exception: a use of `saved @ Frame { .. }` is the update `Frame { ..saved }` (see [updating a matched record](#updating-a-matched-record)), the matched cell rebuilt from its children, which the alias's pattern binds.
+A cell's children are placed by their labels, not matched as terms, so KRS names each child instead of writing `#as` among them; the rule means the same, in rules and claims alike.
+`push: { k: [Push(), ..], stack: s, frame: saved @ Frame { pc: 0, .. } } => { k: [..], stack: [saved, ..s] }` emits `<frame> <pc> ( 0 #as Krs_UpdateSavedPc:Int ) </pc> <gas> Krs_UpdateSavedGas:Int </gas> </frame>` and pushes `ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <gas> Krs_UpdateSavedGas:Int </gas> </frame>)`.
+An alias over a group record bound inside `|` or more than once matches no one record, so it keeps `#as`.
 An alias may name any subterm of a rule subject, a `cells!` cell value, a `k!` item, a `map!` key or value, or a readable clause pattern, a group's cell term included (`saved @ CallState { .. }` or `saved @ k::fragment![CallState { .. }]` in a list element), but not a whole rule subject, whose root is the matched constructor or function.
 A readable `for Machine` record's computation items and cell values are not rule subjects, so an alias may name a whole one: `charge: { k: [op @ (Push() | Pop()), ..], gas: g } => { k: [Charged(op), ..], gas: int::sub(g, 3) }` emits `<k> ( ( push #Or pop ) #as Op:Op ) => charged ( Op:Op ) ... </k>`.
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
@@ -428,9 +459,9 @@ deref_truncate: {
 
 K has no field projection on a term, so `..t` is defined by expansion: every field an update of `t` leaves out is bound in `t`'s pattern, to the binder the pattern gives it (`tail` above) or to a hidden binder, and the update writes that binder back.
 A field the pattern leaves out or writes `_` is matched by the hidden binder instead of a wildcard, and one it matches with another pattern `p` by `( p #as Hidden )`.
-Nothing new reaches K: the rule is the one written with every field named, and an alias used only as a base is matched without `#as`; `krs expand` writes that long form, naming each hidden binder after its alias and field (`t_target`).
+Nothing new reaches K: the rule is the one written with every field named, and an alias over a group record, and any alias used only as a base, is matched without `#as`; `krs expand` writes that long form, naming each hidden binder after its alias and the path of fields below it (`t_target`, `o_frame_pc`), with a number added when two paths would read the same.
 The base is a matched record, not a field projection, so it must be an alias `t @ Ctor { .. }` or `t @ Ctor(..)` of one record of the update's constructor, bound once and outside `|`: a binder of the whole term (`t` matched as `t`), an alias of another constructor, and a name bound by `let` or `k::matches!` are rejected (`krs::analysis::invalid-record-update`), and so are a base that is not one binder and a field listed twice (`krs::syntax::invalid-record-update`).
-An update may nest, `Outer { inner: Inner { x: 1, ..i }, ..o }`, and stands in readable rules and claims, `k::equations!` rows (whose records may end in `..` like a readable rule's), and `#[k::rule]` and `#[k::equation]` fns; a reference `cells!` term names every field (`krs::expand::invalid-record-update`).
+An update may nest, `Outer { inner: Inner { x: 1, ..i }, ..o }`, also for groups: `outer: o @ Outer { frame: fr @ Frame { pc: p, .. }, .. }` and the result `outer: Outer { frame: Frame { pc: int::add(p, 1), ..fr }, ..o }` change `<pc>` and keep `<gas>` and `<flag>`; an update stands in readable rules and claims, `k::equations!` rows (whose records may end in `..` like a readable rule's), and `#[k::rule]` and `#[k::equation]` fns; a reference `cells!` term names every field (`krs::expand::invalid-record-update`).
 
 A nested `#[k::cell]` group is a record too.
 In a readable record, `frame: saved @ Frame { pc: p, .. }` matches the group and leaves its other children unconstrained, and `frame: Frame { pc: int::add(p, 1), ..saved }` writes it back with `pc` changed; a group saved as a value updates the same way, so KEVM's return from a call restores the caller's frame from the call stack with three cells changed:
@@ -448,6 +479,8 @@ return_from_call: {
 ```
 
 In the list element, `CallState { .. }` is the group's cell term, as `k::fragment![CallState { .. }]` is, and it ends in `..` because a cell term outside the group's own cell position is complete; `krs expand` writes it as the fragment.
+`Frame { ..saved }` with no listed field is the matched frame unchanged, which is what a use of `saved` means.
+A group child that the base's pattern matches with a group record is rebuilt from that record's children in turn: with `outer: o @ Outer { frame: Frame { pc: 0, .. }, .. }`, the result `outer: Outer { flag: 7, ..o }` writes back the matched `<frame>` (its `<pc>` and `<gas>` through hidden binders) and sets `<flag>`.
 
 ### Pattern alternatives
 
@@ -523,7 +556,7 @@ A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejecte
 ### Coverage of total functions
 
 `total` claims that a function has a value on every argument, and KRS trusts the claim: where no equation applies, the function still has a value, but the definition does not say which.
-Every command reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
+Every command that lowers the definition reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
 A condition is a refutation: every argument that satisfies it is uncovered, and an argument it does not constrain may be anything, shown as `0` for an Int, so ``has no equation for `SignedLess(0, right)` when `Sign(right)` is 0`` holds for every `left`.
 It is a warning, not an error, because the definition means something: an unconstrained value, not a contradiction.
 
@@ -970,9 +1003,11 @@ A rule normally computes its result from what it matched.
 `#[k::exists(x: Int)]` after `#[k::rule(..)]` says the result contains an unknown integer: the step introduces a symbolic value, which K writes `?X:Int`, and `#[k::ensures(int::ne(x, 0))]` records a condition on it that holds on every later path.
 The same helpers work on a term rule, a `cells!` rule, and a readable clause, where `krs expand` keeps them verbatim before the clause's `#[k::rule(label = ..)]`; on a claim they keep their meaning there, a value the prover must exhibit.
 An existential occurs only in the result and the ensures condition: one in the subject or in `requires`, one the result never mentions, and one that reuses a subject binding's name are syntax errors, and the helpers on an equation, simplification, or alias are rejected.
+An existential, like a fresh value, has exactly its declared sort: one written where that sort does not fit, `#[k::exists(v: Stmt)]` in an `Int` field, is `krs::analysis::incompatible-binder`, and `krs::analysis::collection-element-sort` at a typed element position.
 Ensures conditions are object-language Bool terms.
 This is symbolic execution, unlike Rust's `rand()`, which produces a concrete value: the Haskell backend and k-rust run such rules, and `krs search` reports one final state per path with its constraints.
 Concrete (LLVM) execution cannot, so `krs build --backend llvm` refuses a definition with an existential rule (`krs::capability::unavailable`), `krs emit-k` marks the rule with a `// krs-capability: RuleExistential <label>` comment, and an LLVM build of a rule with `ensures` alone warns that the condition is ignored (`krs::capability::ignored-ensures`).
+An existential of a collection sort ranges over every collection of that sort, whatever a typed cell declares, so a rule may not write one into a typed position (`krs::analysis::untyped-collection`); introduce the elements instead, as in `env: map::update(e, name, v)` with `#[k::exists(v: Value)]`, or declare the cell without element types.
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way, and a claim's `requires` and `ensures` may also be [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates).
 Cell-field helpers carry names, colors, nesting, multiplicity (`?` or `*`), `initial`, and cell collection type (`Set`, `Map`, or `List`) only in the shapes described in [optional cells and cell collections](#optional-cells-and-cell-collections) and [current boundaries](/reference/boundaries).
 
@@ -1088,13 +1123,13 @@ The configuration may then name only what `<NS>-CONFIGURATION` imports: an initi
 | Island | Result |
 | --- | --- |
 | `k::term![...]` | checked symbolic term/pattern application; a pattern reads every island below without it, so around a pattern it changes nothing, and `krs expand` keeps it around fn subjects as the reference spelling. A term in ordinary Rust code, outside any KRS sentence, still needs it |
-| `k::id![...]` | builtin `Id` literal, one constant of `Id`: a rule, an equation, or a claim matches or builds it like any constant |
-| `k::bytes![...]` | builtin `Bytes` literal, one constant of `Bytes`: `IsElf(k::bytes!(b"\x7fELF"))` in an equation's subject matches exactly those bytes, and `k::bytes!(b"")` in a result is the empty `Bytes` |
-| `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result |
-| `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules and claims |
+| `k::id![...]` | builtin `Id` literal, one constant of `Id`: a rule, an equation, or a claim matches or builds it like any constant, and an initializer holds it |
+| `k::bytes![...]` | builtin `Bytes` literal, one constant of `Bytes`: `IsElf(k::bytes!(b"\x7fELF"))` in an equation's subject matches exactly those bytes, `k::bytes!(b"")` in a result is the empty `Bytes`, and `mem: k::bytes!(b"\x7fELF")` in an initializer starts the cell at those bytes |
+| `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result or an initializer |
+| `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules, claims, and initializers |
 | `k::is!(Sort, t)` | K's generated sort predicate `isSort(T)`: a total Bool in results, guards, and claims, never in a pattern |
 | `k::project!(Sort, t)` | K's generated projection `{T}:>Sort` (`project:Sort`): a partial function with no value when `t` is not a `Sort`, never in a pattern |
-| `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands |
+| `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands, never in an initializer |
 | `k::fragment![...]` | nominal nested-cell term, anywhere a pattern or a term stands; a record of the `#[k::cell]` struct means the same ([whole nested-cell variables](#whole-nested-cell-variables)) |
 | `k::k![...]` | K sequence, including tails/splice/erase notation |
 | `k::map![...]` | builtin Map pattern or value in a `cells!` entry or an initializer: `map![]` or `map![.Map]` is the empty map, `map![k -> v, ..]` a framed one; a term writes `map::empty()` |
@@ -1144,8 +1179,10 @@ KRS spells each value one way in the emitted K: `"\u{c1}"` in Rust is `"\xc1"` i
 A `char` literal is rejected (K has no `Char` sort; write `"a"`), and so is a byte string (write `k::bytes!(b"..")`).
 Code points from U+0080 to U+00FF evaluate alike on every backend, with one exception: Java K's LLVM backend does not match a rule's `"\xc1"` against a program's, which k-rust does.
 
-`k::bytes!(b"..")` is one K `Bytes` token and `k::id!("$name")` one K `Id` token, in rules, equations, and claims, in patterns as well as results, as a string literal is: `fn is_elf(IsElf(k::bytes!(b"\x7fELF")): k::Term<Int>) -> k::Term<Int> { 1 }` emits `rule isElf ( b"\x7f\x45\x4c\x46" ) => 1`, which matches exactly those four bytes, and `k::id!("$main")` emits `#token("$main","Id")`.
+`k::bytes!(b"..")` is one K `Bytes` token and `k::id!("$name")` one K `Id` token, in rules, equations, claims, and initializers, in patterns as well as results, as a string literal is: `fn is_elf(IsElf(k::bytes!(b"\x7fELF")): k::Term<Int>) -> k::Term<Int> { 1 }` emits `rule isElf ( b"\x7f\x45\x4c\x46" ) => 1`, which matches exactly those four bytes, and `k::id!("$main")` emits `#token("$main","Id")`.
 A call such as `bytes::empty()` computes a value and cannot be matched; the literal can.
+An initializer holds a literal wherever it holds a term, since a constant has the same value there as in a rule: `mem: k::bytes!(b"\x7fELF")`, `who: k::id!("$main")`, `label: k::lexeme!(Label, "entry")`, `env: k::map![k::id!("$x") -> 1]`, and `list::item(k::bytes!(b"ab"))` start the configuration at those values, and a rule's literal pattern matches them.
+`k::anonymous!` and `k::or_bool!` are not initializer terms (`krs::expand::claim-only-term`): an unknown value makes the initial configuration symbolic, so no run could start from it, and an initializer holds no condition.
 
 K has one `Float` sort, and every value carries its precision and exponent range in its token.
 Rust's `f32` and `f64` are K's binary32 and binary64: `0.1f32` is the K token `0.1f`, `1.5f64` is `1.5d`, and an unsuffixed `1.5` is K's default, binary64.
@@ -1194,7 +1231,8 @@ The Rust item a constant expands to is a unit struct of the same name, which giv
 
 ## Framework and builtin sorts
 
-`KItem` is the framework top sort for computation items.
+`KItem` is the framework sort of computation items, and every sort except `K` is a `KItem`, declared or not: each declared sort, each builtin sort, and each generated cell sort.
+A `KItem` field, parameter, or result admits a term of any sort but `K` (`Hold { saved: Seq { .. } }`, `Hold { saved: true }`), and `X: KItem` in `k::sorts!` is allowed and states nothing KRS does not already know; it still emits `syntax KItem ::= X`.
 `KResult` marks terms that count as evaluated results for strictness.
 `KSequence` is the symbolic computation sequence sort.
 The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
@@ -1271,6 +1309,7 @@ An operator does not name its domain: KRS chooses it after sort inference, from 
 An operand pins a domain when its sort is that domain or a subsort of it: an Int literal, a binder inferred or declared `Int`, or a function returning `Int` pins `Int`, and a comparison is a `Bool` in every domain.
 The operator denotes the operation of the one domain its operands pin, and from then on sort inference, arity, SMT restrictions, the coverage lint, the overlap check, and the emitted K are those of the call: `a + 1` with `a` a binder of sort `Value`, a supersort of `Int`, narrows `a` to `Int` exactly as `int::add(a, 1)` does, and a binder declared `Value` is rejected as it is for the call.
 Each builtin domain defines its operations on that domain only, so operands that pin a domain leave one well-sorted reading, and KRS never guesses one: operands that pin no domain, such as two binders of a user sort, or two domains, such as an `Int` and a `Float`, are an error (`krs::analysis::ambiguous-operator`) that lists the explicit forms, `a.eq::<Int>(b)` through `a.eq::<K>(b)`.
+A binder that no occurrence sorts more precisely than `KItem`, such as an element of a bare `List`, is named in the error with the narrowing that picks a domain, `where a: Int, z: Int` in a readable rule; the operator never takes its domain from the position it is written at.
 An operand whose sort is only fixed later in the sentence, as when `a * b` precedes the cells that bind `a` and `b`, is read once inference has seen the whole sentence.
 `Bytes` and the collections have no operators, and `==` compares values of a builtin domain, not terms: `==` on a user sort, `Bytes`, a collection, or `K` points to `a.eq::<K>(b)` (`==K`), which compares terms and means something different to the solver.
 An operator the chosen domain does not define is an error (`krs::syntax::invalid-expression-notation`) naming what to write instead; `Float` has no remainder in the catalog, and `<<` and `>>` are `Int` only.

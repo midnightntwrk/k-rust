@@ -217,15 +217,15 @@ pub enum PrintStyle {
     Pretty,
 }
 
-/// A part of a configuration value that does not fit the element types of the typed collection
-/// cell its variable fills ([`ExecError::CollectionElementSort`]).
+/// A part of a configuration value that does not fit the element types its variable is declared
+/// with ([`ExecError::CollectionElementSort`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ElementSortMismatch {
     /// The variable, without `$`.
     pub variable: String,
-    /// The Rust field of the cell.
-    pub cell: String,
-    /// The cell's declared type (`Map<Id, Value>`).
+    /// The `#[k::init]` parameter that declares the variable.
+    pub parameter: String,
+    /// The variable's declared type (`Map<Id, Value>`).
     pub declared: String,
     /// Where the part is in the value (``the value at key `x` ``).
     pub position: String,
@@ -241,7 +241,7 @@ impl fmt::Display for ElementSortMismatch {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
             variable,
-            cell,
+            parameter: _,
             declared,
             position,
             element,
@@ -250,7 +250,7 @@ impl fmt::Display for ElementSortMismatch {
         } = self;
         write!(
             formatter,
-            "configuration variable `${variable}`: the cell `{cell}` is declared `{declared}`, but {position} is `{element}` of sort {sort}, which is not a subsort of {expected}"
+            "configuration variable `${variable}`, declared `{declared}`: {position} is `{element}` of sort {sort}, which is not a subsort of {expected}"
         )
     }
 }
@@ -921,7 +921,7 @@ impl Semantics {
     }
 
     /// Check every configuration variable's value in `pattern`, an assembled
-    /// `initGeneratedTopCell`, against the typed cell it fills ([`cell_types`]).
+    /// `initGeneratedTopCell`, against the type the variable is declared with ([`cell_types`]).
     fn check_cell_types(&self, pattern: &Pattern) -> Result<(), ExecError> {
         let Pattern::Application { arguments, .. } = pattern else {
             return Ok(());
@@ -959,7 +959,7 @@ impl Semantics {
                 return Err(ExecError::CollectionElementSort(Box::new(
                     ElementSortMismatch {
                         variable,
-                        cell: mismatch.cell,
+                        parameter: mismatch.parameter,
                         declared: mismatch.declared,
                         position: cell_types::describe(&mismatch.path, print),
                         element: print(mismatch.element),

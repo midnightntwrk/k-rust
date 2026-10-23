@@ -13,10 +13,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::DefinitionLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_group_cell_parents, insert_node, require_kind,
-    require_sort, validate_context_alias, validate_context_alias_frames,
-    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
-    validate_rule, validate_subsort_order,
+    collect_configuration_nodes, insert_k_item_parents, insert_node, require_kind, require_sort,
+    validate_context_alias, validate_context_alias_frames, validate_fixed_configuration,
+    validate_precedence_order, validate_production_shape, validate_rule, validate_subsort_order,
 };
 use krs_ir::ir::validated_id;
 use krs_ir::sorted::{SortKey, SortedByKey};
@@ -661,9 +660,19 @@ impl DefinitionIr {
                 _ => None,
             })
         });
-        insert_group_cell_parents::<DefinitionLevel>(
+        let declared_sorts = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                DefinitionSentence::SyntaxSort(sentence) => Some(sentence.symbol.id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        insert_k_item_parents::<_, DefinitionLevel>(
             fixed_configuration,
             k_item,
+            declared_sorts,
             &mut subsort_parents,
         );
 

@@ -45,10 +45,10 @@ use std::fmt::{self, Write as _};
 
 use krs_ir::{
     BuiltinSort, CellSortArgument, CollectionApplication, Descriptor, DescriptorApplicationRef,
-    DescriptorCellField, DescriptorIndex, DescriptorSortArgument, DescriptorSortRef,
-    DescriptorTerm, ListNotation, ListOperation, OperationSort, ProtocolCellContent,
-    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation,
-    StableItemId, TermMapOperation,
+    DescriptorCellField, DescriptorClaimBinder, DescriptorConfigurationVariable, DescriptorIndex,
+    DescriptorSortArgument, DescriptorSortRef, DescriptorTerm, ListNotation, ListOperation,
+    OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
 };
 use krs_ir_levels::SemanticSortRef;
 
@@ -98,6 +98,25 @@ impl SortType {
             &sort.key,
         )?;
         Ok(Some(ty))
+    }
+
+    /// The declared type of a configuration variable: its parameter's sort
+    /// and, for a collection, the element types it states. A collection type
+    /// with the wrong number of arguments is an error.
+    pub(super) fn of_variable(
+        variable: &DescriptorConfigurationVariable,
+        descriptor: &Descriptor,
+    ) -> Result<Self, DescriptorLoweringError> {
+        let ty = Self {
+            sort: semantic_sort_ref(&variable.sort.sort),
+            arguments: variable.arguments.iter().map(Self::of_argument).collect(),
+        };
+        ty.check_arity(
+            &format!("{},", Owner::variable(variable).describe()),
+            descriptor,
+            &variable.sort.key,
+        )?;
+        Ok(ty)
     }
 
     /// The type of a production's field or result: its sort and the element
@@ -324,6 +343,21 @@ impl Step {
     }
 }
 
+/// One step from a position to a part of it: a key, value, or element of
+/// the collection there, or the collection a reading operation written
+/// there reads its result from.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum PathStep {
+    Part(Step),
+    /// The operand of a reading operation (`map::keys(m)`'s `m`), whose
+    /// `part` (`keys`) the operation writes to the position.
+    Read {
+        operation: String,
+        collection: &'static str,
+        part: &'static str,
+    },
+}
+
 /// What declares a typed position's type.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Owner {
@@ -337,6 +371,37 @@ enum Owner {
     },
     /// A function's result.
     Result(String),
+    /// A configuration variable of an initializer, by its Rust binding and
+    /// its external name without `$`.
+    Variable { binding: String, external: String },
+}
+
+impl Owner {
+    fn variable(variable: &DescriptorConfigurationVariable) -> Self {
+        Self::Variable {
+            binding: variable.binding.clone(),
+            external: variable.external_name.clone(),
+        }
+    }
+
+    /// The owner alone, as in "`xs`, the configuration variable `$XS`".
+    fn describe(&self) -> String {
+        match self {
+            Self::Cell(cell) => format!("the cell `{cell}`"),
+            Self::Field {
+                production,
+                field,
+                parameter,
+            } => format!(
+                "the {} `{field}` of `{production}`",
+                if *parameter { "parameter" } else { "field" }
+            ),
+            Self::Result(function) => format!("the result of `{function}`"),
+            Self::Variable { binding, external } => {
+                format!("`{binding}`, the configuration variable `${external}`")
+            }
+        }
+    }
 }
 
 /// A typed position: a cell, a constructor field, a function parameter or
@@ -347,7 +412,7 @@ pub(super) struct Position {
     /// The owner's declared type.
     declared: SortType,
     /// The steps from the owner's type to this position, outermost first.
-    path: Vec<Step>,
+    path: Vec<PathStep>,
 }
 
 impl Position {
@@ -365,8 +430,24 @@ impl Position {
 
     fn child(&self, step: Step) -> Self {
         let mut child = self.clone();
-        child.path.push(step);
+        child.path.push(PathStep::Part(step));
         child
+    }
+
+    /// The operand of a reading operation written at this position.
+    fn read_through(
+        &self,
+        operation: String,
+        collection: &'static str,
+        part: &'static str,
+    ) -> Self {
+        let mut operand = self.clone();
+        operand.path.push(PathStep::Read {
+            operation,
+            collection,
+            part,
+        });
+        operand
     }
 
     /// The position, as in "a value of the cell `env`", "an element of a
@@ -374,22 +455,24 @@ impl Position {
     fn describe(&self) -> String {
         let mut text = String::new();
         for step in self.path.iter().rev() {
-            text.push_str(step.noun());
-            text.push_str(" of ");
+            match step {
+                PathStep::Part(step) => {
+                    text.push_str(step.noun());
+                    text.push_str(" of ");
+                }
+                PathStep::Read {
+                    operation,
+                    collection,
+                    part,
+                } => {
+                    let _ = write!(
+                        text,
+                        "the {collection} whose {part} `{operation}` writes to "
+                    );
+                }
+            }
         }
-        let _ = match &self.owner {
-            Owner::Cell(cell) => write!(text, "the cell `{cell}`"),
-            Owner::Field {
-                production,
-                field,
-                parameter,
-            } => write!(
-                text,
-                "the {} `{field}` of `{production}`",
-                if *parameter { "parameter" } else { "field" }
-            ),
-            Owner::Result(function) => write!(text, "the result of `{function}`"),
-        };
+        text.push_str(&self.owner.describe());
         text
     }
 
@@ -418,9 +501,11 @@ enum Matched {
     Typed(Box<(SortType, Position)>),
     /// Matched in a bare collection cell.
     Untyped(String),
-    /// Fits every type: a configuration variable of an initializer, whose
-    /// Rust type rustc checks is the cell's, or a claim's existential, which
-    /// stands for whatever the state holds.
+    /// Fits every type that sort inference lets it stand at: a configuration
+    /// variable or a transition existential of a sort that is not a
+    /// collection, whose occurrences sort inference checks against its
+    /// declared sort; a claim's existential, which stands for whatever the
+    /// state holds; or a fresh binder, which is never a collection.
     Checked,
 }
 
@@ -450,12 +535,41 @@ pub(super) struct CollectionTyping {
     /// The sort `map::get`, `map::get_or_default`, and `list::get` read, by
     /// application key.
     projections: BTreeMap<ProvenanceKey, ElementSite>,
+    /// The sort of an element of a collection whose element types nothing
+    /// declares (a bare `Map`, `List`, or `Set`): `KItem`, which K's
+    /// `ListItem`, `|->`, and `SetItem` hold and its lookups return, when
+    /// the definition selects it.
+    untyped_element: Option<SemanticSortRef>,
 }
 
 impl CollectionTyping {
     /// The sort an element operand is inferred at, if it has one.
     pub(super) fn element(&self, term: &DescriptorTerm) -> Option<&ElementSite> {
         self.elements.get(term_key(term))
+    }
+
+    /// The typed element position of the term at `key`, if it stands at one.
+    pub(super) fn element_at(&self, key: &ProvenanceKey) -> Option<&ElementSite> {
+        self.elements.get(key)
+    }
+
+    /// The sort an element operand is inferred and lowered at: the element
+    /// sort of its typed collection, or [`Self::untyped_element`] for an
+    /// element of a collection whose element types nothing declares. Only
+    /// called for a term that stands at an element position.
+    pub(super) fn element_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
+        self.element(term)
+            .map(|site| site.sort.clone())
+            .or_else(|| self.untyped_element.clone())
+    }
+
+    /// The sort of an element of a collection whose element types nothing
+    /// declares: `KItem`, when the definition selects it. A binder that
+    /// occurs only at such positions is a `KItem`, a wildcard there matches
+    /// any element, and a read of such a collection that no position sorts
+    /// is a `KItem`.
+    pub(super) fn untyped_element(&self) -> Option<&SemanticSortRef> {
+        self.untyped_element.as_ref()
     }
 
     /// The sort a probe operand must share a sort with, if it has one.
@@ -491,6 +605,7 @@ impl CollectionTyping {
             element_binders: BTreeMap::new(),
             reads: BTreeMap::new(),
             projections: BTreeMap::new(),
+            untyped_element: None,
         };
         &EMPTY
     }
@@ -568,20 +683,81 @@ impl<'a> Walker<'a> {
             declarations,
             catalog,
             parents,
-            typing: CollectionTyping::default(),
+            typing: CollectionTyping {
+                untyped_element: declarations.and_then(|declarations| {
+                    super::rules::framework_k_item_sort(declarations).ok()
+                }),
+                ..CollectionTyping::default()
+            },
             binding: true,
             locals: Vec::new(),
         }
     }
 
-    /// Marks `names` as binders that fit every type: configuration
-    /// variables, whose types rustc checks, and existentials.
+    /// Classifies a sentence's `#[k::exists]` binders by what they range
+    /// over. A transition's existential is a value the step introduces, any
+    /// value of its sort: one of sort `Map`, `List`, or `Set` is an unknown
+    /// collection whose elements nothing constrains, an untyped source. A
+    /// claim's existential stands for whatever the target state holds where
+    /// it occurs, so it fits every type. An existential of any other sort is
+    /// checked by sort inference.
+    pub(super) fn existentials(&mut self, binders: &[DescriptorClaimBinder], claim: bool) {
+        for binder in binders {
+            let kind = SortType {
+                sort: semantic_sort_ref(&binder.sort.sort),
+                arguments: Vec::new(),
+            }
+            .kind();
+            let matched = match kind {
+                Some(kind) if !claim => Matched::Untyped(format!(
+                    "`{}` is an existential `{}`, an unknown {} whose elements nothing constrains",
+                    binder.name,
+                    kind.k_name(),
+                    kind.k_name().to_lowercase(),
+                )),
+                _ => Matched::Checked,
+            };
+            self.typing.binders.insert(binder.name.clone(), matched);
+        }
+    }
+
+    /// Marks `names` as binders that fit every type that sort inference lets
+    /// them stand at: claim existentials, and fresh binders, whose sort is a
+    /// fresh generator's result and so never a collection.
     pub(super) fn checked_binders<'n>(&mut self, names: impl IntoIterator<Item = &'n str>) {
         for name in names {
             self.typing
                 .binders
                 .insert(name.to_owned(), Matched::Checked);
         }
+    }
+
+    /// Binds each configuration variable of an initializer at its declared
+    /// type, as a typed function's equation binds its parameters: a variable
+    /// of a typed collection type is a binder of that type, whose every
+    /// placement is a checked flow; one of a bare collection type is an
+    /// untyped source; any other is checked by sort inference. Execution
+    /// checks each value against the same type, so the two meet at the
+    /// variable boundary wherever the initializer places it.
+    pub(super) fn variables(
+        &mut self,
+        variables: &[DescriptorConfigurationVariable],
+    ) -> Result<(), DescriptorLoweringError> {
+        for variable in variables {
+            let ty = SortType::of_variable(variable, self.descriptor)?;
+            let owner = Owner::variable(variable);
+            let matched = if ty.is_typed() {
+                Matched::Typed(Box::new((ty.clone(), Position::of(owner, ty))))
+            } else if ty.kind().is_some() {
+                Matched::Untyped(format!("{}, is declared `{ty}`", owner.describe()))
+            } else {
+                Matched::Checked
+            };
+            self.typing
+                .binders
+                .insert(variable.binding.clone(), matched);
+        }
+        Ok(())
     }
 
     /// The content type and position of a leaf cell.
@@ -1115,9 +1291,19 @@ impl<'a> Walker<'a> {
             None => self.operand_type(&roles, operands),
         };
         let operated = operated.filter(|(ty, _)| ty.is_typed());
+        // A reading operation whose operand the sentence builds, so that no
+        // declaration types it, checks that operand against the inverse of
+        // the position's type instead (`map::keys(m)` at `Set<K>`: `m` at
+        // `Map<K, KItem>`, its discarded values unconstrained).
+        let inverse = if operated.is_none() && !subject {
+            at.and_then(|at| self.inverse(term, operation, &roles, operands, at))
+        } else {
+            None
+        };
+        let operated = operated.or_else(|| inverse.clone());
         for (operand, role) in operands.iter().zip(&roles) {
             match role {
-                Role::Collection => self.walk(operand, carried, subject)?,
+                Role::Collection => self.walk(operand, carried.or(inverse.as_ref()), subject)?,
                 Role::Element(step) => {
                     self.element(operand, operated.as_ref(), *step, subject)?;
                 }
@@ -1158,12 +1344,60 @@ impl<'a> Walker<'a> {
         }
         if !operation.carries()
             && !subject
+            && inverse.is_none()
             && let Some(at) = at
         {
             let source = self.source(term);
             self.flow(source, at, term_key(term))?;
         }
         Ok(())
+    }
+
+    /// The type and position a reading operation's collection operand is
+    /// checked at, when the operation stands at the typed position `at` and
+    /// its one collection operand is a collection the sentence builds (a
+    /// collection operation or brackets), which no declaration types. The
+    /// parts the operation discards are `KItem`: unconstrained.
+    fn inverse<O: Typed>(
+        &self,
+        term: &DescriptorTerm,
+        operation: O,
+        roles: &[Role],
+        operands: &[&DescriptorTerm],
+        at: &(SortType, Position),
+    ) -> Option<(SortType, Position)> {
+        let (ty, position) = at;
+        if operation.carries() || !ty.is_typed() {
+            return None;
+        }
+        let k_item = self.typing.untyped_element.as_ref()?;
+        let [operand] = operands
+            .iter()
+            .zip(roles)
+            .filter(|(_, role)| matches!(role, Role::Collection))
+            .map(|(operand, _)| *operand)
+            .collect::<Vec<_>>()[..]
+        else {
+            return None;
+        };
+        let built = matches!(
+            operand,
+            DescriptorTerm::Application { reference, .. } if matches!(
+                reference.application,
+                DescriptorApplicationRef::Map(_)
+                    | DescriptorApplicationRef::List(_)
+                    | DescriptorApplicationRef::Set(_)
+                    | DescriptorApplicationRef::ListNotation(_)
+            )
+        );
+        if !built {
+            return None;
+        }
+        let (inverse, collection, part) = operation.operand(ty, k_item)?;
+        Some((
+            inverse,
+            position.read_through(spelling(term), collection, part),
+        ))
     }
 
     /// The type of the first collection operand whose type is known.
@@ -1315,7 +1549,11 @@ impl<'a> Walker<'a> {
         match self.typing.binders.get(name) {
             Some(Matched::Typed(typed)) => Source::Typed(
                 Box::new(typed.0.clone()),
-                format!("`{name}`, matched as {},", typed.1.describe()),
+                if matches!(typed.1.owner, Owner::Variable { .. }) {
+                    format!("{},", typed.1.describe())
+                } else {
+                    format!("`{name}`, matched as {},", typed.1.describe())
+                },
             ),
             Some(Matched::Untyped(reason)) => Source::Untyped(reason.clone()),
             Some(Matched::Checked) => Source::Fits,
@@ -1414,14 +1652,20 @@ impl<'a> Walker<'a> {
                 operand => vec![operand],
             };
             for side in sides {
-                if let DescriptorTerm::Variable { name, .. } = side
-                    && !self.is_local(name)
-                {
-                    self.typing
-                        .element_binders
-                        .entry(name.clone())
-                        .or_default()
-                        .push((key.clone(), site.clone()));
+                match side {
+                    DescriptorTerm::Variable { name, .. } if !self.is_local(name) => {
+                        self.typing
+                            .element_binders
+                            .entry(name.clone())
+                            .or_default()
+                            .push((key.clone(), site.clone()));
+                    }
+                    stored if !std::ptr::eq(stored, operand) => {
+                        self.typing
+                            .elements
+                            .insert(term_key(stored).clone(), site.clone());
+                    }
+                    _ => {}
                 }
             }
             self.typing.elements.insert(key, site);
@@ -1510,6 +1754,23 @@ trait Typed: CollectionApplication {
     }
     /// The type of a non-carrying result read from a collection of `ty`.
     fn result(self, ty: &SortType) -> Option<SortType>;
+    /// The type a non-carrying operation's collection operand must have for
+    /// its result to fit `result`, its discarded parts `k_item`, with the
+    /// nouns of the operand's collection and of the part the result holds.
+    /// The result fits exactly when the operand fits this type.
+    fn operand(
+        self,
+        result: &SortType,
+        k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)>;
+}
+
+/// The unconstrained part of an inverse type: any `KItem`.
+fn any(k_item: &SemanticSortRef) -> SortType {
+    SortType {
+        sort: k_item.clone(),
+        arguments: Vec::new(),
+    }
 }
 
 impl Typed for TermMapOperation {
@@ -1549,6 +1810,34 @@ impl Typed for TermMapOperation {
             _ => None,
         }
     }
+
+    fn operand(
+        self,
+        result: &SortType,
+        k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)> {
+        let map = |key: SortType, value: SortType| {
+            SortType::collection(BuiltinSort::Map, vec![key, value])
+        };
+        match (self, result.kind()) {
+            (Self::Keys, Some(BuiltinSort::Set)) | (Self::KeysList, Some(BuiltinSort::List)) => {
+                Some((
+                    map(result.part(Step::Element)?.clone(), any(k_item)),
+                    "map",
+                    "keys",
+                ))
+            }
+            (Self::Values, Some(BuiltinSort::List)) => Some((
+                map(any(k_item), result.part(Step::Element)?.clone()),
+                "map",
+                "values",
+            )),
+            (Self::Get | Self::GetOrDefault, _) => {
+                Some((map(any(k_item), result.clone()), "map", "values"))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Typed for ListOperation {
@@ -1579,6 +1868,21 @@ impl Typed for ListOperation {
     fn result(self, ty: &SortType) -> Option<SortType> {
         match self {
             Self::Get => ty.part(Step::Element).cloned(),
+            _ => None,
+        }
+    }
+
+    fn operand(
+        self,
+        result: &SortType,
+        _k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)> {
+        match self {
+            Self::Get => Some((
+                SortType::collection(BuiltinSort::List, vec![result.clone()]),
+                "list",
+                "elements",
+            )),
             _ => None,
         }
     }
@@ -1626,6 +1930,27 @@ impl Typed for SetOperation {
             _ => None,
         }
     }
+
+    fn operand(
+        self,
+        result: &SortType,
+        _k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)> {
+        let element = result.part(Step::Element)?.clone();
+        match (self, result.kind()?) {
+            (Self::ToList, BuiltinSort::List) => Some((
+                SortType::collection(BuiltinSort::Set, vec![element]),
+                "set",
+                "elements",
+            )),
+            (Self::FromList, BuiltinSort::Set) => Some((
+                SortType::collection(BuiltinSort::List, vec![element]),
+                "list",
+                "elements",
+            )),
+            _ => None,
+        }
+    }
 }
 
 /// A sort's name with its indefinite article: `a Value`, `an Id`.
@@ -1656,18 +1981,16 @@ pub(super) fn spelling(term: &DescriptorTerm) -> String {
             krs_ir::DescriptorLiteral::String(value) => format!("{value:?}"),
         },
         DescriptorTerm::Application { reference, .. } => {
-            let head = match &reference.application {
-                DescriptorApplicationRef::Declared(id) => id.item_name().to_owned(),
-                DescriptorApplicationRef::Map(operation) => marker(operation.facade_marker()),
-                DescriptorApplicationRef::List(operation) => marker(operation.facade_marker()),
-                DescriptorApplicationRef::Set(operation) => marker(operation.facade_marker()),
-                DescriptorApplicationRef::Builtin(operation) => operation.to_string(),
-                DescriptorApplicationRef::Ml(_)
-                | DescriptorApplicationRef::Operator(_)
-                | DescriptorApplicationRef::ListNotation(_) => return "this term".to_owned(),
-            };
-            format!("{head}(..)")
+            application_spelling(&reference.application)
         }
+        DescriptorTerm::BuiltinToken { sort, .. } => match sort {
+            BuiltinSort::Id => "k::id!(..)".to_owned(),
+            BuiltinSort::Bytes => "k::bytes!(..)".to_owned(),
+            _ => "this token".to_owned(),
+        },
+        DescriptorTerm::Anonymous { .. } => "k::anonymous!(..)".to_owned(),
+        DescriptorTerm::Lexeme { text, .. } => format!("k::lexeme!(.., {text:?})"),
+        DescriptorTerm::OrBool { .. } => "k::or_bool!(..)".to_owned(),
         DescriptorTerm::SortTest { kind, sort, .. } => format!(
             "{}({}, ..)",
             match kind {
@@ -1677,6 +2000,32 @@ pub(super) fn spelling(term: &DescriptorTerm) -> String {
             super::overload::sort_name(&semantic_sort_ref(&sort.sort))
         ),
         _ => "this term".to_owned(),
+    }
+}
+
+/// A short spelling of an application for messages: `Skip(..)`,
+/// `map::update(..)`, an operator as written.
+pub(super) fn application_spelling(application: &DescriptorApplicationRef) -> String {
+    let head = match application {
+        DescriptorApplicationRef::Declared(id) => id.item_name().to_owned(),
+        DescriptorApplicationRef::Map(operation) => marker(operation.facade_marker()),
+        DescriptorApplicationRef::List(operation) => marker(operation.facade_marker()),
+        DescriptorApplicationRef::Set(operation) => marker(operation.facade_marker()),
+        DescriptorApplicationRef::Builtin(operation) => operation.to_string(),
+        DescriptorApplicationRef::Operator(operator) => return operator_spelling(*operator),
+        DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::ListNotation(_) => {
+            return "this term".to_owned();
+        }
+    };
+    format!("{head}(..)")
+}
+
+/// An operator as written, its operands elided: `.. + ..`, `!..`.
+pub(super) fn operator_spelling(operator: krs_ir::BuiltinOperator) -> String {
+    if operator.arity() == 1 {
+        format!("{}..", operator.symbol())
+    } else {
+        format!(".. {} ..", operator.symbol())
     }
 }
 
@@ -1899,6 +2248,90 @@ mod tests {
 
     fn set(element: SortType) -> SortType {
         SortType::collection(BuiltinSort::Set, vec![element])
+    }
+
+    fn list(element: SortType) -> SortType {
+        SortType::collection(BuiltinSort::List, vec![element])
+    }
+
+    /// A reading operation's operand type is the inverse of its result's:
+    /// the result fits exactly when the operand fits it, the discarded parts
+    /// `KItem`, so a map of any values fits under `map::keys`.
+    #[test]
+    fn reading_operations_invert_their_result_type() {
+        let parents = graph();
+        let k_item = declared("KItem");
+        let any = SortType::plain(k_item.clone());
+        let id = builtin(BuiltinSort::Id);
+        let int = builtin(BuiltinSort::Int);
+        let stmt = SortType::plain(declared("Stmt"));
+        let inverse = TermMapOperation::Keys
+            .operand(&set(id.clone()), &k_item)
+            .unwrap();
+        assert_eq!(inverse, (map(id.clone(), any.clone()), "map", "keys"));
+        assert_eq!(
+            map(id.clone(), stmt.clone()).fits(&inverse.0, &parents),
+            Fit::Yes
+        );
+        assert_eq!(
+            map(int.clone(), stmt.clone()).fits(&inverse.0, &parents),
+            Fit::No
+        );
+        assert_eq!(
+            TermMapOperation::KeysList
+                .operand(&list(id.clone()), &k_item)
+                .unwrap()
+                .0,
+            map(id.clone(), any.clone())
+        );
+        assert_eq!(
+            TermMapOperation::Values
+                .operand(&list(int.clone()), &k_item)
+                .unwrap()
+                .0,
+            map(any.clone(), int.clone())
+        );
+        assert_eq!(
+            TermMapOperation::Get
+                .operand(&set(int.clone()), &k_item)
+                .unwrap()
+                .0,
+            map(any.clone(), set(int.clone()))
+        );
+        assert_eq!(
+            ListOperation::Get
+                .operand(&set(int.clone()), &k_item)
+                .unwrap()
+                .0,
+            list(set(int.clone()))
+        );
+        assert_eq!(
+            SetOperation::ToList
+                .operand(&list(id.clone()), &k_item)
+                .unwrap()
+                .0,
+            set(id.clone())
+        );
+        assert_eq!(
+            SetOperation::FromList
+                .operand(&set(id.clone()), &k_item)
+                .unwrap()
+                .0,
+            list(id.clone())
+        );
+        // A result of the wrong collection has no inverse; sort inference
+        // rejects it, and a carrying operation has none to take.
+        assert!(
+            TermMapOperation::Keys
+                .operand(&list(id.clone()), &k_item)
+                .is_none()
+        );
+        assert!(
+            TermMapOperation::Update
+                .operand(&map(id.clone(), int), &k_item)
+                .is_none()
+        );
+        assert!(SetOperation::FromList.operand(&list(id), &k_item).is_none());
     }
 
     #[test]
