@@ -850,6 +850,10 @@ impl LiveCases {
         let mut sides = vec![&baseline, &one_path];
         sides.extend(&rerun);
         let mut run = run_of(mutated, &sides);
+        let baseline_cut = cut_of(&baseline);
+        if !(baseline_cut.depth || baseline_cut.work || baseline_cut.clock) {
+            run.baseline_ended_within = Some(baseline.work);
+        }
         // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
         // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
         if refused(&baseline) || refused(mutated) {
@@ -997,6 +1001,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         warnings: Vec::new(),
         hit: None,
         cut: Cut::default(),
+        baseline_ended_within: None,
     }
 }
 

@@ -502,6 +502,21 @@ pub(crate) struct Cuts {
     pub(crate) unfinished: CutCounts,
     /// Of the `baseline-incomplete` cases.
     pub(crate) incomplete: CutCounts,
+    /// The differential `work-bound` cases whose baseline reached all its ends (FZ-POLISH
+    /// S-T5).
+    pub(crate) diverging: Diverging,
+}
+
+/// The differential `work-bound` cases in which the work bound stopped the mutant while no
+/// bound and no clock cut the baseline: the mutant needed more than the bound where the
+/// baseline needed at most [`Self::baseline_work`]. Whether the mutant's run ends at all
+/// cannot be decided, so the statement reports these facts and suggests no bound.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Diverging {
+    /// How many such cases.
+    pub(crate) cases: u64,
+    /// The largest work the baseline spent in one of them.
+    pub(crate) baseline_work: u64,
 }
 
 /// The loop's running totals.
@@ -634,6 +649,13 @@ impl State {
         match class {
             OutcomeClass::ReachedUnfinished => self.cuts.unfinished.add(run.cut),
             OutcomeClass::BaselineIncomplete => self.cuts.incomplete.add(run.cut),
+            OutcomeClass::WorkBound if run.cut.work => {
+                if let Some(work) = run.baseline_ended_within {
+                    let diverging = &mut self.cuts.diverging;
+                    diverging.cases += 1;
+                    diverging.baseline_work = diverging.baseline_work.max(work);
+                }
+            }
             _ => {}
         }
         // `Totals::unsupported_reasons` and `baseline_incomplete_reasons` sum to their classes' counts;
@@ -989,12 +1011,29 @@ pub(crate) fn no_witness(
         let bound = options
             .effective_max_work()
             .map_or_else(|| "its work bound".to_owned(), |w| format!("max-work {w}"));
-        write!(
-            text,
-            " {} stopped at {bound}: raise max-work.",
-            plural(work, "case")
-        )
-        .expect("writing to a String");
+        // A differential case whose baseline ended: the mutant's run needed more than the bound
+        // where the baseline's needed little, so the mutant may not end on this program at all,
+        // and no larger bound is known to help (FZ-POLISH S-T5).
+        let diverging = cuts.diverging.cases.min(work);
+        if work > diverging {
+            write!(
+                text,
+                " {} stopped at {bound}: raise max-work.",
+                plural(work - diverging, "case")
+            )
+            .expect("writing to a String");
+        }
+        if diverging > 0 {
+            write!(
+                text,
+                " {} stopped at {bound} on the mutant, where the baseline reached all its ends \
+                 within {} work at most: the mutant may not terminate on this program (whether a \
+                 run terminates cannot be decided, so no bound is suggested).",
+                plural(diverging, "case"),
+                cuts.diverging.baseline_work
+            )
+            .expect("writing to a String");
+        }
     }
     if timeouts > 0 {
         let advice = if options.safety_limit_ms.is_some() {

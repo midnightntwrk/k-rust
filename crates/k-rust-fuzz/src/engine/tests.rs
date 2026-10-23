@@ -66,6 +66,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         warnings: Vec::new(),
         hit: None,
         cut: Cut::default(),
+        baseline_ended_within: None,
     }
 }
 

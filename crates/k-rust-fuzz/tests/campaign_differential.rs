@@ -21,10 +21,10 @@ use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
-    IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF,
-    IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE,
-    R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M,
-    R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
+    IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
+    IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND,
+    OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV,
+    R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -882,4 +882,63 @@ fn shrinking_revisits_every_hole_and_ends_at_m_1() {
     assert_eq!(show(&witness.first), "M=8, N=8, I=1, T=0");
     let shrunk = witness.shrunk.as_ref().expect("a shrunk witness");
     assert_eq!(show(shrunk), "M=1, N=0, I=1, T=0");
+}
+
+/// TRIAL2 S-T5 (FZ-POLISH): `add-becomes-sub` turns `sum.imp`'s countdown `n = n + -D;` into a
+/// count-up, so for `n > 0` and `D > 0` the mutant's loop does not end while the baseline's
+/// does. Such cases stop at max-work on the mutant; the statement says the baseline ended
+/// within so much work and that the mutant may not terminate, and does not advise raising
+/// max-work for them. With `D = 0` the baseline's own loop does not end either: that case is
+/// `baseline-incomplete`, and its advice to raise max-work stands.
+#[test]
+fn a_mutant_that_stops_at_max_work_where_the_baseline_ended_is_not_told_to_raise_it() {
+    let program = "imp-diff/sum.imp";
+    let mut spec = trial_spec(
+        &IMP_DIFF,
+        &IMP_ADD_BECOMES_SUB,
+        program,
+        vec![
+            int_hole("N", program, "n = 3;", "3", 8),
+            int_hole("S", program, "sum = 0;", "0", 8),
+            int_hole("D", program, "n + -1;", "1", 8),
+        ],
+        vec![int_assignment(&[("N", 2), ("S", 0), ("D", 0)])],
+        PathMode::OnePath,
+    );
+    spec.options.max_work = Some(3000);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(6), None);
+    let statement = &report.no_witness().expect("no kill").statement;
+    let work_bound = report.totals.classes.get(&OutcomeClass::WorkBound).copied();
+    assert!(work_bound.is_some_and(|count| count > 0), "{statement}");
+    assert!(
+        statement.contains(
+            "stopped at max-work 3000 on the mutant, where the baseline reached all its ends \
+             within"
+        ),
+        "{statement}"
+    );
+    assert!(
+        statement.contains("the mutant may not terminate on this program"),
+        "{statement}"
+    );
+    assert!(
+        !statement.contains("cases stopped at max-work 3000: raise max-work.")
+            && !statement.contains("case stopped at max-work 3000: raise max-work."),
+        "{statement}"
+    );
+    // The explicit `D = 0` case: the baseline does not end, and the old advice stands.
+    assert!(
+        report
+            .totals
+            .classes
+            .get(&OutcomeClass::BaselineIncomplete)
+            .is_some_and(|count| *count > 0),
+        "{statement}"
+    );
+    assert!(
+        statement.contains("a baseline path stopped at max-work 3000: raise max-work"),
+        "{statement}"
+    );
 }

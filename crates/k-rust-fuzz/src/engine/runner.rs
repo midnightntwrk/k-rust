@@ -61,6 +61,11 @@ pub(crate) struct CaseRun {
     /// What stopped paths of the result the class rests on, which the no-witness statement
     /// reads for `reached-unfinished` and `baseline-incomplete` cases.
     pub(crate) cut: Cut,
+    /// For a differential case whose baseline run no bound and no clock cut (every path of it
+    /// reached its end), the baseline's work; `None` otherwise and for every other target. The
+    /// no-witness statement reads it for a case the work bound stopped on the mutant: the
+    /// baseline needed this much, the mutant more than the bound (FZ-POLISH S-T5).
+    pub(crate) baseline_ended_within: Option<u64>,
 }
 
 /// Which bounds stopped some path of the result a case's class rests on: the judged result of a
@@ -100,6 +105,7 @@ impl CaseRun {
             warnings: Vec::new(),
             hit: None,
             cut: Cut::default(),
+            baseline_ended_within: None,
         }
     }
 }
