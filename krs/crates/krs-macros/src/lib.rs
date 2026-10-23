@@ -14,11 +14,7 @@ use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 
 fn finish(result: krs_expand::Result<proc_macro2::TokenStream>) -> TokenStream {
     result
-        .unwrap_or_else(|error| {
-            error
-                .into_syn_error(proc_macro2::Span::call_site())
-                .into_compile_error()
-        })
+        .unwrap_or_else(|error| error.into_compile_error(proc_macro2::Span::call_site()))
         .into()
 }
 

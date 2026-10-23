@@ -85,6 +85,62 @@ fn every_builtin_token_island_expands_in_a_fallback_process() {
     assert_eq!(error.to_string(), "invalid builtin `Id` token");
 }
 
+/// A failed `#[k::init]` leaves a stand-in for the payload function the
+/// configuration names, under the method's `#[cfg]`, and nothing else; a
+/// successful one emits no stand-in.
+#[test]
+fn a_failed_initializer_leaves_a_payload_stand_in() {
+    let env = TestEnvironment::new(None);
+    let failing = r#"
+        #[cfg(feature = "machine")]
+        pub fn init(pgm: Stmt) -> Self {
+            Self { k: k::k![pgm], mem: k::anonymous!(Bytes, "_M") }
+        }
+    "#;
+    let error = krs_expand::expand_attribute(
+        AttributeMacro::Init,
+        &env,
+        TokenStream::new(),
+        failing.parse().unwrap(),
+    )
+    .unwrap_err();
+    let stand_in = error.stand_in().to_string();
+    assert!(
+        stand_in.starts_with("# [cfg (feature = \"machine\")] # [doc (hidden)] pub (crate) fn __krs_initializer_payload ()"),
+        "{stand_in}"
+    );
+    assert!(stand_in.contains(":: core :: unreachable !"), "{stand_in}");
+    assert!(!stand_in.contains("fn init"), "{stand_in}");
+    let rendered = error
+        .into_compile_error(proc_macro2::Span::call_site())
+        .to_string();
+    assert!(
+        rendered.starts_with(":: core :: compile_error !"),
+        "{rendered}"
+    );
+    assert!(rendered.ends_with(&stand_in), "{rendered}");
+
+    let body_shape = r"
+        pub fn init(pgm: Stmt) -> Self {
+            let x = 1;
+            Self { k: k::k![pgm] }
+        }
+    ";
+    let error = krs_expand::expand_attribute(
+        AttributeMacro::Init,
+        &env,
+        TokenStream::new(),
+        body_shape.parse().unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .stand_in()
+            .to_string()
+            .starts_with("# [doc (hidden)] pub (crate) fn __krs_initializer_payload")
+    );
+}
+
 #[test]
 fn entry_point_names_round_trip() {
     for &entry in AttributeMacro::ALL {

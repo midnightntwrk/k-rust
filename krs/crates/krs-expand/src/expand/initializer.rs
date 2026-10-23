@@ -34,11 +34,48 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
+pub(crate) fn init(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let stand_in = initializer_stand_in(env, &item);
+    init_inner(env, attributes, item).map_err(|error| error.with_stand_in(stand_in))
+}
+
+/// The payload function a failed `#[k::init]` leaves in place of its expansion.
+/// The configuration's descriptor factory names `__krs_initializer_payload`, so
+/// without it rustc would add an error about a generated name to the KRS
+/// diagnostics. It has the success path's signature and the method's `#[cfg]`
+/// attributes, and it never runs: the diagnostics' `compile_error!` stops the build.
+/// The author's method is not re-emitted, since rustc would then check the body
+/// KRS just rejected.
+fn initializer_stand_in(env: &dyn MacroEnvironment, item: &TokenStream) -> TokenStream {
+    let Ok(facade) = env.facade_path() else {
+        return TokenStream::new();
+    };
+    let cfg = syn::parse2::<syn::ImplItemFn>(item.clone())
+        .ok()
+        .and_then(|method| call_site_cfg_attributes(&method.attrs).ok())
+        .unwrap_or_default();
+    quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
+            &'static str,
+            #facade::__KrsSlots<'static>,
+            #facade::HostProvenance,
+        ), #facade::HostProvenanceError> {
+            ::core::unreachable!("a failed `#[k::init]` expansion has no payload")
+        }
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Initializer metadata and the replacement method are emitted together."
 )]
-pub(crate) fn init(
+fn init_inner(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
