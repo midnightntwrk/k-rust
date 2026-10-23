@@ -15,9 +15,10 @@ use krs_ir_levels::{
 use krs_syntax::ProvenanceRole;
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
-use super::infer::{StructuredTermBuilder, initial_binding_constraints};
+use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, role_key, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 use super::rules::{
@@ -35,6 +36,8 @@ struct StateRuleTerms<'a> {
     declarations: &'a DescriptorIndex<'a>,
     sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// The element types of the rule's typed cells.
+    collections: &'a CollectionTyping,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
 }
@@ -68,6 +71,7 @@ impl StateRuleTerms<'_> {
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
             record_updates: super::record_updates::RecordUpdateState::default(),
+            collections: CollectionUse::new(self.collections),
         };
         builder.infer_sentence(|builder| builder.infer(term, expected_sort, subject))?;
         builder.resolve_binding_sorts()?;
@@ -75,6 +79,18 @@ impl StateRuleTerms<'_> {
         self.wildcard_ordinal += builder.wildcards.len();
         self.variables.append(&mut builder.wildcards);
         Ok(lowered)
+    }
+
+    /// Infers and lowers one key or value of a `map![..]` state, at its
+    /// element sort when the map is typed.
+    fn element(
+        &mut self,
+        term: &DescriptorTerm,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let sort = self.collections.element(term).map(|site| site.sort.clone());
+        self.term(term, sort.as_ref(), binding_sorts, subject)
     }
 
     /// Infers and lowers one `requires` or `ensures` condition: an object
@@ -108,6 +124,7 @@ impl StateRuleTerms<'_> {
             declared_binders: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
             record_updates: super::record_updates::RecordUpdateState::default(),
+            collections: CollectionUse::new(self.collections),
         };
         super::ml::check_condition_placement(&builder, kind, condition, ensures)?;
         builder.infer_sentence(|builder| super::ml::infer_condition(builder, condition))?;
@@ -192,8 +209,8 @@ impl StateRuleTerms<'_> {
                         let mut entries = Vec::with_capacity(items.len());
                         for item in items {
                             entries.push(MapEntry {
-                                key: self.term(&item.key, None, binding_sorts, subject)?,
-                                value: self.term(&item.value, None, binding_sorts, subject)?,
+                                key: self.element(&item.key, binding_sorts, subject)?,
+                                value: self.element(&item.value, binding_sorts, subject)?,
                             });
                         }
                         MapOperands::items(entries).map_err(|error| {
@@ -212,8 +229,8 @@ impl StateRuleTerms<'_> {
                             binding_sorts,
                             subject,
                         )?,
-                        key: self.term(key, None, binding_sorts, subject)?,
-                        value: self.term(value, None, binding_sorts, subject)?,
+                        key: self.element(key, binding_sorts, subject)?,
+                        value: self.element(value, binding_sorts, subject)?,
                     },
                 };
                 Ok(SemanticTerm::map(
@@ -279,6 +296,45 @@ fn configuration_rule_bindings(
     })
 }
 
+/// The element types of a `cells!` rule's typed cells: each subject cell at
+/// its type as a pattern, each result cell at its type as a written term.
+fn configuration_rule_typing(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
+    let mut walker = Walker::new(descriptor, Some(declarations), sort_parents);
+    walker.checked_binders(
+        rule.claim
+            .iter()
+            .flat_map(|claim| &claim.existentials)
+            .chain(&rule.existentials)
+            .chain(&rule.fresh)
+            .map(|binder| binder.name.as_str()),
+    );
+    let mut roots = Vec::new();
+    for (cells, subject) in std::iter::once((&rule.subject, true))
+        .chain(rule.result.iter().map(|result| (result, false)))
+    {
+        for cell in &cells.cells {
+            let field = require_cell_field(&cell.field.cell, declarations)?;
+            walker.state_roots(&cell.value, field, subject, &mut roots)?;
+        }
+    }
+    roots.extend(
+        rule.requires
+            .iter()
+            .chain(&rule.ensures)
+            .map(|condition| Root::Term {
+                term: &condition.term,
+                ty: None,
+                subject: false,
+            }),
+    );
+    walker.run(&roots)
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The rewrite, its conditions, its claim metadata, and its binders are lowered in one ordered pass."
@@ -289,6 +345,7 @@ pub(super) fn lower_configuration_rule_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let configuration = require_fixed_configuration(
         &rule.subject_configuration.configuration,
@@ -301,11 +358,14 @@ pub(super) fn lower_configuration_rule_descriptor(
         result_sorts,
         variables,
     } = configuration_rule_bindings(rule)?;
+    let (typing, rule_warnings) =
+        configuration_rule_typing(descriptor, rule, declarations, sort_parents)?;
     let mut terms = StateRuleTerms {
         descriptor,
         declarations,
         sort_parents,
         catalog,
+        collections: &typing,
         wildcard_ordinal: 0,
         variables,
     };
@@ -413,6 +473,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
+    warnings.extend(rule_warnings);
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
@@ -948,6 +1009,7 @@ pub(super) fn lower_context_alias_descriptor(
         declarations,
         sort_parents,
         catalog,
+        collections: CollectionTyping::empty(),
         wildcard_ordinal: 0,
         variables,
     };
@@ -1038,6 +1100,7 @@ pub(super) fn lower_function_context(
     descriptor: &Descriptor,
     context: &krs_ir::DescriptorFunctionContext,
     tables: StateRuleTables<'_>,
+    collections: &CollectionTyping,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
     wildcard_ordinal: usize,
 ) -> Result<
@@ -1063,6 +1126,7 @@ pub(super) fn lower_function_context(
         declarations,
         sort_parents,
         catalog,
+        collections,
         wildcard_ordinal,
         variables: Vec::new(),
     };

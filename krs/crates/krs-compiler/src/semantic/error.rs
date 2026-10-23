@@ -253,6 +253,18 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the binder's declared type.
         range: Option<Box<SourceRange>>,
     },
+    /// A term at a typed collection position (`Map<K, V>`, `List<T>`,
+    /// `Set<T>`) does not fit its element types, a read asks for a sort the
+    /// collection never holds, or a collection type has the wrong number of
+    /// arguments.
+    CollectionElementSort {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position, its declared type, and the term.
+        reason: String,
+        /// Sole exact authored range of the offending term.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `name @ pattern` (K's `#as`) reaches a position that is not a
     /// pattern, or its alias needs a sort its pattern does not have (KF-029).
     InvalidPatternAs {
@@ -708,6 +720,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidSortTest { reason, .. }
             | Self::BitTemplateSort { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
+            | Self::CollectionElementSort { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidRecordUpdate { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
@@ -784,6 +797,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
             Self::BitTemplateSort { .. } => codes::analysis::BIT_TEMPLATE_SORT,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
+            Self::CollectionElementSort { .. } => codes::analysis::COLLECTION_ELEMENT_SORT,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidRecordUpdate { .. } => codes::analysis::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
@@ -855,6 +869,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::BitTemplateSort { range, .. }
             | Self::InvalidTerm { range, .. }
             | Self::IncompatibleBinder { range, .. }
+            | Self::CollectionElementSort { range, .. }
             | Self::InvalidPatternAs { range, .. }
             | Self::InvalidRecordUpdate { range, .. }
             | Self::InvalidPatternOr { range, .. }

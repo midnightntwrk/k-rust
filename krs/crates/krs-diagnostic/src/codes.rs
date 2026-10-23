@@ -241,6 +241,8 @@ register_codes! {
         UNCOVERED_TOTAL_FUNCTION: "krs::analysis::uncovered-total-function" => "A `total` function has arguments that no equation defines, so the function's value there is unconstrained.",
         STALE_UNDERSPECIFIED: "krs::analysis::stale-underspecified" => "A function states `underspecified`, but its equations define every argument.",
         COLLECTION_CONFIG_VAR_WITHOUT_INITIAL: "krs::analysis::collection-config-var-without-initial" => "An optional or collection cell's template reads a configuration variable without `initial`, so K starts with the cell present.",
+        COLLECTION_ELEMENT_SORT: "krs::analysis::collection-element-sort" => "A term written into a typed collection (`Map<K, V>`, `List<T>`, `Set<T>`) has a key, value, or element of another sort, a typed collection flows into one whose element types it does not fit, a read asks for a sort the collection never holds, or a collection type has the wrong number of arguments.",
+        UNTYPED_COLLECTION: "krs::analysis::untyped-collection" => "A collection whose element types nothing declares (a function result, a constructor field, a bare `Map`, `List`, or `Set` cell) flows into a typed collection, so nothing checks its elements.",
         COLLECTION_SIBLINGS: "krs::analysis::collection-siblings" => "A `multiplicity = \"*\"` collection cell shares its parent with other cells; K requires it to be the parent's only child.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.

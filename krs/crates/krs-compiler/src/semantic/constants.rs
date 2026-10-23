@@ -451,6 +451,7 @@ pub(super) fn check_constants(
             subject_keys: BTreeMap::new(),
             operators: super::operators::OperatorInference::default(),
             record_updates: super::record_updates::RecordUpdateState::default(),
+            collections: super::infer::CollectionUse::none(),
         };
         builder.infer(
             &constant.value,

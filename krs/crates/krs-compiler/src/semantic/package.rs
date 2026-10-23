@@ -50,6 +50,10 @@ pub(super) struct ModuleSentences {
 /// through `crate`, so the definition must import what the spec module names.
 /// `descriptors` is empty for a package whose only content is spec modules:
 /// its definition module is then empty and only imports.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The package's descriptors, the shared tables, and the warning sink."
+)]
 pub(super) fn lower_package_module(
     package: &PackageId,
     descriptors: &[&Descriptor],
@@ -58,6 +62,7 @@ pub(super) fn lower_package_module(
     declarations: &DeclarationCatalog<'_>,
     semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     let module_id = module_ids.get(package).cloned().ok_or_else(|| {
         DescriptorLoweringError::UnsupportedShape {
@@ -101,6 +106,7 @@ pub(super) fn lower_package_module(
         declarations,
         semantic_sort_parents,
         production_catalog,
+        warnings,
     )
 }
 
@@ -112,6 +118,7 @@ pub(super) fn lower_spec_module(
     declarations: &DeclarationCatalog<'_>,
     semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     Ok(build_module(
         semantic_origin_from_primary(spec.descriptor, "spec-module")?,
@@ -121,10 +128,15 @@ pub(super) fn lower_spec_module(
         declarations,
         semantic_sort_parents,
         production_catalog,
+        warnings,
     )?
     .into_spec())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The module's identity, its descriptors, the shared tables, and the warning sink."
+)]
 fn build_module(
     module_origin: krs_ir::NodeOrigin,
     module_id: ModuleId,
@@ -133,6 +145,7 @@ fn build_module(
     declarations: &DeclarationCatalog<'_>,
     semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     let mut sentences = ModuleSentences::default();
     for descriptor in descriptors {
@@ -142,6 +155,7 @@ fn build_module(
             semantic_sort_parents,
             production_catalog,
             &mut sentences,
+            warnings,
         )?;
     }
     let ModuleSentences {
@@ -189,6 +203,7 @@ fn lower_module_descriptor(
     semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sentences: &mut ModuleSentences,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<(), DescriptorLoweringError> {
     let declaration = declarations.metadata.get(descriptor.id()).ok_or_else(|| {
         DescriptorLoweringError::UnsupportedShape {
@@ -229,6 +244,7 @@ fn lower_module_descriptor(
                 declarations.descriptors,
                 semantic_sort_parents,
                 production_catalog,
+                warnings,
             )?);
         }
         // Constants are substituted at their uses before lowering.
@@ -242,6 +258,7 @@ fn lower_module_descriptor(
                 declarations.descriptors,
                 semantic_sort_parents,
                 production_catalog,
+                warnings,
             )?);
         }
         DescriptorPayload::HeadRule(rule) => {
@@ -251,6 +268,7 @@ fn lower_module_descriptor(
                 declarations.descriptors,
                 semantic_sort_parents,
                 production_catalog,
+                warnings,
             )?);
         }
         DescriptorPayload::ContextAlias(alias) => {

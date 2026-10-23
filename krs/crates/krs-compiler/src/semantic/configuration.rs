@@ -16,8 +16,9 @@ use krs_ir_levels::{
 };
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::DescriptorLoweringError;
-use super::infer::{StructuredTermBuilder, initial_binding_constraints};
+use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 
@@ -27,6 +28,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticConfiguration, DescriptorLoweringError> {
     let configuration_id = generated_semantic_id("configuration", descriptor.id(), None)?;
     let root = match &configuration.root {
@@ -68,6 +70,8 @@ pub(super) fn lower_fixed_configuration_descriptor(
             variable.main_key.is_some(),
         )?);
     }
+    let (typing, initializer_warnings) =
+        initializer_typing(descriptor, configuration, declarations, sort_parents)?;
     let initializer = configuration
         .initializer
         .cells
@@ -77,12 +81,16 @@ pub(super) fn lower_fixed_configuration_descriptor(
                 descriptor,
                 cell,
                 declarations,
-                sort_parents,
-                catalog,
-                &binding_sorts,
+                &InitializerTables {
+                    sort_parents,
+                    catalog,
+                    binding_sorts: &binding_sorts,
+                    collections: &typing,
+                },
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    warnings.extend(initializer_warnings);
     console.check_initializers(&initializer)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
     Ok(FixedConfiguration::new(
@@ -401,6 +409,8 @@ fn lower_cell_declaration(
         )?;
         let cell = match &field.content {
             ProtocolCellContent::Leaf { sort, .. } => {
+                // A collection type has the right number of arguments.
+                SortType::of_cell(field, descriptor)?;
                 FixedCell::leaf(origin, id, name, attributes, semantic_sort_ref(&sort.sort))?
             }
             ProtocolCellContent::Nested { declaration } => {
@@ -435,13 +445,84 @@ fn lower_cell_declaration(
     Ok(cells)
 }
 
+/// What the terms of a configuration's initializer are lowered against.
+struct InitializerTables<'a> {
+    sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// The configuration variables' sorts.
+    binding_sorts: &'a BTreeMap<String, SemanticSortRef>,
+    /// The element types of the initializer's typed cells.
+    collections: &'a CollectionTyping,
+}
+
+/// The element types of an initializer: each leaf cell's value at the
+/// cell's type. A configuration variable's Rust type is the cell's, which
+/// rustc checks, so it fits.
+fn initializer_typing(
+    descriptor: &Descriptor,
+    configuration: &DescriptorFixedConfiguration,
+    declarations: &DescriptorIndex<'_>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
+    fn roots<'t>(
+        walker: &Walker<'_>,
+        cells: &'t [DescriptorInitializerCell],
+        declarations: &DescriptorIndex<'_>,
+        output: &mut Vec<Root<'t>>,
+    ) -> Result<(), DescriptorLoweringError> {
+        for cell in cells {
+            match &cell.content {
+                ProtocolInitializerCellContent::Leaf { value, .. } => {
+                    let ty =
+                        walker.cell_type(require_cell_field(&cell.field.cell, declarations)?)?;
+                    match value {
+                        ProtocolInitializerStateTerm::Term(term) => output.push(Root::Term {
+                            term: &term.term,
+                            ty,
+                            subject: false,
+                        }),
+                        ProtocolInitializerStateTerm::Map(map) => {
+                            output.push(Root::InitializerMap { map, ty });
+                        }
+                        ProtocolInitializerStateTerm::KSequence(sequence) => {
+                            output.extend(sequence.items.iter().map(|item| Root::Term {
+                                term: &item.value.term,
+                                ty: None,
+                                subject: false,
+                            }));
+                        }
+                    }
+                }
+                ProtocolInitializerCellContent::Nested { children, .. } => {
+                    roots(walker, children, declarations, output)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    let mut walker = Walker::new(descriptor, Some(declarations), sort_parents);
+    walker.checked_binders(
+        configuration
+            .initializer
+            .variables
+            .iter()
+            .map(|variable| variable.binding.as_str()),
+    );
+    let mut output = Vec::new();
+    roots(
+        &walker,
+        &configuration.initializer.cells,
+        declarations,
+        &mut output,
+    )?;
+    walker.run(&output)
+}
+
 fn lower_initializer_cell(
     descriptor: &Descriptor,
     cell: &DescriptorInitializerCell,
     declarations: &DescriptorIndex<'_>,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    tables: &InitializerTables<'_>,
 ) -> Result<FixedInitializerCell<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let declared = require_cell_field(&cell.field.cell, declarations)?;
     let id = semantic_cell_id(&cell.field.cell)?;
@@ -458,9 +539,7 @@ fn lower_initializer_cell(
                 value,
                 &semantic_sort_ref(&sort.sort),
                 &cell.key,
-                sort_parents,
-                catalog,
-                binding_sorts,
+                tables,
             )?,
         )),
         (
@@ -469,16 +548,7 @@ fn lower_initializer_cell(
         ) => {
             let children = children
                 .iter()
-                .map(|child| {
-                    lower_initializer_cell(
-                        descriptor,
-                        child,
-                        declarations,
-                        sort_parents,
-                        catalog,
-                        binding_sorts,
-                    )
-                })
+                .map(|child| lower_initializer_cell(descriptor, child, declarations, tables))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(FixedInitializerCell::children(origin, id, children)?)
         }
@@ -494,19 +564,18 @@ fn lower_initializer_state(
     state: &DescriptorInitializerStateTerm,
     declared_sort: &SemanticSortRef,
     fallback_key: &ProvenanceKey,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let sort_parents = tables.sort_parents;
     let lower_term = |term: &DescriptorTerm, expected_sort: Option<&SemanticSortRef>| {
-        lower_initializer_term(
-            descriptor,
-            term,
-            expected_sort,
-            sort_parents,
-            catalog,
-            binding_sorts,
-        )
+        lower_initializer_term(descriptor, term, expected_sort, tables)
+    };
+    // A key or value of a typed map is lowered at its element sort.
+    let element = |term: &DescriptorTerm| {
+        tables
+            .collections
+            .element(term)
+            .map(|site| site.sort.clone())
     };
     match state {
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
@@ -548,8 +617,11 @@ fn lower_initializer_state(
                     let mut entries = Vec::with_capacity(items.len());
                     for item in items {
                         entries.push(MapEntry {
-                            key: lower_term(&item.key.term, None)?,
-                            value: lower_term(&item.value.term, None)?,
+                            key: lower_term(&item.key.term, element(&item.key.term).as_ref())?,
+                            value: lower_term(
+                                &item.value.term,
+                                element(&item.value.term).as_ref(),
+                            )?,
                         });
                     }
                     MapOperands::items(entries).map_err(|error| {
@@ -560,8 +632,8 @@ fn lower_initializer_state(
                     base, key, value, ..
                 } => MapOperands::Update {
                     map: lower_term(&base.term, Some(&SemanticSortRef::map()))?,
-                    key: lower_term(&key.term, None)?,
-                    value: lower_term(&value.term, None)?,
+                    key: lower_term(&key.term, element(&key.term).as_ref())?,
+                    value: lower_term(&value.term, element(&value.term).as_ref())?,
                 },
             };
             Ok(SemanticTerm::map(
@@ -576,10 +648,14 @@ fn lower_initializer_term(
     descriptor: &Descriptor,
     term: &DescriptorTerm,
     expected_sort: Option<&SemanticSortRef>,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let InitializerTables {
+        sort_parents,
+        catalog,
+        binding_sorts,
+        collections,
+    } = *tables;
     let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
     let mut builder = StructuredTermBuilder {
         descriptor,
@@ -600,6 +676,7 @@ fn lower_initializer_term(
         declared_binders: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
         record_updates: super::record_updates::RecordUpdateState::default(),
+        collections: CollectionUse::new(collections),
     };
     builder.infer_sentence(|builder| builder.infer(term, expected_sort, false))?;
     builder.resolve_binding_sorts()?;

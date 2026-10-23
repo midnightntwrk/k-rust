@@ -14,6 +14,7 @@ use krs_ir_levels::{
 use super::catalog::{
     ProductionSignature, semantic_is_subsort, semantic_sort_closure, semantic_sort_ref,
 };
+use super::collection_types::{CollectionTyping, share_a_sort};
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 
@@ -54,6 +55,44 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) operators: super::operators::OperatorInference,
     /// The sentence's record updates `Ctor { f: e, ..t }` (F5).
     pub(super) record_updates: super::record_updates::RecordUpdateState,
+    /// The element types of the sentence's typed collections.
+    pub(super) collections: CollectionUse<'a>,
+}
+
+/// The element types a builder infers against ([`CollectionTyping`]), and
+/// the binders it reads from a typed collection, which are checked once
+/// their sorts are resolved.
+pub(super) struct CollectionUse<'a> {
+    typing: &'a CollectionTyping,
+    reads: Vec<(String, ProvenanceKey)>,
+}
+
+impl<'a> CollectionUse<'a> {
+    pub(super) const fn new(typing: &'a CollectionTyping) -> Self {
+        Self {
+            typing,
+            reads: Vec::new(),
+        }
+    }
+
+    /// No typed collection: a sentence with no typed position.
+    pub(super) fn none() -> Self {
+        Self::new(CollectionTyping::empty())
+    }
+
+    /// The sort an element of a typed collection is inferred at, when
+    /// `term` stands at an element position.
+    pub(super) fn element_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
+        self.typing.element(term).map(|site| site.sort.clone())
+    }
+
+    /// The element sort a projecting read returns, by its application key.
+    pub(super) fn projection(
+        &self,
+        key: &ProvenanceKey,
+    ) -> Option<&'a super::collection_types::ElementSite> {
+        self.typing.projection(key)
+    }
 }
 
 /// The local binders of a sentence's `k::matches!` patterns (BIND-1, KF-031).
@@ -153,8 +192,36 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
+        self.check_element(term)?;
         self.infer_term(term, expected_sort, subject)
             .map_err(|error| self.locate(error, term))
+    }
+
+    /// Rejects a term stored in a typed collection whose stated sort is not
+    /// the element sort. A binder's sort is inferred with its other
+    /// occurrences instead, and [`Self::resolve_binding_sorts`] names the
+    /// element position when they disagree.
+    fn check_element(&self, term: &DescriptorTerm) -> Result<(), DescriptorLoweringError> {
+        let Some(site) = self.collections.typing.element(term) else {
+            return Ok(());
+        };
+        if matches!(term, DescriptorTerm::Variable { .. })
+            || matches!(term, DescriptorTerm::Rewrite { .. })
+        {
+            return Ok(());
+        }
+        match self.stated_sort(term) {
+            Some(stated) if !semantic_is_subsort(&stated, &site.sort, self.sort_parents) => {
+                Err(super::collection_types::element_mismatch(
+                    self.descriptor,
+                    site,
+                    &super::collection_types::spelling(term),
+                    &super::overload::sort_name(&stated),
+                    Self::term_key(term),
+                ))
+            }
+            _ => Ok(()),
+        }
     }
 
     #[expect(
@@ -1049,6 +1116,10 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One dispatch over every application head kind."
+    )]
     pub(super) fn infer_application(
         &mut self,
         reference: &DescriptorApplicationReference,
@@ -1089,15 +1160,33 @@ impl StructuredTermBuilder<'_> {
                     .ok_or_else(|| self.sort_generic_builtin(*operation))?
             }
             DescriptorApplicationRef::Map(operation) => {
-                self.infer_collection_operation(*operation, arguments, expected_sort, subject)?;
+                self.infer_collection_operation(
+                    &reference.key,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                )?;
                 return Ok(());
             }
             DescriptorApplicationRef::List(operation) => {
-                self.infer_collection_operation(*operation, arguments, expected_sort, subject)?;
+                self.infer_collection_operation(
+                    &reference.key,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                )?;
                 return Ok(());
             }
             DescriptorApplicationRef::Set(operation) => {
-                self.infer_collection_operation(*operation, arguments, expected_sort, subject)?;
+                self.infer_collection_operation(
+                    &reference.key,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                )?;
                 return Ok(());
             }
             DescriptorApplicationRef::Ml(connective) => {
@@ -1245,6 +1334,7 @@ impl StructuredTermBuilder<'_> {
 
     fn infer_collection_operation<O: CollectionApplication>(
         &mut self,
+        key: &ProvenanceKey,
         operation: O,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
@@ -1252,7 +1342,7 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<(), DescriptorLoweringError> {
         let operands = collection_positional_operands(operation, arguments)
             .map_err(|detail| self.invalid_term(detail))?;
-        let result_sort = self.collection_result_sort(operation, expected_sort)?;
+        let result_sort = self.collection_result_sort(key, operation, expected_sort)?;
         if let Some(expected) = expected_sort
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
         {
@@ -1261,15 +1351,72 @@ impl StructuredTermBuilder<'_> {
                 O::SORT.k_name()
             )));
         }
+        // A read of a typed collection at a position whose sort its
+        // elements never have can never succeed.
+        if let (Some(expected), Some(site)) =
+            (expected_sort, self.collections.typing.projection(key))
+            && !share_a_sort(&site.sort, expected, self.sort_parents)
+        {
+            let marker = operation.facade_marker();
+            return Err(super::collection_types::disjoint_read(
+                self.descriptor,
+                site,
+                &format!("`{}::{}(..)`", marker.module, marker.name),
+                expected,
+                key,
+            ));
+        }
         for (operand, sort) in operands.into_iter().zip(operation.spec().operand_sorts) {
-            self.infer(operand, collection_operand_sort(*sort).as_ref(), subject)?;
+            let expected = self.collection_operand_expected(operand, *sort)?;
+            self.infer(operand, expected.as_ref(), subject)?;
         }
         Ok(())
+    }
+
+    /// The sort an operand is inferred at: its row's builtin sort, or for an
+    /// element of a typed collection its element sort. A probe into a typed
+    /// collection must share a sort with its elements.
+    fn collection_operand_expected(
+        &mut self,
+        operand: &DescriptorTerm,
+        sort: CollectionOperandSort,
+    ) -> Result<Option<SemanticSortRef>, DescriptorLoweringError> {
+        if let Some(sort) = collection_operand_sort(sort) {
+            return Ok(Some(sort));
+        }
+        let typing = self.collections.typing;
+        if let Some(read) = typing.read(operand) {
+            match operand {
+                DescriptorTerm::Variable { name, key, .. } if !self.is_let_local_name(name) => {
+                    self.collections.reads.push((name.clone(), key.clone()));
+                }
+                _ => {
+                    if let Some(stated) = self.stated_sort(operand)
+                        && !share_a_sort(&stated, &read.sort, self.sort_parents)
+                    {
+                        return Err(super::collection_types::disjoint_read(
+                            self.descriptor,
+                            read,
+                            &format!(
+                                "`{}` of sort {}",
+                                super::collection_types::spelling(operand),
+                                super::overload::sort_name(&stated)
+                            ),
+                            &stated,
+                            Self::term_key(operand),
+                        ));
+                    }
+                }
+            }
+            return Ok(None);
+        }
+        Ok(typing.element(operand).map(|site| site.sort.clone()))
     }
 
     /// Lowers a collection application's operands, in wire order, with its result sort.
     fn lower_collection_operands<O: CollectionApplication>(
         &mut self,
+        key: &ProvenanceKey,
         operation: O,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
@@ -1277,40 +1424,63 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<(SemanticSortRef, Vec<SemanticTerm>), DescriptorLoweringError> {
         let operands = collection_positional_operands(operation, arguments)
             .map_err(|detail| self.invalid_term(detail))?;
-        let result_sort = self.collection_result_sort(operation, expected_sort)?;
+        let result_sort = self.collection_result_sort(key, operation, expected_sort)?;
+        let typing = self.collections.typing;
         let lowered = operands
             .into_iter()
             .zip(operation.spec().operand_sorts)
             .map(|(operand, sort)| {
-                self.lower(operand, collection_operand_sort(*sort).as_ref(), subject)
+                let expected = collection_operand_sort(*sort).or_else(|| {
+                    typing
+                        .read(operand)
+                        .is_none()
+                        .then(|| typing.element(operand).map(|site| site.sort.clone()))
+                        .flatten()
+                });
+                self.lower(operand, expected.as_ref(), subject)
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok((result_sort, lowered))
     }
 
+    /// The result sort of a collection application: its row's, or for a
+    /// projecting read the sort its position expects, and with no position
+    /// the element sort of the typed collection it reads.
     fn collection_result_sort<O: CollectionApplication>(
         &self,
+        key: &ProvenanceKey,
         operation: O,
         expected_sort: Option<&SemanticSortRef>,
     ) -> Result<SemanticSortRef, DescriptorLoweringError> {
         match operation.spec().result_sort {
             CollectionResultSort::Builtin(sort) => Ok(SemanticSortRef::Builtin(sort)),
-            CollectionResultSort::Projected => expected_sort.cloned().ok_or_else(|| {
-                let marker = operation.facade_marker();
-                self.invalid_term(format!(
-                    "{}::{} requires an expected result sort",
-                    marker.module, marker.name
-                ))
-            }),
+            CollectionResultSort::Projected => expected_sort
+                .cloned()
+                .or_else(|| {
+                    self.collections
+                        .typing
+                        .projection(key)
+                        .map(|site| site.sort.clone())
+                })
+                .ok_or_else(|| {
+                    let marker = operation.facade_marker();
+                    self.invalid_term(format!(
+                        "{}::{} requires an expected result sort",
+                        marker.module, marker.name
+                    ))
+                }),
         }
     }
 
+    /// Infers the replacement of a `for Sort` table's `where update cell =
+    /// map::update(cell, k, v)`: the update operation of the cell's
+    /// collection sort applied to the matched cell, inferred as any term
+    /// written into the cell, its key and value at the cell's element sorts.
     pub(super) fn infer_collection_update(
         &mut self,
         update: &DescriptorTerm,
         base_binding: &str,
         cell_sort: &SemanticSortRef,
-        map_sorts: Option<&(SemanticSortRef, SemanticSortRef)>,
     ) -> Result<(), DescriptorLoweringError> {
         let DescriptorTerm::Application {
             head_class,
@@ -1341,8 +1511,7 @@ impl StructuredTermBuilder<'_> {
                 ));
             }
         };
-        let UpdateArguments { base, key, value } = ordered;
-        let DescriptorTerm::Variable { name, .. } = base else {
+        let DescriptorTerm::Variable { name, .. } = ordered.base else {
             return Err(
                 self.invalid_term("updated-cell base is not the matched whole-collection binding")
             );
@@ -1352,19 +1521,7 @@ impl StructuredTermBuilder<'_> {
                 "updated-cell base {name:?} does not match {base_binding:?}"
             )));
         }
-        self.infer(base, Some(cell_sort), false)?;
-        let int_sort = SemanticSortRef::Builtin(BuiltinSort::Int);
-        match cell_sort {
-            SemanticSortRef::Builtin(BuiltinSort::Map) => {
-                self.infer(key, map_sorts.map(|(key_sort, _)| key_sort), false)?;
-                self.infer(value, map_sorts.map(|(_, value_sort)| value_sort), false)
-            }
-            SemanticSortRef::Builtin(BuiltinSort::List) => {
-                self.infer(key, Some(&int_sort), false)?;
-                self.infer(value, None, false)
-            }
-            _ => Err(self.invalid_term("only Map and List cells support readable updates")),
-        }
+        self.infer(update, Some(cell_sort), false)
     }
 
     pub(super) fn resolve_binding_sorts(&mut self) -> Result<(), DescriptorLoweringError> {
@@ -1406,6 +1563,36 @@ impl StructuredTermBuilder<'_> {
                     });
                 }
                 [] => {
+                    // A binder stored in a typed collection names the
+                    // element position among its occurrences.
+                    if let Some((key, site)) = self
+                        .collections
+                        .typing
+                        .element_sites_of(name)
+                        .into_iter()
+                        .find(|(_, site)| constraints.contains(&site.sort))
+                    {
+                        let others = constraints
+                            .iter()
+                            .filter(|sort| **sort != site.sort)
+                            .cloned()
+                            .collect::<BTreeSet<_>>();
+                        let others =
+                            match most_specific_common_descendants(&others, self.sort_parents)
+                                .as_slice()
+                            {
+                                [sort] if !others.is_empty() => Some(sort.clone()),
+                                _ => None,
+                            };
+                        return Err(super::collection_types::binder_conflict(
+                            self.descriptor,
+                            name,
+                            key,
+                            site,
+                            others.as_ref(),
+                            &occurrence_sorts,
+                        ));
+                    }
                     return Err(self.invalid_term(format!(
                         "variable {name:?} has no declared common descendant for occurrence sorts [{occurrence_sorts}]"
                     )));
@@ -1418,6 +1605,29 @@ impl StructuredTermBuilder<'_> {
                 }
             };
             self.binding_sorts.insert(name.clone(), inferred);
+        }
+        self.check_collection_reads()
+    }
+
+    /// Checks each binder read as a key or element of a typed collection
+    /// against the collection's elements, now that its sort is resolved.
+    fn check_collection_reads(&mut self) -> Result<(), DescriptorLoweringError> {
+        for (name, key) in std::mem::take(&mut self.collections.reads) {
+            let Some(sort) = self.binding_sorts.get(&name) else {
+                continue;
+            };
+            let Some(site) = self.collections.typing.reads_at(&key) else {
+                continue;
+            };
+            if !share_a_sort(sort, &site.sort, self.sort_parents) {
+                return Err(super::collection_types::disjoint_read(
+                    self.descriptor,
+                    site,
+                    &format!("`{name}` of sort {}", super::overload::sort_name(sort)),
+                    sort,
+                    &key,
+                ));
+            }
         }
         Ok(())
     }
@@ -1846,8 +2056,13 @@ impl StructuredTermBuilder<'_> {
                     .ok_or_else(|| self.sort_generic_builtin(*operation))?,
             ),
             DescriptorApplicationRef::Map(operation) => {
-                let (result_sort, operands) =
-                    self.lower_collection_operands(*operation, arguments, expected_sort, subject)?;
+                let (result_sort, operands) = self.lower_collection_operands(
+                    &reference.key,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                )?;
                 let operands = MapOperands::from_operands((*operation).into(), operands)
                     .map_err(|error| self.invalid_term(error.to_string()))?;
                 return Ok(SemanticTerm::typed_map(
@@ -1857,8 +2072,13 @@ impl StructuredTermBuilder<'_> {
                 ));
             }
             DescriptorApplicationRef::List(operation) => {
-                let (result_sort, operands) =
-                    self.lower_collection_operands(*operation, arguments, expected_sort, subject)?;
+                let (result_sort, operands) = self.lower_collection_operands(
+                    &reference.key,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                )?;
                 let operands = ListOperands::from_operands(*operation, operands)
                     .map_err(|error| self.invalid_term(error.to_string()))?;
                 return Ok(SemanticTerm::list(
@@ -1872,8 +2092,13 @@ impl StructuredTermBuilder<'_> {
                 ));
             }
             DescriptorApplicationRef::Set(operation) => {
-                let (result_sort, operands) =
-                    self.lower_collection_operands(*operation, arguments, expected_sort, subject)?;
+                let (result_sort, operands) = self.lower_collection_operands(
+                    &reference.key,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                )?;
                 let operands = SetOperands::from_operands(*operation, operands)
                     .map_err(|error| self.invalid_term(error.to_string()))?;
                 return Ok(SemanticTerm::set(
@@ -3011,8 +3236,6 @@ fn builtin_production_signature(operation: BuiltinOperation) -> Option<Productio
 
 struct UpdateArguments<'a> {
     base: &'a DescriptorTerm,
-    key: &'a DescriptorTerm,
-    value: &'a DescriptorTerm,
 }
 
 impl<'a> UpdateArguments<'a> {
@@ -3021,14 +3244,13 @@ impl<'a> UpdateArguments<'a> {
         arguments: &'a krs_ir::Arguments<krs_ir::DescriptorStage>,
     ) -> Result<Self, String> {
         let operands = collection_positional_operands(operation, arguments)?;
-        let [base, key, value] =
-            <[&DescriptorTerm; 3]>::try_from(operands).map_err(|operands| {
-                format!(
-                    "the {operation} operation expects 3 positional arguments but received {}",
-                    operands.len()
-                )
-            })?;
-        Ok(Self { base, key, value })
+        let [base, _, _] = <[&DescriptorTerm; 3]>::try_from(operands).map_err(|operands| {
+            format!(
+                "the {operation} operation expects 3 positional arguments but received {}",
+                operands.len()
+            )
+        })?;
+        Ok(Self { base })
     }
 }
 

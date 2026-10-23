@@ -369,13 +369,25 @@ impl StructuredTermBuilder<'_> {
                 OperationSort::K | OperationSort::Parameter => None,
             },
             DescriptorApplicationRef::Map(operation) => {
-                collection_result(operation.spec().result_sort)
+                collection_result(operation.spec().result_sort).or_else(|| {
+                    self.collections
+                        .projection(&reference.key)
+                        .map(|site| site.sort.clone())
+                })
             }
             DescriptorApplicationRef::List(operation) => {
-                collection_result(operation.spec().result_sort)
+                collection_result(operation.spec().result_sort).or_else(|| {
+                    self.collections
+                        .projection(&reference.key)
+                        .map(|site| site.sort.clone())
+                })
             }
             DescriptorApplicationRef::Set(operation) => {
-                collection_result(operation.spec().result_sort)
+                collection_result(operation.spec().result_sort).or_else(|| {
+                    self.collections
+                        .projection(&reference.key)
+                        .map(|site| site.sort.clone())
+                })
             }
             // A list's sort is the position's, which an operand does not have.
             DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::ListNotation(_) => None,
