@@ -346,6 +346,9 @@ The operations type as their K meaning says:
 | `kequal::ite(c, t, e)` | both branches at the position's type | the position's type |
 
 "At" a sort means inferred and checked there; "read at" means the operand must share a sort with the element sort, since a probe for an element of another sort is merely never found.
+A reading operation (`map::keys`, `keys_list`, `values`, `get`, `get_or_default`, `list::get`, `set::to_list`, `set::from_list`) whose operand the sentence builds itself, so that no declaration types it, is checked through: at `Set<K>`, `map::keys(m)` checks `m` at `Map<K, KItem>`, `map::values(m)` at `List<V>` checks it at `Map<KItem, V>`, `set::from_list(l)` at `Set<T>` checks `l` at `List<T>`, and a `get` at a collection type `T` checks its map or list at values or elements of `T`; the parts the operation discards are `KItem`s, unconstrained.
+So `set::from_list([a, b, c])` is how to write a set of elements at a typed position, `seen: map::keys(map::update(map::empty(), name, s))` checks `name` as an element of `seen` whatever `s` is, and a wrong key is reported where it is written, as "stored as a key of the map whose keys `map::keys(..)` writes to the cell `seen`".
+An operand that comes from outside the sentence keeps its own type: a typed binder's result type is computed and checked, and an untyped one is still an error.
 A rule fn's binder declaration, an equation fn's subject and result sort, and a `where` narrowing still name only the sort (`where log: List` rather than `List<BusCycle>`, `krs::syntax::parametric-collection-sort`): a narrowing is a runtime sort test, and K cannot test the elements of a collection, while a binder takes its type from the position that matches it and an equation from its function's signature.
 
 The rule this check exists for stores a statement in a `Map<Id, Value>` store through a nested update:
@@ -389,6 +392,7 @@ A rule then writes `accessed_storage: MarkStorageAccess { accessed, account, ind
 `krs expand` writes the types into the long form, `#[k::function(sort = Map<Int, Set<Int>>, ..)]`, and its equations as `k::Term<Map>`.
 
 A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell, field, or parameter, a function's untyped result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)`.
+A collection the sentence builds, such as `map::update(map::empty(), 1, s)`, is not untyped: it has no type of its own and is checked where it is written.
 Writing one into a typed position is an error, since nothing would check its elements:
 
 ```text

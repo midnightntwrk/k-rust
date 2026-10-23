@@ -324,6 +324,21 @@ impl Step {
     }
 }
 
+/// One step from a position to a part of it: a key, value, or element of
+/// the collection there, or the collection a reading operation written
+/// there reads its result from.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum PathStep {
+    Part(Step),
+    /// The operand of a reading operation (`map::keys(m)`'s `m`), whose
+    /// `part` (`keys`) the operation writes to the position.
+    Read {
+        operation: String,
+        collection: &'static str,
+        part: &'static str,
+    },
+}
+
 /// What declares a typed position's type.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Owner {
@@ -347,7 +362,7 @@ pub(super) struct Position {
     /// The owner's declared type.
     declared: SortType,
     /// The steps from the owner's type to this position, outermost first.
-    path: Vec<Step>,
+    path: Vec<PathStep>,
 }
 
 impl Position {
@@ -365,8 +380,24 @@ impl Position {
 
     fn child(&self, step: Step) -> Self {
         let mut child = self.clone();
-        child.path.push(step);
+        child.path.push(PathStep::Part(step));
         child
+    }
+
+    /// The operand of a reading operation written at this position.
+    fn read_through(
+        &self,
+        operation: String,
+        collection: &'static str,
+        part: &'static str,
+    ) -> Self {
+        let mut operand = self.clone();
+        operand.path.push(PathStep::Read {
+            operation,
+            collection,
+            part,
+        });
+        operand
     }
 
     /// The position, as in "a value of the cell `env`", "an element of a
@@ -374,8 +405,22 @@ impl Position {
     fn describe(&self) -> String {
         let mut text = String::new();
         for step in self.path.iter().rev() {
-            text.push_str(step.noun());
-            text.push_str(" of ");
+            match step {
+                PathStep::Part(step) => {
+                    text.push_str(step.noun());
+                    text.push_str(" of ");
+                }
+                PathStep::Read {
+                    operation,
+                    collection,
+                    part,
+                } => {
+                    let _ = write!(
+                        text,
+                        "the {collection} whose {part} `{operation}` writes to "
+                    );
+                }
+            }
         }
         let _ = match &self.owner {
             Owner::Cell(cell) => write!(text, "the cell `{cell}`"),
@@ -1145,9 +1190,19 @@ impl<'a> Walker<'a> {
             None => self.operand_type(&roles, operands),
         };
         let operated = operated.filter(|(ty, _)| ty.is_typed());
+        // A reading operation whose operand the sentence builds, so that no
+        // declaration types it, checks that operand against the inverse of
+        // the position's type instead (`map::keys(m)` at `Set<K>`: `m` at
+        // `Map<K, KItem>`, its discarded values unconstrained).
+        let inverse = if operated.is_none() && !subject {
+            at.and_then(|at| self.inverse(term, operation, &roles, operands, at))
+        } else {
+            None
+        };
+        let operated = operated.or_else(|| inverse.clone());
         for (operand, role) in operands.iter().zip(&roles) {
             match role {
-                Role::Collection => self.walk(operand, carried, subject)?,
+                Role::Collection => self.walk(operand, carried.or(inverse.as_ref()), subject)?,
                 Role::Element(step) => {
                     self.element(operand, operated.as_ref(), *step, subject)?;
                 }
@@ -1188,12 +1243,60 @@ impl<'a> Walker<'a> {
         }
         if !operation.carries()
             && !subject
+            && inverse.is_none()
             && let Some(at) = at
         {
             let source = self.source(term);
             self.flow(source, at, term_key(term))?;
         }
         Ok(())
+    }
+
+    /// The type and position a reading operation's collection operand is
+    /// checked at, when the operation stands at the typed position `at` and
+    /// its one collection operand is a collection the sentence builds (a
+    /// collection operation or brackets), which no declaration types. The
+    /// parts the operation discards are `KItem`: unconstrained.
+    fn inverse<O: Typed>(
+        &self,
+        term: &DescriptorTerm,
+        operation: O,
+        roles: &[Role],
+        operands: &[&DescriptorTerm],
+        at: &(SortType, Position),
+    ) -> Option<(SortType, Position)> {
+        let (ty, position) = at;
+        if operation.carries() || !ty.is_typed() {
+            return None;
+        }
+        let k_item = self.typing.untyped_element.as_ref()?;
+        let [operand] = operands
+            .iter()
+            .zip(roles)
+            .filter(|(_, role)| matches!(role, Role::Collection))
+            .map(|(operand, _)| *operand)
+            .collect::<Vec<_>>()[..]
+        else {
+            return None;
+        };
+        let built = matches!(
+            operand,
+            DescriptorTerm::Application { reference, .. } if matches!(
+                reference.application,
+                DescriptorApplicationRef::Map(_)
+                    | DescriptorApplicationRef::List(_)
+                    | DescriptorApplicationRef::Set(_)
+                    | DescriptorApplicationRef::ListNotation(_)
+            )
+        );
+        if !built {
+            return None;
+        }
+        let (inverse, collection, part) = operation.operand(ty, k_item)?;
+        Some((
+            inverse,
+            position.read_through(spelling(term), collection, part),
+        ))
     }
 
     /// The type of the first collection operand whose type is known.
@@ -1540,6 +1643,23 @@ trait Typed: CollectionApplication {
     }
     /// The type of a non-carrying result read from a collection of `ty`.
     fn result(self, ty: &SortType) -> Option<SortType>;
+    /// The type a non-carrying operation's collection operand must have for
+    /// its result to fit `result`, its discarded parts `k_item`, with the
+    /// nouns of the operand's collection and of the part the result holds.
+    /// The result fits exactly when the operand fits this type.
+    fn operand(
+        self,
+        result: &SortType,
+        k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)>;
+}
+
+/// The unconstrained part of an inverse type: any `KItem`.
+fn any(k_item: &SemanticSortRef) -> SortType {
+    SortType {
+        sort: k_item.clone(),
+        arguments: Vec::new(),
+    }
 }
 
 impl Typed for TermMapOperation {
@@ -1579,6 +1699,34 @@ impl Typed for TermMapOperation {
             _ => None,
         }
     }
+
+    fn operand(
+        self,
+        result: &SortType,
+        k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)> {
+        let map = |key: SortType, value: SortType| {
+            SortType::collection(BuiltinSort::Map, vec![key, value])
+        };
+        match (self, result.kind()) {
+            (Self::Keys, Some(BuiltinSort::Set)) | (Self::KeysList, Some(BuiltinSort::List)) => {
+                Some((
+                    map(result.part(Step::Element)?.clone(), any(k_item)),
+                    "map",
+                    "keys",
+                ))
+            }
+            (Self::Values, Some(BuiltinSort::List)) => Some((
+                map(any(k_item), result.part(Step::Element)?.clone()),
+                "map",
+                "values",
+            )),
+            (Self::Get | Self::GetOrDefault, _) => {
+                Some((map(any(k_item), result.clone()), "map", "values"))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Typed for ListOperation {
@@ -1609,6 +1757,21 @@ impl Typed for ListOperation {
     fn result(self, ty: &SortType) -> Option<SortType> {
         match self {
             Self::Get => ty.part(Step::Element).cloned(),
+            _ => None,
+        }
+    }
+
+    fn operand(
+        self,
+        result: &SortType,
+        _k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)> {
+        match self {
+            Self::Get => Some((
+                SortType::collection(BuiltinSort::List, vec![result.clone()]),
+                "list",
+                "elements",
+            )),
             _ => None,
         }
     }
@@ -1652,6 +1815,27 @@ impl Typed for SetOperation {
             Self::FromList => Some(SortType::collection(
                 BuiltinSort::Set,
                 vec![element.clone()],
+            )),
+            _ => None,
+        }
+    }
+
+    fn operand(
+        self,
+        result: &SortType,
+        _k_item: &SemanticSortRef,
+    ) -> Option<(SortType, &'static str, &'static str)> {
+        let element = result.part(Step::Element)?.clone();
+        match (self, result.kind()?) {
+            (Self::ToList, BuiltinSort::List) => Some((
+                SortType::collection(BuiltinSort::Set, vec![element]),
+                "set",
+                "elements",
+            )),
+            (Self::FromList, BuiltinSort::Set) => Some((
+                SortType::collection(BuiltinSort::List, vec![element]),
+                "list",
+                "elements",
             )),
             _ => None,
         }
@@ -1929,6 +2113,90 @@ mod tests {
 
     fn set(element: SortType) -> SortType {
         SortType::collection(BuiltinSort::Set, vec![element])
+    }
+
+    fn list(element: SortType) -> SortType {
+        SortType::collection(BuiltinSort::List, vec![element])
+    }
+
+    /// A reading operation's operand type is the inverse of its result's:
+    /// the result fits exactly when the operand fits it, the discarded parts
+    /// `KItem`, so a map of any values fits under `map::keys`.
+    #[test]
+    fn reading_operations_invert_their_result_type() {
+        let parents = graph();
+        let k_item = declared("KItem");
+        let any = SortType::plain(k_item.clone());
+        let id = builtin(BuiltinSort::Id);
+        let int = builtin(BuiltinSort::Int);
+        let stmt = SortType::plain(declared("Stmt"));
+        let inverse = TermMapOperation::Keys
+            .operand(&set(id.clone()), &k_item)
+            .unwrap();
+        assert_eq!(inverse, (map(id.clone(), any.clone()), "map", "keys"));
+        assert_eq!(
+            map(id.clone(), stmt.clone()).fits(&inverse.0, &parents),
+            Fit::Yes
+        );
+        assert_eq!(
+            map(int.clone(), stmt.clone()).fits(&inverse.0, &parents),
+            Fit::No
+        );
+        assert_eq!(
+            TermMapOperation::KeysList
+                .operand(&list(id.clone()), &k_item)
+                .unwrap()
+                .0,
+            map(id.clone(), any.clone())
+        );
+        assert_eq!(
+            TermMapOperation::Values
+                .operand(&list(int.clone()), &k_item)
+                .unwrap()
+                .0,
+            map(any.clone(), int.clone())
+        );
+        assert_eq!(
+            TermMapOperation::Get
+                .operand(&set(int.clone()), &k_item)
+                .unwrap()
+                .0,
+            map(any.clone(), set(int.clone()))
+        );
+        assert_eq!(
+            ListOperation::Get
+                .operand(&set(int.clone()), &k_item)
+                .unwrap()
+                .0,
+            list(set(int.clone()))
+        );
+        assert_eq!(
+            SetOperation::ToList
+                .operand(&list(id.clone()), &k_item)
+                .unwrap()
+                .0,
+            set(id.clone())
+        );
+        assert_eq!(
+            SetOperation::FromList
+                .operand(&set(id.clone()), &k_item)
+                .unwrap()
+                .0,
+            list(id.clone())
+        );
+        // A result of the wrong collection has no inverse; sort inference
+        // rejects it, and a carrying operation has none to take.
+        assert!(
+            TermMapOperation::Keys
+                .operand(&list(id.clone()), &k_item)
+                .is_none()
+        );
+        assert!(
+            TermMapOperation::Update
+                .operand(&map(id.clone(), int), &k_item)
+                .is_none()
+        );
+        assert!(SetOperation::FromList.operand(&list(id), &k_item).is_none());
     }
 
     #[test]

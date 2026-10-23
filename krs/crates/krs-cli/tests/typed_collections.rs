@@ -562,6 +562,41 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "Members",
         ),
         (
+            "keys-of-built",
+            rules(
+                "probe: { k: [Put(name, s), ..], seen: _ } => { k: [..], seen: map::keys(map::update(map::empty(), s, 1)) };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "a key of the map whose keys `map::keys(..)` writes to the cell `seen`, declared `Set<Id>`",
+                "an Id",
+            ),
+            "s",
+        ),
+        (
+            "from-built-list",
+            rules(
+                "probe: { k: [Put(name, s), ..], seen: _ } => { k: [..], seen: set::from_list([name, s]) };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "an element of the list whose elements `set::from_list(..)` writes to the cell `seen`, declared `Set<Id>`",
+                "an Id",
+            ),
+            "s",
+        ),
+        (
+            "keys-of-bare",
+            rules("probe: { k: [Skip(), ..], seen: _, raw: r } => { k: [..], seen: map::keys(r) };"),
+            untyped(
+                "`map::keys(..)` reads a collection whose element types are not declared",
+                "the cell `seen`, declared `Set<Id>`",
+            ),
+            "map::keys",
+        ),
+        (
             "claim-left",
             "k::claims! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    probe: { k: [Put(name, s)], env: map::update(map::empty(), name, s) } => { k: [] };\n}\n".to_owned(),
             stored("s", "Stmt", env_value, "a Value"),
@@ -688,5 +723,131 @@ fn a_user_function_result_is_typed_by_its_signature() {
             "error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`".to_owned(),
             "Put3".to_owned()
         )]
+    );
+}
+
+/// A reading operation whose operand the sentence builds is checked
+/// through: `map::keys(m)` at `Set<K>` checks `m` at `Map<K, KItem>`,
+/// `set::from_list(l)` at `Set<T>` checks `l` at `List<T>`, and so on, the
+/// discarded parts unconstrained, in readable rules, `cells!` rules, claims,
+/// initializers, typed arguments, and typed function results; a binder
+/// stored there narrows as at any element, and one only at a discarded part
+/// is a `KItem`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One package of built collections, with the K each emits."
+)]
+fn built_collections_are_checked_through_reading_operations() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let library = format!(
+        "{}{}{}",
+        PREAMBLE.replace(
+            "stack: list::empty(),",
+            "stack: set::to_list(set::item(1)),"
+        ),
+        rules(
+            "keys: { k: [Op(1), Put(name, s), ..], seen: _ } => { k: [..], seen: map::keys(map::update(map::empty(), name, s)) };
+    empty_keys: { k: [Op(2), ..], seen: _ } => { k: [..], seen: map::keys(map::empty()) };
+    from_item: { k: [Op(3), Put(name, _), ..], seen: _ } => { k: [..], seen: set::from_list(list::item(name)) };
+    from_brackets: { k: [Op(4), Put(name, _), ..], seen: _ } => { k: [..], seen: set::from_list([name, name]) };
+    values: { k: [Op(5), Put(name, _), ..], stack: _ } => { k: [..], stack: map::values(map::update(map::empty(), name, 1)) };
+    to_list: { k: [Op(6), ..], stack: _ } => { k: [..], stack: set::to_list(set::item(1)) };
+    nested: { k: [Op(7), Put(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, map::keys(map::update(map::empty(), 0, Skip()))) };
+    union: { k: [Op(8), Put(name, s), ..], seen: x } => { k: [..], seen: set::union(x, map::keys(map::update(map::empty(), name, s))) };
+    counted: { k: [Op(9), Put(name, _), ..], raw: r } => { k: [..], raw: map::update(r, name, Count(set::from_list([name]))) };
+    get_nested: { k: [Op(10), Put(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, map::get(map::update(map::empty(), 1, set::item(2)), 1)) };
+    choose: { k: [Op(11), Put(name, _), ..], seen: _ } => { k: [..], seen: k::builtin::kequal::ite(true, map::keys(map::update(map::empty(), name, 0)), set::empty()) };
+    narrow: { k: [Op(12), Put(name, _), ..], stack: [x, ..], nested: n } => { k: [..], nested: map::update(n, name, set::from_list([x])) };
+    discarded: { k: [Op(13), Put(name, _), ..], raw: { name -> y, .. }, seen: _ } => { k: [..], seen: map::keys(map::update(map::empty(), name, y)) };"
+        ),
+        r"
+/// The number of distinct identifiers.
+#[k::function(total, internal)]
+pub fn Count(xs: Term<Set<Id>>) -> Term<Int> {
+    set::size(xs)
+}
+
+/// Two identifiers as a set.
+#[k::function(total, internal)]
+pub fn Both(a: Term<Id>, b: Term<Id>) -> Term<Set<Id>> {
+    set::from_list([a, b])
+}
+
+#[k::rule]
+pub fn cells_keys(
+    name: Term<Id>,
+    s: Term<Stmt>,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::Op(14), StmtSyntax::Put(name, s), tail @ ..), seen: k::configuration::Cell(_), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), seen: k::configuration::Cell(map::keys(map::update(map::empty(), name, s))), ..state }
+}
+
+k::claims! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::claim(all_paths)]
+    keys_claim: { k: [Op(1), Put(name, s)], seen: _ } => { k: [], seen: map::keys(map::update(map::empty(), name, s)) };
+}
+",
+    );
+    let manifest = package(temporary.path(), "built", &library);
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    assert_eq!(diagnostics(&stderr), [], "{stderr}");
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    expect_test::expect![[r#"
+        [
+            "<k> op 1 ~> put Name:Id S:Stmt => .K ... </k> <seen> _ => keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
+            "<k> op 2 => .K ... </k> <seen> _ => keys(.Map) </seen>",
+            "<k> op 3 ~> put Name:Id _ => .K ... </k> <seen> _ => List2Set(ListItem(Name:Id)) </seen>",
+            "<k> op 4 ~> put Name:Id _ => .K ... </k> <seen> _ => List2Set(ListItem(Name:Id) ListItem(Name:Id)) </seen>",
+            "<k> op 5 ~> put Name:Id _ => .K ... </k> <stack> _ => values(.Map [ Name:Id <- 1 ]) </stack> endmodule",
+            "<k> op 6 => .K ... </k> <stack> _ => Set2List(SetItem(1)) </stack>",
+            "<k> op 7 ~> put Name:Id _ => .K ... </k> <nested> N:Map => N:Map [ Name:Id <- keys(.Map [ 0 <- skip ]) ] </nested>",
+            "<k> op 8 ~> put Name:Id S:Stmt => .K ... </k> <seen> X:Set => X:Set |Set keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
+            "<k> op 9 ~> put Name:Id _ => .K ... </k> <raw> R:Map => R:Map [ Name:Id <- count ( List2Set(ListItem(Name:Id)) ) ] </raw>",
+            "<k> op 10 ~> put Name:Id _ => .K ... </k> <nested> N:Map => N:Map [ Name:Id <- {.Map [ 1 <- SetItem(2) ] [ 1 ]}:>Set ] </nested>",
+            "<k> op 11 ~> put Name:Id _ => .K ... </k> <seen> _ => #if true #then keys(.Map [ Name:Id <- 0 ]) #else .Set #fi </seen>",
+            "<k> op 12 ~> put Name:Id _ => .K ... </k> <stack> ListItem(X:Int) Krs_RestStack:List </stack> <nested> N:Map => N:Map [ Name:Id <- List2Set(ListItem(X:Int)) ] </nested>",
+            "<k> op 13 ~> put Name:Id _ => .K ... </k> <raw> Name:Id |-> Y:KItem ... </raw> <seen> _ => keys(.Map [ Name:Id <- Y:KItem ]) </seen>",
+            "<k> op 14 ~> put Name:Id S:Stmt ~> Tail:K => .K ~> Tail:K </k> <seen> _ => keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
+        ]
+    "#]].assert_debug_eq(
+        &[
+            "keys",
+            "empty-keys",
+            "from-item",
+            "from-brackets",
+            "values",
+            "to-list",
+            "nested",
+            "union",
+            "counted",
+            "get-nested",
+            "choose",
+            "narrow",
+            "discarded",
+            "cells_keys",
+        ]
+        .map(|label| rule(&definition, label)),
+    );
+    let both = definition
+        .lines()
+        .find(|line| line.contains("rule both"))
+        .unwrap_or_else(|| panic!("{definition}"));
+    assert!(
+        both.contains("List2Set(ListItem(A:Id) ListItem(B:Id))"),
+        "{both}"
     );
 }
