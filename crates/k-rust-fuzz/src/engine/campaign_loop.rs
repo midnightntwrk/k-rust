@@ -1,7 +1,7 @@
 //! The loop over cases, the budget, confirmation, shrinking and the report (ARCHITECTURE 7,
 //! 9.2, 9.3). Owner: FZ-06.
 
-use std::{collections::BTreeSet, fmt::Write as _};
+use std::{collections::BTreeSet, fmt::Write as _, sync::Arc};
 
 use k_rust::backend::CancellationToken;
 
@@ -20,6 +20,7 @@ use crate::{
     },
     score::{Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
+    target::RuleName,
     values::{Constraints, Value},
 };
 
@@ -53,6 +54,9 @@ pub(crate) struct LoopSettings {
     pub(crate) pool_rank: std::collections::BTreeMap<String, u64>,
     /// Which normal end each definition's classes rest on, for the report.
     pub(crate) normal_end: Option<NormalEnds>,
+    /// The names of every id in the catalog of the definition whose coverage the cases record,
+    /// from which the report names the rules its coverage holds.
+    pub(crate) rule_names: Arc<std::collections::BTreeMap<String, RuleName>>,
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -661,7 +665,19 @@ impl State {
         budget: Budget,
         outcome: CampaignOutcome,
     ) -> FuzzReport {
-        let totals = self.totals_snapshot();
+        let mut totals = self.totals_snapshot();
+        let coverage = &mut totals.coverage;
+        coverage.names = coverage
+            .applied
+            .iter()
+            .chain(&coverage.matched)
+            .filter_map(|id| {
+                settings
+                    .rule_names
+                    .get(id)
+                    .map(|name| (id.clone(), name.clone()))
+            })
+            .collect();
         if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
             self.warn(warning);
         }

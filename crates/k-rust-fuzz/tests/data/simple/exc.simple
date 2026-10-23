@@ -1,0 +1,11 @@
+// An exception thrown when a value is large is caught with its value.
+function main() {
+  var x = 10;
+  try {
+    if (x > 5) { throw x * 2; }
+    print("small ");
+  } catch (e) {
+    print("caught ", e, " ");
+  }
+  print("done\n");
+}

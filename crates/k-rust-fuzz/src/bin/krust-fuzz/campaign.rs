@@ -81,7 +81,8 @@ pub enum SeedText {
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct TargetFile {
-    /// A rule, by label (`IMP.overflow`, or `overflow` when no label is that).
+    /// A rule: `FILE:LINE` (any line of the rule), its unique id (64 hexadecimal digits), or
+    /// its label (`IMP.overflow`, or `overflow` when no label is that); see [`rule_ref`].
     pub rule: Option<String>,
     /// What counts as reaching the rule; `fired` by default.
     pub mode: Option<RuleMode>,
@@ -570,8 +571,48 @@ impl LoadedCampaign {
     }
 }
 
-/// The target of the file's `[target]` table and the flags (OD-2): rules by label, patterns in
-/// `krust krun --pattern` syntax, and the differential target when a mutant is given.
+/// A rule reference written as text, read by its shape: `FILE:LINE`, where `LINE` is a decimal
+/// number, names the rule whose source location in `FILE` spans that line (a leading `./` of
+/// `FILE` is dropped); 64 hexadecimal digits are a unique id; any other text is a label. Every
+/// rule has a source location and a unique id, so a label of either shape is still named by
+/// those.
+///
+/// # Errors
+///
+/// A `FILE:LINE` whose line is 0 or does not fit 32 bits.
+pub fn rule_ref(text: &str) -> Result<RuleRef, String> {
+    if let Some((file, line)) = text.rsplit_once(':')
+        && !file.is_empty()
+        && !line.is_empty()
+        && line.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        let line = line
+            .parse::<u32>()
+            .ok()
+            .filter(|line| *line > 0)
+            .ok_or_else(|| {
+                format!(
+                    "the rule `{text}`: a source line is a number from 1, the file's first line"
+                )
+            })?;
+        let mut source = file;
+        while let Some(rest) = source.strip_prefix("./") {
+            source = rest;
+        }
+        return Ok(RuleRef::Source {
+            source: source.to_owned(),
+            line,
+        });
+    }
+    if text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(RuleRef::UniqueId(text.to_ascii_lowercase()));
+    }
+    Ok(RuleRef::Label(text.to_owned()))
+}
+
+/// The target of the file's `[target]` table and the flags (OD-2): rules by [`rule_ref`],
+/// patterns in `krust krun --pattern` syntax, and the differential target when a mutant is
+/// given.
 fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Target, String> {
     // A target named by flags replaces the file's whole target kind, with its mode and `at`.
     let flag_kind = flags.reach_rule.is_some() || flags.pattern.is_some() || flags.differential;
@@ -593,8 +634,8 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
         )
     };
     let kind = match (rule, pattern, differential) {
-        (Some(label), None, false) => TargetKind::Rule(RuleTarget {
-            rule: RuleRef::Label(label),
+        (Some(rule), None, false) => TargetKind::Rule(RuleTarget {
+            rule: rule_ref(&rule)?,
             mode: mode.unwrap_or(RuleMode::Fired),
         }),
         (None, Some(pattern), false) => TargetKind::Pattern(PatternTarget {
@@ -605,7 +646,7 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
         (None, None, false) if has_mutant => TargetKind::Differential(DifferentialTarget {}),
         (None, None, false) => {
             return Err(
-                "no target: pass --reach-rule LABEL, --pattern PATTERN or --mutant DIR, \
+                "no target: pass --reach-rule RULE, --pattern PATTERN or --mutant DIR, \
                         or set [target] in the campaign file"
                     .into(),
             );

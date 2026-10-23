@@ -237,6 +237,7 @@ fn identity() -> ReportIdentity {
         program_digest: "p".into(),
         overlay_digest: "o".into(),
         target_digest: "t".into(),
+        target_rule: None,
         options: CaseOptions::default(),
         proposers: ProposerConfig::default(),
         bounds: GenerationBounds::default(),
@@ -270,6 +271,7 @@ fn settings(holes: usize) -> LoopSettings {
         scorer: None,
         pool_rank: std::collections::BTreeMap::new(),
         normal_end: None,
+        rule_names: std::sync::Arc::default(),
     }
 }
 

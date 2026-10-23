@@ -117,7 +117,8 @@ impl Campaign {
             });
         }
         let spec = Arc::new(spec);
-        let cases = LiveCases::build(Arc::clone(&spec))?;
+        let mut cases = LiveCases::build(Arc::clone(&spec))?;
+        let rules = cases.rule_index()?;
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
@@ -178,16 +179,13 @@ impl Campaign {
         let guidance = Guidance::build(&spec, &cases, graph.as_deref())?;
         let mut identity = identity(&spec, &initial)?;
         identity.effective_constraints = effective_constraints(holes);
+        identity.target_rule = rules.target;
         let warnings = campaign_warnings(holes, graph.as_deref());
         let settings = LoopSettings {
             identity,
             rejection_cap: spec.rejection_cap,
             options: spec.options.clone(),
-            label: if spec.target.negated_property {
-                HitLabel::PropertyFailure
-            } else {
-                HitLabel::Hit
-            },
+            label: hit_label(&spec.target),
             clean_leaf_facts: clean_leaf_facts(&spec),
             constraints: holes.iter().map(|hole| hole.constraints.clone()).collect(),
             sort_overrides: holes
@@ -198,6 +196,7 @@ impl Campaign {
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
             normal_end: Some(cases.normal_ends()),
+            rule_names: rules.names,
         };
         Ok(Campaign {
             spec,
@@ -729,6 +728,16 @@ fn campaign_warnings(holes: &[ResolvedHole], graph: Option<&GraphCheck>) -> Vec<
         .collect()
 }
 
+/// How a hit of `target` is reported: as a property failure when the target states a
+/// property's violation.
+fn hit_label(target: &crate::Target) -> HitLabel {
+    if target.negated_property {
+        HitLabel::PropertyFailure
+    } else {
+        HitLabel::Hit
+    }
+}
+
 /// The report identity of `spec`, with a placeholder budget the loop replaces
 /// (ARCHITECTURE 5.4, 9.3).
 fn identity(
@@ -786,6 +795,7 @@ fn identity(
         program_digest: digest_hex(program.as_bytes()),
         overlay_digest: digest_hex(json(&spec.holes).as_bytes()),
         target_digest: digest_hex(json(&spec.target).as_bytes()),
+        target_rule: None,
         options: CaseOptions {
             max_work: spec.options.effective_max_work(),
             ..spec.options.clone()
