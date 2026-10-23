@@ -397,3 +397,91 @@ fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals()
         [UnjoinedReason::ConditionOpen]
     );
 }
+
+/// FZ-POLISH: `f(I) => 1 requires I <Int 0` beside `f(-1) => 2` overlap at `I = -1`, where the
+/// condition `-1 <Int 0` simplifies to `true`. The results differ wherever the overlap is
+/// defined, so the pair is reported with what the join found, `DifferentResults`, not
+/// `ConditionOpen`; and with `I >Int 0` in place of the guard the pair is refuted.
+#[test]
+fn a_pair_whose_conditions_simplify_to_true_keeps_different_results() {
+    for (guard, expected) in [
+        ("I <Int 0", vec![UnjoinedReason::DifferentResults]),
+        ("I >Int 0", Vec::new()),
+    ] {
+        let definition = definition(
+            &format!(
+                "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires {guard}
+  rule [b]: f(-1) => 2"
+            ),
+            false,
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let pairs = pairs_between(&all, "a", "b");
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|pair| pair.reason.clone())
+                .collect::<Vec<_>>(),
+            expected,
+            "{guard}: {:?}",
+            all.unjoined()
+        );
+    }
+}
+
+/// FZ-POLISH: the pair above records its simplified conditions (`true`), and the data
+/// judgement marks it genuine with the ground instance `f(-1)`, whose reducts are `1` and `2`;
+/// a pair under a guard the instances do not decide is recorded with its open conditions and
+/// stays undecided.
+#[test]
+fn a_pair_with_different_results_on_a_ground_instance_is_genuine() {
+    let holds = definition(
+        "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires I <Int 0
+  rule [b]: f(-1) => 2",
+        false,
+    );
+    let all = holds.value_claims_in_scope(CheckScope::All);
+    let [pair] = pairs_between(&all, "a", "b")[..] else {
+        panic!("one pair: {:?}", all.unjoined());
+    };
+    assert_eq!(pair.conditions, Some(k_rust_backend::rule::Predicate::True));
+    let heads = holds.data_heads();
+    let genuine = heads
+        .findings()
+        .iter()
+        .filter(|finding| finding.is_genuine())
+        .collect::<Vec<_>>();
+    assert_eq!(genuine.len(), 1, "{:?}", heads.findings());
+    let instance = genuine[0].instance().expect("genuine");
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&k_rust_backend::term::Term::int(1))
+            && values.contains(&&k_rust_backend::term::Term::int(2)),
+        "{instance:?}"
+    );
+
+    let open = definition(
+        r#"  syntax Int ::= ht(MyTok) [function, symbol(ht)]
+  rule [a]: ht(T) => 1 requires T =/=K #token("true", "MyTok")
+  rule [b]: ht(T) => 2 requires T =/=K #token("false", "MyTok")"#,
+        false,
+    );
+    let all = open.value_claims_in_scope(CheckScope::All);
+    let [pair] = pairs_between(&all, "a", "b")[..] else {
+        panic!("one pair: {:?}", all.unjoined());
+    };
+    assert!(
+        pair.conditions
+            .as_ref()
+            .is_some_and(|conditions| *conditions != k_rust_backend::rule::Predicate::True),
+        "{pair:?}"
+    );
+    assert!(
+        open.data_heads()
+            .findings()
+            .iter()
+            .all(|finding| !finding.is_genuine())
+    );
+}

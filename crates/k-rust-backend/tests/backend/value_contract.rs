@@ -266,6 +266,8 @@ fn a_root_pair_with_an_undefined_side_withdraws_both_heads() {
 /// Review 3, F2: `f(X, Z) = mk(X /Int 0) requires X ==Int 3` and `f(3, Z) = f(1, Z)`. The root
 /// pair at `X = 3` is not refuted (its condition holds there) and its sides `mk(3 /Int 0)` and
 /// `f(1, Z)` do not join, so `f(1, Y)`, the undefined value of `f(3, Y)`, keeps its obligation.
+/// The condition `3 ==Int 3` simplifies to `true`, so the pair keeps the join's
+/// `DifferentResults` (FZ-POLISH: `ConditionOpen` names only conditions the check leaves open).
 #[test]
 fn review_3_f2_a_root_pair_whose_condition_is_not_refuted_withdraws_the_head() {
     let definition = definition(
@@ -289,7 +291,7 @@ fn review_3_f2_a_root_pair_whose_condition_is_not_refuted_withdraws_the_head() {
             ),
         ],
     );
-    assert_withdrawn(&definition, &["f"], Some(UnjoinedReason::ConditionOpen));
+    assert_withdrawn(&definition, &["f"], Some(UnjoinedReason::DifferentResults));
     assert_obligation_kept(
         &definition,
         &format!("f{{}}({}, Y:SortInt{{}})", int(1)),

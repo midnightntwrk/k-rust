@@ -177,10 +177,10 @@ fn an_unjoined_critical_pair_withdraws_the_head() {
     // even a constructor term the pair does not mention; the finding names the pair.
     assert!(!heads.confluent());
     assert!(
-        heads
-            .findings()
-            .iter()
-            .any(|finding| finding.contains("pick-exps") && finding.contains("pick-vals")),
+        heads.findings().iter().any(|finding| {
+            let text = finding.to_string();
+            text.contains("pick-exps") && text.contains("pick-vals")
+        }),
         "{:?}",
         heads.findings()
     );
@@ -241,6 +241,77 @@ fn a_pair_of_function_equations_with_different_results_withdraws_all_data() {
     let heads = definition.data_heads();
     assert!(!heads.confluent(), "{:?}", heads.findings());
     assert!(!data(&definition, &heads, "one{}()"));
+    // The finding is genuine (FZ-POLISH): at `q(one)` the two equations give `one` and
+    // `inj(bottom)`, two different constructor terms.
+    let [finding] = heads.findings() else {
+        panic!("one finding: {:?}", heads.findings());
+    };
+    let instance = finding.instance().expect("a genuine finding");
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "q{}(one{}())"),
+        "{instance:?}"
+    );
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&term(&definition, "one{}()")),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&&term(
+            &definition,
+            "inj{SortBottom{}, SortVal{}}(bottom{}())"
+        )),
+        "{values:?}"
+    );
+    // Assumed joined, the pair no longer withdraws every datum: the definition has data again.
+    let assumed = definition.data_heads_assuming(&heads, |finding| finding.is_genuine());
+    assert!(assumed.confluent(), "{:?}", assumed.findings());
+    assert_eq!(assumed.assumed().len(), 1);
+    assert!(data(&definition, &assumed, "one{}()"));
+    // Nothing assumed, nothing changes.
+    assert!(
+        !definition
+            .data_heads_assuming(&heads, |_| false)
+            .confluent()
+    );
+}
+
+/// A pair whose conditions no small ground instance makes true stays undecided (FZ-POLISH):
+/// `r(V) = one requires stuck(V)` beside `r(V) = inj(bottom)`, where the function `stuck` has no
+/// equation, so its application never evaluates to `true`. The check cannot refute the
+/// conditions either, so it reports the pair as not shown to join, never as genuine.
+#[test]
+fn a_pair_whose_conditions_hold_on_no_tried_instance_is_undecided() {
+    let definition = with_sentences(
+        r#"
+    symbol r{}(SortVal{}) : SortVal{} [function{}(), total{}()]
+    symbol stuck{}(SortVal{}) : SortBool{} [function{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\equals{SortBool{}, R}(stuck{}(V:SortVal{}), \dv{SortBool{}}("true")),
+            \and{R}(\in{SortVal{}, R}(X0:SortVal{}, V:SortVal{}), \top{R}())),
+        \equals{SortVal{}, R}(r{}(X0:SortVal{}), \and{SortVal{}}(one{}(), \top{SortVal{}}())))
+        [label{}("r-one")]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, V:SortVal{}), \top{R}())),
+        \equals{SortVal{}, R}(r{}(X0:SortVal{}), \and{SortVal{}}(inj{SortBottom{}, SortVal{}}(bottom{}()), \top{SortVal{}}())))
+        [label{}("r-bottom")]
+"#,
+    );
+    let heads = definition.data_heads();
+    let pairs = heads
+        .findings()
+        .iter()
+        .filter(|finding| finding.to_string().contains("r-one"))
+        .collect::<Vec<_>>();
+    assert_eq!(pairs.len(), 1, "{:?}", heads.findings());
+    let pair = pairs[0].pair().expect("a pair finding");
+    assert_eq!(
+        pair.reason,
+        k_rust_backend::confluence::UnjoinedReason::ConditionOpen
+    );
+    assert!(pair.conditions.is_some(), "{pair:?}");
+    assert!(!pairs[0].is_genuine(), "{:?}", pairs[0].instance());
 }
 
 #[test]
