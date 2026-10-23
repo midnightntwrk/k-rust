@@ -860,30 +860,36 @@ k::equations! {
 
 k::equations! {
     for IntWidth;
-    int_width_isize: MirIntTy::Isize() => 64;
-    int_width_i8   : MirIntTy::I8()    => 8;
-    int_width_i16  : MirIntTy::I16()   => 16;
-    int_width_i32  : MirIntTy::I32()   => 32;
-    int_width_i64  : MirIntTy::I64()   => 64;
-    int_width_i128 : MirIntTy::I128()  => 128;
+    use MirIntTy::*;
+
+    int_width_isize: Isize() => 64;
+    int_width_i8   : I8()    => 8;
+    int_width_i16  : I16()   => 16;
+    int_width_i32  : I32()   => 32;
+    int_width_i64  : I64()   => 64;
+    int_width_i128 : I128()  => 128;
 }
 
 k::equations! {
     for UintWidth;
-    uint_width_usize: MirUintTy::Usize() => 64;
-    uint_width_u8   : MirUintTy::U8()    => 8;
-    uint_width_u16  : MirUintTy::U16()   => 16;
-    uint_width_u32  : MirUintTy::U32()   => 32;
-    uint_width_u64  : MirUintTy::U64()   => 64;
-    uint_width_u128 : MirUintTy::U128()  => 128;
+    use MirUintTy::*;
+
+    uint_width_usize: Usize() => 64;
+    uint_width_u8   : U8()    => 8;
+    uint_width_u16  : U16()   => 16;
+    uint_width_u32  : U32()   => 32;
+    uint_width_u64  : U64()   => 64;
+    uint_width_u128 : U128()  => 128;
 }
 
 k::equations! {
     for FloatWidth;
-    float_width_f16 : MirFloatTy::F16()  => 16;
-    float_width_f32 : MirFloatTy::F32()  => 32;
-    float_width_f64 : MirFloatTy::F64()  => 64;
-    float_width_f128: MirFloatTy::F128() => 128;
+    use MirFloatTy::*;
+
+    float_width_f16 : F16()  => 16;
+    float_width_f32 : F32()  => 32;
+    float_width_f64 : F64()  => 64;
+    float_width_f128: F128() => 128;
 }
 
 k::equations! {
@@ -923,30 +929,28 @@ k::equations! {
 
 k::equations! {
     for SizeOfTypeInfo;
-    size_of_boolean      : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool()))    => 1;
-    size_of_char         : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char()))    => 4;
-    size_of_signed_integer:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))
-        => IntWidth(kind) / 8;
-    size_of_unsigned_integer:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))
-        => UintWidth(kind) / 8;
-    size_of_float:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind))) => FloatWidth(kind) / 8;
-    size_of_str          : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))     => 0;
+    use MirPrimitiveType::*;
+    use MirTypeInfo::*;
+
+    size_of_boolean         : (_, PrimitiveType(Bool()))                => 1;
+    size_of_char            : (_, PrimitiveType(Char()))                => 4;
+    size_of_signed_integer  : (_, PrimitiveType(SignedInteger(kind)))   => IntWidth(kind) / 8;
+    size_of_unsigned_integer: (_, PrimitiveType(UnsignedInteger(kind))) => UintWidth(kind) / 8;
+    size_of_float           : (_, PrimitiveType(Float(kind)))           => FloatWidth(kind) / 8;
+    size_of_str             : (_, PrimitiveType(Str()))                 => 0;
     size_of_aggregate:
         (
             _,
-            MirTypeInfo::EnumType(_, _, _, _, layout)
-            | MirTypeInfo::StructType(_, _, _, layout)
-            | MirTypeInfo::UnionType(_, _, _, layout)
-            | MirTypeInfo::TupleType(_, layout)
+            EnumType(_, _, _, _, layout)
+            | StructType(_, _, _, layout)
+            | UnionType(_, _, _, layout)
+            | TupleType(_, layout)
         ) => LayoutSize(layout);
-    size_of_dynamic_array: (_, MirTypeInfo::ArrayType(_, MirMaybeTyConst::NoTyConst())) => 0;
+    size_of_dynamic_array: (_, ArrayType(_, MirMaybeTyConst::NoTyConst())) => 0;
     size_of_static_array:
         (
             types,
-            MirTypeInfo::ArrayType(
+            ArrayType(
                 element,
                 MirMaybeTyConst::SomeTyConst(
                     MirTyConst::TyConst(
@@ -957,46 +961,40 @@ k::equations! {
             )
         ) => SizeOfTypeInfo(types, map::get(types, element)) * ReadTyConstInt(bytes, 0, 1, 0);
     size_of_pointer:
-        (types, MirTypeInfo::PointerType(pointee) | MirTypeInfo::ReferenceType(pointee))
-        => SizeOfTypeInfo(
+        (types, PointerType(pointee) | ReferenceType(pointee)) => SizeOfTypeInfo(
             types,
-            MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))
+            PrimitiveType(UnsignedInteger(MirUintTy::Usize()))
         ) * PointerWords(map::get(types, pointee));
     #[k::equation(priority = 60)]
-    size_of_other        : (_, _)                                                       => 0;
+    size_of_other           : (_, _)                                    => 0;
 }
 
 k::equations! {
     for AlignOfTypeInfo;
-    align_of_boolean: (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Bool())) => 1;
-    align_of_char   : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Char())) => 4;
-    align_of_signed_integer:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::SignedInteger(kind)))
-        => IntWidth(kind) / 8;
-    align_of_unsigned_integer:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(kind)))
-        => UintWidth(kind) / 8;
-    align_of_float:
-        (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Float(kind))) => FloatWidth(kind) / 8;
-    align_of_str    : (_, MirTypeInfo::PrimitiveType(MirPrimitiveType::Str()))  => 1;
+    use MirPrimitiveType::*;
+    use MirTypeInfo::*;
+
+    align_of_boolean         : (_, PrimitiveType(Bool()))                => 1;
+    align_of_char            : (_, PrimitiveType(Char()))                => 4;
+    align_of_signed_integer  : (_, PrimitiveType(SignedInteger(kind)))   => IntWidth(kind) / 8;
+    align_of_unsigned_integer: (_, PrimitiveType(UnsignedInteger(kind))) => UintWidth(kind) / 8;
+    align_of_float           : (_, PrimitiveType(Float(kind)))           => FloatWidth(kind) / 8;
+    align_of_str             : (_, PrimitiveType(Str()))                 => 1;
     align_of_aggregate:
         (
             _,
-            MirTypeInfo::EnumType(_, _, _, _, layout)
-            | MirTypeInfo::StructType(_, _, _, layout)
-            | MirTypeInfo::UnionType(_, _, _, layout)
-            | MirTypeInfo::TupleType(_, layout)
+            EnumType(_, _, _, _, layout)
+            | StructType(_, _, _, layout)
+            | UnionType(_, _, _, layout)
+            | TupleType(_, layout)
         ) => LayoutAlign(layout);
     align_of_array:
-        (types, MirTypeInfo::ArrayType(element, _))
-        => AlignOfTypeInfo(types, map::get(types, element));
+        (types, ArrayType(element, _)) => AlignOfTypeInfo(types, map::get(types, element));
     align_of_pointer:
-        (types, MirTypeInfo::PointerType(_) | MirTypeInfo::ReferenceType(_)) => AlignOfTypeInfo(
-            types,
-            MirTypeInfo::PrimitiveType(MirPrimitiveType::UnsignedInteger(MirUintTy::Usize()))
-        );
+        (types, PointerType(_) | ReferenceType(_))
+        => AlignOfTypeInfo(types, PrimitiveType(UnsignedInteger(MirUintTy::Usize())));
     #[k::equation(priority = 60)]
-    align_of_other  : (_, _)                                                    => 0;
+    align_of_other           : (_, _)                                    => 0;
 }
 
 #[k::function(partial, syntax = "#decodeInteger({bytes}, {width}, {signed})")]
@@ -1310,11 +1308,13 @@ k::equations! {
 
 k::equations! {
     for ByteLength;
-    byte_length_i8  : MirIntegerLength::LengthI8()   => 1;
-    byte_length_i16 : MirIntegerLength::LengthI16()  => 2;
-    byte_length_i32 : MirIntegerLength::LengthI32()  => 4;
-    byte_length_i64 : MirIntegerLength::LengthI64()  => 8;
-    byte_length_i128: MirIntegerLength::LengthI128() => 16;
+    use MirIntegerLength::*;
+
+    byte_length_i8  : LengthI8()   => 1;
+    byte_length_i16 : LengthI16()  => 2;
+    byte_length_i32 : LengthI32()  => 4;
+    byte_length_i64 : LengthI64()  => 8;
+    byte_length_i128: LengthI128() => 16;
 }
 
 k::equations! {
@@ -3270,22 +3270,39 @@ k::rules! {
 
 k::rules! {
     for Machine;
+    use EvaluationContinuation::*;
     use Execution::*;
+    use LocalValue::*;
+    use MirAllocation::*;
+    use MirBinaryOp::*;
+    use MirCastKind::*;
+    use MirMetadata::*;
+    use MirMetadataSize::*;
+    use MirNullOp::*;
+    use MirOperand::*;
+    use MirPlace::*;
+    use MirPointerCoercion::*;
+    use MirPrimitiveType::*;
+    use MirProjectionAction::*;
+    use MirProjectionContext::*;
+    use MirProjectionTarget::*;
+    use MirRvalue::*;
+    use MirTypeInfo::*;
+    use MirUintTy::*;
+    use MirUnaryOp::*;
+    use Projection::*;
+    use Value::*;
 
     eval_use: {
-        k: [EvalRvalue { value: MirRvalue::Use(operand), place }, ..],
+        k: [EvalRvalue { value: Use(operand), place }, ..],
     } => {
-        k: [EvalOperand { operand, continuation: EvaluationContinuation::StoreAt(place) }, ..],
+        k: [EvalOperand { operand, continuation: StoreAt(place) }, ..],
     };
 
     eval_cast: {
         k: [
             EvalRvalue {
-                value: MirRvalue::Cast {
-                    kind: MirCastKind::PointerCoercion { coercion: MirPointerCoercion::Unsize() },
-                    operand,
-                    ..
-                },
+                value: Cast { kind: PointerCoercion { coercion: Unsize() }, operand, .. },
                 place
             },
             ..
@@ -3294,10 +3311,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand,
-                continuation: EvaluationContinuation::FinishCast {
-                    place,
-                    kind: MirCastKind::PointerCoercion { coercion: MirPointerCoercion::Unsize() }
-                }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
             },
             ..
         ],
@@ -3306,10 +3320,10 @@ k::rules! {
     eval_ptr_cast: {
         k: [
             EvalRvalue {
-                value: MirRvalue::Cast {
-                    kind: MirCastKind::PtrToPtr(),
-                    operand: operand @ (MirOperand::Copy(MirPlace::Place { local, projections })
-                    | MirOperand::Move(MirPlace::Place { local, projections })),
+                value: Cast {
+                    kind: PtrToPtr(),
+                    operand: operand @ (Copy(Place { local, projections })
+                    | Move(Place { local, projections })),
                     target
                 },
                 place
@@ -3322,7 +3336,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand,
-                continuation: EvaluationContinuation::FinishPtrCast {
+                continuation: FinishPtrCast {
                     place,
                     source: LookupMaybeTy {
                         types,
@@ -3342,10 +3356,10 @@ k::rules! {
     eval_transmute: {
         k: [
             EvalRvalue {
-                value: MirRvalue::Cast {
-                    kind: MirCastKind::Transmute(),
-                    operand: operand @ (MirOperand::Copy(MirPlace::Place { local, projections })
-                    | MirOperand::Move(MirPlace::Place { local, projections })),
+                value: Cast {
+                    kind: Transmute(),
+                    operand: operand @ (Copy(Place { local, projections })
+                    | Move(Place { local, projections })),
                     target
                 },
                 place
@@ -3358,7 +3372,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand,
-                continuation: EvaluationContinuation::FinishTransmute {
+                continuation: FinishTransmute {
                     place,
                     source: LookupMaybeTy {
                         types,
@@ -3376,34 +3390,28 @@ k::rules! {
     };
 
     eval_ref: {
-        k: [
-            EvalRvalue {
-                value: MirRvalue::Ref { kind, place: MirPlace::Place { local, projections }, .. },
-                place
-            },
-            ..
-        ],
+        k: [EvalRvalue { value: Ref { kind, place: Place { local, projections }, .. }, place }, ..],
         locals,
         types,
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value: LocalValueOf { entry: list::get(locals, local) },
                 projections,
                 contexts: [],
                 locals,
-                action: MirProjectionAction::ReferenceAction {
+                action: ReferenceAction {
                     place,
                     mutability: BorrowMutability { kind },
-                    metadata: MirMetadata::Metadata {
+                    metadata: Metadata {
                         size: ProjectionMetadataSize {
                             ty: LocalTy { entry: list::get(locals, local) },
                             projections,
                             types
                         },
                         offset: 0,
-                        origin_size: MirMetadataSize::NoMetadataSize()
+                        origin_size: NoMetadataSize()
                     }
                 }
             },
@@ -3414,10 +3422,7 @@ k::rules! {
     eval_address_of: {
         k: [
             EvalRvalue {
-                value: MirRvalue::AddressOf {
-                    mutability,
-                    place: MirPlace::Place { local, projections }
-                },
+                value: AddressOf { mutability, place: Place { local, projections } },
                 place: destination
             },
             ..
@@ -3428,7 +3433,7 @@ k::rules! {
             ResolveAddressOf {
                 entry: list::get(locals, local),
                 mutability,
-                referenced: MirPlace::Place { local, projections },
+                referenced: Place { local, projections },
                 destination
             },
             ..
@@ -3438,12 +3443,12 @@ k::rules! {
     address_of_reference_deref: {
         k: [
             ResolveAddressOf {
-                entry: LocalValue::TypedValue {
-                    value: Value::Reference { height, place: referenced, metadata, .. },
+                entry: TypedValue {
+                    value: Reference { height, place: referenced, metadata, .. },
                     ..
                 },
                 mutability,
-                referenced: MirPlace::Place { projections: [Projection::Deref()], .. },
+                referenced: Place { projections: [Deref()], .. },
                 destination
             },
             ..
@@ -3452,7 +3457,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place: destination,
-                value: Value::Pointer { height, place: referenced, mutability, metadata }
+                value: Pointer { height, place: referenced, mutability, metadata }
             },
             ..
         ],
@@ -3461,12 +3466,7 @@ k::rules! {
     #[k::rule(owise)]
     address_of_local: {
         k: [
-            ResolveAddressOf {
-                entry: LocalValue::TypedValue(_, _, _),
-                mutability,
-                referenced,
-                destination
-            },
+            ResolveAddressOf { entry: TypedValue(_, _, _), mutability, referenced, destination },
             ..
         ],
         locals,
@@ -3474,14 +3474,14 @@ k::rules! {
         k: [
             SetLocalValue {
                 place: destination,
-                value: Value::Pointer {
+                value: Pointer {
                     height: 0,
                     place: FreezePlace { place: referenced, locals },
                     mutability,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::NoMetadataSize(),
+                    metadata: Metadata {
+                        size: NoMetadataSize(),
                         offset: 0,
-                        origin_size: MirMetadataSize::NoMetadataSize()
+                        origin_size: NoMetadataSize()
                     }
                 }
             },
@@ -3490,41 +3490,26 @@ k::rules! {
     };
 
     eval_unary: {
-        k: [EvalRvalue { value: MirRvalue::Unary { operation, operand }, place }, ..],
+        k: [EvalRvalue { value: Unary { operation, operand }, place }, ..],
     } => {
-        k: [
-            EvalOperand {
-                operand,
-                continuation: EvaluationContinuation::FinishUnary { place, operation }
-            },
-            ..
-        ],
+        k: [EvalOperand { operand, continuation: FinishUnary { place, operation } }, ..],
     };
 
     eval_ub_checks: {
-        k: [
-            EvalRvalue {
-                value: MirRvalue::Nullary { operation: MirNullOp::UbChecks(), .. },
-                place
-            },
-            ..
-        ],
+        k: [EvalRvalue { value: Nullary { operation: UbChecks(), .. }, place }, ..],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(false) }, ..],
+        k: [SetLocalValue { place, value: Boolean(false) }, ..],
     };
 
     #[k::requires(!IsVoidType { info: map::get(types, ty) })]
     eval_size_of: {
-        k: [
-            EvalRvalue { value: MirRvalue::Nullary { operation: MirNullOp::SizeOf(), ty }, place },
-            ..
-        ],
+        k: [EvalRvalue { value: Nullary { operation: SizeOf(), ty }, place }, ..],
         types,
     } => {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: SizeOfTypeInfo { types, info: map::get(types, ty) },
                     width: 64,
                     signed: false
@@ -3536,16 +3521,13 @@ k::rules! {
 
     #[k::requires(!IsVoidType { info: map::get(types, ty) })]
     eval_align_of: {
-        k: [
-            EvalRvalue { value: MirRvalue::Nullary { operation: MirNullOp::AlignOf(), ty }, place },
-            ..
-        ],
+        k: [EvalRvalue { value: Nullary { operation: AlignOf(), ty }, place }, ..],
         types,
     } => {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: AlignOfTypeInfo { types, info: map::get(types, ty) },
                     width: 64,
                     signed: false
@@ -3556,41 +3538,31 @@ k::rules! {
     };
 
     eval_binary: {
-        k: [EvalRvalue { value: MirRvalue::Binary { operation, lhs, rhs }, place }, ..],
+        k: [EvalRvalue { value: Binary { operation, lhs, rhs }, place }, ..],
     } => {
         k: [
             EvalOperand {
                 operand: lhs,
-                continuation: EvaluationContinuation::BinaryRight {
-                    place,
-                    operation,
-                    rhs,
-                    checked: false
-                }
+                continuation: BinaryRight { place, operation, rhs, checked: false }
             },
             ..
         ],
     };
 
     eval_checked_binary: {
-        k: [EvalRvalue { value: MirRvalue::CheckedBinary { operation, lhs, rhs }, place }, ..],
+        k: [EvalRvalue { value: CheckedBinary { operation, lhs, rhs }, place }, ..],
     } => {
         k: [
             EvalOperand {
                 operand: lhs,
-                continuation: EvaluationContinuation::BinaryRight {
-                    place,
-                    operation,
-                    rhs,
-                    checked: true
-                }
+                continuation: BinaryRight { place, operation, rhs, checked: true }
             },
             ..
         ],
     };
 
     eval_aggregate_empty: {
-        k: [EvalRvalue { value: MirRvalue::AggregateRvalue { kind, operands: [] }, place }, ..],
+        k: [EvalRvalue { value: AggregateRvalue { kind, operands: [] }, place }, ..],
     } => {
         k: [
             SetLocalValue { place, value: MaterializeAggregate { kind, values: list::empty() } },
@@ -3599,23 +3571,12 @@ k::rules! {
     };
 
     eval_aggregate_cons: {
-        k: [
-            EvalRvalue {
-                value: MirRvalue::AggregateRvalue { kind, operands: [head, tail @ ..] },
-                place
-            },
-            ..
-        ],
+        k: [EvalRvalue { value: AggregateRvalue { kind, operands: [head, tail @ ..] }, place }, ..],
     } => {
         k: [
             EvalOperand {
                 operand: head,
-                continuation: EvaluationContinuation::AggregateNext {
-                    place,
-                    kind,
-                    values: list::empty(),
-                    remaining: tail
-                }
+                continuation: AggregateNext { place, kind, values: list::empty(), remaining: tail }
             },
             ..
         ],
@@ -3624,13 +3585,10 @@ k::rules! {
     eval_repeat: {
         k: [
             EvalRvalue {
-                value: MirRvalue::Repeat {
+                value: Repeat {
                     element,
                     count: MirTyConst::TyConst {
-                        kind: MirTyConstKind::Value {
-                            allocation: MirAllocation::Allocation { bytes, .. },
-                            ..
-                        },
+                        kind: MirTyConstKind::Value { allocation: Allocation { bytes, .. }, .. },
                         ..
                     }
                 },
@@ -3642,7 +3600,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: element,
-                continuation: EvaluationContinuation::FinishRepeat {
+                continuation: FinishRepeat {
                     place,
                     count: ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 }
                 }
@@ -3652,37 +3610,20 @@ k::rules! {
     };
 
     eval_len: {
-        k: [EvalRvalue { value: MirRvalue::Len { place: source }, place }, ..],
+        k: [EvalRvalue { value: Len { place: source }, place }, ..],
     } => {
-        k: [
-            EvalOperand {
-                operand: MirOperand::Copy(source),
-                continuation: EvaluationContinuation::FinishLen { place }
-            },
-            ..
-        ],
+        k: [EvalOperand { operand: Copy(source), continuation: FinishLen { place } }, ..],
     };
 
     eval_copy_for_deref: {
-        k: [EvalRvalue { value: MirRvalue::CopyForDeref { place: source }, place }, ..],
+        k: [EvalRvalue { value: CopyForDeref { place: source }, place }, ..],
     } => {
-        k: [
-            EvalOperand {
-                operand: MirOperand::Copy(source),
-                continuation: EvaluationContinuation::StoreAt(place)
-            },
-            ..
-        ],
+        k: [EvalOperand { operand: Copy(source), continuation: StoreAt(place) }, ..],
     };
 
     eval_discriminant: {
         k: [
-            EvalRvalue {
-                value: MirRvalue::DiscriminantRvalue {
-                    place: MirPlace::Place { local, projections }
-                },
-                place
-            },
+            EvalRvalue { value: DiscriminantRvalue { place: Place { local, projections } }, place },
             ..
         ],
         locals,
@@ -3690,8 +3631,8 @@ k::rules! {
     } => {
         k: [
             EvalOperand {
-                operand: MirOperand::Copy(MirPlace::Place { local, projections }),
-                continuation: EvaluationContinuation::FinishDiscriminant {
+                operand: Copy(Place { local, projections }),
+                continuation: FinishDiscriminant {
                     place,
                     info: LookupMaybeTy {
                         types,
@@ -3708,7 +3649,7 @@ k::rules! {
     };
 
     eval_constant: {
-        k: [EvalOperand { operand: MirOperand::Constant(value), continuation }, ..],
+        k: [EvalOperand { operand: Constant(value), continuation }, ..],
     } => {
         k: [Continue { value, continuation }, ..],
     };
@@ -3716,8 +3657,8 @@ k::rules! {
     eval_allocated_reference_constant: {
         k: [
             EvalOperand {
-                operand: MirOperand::AllocatedConstant {
-                    allocation: MirAllocation::Allocation {
+                operand: AllocatedConstant {
+                    allocation: Allocation {
                         bytes,
                         provenance: MirProvenanceMap::SingletonProvenanceMap {
                             offset: 0,
@@ -3753,8 +3694,8 @@ k::rules! {
     eval_allocated_value_constant: {
         k: [
             EvalOperand {
-                operand: MirOperand::AllocatedConstant {
-                    allocation: MirAllocation::Allocation {
+                operand: AllocatedConstant {
+                    allocation: Allocation {
                         bytes,
                         provenance: MirProvenanceMap::EmptyProvenanceMap(),
                         ..
@@ -3778,7 +3719,7 @@ k::rules! {
     };
 
     eval_zero_sized_constant: {
-        k: [EvalOperand { operand: MirOperand::ZeroSizedConstant { ty, .. }, continuation }, ..],
+        k: [EvalOperand { operand: ZeroSizedConstant { ty, .. }, continuation }, ..],
         types,
     } => {
         k: [
@@ -3788,13 +3729,7 @@ k::rules! {
     };
 
     eval_copy: {
-        k: [
-            EvalOperand {
-                operand: MirOperand::Copy(MirPlace::Place { local, projections: [] }),
-                continuation
-            },
-            ..
-        ],
+        k: [EvalOperand { operand: Copy(Place { local, projections: [] }), continuation }, ..],
         locals,
     } => {
         k: [
@@ -3811,9 +3746,7 @@ k::rules! {
     eval_copy_field: {
         k: [
             EvalOperand {
-                operand: MirOperand::Copy(
-                    MirPlace::Place { local, projections: [head, tail @ ..] }
-                ),
+                operand: Copy(Place { local, projections: [head, tail @ ..] }),
                 continuation
             },
             ..
@@ -3832,13 +3765,7 @@ k::rules! {
     };
 
     eval_move: {
-        k: [
-            EvalOperand {
-                operand: MirOperand::Move(MirPlace::Place { local, projections: [] }),
-                continuation
-            },
-            ..
-        ],
+        k: [EvalOperand { operand: Move(Place { local, projections: [] }), continuation }, ..],
         locals,
     } => {
         k: [
@@ -3855,9 +3782,7 @@ k::rules! {
     eval_move_projected: {
         k: [
             EvalOperand {
-                operand: MirOperand::Move(
-                    MirPlace::Place { local, projections: [head, tail @ ..] }
-                ),
+                operand: Move(Place { local, projections: [head, tail @ ..] }),
                 continuation
             },
             ..
@@ -3876,15 +3801,7 @@ k::rules! {
     };
 
     read_local_copy: {
-        k: [
-            ReadLocal {
-                entry: LocalValue::TypedValue { value, .. },
-                move_after: false,
-                continuation,
-                ..
-            },
-            ..
-        ],
+        k: [ReadLocal { entry: TypedValue { value, .. }, move_after: false, continuation, .. }, ..],
     } => {
         k: [Continue { value, continuation }, ..],
     };
@@ -3892,7 +3809,7 @@ k::rules! {
     read_local_move: {
         k: [
             ReadLocal {
-                entry: LocalValue::TypedValue { value, ty, mutability },
+                entry: TypedValue { value, ty, mutability },
                 move_after: true,
                 index,
                 continuation
@@ -3902,17 +3819,13 @@ k::rules! {
         locals,
     } => {
         k: [Continue { value, continuation }, ..],
-        locals: list::update(
-            locals,
-            index,
-            LocalValue::TypedValue { value: Value::Moved(), ty, mutability }
-        ),
+        locals: list::update(locals, index, TypedValue { value: Moved(), ty, mutability }),
     };
 
     read_projected_local: {
         k: [
             ReadProjectedLocal {
-                entry: LocalValue::TypedValue { value, .. },
+                entry: TypedValue { value, .. },
                 local,
                 projections,
                 continuation
@@ -3923,12 +3836,12 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value,
                 projections,
                 contexts: [],
                 locals,
-                action: MirProjectionAction::ReadAction(continuation)
+                action: ReadAction(continuation)
             },
             ..
         ],
@@ -3937,7 +3850,7 @@ k::rules! {
     read_moved_projected_local: {
         k: [
             ReadMovedProjectedLocal {
-                entry: LocalValue::TypedValue { value, .. },
+                entry: TypedValue { value, .. },
                 local,
                 projections,
                 continuation
@@ -3948,12 +3861,12 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value,
                 projections,
                 contexts: [],
                 locals,
-                action: MirProjectionAction::MoveAction(continuation)
+                action: MoveAction(continuation)
             },
             ..
         ],
@@ -3961,12 +3874,7 @@ k::rules! {
 
     traverse_projection_read_done: {
         k: [
-            TraverseProjection {
-                value,
-                projections: [],
-                action: MirProjectionAction::ReadAction(continuation),
-                ..
-            },
+            TraverseProjection { value, projections: [], action: ReadAction(continuation), .. },
             ..
         ],
     } => {
@@ -3976,14 +3884,14 @@ k::rules! {
     traverse_projection_reference_local_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value,
                 projections: [],
                 contexts,
-                action: MirProjectionAction::ReferenceAction {
+                action: ReferenceAction {
                     place,
                     mutability,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
+                    metadata: Metadata { size, offset, origin_size }
                 },
                 ..
             },
@@ -3993,14 +3901,14 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Reference {
+                value: Reference {
                     height: 0,
-                    place: MirPlace::Place {
+                    place: Place {
                         local,
                         projections: ProjectionsFor { contexts, projections: [] }
                     },
                     mutability,
-                    metadata: MirMetadata::Metadata {
+                    metadata: Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
                         origin_size
@@ -4014,14 +3922,14 @@ k::rules! {
     traverse_projection_reference_stack_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToStack { height, local },
+                target: ToStack { height, local },
                 value,
                 projections: [],
                 contexts,
-                action: MirProjectionAction::ReferenceAction {
+                action: ReferenceAction {
                     place,
                     mutability,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size }
+                    metadata: Metadata { size, offset, origin_size }
                 },
                 ..
             },
@@ -4031,14 +3939,14 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Reference {
+                value: Reference {
                     height,
-                    place: MirPlace::Place {
+                    place: Place {
                         local,
                         projections: ProjectionsFor { contexts, projections: [] }
                     },
                     mutability,
-                    metadata: MirMetadata::Metadata {
+                    metadata: Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
                         origin_size
@@ -4052,13 +3960,13 @@ k::rules! {
     traverse_projection_reference_allocation_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToAllocation(allocation),
+                target: ToAllocation(allocation),
                 value,
                 projections: [],
                 contexts,
-                action: MirProjectionAction::ReferenceAction {
+                action: ReferenceAction {
                     place,
-                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    metadata: Metadata { size, offset, origin_size },
                     ..
                 },
                 ..
@@ -4069,10 +3977,10 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::AllocationReference {
+                value: AllocationReference {
                     allocation,
                     projections: ProjectionsFor { contexts, projections: [] },
-                    metadata: MirMetadata::Metadata {
+                    metadata: Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
                         origin_size
@@ -4086,10 +3994,10 @@ k::rules! {
     traverse_projection_write_local_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 projections: [],
                 contexts,
-                action: MirProjectionAction::WriteAction(replacement),
+                action: WriteAction(replacement),
                 ..
             },
             ..
@@ -4097,7 +4005,7 @@ k::rules! {
     } => {
         k: [
             SetLocalValue {
-                place: MirPlace::Place { local, projections: [] },
+                place: Place { local, projections: [] },
                 value: BuildProjectionUpdate { value: replacement, contexts }
             },
             ..
@@ -4107,11 +4015,11 @@ k::rules! {
     traverse_projection_write_stack_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToStack { height, local },
+                target: ToStack { height, local },
                 projections: [],
                 contexts,
                 locals,
-                action: MirProjectionAction::WriteAction(replacement),
+                action: WriteAction(replacement),
                 ..
             },
             ..
@@ -4138,11 +4046,11 @@ k::rules! {
     traverse_projection_move_local_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value,
                 projections: [],
                 contexts,
-                action: MirProjectionAction::MoveAction(continuation),
+                action: MoveAction(continuation),
                 ..
             },
             ..
@@ -4150,8 +4058,8 @@ k::rules! {
     } => {
         k: [
             SetLocalValue {
-                place: MirPlace::Place { local, projections: [] },
-                value: BuildProjectionUpdate { value: Value::Moved(), contexts }
+                place: Place { local, projections: [] },
+                value: BuildProjectionUpdate { value: Moved(), contexts }
             },
             Continue { value, continuation },
             ..
@@ -4161,12 +4069,12 @@ k::rules! {
     traverse_projection_move_stack_done: {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToStack { height, local },
+                target: ToStack { height, local },
                 value,
                 projections: [],
                 contexts,
                 locals,
-                action: MirProjectionAction::MoveAction(continuation)
+                action: MoveAction(continuation)
             },
             ..
         ],
@@ -4181,7 +4089,7 @@ k::rules! {
                 local,
                 projections: [],
                 value: AdjustRef {
-                    value: BuildProjectionUpdate { value: Value::Moved(), contexts },
+                    value: BuildProjectionUpdate { value: Moved(), contexts },
                     offset: -height
                 },
                 locals
@@ -4192,8 +4100,8 @@ k::rules! {
     traverse_projection_field: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Aggregate { variant, fields },
-                projections: [Projection::Field { field, ty }, tail @ ..],
+                value: Aggregate { variant, fields },
+                projections: [Field { field, ty }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4204,10 +4112,7 @@ k::rules! {
             TraverseProjection {
                 value: list::get(fields, field),
                 projections: tail,
-                contexts: [
-                    MirProjectionContext::FieldContext { variant, fields, field, ty },
-                    ..contexts
-                ],
+                contexts: [FieldContext { variant, fields, field, ty }, ..contexts],
                 ..traversal
             },
             ..
@@ -4217,8 +4122,8 @@ k::rules! {
     traverse_projection_union_field: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Union { field, value },
-                projections: [Projection::Field { field, ty }, tail @ ..],
+                value: Union { field, value },
+                projections: [Field { field, ty }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4229,10 +4134,7 @@ k::rules! {
             TraverseProjection {
                 value,
                 projections: tail,
-                contexts: [
-                    MirProjectionContext::UnionFieldContext { field, value, ty },
-                    ..contexts
-                ],
+                contexts: [UnionFieldContext { field, value, ty }, ..contexts],
                 ..traversal
             },
             ..
@@ -4243,7 +4145,7 @@ k::rules! {
         k: [
             traversal @ TraverseProjection {
                 value,
-                projections: [Projection::WrapStruct(), tail @ ..],
+                projections: [WrapStruct(), tail @ ..],
                 contexts,
                 ..
             },
@@ -4252,12 +4154,12 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Value::Aggregate {
+                value: Aggregate {
                     variant: 0,
                     fields: list::concat(list::item(value), list::empty())
                 },
                 projections: tail,
-                contexts: [MirProjectionContext::WrapStructContext(), ..contexts],
+                contexts: [WrapStructContext(), ..contexts],
                 ..traversal
             },
             ..
@@ -4267,8 +4169,8 @@ k::rules! {
     traverse_projection_downcast: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Aggregate { fields, .. },
-                projections: [Projection::Downcast { variant }, tail @ ..],
+                value: Aggregate { fields, .. },
+                projections: [Downcast { variant }, tail @ ..],
                 ..
             },
             ..
@@ -4276,7 +4178,7 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Value::Aggregate { variant, fields },
+                value: Aggregate { variant, fields },
                 projections: tail,
                 ..traversal
             },
@@ -4287,8 +4189,8 @@ k::rules! {
     traverse_projection_index: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [Projection::Index { local }, tail @ ..],
+                value: Range(elements),
+                projections: [Index { local }, tail @ ..],
                 contexts,
                 locals,
                 ..
@@ -4301,7 +4203,7 @@ k::rules! {
                 value: list::get(elements, ExpectUsize { entry: list::get(locals, local) }),
                 projections: tail,
                 contexts: [
-                    MirProjectionContext::IndexContext {
+                    IndexContext {
                         elements,
                         index: ExpectUsize { entry: list::get(locals, local) }
                     },
@@ -4317,8 +4219,8 @@ k::rules! {
     traverse_projection_constant_index_front: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [Projection::ConstantIndex { offset, from_end: false, .. }, tail @ ..],
+                value: Range(elements),
+                projections: [ConstantIndex { offset, from_end: false, .. }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4329,10 +4231,7 @@ k::rules! {
             TraverseProjection {
                 value: list::get(elements, offset),
                 projections: tail,
-                contexts: [
-                    MirProjectionContext::IndexContext { elements, index: offset },
-                    ..contexts
-                ],
+                contexts: [IndexContext { elements, index: offset }, ..contexts],
                 ..traversal
             },
             ..
@@ -4345,11 +4244,8 @@ k::rules! {
     traverse_projection_constant_index_end: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [
-                    Projection::ConstantIndex { offset, min_length, from_end: true },
-                    tail @ ..
-                ],
+                value: Range(elements),
+                projections: [ConstantIndex { offset, min_length, from_end: true }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4360,10 +4256,7 @@ k::rules! {
             TraverseProjection {
                 value: list::get(elements, min_length - offset),
                 projections: tail,
-                contexts: [
-                    MirProjectionContext::IndexContext { elements, index: min_length - offset },
-                    ..contexts
-                ],
+                contexts: [IndexContext { elements, index: min_length - offset }, ..contexts],
                 ..traversal
             },
             ..
@@ -4380,8 +4273,8 @@ k::rules! {
     traverse_projection_subslice_front: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [Projection::Subslice { from, to, from_end: false }, tail @ ..],
+                value: Range(elements),
+                projections: [Subslice { from, to, from_end: false }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4390,16 +4283,10 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Value::Range {
-                    elements: list::range(elements, from, list::size(elements) - to)
-                },
+                value: Range { elements: list::range(elements, from, list::size(elements) - to) },
                 projections: tail,
                 contexts: [
-                    MirProjectionContext::SubsliceContext {
-                        elements,
-                        start: from,
-                        from_back: list::size(elements) - to
-                    },
+                    SubsliceContext { elements, start: from, from_back: list::size(elements) - to },
                     ..contexts
                 ],
                 ..traversal
@@ -4414,8 +4301,8 @@ k::rules! {
     traverse_projection_subslice_end: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [Projection::Subslice { from, to, from_end: true }, tail @ ..],
+                value: Range(elements),
+                projections: [Subslice { from, to, from_end: true }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4424,12 +4311,9 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Value::Range { elements: list::range(elements, from, to) },
+                value: Range { elements: list::range(elements, from, to) },
                 projections: tail,
-                contexts: [
-                    MirProjectionContext::SubsliceContext { elements, start: from, from_back: to },
-                    ..contexts
-                ],
+                contexts: [SubsliceContext { elements, start: from, from_back: to }, ..contexts],
                 ..traversal
             },
             ..
@@ -4440,8 +4324,8 @@ k::rules! {
     traverse_projection_pointer_offset: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [Projection::PointerOffset { offset, origin_size }, tail @ ..],
+                value: Range(elements),
+                projections: [PointerOffset { offset, origin_size }, tail @ ..],
                 contexts,
                 ..
             },
@@ -4450,12 +4334,9 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Value::Range { elements: list::range(elements, offset, 0) },
+                value: Range { elements: list::range(elements, offset, 0) },
                 projections: tail,
-                contexts: [
-                    MirProjectionContext::PointerOffsetContext { elements, offset, origin_size },
-                    ..contexts
-                ],
+                contexts: [PointerOffsetContext { elements, offset, origin_size }, ..contexts],
                 ..traversal
             },
             ..
@@ -4466,11 +4347,9 @@ k::rules! {
     traverse_projection_truncate_size: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
+                value: Range(elements),
                 projections: [
-                    Projection::DerefTruncate {
-                        size: MirMetadataSize::StaticSize(size) | MirMetadataSize::DynamicSize(size)
-                    },
+                    DerefTruncate { size: StaticSize(size) | DynamicSize(size) },
                     tail @ ..
                 ],
                 ..
@@ -4480,9 +4359,7 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Value::Range {
-                    elements: list::range(elements, 0, list::size(elements) - size)
-                },
+                value: Range { elements: list::range(elements, 0, list::size(elements) - size) },
                 projections: tail,
                 ..traversal
             },
@@ -4493,11 +4370,8 @@ k::rules! {
     traverse_projection_truncate_array_head: {
         k: [
             traversal @ TraverseProjection {
-                value: Value::Range(elements),
-                projections: [
-                    Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
-                    tail @ ..
-                ],
+                value: Range(elements),
+                projections: [DerefTruncate { size: NoMetadataSize() }, tail @ ..],
                 ..
             },
             ..
@@ -4513,10 +4387,7 @@ k::rules! {
     traverse_projection_truncate_non_range: {
         k: [
             traversal @ TraverseProjection {
-                projections: [
-                    Projection::DerefTruncate { size: MirMetadataSize::NoMetadataSize() },
-                    tail @ ..
-                ],
+                projections: [DerefTruncate { size: NoMetadataSize() }, tail @ ..],
                 ..
             },
             ..
@@ -4529,19 +4400,19 @@ k::rules! {
     traverse_projection_current_deref: {
         k: [
             TraverseProjection {
-                value: Value::Reference {
+                value: Reference {
                     height: 0,
-                    place: MirPlace::Place { local, projections: referenced },
-                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    place: Place { local, projections: referenced },
+                    metadata: Metadata { size, offset, origin_size },
                     ..
                 }
-                | Value::Pointer {
+                | Pointer {
                     height: 0,
-                    place: MirPlace::Place { local, projections: referenced },
-                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    place: Place { local, projections: referenced },
+                    metadata: Metadata { size, offset, origin_size },
                     ..
                 },
-                projections: [Projection::Deref(), tail @ ..],
+                projections: [Deref(), tail @ ..],
                 locals,
                 action,
                 ..
@@ -4551,7 +4422,7 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value: LocalValueOf { entry: list::get(locals, local) },
                 projections: DerefProjectionPath { referenced, size, offset, origin_size, tail },
                 contexts: [],
@@ -4566,19 +4437,19 @@ k::rules! {
     traverse_projection_stack_deref: {
         k: [
             TraverseProjection {
-                value: Value::Reference {
+                value: Reference {
                     height,
-                    place: MirPlace::Place { local, projections: referenced },
-                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    place: Place { local, projections: referenced },
+                    metadata: Metadata { size, offset, origin_size },
                     ..
                 }
-                | Value::Pointer {
+                | Pointer {
                     height,
-                    place: MirPlace::Place { local, projections: referenced },
-                    metadata: MirMetadata::Metadata { size, offset, origin_size },
+                    place: Place { local, projections: referenced },
+                    metadata: Metadata { size, offset, origin_size },
                     ..
                 },
-                projections: [Projection::Deref(), tail @ ..],
+                projections: [Deref(), tail @ ..],
                 locals,
                 action,
                 ..
@@ -4589,7 +4460,7 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToStack { height, local },
+                target: ToStack { height, local },
                 value: LocalFromFrame {
                     frame: list::get(stack, height - 1),
                     local,
@@ -4607,14 +4478,14 @@ k::rules! {
     traverse_projection_allocation_reference_read: {
         k: [
             TraverseProjection {
-                value: Value::AllocationReference {
+                value: AllocationReference {
                     allocation,
                     projections: referenced,
-                    metadata: MirMetadata::Metadata { size, .. }
+                    metadata: Metadata { size, .. }
                 },
-                projections: [Projection::Deref(), tail @ ..],
+                projections: [Deref(), tail @ ..],
                 locals,
-                action: MirProjectionAction::ReadAction(continuation),
+                action: ReadAction(continuation),
                 ..
             },
             ..
@@ -4623,18 +4494,18 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToAllocation(allocation),
+                target: ToAllocation(allocation),
                 value: map::get(memory, allocation),
                 projections: DerefProjectionPath {
                     referenced,
                     size,
                     offset: 0,
-                    origin_size: MirMetadataSize::NoMetadataSize(),
+                    origin_size: NoMetadataSize(),
                     tail
                 },
                 contexts: [],
                 locals,
-                action: MirProjectionAction::ReadAction(continuation)
+                action: ReadAction(continuation)
             },
             ..
         ],
@@ -4643,14 +4514,14 @@ k::rules! {
     traverse_projection_allocation_reference_reborrow: {
         k: [
             TraverseProjection {
-                value: Value::AllocationReference {
+                value: AllocationReference {
                     allocation,
                     projections: referenced,
-                    metadata: MirMetadata::Metadata { size, .. }
+                    metadata: Metadata { size, .. }
                 },
-                projections: [Projection::Deref(), tail @ ..],
+                projections: [Deref(), tail @ ..],
                 locals,
-                action: MirProjectionAction::ReferenceAction { place, mutability, metadata },
+                action: ReferenceAction { place, mutability, metadata },
                 ..
             },
             ..
@@ -4659,40 +4530,32 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToAllocation(allocation),
+                target: ToAllocation(allocation),
                 value: map::get(memory, allocation),
                 projections: DerefProjectionPath {
                     referenced,
                     size,
                     offset: 0,
-                    origin_size: MirMetadataSize::NoMetadataSize(),
+                    origin_size: NoMetadataSize(),
                     tail
                 },
                 contexts: [],
                 locals,
-                action: MirProjectionAction::ReferenceAction { place, mutability, metadata }
+                action: ReferenceAction { place, mutability, metadata }
             },
             ..
         ],
     };
 
     continue_store: {
-        k: [Continue { value, continuation: EvaluationContinuation::StoreAt(place) }, ..],
+        k: [Continue { value, continuation: StoreAt(place) }, ..],
     } => {
         k: [SetLocalValue { place, value }, ..],
     };
 
     continue_aggregate_done: {
         k: [
-            Continue {
-                value,
-                continuation: EvaluationContinuation::AggregateNext {
-                    place,
-                    kind,
-                    values,
-                    remaining: []
-                }
-            },
+            Continue { value, continuation: AggregateNext { place, kind, values, remaining: [] } },
             ..
         ],
     } => {
@@ -4712,12 +4575,7 @@ k::rules! {
         k: [
             Continue {
                 value,
-                continuation: EvaluationContinuation::AggregateNext {
-                    place,
-                    kind,
-                    values,
-                    remaining: [head, tail @ ..]
-                }
+                continuation: AggregateNext { place, kind, values, remaining: [head, tail @ ..] }
             },
             ..
         ],
@@ -4725,7 +4583,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: head,
-                continuation: EvaluationContinuation::AggregateNext {
+                continuation: AggregateNext {
                     place,
                     kind,
                     values: list::concat(values, list::item(value)),
@@ -4738,30 +4596,18 @@ k::rules! {
 
     #[k::requires(count >= 0)]
     finish_repeat: {
-        k: [
-            Continue { value, continuation: EvaluationContinuation::FinishRepeat { place, count } },
-            ..
-        ],
+        k: [Continue { value, continuation: FinishRepeat { place, count } }, ..],
     } => {
-        k: [
-            SetLocalValue { place, value: Value::Range { elements: list::make(count, value) } },
-            ..
-        ],
+        k: [SetLocalValue { place, value: Range { elements: list::make(count, value) } }, ..],
     };
 
     finish_len: {
-        k: [
-            Continue {
-                value: Value::Range(elements),
-                continuation: EvaluationContinuation::FinishLen { place }
-            },
-            ..
-        ],
+        k: [Continue { value: Range(elements), continuation: FinishLen { place } }, ..],
     } => {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer { value: list::size(elements), width: 64, signed: false }
+                value: Integer { value: list::size(elements), width: 64, signed: false }
             },
             ..
         ],
@@ -4770,11 +4616,8 @@ k::rules! {
     finish_discriminant: {
         k: [
             Continue {
-                value: Value::Aggregate { variant, .. },
-                continuation: EvaluationContinuation::FinishDiscriminant {
-                    place,
-                    info: MirTypeInfo::EnumType { discriminants, .. }
-                }
+                value: Aggregate { variant, .. },
+                continuation: FinishDiscriminant { place, info: EnumType { discriminants, .. } }
             },
             ..
         ],
@@ -4782,7 +4625,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: LookupDiscriminant { discriminants, index: variant },
                     width: 0,
                     signed: false
@@ -4795,20 +4638,13 @@ k::rules! {
     finish_pointer_unsize: {
         k: [
             Continue {
-                value: Value::Pointer {
+                value: Pointer {
                     height,
                     place: pointer_place,
                     mutability,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::StaticSize(size),
-                        offset,
-                        origin_size
-                    }
+                    metadata: Metadata { size: StaticSize(size), offset, origin_size }
                 },
-                continuation: EvaluationContinuation::FinishCast {
-                    place,
-                    kind: MirCastKind::PointerCoercion { coercion: MirPointerCoercion::Unsize() }
-                }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
             },
             ..
         ],
@@ -4816,15 +4652,11 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Pointer {
+                value: Pointer {
                     height,
                     place: pointer_place,
                     mutability,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::DynamicSize(size),
-                        offset,
-                        origin_size
-                    }
+                    metadata: Metadata { size: DynamicSize(size), offset, origin_size }
                 }
             },
             ..
@@ -4834,20 +4666,13 @@ k::rules! {
     finish_reference_unsize: {
         k: [
             Continue {
-                value: Value::Reference {
+                value: Reference {
                     height,
                     place: referenced,
                     mutability,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::StaticSize(size),
-                        offset,
-                        origin_size
-                    }
+                    metadata: Metadata { size: StaticSize(size), offset, origin_size }
                 },
-                continuation: EvaluationContinuation::FinishCast {
-                    place,
-                    kind: MirCastKind::PointerCoercion { coercion: MirPointerCoercion::Unsize() }
-                }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
             },
             ..
         ],
@@ -4855,15 +4680,11 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Reference {
+                value: Reference {
                     height,
                     place: referenced,
                     mutability,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::DynamicSize(size),
-                        offset,
-                        origin_size
-                    }
+                    metadata: Metadata { size: DynamicSize(size), offset, origin_size }
                 }
             },
             ..
@@ -4873,19 +4694,12 @@ k::rules! {
     finish_allocation_reference_unsize: {
         k: [
             Continue {
-                value: Value::AllocationReference {
+                value: AllocationReference {
                     allocation,
                     projections,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::StaticSize(size),
-                        offset,
-                        origin_size
-                    }
+                    metadata: Metadata { size: StaticSize(size), offset, origin_size }
                 },
-                continuation: EvaluationContinuation::FinishCast {
-                    place,
-                    kind: MirCastKind::PointerCoercion { coercion: MirPointerCoercion::Unsize() }
-                }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
             },
             ..
         ],
@@ -4893,14 +4707,10 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::AllocationReference {
+                value: AllocationReference {
                     allocation,
                     projections,
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::DynamicSize(size),
-                        offset,
-                        origin_size
-                    }
+                    metadata: Metadata { size: DynamicSize(size), offset, origin_size }
                 }
             },
             ..
@@ -4910,14 +4720,10 @@ k::rules! {
     finish_transmute_identity: {
         k: [
             Continue {
-                value: value @ (Value::Reference(_, _, _, _)
-                | Value::Pointer(_, _, _, _)
-                | Value::AllocationReference(_, _, _)),
-                continuation: EvaluationContinuation::FinishTransmute {
-                    place,
-                    source: info,
-                    target: info
-                }
+                value: value @ (Reference(_, _, _, _)
+                | Pointer(_, _, _, _)
+                | AllocationReference(_, _, _)),
+                continuation: FinishTransmute { place, source: info, target: info }
             },
             ..
         ],
@@ -4928,13 +4734,11 @@ k::rules! {
     finish_same_pointee_ptr_cast: {
         k: [
             Continue {
-                value: value @ Value::Pointer(_, _, _, _),
-                continuation: EvaluationContinuation::FinishPtrCast {
+                value: value @ Pointer(_, _, _, _),
+                continuation: FinishPtrCast {
                     place,
-                    source: MirTypeInfo::PointerType { pointee }
-                    | MirTypeInfo::ReferenceType { pointee },
-                    target: MirTypeInfo::PointerType { pointee }
-                    | MirTypeInfo::ReferenceType { pointee }
+                    source: PointerType { pointee } | ReferenceType { pointee },
+                    target: PointerType { pointee } | ReferenceType { pointee }
                 }
             },
             ..
@@ -4947,13 +4751,11 @@ k::rules! {
     begin_projected_ptr_cast: {
         k: [
             Continue {
-                value: Value::Pointer { height, place: pointer_place, mutability, metadata },
-                continuation: EvaluationContinuation::FinishPtrCast {
+                value: Pointer { height, place: pointer_place, mutability, metadata },
+                continuation: FinishPtrCast {
                     place: destination,
-                    source: MirTypeInfo::PointerType { pointee: source }
-                    | MirTypeInfo::ReferenceType { pointee: source },
-                    target: MirTypeInfo::PointerType { pointee: target }
-                    | MirTypeInfo::ReferenceType { pointee: target }
+                    source: PointerType { pointee: source } | ReferenceType { pointee: source },
+                    target: PointerType { pointee: target } | ReferenceType { pointee: target }
                 }
             },
             ..
@@ -4982,7 +4784,7 @@ k::rules! {
             ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 height,
-                pointer_place: MirPlace::Place { local, projections: pointer_projections },
+                pointer_place: Place { local, projections: pointer_projections },
                 mutability,
                 metadata,
                 destination,
@@ -4997,9 +4799,9 @@ k::rules! {
         k: [
             SetLocalValue {
                 place: destination,
-                value: Value::Pointer {
+                value: Pointer {
                     height,
-                    place: MirPlace::Place {
+                    place: Place {
                         local,
                         projections: AppendCastProjections {
                             first: pointer_projections,
@@ -5019,10 +4821,8 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
-                source: MirTypeInfo::PrimitiveType(_)
-                | MirTypeInfo::ArrayType(_, _)
-                | MirTypeInfo::PointerType(_),
-                target: MirTypeInfo::VoidType(),
+                source: PrimitiveType(_) | ArrayType(_, _) | PointerType(_),
+                target: VoidType(),
                 projections,
                 target_size,
                 ..
@@ -5033,11 +4833,8 @@ k::rules! {
         k: [
             ResolvePtrCast {
                 pointer_place,
-                source: MirTypeInfo::VoidType(),
-                projections: AppendCastProjections {
-                    first: projections,
-                    second: [Projection::ToZst()]
-                },
+                source: VoidType(),
+                projections: AppendCastProjections { first: projections, second: [ToZst()] },
                 target_size,
                 ..cast
             },
@@ -5050,10 +4847,8 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
-                source: MirTypeInfo::VoidType(),
-                target: target @ (MirTypeInfo::PrimitiveType(_)
-                | MirTypeInfo::ArrayType(_, _)
-                | MirTypeInfo::PointerType(_)),
+                source: VoidType(),
+                target: target @ (PrimitiveType(_) | ArrayType(_, _) | PointerType(_)),
                 projections,
                 target_size,
                 ..
@@ -5066,10 +4861,7 @@ k::rules! {
                 pointer_place,
                 source: target,
                 target,
-                projections: AppendCastProjections {
-                    first: projections,
-                    second: [Projection::FromZst()]
-                },
+                projections: AppendCastProjections { first: projections, second: [FromZst()] },
                 target_size,
                 ..cast
             },
@@ -5084,8 +4876,8 @@ k::rules! {
     #[k::requires(
         SameTypeInfo {
             first: map::get(types, element),
-            second: MirTypeInfo::PrimitiveType {
-                primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() }
+            second: PrimitiveType {
+                primitive: UnsignedInteger { kind: U8() }
             }
         }
     )]
@@ -5095,8 +4887,8 @@ k::rules! {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
                 metadata,
-                source: MirTypeInfo::ArrayType { element, size: MirMaybeTyConst::NoTyConst() },
-                target: target @ MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() },
+                source: ArrayType { element, size: MirMaybeTyConst::NoTyConst() },
+                target: target @ PrimitiveType { primitive: Str() },
                 target_size,
                 ..
             },
@@ -5110,8 +4902,8 @@ k::rules! {
     #[k::requires(
         SameTypeInfo {
             first: map::get(types, element),
-            second: MirTypeInfo::PrimitiveType {
-                primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() }
+            second: PrimitiveType {
+                primitive: UnsignedInteger { kind: U8() }
             }
         }
     )]
@@ -5120,11 +4912,8 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
-                source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() },
-                target: target @ MirTypeInfo::ArrayType {
-                    element,
-                    size: MirMaybeTyConst::NoTyConst()
-                },
+                source: PrimitiveType { primitive: Str() },
+                target: target @ ArrayType { element, size: MirMaybeTyConst::NoTyConst() },
                 target_size,
                 ..
             },
@@ -5139,7 +4928,7 @@ k::rules! {
         bool::and(
             ZeroFieldOffset { layout },
             SameTypeInfo {
-                first: MirTypeInfo::ArrayType { element: source_element, size: source_size },
+                first: ArrayType { element: source_element, size: source_size },
                 second: map::get(types, field)
             }
         )
@@ -5149,8 +4938,8 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
-                source: MirTypeInfo::ArrayType { element: source_element, size: source_size },
-                target: MirTypeInfo::StructType { name, adt_def, fields: [field], layout },
+                source: ArrayType { element: source_element, size: source_size },
+                target: StructType { name, adt_def, fields: [field], layout },
                 projections,
                 target_size,
                 ..
@@ -5162,12 +4951,9 @@ k::rules! {
         k: [
             ResolvePtrCast {
                 pointer_place,
-                source: MirTypeInfo::ArrayType { element: source_element, size: source_size },
+                source: ArrayType { element: source_element, size: source_size },
                 target: map::get(types, field),
-                projections: AppendCastProjections {
-                    first: projections,
-                    second: [Projection::WrapStruct()]
-                },
+                projections: AppendCastProjections { first: projections, second: [WrapStruct()] },
                 target_size,
                 ..cast
             },
@@ -5199,7 +4985,7 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
                 pointer_place,
-                source: MirTypeInfo::StructType { name, adt_def, fields: [field], layout },
+                source: StructType { name, adt_def, fields: [field], layout },
                 projections,
                 target_size,
                 ..
@@ -5215,7 +5001,7 @@ k::rules! {
                 source: map::get(types, field),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [Projection::Field { field: 0, ty: field }]
+                    second: [Field { field: 0, ty: field }]
                 },
                 target_size,
                 ..cast
@@ -5229,7 +5015,7 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
                 pointer_place,
-                source: MirTypeInfo::ArrayType { element, .. },
+                source: ArrayType { element, .. },
                 projections,
                 target_size,
                 ..
@@ -5245,9 +5031,7 @@ k::rules! {
                 source: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [
-                        Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }
-                    ]
+                    second: [ConstantIndex { offset: 0, min_length: 0, from_end: false }]
                 },
                 target_size,
                 ..cast
@@ -5263,7 +5047,7 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Source(),
                 pointer_place,
-                source: MirTypeInfo::PrimitiveType { primitive: MirPrimitiveType::Str() },
+                source: PrimitiveType { primitive: Str() },
                 projections,
                 target_size,
                 ..
@@ -5275,14 +5059,10 @@ k::rules! {
             ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
-                source: MirTypeInfo::PrimitiveType {
-                    primitive: MirPrimitiveType::UnsignedInteger { kind: MirUintTy::U8() }
-                },
+                source: PrimitiveType { primitive: UnsignedInteger { kind: U8() } },
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [
-                        Projection::ConstantIndex { offset: 0, min_length: 0, from_end: false }
-                    ]
+                    second: [ConstantIndex { offset: 0, min_length: 0, from_end: false }]
                 },
                 target_size,
                 ..cast
@@ -5319,7 +5099,7 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::TargetPhase(),
                 pointer_place,
-                target: MirTypeInfo::ArrayType { element, .. },
+                target: ArrayType { element, .. },
                 projections,
                 target_size,
                 ..
@@ -5335,7 +5115,7 @@ k::rules! {
                 target: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [Projection::SingletonArray()]
+                    second: [SingletonArray()]
                 },
                 target_size,
                 ..cast
@@ -5350,7 +5130,7 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::TargetPhase(),
                 pointer_place,
-                target: MirTypeInfo::StructType { name, adt_def, fields: [field], layout },
+                target: StructType { name, adt_def, fields: [field], layout },
                 projections,
                 target_size,
                 ..
@@ -5364,10 +5144,7 @@ k::rules! {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
                 target: map::get(types, field),
-                projections: AppendCastProjections {
-                    first: projections,
-                    second: [Projection::WrapStruct()]
-                },
+                projections: AppendCastProjections { first: projections, second: [WrapStruct()] },
                 target_size,
                 ..cast
             },
@@ -5378,11 +5155,8 @@ k::rules! {
     finish_neg: {
         k: [
             Continue {
-                value: Value::Integer { value, width, signed: true },
-                continuation: EvaluationContinuation::FinishUnary {
-                    place,
-                    operation: MirUnaryOp::UnOpNeg()
-                }
+                value: Integer { value, width, signed: true },
+                continuation: FinishUnary { place, operation: UnOpNeg() }
             },
             ..
         ],
@@ -5390,7 +5164,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateSigned { value: -value, width },
                     width,
                     signed: true
@@ -5403,26 +5177,20 @@ k::rules! {
     finish_bool_not: {
         k: [
             Continue {
-                value: Value::Boolean(value),
-                continuation: EvaluationContinuation::FinishUnary {
-                    place,
-                    operation: MirUnaryOp::UnOpNot()
-                }
+                value: Boolean(value),
+                continuation: FinishUnary { place, operation: UnOpNot() }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(!value) }, ..],
+        k: [SetLocalValue { place, value: Boolean(!value) }, ..],
     };
 
     finish_int_not: {
         k: [
             Continue {
-                value: Value::Integer { value, width, signed },
-                continuation: EvaluationContinuation::FinishUnary {
-                    place,
-                    operation: MirUnaryOp::UnOpNot()
-                }
+                value: Integer { value, width, signed },
+                continuation: FinishUnary { place, operation: UnOpNot() }
             },
             ..
         ],
@@ -5430,7 +5198,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: value ^ -1, width, signed },
                     width,
                     signed
@@ -5443,62 +5211,27 @@ k::rules! {
     finish_ptr_metadata: {
         k: [
             Continue {
-                value: Value::Pointer {
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::DynamicSize(size),
-                        ..
-                    },
-                    ..
-                }
-                | Value::Reference {
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::DynamicSize(size),
-                        ..
-                    },
-                    ..
-                }
-                | Value::AllocationReference {
-                    metadata: MirMetadata::Metadata {
-                        size: MirMetadataSize::DynamicSize(size),
-                        ..
-                    },
-                    ..
-                },
-                continuation: EvaluationContinuation::FinishUnary {
-                    place,
-                    operation: MirUnaryOp::UnOpPtrMetadata()
-                }
+                value: Pointer { metadata: Metadata { size: DynamicSize(size), .. }, .. }
+                | Reference { metadata: Metadata { size: DynamicSize(size), .. }, .. }
+                | AllocationReference { metadata: Metadata { size: DynamicSize(size), .. }, .. },
+                continuation: FinishUnary { place, operation: UnOpPtrMetadata() }
             },
             ..
         ],
     } => {
-        k: [
-            SetLocalValue {
-                place,
-                value: Value::Integer { value: size, width: 64, signed: false }
-            },
-            ..
-        ],
+        k: [SetLocalValue { place, value: Integer { value: size, width: 64, signed: false } }, ..],
     };
 
     continue_binary_right: {
         k: [
-            Continue {
-                value: lhs,
-                continuation: EvaluationContinuation::BinaryRight { place, operation, rhs, checked }
-            },
+            Continue { value: lhs, continuation: BinaryRight { place, operation, rhs, checked } },
             ..
         ],
     } => {
         k: [
             EvalOperand {
                 operand: rhs,
-                continuation: EvaluationContinuation::FinishBinary {
-                    place,
-                    operation,
-                    lhs,
-                    checked
-                }
+                continuation: FinishBinary { place, operation, lhs, checked }
             },
             ..
         ],
@@ -5510,12 +5243,12 @@ k::rules! {
     finish_add: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpAdd(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpAdd(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5524,7 +5257,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs + rhs, width, signed },
                     width,
                     signed
@@ -5540,12 +5273,12 @@ k::rules! {
     finish_add_unchecked: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpAddUnchecked(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpAddUnchecked(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5554,7 +5287,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs + rhs, width, signed },
                     width,
                     signed
@@ -5567,12 +5300,12 @@ k::rules! {
     finish_checked_add: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: true,
-                    operation: MirBinaryOp::BinOpAdd(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpAdd(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5581,11 +5314,11 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Aggregate {
+                value: Aggregate {
                     variant: 0,
                     fields: list::concat(
                         list::item(
-                            Value::Integer {
+                            Integer {
                                 value: TruncateInteger { value: lhs + rhs, width, signed },
                                 width,
                                 signed
@@ -5593,7 +5326,7 @@ k::rules! {
                         ),
                         list::concat(
                             list::item(
-                                Value::Boolean(
+                                Boolean(
                                     TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs
                                 )
                             ),
@@ -5612,12 +5345,12 @@ k::rules! {
     finish_sub: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpSub(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpSub(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5626,7 +5359,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs - rhs, width, signed },
                     width,
                     signed
@@ -5642,12 +5375,12 @@ k::rules! {
     finish_sub_unchecked: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpSubUnchecked(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpSubUnchecked(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5656,7 +5389,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs - rhs, width, signed },
                     width,
                     signed
@@ -5669,12 +5402,12 @@ k::rules! {
     finish_checked_sub: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: true,
-                    operation: MirBinaryOp::BinOpSub(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpSub(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5683,11 +5416,11 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Aggregate {
+                value: Aggregate {
                     variant: 0,
                     fields: list::concat(
                         list::item(
-                            Value::Integer {
+                            Integer {
                                 value: TruncateInteger { value: lhs - rhs, width, signed },
                                 width,
                                 signed
@@ -5695,7 +5428,7 @@ k::rules! {
                         ),
                         list::concat(
                             list::item(
-                                Value::Boolean(
+                                Boolean(
                                     TruncateInteger { value: lhs - rhs, width, signed } != lhs - rhs
                                 )
                             ),
@@ -5714,12 +5447,12 @@ k::rules! {
     finish_mul: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpMul(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpMul(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5728,7 +5461,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs * rhs, width, signed },
                     width,
                     signed
@@ -5744,12 +5477,12 @@ k::rules! {
     finish_mul_unchecked: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpMulUnchecked(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpMulUnchecked(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5758,7 +5491,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs * rhs, width, signed },
                     width,
                     signed
@@ -5771,12 +5504,12 @@ k::rules! {
     finish_checked_mul: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: true,
-                    operation: MirBinaryOp::BinOpMul(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpMul(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5785,11 +5518,11 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Aggregate {
+                value: Aggregate {
                     variant: 0,
                     fields: list::concat(
                         list::item(
-                            Value::Integer {
+                            Integer {
                                 value: TruncateInteger { value: lhs * rhs, width, signed },
                                 width,
                                 signed
@@ -5797,7 +5530,7 @@ k::rules! {
                         ),
                         list::concat(
                             list::item(
-                                Value::Boolean(
+                                Boolean(
                                     TruncateInteger { value: lhs * rhs, width, signed } != lhs * rhs
                                 )
                             ),
@@ -5817,12 +5550,12 @@ k::rules! {
     finish_div: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpDiv(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpDiv(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5831,7 +5564,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs / rhs, width, signed },
                     width,
                     signed
@@ -5849,12 +5582,12 @@ k::rules! {
     finish_rem: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpRem(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpRem(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5863,7 +5596,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs - lhs / rhs * rhs, width, signed },
                     width,
                     signed
@@ -5876,63 +5609,63 @@ k::rules! {
     finish_int_bit_xor: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpBitXor(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpBitXor(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Integer { value: lhs ^ rhs, width, signed } }, ..],
+        k: [SetLocalValue { place, value: Integer { value: lhs ^ rhs, width, signed } }, ..],
     };
 
     finish_int_bit_and: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpBitAnd(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpBitAnd(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Integer { value: lhs & rhs, width, signed } }, ..],
+        k: [SetLocalValue { place, value: Integer { value: lhs & rhs, width, signed } }, ..],
     };
 
     finish_int_bit_or: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpBitOr(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpBitOr(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Integer { value: lhs | rhs, width, signed } }, ..],
+        k: [SetLocalValue { place, value: Integer { value: lhs | rhs, width, signed } }, ..],
     };
 
     finish_shl: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpShl(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpShl(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5941,7 +5674,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs << rhs, width, signed },
                     width,
                     signed
@@ -5955,12 +5688,12 @@ k::rules! {
     finish_shl_unchecked: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpShlUnchecked(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpShlUnchecked(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5969,7 +5702,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs << rhs, width, signed },
                     width,
                     signed
@@ -5982,12 +5715,12 @@ k::rules! {
     finish_shr: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpShr(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpShr(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -5996,7 +5729,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs >> rhs, width, signed },
                     width,
                     signed
@@ -6010,12 +5743,12 @@ k::rules! {
     finish_shr_unchecked: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpShrUnchecked(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpShrUnchecked(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
@@ -6024,7 +5757,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Integer {
+                value: Integer {
                     value: TruncateInteger { value: lhs >> rhs, width, signed },
                     width,
                     signed
@@ -6037,64 +5770,64 @@ k::rules! {
     finish_bool_bit_xor: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpBitXor(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpBitXor(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs != rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs != rhs) }, ..],
     };
 
     finish_bool_bit_and: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpBitAnd(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpBitAnd(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs && rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs && rhs) }, ..],
     };
 
     finish_bool_bit_or: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpBitOr(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpBitOr(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs || rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs || rhs) }, ..],
     };
 
     #[k::requires(offset == 0)]
     finish_pointer_offset_zero: {
         k: [
             Continue {
-                value: Value::Integer { value: offset, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: offset, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpOffset(),
-                    lhs: Value::Pointer { height, place: pointer_place, mutability, metadata }
+                    operation: BinOpOffset(),
+                    lhs: Pointer { height, place: pointer_place, mutability, metadata }
                 }
             },
             ..
@@ -6103,7 +5836,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Pointer { height, place: pointer_place, mutability, metadata }
+                value: Pointer { height, place: pointer_place, mutability, metadata }
             },
             ..
         ],
@@ -6114,19 +5847,19 @@ k::rules! {
     finish_pointer_offset_dynamic: {
         k: [
             Continue {
-                value: Value::Integer { value: offset, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: offset, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpOffset(),
-                    lhs: Value::Pointer {
+                    operation: BinOpOffset(),
+                    lhs: Pointer {
                         height,
                         place: pointer_place,
                         mutability,
-                        metadata: MirMetadata::Metadata {
+                        metadata: Metadata {
                             size,
                             offset: current_offset,
-                            origin_size: MirMetadataSize::DynamicSize(origin_size)
+                            origin_size: DynamicSize(origin_size)
                         }
                     }
                 }
@@ -6137,14 +5870,14 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Pointer {
+                value: Pointer {
                     height,
                     place: pointer_place,
                     mutability,
-                    metadata: MirMetadata::Metadata {
+                    metadata: Metadata {
                         size,
                         offset: current_offset + offset,
-                        origin_size: MirMetadataSize::DynamicSize(origin_size)
+                        origin_size: DynamicSize(origin_size)
                     }
                 }
             },
@@ -6157,19 +5890,19 @@ k::rules! {
     finish_pointer_offset_static: {
         k: [
             Continue {
-                value: Value::Integer { value: offset, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: offset, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpOffset(),
-                    lhs: Value::Pointer {
+                    operation: BinOpOffset(),
+                    lhs: Pointer {
                         height,
                         place: pointer_place,
                         mutability,
-                        metadata: MirMetadata::Metadata {
+                        metadata: Metadata {
                             size,
                             offset: current_offset,
-                            origin_size: MirMetadataSize::StaticSize(origin_size)
+                            origin_size: StaticSize(origin_size)
                         }
                     }
                 }
@@ -6180,14 +5913,14 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Value::Pointer {
+                value: Pointer {
                     height,
                     place: pointer_place,
                     mutability,
-                    metadata: MirMetadata::Metadata {
+                    metadata: Metadata {
                         size,
                         offset: current_offset + offset,
-                        origin_size: MirMetadataSize::StaticSize(origin_size)
+                        origin_size: StaticSize(origin_size)
                     }
                 }
             },
@@ -6198,292 +5931,286 @@ k::rules! {
     finish_pointer_eq_same: {
         k: [
             Continue {
-                value: Value::Pointer { height, place: pointer_place, metadata, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Pointer { height, place: pointer_place, metadata, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpEq(),
-                    lhs: Value::Pointer { height, place: pointer_place, metadata, .. }
+                    operation: BinOpEq(),
+                    lhs: Pointer { height, place: pointer_place, metadata, .. }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(true) }, ..],
+        k: [SetLocalValue { place, value: Boolean(true) }, ..],
     };
 
     #[k::rule(owise)]
     finish_pointer_eq_different: {
         k: [
             Continue {
-                value: Value::Pointer(_, _, _, _),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Pointer(_, _, _, _),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpEq(),
-                    lhs: Value::Pointer(_, _, _, _)
+                    operation: BinOpEq(),
+                    lhs: Pointer(_, _, _, _)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(false) }, ..],
+        k: [SetLocalValue { place, value: Boolean(false) }, ..],
     };
 
     finish_pointer_ne_same: {
         k: [
             Continue {
-                value: Value::Pointer { height, place: pointer_place, metadata, .. },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Pointer { height, place: pointer_place, metadata, .. },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpNe(),
-                    lhs: Value::Pointer { height, place: pointer_place, metadata, .. }
+                    operation: BinOpNe(),
+                    lhs: Pointer { height, place: pointer_place, metadata, .. }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(false) }, ..],
+        k: [SetLocalValue { place, value: Boolean(false) }, ..],
     };
 
     #[k::rule(owise)]
     finish_pointer_ne_different: {
         k: [
             Continue {
-                value: Value::Pointer(_, _, _, _),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Pointer(_, _, _, _),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpNe(),
-                    lhs: Value::Pointer(_, _, _, _)
+                    operation: BinOpNe(),
+                    lhs: Pointer(_, _, _, _)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(true) }, ..],
+        k: [SetLocalValue { place, value: Boolean(true) }, ..],
     };
 
     finish_eq: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpEq(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpEq(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs == rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs == rhs) }, ..],
     };
 
     finish_lt: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpLt(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpLt(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs < rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs < rhs) }, ..],
     };
 
     finish_le: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpLe(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpLe(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs <= rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs <= rhs) }, ..],
     };
 
     finish_ne: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpNe(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpNe(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs != rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs != rhs) }, ..],
     };
 
     finish_ge: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpGe(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpGe(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs >= rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs >= rhs) }, ..],
     };
 
     finish_gt: {
         k: [
             Continue {
-                value: Value::Integer { value: rhs, width, signed },
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Integer { value: rhs, width, signed },
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpGt(),
-                    lhs: Value::Integer { value: lhs, width, signed }
+                    operation: BinOpGt(),
+                    lhs: Integer { value: lhs, width, signed }
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs > rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs > rhs) }, ..],
     };
 
     finish_bool_eq: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpEq(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpEq(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs == rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs == rhs) }, ..],
     };
 
     finish_bool_lt: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpLt(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpLt(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(!lhs && rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(!lhs && rhs) }, ..],
     };
 
     finish_bool_le: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpLe(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpLe(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(!lhs || (lhs && rhs)) }, ..],
+        k: [SetLocalValue { place, value: Boolean(!lhs || (lhs && rhs)) }, ..],
     };
 
     finish_bool_ne: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpNe(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpNe(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs != rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs != rhs) }, ..],
     };
 
     finish_bool_ge: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpGe(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpGe(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(!rhs || (rhs && lhs)) }, ..],
+        k: [SetLocalValue { place, value: Boolean(!rhs || (rhs && lhs)) }, ..],
     };
 
     finish_bool_gt: {
         k: [
             Continue {
-                value: Value::Boolean(rhs),
-                continuation: EvaluationContinuation::FinishBinary {
+                value: Boolean(rhs),
+                continuation: FinishBinary {
                     place,
                     checked: false,
-                    operation: MirBinaryOp::BinOpGt(),
-                    lhs: Value::Boolean(lhs)
+                    operation: BinOpGt(),
+                    lhs: Boolean(lhs)
                 }
             },
             ..
         ],
     } => {
-        k: [SetLocalValue { place, value: Value::Boolean(lhs && !rhs) }, ..],
+        k: [SetLocalValue { place, value: Boolean(lhs && !rhs) }, ..],
     };
 
     set_local_value: {
-        k: [SetLocalValue { place: MirPlace::Place { local, projections: [] }, value }, ..],
+        k: [SetLocalValue { place: Place { local, projections: [] }, value }, ..],
         locals,
     } => {
         k: [WriteLocal { entry: list::get(locals, local), index: local, value }, ..],
     };
 
     set_projected_local_value: {
-        k: [
-            SetLocalValue {
-                place: MirPlace::Place { local, projections: [head, tail @ ..] },
-                value
-            },
-            ..
-        ],
+        k: [SetLocalValue { place: Place { local, projections: [head, tail @ ..] }, value }, ..],
         locals,
     } => {
         k: [
@@ -6500,7 +6227,7 @@ k::rules! {
     write_projected_local: {
         k: [
             WriteProjectedLocal {
-                entry: LocalValue::TypedValue { value: original, .. },
+                entry: TypedValue { value: original, .. },
                 local,
                 projections,
                 value
@@ -6511,60 +6238,65 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                target: MirProjectionTarget::ToLocal(local),
+                target: ToLocal(local),
                 value: original,
                 projections,
                 contexts: [],
                 locals,
-                action: MirProjectionAction::WriteAction(value)
+                action: WriteAction(value)
             },
             ..
         ],
     };
 
     write_initialized_local: {
-        k: [WriteLocal { entry: LocalValue::TypedValue { ty, mutability, .. }, index, value }, ..],
+        k: [WriteLocal { entry: TypedValue { ty, mutability, .. }, index, value }, ..],
         locals,
     } => {
         k: [..],
-        locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
+        locals: list::update(locals, index, TypedValue { value, ty, mutability }),
     };
 
     write_new_local: {
-        k: [WriteLocal { entry: LocalValue::NewLocal { ty, mutability }, index, value }, ..],
+        k: [WriteLocal { entry: NewLocal { ty, mutability }, index, value }, ..],
         locals,
     } => {
         k: [..],
-        locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
+        locals: list::update(locals, index, TypedValue { value, ty, mutability }),
     };
 }
 
 k::rules! {
     for Machine;
+    use EvaluationContinuation::*;
     use Execution::*;
+    use LocalValue::*;
+    use MirBranch::*;
+    use MirMaybeBasicBlockIdx::*;
+    use MirOperand::*;
+    use MirPlace::*;
+    use MirStackFrame::*;
+    use MirSwitchTargets::*;
+    use MirTerminator::*;
+    use ReturnValue::*;
+    use Value::*;
 
     goto: {
-        k: [ExecTerminator(MirTerminator::Goto(target)), ..],
+        k: [ExecTerminator(Goto(target)), ..],
     } => {
         k: [ExecBlockIdx(target), ..],
     };
 
     switch_int: {
-        k: [ExecTerminator(MirTerminator::SwitchInt { discr, targets }), ..],
+        k: [ExecTerminator(SwitchInt { discr, targets }), ..],
     } => {
-        k: [
-            EvalOperand {
-                operand: discr,
-                continuation: EvaluationContinuation::SelectBlock(targets)
-            },
-            ..
-        ],
+        k: [EvalOperand { operand: discr, continuation: SelectBlock(targets) }, ..],
     };
 
     call_function: {
         k: [
             ExecTerminator(
-                MirTerminator::Call {
+                Call {
                     function: MirCallTarget::ConstantFunction { span, ty: callee, .. },
                     args,
                     destination,
@@ -6589,12 +6321,12 @@ k::rules! {
         current_body: FunctionBlocks { function: map::get(functions, callee) },
         caller: current_func,
         dest: destination,
-        target: MirMaybeBasicBlockIdx::SomeBasicBlockIdx(target),
+        target: SomeBasicBlockIdx(target),
         unwind,
         locals: FunctionLocals { function: map::get(functions, callee) },
         stack: list::concat(
             list::item(
-                MirStackFrame::StackFrame {
+                StackFrame {
                     caller: old_caller,
                     dest: old_dest,
                     target: old_target,
@@ -6624,36 +6356,21 @@ k::rules! {
     };
 
     set_constant_arg: {
-        k: [SetArgFromStack { index, operand: MirOperand::Constant(value) }, ..],
+        k: [SetArgFromStack { index, operand: Constant(value) }, ..],
     } => {
-        k: [SetLocalValue { place: MirPlace::Place { local: index, projections: [] }, value }, ..],
+        k: [SetLocalValue { place: Place { local: index, projections: [] }, value }, ..],
     };
 
     set_copied_arg: {
-        k: [
-            SetArgFromStack {
-                index,
-                operand: MirOperand::Copy(MirPlace::Place { local, projections: [] })
-            },
-            ..
-        ],
+        k: [SetArgFromStack { index, operand: Copy(Place { local, projections: [] }) }, ..],
         stack: list::concat(
-            list::item(
-                MirStackFrame::StackFrame {
-                    caller,
-                    dest,
-                    target,
-                    unwind,
-                    locals: caller_locals,
-                    span
-                }
-            ),
+            list::item(StackFrame { caller, dest, target, unwind, locals: caller_locals, span }),
             rest
         ),
     } => {
         k: [
             SetLocalValue {
-                place: MirPlace::Place { local: index, projections: [] },
+                place: Place { local: index, projections: [] },
                 value: AdjustRef {
                     value: LocalValueOf { entry: list::get(caller_locals, local) },
                     offset: 1
@@ -6664,30 +6381,15 @@ k::rules! {
     };
 
     set_moved_arg: {
-        k: [
-            SetArgFromStack {
-                index,
-                operand: MirOperand::Move(MirPlace::Place { local, projections: [] })
-            },
-            ..
-        ],
+        k: [SetArgFromStack { index, operand: Move(Place { local, projections: [] }) }, ..],
         stack: list::concat(
-            list::item(
-                MirStackFrame::StackFrame {
-                    caller,
-                    dest,
-                    target,
-                    unwind,
-                    locals: caller_locals,
-                    span
-                }
-            ),
+            list::item(StackFrame { caller, dest, target, unwind, locals: caller_locals, span }),
             rest
         ),
     } => {
         k: [
             SetLocalValue {
-                place: MirPlace::Place { local: index, projections: [] },
+                place: Place { local: index, projections: [] },
                 value: AdjustRef {
                     value: LocalValueOf { entry: list::get(caller_locals, local) },
                     offset: 1
@@ -6697,7 +6399,7 @@ k::rules! {
         ],
         stack: list::concat(
             list::item(
-                MirStackFrame::StackFrame {
+                StackFrame {
                     caller,
                     dest,
                     target,
@@ -6715,19 +6417,19 @@ k::rules! {
     };
 
     assert: {
-        k: [ExecTerminator(MirTerminator::Assert { condition, expected, message, target, .. }), ..],
+        k: [ExecTerminator(Assert { condition, expected, message, target, .. }), ..],
     } => {
         k: [Expect { condition, expected, message }, ExecBlockIdx(target), ..],
     };
 
     drop: {
-        k: [ExecTerminator(MirTerminator::Drop { target, .. }), ..],
+        k: [ExecTerminator(Drop { target, .. }), ..],
     } => {
         k: [ExecBlockIdx(target), ..],
     };
 
     unreachable: {
-        k: [ExecTerminator(MirTerminator::Unreachable()), ..],
+        k: [ExecTerminator(Unreachable()), ..],
     } => {
         k: [ProgramError { error: MirExecutionError::ReachedUnreachable() }, ..],
     };
@@ -6736,10 +6438,7 @@ k::rules! {
         k: [Expect { condition, expected, message }, ..],
     } => {
         k: [
-            EvalOperand {
-                operand: condition,
-                continuation: EvaluationContinuation::FinishAssert { expected, message }
-            },
+            EvalOperand { operand: condition, continuation: FinishAssert { expected, message } },
             ..
         ],
     };
@@ -6747,10 +6446,7 @@ k::rules! {
     #[k::requires(condition == expected)]
     assert_succeeds: {
         k: [
-            Continue {
-                value: Value::Boolean(condition),
-                continuation: EvaluationContinuation::FinishAssert { expected, .. }
-            },
+            Continue { value: Boolean(condition), continuation: FinishAssert { expected, .. } },
             ..
         ],
     } => {
@@ -6762,8 +6458,8 @@ k::rules! {
     assert_fails: {
         k: [
             Continue {
-                value: Value::Boolean(condition),
-                continuation: EvaluationContinuation::FinishAssert { expected, message }
+                value: Boolean(condition),
+                continuation: FinishAssert { expected, message }
             },
             ..
         ],
@@ -6773,12 +6469,7 @@ k::rules! {
 
     select_otherwise: {
         k: [
-            Continue {
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets { branches: [], otherwise }
-                ),
-                ..
-            },
+            Continue { continuation: SelectBlock(SwitchTargets { branches: [], otherwise }), .. },
             ..
         ],
     } => {
@@ -6788,12 +6479,9 @@ k::rules! {
     select_true: {
         k: [
             Continue {
-                value: Value::Boolean(true),
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: [MirBranch::Branch { value: 1, target }, ..],
-                        ..
-                    }
+                value: Boolean(true),
+                continuation: SelectBlock(
+                    SwitchTargets { branches: [Branch { value: 1, target }, ..], .. }
                 )
             },
             ..
@@ -6807,10 +6495,10 @@ k::rules! {
     select_true_next: {
         k: [
             Continue {
-                value: Value::Boolean(true),
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: [MirBranch::Branch { value: branch_value, .. }, tail @ ..],
+                value: Boolean(true),
+                continuation: SelectBlock(
+                    SwitchTargets {
+                        branches: [Branch { value: branch_value, .. }, tail @ ..],
                         otherwise
                     }
                 )
@@ -6820,10 +6508,8 @@ k::rules! {
     } => {
         k: [
             Continue {
-                value: Value::Boolean(true),
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets { branches: tail, otherwise }
-                )
+                value: Boolean(true),
+                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise })
             },
             ..
         ],
@@ -6832,12 +6518,9 @@ k::rules! {
     select_false: {
         k: [
             Continue {
-                value: Value::Boolean(false),
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: [MirBranch::Branch { value: 0, target }, ..],
-                        ..
-                    }
+                value: Boolean(false),
+                continuation: SelectBlock(
+                    SwitchTargets { branches: [Branch { value: 0, target }, ..], .. }
                 )
             },
             ..
@@ -6851,10 +6534,10 @@ k::rules! {
     select_false_next: {
         k: [
             Continue {
-                value: Value::Boolean(false),
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: [MirBranch::Branch { value: branch_value, .. }, tail @ ..],
+                value: Boolean(false),
+                continuation: SelectBlock(
+                    SwitchTargets {
+                        branches: [Branch { value: branch_value, .. }, tail @ ..],
                         otherwise
                     }
                 )
@@ -6864,10 +6547,8 @@ k::rules! {
     } => {
         k: [
             Continue {
-                value: Value::Boolean(false),
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets { branches: tail, otherwise }
-                )
+                value: Boolean(false),
+                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise })
             },
             ..
         ],
@@ -6877,12 +6558,9 @@ k::rules! {
     select_integer: {
         k: [
             Continue {
-                value: Value::Integer { value, width, .. },
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: [MirBranch::Branch { value: branch_value, target }, ..],
-                        ..
-                    }
+                value: Integer { value, width, .. },
+                continuation: SelectBlock(
+                    SwitchTargets { branches: [Branch { value: branch_value, target }, ..], .. }
                 )
             },
             ..
@@ -6896,10 +6574,10 @@ k::rules! {
     select_integer_next: {
         k: [
             Continue {
-                value: Value::Integer { value, width, signed },
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets {
-                        branches: [MirBranch::Branch { value: branch_value, .. }, tail @ ..],
+                value: Integer { value, width, signed },
+                continuation: SelectBlock(
+                    SwitchTargets {
+                        branches: [Branch { value: branch_value, .. }, tail @ ..],
                         otherwise
                     }
                 )
@@ -6909,32 +6587,28 @@ k::rules! {
     } => {
         k: [
             Continue {
-                value: Value::Integer { value, width, signed },
-                continuation: EvaluationContinuation::SelectBlock(
-                    MirSwitchTargets::SwitchTargets { branches: tail, otherwise }
-                )
+                value: Integer { value, width, signed },
+                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise })
             },
             ..
         ],
     };
 
     return_to_caller: {
-        k: [ExecTerminator(MirTerminator::Return()), ..],
+        k: [ExecTerminator(Return()), ..],
         current_func: callee,
         current_body: callee_body,
         caller,
         dest: destination,
-        target: MirMaybeBasicBlockIdx::SomeBasicBlockIdx(target),
+        target: SomeBasicBlockIdx(target),
         unwind: callee_unwind,
         locals: list::concat(
-            list::item(
-                LocalValue::TypedValue { value, ty: return_ty, mutability: return_mutability }
-            ),
+            list::item(TypedValue { value, ty: return_ty, mutability: return_mutability }),
             callee_locals_tail
         ),
         stack: list::concat(
             list::item(
-                MirStackFrame::StackFrame {
+                StackFrame {
                     caller: new_caller,
                     dest: new_dest,
                     target: new_target,
@@ -6946,7 +6620,7 @@ k::rules! {
             remaining_stack
         ),
         functions,
-        ret_val: ReturnValue::NoReturn(),
+        ret_val: NoReturn(),
     } => {
         k: [
             SetLocalValue { place: destination, value: AdjustRef { value, offset: -1 } },
@@ -6964,20 +6638,20 @@ k::rules! {
     };
 
     return_unit_to_caller: {
-        k: [ExecTerminator(MirTerminator::Return()), ..],
+        k: [ExecTerminator(Return()), ..],
         current_func: callee,
         current_body: callee_body,
         caller,
         dest: destination,
-        target: MirMaybeBasicBlockIdx::SomeBasicBlockIdx(target),
+        target: SomeBasicBlockIdx(target),
         unwind: callee_unwind,
         locals: list::concat(
-            list::item(LocalValue::NewLocal { ty: return_ty, mutability: return_mutability }),
+            list::item(NewLocal { ty: return_ty, mutability: return_mutability }),
             callee_locals_tail
         ),
         stack: list::concat(
             list::item(
-                MirStackFrame::StackFrame {
+                StackFrame {
                     caller: new_caller,
                     dest: new_dest,
                     target: new_target,
@@ -6989,7 +6663,7 @@ k::rules! {
             remaining_stack
         ),
         functions,
-        ret_val: ReturnValue::NoReturn(),
+        ret_val: NoReturn(),
     } => {
         k: [ExecBlockIdx(target), ..],
         current_func: caller,
@@ -7003,20 +6677,20 @@ k::rules! {
     };
 
     top_level_return: {
-        k: [ExecTerminator(MirTerminator::Return()), ..],
-        target: MirMaybeBasicBlockIdx::NoBasicBlockIdx(),
+        k: [ExecTerminator(Return()), ..],
+        target: NoBasicBlockIdx(),
         locals,
-        ret_val: ReturnValue::NoReturn(),
+        ret_val: NoReturn(),
     } => {
         k: [ReturnLocal { entry: list::get(locals, 0) }, ..],
     };
 
     return_local: {
-        k: [ReturnLocal { entry: LocalValue::TypedValue { value, .. } }, ..],
-        ret_val: ReturnValue::NoReturn(),
+        k: [ReturnLocal { entry: TypedValue { value, .. } }, ..],
+        ret_val: NoReturn(),
     } => {
         k: [EndProgram(), ..],
-        ret_val: ReturnValue::Returned(value),
+        ret_val: Returned(value),
     };
 
     end_program: {

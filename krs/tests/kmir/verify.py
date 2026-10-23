@@ -29,7 +29,7 @@ PROBES = (
     ),
     (
         "continuation constructor",
-        "continuation: EvaluationContinuation::BinaryRight { place, operation, rhs, checked }",
+        "continuation: BinaryRight { place, operation, rhs, checked }",
         "BinaryRight",
         "    BinaryRight {",
     ),
@@ -43,11 +43,11 @@ PROBES = (
         "local binding",
         "value: lhs + rhs",
         "lhs",
-        "lhs: Value::Integer { value: lhs, width, signed }",
+        "lhs: Integer { value: lhs, width, signed }",
     ),
     (
         "return constructor",
-        "ret_val: ReturnValue::Returned(value)",
+        "ret_val: Returned(value)",
         "Returned",
         "    Returned { value: MirValue },",
     ),
