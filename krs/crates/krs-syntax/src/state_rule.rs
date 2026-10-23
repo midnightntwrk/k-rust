@@ -1822,20 +1822,35 @@ fn validate_term_reuses(
     term: &TermExpression,
     bindings: &[StateRuleBinding],
 ) -> Result<(), SyntaxError> {
+    // A result may write the computation and map remainders as terms (the
+    // variables `Tail:K` and `Rest:Map`); the configuration and instance
+    // remainders bind no variable.
     for node in term.nodes() {
         if let TermNode::Reference(path) = node
             && let Some(name) = bare_ident(path)
             && let Some(binding) = bindings.iter().find(|binding| binding.name == *name)
-            && binding.kind != StateRuleBindingKind::Term
         {
-            return Err(body_error(
-                "a structural frame cannot be reused as an object-language term",
-                name.span(),
-            ));
+            match binding.kind {
+                StateRuleBindingKind::ConfigurationFrame => {
+                    return Err(body_error(CONFIGURATION_REMAINDER_IN_RESULT, name.span()));
+                }
+                StateRuleBindingKind::InstancesFrame => {
+                    return Err(body_error(INSTANCES_REMAINDER_IN_RESULT, name.span()));
+                }
+                StateRuleBindingKind::Term
+                | StateRuleBindingKind::KSequenceFrame
+                | StateRuleBindingKind::MapFrame => {}
+            }
         }
     }
     Ok(())
 }
+
+/// The configuration remainder written as a result term.
+const CONFIGURATION_REMAINDER_IN_RESULT: &str = "this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a result can write";
+
+/// A collection's instance remainder written as a result term.
+const INSTANCES_REMAINDER_IN_RESULT: &str = "this name is the remainder of a collection's instances: it stands for the instances this rule leaves out, so it is not a term a result can write";
 
 /// The configuration remainder named in a condition.
 const CONFIGURATION_REMAINDER_IN_CONDITION: &str = "this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a condition can test";

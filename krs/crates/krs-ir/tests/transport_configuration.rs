@@ -801,23 +801,34 @@ fn configuration_requires_is_exact_and_term_binding_only() {
         }
     }
 
-    // A result term is not a condition: a remainder there stays refused.
-    let mut remainder_in_result = rule.clone();
-    let ProtocolRuleStateTerm::KSequence(sequence) =
-        &mut remainder_in_result.result.as_mut().unwrap().cells[0].value
-    else {
-        unreachable!()
-    };
-    let DescriptorTerm::Variable { name, .. } = &mut sequence.items[0].value else {
-        unreachable!()
-    };
-    *name = "tail".into();
-    assert!(matches!(
-        remainder_in_result.validate(ItemKind::Rule),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::RuleVariableBindingIsNotATerm
-        ))
-    ));
+    // A result sees the same variables: the computation and map remainders
+    // are terms there too, while the configuration remainder is none.
+    for (remainder, accepted) in [("tail", true), ("rest", true), ("state", false)] {
+        let mut remainder_in_result = rule.clone();
+        let ProtocolRuleStateTerm::KSequence(sequence) =
+            &mut remainder_in_result.result.as_mut().unwrap().cells[0].value
+        else {
+            unreachable!()
+        };
+        let DescriptorTerm::Variable { name, .. } = &mut sequence.items[0].value else {
+            unreachable!()
+        };
+        *name = remainder.into();
+        let validated = remainder_in_result.validate(ItemKind::Rule);
+        if accepted {
+            assert!(validated.is_ok(), "{remainder}: {validated:?}");
+        } else {
+            assert!(
+                matches!(
+                    validated,
+                    Err(StateTransportError::InvalidTerm(
+                        StateTermReason::RuleVariableBindingIsNotATerm
+                    ))
+                ),
+                "{remainder}: {validated:?}"
+            );
+        }
+    }
 
     let mut state_role_in_term = rule.clone();
     let DescriptorTerm::Application { arguments, .. } =

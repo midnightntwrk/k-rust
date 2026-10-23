@@ -121,6 +121,8 @@ The exception is the value binder of a [map entry](#rules-that-leave-the-computa
 The result has the pattern's shape: it ends in `..` exactly when the pattern does, since one `..` is the rest on both sides, so a pattern ending in `..` never drops the rest, and a whole-cell pattern has no rest to keep.
 `..` may only end the pattern, because the cell is read from its front, and it is anonymous; `[..]` alone would match any computation and is rejected (leave `k` out to keep the cell unchanged).
 Discarding the rest of the computation, or capturing it as a value, needs the `cells!` form.
+There the remainder `tail @ ..` is a value of sort `K` the result may write, for instance in a `KSequence` field: `fn park(s: k::Term<List>, k::cells! { k: KCell(Park(), tail @ ..), stack: Cell(s), state @ .. }: Machine) -> Machine { k::cells! { k: KCell(Resume()), stack: Cell(list::concat(list::item(Saved { body: tail }), s)), ..state } }` emits `<k> park ~> Tail:K => resume </k>`.
+A remainder the result does not put back with `..tail` has been moved, and the computation cell's new content is what the result lists; a bound remainder the rule neither puts back nor uses is an error.
 A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`, and so does a result that restates the matched items unchanged, `k: [Boundary(), ..]`.
 `krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
 
@@ -318,7 +320,8 @@ A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Ex
 The binder list is all or nothing.
 A rule fn whose subject is a term pattern either declares no binders, and every sort is inferred, or declares every subject binder exactly once, in the order the binders first occur in the subject; a `cells!` rule always declares all of them.
 `_`, remainders such as `tail @ ..`, and the `here` binder of a context alias are not declared.
-A remainder is still a binder of the rule: `#[k::requires]` and `#[k::ensures]` may name a computation remainder, a `K`, and a map remainder, a map of its cell's type (`#[k::requires(k::is!(KResult, tail))]` emits `requires isKResult(Tail:K)`).
+A remainder is still a binder of the rule: a result, `#[k::requires]`, and `#[k::ensures]` may name a computation remainder, a `K`, and a map remainder, a map of its cell's type (`#[k::requires(k::is!(KResult, tail))]` emits `requires isKResult(Tail:K)`).
+A map remainder written as a value must still be put back with `..rest`: a rule cannot move one out of its cell yet.
 The configuration remainder `state @ ..` and a collection's remaining instances stand for cells the rule leaves out and are not terms, so a condition that names one is an error (`krs::syntax::unsupported-rule-body`).
 Narrowing one binder therefore means declaring all of them, each other one at its inferred sort; `krs expand` writes a readable rule's `where` the same way.
 A partial or misordered list, a binder declared twice, and a declared binder the subject never binds are syntax errors.
@@ -1253,7 +1256,7 @@ A `KItem` field, parameter, or result admits a term of any sort but `K` (`Hold {
 `KResult` marks terms that count as evaluated results for strictness.
 `KItem` and `KResult` are part of every definition, so `k::KItem` and `k::KResult` may be written wherever a sort may (a field, a binder, `k::is!`, a strictness `result`) with no sort declared below them; the emitted K contains their `KRS-FRAMEWORK` module only when the definition uses one of them, and a module imports it when one of its declarations names one.
 `KSequence` is the symbolic computation sequence sort.
-A constructor field, function parameter, or function result of type `KSequence` holds a computation sequence, K's `K`, and its module imports K's `SORT-K`, which declares that sort and nothing else; a rule matches such a value with a binder bound at a `K` position and splices it into the computation with `k: [b, ..]`. Programs cannot write one.
+A constructor field, function parameter, or function result of type `KSequence` holds a computation sequence, K's `K`, and its module imports K's `SORT-K`, which declares that sort and nothing else; a rule matches such a value with a binder bound at a `K` position and splices it into the computation with `k: [b, ..]`, and a `cells!` rule fills one with its computation remainder `tail @ ..`. Programs cannot write one.
 The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
 The arguments of a collection type on a cell, a constructor field, or a function signature are its element types, which every term written there is checked against ([Typed collections](#typed-collections)); K's collection sorts themselves are not parametric.
 K's `String` sort is `string::String`: write `use k::builtin::string;` and `string::String`, so Rust's own `String` stays in scope (`k::builtin::String` remains as a root spelling).

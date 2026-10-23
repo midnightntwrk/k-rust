@@ -2792,15 +2792,12 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         let local = self.counters.in_matches_pattern
             || self.counters.in_let_pattern
             || self.let_scopes.iter().any(|scope| scope.contains(name));
-        // A condition sees every variable the left side binds, the
-        // computation and map remainders included.
-        let condition = matches!(
-            self.side,
-            ValidationSide::Requires | ValidationSide::Ensures | ValidationSide::RuleEnsures
-        );
+        // A result or a condition sees every variable the left side binds,
+        // the computation and map remainders included.
+        let uses = !matches!(self.side, ValidationSide::Left);
         if !local
             && !binding_has_kind(self.bindings, name, RuleBindingUse::Term)
-            && !(condition
+            && !(uses
                 && (binding_has_kind(self.bindings, name, RuleBindingUse::KSequenceFrame)
                     || binding_has_kind(self.bindings, name, RuleBindingUse::MapFrame)))
         {
