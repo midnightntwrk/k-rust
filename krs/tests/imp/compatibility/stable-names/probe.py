@@ -88,7 +88,9 @@ def move_evidence(krs: Path) -> dict[str, object]:
     # Paths are part of descriptor identity even when item names stay the same.
     report = {
         "baseline_descriptors": len(details["baseline"]),
-        "exact_public_visibility_recovered": len(public["baseline"]) == 3,
+        # Every bundle also carries the framework sorts `KItem` and `KResult`,
+        # both public.
+        "exact_public_visibility_recovered": len(public["baseline"]) == 5,
         "private_move_public_projection_equal": public["baseline"] == public["private-move"],
         "private_internal_identity_changed": bool(baseline_private and moved_private) and baseline_private != moved_private,
         "public_identity_change_detected": bool(baseline_public and moved_public) and baseline_public != moved_public,
@@ -116,7 +118,7 @@ def verify(report: dict[str, object]) -> None:
         key for key, value in evidence.items()
         if key != "baseline_descriptors" and value is not True
     )
-    if evidence.get("baseline_descriptors") != 6 or failed:
+    if evidence.get("baseline_descriptors") != 8 or failed:
         raise GateError(f"stable-name move evidence failed: {failed}")
 
 
