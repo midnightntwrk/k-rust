@@ -147,8 +147,54 @@ fn load_and_compile(
     main_module: &str,
     expected: &[DiagnosticCode],
 ) -> (Definition, SourceTable, String, CompiledKoreArtifacts) {
-    let mut resolver = |_: &str, required: &str| {
-        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    load_and_compile_files(file, source, &[], main_module, expected)
+}
+
+/// The lexically normalized `path` (`.` dropped, `name/..` resolved), `/`-separated.
+fn normalize(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            _ => parts.push(part),
+        }
+    }
+    let joined = parts.join("/");
+    if path.starts_with('/') {
+        format!("/{joined}")
+    } else {
+        joined
+    }
+}
+
+/// [`load_and_compile`] of an entry that requires other sources: `files` maps each source name
+/// to its text, and a `requires` resolves relative to the requiring source's directory, then to
+/// an embedded builtin.
+fn load_and_compile_files(
+    file: &str,
+    source: &str,
+    files: &[(&str, &str)],
+    main_module: &str,
+    expected: &[DiagnosticCode],
+) -> (Definition, SourceTable, String, CompiledKoreArtifacts) {
+    let mut resolver = |requiring: &str, required: &str| {
+        let directory = requiring
+            .rsplit_once('/')
+            .map_or("", |(directory, _)| directory);
+        let name = if directory.is_empty() {
+            normalize(required)
+        } else {
+            normalize(&format!("{directory}/{required}"))
+        };
+        files
+            .iter()
+            .find(|(file, _)| *file == name)
+            .map(|(file, text)| ResolvedSource::new(*file, *text))
+            .or_else(|| embedded(required))
+            .ok_or_else(|| format!("unexpected require {required}"))
     };
     let options = LoadOptions {
         implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
@@ -205,6 +251,30 @@ fn compile(fixture: &'static Fixture) -> Compiled {
         loaded: frontend,
         source_table,
     }
+}
+
+/// [`compile_source`] of an entry `file` that requires the sources of `files` (name and text),
+/// each resolved relative to the directory of the source requiring it.
+///
+/// # Panics
+///
+/// If the definition does not load or compile, or compiles with any diagnostic.
+pub fn compile_files(
+    file: &str,
+    source: &str,
+    files: &[(&str, &str)],
+    main_module: &str,
+) -> CompiledDefinition {
+    let (frontend, source_table, syntax_module, artifacts) =
+        load_and_compile_files(file, source, files, main_module, &[]);
+    CompiledDefinition::from_artifacts(
+        main_module,
+        syntax_module,
+        frontend,
+        source_table,
+        artifacts,
+    )
+    .unwrap_or_else(|error| panic!("{file}: {error:?}"))
 }
 
 /// The campaign's view, on `krun`'s route, of a definition that is not a fixture: `source`

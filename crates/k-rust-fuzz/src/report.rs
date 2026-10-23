@@ -550,21 +550,22 @@ pub struct DefinitionIdentity {
     /// `"source-execution"` or `"from-definition"` ([`crate::BackendRoute`]).
     pub route: String,
     /// [`digest_hex`] of the canonical provenance JSON of the frontend definition the program
-    /// grammar is resolved from, with its source table
-    /// ([`crate::CompiledDefinition::frontend_digest`]), which for a compiled directory written
-    /// by this k-rust is the SHA-256 its manifest records for `frontend.json`. The execution
-    /// digest does not cover it: two definitions with equal KORE can parse one program into
-    /// different initial configurations.
+    /// grammar is resolved from, with its source table, every source named relative to the
+    /// main module's file ([`crate::CompiledDefinition::frontend_digest`]): the same sources
+    /// compiled in another directory, or in process under another entry name, give the same
+    /// digest, and a change of any byte of a source (a comment included) gives another. The
+    /// execution digest does not cover it: two definitions with equal KORE can parse one
+    /// program into different initial configurations.
     pub frontend_digest: String,
-    /// [`digest_hex`] of the canonical provenance JSON of the execution definition that pattern
-    /// targets and the normal-termination pattern are compiled in
-    /// ([`crate::CompiledDefinition::execution_definition_digest`]), which for a compiled
-    /// directory written by this k-rust is the SHA-256 its manifest records for
-    /// `execution.json`.
+    /// The same digest of the execution definition that pattern targets and the
+    /// normal-termination pattern are compiled in
+    /// ([`crate::CompiledDefinition::execution_definition_digest`]).
     pub execution_definition_digest: String,
-    /// [`digest_hex`] of `syntaxDefinition.kore` and of `macros.kore`, joined by a newline:
-    /// collection and data-sort values are printed from the one and read back through the
-    /// other, so they decide which values round-trip (D19).
+    /// [`digest_hex`] of `syntaxDefinition.kore` and of `macros.kore`, joined by a newline,
+    /// with sources named as in [`Self::frontend_digest`] and the layout normalized
+    /// ([`crate::CompiledDefinition::syntax_definition_digest`]): collection and data-sort
+    /// values are printed from the one and read back through the other, so they decide which
+    /// values round-trip (D19).
     pub syntax_definition_digest: String,
     /// [`digest_hex`] of this definition's initial configuration, as printed KORE, assembled
     /// by its own grammar with every hole at its anchor (or, when some hole has no anchor, at

@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::CampaignError,
     holes::HoleDecl,
+    source_names::SourceNames,
     target::Target,
     values::{GenerationBounds, Value},
 };
@@ -113,6 +114,7 @@ pub struct CompiledDefinition {
     /// The logical sources that the provenance of [`Self::frontend_definition`] and
     /// [`Self::execution_definition`] (source ids, spans, origin links) indexes: the loaded
     /// definition's (`k_rust::outer::LoadedDefinition::source_table`) or a compiled directory's.
+    /// Replace it together with the definitions it indexes.
     pub source_table: SourceTable,
     /// The declared configuration variables, without `$`, and their sorts.
     pub configuration_variables: BTreeMap<String, KastSort>,
@@ -176,10 +178,15 @@ impl CompiledDefinition {
 
     /// The SHA-256, as lowercase hexadecimal, of [`Self::frontend_definition`]'s canonical
     /// provenance JSON with [`Self::source_table`] (`k_rust::definition::json::
-    /// to_provenance_string`): the serialization a compiled directory stores as `frontend.json`,
-    /// which holds every sentence, attribute, term and provenance record of the definition and
-    /// reads back to an equal definition. It is a function of the definition and its sources
-    /// alone, computed in time linear in the document.
+    /// to_provenance_string`, the serialization a compiled directory stores as `frontend.json`),
+    /// in which every source is named independently of where it lies: the file of the main
+    /// module as `<main>`, every other path relative to that file's directory (`./expr.k`,
+    /// `./../lib/x.k`), and a `krust-builtin://` URI as it is. The document holds every
+    /// sentence, attribute, term and provenance record of the definition and reads back to an
+    /// equal definition, and the sources' content hashes stay in it, so one definition compiled
+    /// in two directories, or in process under another entry name, gives one digest, and any
+    /// change of a source's bytes (a comment included) gives another. It is computed in time
+    /// linear in the document.
     ///
     /// # Errors
     ///
@@ -190,7 +197,7 @@ impl CompiledDefinition {
     }
 
     /// [`Self::frontend_digest`] of [`Self::execution_definition`] (a compiled directory's
-    /// `execution.json`).
+    /// `execution.json`), its sources named as the frontend's are.
     ///
     /// # Errors
     ///
@@ -199,13 +206,31 @@ impl CompiledDefinition {
         self.provenance_digest("execution", &self.execution_definition)
     }
 
+    /// The SHA-256, as lowercase hexadecimal, of [`Self::syntax_definition_kore`] and
+    /// [`Self::macros_kore`] joined by a newline, the name in each `Source` attribute written as
+    /// [`Self::frontend_digest`] writes it and the layout normalized (the printer breaks lines
+    /// by width, so a longer path moves line breaks; KORE reads whitespace only between tokens).
+    #[must_use]
+    pub fn syntax_definition_digest(&self) -> String {
+        let names = SourceNames::of(&self.frontend_definition);
+        crate::report::digest_hex(
+            format!(
+                "{}\n{}",
+                names.kore(&self.syntax_definition_kore),
+                names.kore(&self.macros_kore)
+            )
+            .as_bytes(),
+        )
+    }
+
     fn provenance_digest(
         &self,
         role: &str,
         definition: &FrontendDefinition,
     ) -> Result<String, CampaignError> {
+        let names = SourceNames::of(&self.frontend_definition);
         to_provenance_string(definition, &self.source_table)
-            .map(|json| crate::report::digest_hex(json.as_bytes()))
+            .map(|json| crate::report::digest_hex(names.provenance_json(&json).as_bytes()))
             .map_err(|error| CampaignError::Definition {
                 message: format!("the {role} definition has no provenance serialization: {error}"),
             })
@@ -696,6 +721,98 @@ mod digest_tests {
             "  syntax KItem ::= mark(Int) [symbol(mark)]\n  configuration <k> $PGM:Pgm </k>",
         );
         assert_ne!(digests(&base).1, digests(&marked).1);
+    }
+
+    /// The coin definition split in two files: the semantics in `sem/coin.k`, which requires the
+    /// syntax from a sibling directory, `../lib/coin-syntax.k`.
+    const SPLIT_MAIN: &str = r#"requires "../lib/coin-syntax.k"
+
+module COIN
+  imports COIN-SYNTAX
+  imports INT
+  imports BOOL
+
+  configuration <k> $PGM:Pgm </k>
+                <out> 0 </out>
+
+  rule [heads]: <k> flip(N) => .K ... </k> <out> _ => N </out>
+  rule [tails]: <k> flip(N) => .K ... </k> <out> _ => N +Int 1 </out>
+endmodule
+"#;
+    const SPLIT_SYNTAX: &str = r"module COIN-SYNTAX
+  imports INT-SYNTAX
+
+  syntax Pgm ::= flip(Int)   [symbol(flip)]
+endmodule
+";
+
+    /// The split coin definition with its entry at `root/sem/coin.k` (or at `entry`).
+    fn split(root: &str, entry: Option<&str>, syntax: &str) -> CompiledDefinition {
+        let main = entry.map_or_else(|| format!("{root}/sem/coin.k"), str::to_owned);
+        let library = match entry {
+            Some(_) => "../lib/coin-syntax.k".to_owned(),
+            None => format!("{root}/lib/coin-syntax.k"),
+        };
+        support::compile_files(&main, SPLIT_MAIN, &[(&library, syntax)], "COIN")
+    }
+
+    fn all_digests(definition: &CompiledDefinition) -> (String, String, String, String) {
+        let (frontend, execution) = digests(definition);
+        (
+            frontend,
+            execution,
+            definition.syntax_definition_digest(),
+            definition.execution_digest().unwrap().to_string(),
+        )
+    }
+
+    /// FZ-SETUP fix round (S1): one definition compiled from two directories, or in process
+    /// under the bindings' default entry name, gives one identity; the digested documents name
+    /// no directory; a change of a source's text still changes it.
+    #[test]
+    fn the_identity_does_not_depend_on_where_the_sources_lie() {
+        let at_a = split("/srv/a", None, SPLIT_SYNTAX);
+        let at_b = split("/home/someone/b/deeper", None, SPLIT_SYNTAX);
+        let bound = split("", Some("definition.k"), SPLIT_SYNTAX);
+        assert_ne!(
+            at_a.frontend_definition, at_b.frontend_definition,
+            "the definitions record different source paths"
+        );
+        assert_eq!(all_digests(&at_a), all_digests(&at_b));
+        assert_eq!(all_digests(&at_a), all_digests(&bound));
+        let names = crate::source_names::SourceNames::of(&at_a.frontend_definition);
+        let json = k_rust::definition::json::to_provenance_string(
+            &at_a.frontend_definition,
+            &at_a.source_table,
+        )
+        .unwrap();
+        assert!(json.contains("/srv/a/lib/coin-syntax.k"));
+        let renamed = names.provenance_json(&json);
+        assert!(!renamed.contains("/srv/a"), "no directory is digested");
+        assert!(renamed.contains(r#""logical":"./../lib/coin-syntax.k""#));
+        assert!(renamed.contains(r#""logical":"<main>""#));
+        assert!(!names.kore(&at_a.syntax_definition_kore).contains("/srv/a"));
+
+        // A comment appended to the required file changes no sentence, but the file's bytes.
+        let commented = split("/srv/a", None, &format!("{SPLIT_SYNTAX}// a comment\n"));
+        let (frontend, execution, syntax, kore) = all_digests(&commented);
+        assert_ne!(frontend, all_digests(&at_a).0);
+        assert_ne!(execution, all_digests(&at_a).1);
+        assert_eq!((syntax, kore), (all_digests(&at_a).2, all_digests(&at_a).3));
+        // A production added to the required file changes the definition.
+        let grown = split(
+            "/srv/b",
+            None,
+            &SPLIT_SYNTAX.replace(
+                "[symbol(flip)]",
+                "[symbol(flip)]\n               | count(Int)  [symbol(count)]",
+            ),
+        );
+        let grown = all_digests(&grown);
+        let base = all_digests(&at_a);
+        assert_ne!(grown.0, base.0);
+        assert_ne!(grown.1, base.1);
+        assert_ne!(grown.2, base.2);
     }
 
     /// FZ-SETUP (d): equal definitions compiled twice give equal digests, and the in-process

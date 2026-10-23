@@ -730,13 +730,7 @@ fn identity(
             syntax_module: definition.syntax_module.clone(),
             frontend_digest: definition.frontend_digest()?,
             execution_definition_digest: definition.execution_definition_digest()?,
-            syntax_definition_digest: digest_hex(
-                format!(
-                    "{}\n{}",
-                    definition.syntax_definition_kore, definition.macros_kore
-                )
-                .as_bytes(),
-            ),
+            syntax_definition_digest: definition.syntax_definition_digest(),
             initial_configuration_digest: initial.cloned().flatten(),
             execution_digest: definition.execution_digest()?.to_string(),
             route: route.into(),

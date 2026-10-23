@@ -384,22 +384,53 @@ fn the_command_line_runs_the_library_campaign() {
     // One definition gives one identity whichever route loaded it: the compiled directory and
     // the in-process compilation of the same source (FZ-SETUP).
     assert_eq!(report.identity.definitions, library.identity.definitions);
-    // The frontend and execution-definition digests are the SHA-256 of the definitions'
-    // canonical provenance JSON, which is what the compiled directory stores and its manifest
-    // records the digest of.
-    let manifest: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(directory.join("imp-kompiled/runtime.json")).unwrap(),
-    )
-    .unwrap();
-    let definition = &report.identity.definitions[0];
-    assert_eq!(
-        manifest["frontend"]["sha256"], definition.frontend_digest,
-        "the frontend digest is the stored frontend payload's"
+}
+
+/// FZ-SETUP fix round (S1): a witness found on a definition compiled in one directory replays on
+/// the same definition compiled in another: the identity names each source relative to the
+/// main file's directory, not by the absolute path the compiled directory records.
+#[test]
+fn a_witness_replays_on_the_definition_compiled_elsewhere() {
+    let directory = le_workspace("relocated");
+    for (root, compiled) in [("A", "imp-a"), ("B/deeper", "imp-b")] {
+        let name = directory.join(root).join("src/imp.k");
+        write_compiled_source(
+            name.to_str().expect("a UTF-8 path"),
+            IMP.source,
+            IMP.main_module,
+            &directory.join(compiled),
+        );
+    }
+    let a = fs::read_to_string(directory.join("imp-a/frontend.json")).unwrap();
+    assert!(
+        a.contains("/A/src/imp.k"),
+        "the compiled directory records its path"
     );
-    assert_eq!(
-        manifest["execution"]["sha256"], definition.execution_definition_digest,
-        "the execution-definition digest is the stored execution payload's"
+    let found = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--definition",
+            "imp-a",
+            "--witness",
+            "witness.json",
+            "--no-shrink",
+        ],
     );
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stderr));
+    let replay = krust_fuzz(
+        &directory,
+        &["--replay", "witness.json", "--definition", "imp-b"],
+    );
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("first witness: reproduced"), "{stdout}");
 }
 
 /// FZ-SETUP: a grammar change the frontend digest caught when it hashed the definition's
