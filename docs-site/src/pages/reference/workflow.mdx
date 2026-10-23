@@ -51,6 +51,9 @@ When a route refuses the definition, for example `native-llvm` refusing an exist
 The routes compile concurrently, so judging both costs about the time of the slower compile.
 Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
 They keep rustc's notes and help, and a suggested replacement in authored source is spelled out as the edit it makes (``remove `()` at src/lib.rs:48:28``); a note or help that points only into macro-generated code is left out, because it describes tokens the author did not write.
+Under `deny(warnings)`, rustc also reports as unused an import that only a failed KRS item uses, because that item's expansion was withheld.
+`check` leaves such an error out when the failed item, in the import's module, names the import, and reports every other unused import, one per name; a glob import is always reported, since its names are not known without resolving it.
+`cargo check` and rust-analyzer still show it.
 `check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, including their codes, notes, help, and authored source snippets when the source revision matches.
 Pass `--message-format=json` when a tool consumes diagnostics.
 Every command that lowers the definition (all but `fmt`) reports the definition's warnings, such as an uncovered total function or a `program` production programs cannot contain; `check` and `build` add those of the backend routes they judge, and `prove` those of the claims it trusts.

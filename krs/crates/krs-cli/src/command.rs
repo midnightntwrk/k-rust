@@ -29,6 +29,7 @@ mod agreement;
 mod collector;
 mod counters;
 mod exec;
+mod failed_items;
 mod output;
 mod result_cache;
 mod stage_cache;

@@ -30,10 +30,11 @@ krs-k-rust = { path = "../krs-k-rust", default-features = false }
 krs-syntax = { path = "../krs-syntax" }
 lexopt = "0.3.2"
 proc-macro2 = { workspace = true }
+quote.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
-syn = { workspace = true, features = ["full", "parsing"] }
+syn = { workspace = true, features = ["full", "parsing", "printing"] }
 tempfile = "3.27.0"
 toml_edit = { workspace = true, features = ["display", "parse"] }
 

@@ -1,4 +1,5 @@
 use super::CommandError;
+use super::failed_items;
 use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticStage,
     GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
@@ -317,11 +318,14 @@ struct RustDiagnosticSpan {
     expansion: Option<serde::de::IgnoredAny>,
 }
 
+/// The rustc lint whose verdict a failed KRS item can falsify.
+const UNUSED_IMPORTS: &str = "unused_imports";
+
 fn rust_diagnostics(
     stdout: &[u8],
     plan: &CollectorPlan,
 ) -> Result<Vec<DiagnosticEnvelope>, CommandError> {
-    let mut diagnostics = Vec::new();
+    let mut errors = Vec::new();
     for line in stdout.split(|byte| *byte == b'\n') {
         let Ok(message) = serde_json::from_slice::<CargoCompilerMessage>(line) else {
             continue;
@@ -332,9 +336,23 @@ fn rust_diagnostics(
         let Some(diagnostic) = message.message.filter(|value| value.level == "error") else {
             continue;
         };
-        let Some(manifest) = message.manifest_path.as_deref() else {
+        let Some(manifest) = message.manifest_path else {
             continue;
         };
+        errors.push((manifest, diagnostic));
+    }
+    let mut failed = FailedItems::new(plan, &errors);
+    let mut diagnostics = Vec::new();
+    for (manifest, diagnostic) in &errors {
+        let manifest = manifest.as_str();
+        if diagnostic
+            .code
+            .as_ref()
+            .is_some_and(|code| code.code == UNUSED_IMPORTS)
+        {
+            relay_unused_imports(plan, manifest, diagnostic, &mut failed, &mut diagnostics)?;
+            continue;
+        }
         // A KRS proc macro's `compile_error!` carries its code in the message.
         let (code, text) = match (&diagnostic.code, untag_rustc_message(&diagnostic.message)) {
             (Some(code), _) => (
@@ -347,7 +365,7 @@ fn rust_diagnostics(
                 diagnostic.message.as_str(),
             ),
         };
-        let (notes, help) = rust_children(plan, manifest, &diagnostic.children)?;
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, |_| true)?;
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(plan, manifest, span)? {
                 let mut relayed =
@@ -366,7 +384,156 @@ fn rust_diagnostics(
     Ok(diagnostics)
 }
 
+/// Relays an `unused_imports` error one import at a time, leaving out each
+/// import that a failed KRS item in the import's module names.
+///
+/// The lint judges the expanded crate, which lacks a failed item's code, so
+/// its verdict about an import that item names is a consequence of the KRS
+/// error, not a second fact: once the item compiles the use exists, and if the
+/// fix removes it rustc reports the import then. An import that no failed item
+/// names, a glob, and an underscore import are reported as rustc reports them.
+/// Each kept import is relayed with its own text (rustc's message lists every
+/// name of the `use` item, once per name), and with only the suggested edits
+/// that remove it and no import a failed item names.
+fn relay_unused_imports(
+    plan: &CollectorPlan,
+    manifest: &str,
+    diagnostic: &RustDiagnostic,
+    failed: &mut FailedItems,
+    diagnostics: &mut Vec<DiagnosticEnvelope>,
+) -> Result<(), CommandError> {
+    let code = Code::foreign(UNUSED_IMPORTS.to_owned());
+    let primary = diagnostic
+        .spans
+        .iter()
+        .filter(|span| span.is_primary)
+        .collect::<Vec<_>>();
+    let mut texts = Vec::with_capacity(primary.len());
+    let mut credited = Vec::with_capacity(primary.len());
+    for span in &primary {
+        let text = match facet_source(plan, manifest, &span.file_name)? {
+            Some(source) => Some(source.text(span)?),
+            None => None,
+        };
+        let names = text.as_deref().and_then(failed_items::imported_name);
+        credited.push(names.is_some_and(|name| failed.credit(manifest, span, name)));
+        texts.push(text);
+    }
+    for ((span, text), dropped) in primary.iter().zip(&texts).zip(&credited) {
+        if *dropped {
+            continue;
+        }
+        let Some(range) = rust_source_range(plan, manifest, span)? else {
+            continue;
+        };
+        let covers = |edit: &RustDiagnosticSpan, import: &RustDiagnosticSpan| {
+            edit.file_name == import.file_name
+                && edit.byte_start <= import.byte_start
+                && import.byte_end <= edit.byte_end
+        };
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, |edit| {
+            covers(edit, span)
+                && !primary
+                    .iter()
+                    .zip(&credited)
+                    .any(|(other, credited)| *credited && covers(edit, other))
+        })?;
+        let message = text.as_deref().map_or_else(
+            || diagnostic.message.clone(),
+            |text| format!("unused import: `{text}`"),
+        );
+        let mut relayed = Diagnostic::error(code.clone(), message, Location::Source(range));
+        relayed.notes = notes;
+        relayed.help = help;
+        diagnostics.extend(diagnostic_envelope(
+            relayed,
+            DiagnosticStage::RustExpansion,
+            None,
+        ));
+    }
+    Ok(())
+}
+
+/// The KRS items that failed in one collector build: for each relayed error a
+/// KRS proc macro tagged, the innermost item containing its primary span.
+/// Computed on first use, since only an unused-import error needs it.
+struct FailedItems<'a> {
+    plan: &'a CollectorPlan,
+    errors: &'a [(String, RustDiagnostic)],
+    /// The failed items by manifest and rustc file name, once computed.
+    items: Option<Vec<(String, String, failed_items::FailedItem)>>,
+    /// Parsed sources by manifest and rustc file name; `None` when unreadable.
+    sources: std::collections::BTreeMap<(String, String), Option<failed_items::ParsedSource>>,
+}
+
+impl<'a> FailedItems<'a> {
+    const fn new(plan: &'a CollectorPlan, errors: &'a [(String, RustDiagnostic)]) -> Self {
+        Self {
+            plan,
+            errors,
+            items: None,
+            sources: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// The parsed source rustc names `file_name` in `manifest`'s package; a
+    /// file outside the selected packages, unreadable, or not parsable by `syn`
+    /// has none, so nothing in it is credited.
+    fn source(&mut self, manifest: &str, file_name: &str) -> Option<&failed_items::ParsedSource> {
+        let plan = self.plan;
+        self.sources
+            .entry((manifest.to_owned(), file_name.to_owned()))
+            .or_insert_with(|| {
+                let source = facet_source(plan, manifest, file_name).ok()??;
+                failed_items::ParsedSource::parse(&source.bytes)
+            })
+            .as_ref()
+    }
+
+    /// Whether a failed item in the file and the innermost inline module of
+    /// the module-level `use` at `span` names `name`.
+    fn credit(&mut self, manifest: &str, span: &RustDiagnosticSpan, name: &str) -> bool {
+        if self.items.is_none() {
+            let mut items = Vec::new();
+            for (manifest, diagnostic) in self.errors {
+                let krs =
+                    diagnostic.code.is_none() && untag_rustc_message(&diagnostic.message).is_some();
+                if !krs {
+                    continue;
+                }
+                for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
+                    let item = self
+                        .source(manifest, &span.file_name)
+                        .and_then(|source| source.failed_item(span.byte_start as usize));
+                    if let Some(item) = item {
+                        items.push((manifest.clone(), span.file_name.clone(), item));
+                    }
+                }
+            }
+            self.items = Some(items);
+        }
+        let Some(modules) = self
+            .source(manifest, &span.file_name)
+            .and_then(|source| source.use_module(span.byte_start as usize))
+        else {
+            return false;
+        };
+        self.items
+            .iter()
+            .flatten()
+            .any(|(item_manifest, file, item)| {
+                item_manifest == manifest
+                    && *file == span.file_name
+                    && item.modules == modules
+                    && item.identifiers.contains(name)
+            })
+    }
+}
+
 /// Translates rustc's children of one diagnostic into KRS notes and help, in rustc's order.
+///
+/// A suggested edit is relayed only when `keep_edit` accepts its span; a
+/// suggestion whose every edit is left out is omitted.
 ///
 /// A child whose every span lies in macro-generated code describes tokens the author did not
 /// write, such as a KRS expansion's hidden helper items, so it is omitted. A suggested
@@ -376,6 +543,7 @@ fn rust_children(
     plan: &CollectorPlan,
     manifest: &str,
     children: &[RustDiagnosticChild],
+    keep_edit: impl Fn(&RustDiagnosticSpan) -> bool,
 ) -> Result<(Vec<String>, Vec<String>), CommandError> {
     let mut notes = Vec::new();
     let mut help = Vec::new();
@@ -385,7 +553,12 @@ fn rust_children(
         }
         let mut edits = Vec::new();
         let mut location = None;
+        let mut left_out = false;
         for span in child.spans.iter().filter(|span| span.expansion.is_none()) {
+            if span.suggested_replacement.is_some() && !keep_edit(span) {
+                left_out = true;
+                continue;
+            }
             let Some(source) = facet_source(plan, manifest, &span.file_name)? else {
                 continue;
             };
@@ -406,6 +579,10 @@ fn rust_children(
                     location.get_or_insert(at);
                 }
             }
+        }
+        if left_out && edits.is_empty() && location.is_none() {
+            // Every edit this suggestion made was left out.
+            continue;
         }
         let text = match (edits.is_empty(), location) {
             (false, _) => format!("{}: {}", child.message, edits.join("; ")),
@@ -714,6 +891,106 @@ mod tests {
             envelope.help,
             [
                 "`Register::A` is a unit enum variant, and does not take parentheses to be constructed: remove `()` at src/lib.rs:2:24"
+            ]
+        );
+    }
+
+    #[test]
+    fn unused_imports_a_failed_krs_item_names_are_left_out_and_the_rest_relayed_per_name() {
+        let source = "use k::builtin::{list, map, set};\nuse Cmd::*;\n\nk::rules! {\n    go: Go() => list::item(set);\n}\n";
+        let (_directory, manifest, plan) = language_plan(source);
+        let at = |text: &str| source.find(text).unwrap();
+        let span = |start: usize, end: usize, primary: bool| {
+            serde_json::json!({
+                "file_name": "src/lib.rs",
+                "byte_start": start, "byte_end": end,
+                "line_start": 1, "column_start": start + 1,
+                "is_primary": primary, "expansion": null,
+            })
+        };
+        let removal = |start: usize, end: usize| {
+            let mut removal = span(start, end, true);
+            removal["suggested_replacement"] = serde_json::json!("");
+            removal
+        };
+        let message = |text: &str, code: Option<&str>, spans: serde_json::Value, children| {
+            serde_json::json!({
+                "reason": "compiler-message",
+                "manifest_path": manifest,
+                "message": {
+                    "level": "error",
+                    "message": text,
+                    "code": code.map(|code| serde_json::json!({ "code": code })),
+                    "spans": spans,
+                    "children": children,
+                    "rendered": null,
+                },
+            })
+            .to_string()
+        };
+        let (list, map, set) = (at("list,"), at("map,"), at("set}"));
+        let stdout = [
+            message(
+                "[krs::syntax::rust-syntax] expected an equation",
+                None,
+                serde_json::json!([span(at("go:"), at("go:") + 2, true)]),
+                serde_json::json!([]),
+            ),
+            // `list` is named by the failed rule; `set` only as its binder.
+            message(
+                "unused imports: `list`, `map`, and `set`",
+                Some("unused_imports"),
+                serde_json::json!([
+                    span(list, list + 4, true),
+                    span(map, map + 3, true),
+                    span(set, set + 3, true),
+                ]),
+                serde_json::json!([
+                    { "level": "note", "message": "`-D unused-imports` implied by `-D warnings`", "spans": [] },
+                    {
+                        "level": "help",
+                        "message": "remove the unused imports",
+                        "spans": [removal(list, map), removal(map - 2, map + 3), removal(set - 2, set + 3)],
+                    },
+                ]),
+            ),
+            message(
+                "unused import: `Cmd::*`",
+                Some("unused_imports"),
+                serde_json::json!([span(at("Cmd::*"), at("Cmd::*") + 6, true)]),
+                serde_json::json!([]),
+            ),
+        ]
+        .join("\n");
+        let reported: Vec<_> = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .into_iter()
+            .map(|envelope| (envelope.code, envelope.message, envelope.help))
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                (
+                    "krs::syntax::rust-syntax".to_owned(),
+                    "expected an equation".to_owned(),
+                    vec![],
+                ),
+                (
+                    "unused_imports".to_owned(),
+                    "unused import: `map`".to_owned(),
+                    vec!["remove the unused imports: remove `, map` at src/lib.rs:1:22".to_owned()],
+                ),
+                (
+                    "unused_imports".to_owned(),
+                    "unused import: `set`".to_owned(),
+                    vec!["remove the unused imports: remove `, set` at src/lib.rs:1:27".to_owned()],
+                ),
+                // A glob's names are not known, so it is never left out.
+                (
+                    "unused_imports".to_owned(),
+                    "unused import: `Cmd::*`".to_owned(),
+                    vec![],
+                ),
             ]
         );
     }
