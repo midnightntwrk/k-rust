@@ -67,9 +67,9 @@ k::rules! {
 
     /// Sequencing: run the first statement, then the rest.
     seq: {
-        k: [Seq { first, rest }, ..]
+        k: [Seq { first, rest }, ..],
     } => {
-        k: [first, rest, ..]
+        k: [first, rest, ..],
     };
 
     /// Reading consumes the Int at the front of the input stream.

@@ -72,10 +72,10 @@ k::rules! {
     #[k::requires(int::gt(f, 0))]
     burn: {
         fuel: f,
-        acc: a
+        acc: a,
     } => {
         fuel: int::sub(f, 1),
-        acc: int::add(a, f)
+        acc: int::add(a, f),
     };
 
     /// Once the fuel is spent, write the accumulator to the computation cell.

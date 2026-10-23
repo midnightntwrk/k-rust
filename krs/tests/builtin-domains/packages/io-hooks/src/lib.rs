@@ -47,22 +47,22 @@ k::rules! {
 
     /// `hello` writes a line with `#write`.
     hello: {
-        k: [Hello(), ..]
+        k: [Hello(), ..],
     } => {
-        k: [io::write(1, "hi\n"), ..]
+        k: [io::write(1, "hi\n"), ..],
     };
 
     /// `bye` writes one byte with `#putc`.
     bye: {
-        k: [Bye(), ..]
+        k: [Bye(), ..],
     } => {
-        k: [io::putc(1, 65), ..]
+        k: [io::putc(1, 65), ..],
     };
 
     /// `both` writes a line and then continues with `bye`.
     both: {
-        k: [Both(), ..]
+        k: [Both(), ..],
     } => {
-        k: [io::write(1, "hi\n"), Bye(), ..]
+        k: [io::write(1, "hi\n"), Bye(), ..],
     };
 }

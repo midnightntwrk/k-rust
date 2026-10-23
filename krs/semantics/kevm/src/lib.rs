@@ -2268,7 +2268,7 @@ k::rules! {
                 gas,
                 cost: ExternalCopyGasCost { accessed, account, used, start: destination, width },
             },
-            ..
+            ..,
         ],
     };
 
@@ -2300,7 +2300,7 @@ k::rules! {
                 gas,
                 cost: 3 + MemoryExpansionCost { used, start: index, width: 32 },
             },
-            ..
+            ..,
         ],
     };
 
@@ -2316,7 +2316,7 @@ k::rules! {
                 gas,
                 cost: 3 + MemoryExpansionCost { used, start: index, width: 32 },
             },
-            ..
+            ..,
         ],
     };
 
@@ -2332,7 +2332,7 @@ k::rules! {
                 gas,
                 cost: 3 + MemoryExpansionCost { used, start: index, width: 1 },
             },
-            ..
+            ..,
         ],
     };
 
@@ -2348,7 +2348,7 @@ k::rules! {
                 gas,
                 cost: MemoryExpansionCost { used, start, width } + (30 + 6 * ((width + 31) / 32)),
             },
-            ..
+            ..,
         ],
     };
 
@@ -2370,7 +2370,7 @@ k::rules! {
                     warm: StorageWarm { accessed, account: current_account, index },
                 },
             },
-            ..
+            ..,
         ],
     };
 
@@ -2395,7 +2395,7 @@ k::rules! {
                 warm: StorageWarm { accessed, account: current_account, index },
                 static_mode,
             },
-            ..
+            ..,
         ],
     };
 
@@ -2469,7 +2469,7 @@ k::rules! {
             | MemorySize()
             | GasRemaining()
             | ProgramCounter()),
-            ..
+            ..,
         ],
         word_stack: stack,
         gas,
@@ -2487,7 +2487,7 @@ k::rules! {
             | BlockGasLimit()
             | NetworkChainId()
             | BlockBaseFee()),
-            ..
+            ..,
         ],
         word_stack: stack,
         gas,
@@ -2521,7 +2521,7 @@ k::rules! {
             | ShiftLeft()
             | ShiftRight()
             | SignedShiftRight()),
-            ..
+            ..,
         ],
         word_stack: [_, _, ..],
         gas,
@@ -2652,7 +2652,7 @@ k::rules! {
         k: [Run(), ..],
         word_stack: [
             StackAt { stack: tail, index: depth - 1 },
-            ..StackSet { stack: tail, index: depth - 1, value: head }
+            ..StackSet { stack: tail, index: depth - 1, value: head },
         ],
         pc: pc + 1,
         gas: remaining,
@@ -3575,13 +3575,11 @@ k::rules! {
         k: [Run(), ..],
         logs: list::concat(
             logs,
-            list::item(
-                LogRecord::Entry {
-                    address,
-                    topics: StackTakeList { stack: topic_stack, remaining: topics },
-                    data: ReturnBytes(memory, start, width),
-                },
-            ),
+            list::item(LogRecord::Entry {
+                address,
+                topics: StackTakeList { stack: topic_stack, remaining: topics },
+                data: ReturnBytes(memory, start, width),
+            }),
         ),
         memory_used: MemoryUsageUpdate { used, start, width },
         word_stack: StackDrop { stack: topic_stack, remaining: topics },
@@ -3725,7 +3723,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [ResolveEcrecPrecompile { requested: gas_cap, available: remaining }, ..],
@@ -3768,11 +3766,9 @@ k::rules! {
             source_index: 0,
             remaining: Minimum(
                 return_width,
-                bytes::length(
-                    EcrecPrecompileOutput {
-                        data: ReturnBytes(memory, argument_start, argument_width),
-                    },
-                ),
+                bytes::length(EcrecPrecompileOutput {
+                    data: ReturnBytes(memory, argument_start, argument_width),
+                }),
             ),
         },
         memory_used: CallMemoryUsage {
@@ -3840,7 +3836,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -3849,7 +3845,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -3953,7 +3949,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -3962,7 +3958,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -4080,7 +4076,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -4089,7 +4085,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -4193,7 +4189,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -4202,7 +4198,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -4245,11 +4241,9 @@ k::rules! {
             source_index: 0,
             remaining: Minimum(
                 return_width,
-                bytes::length(
-                    ModExpPrecompileOutput {
-                        data: ReturnBytes(memory, argument_start, argument_width),
-                    },
-                ),
+                bytes::length(ModExpPrecompileOutput {
+                    data: ReturnBytes(memory, argument_start, argument_width),
+                }),
             ),
         },
         memory_used: CallMemoryUsage {
@@ -4317,7 +4311,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -4326,7 +4320,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -4432,7 +4426,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -4441,7 +4435,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -4547,7 +4541,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            rest @ ..
+            rest @ ..,
         ],
     } => {
         k: [
@@ -4556,7 +4550,7 @@ k::rules! {
                 requested: gas_cap,
                 available: remaining,
             },
-            ..
+            ..,
         ],
     };
 
@@ -4689,7 +4683,7 @@ k::rules! {
                 argument_width,
                 return_start,
                 return_width,
-                rest @ ..
+                rest @ ..,
             ],
             pc,
             call_depth,
@@ -4698,58 +4692,48 @@ k::rules! {
     } => {
         k: [Run(), FinishStaticCall { return_start, return_width }, ..],
         call_stack: list::concat(
-            list::item(
-                k::fragment![
-                    CallState {
-                        word_stack: rest,
-                        local_mem: PrepareCopyMemory {
-                            memory: PrepareCopyMemory {
-                                memory,
-                                used,
-                                start: argument_start,
-                                width: argument_width,
-                            },
-                            used: MemoryUsageUpdate {
-                                used,
-                                start: argument_start,
-                                width: argument_width,
-                            },
-                            start: return_start,
-                            width: return_width,
-                        },
-                        pc: pc + 1,
-                        gas: remaining - StaticCallGas { requested: gas_cap, available: remaining },
-                        memory_used: CallMemoryUsage {
-                            used,
-                            argument_start,
-                            argument_width,
-                            return_start,
-                            return_width,
-                        },
-                        call_gas: StaticCallGas { requested: gas_cap, available: remaining },
-                        ..caller_frame
-                    }
-                ],
-            ),
+            list::item(k::fragment![CallState {
+                word_stack: rest,
+                local_mem: PrepareCopyMemory {
+                    memory: PrepareCopyMemory {
+                        memory,
+                        used,
+                        start: argument_start,
+                        width: argument_width,
+                    },
+                    used: MemoryUsageUpdate { used, start: argument_start, width: argument_width },
+                    start: return_start,
+                    width: return_width,
+                },
+                pc: pc + 1,
+                gas: remaining - StaticCallGas { requested: gas_cap, available: remaining },
+                memory_used: CallMemoryUsage {
+                    used,
+                    argument_start,
+                    argument_width,
+                    return_start,
+                    return_width,
+                },
+                call_gas: StaticCallGas { requested: gas_cap, available: remaining },
+                ..caller_frame
+            }]),
             call_stack,
         ),
         interim_states: list::concat(
-            list::item(
-                SavedWorldState::Snapshot {
-                    account_id: present_account,
-                    balance,
-                    code,
-                    nonce,
-                    storage,
-                    original_storage,
-                    self_destruct,
-                    logs,
-                    refund,
-                    accessed_accounts: MarkAccountAccess { accessed, account },
-                    accessed_storage,
-                    created_accounts,
-                },
-            ),
+            list::item(SavedWorldState::Snapshot {
+                account_id: present_account,
+                balance,
+                code,
+                nonce,
+                storage,
+                original_storage,
+                self_destruct,
+                logs,
+                refund,
+                accessed_accounts: MarkAccountAccess { accessed, account },
+                accessed_storage,
+                created_accounts,
+            }),
             interim_states,
         ),
         touched_accounts: set::union(
@@ -4780,21 +4764,17 @@ k::rules! {
 
     finish_static_call_success: {
         k: [FinishStaticCall { return_start, return_width }, ..],
-        call_stack: k::term![
-            list::concat(
-                list::item(
-                    caller_frame @ k::fragment![
-                        CallState {
-                            word_stack: caller_stack,
-                            local_mem: caller_memory,
-                            gas: caller_gas,
-                            ..
-                        }
-                    ],
-                ),
-                remaining_call_stack,
-            )
-        ],
+        call_stack: k::term![list::concat(
+            list::item(
+                caller_frame @ k::fragment![CallState {
+                    word_stack: caller_stack,
+                    local_mem: caller_memory,
+                    gas: caller_gas,
+                    ..
+                }],
+            ),
+            remaining_call_stack,
+        )],
         interim_states: list::concat(list::item(saved_world_state), remaining_interim_states),
         output: child_output,
         status_code: Status::Success(),
@@ -4821,38 +4801,32 @@ k::rules! {
 
     finish_static_call_revert: {
         k: [FinishStaticCall { return_start, return_width }, ..],
-        call_stack: k::term![
-            list::concat(
-                list::item(
-                    caller_frame @ k::fragment![
-                        CallState {
-                            word_stack: caller_stack,
-                            local_mem: caller_memory,
-                            gas: caller_gas,
-                            ..
-                        }
-                    ],
-                ),
-                remaining_call_stack,
-            )
-        ],
-        interim_states: list::concat(
+        call_stack: k::term![list::concat(
             list::item(
-                SavedWorldState::Snapshot {
-                    account_id,
-                    balance,
-                    code,
-                    nonce,
-                    storage,
-                    original_storage,
-                    self_destruct,
-                    logs,
-                    refund,
-                    accessed_accounts,
-                    accessed_storage,
-                    created_accounts,
-                },
+                caller_frame @ k::fragment![CallState {
+                    word_stack: caller_stack,
+                    local_mem: caller_memory,
+                    gas: caller_gas,
+                    ..
+                }],
             ),
+            remaining_call_stack,
+        )],
+        interim_states: list::concat(
+            list::item(SavedWorldState::Snapshot {
+                account_id,
+                balance,
+                code,
+                nonce,
+                storage,
+                original_storage,
+                self_destruct,
+                logs,
+                refund,
+                accessed_accounts,
+                accessed_storage,
+                created_accounts,
+            }),
             remaining_interim_states,
         ),
         account_id: _,
@@ -4913,29 +4887,25 @@ k::rules! {
 
     finish_static_call_exception: {
         k: [FinishStaticCallExceptional { return_start, return_width }, ..],
-        call_stack: k::term![
-            list::concat(
-                list::item(caller_frame @ k::fragment![CallState { word_stack: caller_stack, .. }]),
-                remaining_call_stack,
-            )
-        ],
+        call_stack: k::term![list::concat(
+            list::item(caller_frame @ k::fragment![CallState { word_stack: caller_stack, .. }]),
+            remaining_call_stack,
+        )],
         interim_states: list::concat(
-            list::item(
-                SavedWorldState::Snapshot {
-                    account_id,
-                    balance,
-                    code,
-                    nonce,
-                    storage,
-                    original_storage,
-                    self_destruct,
-                    logs,
-                    refund,
-                    accessed_accounts,
-                    accessed_storage,
-                    created_accounts,
-                },
-            ),
+            list::item(SavedWorldState::Snapshot {
+                account_id,
+                balance,
+                code,
+                nonce,
+                storage,
+                original_storage,
+                self_destruct,
+                logs,
+                refund,
+                accessed_accounts,
+                accessed_storage,
+                created_accounts,
+            }),
             remaining_interim_states,
         ),
         account_id: _,
@@ -4995,7 +4965,7 @@ k::rules! {
             argument_width,
             return_start,
             return_width,
-            ..
+            ..,
         ],
         pc,
         gas: _,
@@ -5046,7 +5016,7 @@ k::rules! {
             | MulMod()
             | Exponent()
             | SignExtend(),
-            ..
+            ..,
         ],
         word_stack: [],
         status_code: _,
@@ -5071,7 +5041,7 @@ k::rules! {
             | ShiftLeft()
             | ShiftRight()
             | SignedShiftRight(),
-            ..
+            ..,
         ],
         word_stack: [],
         status_code: _,
@@ -5091,7 +5061,7 @@ k::rules! {
             | CodeCopy()
             | ReturnDataCopy()
             | BlockHash(),
-            ..
+            ..,
         ],
         word_stack: [],
         status_code: _,
@@ -5112,7 +5082,7 @@ k::rules! {
             | JumpIf()
             | Return()
             | Revert(),
-            ..
+            ..,
         ],
         word_stack: [],
         status_code: _,
@@ -5134,7 +5104,7 @@ k::rules! {
             | MulMod()
             | Exponent()
             | SignExtend(),
-            ..
+            ..,
         ],
         word_stack: [_],
         status_code: _,
@@ -5157,7 +5127,7 @@ k::rules! {
             | ShiftLeft()
             | ShiftRight()
             | SignedShiftRight(),
-            ..
+            ..,
         ],
         word_stack: [_],
         status_code: _,
@@ -5179,7 +5149,7 @@ k::rules! {
             | JumpIf()
             | Return()
             | Revert(),
-            ..
+            ..,
         ],
         word_stack: [_],
         status_code: _,
@@ -5196,7 +5166,7 @@ k::rules! {
             | ReturnDataCopy()
             | AddMod()
             | MulMod(),
-            ..
+            ..,
         ],
         word_stack: [_, _],
         status_code: _,
@@ -5306,7 +5276,7 @@ k::claims! {
     arithmetic_comparison_tranches_stop: {
         k: [Run()],
         program: k::bytes!(
-            b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00"
+            b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00",
         ),
         address: 0,
         origin: 0,
@@ -5342,7 +5312,7 @@ k::claims! {
     pure_word_tranche_stop: {
         k: [Run()],
         program: k::bytes!(
-            b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00"
+            b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00",
         ),
         address: 0,
         origin: 0,
@@ -5423,7 +5393,7 @@ k::claims! {
     control_flow_tranche_stop: {
         k: [Run()],
         program: k::bytes!(
-            b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"
+            b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00",
         ),
         address: 0,
         origin: 0,
@@ -5458,7 +5428,7 @@ k::claims! {
     execution_context_tranche_stop: {
         k: [Run()],
         program: k::bytes!(
-            b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00"
+            b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00",
         ),
         address: 10,
         origin: 11,
@@ -5520,7 +5490,7 @@ k::claims! {
         k: [],
         output: k::bytes!(b""),
         local_mem: k::bytes!(
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xaa"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xaa",
         ),
         memory_used: 1,
         word_stack: [32, 170],
@@ -5534,7 +5504,7 @@ k::claims! {
     load_copy_tranche_stop: {
         k: [Run()],
         program: k::bytes!(
-            b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00"
+            b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00",
         ),
         address: 0,
         origin: 0,
@@ -5561,7 +5531,7 @@ k::claims! {
         k: [],
         output: k::bytes!(b""),
         local_mem: k::bytes!(
-            b"\xbb\xcc\xdd\x60\x00\x22\x33\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\xbb\xcc\xdd\x60\x00\x22\x33\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
         ),
         memory_used: 1,
         word_stack: [

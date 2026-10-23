@@ -74,23 +74,23 @@ k::rules! {
 
     inc: {
         k: [Inc(), ..],
-        counter: c
+        counter: c,
     } => {
         k: [0, ..],
-        counter: int::add(c, 1)
+        counter: int::add(c, 1),
     };
     dbl: {
         k: [Dbl(), ..],
-        counter: c
+        counter: c,
     } => {
         k: [0, ..],
-        counter: int::mul(c, 2)
+        counter: int::mul(c, 2),
     };
     add: {
         k: [Add { lhs, rhs }, ..],
-        counter: c
+        counter: c,
     } => {
-        k: [c, ..]
+        k: [c, ..],
     }
     where lhs: Int, rhs: Int;
 }

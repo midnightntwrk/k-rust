@@ -72,28 +72,28 @@ k::rules! {
     #[k::rule(heat, hole = h)]
     #[k::requires(k::is!(KResult, e))]
     heat_add_rhs: {
-        k: [Add(e, h), ..]
+        k: [Add(e, h), ..],
     } => {
-        k: [h, Freezer::AddRhs(e), ..]
+        k: [h, Freezer::AddRhs(e), ..],
     };
     #[k::rule(heat, hole = h)]
     heat_add_lhs: {
-        k: [Add(h, e), ..]
+        k: [Add(h, e), ..],
     } => {
-        k: [h, Freezer::AddLhs(e), ..]
+        k: [h, Freezer::AddLhs(e), ..],
     };
     #[k::rule(heat, hole = h, result = Value)]
     #[k::requires(k::is!(Value, e))]
     heat_and_rhs: {
-        k: [And(e, h), ..]
+        k: [And(e, h), ..],
     } => {
-        k: [h, Freezer::AndRhs(e), ..]
+        k: [h, Freezer::AndRhs(e), ..],
     };
     #[k::rule(heat, hole = h, result = Value)]
     heat_and_lhs: {
-        k: [And(h, e), ..]
+        k: [And(h, e), ..],
     } => {
-        k: [h, Freezer::AndLhs(e), ..]
+        k: [h, Freezer::AndLhs(e), ..],
     };
 }
 
@@ -105,15 +105,15 @@ k::rules! {
 
     #[k::rule(cool, hole = h)]
     cool_add_rhs: {
-        k: [h, Freezer::AddRhs(e), ..]
+        k: [h, Freezer::AddRhs(e), ..],
     } => {
-        k: [Add(e, h), ..]
+        k: [Add(e, h), ..],
     };
     #[k::rule(cool, hole = h, result = Value)]
     cool_and_rhs: {
-        k: [h, Freezer::AndRhs(e), ..]
+        k: [h, Freezer::AndRhs(e), ..],
     } => {
-        k: [And(e, h), ..]
+        k: [And(e, h), ..],
     };
 }
 

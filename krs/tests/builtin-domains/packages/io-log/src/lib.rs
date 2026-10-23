@@ -46,15 +46,15 @@ k::rules! {
 
     /// `trace` logs one line with `#log`.
     trace: {
-        k: [Trace(), ..]
+        k: [Trace(), ..],
     } => {
-        k: [io::log("traced"), ..]
+        k: [io::log("traced"), ..],
     };
 
     /// `twice` logs a line and then continues with `trace`.
     twice: {
-        k: [Twice(), ..]
+        k: [Twice(), ..],
     } => {
-        k: [io::log("one"), Trace(), ..]
+        k: [io::log("one"), Trace(), ..],
     };
 }
