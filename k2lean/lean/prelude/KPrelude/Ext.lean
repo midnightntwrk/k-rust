@@ -256,16 +256,26 @@ def rfind (h n : String) (i : Int) : Option Int :=
   let ns := n.toList
   let cands := (List.range (min i.toNat hs.length + 1)).reverse
   some ((cands.find? fun k => ns.isPrefixOf (hs.drop k)).map (fun k => (k : Int)) |>.getD (-1))
-/-- The first index `≥ i` holding one of the characters of `cs`, or `-1`. -/
+/-- The first index `≥ i` holding one of the characters of `cs`, or `-1`.
+With an empty `cs` the result is `-1` at every index, negative ones included: that is the
+equation `findChar(_, "", _) => -1` of `domains.md`, and a model satisfies every equation of the
+definition. With a non-empty `cs` it is undefined at a negative `i`: there the definition's other
+equation reduces `findChar` to `findString`, which `domains.md` leaves unspecified at a negative
+index (`find` is undefined there). -/
 def findChar (h cs : String) (i : Int) : Option Int :=
+  if cs.isEmpty then some (-1) else
   if i < 0 then none else
   let hs := h.toList
   let rec go : Nat → List Char → Int
     | _, [] => -1
     | k, c :: t => if cs.toList.contains c then k else go (k + 1) t
   some (go i.toNat (hs.drop i.toNat))
-/-- The last index `≤ i` holding one of the characters of `cs`, or `-1`. -/
+/-- The last index `≤ i` holding one of the characters of `cs`, or `-1`.
+As for `findChar`: `-1` for an empty `cs` at every index (`rfindChar(_, "", _) => -1`), and
+undefined for a non-empty `cs` at a negative `i`, where the definition's other equation reduces
+`rfindChar` to `rfindString`, unspecified at a negative index (`rfind` is undefined there). -/
 def rfindChar (h cs : String) (i : Int) : Option Int :=
+  if cs.isEmpty then some (-1) else
   if i < 0 then none else
   let hs := h.toList
   let cands := (List.range (min i.toNat hs.length + 1)).reverse

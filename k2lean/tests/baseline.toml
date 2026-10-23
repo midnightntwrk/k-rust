@@ -67,17 +67,15 @@ open = [
   "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
   "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
   "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«findChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2»",
   "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
   "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
   "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
-  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2»",
   "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
   "Simp.s_44257f63a99a",
   "Simp.s_942141263122",
   "Simp.s_b977e4810b4c",
 ]
-guarded = 106
+guarded = 108
 
 [lib.kimpinv]
 tier = "light"
@@ -102,11 +100,9 @@ open = [
   "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
   "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
   "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«findChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2»",
   "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
   "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
   "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
-  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2»",
   "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
   "Simp.s_44257f63a99a",
   "Simp.s_942141263122",
@@ -315,7 +311,7 @@ allowed_axioms = []
 "generated/simple/KSimple.lean" = { tier = "heavy", sha256 = "8b7885cbde59db206f2606e46fe5656e9541e6ed9b8cd08efc9ec731f120f4cc" }
 "generated/simple/KSimple/Adequacy.lean" = { tier = "heavy", sha256 = "a37a9cfd4771b2b4b560eb54de9dc274862a5ffdb1347b1ece023d11605d945a" }
 "generated/simple/KSimple/Determinism.lean" = { tier = "heavy", sha256 = "ef578b41f9b7652aa1b9892627f97faea3a40ed5b554831c455afea42a28f194" }
-"generated/simple/KSimple/Equations.lean" = { tier = "heavy", sha256 = "c71049df2ba8fab94143ffe2fb4ead2ae035d41aadb2238f60fea1a17183b562" }
+"generated/simple/KSimple/Equations.lean" = { tier = "heavy", sha256 = "5012addaf77872422019b7c11541da40ed9b52a1457c097e5d7bb1edd52d05a6" }
 "generated/simple/KSimple/Functions.lean" = { tier = "heavy", sha256 = "b0622ab463c5c9cb7f96ae5ae27708465f8fe8367a08fbdd8b3d8d14adecc47d" }
 "generated/simple/KSimple/Init.lean" = { tier = "heavy", sha256 = "7f8bfb74161776864b72f09f7bb1d4335741a09ddc8aa557f20e6414c0e1906d" }
 "generated/simple/KSimple/Preserves.lean" = { tier = "heavy", sha256 = "f9c09f16fc3be42308f79896444bd0e43d5ef6ef15a077d0d134e64b2395bff8" }
@@ -323,7 +319,7 @@ allowed_axioms = []
 "generated/simple/KSimple/Terms.lean" = { tier = "heavy", sha256 = "e0178f52080e485a69a7cad8090f80a74bc71470f138ad7fbe0b57e47b80095b" }
 "generated/simple/KSimpleBench/Main.lean" = { tier = "heavy", sha256 = "86a2bd71d9e21457c5b99f246007a1e08e8c7a70f8854955c9ab23fb2c43da6c" }
 "generated/simple/KSimpleBench/Programs.lean" = { tier = "heavy", sha256 = "f33067df68234c306bcb1b3ac270694cab2b15cb4b3358f7d1857202973c1ddf" }
-"generated/simple/KSimpleTest/Axioms.lean" = { tier = "heavy", sha256 = "f1ee187cff4fa9d2d7f8da71f9890a02bd4980d0e0acb84dd56e785a74715287" }
+"generated/simple/KSimpleTest/Axioms.lean" = { tier = "heavy", sha256 = "7d2341974e6dc308c50b30dec84f5442a0a442ccaf83a4839a77e3afee6513af" }
 "generated/simple/KSimpleTest/Cases.lean" = { tier = "heavy", sha256 = "bee419a6fadb922d75737522ed4c1a76cdd1493d827a05538e61943652ae5cd9" }
 "generated/simple/KSimpleTest/Main.lean" = { tier = "heavy", sha256 = "4c7ad7c1856ddc1cb135926851d981d9f42f6b13527c747c73a2b5096c8461a9" }
 "generated/simple/lakefile.lean" = { tier = "heavy", sha256 = "5e549c477297e943fa3d55bac7a8079beade7b4b6f3f156664350bc1c805e602" }
@@ -331,7 +327,7 @@ allowed_axioms = []
 "generated/simpleinv/KSimpleInv.lean" = { tier = "heavy", sha256 = "cdb5c360350c16c1c750676ff5a1296fee1dda18cb8dfaa1625c2946c648fd7d" }
 "generated/simpleinv/KSimpleInv/Adequacy.lean" = { tier = "heavy", sha256 = "58d0a04924b87581662e6f5b25439c5153c67292025272683a2cce7ad357f168" }
 "generated/simpleinv/KSimpleInv/Determinism.lean" = { tier = "heavy", sha256 = "d82f22c80b11e3e94e92af937370cacad95960cb24c69c4d8ff049c270f6e16b" }
-"generated/simpleinv/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "fbcf3a7dc98b345338a41d2e8de054a3088c5c3634c0f7f0c040726075e80dce" }
+"generated/simpleinv/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "0b6e3b0cde9c139695b1554b355ca91442360172820eaef2761477991f6b181d" }
 "generated/simpleinv/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "8af22314d1301c4e408c98624e43fc52a22598a32be88a9596117dd5314b3845" }
 "generated/simpleinv/KSimpleInv/Init.lean" = { tier = "heavy", sha256 = "3c54c85db80269f846b804b5cf8cad7b49eaf5e3d67a2819c503b49e5a1d9787" }
 "generated/simpleinv/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "2cbfa539480d5796a5511a34d003e9b427f5c2e5f629e2133332a89b678964eb" }
@@ -342,7 +338,7 @@ allowed_axioms = []
 "generated/simpleinv/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "e12954453fb4b103ec83fae2d843dee243e5d54a53b780c2b534cf60f33de53b" }
 "generated/simpleinv/KSimpleInvBench/Main.lean" = { tier = "heavy", sha256 = "5d91d61f08f69edd69a3ee9eeff6e9678f945a9c9e86ec50373ee8e2f03acb84" }
 "generated/simpleinv/KSimpleInvBench/Programs.lean" = { tier = "heavy", sha256 = "3fa6acf0f5ee5f41402bf12403e74884340751a08f98a39ffbd3ac6ba52e438d" }
-"generated/simpleinv/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "4fe09363b3d6feaa0877aed20a1d76f7957a67753c4103701fe38574c262a1a0" }
+"generated/simpleinv/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "d3734e32518f7778a955f02caf340e7edfc06b5efaefe006a1f7a8bfc252f446" }
 "generated/simpleinv/KSimpleInvTest/Main.lean" = { tier = "heavy", sha256 = "c38c0e546d17016d6bb4538251d5cca2b4183f3a668e41e4f62e7503cf8de4f2" }
 "generated/simpleinv/lakefile.lean" = { tier = "heavy", sha256 = "b4623a72d37b5cdf2fa04ac5f25455e50854da0dcb0280059349f2d9d2e55fa4" }
 "generated/simpleinv/lean-toolchain" = { tier = "heavy", sha256 = "54727eec5cba149c18842e6deb5c41b369d66455c93ce135d7d5347c782b2325" }
