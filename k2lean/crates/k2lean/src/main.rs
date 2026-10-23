@@ -317,7 +317,7 @@ fn main() {
                 write(
                     &out.join(ns).join("Adequacy.lean"),
                     &with_hooks(
-                        multi::emit_adequacy(&rs, &prios, &top, ns),
+                        multi::emit_adequacy(&rs, &prios, &top, ns, &rules::ctor_info(&m)),
                         ns,
                         &fgen.params,
                     ),
@@ -343,7 +343,7 @@ fn main() {
                 write(
                     &out.join(ns).join("Adequacy.lean"),
                     &with_hooks(
-                        ranked::emit_adequacy(&rs, &prios, &top, ns),
+                        ranked::emit_adequacy(&rs, &prios, &top, ns, &rules::ctor_info(&m)),
                         ns,
                         &fgen.params,
                     ),
@@ -368,7 +368,7 @@ fn main() {
                 write(
                     &out.join(ns).join("Adequacy.lean"),
                     &with_hooks(
-                        rules::emit_adequacy(&rs, &top, ns, &unfold),
+                        rules::emit_adequacy(&rs, &top, ns, &unfold, &rules::ctor_info(&m)),
                         ns,
                         &fgen.params,
                     ),

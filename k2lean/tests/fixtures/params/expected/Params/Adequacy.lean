@@ -22,62 +22,73 @@ theorem Rules.«hash B».complete (B : SortBytes) (Gen0 : SortInt) (DotVar0 : So
       (hr_3 : Hooks.«fn.oracle(_)_PARAMS_Int_Int» (KPrelude.BytesHook.length B) = some r_2) :
     (Rules.«hash B» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.hash_ B)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0)).next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» SortK.dotk) (SortOutCell.«<out>» (KPrelude.IntHook.add (KPrelude.StringHook.length r) r_2))) DotVar0) := by
   k2l_map_facts
-  simp only [Rules.«hash B»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«hash B»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«hash B».applies (B : SortBytes) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«hash B» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.hash_ B)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0)).applies = true := by
   k2l_map_facts
-  simp only [Rules.«hash B»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«hash B»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«roundtrip I».complete (I : SortInt) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«roundtrip I» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.roundtrip_ I)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0)).next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» SortK.dotk) (SortOutCell.«<out>» (K.hook_bytes2int (K.hook_int2bytes (4 : Int) I SortEndianness.bigEndianBytes) SortEndianness.bigEndianBytes SortSignedness.signedBytes))) DotVar0) := by
   k2l_map_facts
-  simp only [Rules.«roundtrip I»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«roundtrip I»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«roundtrip I».applies (I : SortInt) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«roundtrip I» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.roundtrip_ I)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0)).applies = true := by
   k2l_map_facts
-  simp only [Rules.«roundtrip I»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«roundtrip I»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Step.app {c c' : SortGeneratedTopCell} (h : Step c c') : App c := by
   cases h with
   | «hash B» B Gen0 DotVar0 r r_2 hr hr_3 => exact App.«hash B» B Gen0 DotVar0
   | «roundtrip I» I Gen0 DotVar0 => exact App.«roundtrip I» I Gen0 DotVar0
 
-theorem Rules.«hash B».mem (c : SortGeneratedTopCell) (h : (Rules.«hash B» c).applies = true) : R.«hash B» ∈ bucketOf c := by
-  unfold Rules.«hash B» at h
-  repeat' split at h
-  all_goals (try simp at h)
-  all_goals first
-    | (simp only [bucketOf, mem_mergeRank]; simp; done)
-    | ((simp only [bucketOf, mem_mergeRank]; repeat' split) <;> simp_all)
+theorem Rules.«hash B».mem (B : SortBytes) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
+    R.«hash B» ∈ bucketOf (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.hash_ B)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0) := by
+  exact List.mem_cons_self
 
-theorem Rules.«roundtrip I».mem (c : SortGeneratedTopCell) (h : (Rules.«roundtrip I» c).applies = true) : R.«roundtrip I» ∈ bucketOf c := by
-  unfold Rules.«roundtrip I» at h
-  repeat' split at h
-  all_goals (try simp at h)
-  all_goals first
-    | (simp only [bucketOf, mem_mergeRank]; simp; done)
-    | ((simp only [bucketOf, mem_mergeRank]; repeat' split) <;> simp_all)
+theorem Rules.«hash B».memS (B : SortBytes) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) (r : SortString) (r_2 : SortInt)
+      (hr : Hooks.«BYTES.bytes2hex» B = some r)
+      (hr_3 : Hooks.«fn.oracle(_)_PARAMS_Int_Int» (KPrelude.BytesHook.length B) = some r_2) :
+    R.«hash B» ∈ bucketOf (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.hash_ B)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0) := by
+  exact List.mem_cons_self
 
-theorem mem_bucket {c : SortGeneratedTopCell} {r : Rule SortGeneratedTopCell App Step} (hr : r ∈ rules) (h : (r.run c).applies = true) :
-    r ∈ bucketOf c := by
-  simp only [rules, List.mem_cons, List.not_mem_nil, or_false] at hr
-  rcases hr with rfl | rfl
-  · exact Rules.«hash B».mem c h
-  · exact Rules.«roundtrip I».mem c h
+theorem Rules.«roundtrip I».mem (I : SortInt) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
+    R.«roundtrip I» ∈ bucketOf (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.roundtrip_ I)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0) := by
+  apply List.mem_cons_of_mem
+  exact List.mem_cons_self
+
+theorem Rules.«roundtrip I».memS (I : SortInt) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
+    R.«roundtrip I» ∈ bucketOf (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.roundtrip_ I)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0) := by
+  apply List.mem_cons_of_mem
+  exact List.mem_cons_self
+
+theorem bucket_complete {c c' : SortGeneratedTopCell} (h : Step c c') : ∃ r ∈ bucketOf c, (r.run c).next? = some c' := by
+  cases h with
+  | «hash B» B Gen0 DotVar0 r r_2 hr hr_3 => exact ⟨R.«hash B», Rules.«hash B».memS B Gen0 DotVar0 r r_2 hr hr_3, Rules.«hash B».complete B Gen0 DotVar0 r r_2 hr hr_3⟩
+  | «roundtrip I» I Gen0 DotVar0 => exact ⟨R.«roundtrip I», Rules.«roundtrip I».memS I Gen0 DotVar0, Rules.«roundtrip I».complete I Gen0 DotVar0⟩
+
+theorem bucket_applies {c : SortGeneratedTopCell} (h : App c) : ∃ r ∈ bucketOf c, (r.run c).applies = true := by
+  cases h with
+  | «hash B» B Gen0 DotVar0 => exact ⟨R.«hash B», Rules.«hash B».mem B Gen0 DotVar0, Rules.«hash B».applies B Gen0 DotVar0⟩
+  | «roundtrip I» I Gen0 DotVar0 => exact ⟨R.«roundtrip I», Rules.«roundtrip I».mem I Gen0 DotVar0, Rules.«roundtrip I».applies I Gen0 DotVar0⟩
 
 theorem rules_complete {c c' : SortGeneratedTopCell} (h : Step c c') : ∃ r ∈ rules, (r.run c).next? = some c' := by
   cases h with
@@ -102,14 +113,14 @@ theorem successors_iff {c c' : SortGeneratedTopCell} : c' ∈ successors rules c
 
 /-- If some rule has a successor, the step function takes a step. -/
 theorem step_progress {c c' : SortGeneratedTopCell} (h : Step c c') : ∃ c'', step c = .next c'' := by
-  obtain ⟨r, hm, hr⟩ := rules_complete h
-  exact firstDefined_next_of_mem (bucketOf c) c none r c' (mem_bucket hm (RuleResult.applies_of_next? hr)) hr
+  obtain ⟨r, hm, hr⟩ := bucket_complete h
+  exact firstDefined_next_of_mem (bucketOf c) c none r c' hm hr
 
 /-- A stuck configuration: no rule applies. -/
 theorem step_stuck {c : SortGeneratedTopCell} (h : step c = .stuck) : ¬ App c := by
   intro ha
-  obtain ⟨r, hm, hr⟩ := rules_applies ha
-  have := firstDefined_stuck (bucketOf c) c h r (mem_bucket hm hr)
+  obtain ⟨r, hm, hr⟩ := bucket_applies ha
+  have := firstDefined_stuck (bucketOf c) c h r hm
   rw [hr] at this
   exact Bool.noConfusion this
 
@@ -123,8 +134,8 @@ theorem step_undefined {c : SortGeneratedTopCell} {n : String} (h : step c = .un
   · obtain ⟨r, hm, hr⟩ := firstDefined_undefined_applies (bucketOf c) c n h
     exact RuleResult.app_of_applies (fun c' hs => Step.app hs) hr
   · intro c' hs
-    obtain ⟨r, hm, hr⟩ := rules_complete hs
-    have := firstDefined_undefined (bucketOf c) c none n h r (mem_bucket hm (RuleResult.applies_of_next? hr))
+    obtain ⟨r, hm, hr⟩ := bucket_complete hs
+    have := firstDefined_undefined (bucketOf c) c none n h r hm
     rw [hr] at this
     cases this
 

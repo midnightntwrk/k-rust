@@ -17,99 +17,114 @@ open KPrelude
 theorem Rules.skip.complete (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.skip (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt SortStmt.skip) DotVar2)) DotVar1) DotVar0)).next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) DotVar1) DotVar0) := by
   k2l_map_facts
-  simp only [Rules.skip]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.skip]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.skip.applies (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.skip (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt SortStmt.skip) DotVar2)) DotVar1) DotVar0)).applies = true := by
   k2l_map_facts
-  simp only [Rules.skip]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
-
-theorem Rules.skip.mem (c : SortGeneratedTopCell) (h : (Rules.skip c).applies = true) : R.skip ∈ bucketOf0 c := by
-  unfold Rules.skip at h
-  repeat' split at h
-  all_goals (try simp at h)
-  all_goals first
-    | (simp only [bucketOf0, mem_mergeRank]; simp; done)
-    | ((simp only [bucketOf0, mem_mergeRank]; repeat' split) <;> simp_all)
+  k2l_list_facts
+  dsimp only [Rules.skip]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«S Ss».complete (S : SortStmt) (Ss : SortPgm) (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«S Ss» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.__ S Ss)) DotVar2)) DotVar1) DotVar0)).next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt S) (SortK.kseq (SortKItem.inj_Pgm Ss) DotVar2))) DotVar1) DotVar0) := by
   k2l_map_facts
-  simp only [Rules.«S Ss»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«S Ss»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«S Ss».applies (S : SortStmt) (Ss : SortPgm) (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«S Ss» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.__ S Ss)) DotVar2)) DotVar1) DotVar0)).applies = true := by
   k2l_map_facts
-  simp only [Rules.«S Ss»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
-
-theorem Rules.«S Ss».mem (c : SortGeneratedTopCell) (h : (Rules.«S Ss» c).applies = true) : R.«S Ss» ∈ bucketOf1 c := by
-  unfold Rules.«S Ss» at h
-  repeat' split at h
-  all_goals (try simp at h)
-  all_goals first
-    | (simp only [bucketOf1, mem_mergeRank]; simp; done)
-    | ((simp only [bucketOf1, mem_mergeRank]; repeat' split) <;> simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«S Ss»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«.Pgm».complete (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«.Pgm» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.«.List{"___COUNTER-SYNTAX_Pgm_Stmt_Pgm"}_Pgm») DotVar2)) DotVar1) DotVar0)).next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) DotVar1) DotVar0) := by
   k2l_map_facts
-  simp only [Rules.«.Pgm»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«.Pgm»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.«.Pgm».applies (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.«.Pgm» (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.«.List{"___COUNTER-SYNTAX_Pgm_Stmt_Pgm"}_Pgm») DotVar2)) DotVar1) DotVar0)).applies = true := by
   k2l_map_facts
-  simp only [Rules.«.Pgm»]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
-
-theorem Rules.«.Pgm».mem (c : SortGeneratedTopCell) (h : (Rules.«.Pgm» c).applies = true) : R.«.Pgm» ∈ bucketOf1 c := by
-  unfold Rules.«.Pgm» at h
-  repeat' split at h
-  all_goals (try simp at h)
-  all_goals first
-    | (simp only [bucketOf1, mem_mergeRank]; simp; done)
-    | ((simp only [bucketOf1, mem_mergeRank]; repeat' split) <;> simp_all)
+  k2l_list_facts
+  dsimp only [Rules.«.Pgm»]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.incr.complete (X : SortId) (I : SortInt) (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
       (hr : K.«get(_,_)_COUNTER_Int_Map_Id» M X = some r) :
     (Rules.incr (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.«_+=_;» X I)) DotVar2)) (SortEnvCell.«<env>» M)) DotVar0)).next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortEnvCell.«<env>» (KPrelude.MapHook.update M (SortKItem.inj_Id X) (SortKItem.inj_Int (KPrelude.IntHook.add r I))))) DotVar0) := by
   k2l_map_facts
-  simp only [Rules.incr]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.incr]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
 theorem Rules.incr.applies (X : SortId) (I : SortInt) (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) :
     (Rules.incr (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.«_+=_;» X I)) DotVar2)) (SortEnvCell.«<env>» M)) DotVar0)).applies = true := by
   k2l_map_facts
-  simp only [Rules.incr]
-  repeat' split
-  all_goals simp_all
-  all_goals (subst_vars; simp_all)
+  k2l_list_facts
+  dsimp only [Rules.incr]
+  repeat' (first | (k2l_fundep1; (try dsimp only)) | split)
+  all_goals (k2l_fundep; (try simp_all))
+  all_goals (k2l_split_ands; (try subst_vars); first | k2l_absurd | (k2l_fundep; simp_all))
 
-theorem Rules.incr.mem (c : SortGeneratedTopCell) (h : (Rules.incr c).applies = true) : R.incr ∈ bucketOf1 c := by
-  unfold Rules.incr at h
-  repeat' split at h
-  all_goals (try simp at h)
-  all_goals first
-    | (simp only [bucketOf1, mem_mergeRank]; simp; done)
-    | ((simp only [bucketOf1, mem_mergeRank]; repeat' split) <;> simp_all)
+theorem Rules.skip.mem (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.skip ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt SortStmt.skip) DotVar2)) DotVar1) DotVar0) := by
+  exact List.mem_cons_self
+
+theorem Rules.skip.memS (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.skip ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt SortStmt.skip) DotVar2)) DotVar1) DotVar0) := by
+  exact List.mem_cons_self
+
+theorem Rules.«S Ss».mem (S : SortStmt) (Ss : SortPgm) (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.«S Ss» ∈ bucketOf1 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.__ S Ss)) DotVar2)) DotVar1) DotVar0) := by
+  exact List.mem_cons_self
+
+theorem Rules.«S Ss».memS (S : SortStmt) (Ss : SortPgm) (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.«S Ss» ∈ bucketOf1 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.__ S Ss)) DotVar2)) DotVar1) DotVar0) := by
+  exact List.mem_cons_self
+
+theorem Rules.«.Pgm».mem (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.«.Pgm» ∈ bucketOf1 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.«.List{"___COUNTER-SYNTAX_Pgm_Stmt_Pgm"}_Pgm») DotVar2)) DotVar1) DotVar0) := by
+  apply List.mem_cons_of_mem
+  exact List.mem_cons_self
+
+theorem Rules.«.Pgm».memS (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.«.Pgm» ∈ bucketOf1 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.«.List{"___COUNTER-SYNTAX_Pgm_Stmt_Pgm"}_Pgm») DotVar2)) DotVar1) DotVar0) := by
+  apply List.mem_cons_of_mem
+  exact List.mem_cons_self
+
+theorem Rules.incr.mem (X : SortId) (I : SortInt) (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) :
+    R.incr ∈ bucketOf1 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.«_+=_;» X I)) DotVar2)) (SortEnvCell.«<env>» M)) DotVar0) := by
+  apply List.mem_cons_of_mem
+  apply List.mem_cons_of_mem
+  exact List.mem_cons_self
+
+theorem Rules.incr.memS (X : SortId) (I : SortInt) (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+      (hr : K.«get(_,_)_COUNTER_Int_Map_Id» M X = some r) :
+    R.incr ∈ bucketOf1 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.«_+=_;» X I)) DotVar2)) (SortEnvCell.«<env>» M)) DotVar0) := by
+  apply List.mem_cons_of_mem
+  apply List.mem_cons_of_mem
+  exact List.mem_cons_self
 
 theorem Step0.app {i : Nat} {c c' : SortGeneratedTopCell} (h : Step0 i c c') : App i c := by
   cases h with
@@ -133,25 +148,19 @@ theorem Step.base {c c' : SortGeneratedTopCell} (h : Step c c') : ∃ i, Step0 i
   | «.Pgm» DotVar2 DotVar1 DotVar0 hpri => exact ⟨1, Step0.«.Pgm» DotVar2 DotVar1 DotVar0, hpri⟩
   | incr X I DotVar2 M DotVar0 r hr hpri => exact ⟨1, Step0.incr X I DotVar2 M DotVar0 r hr, hpri⟩
 
-theorem rules0_complete {c c' : SortGeneratedTopCell} (h : Step0 0 c c') : ∃ r ∈ rules0, (r.run c).next? = some c' := by
+theorem rules0_complete {c c' : SortGeneratedTopCell} (h : Step0 0 c c') : ∃ r ∈ bucketOf0 c, (r.run c).next? = some c' := by
   cases h with
-  | skip DotVar2 DotVar1 DotVar0 => exact ⟨R.skip, KPrelude.mem_of_getElem? (i := 0) rfl, Rules.skip.complete DotVar2 DotVar1 DotVar0⟩
+  | skip DotVar2 DotVar1 DotVar0 => exact ⟨R.skip, Rules.skip.memS DotVar2 DotVar1 DotVar0, Rules.skip.complete DotVar2 DotVar1 DotVar0⟩
 
-theorem rules0_applies {c : SortGeneratedTopCell} (h : App 0 c) : ∃ r ∈ rules0, (r.run c).applies = true := by
+theorem rules0_applies {c : SortGeneratedTopCell} (h : App 0 c) : ∃ r ∈ bucketOf0 c, (r.run c).applies = true := by
   cases h with
-  | skip DotVar2 DotVar1 DotVar0 => exact ⟨R.skip, KPrelude.mem_of_getElem? (i := 0) rfl, Rules.skip.applies DotVar2 DotVar1 DotVar0⟩
-
-theorem mem_bucket0 {c : SortGeneratedTopCell} {r : Rule SortGeneratedTopCell (App 0) (Step0 0)} (hr : r ∈ rules0) (h : (r.run c).applies = true) :
-    r ∈ bucketOf0 c := by
-  simp only [rules0, List.mem_cons, List.not_mem_nil, or_false] at hr
-  rcases hr with rfl
-  · exact Rules.skip.mem c h
+  | skip DotVar2 DotVar1 DotVar0 => exact ⟨R.skip, Rules.skip.mem DotVar2 DotVar1 DotVar0, Rules.skip.applies DotVar2 DotVar1 DotVar0⟩
 
 /-- No rule of rank 0 applies exactly when its bucket is stuck. -/
 theorem rank0_stuck {c : SortGeneratedTopCell} (h : firstDefined (bucketOf0 c) c none = .stuck) : ¬ App 0 c := by
   intro ha
   obtain ⟨r, hm, hr⟩ := rules0_applies ha
-  have := firstDefined_stuck (bucketOf0 c) c h r (mem_bucket0 hm hr)
+  have := firstDefined_stuck (bucketOf0 c) c h r hm
   rw [hr] at this
   exact Bool.noConfusion this
 
@@ -161,31 +170,23 @@ theorem rank0_none {c : SortGeneratedTopCell} (h : ¬ App 0 c) : firstDefined (b
     · rfl
     · exact absurd (RuleResult.app_of_applies (fun _ hs => Step0.app hs) e) h)
 
-theorem rules1_complete {c c' : SortGeneratedTopCell} (h : Step0 1 c c') : ∃ r ∈ rules1, (r.run c).next? = some c' := by
+theorem rules1_complete {c c' : SortGeneratedTopCell} (h : Step0 1 c c') : ∃ r ∈ bucketOf1 c, (r.run c).next? = some c' := by
   cases h with
-  | «S Ss» S Ss DotVar2 DotVar1 DotVar0 => exact ⟨R.«S Ss», KPrelude.mem_of_getElem? (i := 0) rfl, Rules.«S Ss».complete S Ss DotVar2 DotVar1 DotVar0⟩
-  | «.Pgm» DotVar2 DotVar1 DotVar0 => exact ⟨R.«.Pgm», KPrelude.mem_of_getElem? (i := 1) rfl, Rules.«.Pgm».complete DotVar2 DotVar1 DotVar0⟩
-  | incr X I DotVar2 M DotVar0 r hr => exact ⟨R.incr, KPrelude.mem_of_getElem? (i := 2) rfl, Rules.incr.complete X I DotVar2 M DotVar0 r hr⟩
+  | «S Ss» S Ss DotVar2 DotVar1 DotVar0 => exact ⟨R.«S Ss», Rules.«S Ss».memS S Ss DotVar2 DotVar1 DotVar0, Rules.«S Ss».complete S Ss DotVar2 DotVar1 DotVar0⟩
+  | «.Pgm» DotVar2 DotVar1 DotVar0 => exact ⟨R.«.Pgm», Rules.«.Pgm».memS DotVar2 DotVar1 DotVar0, Rules.«.Pgm».complete DotVar2 DotVar1 DotVar0⟩
+  | incr X I DotVar2 M DotVar0 r hr => exact ⟨R.incr, Rules.incr.memS X I DotVar2 M DotVar0 r hr, Rules.incr.complete X I DotVar2 M DotVar0 r hr⟩
 
-theorem rules1_applies {c : SortGeneratedTopCell} (h : App 1 c) : ∃ r ∈ rules1, (r.run c).applies = true := by
+theorem rules1_applies {c : SortGeneratedTopCell} (h : App 1 c) : ∃ r ∈ bucketOf1 c, (r.run c).applies = true := by
   cases h with
-  | «S Ss» S Ss DotVar2 DotVar1 DotVar0 => exact ⟨R.«S Ss», KPrelude.mem_of_getElem? (i := 0) rfl, Rules.«S Ss».applies S Ss DotVar2 DotVar1 DotVar0⟩
-  | «.Pgm» DotVar2 DotVar1 DotVar0 => exact ⟨R.«.Pgm», KPrelude.mem_of_getElem? (i := 1) rfl, Rules.«.Pgm».applies DotVar2 DotVar1 DotVar0⟩
-  | incr X I DotVar2 M DotVar0 => exact ⟨R.incr, KPrelude.mem_of_getElem? (i := 2) rfl, Rules.incr.applies X I DotVar2 M DotVar0⟩
-
-theorem mem_bucket1 {c : SortGeneratedTopCell} {r : Rule SortGeneratedTopCell (App 1) (Step0 1)} (hr : r ∈ rules1) (h : (r.run c).applies = true) :
-    r ∈ bucketOf1 c := by
-  simp only [rules1, List.mem_cons, List.not_mem_nil, or_false] at hr
-  rcases hr with rfl | rfl | rfl
-  · exact Rules.«S Ss».mem c h
-  · exact Rules.«.Pgm».mem c h
-  · exact Rules.incr.mem c h
+  | «S Ss» S Ss DotVar2 DotVar1 DotVar0 => exact ⟨R.«S Ss», Rules.«S Ss».mem S Ss DotVar2 DotVar1 DotVar0, Rules.«S Ss».applies S Ss DotVar2 DotVar1 DotVar0⟩
+  | «.Pgm» DotVar2 DotVar1 DotVar0 => exact ⟨R.«.Pgm», Rules.«.Pgm».mem DotVar2 DotVar1 DotVar0, Rules.«.Pgm».applies DotVar2 DotVar1 DotVar0⟩
+  | incr X I DotVar2 M DotVar0 => exact ⟨R.incr, Rules.incr.mem X I DotVar2 M DotVar0, Rules.incr.applies X I DotVar2 M DotVar0⟩
 
 /-- No rule of rank 1 applies exactly when its bucket is stuck. -/
 theorem rank1_stuck {c : SortGeneratedTopCell} (h : firstDefined (bucketOf1 c) c none = .stuck) : ¬ App 1 c := by
   intro ha
   obtain ⟨r, hm, hr⟩ := rules1_applies ha
-  have := firstDefined_stuck (bucketOf1 c) c h r (mem_bucket1 hm hr)
+  have := firstDefined_stuck (bucketOf1 c) c h r hm
   rw [hr] at this
   exact Bool.noConfusion this
 
@@ -209,12 +210,12 @@ theorem step_progress {c c' : SortGeneratedTopCell} (h : Step c c') : ∃ c'', s
   match i, h0, hhi with
   | 0, h0, hhi =>
     obtain ⟨r, hm, hr⟩ := rules0_complete h0
-    obtain ⟨c'', hc⟩ := firstDefined_next_of_mem (bucketOf0 c) c none r c' (mem_bucket0 hm (RuleResult.applies_of_next? hr)) hr
+    obtain ⟨c'', hc⟩ := firstDefined_next_of_mem (bucketOf0 c) c none r c' hm hr
     refine ⟨c'', ?_⟩
     unfold step; simp only [orStuck_of_stuck, hc, orStuck]
   | 1, h0, hhi =>
     obtain ⟨r, hm, hr⟩ := rules1_complete h0
-    obtain ⟨c'', hc⟩ := firstDefined_next_of_mem (bucketOf1 c) c none r c' (mem_bucket1 hm (RuleResult.applies_of_next? hr)) hr
+    obtain ⟨c'', hc⟩ := firstDefined_next_of_mem (bucketOf1 c) c none r c' hm hr
     refine ⟨c'', ?_⟩
     unfold step; rw [rank0_none (hhi 0 (by omega))]; simp only [orStuck_of_stuck, hc, orStuck]
   | _ + 2, h0, _ => cases h0

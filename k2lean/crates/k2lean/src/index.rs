@@ -266,6 +266,86 @@ pub fn emit(t: &Tree, names: &[String], info: &CtorInfo, ind: usize) -> String {
     }
 }
 
+/// One step from a bucket expression to a smaller one that holds rule `r` (`mem_tactic`).
+#[derive(Clone, Copy)]
+enum MemStep {
+    /// `mergeRank (branches) rest`, `r` in the branch taken at its own constructor
+    Left,
+    /// `mergeRank (branches) rest`, `r` in `rest` (its left-hand side has a variable there)
+    Right,
+    /// a list literal, `r` at this position
+    Elem(usize),
+}
+
+fn mem_path(t: &Tree, r: usize, lhs: &L, info: &CtorInfo, out: &mut Vec<MemStep>) -> bool {
+    match t {
+        Tree::Leaf(rs) => match rs.iter().position(|&x| x == r) {
+            Some(k) => {
+                out.push(MemStep::Elem(k));
+                true
+            }
+            None => false,
+        },
+        Tree::Node {
+            path,
+            branches,
+            rest,
+            ..
+        } => {
+            let rest_empty = matches!(&**rest, Tree::Leaf(v) if v.is_empty());
+            match at(lhs, path, info) {
+                At::Ctor(h, _) => {
+                    let Some((_, _, sub)) = branches.iter().find(|(c, _, _)| c == h) else {
+                        return false;
+                    };
+                    if !rest_empty {
+                        out.push(MemStep::Left);
+                    }
+                    mem_path(sub, r, lhs, info, out)
+                }
+                At::Var if !rest_empty => {
+                    out.push(MemStep::Right);
+                    mem_path(rest, r, lhs, info, out)
+                }
+                _ => false,
+            }
+        }
+    }
+}
+
+/// The proof that rule `r` of the left-hand sides `t` was built from is in the bucket of its own
+/// left-hand side `lhs`, or of an instance of it: the path through the tree, one `apply` per
+/// node. Each `apply` unifies with the bucket expression at that node, which reduces by one
+/// `match` on a constructor of the left-hand side (or is a `mergeRank`), so no tactic traverses
+/// the off-path parts of the index. `None` if `r` is not where its left-hand side leads, which
+/// would be a bug of `build`.
+pub fn mem_tactic(t: &Tree, r: usize, lhs: &L, info: &CtorInfo) -> Option<String> {
+    let mut steps = Vec::new();
+    if !mem_path(t, r, lhs, info, &mut steps) {
+        return None;
+    }
+    let mut o = String::new();
+    for s in steps {
+        match s {
+            MemStep::Left => o.push_str("  apply KPrelude.mem_mergeRank_left\n"),
+            MemStep::Right => o.push_str("  apply KPrelude.mem_mergeRank_right\n"),
+            MemStep::Elem(k) => {
+                for _ in 0..k {
+                    o.push_str("  apply List.mem_cons_of_mem\n");
+                }
+                o.push_str("  exact List.mem_cons_self\n");
+            }
+        }
+    }
+    Some(o)
+}
+
+/// The membership proof of rule `r` of `lhs`, along its path, or (if no path is found, a bug of
+/// `build`) by search in the bucket `bucket` reduced on the left-hand side.
+pub fn mem_tactic_or_search(t: &Tree, r: usize, lhs: &L, info: &CtorInfo, bucket: &str) -> String {
+    mem_tactic(t, r, lhs, info).unwrap_or_else(|| format!("  dsimp only [{bucket}]\n  k2l_mem\n"))
+}
+
 /// Statistics for the report: (number of leaves, largest leaf, average leaf size).
 pub fn stats(t: &Tree) -> (usize, usize, usize) {
     fn walk(t: &Tree, out: &mut Vec<usize>) {
