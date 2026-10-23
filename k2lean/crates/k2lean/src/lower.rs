@@ -877,6 +877,9 @@ impl<'a> Lower<'a> {
                     .cloned()
                     .ok_or(format!("no implementation for function {f}"))?;
                 let mut largs = Vec::new();
+                // whether a polymorphic-result argument occurs, and whether an argument of the
+                // call's own sort that is not one fixes the carrier
+                let (mut poly_arg, mut fixed) = (false, false);
                 for (a, s) in args.iter().zip(&sig.args) {
                     let e = self.expr(a, s)?;
                     // a hook with a polymorphic result, as the argument of a hook whose result
@@ -885,6 +888,8 @@ impl<'a> Lower<'a> {
                     // hook whose result has the argument's sort, gets its type from there)
                     let nested_poly =
                         matches!(&e, L::App(h, _) if crate::hooks::needs_ascription(h));
+                    poly_arg |= nested_poly;
+                    fixed |= !nested_poly && *s == sig.result;
                     if nested_poly
                         && sig.lean.starts_with("KPrelude.")
                         && s != "?"
@@ -897,8 +902,12 @@ impl<'a> Lower<'a> {
                 }
                 let call = L::app(sig.lean.clone(), largs);
                 if sig.partial {
-                    // a `match` scrutinee has no expected type: ascribe polymorphic results
-                    let call = if crate::hooks::needs_ascription(&sig.lean) {
+                    // a `match` scrutinee has no expected type: ascribe polymorphic results, and
+                    // a hook call whose carrier only its polymorphic arguments would fix
+                    // (`SetItem(A) SetItem(B)`, a partial `SetHook.concat`)
+                    let call = if crate::hooks::needs_ascription(&sig.lean)
+                        || (poly_arg && !fixed && sig.lean.starts_with("KPrelude."))
+                    {
                         L::Typed(Box::new(call), format!("Option {}", sig.result))
                     } else {
                         call
