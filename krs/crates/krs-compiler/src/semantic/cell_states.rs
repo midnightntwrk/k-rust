@@ -222,6 +222,21 @@ pub(super) fn lower_optional_clause(
         ));
     }
     let before_inner = present_content(before);
+    // `Some(P1 | P2)` of an optional group joins whole cells, as a group
+    // entry's `P1 | P2` does.
+    if let (
+        ProtocolCellContent::Nested { declaration },
+        Some(ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term)),
+    ) = (&declared.content, before_inner)
+    {
+        super::cell_alternatives::reject_cell_alternatives(
+            &descriptor,
+            term,
+            name,
+            &declaration.declaration,
+            declarations.cell(&declaration.declaration)?,
+        )?;
+    }
     let after_inner = match after {
         None => None,
         Some(after) if is_presence(after) => Some(present_content(after)),

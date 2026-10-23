@@ -1543,6 +1543,13 @@ fn lower_head_rule_fixed_extra(
                     .into(),
             });
         };
+        super::cell_alternatives::reject_cell_alternatives(
+            builder.descriptor,
+            before,
+            &cell.cell.field,
+            &declaration.declaration,
+            declarations.cell(&declaration.declaration)?,
+        )?;
         return lower_head_rule_group_rewrite(
             builder,
             cell,

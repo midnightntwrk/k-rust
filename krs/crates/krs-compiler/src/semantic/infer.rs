@@ -2322,6 +2322,13 @@ impl StructuredTermBuilder<'_> {
                 ProtocolCellContent::Nested {
                     declaration: nested,
                 } => {
+                    super::cell_alternatives::reject_cell_alternatives(
+                        self.descriptor,
+                        &field.value,
+                        &declared.rust_field,
+                        &nested.declaration,
+                        self.cell_declaration(&nested.declaration)?,
+                    )?;
                     let record = match field.value.as_ref() {
                         DescriptorTerm::Cell { declaration, .. } => Some(declaration),
                         DescriptorTerm::As { name, pattern, .. } => {

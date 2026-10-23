@@ -705,3 +705,251 @@ fn a_group_child_may_be_a_binder_or_wildcard() {
     let reference = library_package(temporary.path(), "omitted-expanded", &expanded);
     assert_eq!(run(&reference, "look"), run(&omitted, "look"));
 }
+
+/// Optional cells: a leaf `counter` and a group `mark`.
+const OPTIONAL: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Peek, Read))]
+pub enum Cmd {
+    #[k::syntax("peek")]
+    Peek(),
+    #[k::syntax("read")]
+    Read(),
+}
+
+#[k::cell]
+pub struct Mark {
+    #[k::cell]
+    pub seen: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(multiplicity = "?")]
+    pub counter: Option<Int>,
+    #[k::cell(multiplicity = "?", nested)]
+    pub mark: Option<Mark>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], counter: Some(0), mark: Some(Mark { seen: 0 }) }
+    }
+}
+"#;
+
+/// `krs check`'s first error and where it points, `line:column` in the
+/// package's `src/lib.rs`, or `passed`.
+fn first_error(target: &Path, manifest: &Path) -> String {
+    let (success, stdout, stderr) = krs(target, manifest, "check", &[]);
+    if success {
+        return format!("passed: {}", stdout.trim());
+    }
+    let headline = stderr
+        .lines()
+        .find(|line| line.starts_with("error"))
+        .unwrap_or_else(|| panic!("no error:\n{stderr}"));
+    let location = stderr
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("--> "))
+        .and_then(|path| path.split_once("src/lib.rs:"))
+        .map_or("unlocated", |(_, location)| location);
+    format!("{headline} @ {location}")
+}
+
+/// The `line:column` of `needle`'s last line in the package's `src/lib.rs`.
+fn location(manifest: &Path, needle: &str) -> String {
+    let source = fs::read_to_string(manifest.with_file_name("src/lib.rs")).unwrap();
+    source
+        .lines()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .enumerate()
+        .rev()
+        .find_map(|(line, text)| {
+            text.find(needle)
+                .map(|column| format!("{}:{}", line + 1, column + 1))
+        })
+        .unwrap_or_else(|| panic!("`{needle}` is in the source"))
+}
+
+/// The two-level package with one machine rule.
+fn two_level_rules(rule: &str) -> String {
+    format!("{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    {rule}\n}}\n")
+}
+
+/// The rules and claim [`alternatives_over_a_whole_group_cell_are_refused_at_the_bar`]
+/// refuses: a name, a library, and where its `|` term starts.
+fn refused_alternatives() -> Vec<(&'static str, String, &'static str)> {
+    vec![
+        (
+            "entry",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { flag: 0, .. } | Outer { flag: 1, .. } } => { k: [..] };",
+            ),
+            "Outer { flag: 0",
+        ),
+        (
+            "nested-entry",
+            two_level_rules(
+                "pick: { k: [Push(), ..], frame: Frame { pc: 0, .. } | Frame { gas: 0, .. } } => { k: [..] };",
+            ),
+            "Frame { pc: 0",
+        ),
+        (
+            "shared-binder",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { flag: x, frame: Frame { pc: 0, .. } } | Outer { flag: x, frame: Frame { gas: 0, .. } } } => { k: [x, ..] };",
+            ),
+            "Outer { flag: x",
+        ),
+        (
+            "whole-result",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { flag: 0, .. } | Outer { flag: 1, .. } } => { k: [..], outer: Outer { frame: Frame { pc: 0, gas: 0 }, flag: 2 } };",
+            ),
+            "Outer { flag: 0",
+        ),
+        (
+            "alias-over",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: o @ (Outer { flag: 0, .. } | Outer { flag: 1, .. }) } => { k: [..] };",
+            ),
+            "Outer { flag: 0",
+        ),
+        (
+            "alias-inside",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: (o @ Outer { flag: 0, .. } | o @ Outer { flag: 1, .. }) } => { k: [..] };",
+            ),
+            "o @ Outer { flag: 0",
+        ),
+        (
+            "claim",
+            format!(
+                "{TWO_LEVEL}k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(all_paths)]\n    pick: {{ k: [Push()], outer: Outer {{ flag: 0, .. }} | Outer {{ flag: 1, .. }} }} => {{ k: [] }};\n}}\n"
+            ),
+            "Outer { flag: 0",
+        ),
+        (
+            "group-child",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { frame: Frame { pc: 0, .. } | Frame { gas: 0, .. }, .. } } => { k: [..] };",
+            ),
+            "Frame { pc: 0",
+        ),
+        (
+            "group-child-fragments",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { frame: k::fragment![Frame { pc: 0, gas: _ }] | k::fragment![Frame { pc: 1, gas: _ }], .. } } => { k: [..] };",
+            ),
+            "k::fragment![Frame { pc: 0",
+        ),
+        (
+            "group-child-alias",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { frame: f @ (Frame { pc: 0, .. } | Frame { gas: 0, .. }), .. } } => { k: [..] };",
+            ),
+            "Frame { pc: 0",
+        ),
+        (
+            "optional-group",
+            format!(
+                "{OPTIONAL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    peek: {{ k: [Peek(), ..], mark: Some(Mark {{ seen: 0 }} | Mark {{ seen: 1 }}) }} => {{ k: [..] }};\n}}\n"
+            ),
+            "Mark { seen: 0",
+        ),
+    ]
+}
+
+/// `|` whose alternatives are whole group cells (a record entry naming a
+/// group, at any depth, an optional group's `Some(..)`, or a group child of
+/// a cell term) is refused where it is written, also below an alias and in
+/// a claim.
+#[test]
+fn alternatives_over_a_whole_group_cell_are_refused_at_the_bar() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = refused_alternatives();
+    let mut refused = Vec::new();
+    for (name, source, start) in &cases {
+        let manifest = library_package(temporary.path(), &format!("bar-{name}"), source);
+        let error = first_error(target.path(), &manifest);
+        assert!(
+            error.ends_with(&format!(" @ {}", location(&manifest, start))),
+            "{name}: the error stands at the `|` term:\n{error}"
+        );
+        refused.push(format!("{name}: {}", error.split(" @ ").next().unwrap()));
+    }
+    expect_test::expect![[r#"
+        [
+            "entry: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `outer` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Outer { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `flag`: write `Outer { flag: A | B, .. }`",
+            "nested-entry: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative",
+            "shared-binder: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `outer` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Outer { child: A | B, .. }`), or write one rule per alternative",
+            "whole-result: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `outer` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Outer { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `flag`: write `Outer { flag: A | B, .. }`",
+            "alias-over: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `outer` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Outer { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `flag`: write `Outer { flag: A | B, .. }`",
+            "alias-inside: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `outer` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Outer { child: A | B, .. }`), or write one rule per alternative",
+            "claim: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `outer` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Outer { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `flag`: write `Outer { flag: A | B, .. }`",
+            "group-child: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative",
+            "group-child-fragments: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `pc`: write `Frame { pc: A | B, .. }`",
+            "group-child-alias: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative",
+            "optional-group: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `mark` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Mark { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `seen`: write `Mark { seen: A | B, .. }`",
+        ]
+    "#]]
+    .assert_debug_eq(&refused);
+}
+
+/// The alternatives a cell term distributes over, inside a leaf, a group
+/// record, or a list element, stand as before.
+#[test]
+fn alternatives_a_cell_term_distributes_over_stand() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let accepted = [
+        (
+            "child-alternatives",
+            two_level_rules(
+                "pick: { k: [Push(), ..], outer: Outer { flag: 0 | 1, .. } } => { k: [..] };",
+            ),
+        ),
+        (
+            "leaf-alternatives",
+            two_level_rules("pick: { k: [Push(), ..], flag: 0 | 1 } => { k: [..] };"),
+        ),
+        (
+            "list-element",
+            two_level_rules(
+                "pick: { k: [Push(), ..], stack: [Frame { pc: 0, .. } | Frame { gas: 0, .. }, s @ ..] } => { k: [..], stack: s };",
+            ),
+        ),
+        (
+            "optional-leaf",
+            format!(
+                "{OPTIONAL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    read: {{ k: [Read(), ..], counter: Some(0 | 1) }} => {{ k: [..] }};\n}}\n"
+            ),
+        ),
+    ];
+    for (name, source) in &accepted {
+        let manifest = library_package(temporary.path(), &format!("bar-{name}"), source);
+        let result = first_error(target.path(), &manifest);
+        assert!(result.starts_with("passed"), "{name}: {result}");
+    }
+    let manifest = library_package(temporary.path(), "bar-child-emitted", &accepted[0].1);
+    expect_test::expect![[r"
+        rule [pick]:
+            <k> push => .K ... </k>
+            <outer> _ <flag> ( 0 #Or 1 ) </flag> </outer>"]]
+    .assert_eq(rule(&emitted_k(target.path(), &manifest), "pick"));
+}
