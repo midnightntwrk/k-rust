@@ -14,6 +14,7 @@ use k_rust_fuzz::{
     Budget, CallerIdentity, CampaignSpec, CaseOptions, CompiledDefinition, Definitions, HoleDecl,
     HoleLocation, PathMode, ProgramInput, ProgramSource, ProposerConfig, SpanAddress, Target,
     TargetKind, Value,
+    report::TargetRule,
     spec::{BackendRoute, DEFAULT_REJECTION_CAP, ProgramText, ProposerKind},
     target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
     values::{Constraints, ElementSorts, GenerationBounds, IntRange, LengthRange},
@@ -579,9 +580,9 @@ impl LoadedCampaign {
 /// A rule reference written as text, read by its shape: `FILE:LINE`, where `LINE` is a decimal
 /// number, names the rule whose source location in `FILE` spans that line (a leading `./` of
 /// `FILE` is dropped); `FILE:FIRST-LAST`, the form the summary and the refusals print for a rule
-/// written on several lines, names the rule that spans `FIRST`, as `FILE:FIRST` does (rules do not
-/// overlap, so the rule printed with that range is the one spanning its first line; the
-/// summary's `target rule:` line shows the rule chosen); 64 hexadecimal digits are a unique id;
+/// written on several lines, names the rule that spans `FIRST`, as `FILE:FIRST` does, and the
+/// command line then refuses it unless that rule spans `LAST` too ([`check_rule_range`]: a range
+/// past one rule may name another); 64 hexadecimal digits are a unique id;
 /// any other text is a label. Every rule has a source location and a unique id, so a label of
 /// any of these shapes is still named by those.
 ///
@@ -635,6 +636,40 @@ pub fn rule_ref(text: &str) -> Result<RuleRef, String> {
         return Ok(RuleRef::UniqueId(text.to_ascii_lowercase()));
     }
     Ok(RuleRef::Label(text.to_owned()))
+}
+
+/// For a rule reference written `FILE:FIRST-LAST` ([`rule_ref`]), check that the rule it
+/// resolved to (by `FIRST`) spans the whole range: a range that reaches past that rule may name
+/// another rule too, and a reference that could name two rules is refused (FZ-RULEREF contract).
+/// Other references pass.
+///
+/// # Errors
+///
+/// When no source location of `rule` contains `FIRST..=LAST`.
+pub fn check_rule_range(text: &str, rule: &TargetRule) -> Result<(), String> {
+    let Some((_, lines)) = text.rsplit_once(':') else {
+        return Ok(());
+    };
+    let Some((first, last)) = lines
+        .split_once('-')
+        .and_then(|(first, last)| Some((first.parse::<u32>().ok()?, last.parse::<u32>().ok()?)))
+    else {
+        return Ok(());
+    };
+    if rule
+        .name
+        .locations
+        .iter()
+        .any(|location| location.line <= first && last <= location.end_line)
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "the rule `{text}`: lines {first}-{last} are not inside one rule: line {first} lies in \
+         {}, which ends before line {last}, so the range may name another rule too; name one \
+         line of the rule, or the range the summary prints for it",
+        rule.name.describe(&rule.id)
+    ))
 }
 
 /// The target of the file's `[target]` table and the flags (OD-2): rules by [`rule_ref`],

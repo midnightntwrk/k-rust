@@ -1371,6 +1371,18 @@ fn a_line_inside_a_multi_line_rule_names_that_rule() {
             text(&output.stdout)
         );
     }
+    // A range that reaches past the rule its first line names may name another rule too: refused
+    // before any case (INT7 review S3).
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "walk.toml", "--reach-rule", "maze.k:37-41"],
+    );
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("lines 37-41 are not inside one rule") && stderr.contains("maze.k:37-40"),
+        "{stderr}"
+    );
 }
 
 /// FZ-RULEREF: an unknown rule reference is refused in words, with the candidates an author

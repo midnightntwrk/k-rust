@@ -89,8 +89,9 @@ struct Args {
         value_name = "RULE",
         conflicts_with_all = ["pattern", "differential"],
         help = "Target: this rule fires (or see --rule-mode). RULE is FILE:LINE (any line of the \
-                rule, as kink lists rules) or FILE:FIRST-LAST (as the summary prints it), the rule's unique id (64 hexadecimal digits, as the \
-                report names rules), or its label (IMP.overflow, or overflow when no label is that)"
+                rule, as kink lists rules) or FILE:FIRST-LAST (as the summary prints it), the \
+                rule's unique id (64 hexadecimal digits, as the report names rules), or its label \
+                (IMP.overflow, or overflow when no label is that)"
     )]
     reach_rule: Option<String>,
 
@@ -346,6 +347,12 @@ fn run(args: Args) -> Result<u8, String> {
             witness.display()
         ));
     }
+    // The rule reference as written, for the range check below: the flag's, or else the file's
+    // (a flag naming another target kind makes the target no rule, and the check is skipped).
+    let rule_text = overrides.reach_rule.clone().or_else(|| {
+        file.as_ref()
+            .and_then(|(_, file)| file.target.as_ref()?.rule.clone())
+    });
     let loaded = campaign::resolve(file, overrides)?;
     let spec = loaded.spec(
         loaded.resolved.proposers.clone(),
@@ -353,6 +360,9 @@ fn run(args: Args) -> Result<u8, String> {
         STACK_SIZE as u64,
     );
     let mut campaign = Campaign::new(spec).map_err(|error| format!("campaign refused: {error}"))?;
+    if let (Some(text), Some(rule)) = (&rule_text, campaign.target_rule()) {
+        campaign::check_rule_range(text, rule)?;
+    }
     let report = campaign.run(loaded.resolved.budget, None);
     let json = report.to_canonical_json();
     // The result is printed before any file is written, so that a failed write loses nothing.

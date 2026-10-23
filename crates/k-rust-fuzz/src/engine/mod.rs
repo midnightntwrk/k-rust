@@ -219,6 +219,14 @@ impl Campaign {
         &self.spec
     }
 
+    /// The rule a rule target resolved to, as the report's `identity.target-rule` names it;
+    /// `None` for other targets. Known before any case runs, so a client can check the
+    /// resolution (the CLI checks a `FILE:FIRST-LAST` reference against the rule's span).
+    #[must_use]
+    pub fn target_rule(&self) -> Option<&crate::report::TargetRule> {
+        self.settings.identity.target_rule.as_ref()
+    }
+
     /// Run cases until `budget` is spent, a witness is confirmed and shrunk, the rejection cap
     /// is reached, or `cancel` is cancelled (ARCHITECTURE 9.2).
     ///
