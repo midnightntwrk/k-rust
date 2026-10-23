@@ -489,6 +489,74 @@ fixture!(COIN_PRIO, "coin/coin-prio.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_KILL, "coin/coin-kill.k", "COIN", COIN_PROGRAMS);
 fixture!(COIN_FUNC, "coin/coin-func.k", "COIN", COIN_PROGRAMS);
 
+/// TRIAL2's IMP (the K tutorial's lesson-4 IMP, unchanged) and three of kink's mutants of it
+/// (FZ-DIFFEND): the programs are TRIAL2's templates.
+pub const IMP_DIFF_PROGRAMS: &[Program] = &[
+    program!("imp-diff/primes.imp"),
+    program!("imp-diff/sum.imp"),
+];
+fixture!(IMP_DIFF, "imp-diff/imp.k", "IMP", IMP_DIFF_PROGRAMS);
+fixture!(
+    IMP_DIV_GUARD_DROPPED,
+    "imp-diff/imp-div-guard-dropped.k",
+    "IMP",
+    IMP_DIFF_PROGRAMS
+);
+// The mutant's `requires true` leaves the rule's `Rho` unused, which the compiler reports.
+fixture!(
+    IMP_DECL_ALLOWS_REDECLARATION,
+    "imp-diff/imp-decl-allows-redeclaration.k",
+    "IMP",
+    IMP_DIFF_PROGRAMS,
+    diagnostics = [UnusedVariable]
+);
+fixture!(
+    IMP_ADD_COMMUTED,
+    "imp-diff/imp-add-commuted.k",
+    "IMP",
+    IMP_DIFF_PROGRAMS
+);
+
+/// The claim pair (FZ-DIFFEND): a baseline that stops abnormally on `go(0)` and three mutants
+/// whose step on `go(0)` is undefined, without a claim, against a `total` claim and against a
+/// `preserves-definedness` claim.
+pub const CLAIMSTEP_PROGRAMS: &[Program] = &[program!("claimstep/go.pgm")];
+fixture!(
+    CLAIMSTEP,
+    "claimstep/claimstep.k",
+    "CLAIMSTEP",
+    CLAIMSTEP_PROGRAMS
+);
+fixture!(
+    CLAIMSTEP_PARTIAL,
+    "claimstep/claimstep-partial.k",
+    "CLAIMSTEP",
+    CLAIMSTEP_PROGRAMS
+);
+fixture!(
+    CLAIMSTEP_TOTAL,
+    "claimstep/claimstep-total.k",
+    "CLAIMSTEP",
+    CLAIMSTEP_PROGRAMS
+);
+fixture!(
+    CLAIMSTEP_PRESERVES,
+    "claimstep/claimstep-preserves.k",
+    "CLAIMSTEP",
+    CLAIMSTEP_PROGRAMS
+);
+
+/// The diamond pair (FZ-DIFFEND): two converging paths, one of which reads a chosen value whose
+/// mark a state-set merge moves to the result's list.
+pub const DIAMOND_PROGRAMS: &[Program] = &[program!("diamond/go.pgm")];
+fixture!(DIAMOND, "diamond/diamond.k", "DIAMOND", DIAMOND_PROGRAMS);
+fixture!(
+    DIAMOND_PLUS,
+    "diamond/diamond-plus.k",
+    "DIAMOND",
+    DIAMOND_PROGRAMS
+);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -681,7 +749,7 @@ fixture!(
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 37] = [
+pub static ALL: [&Fixture; 47] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -719,4 +787,14 @@ pub static ALL: [&Fixture; 37] = [
     &TALLY,
     &NOISE,
     &DRAIN,
+    &IMP_DIFF,
+    &IMP_DIV_GUARD_DROPPED,
+    &IMP_DECL_ALLOWS_REDECLARATION,
+    &IMP_ADD_COMMUTED,
+    &CLAIMSTEP,
+    &CLAIMSTEP_PARTIAL,
+    &CLAIMSTEP_TOTAL,
+    &CLAIMSTEP_PRESERVES,
+    &DIAMOND,
+    &DIAMOND_PLUS,
 ];
