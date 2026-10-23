@@ -297,6 +297,11 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
         if now.final_configurations != then.final_configurations {
             differences.push(format!("the final configurations of side {index} differ"));
         }
+        // A differential kill rests on how each leaf ended (an undefined step is no end), so
+        // the halts are part of the reproduction.
+        if now.halts != then.halts {
+            differences.push(format!("the halts of side {index} differ"));
+        }
     }
     if replayed.sides.len() != recorded.sides.len() {
         differences.push("the number of sides differs".to_owned());

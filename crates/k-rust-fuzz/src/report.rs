@@ -781,7 +781,8 @@ pub struct Reaching {
 pub enum KillKind {
     /// The mutant reaches an end the baseline cannot.
     AddedEnd,
-    /// The baseline reaches an end the mutant cannot (all-paths mode).
+    /// The baseline reaches an end the mutant cannot, judged against the mutant's all-paths
+    /// run (the all-paths mode, or the one-path mode's re-run).
     RemovedEnd,
 }
 
@@ -795,11 +796,13 @@ pub struct WitnessSide {
     pub initial_configuration: String,
     /// Every leaf's configuration, as KORE text, in the backend's order.
     /// [`WitnessCase::reaching`] indexes it. For a differential witness, a side's ends are the
-    /// entries whose halt ([`Self::halts`]) is `stuck`: an undefined step's entry is the
-    /// configuration before the step, which is no end (ARCHITECTURE 4.3).
+    /// entries whose halt ([`Self::halts`]) is `stuck`: an undefined step's entry is a
+    /// configuration that is not stuck and has no successor, whose outcome is undefinedness, no
+    /// end (ARCHITECTURE 4.3).
     pub final_configurations: Vec<String>,
     /// The halt of each leaf of [`Self::final_configurations`], in the same order, as the
-    /// backend names it (`stuck`; `trivial` for an undefined step; `depth-bound`, ...).
+    /// backend names it (`stuck`; `trivial` for an undefined step; `depth-bound`, ...), for every
+    /// witness kind. Replay compares it with the configurations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub halts: Vec<HaltReasonOutput>,
 }

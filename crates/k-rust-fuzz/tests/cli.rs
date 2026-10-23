@@ -225,6 +225,23 @@ fn a_replayed_witness_reproduces_its_class_and_final_configuration() {
         stdout.contains("the final configurations of side 0 differ"),
         "{stdout}"
     );
+
+    // How each leaf ended is part of the reproduction too (FZ-DIFFEND: a differential kill rests
+    // on it): a witness file whose recorded halt is another does not reproduce.
+    let mut tampered = recorded.clone();
+    let halts = &mut tampered["report"]["outcome"]["witness"]["first"]["sides"][0]["halts"];
+    assert_eq!(halts[0], "stuck", "{halts}");
+    halts[0] = serde_json::Value::String("trivial".to_owned());
+    fs::write(directory.join("halts.json"), tampered.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "halts.json"]);
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(1),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("the halts of side 0 differ"), "{stdout}");
 }
 
 #[test]
