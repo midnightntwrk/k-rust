@@ -1126,7 +1126,7 @@ k::equations! {
                 },
                 ..
             },
-        ) => Aggregate { variant: 0, fields: list::empty() };
+        ) => Aggregate { variant: 0, fields: [] };
     decode_allocated_static_array:
         (
             types,
@@ -1176,7 +1176,7 @@ k::equations! {
         };
     #[k::requires(bytes::length(bytes) == 0)]
     decode_allocated_empty_tuple:
-        (_, bytes, TupleType { fields: [], .. }) => Aggregate { variant: 0, fields: list::empty() };
+        (_, bytes, TupleType { fields: [], .. }) => Aggregate { variant: 0, fields: [] };
     #[k::requires(
         NeededBytesForOffsets { types, fields: [first, ..remaining], offsets } >= 0
             && bytes::length(bytes)
@@ -1206,7 +1206,7 @@ k::equations! {
                 tag: ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 },
                 discriminants,
             },
-            fields: list::empty(),
+            fields: [],
         };
 }
 
@@ -1399,14 +1399,14 @@ k::equations! {
 
 k::equations! {
     for DecodeFieldsWithOffsets;
-    decode_fields_with_offsets_done: (_, _, [], []) => list::empty();
+    decode_fields_with_offsets_done: (_, _, [], []) => [];
     #[k::requires(
         bytes::length(bytes) >= bits / 8 + ElementSize { types, info: map::get(types, field) }
     )]
     decode_fields_with_offsets_cons:
         (types, bytes, [field, fields @ ..], [MirMachineSize::MachineSize { bits }, offsets @ ..])
-        => list::concat(
-            list::item(DecodeAllocatedValue {
+        => [
+            DecodeAllocatedValue {
                 bytes: bytes::substr(
                     bytes,
                     bits / 8,
@@ -1414,9 +1414,9 @@ k::equations! {
                 ),
                 info: map::get(types, field),
                 types,
-            }),
-            DecodeFieldsWithOffsets { types, bytes, fields, offsets },
-        );
+            },
+            ..DecodeFieldsWithOffsets { types, bytes, fields, offsets },
+        ];
 }
 
 #[k::function(
@@ -1435,7 +1435,7 @@ pub fn DecodeArrayAllocation(
             bytes,
             info,
             remaining: length,
-            accumulated: list::empty(),
+            accumulated: [],
         },
     }
 }
@@ -1452,14 +1452,14 @@ k::equations! {
             bytes: bytes::substr(bytes, ElementSize { types, info }, bytes::length(bytes)),
             info,
             remaining: remaining - 1,
-            accumulated: list::concat(
-                accumulated,
-                list::item(DecodeAllocatedValue {
+            accumulated: [
+                ..accumulated,
+                DecodeAllocatedValue {
                     bytes: bytes::substr(bytes, 0, ElementSize { types, info }),
                     info,
                     types,
-                }),
-            ),
+                },
+            ],
         };
     #[k::requires(remaining <= 0 && bytes::length(bytes) == 0)]
     decode_array_elements_done: (_, bytes, _, remaining, accumulated) => accumulated;
@@ -1488,8 +1488,8 @@ k::equations! {
     use MirTypeInfo::*;
     decode_zero_sized_aggregate:
         StructType { .. } | TupleType { .. } | FunType { .. }
-        => Value::Aggregate { variant: 0, fields: list::empty() };
-    decode_zero_sized_array: ArrayType { .. } => Value::Range { elements: list::empty() };
+        => Value::Aggregate { variant: 0, fields: [] };
+    decode_zero_sized_array: ArrayType { .. } => Value::Range { elements: [] };
 }
 
 k::equations! {
@@ -1929,25 +1929,20 @@ k::equations! {
         (AggregateAdt { variant, field: MirMaybeFieldIdx::NoFieldIdx(), .. }, values)
         => Aggregate { variant, fields: values };
     materialize_union:
-        (
-            AggregateAdt { field: MirMaybeFieldIdx::SomeFieldIdx { index: field }, .. },
-            list::concat(list::item(value), list::empty()),
-        ) => Union { field, value };
+        (AggregateAdt { field: MirMaybeFieldIdx::SomeFieldIdx { index: field }, .. }, [value])
+        => Union { field, value };
     materialize_fat_raw_pointer:
         (
             AggregateRawPointer { mutability, .. },
-            list::concat(
-                list::item(Pointer {
+            [
+                Pointer {
                     height,
                     place: MirPlace::Place { local, projections },
                     metadata: Metadata { offset, origin_size, .. },
                     ..
-                }),
-                list::concat(
-                    list::item(Integer { value: length, width: 64, signed: false }),
-                    list::empty(),
-                ),
-            ),
+                },
+                Integer { value: length, width: 64, signed: false },
+            ],
         ) => Pointer {
             height,
             place: MirPlace::Place { local, projections: RemoveIndexTail { projections } },
@@ -1957,15 +1952,10 @@ k::equations! {
     materialize_thin_raw_pointer:
         (
             AggregateRawPointer { mutability, .. },
-            list::concat(
-                list::item(Pointer {
-                    height,
-                    place,
-                    metadata: Metadata { offset, origin_size, .. },
-                    ..
-                }),
-                list::concat(list::item(Aggregate { fields: list::empty(), .. }), list::empty()),
-            ),
+            [
+                Pointer { height, place, metadata: Metadata { offset, origin_size, .. }, .. },
+                Aggregate { fields: [], .. },
+            ],
         ) => Pointer {
             height,
             place,
@@ -2383,12 +2373,10 @@ pub fn ReserveFor(locals: k::Term<LocalDecls>) -> k::Term<List>;
 
 k::equations! {
     for ReserveFor;
-    reserve_for_done: [] => list::empty();
+    reserve_for_done: [] => [];
     reserve_for_cons:
-        [MirLocalDecl::LocalDecl { ty, mutability, .. }, tail @ ..] => list::concat(
-            list::item(LocalValue::NewLocal { ty, mutability }),
-            ReserveFor { locals: tail },
-        );
+        [MirLocalDecl::LocalDecl { ty, mutability, .. }, tail @ ..]
+        => [LocalValue::NewLocal { ty, mutability }, ..ReserveFor { locals: tail }];
 }
 
 #[k::function(total, syntax = "#functionBlocks({function})")]
@@ -2418,12 +2406,10 @@ pub fn MapRefOffset(values: k::Term<List>, offset: k::Term<Int>) -> k::Term<List
 
 k::equations! {
     for MapRefOffset;
-    map_ref_offset_done: (list::empty(), _) => list::empty();
+    map_ref_offset_done: ([], _) => [];
     map_ref_offset_cons:
-        (list::concat(list::item(value), tail), offset) => list::concat(
-            list::item(AdjustRef { value, offset }),
-            MapRefOffset { values: tail, offset },
-        );
+        ([value, tail @ ..], offset)
+        => [AdjustRef { value, offset }, ..MapRefOffset { values: tail, offset }];
 }
 
 k::equations! {
@@ -2956,10 +2942,8 @@ k::equations! {
         (value, [UnionFieldContext { field, .. }, tail @ ..])
         => BuildProjectionUpdate { value: Union { field, value }, contexts: tail };
     build_projection_update_wrap_struct:
-        (
-            Aggregate { variant: 0, fields: list::concat(list::item(value), list::empty()) },
-            [WrapStructContext(), tail @ ..],
-        ) => BuildProjectionUpdate { value, contexts: tail };
+        (Aggregate { variant: 0, fields: [value] }, [WrapStructContext(), tail @ ..])
+        => BuildProjectionUpdate { value, contexts: tail };
     build_projection_update_index:
         (value, [IndexContext { elements, index }, tail @ ..]) => BuildProjectionUpdate {
             value: Range { elements: list::update(elements, index, value) },
@@ -3565,10 +3549,7 @@ k::rules! {
     eval_aggregate_empty: {
         k: [EvalRvalue { value: AggregateRvalue { kind, operands: [] }, place }, ..],
     } => {
-        k: [
-            SetLocalValue { place, value: MaterializeAggregate { kind, values: list::empty() } },
-            ..,
-        ],
+        k: [SetLocalValue { place, value: MaterializeAggregate { kind, values: [] } }, ..],
     };
 
     eval_aggregate_cons: {
@@ -3577,7 +3558,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: head,
-                continuation: AggregateNext { place, kind, values: list::empty(), remaining: tail },
+                continuation: AggregateNext { place, kind, values: [], remaining: tail },
             },
             ..,
         ],
@@ -4155,10 +4136,7 @@ k::rules! {
     } => {
         k: [
             TraverseProjection {
-                value: Aggregate {
-                    variant: 0,
-                    fields: list::concat(list::item(value), list::empty()),
-                },
+                value: Aggregate { variant: 0, fields: [value] },
                 projections: tail,
                 contexts: [WrapStructContext(), ..contexts],
                 ..traversal
@@ -4563,10 +4541,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: MaterializeAggregate {
-                    kind,
-                    values: list::concat(values, list::item(value)),
-                },
+                value: MaterializeAggregate { kind, values: [..values, value] },
             },
             ..,
         ],
@@ -4587,7 +4562,7 @@ k::rules! {
                 continuation: AggregateNext {
                     place,
                     kind,
-                    values: list::concat(values, list::item(value)),
+                    values: [..values, value],
                     remaining: tail,
                 },
             },
@@ -5315,19 +5290,14 @@ k::rules! {
                 place,
                 value: Aggregate {
                     variant: 0,
-                    fields: list::concat(
-                        list::item(Integer {
+                    fields: [
+                        Integer {
                             value: TruncateInteger { value: lhs + rhs, width, signed },
                             width,
                             signed,
-                        }),
-                        list::concat(
-                            list::item(Boolean(
-                                TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs,
-                            )),
-                            list::empty(),
-                        ),
-                    ),
+                        },
+                        Boolean(TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs),
+                    ],
                 },
             },
             ..,
@@ -5413,19 +5383,14 @@ k::rules! {
                 place,
                 value: Aggregate {
                     variant: 0,
-                    fields: list::concat(
-                        list::item(Integer {
+                    fields: [
+                        Integer {
                             value: TruncateInteger { value: lhs - rhs, width, signed },
                             width,
                             signed,
-                        }),
-                        list::concat(
-                            list::item(Boolean(
-                                TruncateInteger { value: lhs - rhs, width, signed } != lhs - rhs,
-                            )),
-                            list::empty(),
-                        ),
-                    ),
+                        },
+                        Boolean(TruncateInteger { value: lhs - rhs, width, signed } != lhs - rhs),
+                    ],
                 },
             },
             ..,
@@ -5511,19 +5476,14 @@ k::rules! {
                 place,
                 value: Aggregate {
                     variant: 0,
-                    fields: list::concat(
-                        list::item(Integer {
+                    fields: [
+                        Integer {
                             value: TruncateInteger { value: lhs * rhs, width, signed },
                             width,
                             signed,
-                        }),
-                        list::concat(
-                            list::item(Boolean(
-                                TruncateInteger { value: lhs * rhs, width, signed } != lhs * rhs,
-                            )),
-                            list::empty(),
-                        ),
-                    ),
+                        },
+                        Boolean(TruncateInteger { value: lhs * rhs, width, signed } != lhs * rhs),
+                    ],
                 },
             },
             ..,
@@ -6309,17 +6269,17 @@ k::rules! {
         target: SomeBasicBlockIdx(target),
         unwind,
         locals: FunctionLocals { function: map::get(functions, callee) },
-        stack: list::concat(
-            list::item(StackFrame {
+        stack: [
+            StackFrame {
                 caller: old_caller,
                 dest: old_dest,
                 target: old_target,
                 unwind: old_unwind,
                 locals: caller_locals,
                 span,
-            }),
-            stack,
-        ),
+            },
+            ..stack,
+        ],
     };
 
     set_args_done: {
@@ -6346,10 +6306,10 @@ k::rules! {
 
     set_copied_arg: {
         k: [SetArgFromStack { index, operand: Copy(Place { local, projections: [] }) }, ..],
-        stack: list::concat(
-            list::item(StackFrame { caller, dest, target, unwind, locals: caller_locals, span }),
-            rest,
-        ),
+        stack: [
+            StackFrame { caller, dest, target, unwind, locals: caller_locals, span },
+            rest @ ..,
+        ],
     } => {
         k: [
             SetLocalValue {
@@ -6365,10 +6325,10 @@ k::rules! {
 
     set_moved_arg: {
         k: [SetArgFromStack { index, operand: Move(Place { local, projections: [] }) }, ..],
-        stack: list::concat(
-            list::item(StackFrame { caller, dest, target, unwind, locals: caller_locals, span }),
-            rest,
-        ),
+        stack: [
+            StackFrame { caller, dest, target, unwind, locals: caller_locals, span },
+            rest @ ..,
+        ],
     } => {
         k: [
             SetLocalValue {
@@ -6380,8 +6340,8 @@ k::rules! {
             },
             ..,
         ],
-        stack: list::concat(
-            list::item(StackFrame {
+        stack: [
+            StackFrame {
                 caller,
                 dest,
                 target,
@@ -6392,9 +6352,9 @@ k::rules! {
                     MovedEntry { entry: list::get(caller_locals, local) },
                 ),
                 span,
-            }),
-            rest,
-        ),
+            },
+            ..rest,
+        ],
     };
 
     assert: {
@@ -6580,21 +6540,21 @@ k::rules! {
         dest: destination,
         target: SomeBasicBlockIdx(target),
         unwind: callee_unwind,
-        locals: list::concat(
-            list::item(TypedValue { value, ty: return_ty, mutability: return_mutability }),
-            callee_locals_tail,
-        ),
-        stack: list::concat(
-            list::item(StackFrame {
+        locals: [
+            TypedValue { value, ty: return_ty, mutability: return_mutability },
+            callee_locals_tail @ ..,
+        ],
+        stack: [
+            StackFrame {
                 caller: new_caller,
                 dest: new_dest,
                 target: new_target,
                 unwind: new_unwind,
                 locals: new_locals,
                 span: return_span,
-            }),
-            remaining_stack,
-        ),
+            },
+            remaining_stack @ ..,
+        ],
         functions,
         ret_val: NoReturn(),
     } => {
@@ -6621,21 +6581,21 @@ k::rules! {
         dest: destination,
         target: SomeBasicBlockIdx(target),
         unwind: callee_unwind,
-        locals: list::concat(
-            list::item(NewLocal { ty: return_ty, mutability: return_mutability }),
-            callee_locals_tail,
-        ),
-        stack: list::concat(
-            list::item(StackFrame {
+        locals: [
+            NewLocal { ty: return_ty, mutability: return_mutability },
+            callee_locals_tail @ ..,
+        ],
+        stack: [
+            StackFrame {
                 caller: new_caller,
                 dest: new_dest,
                 target: new_target,
                 unwind: new_unwind,
                 locals: new_locals,
                 span: return_span,
-            }),
-            remaining_stack,
-        ),
+            },
+            remaining_stack @ ..,
+        ],
         functions,
         ret_val: NoReturn(),
     } => {
@@ -6692,8 +6652,8 @@ k::claims! {
     list_add_switch_return: {
         k: [Execution::Run()],
         current_func: TyId(-1),
-        current_body: list::concat(
-            list::item(Block(
+        current_body: [
+            Block(
                 [
                     Assign(Place(1, []), Use(Constant(Integer(20, 64, false)))),
                     Assign(Place(2, []), Use(Constant(Integer(22, 64, false)))),
@@ -6704,44 +6664,28 @@ k::claims! {
                     Assign(Place(4, []), Use(Constant(Boolean(true)))),
                 ],
                 Goto(1),
-            )),
-            list::concat(
-                list::item(Block(
-                    [],
-                    SwitchInt(
-                        Copy(Place(4, [])),
-                        MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
-                    ),
-                )),
-                list::concat(
-                    list::item(Block([Assign(Place(0, []), Use(Copy(Place(3, []))))], Return())),
-                    list::concat(
-                        list::item(Block(
-                            [Assign(Place(0, []), Use(Constant(Integer(0, 64, false))))],
-                            Return(),
-                        )),
-                        list::empty(),
-                    ),
+            ),
+            Block(
+                [],
+                SwitchInt(
+                    Copy(Place(4, [])),
+                    MirSwitchTargets::SwitchTargets([MirBranch::Branch(1, 2)], 3),
                 ),
             ),
-        ),
+            Block([Assign(Place(0, []), Use(Copy(Place(3, []))))], Return()),
+            Block([Assign(Place(0, []), Use(Constant(Integer(0, 64, false))))], Return()),
+        ],
         caller: TyId(-1),
         dest: Place(-1, []),
         target: MirMaybeBasicBlockIdx::NoBasicBlockIdx(),
         unwind: MirUnwindAction::UnwindContinue(),
-        locals: list::concat(
-            list::item(NewLocal(TyId(0), Mutable())),
-            list::concat(
-                list::item(NewLocal(TyId(1), Mutable())),
-                list::concat(
-                    list::item(NewLocal(TyId(2), Mutable())),
-                    list::concat(
-                        list::item(NewLocal(TyId(3), Mutable())),
-                        list::concat(list::item(NewLocal(TyId(4), Mutable())), list::empty()),
-                    ),
-                ),
-            ),
-        ),
+        locals: [
+            NewLocal(TyId(0), Mutable()),
+            NewLocal(TyId(1), Mutable()),
+            NewLocal(TyId(2), Mutable()),
+            NewLocal(TyId(3), Mutable()),
+            NewLocal(TyId(4), Mutable()),
+        ],
         stack: [],
         functions: map::empty(),
         types: map::empty(),
@@ -6749,22 +6693,13 @@ k::claims! {
         ret_val: ReturnValue::NoReturn(),
     } => {
         k: [],
-        locals: list::concat(
-            list::item(TypedValue(Integer(42, 64, false), TyId(0), Mutable())),
-            list::concat(
-                list::item(TypedValue(Integer(20, 64, false), TyId(1), Mutable())),
-                list::concat(
-                    list::item(TypedValue(Integer(22, 64, false), TyId(2), Mutable())),
-                    list::concat(
-                        list::item(TypedValue(Integer(42, 64, false), TyId(3), Mutable())),
-                        list::concat(
-                            list::item(TypedValue(Boolean(true), TyId(4), Mutable())),
-                            list::empty(),
-                        ),
-                    ),
-                ),
-            ),
-        ),
+        locals: [
+            TypedValue(Integer(42, 64, false), TyId(0), Mutable()),
+            TypedValue(Integer(20, 64, false), TyId(1), Mutable()),
+            TypedValue(Integer(22, 64, false), TyId(2), Mutable()),
+            TypedValue(Integer(42, 64, false), TyId(3), Mutable()),
+            TypedValue(Boolean(true), TyId(4), Mutable()),
+        ],
         ret_val: ReturnValue::Returned(Integer(42, 64, false)),
     };
 }
