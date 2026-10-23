@@ -5265,11 +5265,12 @@ k::rules! {
 
 k::claims! {
     for Machine;
+    use ExecutionCommand::*;
 
     /// All-path claim spanning PUSH widths, ADD, PC observation, gas, and STOP.
     #[k::claim(all_paths)]
     push_add_pc_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(b"\x60\x02\x60\x03\x01\x58\x00"),
         address: 0,
         origin: 0,
@@ -5303,7 +5304,7 @@ k::claims! {
     /// All-path claim spanning the selected arithmetic and comparison tranches.
     #[k::claim(all_paths)]
     arithmetic_comparison_tranches_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(
             b"\x60\x02\x60\x07\x05\x60\x02\x60\x07\x07\x60\x05\x60\x06\x60\x04\x08\x60\x05\x60\x06\x60\x04\x09\x60\x07\x60\x02\x10\x60\x02\x60\x07\x11\x60\x07\x60\x02\x12\x60\x02\x60\x07\x13\x60\x05\x60\x05\x14\x60\x00\x15\x00"
         ),
@@ -5339,7 +5340,7 @@ k::claims! {
     /// All-path claim spanning every Shanghai-active pure-word expression opcode.
     #[k::claim(all_paths)]
     pure_word_tranche_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(
             b"\x60\x08\x60\x02\x0a\x60\x80\x60\x00\x0b\x60\x0f\x60\x33\x16\x60\x0f\x60\x33\x17\x60\x0f\x60\x33\x18\x60\x00\x19\x61\xab\xcd\x60\x1e\x1a\x60\x03\x60\x04\x1b\x60\x80\x60\x03\x1c\x60\x00\x19\x60\x01\x1d\x00"
         ),
@@ -5386,7 +5387,7 @@ k::claims! {
     /// All-path claim spanning POP and depth-indexed DUP/SWAP execution.
     #[k::claim(all_paths)]
     stack_manipulation_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(b"\x60\x01\x60\x02\x60\x03\x82\x91\x50\x00"),
         address: 0,
         origin: 0,
@@ -5420,7 +5421,7 @@ k::claims! {
     /// All-path claim spanning false and true JUMPI, JUMP, and JUMPDEST execution.
     #[k::claim(all_paths)]
     control_flow_tranche_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(
             b"\x60\x00\x60\xff\x57\x60\x01\x60\x0d\x57\xfe\xfe\xfe\x5b\x60\x12\x56\xfe\x5b\x00"
         ),
@@ -5455,7 +5456,7 @@ k::claims! {
     /// All-path claim spanning Shanghai execution-context observations and block history.
     #[k::claim(all_paths)]
     execution_context_tranche_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(
             b"\x30\x32\x33\x34\x36\x38\x3a\x3d\x41\x42\x43\x44\x45\x46\x48\x60\x10\x40\x5a\x00"
         ),
@@ -5492,7 +5493,7 @@ k::claims! {
     /// All-path claim spanning memory writes, reads, size observation, and STOP.
     #[k::claim(all_paths)]
     memory_tranche_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(b"\x60\xaa\x60\x00\x52\x60\x00\x51\x59\x00"),
         address: 0,
         origin: 0,
@@ -5531,7 +5532,7 @@ k::claims! {
     /// All-path claim spanning calldata load and all selected byte-copy sources.
     #[k::claim(all_paths)]
     load_copy_tranche_stop: {
-        k: [ExecutionCommand::Run()],
+        k: [Run()],
         program: k::bytes!(
             b"\x60\x00\x35\x60\x03\x60\x01\x60\x00\x37\x60\x02\x60\x00\x60\x03\x39\x60\x02\x60\x01\x60\x05\x3e\x00"
         ),
