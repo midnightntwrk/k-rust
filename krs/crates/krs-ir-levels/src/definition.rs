@@ -1908,6 +1908,9 @@ pub enum DefinitionValidationError {
     ConfigurationRuleTargetMismatch(LabelId),
     /// A cell rule references a missing/non-leaf cell or incomplete frame.
     InvalidCellFraming,
+    /// A leaf cell clause's term sort is not a subsort of the cell's
+    /// content sort.
+    CellContentSortMismatch,
     /// A cell-content frame is incompatible with its leaf sort.
     CellFrameSortMismatch,
     /// A context-alias frame is incompatible with its leaf-cell sort.
@@ -2210,6 +2213,9 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::ContextAliasVariableClosure => {
                 formatter.write_str("context-alias declarations differ from term and frame uses")
+            }
+            Self::CellContentSortMismatch => {
+                formatter.write_str("cell content sort is not a subsort of the cell's sort")
             }
             Self::CellFrameSortMismatch => {
                 formatter.write_str("cell-content frame is incompatible with cell sort")

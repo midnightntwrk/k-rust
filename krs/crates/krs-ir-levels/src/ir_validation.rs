@@ -134,6 +134,7 @@ pub(crate) enum ValidationError<L: Validation> {
     GeneratedApplicationSignature,
     ParameterSortInTerm,
     CellFrameBindingMismatch(SemanticId),
+    CellContentSortMismatch,
     CellFrameSortMismatch,
     ContextAliasFrameSortMismatch,
     ContextAliasFrameBindingMismatch(SemanticId),
@@ -395,6 +396,10 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
                     cell_ids,
                     nodes,
                 )?;
+                // Unlike a rule clause's content, an initializer leaf
+                // declares its cell: the emitted configuration gives the
+                // cell the sort of this term, so a term of a strict
+                // subsort would declare a narrower cell than the IR's.
                 if term.sort() != sort {
                     return Err(L::error(ValidationError::InitializerLeafSortMismatch));
                 }
@@ -599,8 +604,10 @@ impl<L: Validation> RewriteContext<'_, L> {
             self.cell_ids,
             nodes,
         )?;
-        if term.sort() != sort {
-            return Err(L::error(ValidationError::CellFrameSortMismatch));
+        // A leaf cell holds any term of its sort or a subsort, as an
+        // argument position does; the configuration fixes the cell's sort.
+        if !is_subsort::<L>(term.sort(), sort, self.sort_parents) {
+            return Err(L::error(ValidationError::CellContentSortMismatch));
         }
         Ok(())
     }

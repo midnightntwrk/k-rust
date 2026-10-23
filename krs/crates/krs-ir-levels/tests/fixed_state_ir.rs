@@ -53,6 +53,32 @@ struct Variants {
     valid_update: bool,
     /// The `var` rule's matched sequence has item sort `K` instead of `Expr`.
     k_sequence_items: bool,
+    /// Adds an `Expr` cell `acc`, its initializer leaf and the `keep` rule's
+    /// clause holding terms of these sorts.
+    acc: Option<AccContent>,
+}
+
+/// The sorts of the `acc` cell's initializer leaf and rule clause.
+#[derive(Clone, Copy)]
+struct AccContent {
+    initializer: AccSort,
+    rule: AccSort,
+}
+
+/// `Value` is a subsort of the `acc` cell's `Expr`; `Stmt` is unrelated.
+#[derive(Clone, Copy)]
+enum AccSort {
+    Expr,
+    Value,
+    Stmt,
+}
+
+fn acc_sort(sort: AccSort) -> DefinitionSortRef {
+    declared(match sort {
+        AccSort::Expr => "sort.expr",
+        AccSort::Value => "sort.value",
+        AccSort::Stmt => "sort.stmt",
+    })
 }
 
 impl Default for Variants {
@@ -64,6 +90,7 @@ impl Default for Variants {
             valid_initializer_order: true,
             valid_update: true,
             k_sequence_items: false,
+            acc: None,
         }
     }
 }
@@ -78,7 +105,15 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
     let value = declared("sort.value");
     let k = symbol("cell.k");
     let env = symbol("cell.env");
+    let acc = symbol("cell.acc");
     let configuration_id = sid("configuration.calc");
+    // The cells no clause of a full-configuration rule touches: `acc` when present.
+    let untouched = |mut cells: Vec<SymbolId>| {
+        if variants.acc.is_some() {
+            cells.push(acc.clone());
+        }
+        cells
+    };
 
     let mut sentences = vec![
         DefinitionSentence::SyntaxSort(SyntaxSortSentence::new(
@@ -123,6 +158,25 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
         DefinitionSortRef::map(),
     )
     .unwrap();
+    let mut cells = vec![k_cell, env_cell];
+    let mut variables = vec![
+        FixedConfigurationVariable::new(
+            node("configuration.variable.pgm"),
+            sid("variable.pgm"),
+            "PGM",
+            stmt.clone(),
+            true,
+        )
+        .unwrap(),
+        FixedConfigurationVariable::new(
+            node("configuration.variable.env"),
+            sid("variable.env"),
+            "ENV",
+            DefinitionSortRef::map(),
+            false,
+        )
+        .unwrap(),
+    ];
     let mut initializer = vec![
         FixedInitializerCell::term(
             node("configuration.initializer.k"),
@@ -150,31 +204,46 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
     if !variants.valid_initializer_order {
         initializer.swap(0, 1);
     }
+    if let Some(content) = variants.acc {
+        let sort = acc_sort(content.initializer);
+        cells.push(
+            FixedCell::leaf(
+                node("configuration.cell.acc"),
+                acc.clone(),
+                "acc",
+                vec![],
+                expr.clone(),
+            )
+            .unwrap(),
+        );
+        variables.push(
+            FixedConfigurationVariable::new(
+                node("configuration.variable.acc"),
+                sid("variable.acc"),
+                "ACC",
+                sort.clone(),
+                false,
+            )
+            .unwrap(),
+        );
+        initializer.push(FixedInitializerCell::term(
+            node("configuration.initializer.acc"),
+            acc.clone(),
+            variable(
+                "configuration.initializer.acc.variable",
+                "variable.acc",
+                sort,
+            ),
+        ));
+    }
     let configuration = FixedConfiguration::new(
         node("configuration.calc"),
         configuration_id.clone(),
         ConfigurationRoot::GeneratedTop,
-        vec![k_cell, env_cell],
+        cells,
         node("configuration.initializer"),
         sid("initializer.calc"),
-        vec![
-            FixedConfigurationVariable::new(
-                node("configuration.variable.pgm"),
-                sid("variable.pgm"),
-                "PGM",
-                stmt.clone(),
-                true,
-            )
-            .unwrap(),
-            FixedConfigurationVariable::new(
-                node("configuration.variable.env"),
-                sid("variable.env"),
-                "ENV",
-                DefinitionSortRef::map(),
-                false,
-            )
-            .unwrap(),
-        ],
+        variables,
         initializer,
     )
     .unwrap();
@@ -215,7 +284,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
             },
         )],
         if variants.complete_step_frame {
-            vec![env.clone()]
+            untouched(vec![env.clone()])
         } else {
             vec![]
         },
@@ -284,7 +353,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
                 },
             ),
         ],
-        vec![],
+        untouched(vec![]),
     )
     .unwrap();
     sentences.push(DefinitionSentence::Rule(RuleSentence::new_configuration(
@@ -364,7 +433,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
                 CellContentFrame::Exact,
             ),
         ],
-        vec![],
+        untouched(vec![]),
     )
     .unwrap();
     sentences.push(DefinitionSentence::Rule(RuleSentence::new_configuration(
@@ -379,6 +448,33 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
         ],
         assign,
     )));
+
+    // `keep` matches `acc` at the rule's sort and writes it back unchanged.
+    if let Some(content) = variants.acc {
+        let sort = acc_sort(content.rule);
+        let keep = FixedConfigurationRewrite::new(
+            node("rule.keep.rewrite"),
+            sid("configuration.calc"),
+            vec![FixedCellClause::new(
+                node("rule.keep.acc"),
+                acc,
+                variable("rule.keep.a.before", "variable.keep.a", sort.clone()),
+                CellPost::Replace {
+                    term: variable("rule.keep.a.after", "variable.keep.a", sort.clone()),
+                },
+                CellContentFrame::Exact,
+            )],
+            vec![symbol("cell.k"), symbol("cell.env")],
+        )
+        .unwrap();
+        sentences.push(DefinitionSentence::Rule(RuleSentence::new_configuration(
+            node("rule.keep"),
+            LabelIdentity::new(LabelId::new("rule.keep").unwrap(), "keep")?,
+            krs_ir::ConfigurationSentenceKind::Transition,
+            vec![DefinitionVariable::new(sid("variable.keep.a"), sort)],
+            keep,
+        )));
+    }
 
     DefinitionIr::new(
         ModuleId::new("CALC").unwrap(),
@@ -480,6 +576,51 @@ fn rejects_reordered_initializer_and_bad_map_update() {
         .unwrap_err(),
         DefinitionValidationError::MapOperationSignature(MapOperation::Update)
     );
+}
+
+#[test]
+fn a_leaf_cell_holds_any_subsort_of_its_sort() {
+    // `Value ≤ Expr`: a rule clause over the `Expr` cell matches and writes a `Value`.
+    for rule in [AccSort::Expr, AccSort::Value] {
+        calc_definition(Variants {
+            acc: Some(AccContent {
+                initializer: AccSort::Expr,
+                rule,
+            }),
+            ..Variants::default()
+        })
+        .unwrap();
+    }
+    assert_eq!(
+        calc_definition(Variants {
+            acc: Some(AccContent {
+                initializer: AccSort::Expr,
+                rule: AccSort::Stmt,
+            }),
+            ..Variants::default()
+        })
+        .unwrap_err(),
+        DefinitionValidationError::CellContentSortMismatch
+    );
+}
+
+#[test]
+fn an_initializer_leaf_has_exactly_its_cell_sort() {
+    // The initial content declares the cell's sort, so even a `Value` would
+    // declare a narrower cell than `Expr`.
+    for initializer in [AccSort::Value, AccSort::Stmt] {
+        assert_eq!(
+            calc_definition(Variants {
+                acc: Some(AccContent {
+                    initializer,
+                    rule: AccSort::Expr,
+                }),
+                ..Variants::default()
+            })
+            .unwrap_err(),
+            DefinitionValidationError::InitializerLeafSortMismatch
+        );
+    }
 }
 
 #[test]

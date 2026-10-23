@@ -239,6 +239,10 @@ A claim that starts from empty maps therefore writes `functions: map::empty()` w
 The macros `map![..]` belong to `cells!` entries and initializers, where `map![]` and `map![.Map]` are the empty map and only `map![k -> v, ..]` is framed; a readable record rejects them and names `map::empty()`.
 Braces on a leaf cell are no empty map: `{ .. }` names a Set or Map collection's instances, and `cell: { k -> v, .. }` reads a Map's entries.
 
+A leaf cell holds any term of its declared sort or of a subsort, on either side of a readable rule or claim and in a `cells!` rule, as an argument position does: with `Value: Stmt` and `impl Value for Int`, `acc: 2` fills a `Value` cell, `acc: vv` still matches one where a guard (`#[k::requires(vv == 1)]`) or an operator (`acc: vv + 10`) narrows `vv` to `Int`, `prog: Unit()` fills a `Stmt` cell with a `Value`, and a `KItem` cell holds a term of any sort.
+A term of a sort that is not below the cell's is refused at the term.
+An initializer leaf is the exception: the configuration gives a cell the sort of its initial content, so an initializer fills a leaf cell with a term of exactly its sort (a configuration variable of the cell's type, or a term of that sort), and `prog: ValueSyntax::Unit()` would declare a `Value` cell where the field says `Stmt`.
+
 ### Whole nested-cell variables
 
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.

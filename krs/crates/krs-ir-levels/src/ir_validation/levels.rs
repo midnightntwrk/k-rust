@@ -26,6 +26,7 @@ macro_rules! validation_error {
             }
             ValidationError::ParameterSortInTerm => $public::ParameterSortInTerm,
             ValidationError::CellFrameBindingMismatch(id) => $public::CellFrameBindingMismatch(id),
+            ValidationError::CellContentSortMismatch => $public::CellContentSortMismatch,
             ValidationError::CellFrameSortMismatch => $public::CellFrameSortMismatch,
             ValidationError::ContextAliasFrameSortMismatch => {
                 $public::ContextAliasFrameSortMismatch
