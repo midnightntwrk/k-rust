@@ -107,6 +107,12 @@ pub fn Store(m: Term<Map<Id, Value>>, key: Term<Id>, value: Term<Int>) -> Term<M
     map::update(m, key, value)
 }
 
+/// Pushes an integer on a list of values, written in brackets.
+#[k::function(total, internal)]
+pub fn Push(l: Term<List<Value>>, v: Term<Int>) -> Term<List<Value>> {
+    [v, ..l]
+}
+
 /// The keys of a map of sets of integers, read through a typed lookup.
 #[k::function(total, internal, sort = Set<Int>, syntax = "members({sets}, {key})")]
 pub struct Members {
@@ -138,6 +144,7 @@ k::rules! {
     typed_function: { k: [Op(13), Put(name, _), ..], env: e } => { k: [..], env: Store(e, name, 5) };
     typed_stash: { k: [Op(14), ..], env: e } => { k: [Keep(e), ..] };
     typed_restore: { k: [Op(15), Keep(m), ..], env: _ } => { k: [..], env: m };
+    typed_push: { k: [Op(17), ..], stack: l } => { k: [..], stack: Push(l, 1) };
     typed_nested: { k: [Op(16), Put(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, Members(n, name)) };
 }
 ";
@@ -521,6 +528,19 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "s",
         ),
         (
+            "bracket-parameter",
+            rules(
+                "probe: { k: [Put(_, s), ..], stack: l } => { k: [..], stack: Push([s, ..l], 1) };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "an element of the parameter `l` of `Push`, declared `List<Value>`",
+                "a Value",
+            ),
+            "s",
+        ),
+        (
             "typed-field",
             rules(
                 "probe: { k: [Put(name, s), ..], env: e } => { k: [Keep(map::update(e, name, s)), ..] };",
@@ -602,6 +622,18 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
                 "a Value",
             ),
             "value",
+        ),
+        (
+            "bracket-result",
+            "l: Term<List<Value>>, v: Term<Int>)",
+            "l: Term<List<Value>>, v: Term<Stmt>)",
+            stored(
+                "v",
+                "Stmt",
+                "an element of the result of `Push`, declared `List<Value>`",
+                "a Value",
+            ),
+            "v",
         ),
         (
             "parameter-arity",
