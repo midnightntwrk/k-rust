@@ -4795,9 +4795,7 @@ k::rules! {
                 remaining_call_stack,
             )
         ],
-        interim_states: k::term![
-            list::concat(list::item(saved_world_state), remaining_interim_states)
-        ],
+        interim_states: list::concat(list::item(saved_world_state), remaining_interim_states),
         output: child_output,
         status_code: Status::Success(),
         call_state: CallState { gas: child_gas, .. },
@@ -4838,27 +4836,25 @@ k::rules! {
                 remaining_call_stack,
             )
         ],
-        interim_states: k::term![
-            list::concat(
-                list::item(
-                    SavedWorldState::Snapshot {
-                        account_id,
-                        balance,
-                        code,
-                        nonce,
-                        storage,
-                        original_storage,
-                        self_destruct,
-                        logs,
-                        refund,
-                        accessed_accounts,
-                        accessed_storage,
-                        created_accounts,
-                    }
-                ),
-                remaining_interim_states,
-            )
-        ],
+        interim_states: list::concat(
+            list::item(
+                SavedWorldState::Snapshot {
+                    account_id,
+                    balance,
+                    code,
+                    nonce,
+                    storage,
+                    original_storage,
+                    self_destruct,
+                    logs,
+                    refund,
+                    accessed_accounts,
+                    accessed_storage,
+                    created_accounts,
+                }
+            ),
+            remaining_interim_states,
+        ),
         account_id: _,
         balance: _,
         code: _,
@@ -4923,27 +4919,25 @@ k::rules! {
                 remaining_call_stack,
             )
         ],
-        interim_states: k::term![
-            list::concat(
-                list::item(
-                    SavedWorldState::Snapshot {
-                        account_id,
-                        balance,
-                        code,
-                        nonce,
-                        storage,
-                        original_storage,
-                        self_destruct,
-                        logs,
-                        refund,
-                        accessed_accounts,
-                        accessed_storage,
-                        created_accounts,
-                    }
-                ),
-                remaining_interim_states,
-            )
-        ],
+        interim_states: list::concat(
+            list::item(
+                SavedWorldState::Snapshot {
+                    account_id,
+                    balance,
+                    code,
+                    nonce,
+                    storage,
+                    original_storage,
+                    self_destruct,
+                    logs,
+                    refund,
+                    accessed_accounts,
+                    accessed_storage,
+                    created_accounts,
+                }
+            ),
+            remaining_interim_states,
+        ),
         account_id: _,
         balance: _,
         code: _,
