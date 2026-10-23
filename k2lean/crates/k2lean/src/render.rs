@@ -36,6 +36,7 @@ fn pat_vars_ordered(l: &L, out: &mut Vec<String>) {
     match l {
         L::Var(v) => out.push(v.clone()),
         L::App(_, args) => args.iter().for_each(|a| pat_vars_ordered(a, out)),
+        L::Typed(e, _) => pat_vars_ordered(e, out),
         L::Raw(_) => {}
     }
 }

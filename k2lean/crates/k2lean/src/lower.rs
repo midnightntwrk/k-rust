@@ -15,6 +15,8 @@ pub enum L {
     Var(String),
     App(String, Vec<L>),
     Raw(String),
+    /// A type ascription `(e : T)`, for a term whose type Lean cannot infer from its context.
+    Typed(Box<L>, String),
 }
 
 impl L {
@@ -25,6 +27,7 @@ impl L {
         match self {
             L::Var(v) => v.clone(),
             L::Raw(r) => r.clone(),
+            L::Typed(e, t) => format!("({} : {t})", e.render()),
             L::App(h, args) => {
                 if args.is_empty() {
                     h.clone()
@@ -55,6 +58,7 @@ impl L {
                 None => self.clone(),
             },
             L::Raw(_) => self.clone(),
+            L::Typed(e, t) => L::Typed(Box::new(e.subst(s)), t.clone()),
             L::App(h, args) => L::App(h.clone(), args.iter().map(|a| a.subst(s)).collect()),
         }
     }
@@ -874,13 +878,28 @@ impl<'a> Lower<'a> {
                     .ok_or(format!("no implementation for function {f}"))?;
                 let mut largs = Vec::new();
                 for (a, s) in args.iter().zip(&sig.args) {
-                    largs.push(self.expr(a, s)?);
+                    let e = self.expr(a, s)?;
+                    // a hook with a polymorphic result, as the argument of a hook whose result
+                    // sort is another one (`Set2List(keys(M))`): nothing fixes the argument's
+                    // carrier, so it is ascribed (an argument of a generated function, or of a
+                    // hook whose result has the argument's sort, gets its type from there)
+                    let nested_poly =
+                        matches!(&e, L::App(h, _) if crate::hooks::needs_ascription(h));
+                    if nested_poly
+                        && sig.lean.starts_with("KPrelude.")
+                        && s != "?"
+                        && *s != sig.result
+                    {
+                        largs.push(L::Typed(Box::new(e), s.clone()));
+                    } else {
+                        largs.push(e);
+                    }
                 }
                 let call = L::app(sig.lean.clone(), largs);
                 if sig.partial {
                     // a `match` scrutinee has no expected type: ascribe polymorphic results
                     let call = if crate::hooks::needs_ascription(&sig.lean) {
-                        L::Raw(format!("({} : Option {})", call.render(), sig.result))
+                        L::Typed(Box::new(call), format!("Option {}", sig.result))
                     } else {
                         call
                     };

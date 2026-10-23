@@ -35,6 +35,8 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
   A sort with several leaves is a sum over them (`S.inj_L`), so every K value has exactly one Lean representation; `proj_S_L` is the partial inverse of an injection, defined exactly on the injected values.
 - **Builtin sorts and hooks.** `Int`, `Bool`, `String`, `Map`, `Set`, `List` and the IO sorts are the prelude's types, and a hooked function is the prelude definition chosen by its `hook{}` attribute only, never by the symbol's K name (`crates/k2lean/src/hooks.rs`).
   Each hook has the meaning `domains.md` gives it; where `domains.md` leaves a value unspecified (`/Int` at divisor 0, `substrString` out of range), the model makes a documented choice or leaves the result undefined.
+- **Parameters.** A hooked function the hook library does not implement (`KRYPTO.keccak256`, `BYTES.bytes2hex`), and a function symbol with neither equations nor a hook, is unconstrained by the definition: it is a field of the generated `class Hooks` (`Functions.lean`), `Option`-valued, and every later module has `variable [Hooks]`.
+  Every theorem then holds for every implementation of the hooks, with no axiom; a test driver needs an instance.
 - **Partiality.** A partial function is `Option`-valued, `⊥` is `none`, and matching logic's `\equals` holds between two `⊥`s, so an equation over partial terms is an equation of `Option`s.
 - **Functions.** A function's equations are tried in priority order, `owise` last; the first equation whose argument patterns match and whose `requires` is `true` gives the value, even when that value is `⊥`.
   An `owise` equation's guard is the negation of its competitors' applicability, which the cascade position realizes.

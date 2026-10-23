@@ -244,6 +244,10 @@ pub fn applied_ctors(p: &P, anywhere: &BTreeSet<String>, out: &mut BTreeSet<Stri
 
 pub struct Generated {
     pub fns: Fns,
+    /// The hooks without an implementation in the hook library, and the functions with neither
+    /// equations nor a hook: parameters of the generated library (the fields of its `Hooks`
+    /// class), as (field name, argument sorts, result sort).
+    pub params: Vec<(String, Vec<String>, String)>,
     pub lean: String,
     /// Names to unfold in generated proofs.
     pub unfold: Vec<String>,
@@ -590,6 +594,46 @@ fn int_measure(
     None
 }
 
+/// The adapters of `BYTES.int2bytes` and `BYTES.bytes2int` (the prelude's `BytesHook.int2bytes`
+/// and `bytes2int` take the byte order and signedness as `Bool` flags), when the definition
+/// declares the constructors `domains.md` gives these arguments: (Lean name, definition).
+fn bytes_adapter(
+    m: &Model,
+    hook: Option<&str>,
+    args: &[String],
+    result: &str,
+) -> Option<(String, String)> {
+    let ctor = |k: &str| m.ctors.get(k).map(|_| m.ctor_path(k));
+    let big = ctor("LblbigEndianBytes")?;
+    match (hook?, args) {
+        ("BYTES.int2bytes", [l, i, e]) => Some((
+            "K.hook_int2bytes".into(),
+            format!(
+                "/-- `BYTES.int2bytes`, with the byte order compared with `bigEndianBytes`. -/
+def K.hook_int2bytes (len : {l}) (i : {i}) (e : {e}) : {result} :=
+  KPrelude.BytesHook.int2bytes len i (decide (e = {big}))
+
+"
+            ),
+        )),
+        ("BYTES.bytes2int", [b, e, sg]) => {
+            let signed = ctor("LblsignedBytes")?;
+            Some((
+                "K.hook_bytes2int".into(),
+                format!(
+                    "/-- `BYTES.bytes2int`, with the byte order and signedness compared with `bigEndianBytes`
+and `signedBytes`. -/
+def K.hook_bytes2int (b : {b}) (e : {e}) (s : {sg}) : {result} :=
+  KPrelude.BytesHook.bytes2int b (decide (e = {big})) (decide (s = {signed}))
+
+"
+                ),
+            ))
+        }
+        _ => None,
+    }
+}
+
 pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Generated, String> {
     let eqs = equations(def);
     // close over calls
@@ -624,6 +668,8 @@ pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Genera
     // signatures
     let mut fns: Fns = BTreeMap::new();
     let mut notes = Vec::new();
+    let mut params: Vec<(String, Vec<String>, String)> = Vec::new();
+    let mut helpers = String::new();
     for f in &used {
         let sym = &def.symbols[f];
         let args: Option<Vec<String>> = sym.args.iter().map(sort_name).collect();
@@ -651,11 +697,49 @@ pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Genera
             ));
         };
         if !eqs.contains_key(f) {
-            return Err(format!(
-                "function {f} ({}) has neither a hook implementation (hook {:?}) nor equations",
-                names::demangle(f),
-                sym.hook()
+            // `BYTES.int2bytes`/`bytes2int`: prelude definitions on `Bool` flags; the flags are
+            // the hook's documented argument constructors (`domains.md`: `bigEndianBytes`,
+            // `signedBytes`), compared with Lean's `=`
+            if let Some((name, text)) = bytes_adapter(m, sym.hook().as_deref(), &args, &result) {
+                fns.insert(
+                    f.clone(),
+                    FnSig {
+                        lean: name,
+                        partial: false,
+                        args: args.clone(),
+                        result: result.clone(),
+                    },
+                );
+                helpers.push_str(&text);
+                continue;
+            }
+            // a hook the library does not implement, or a function the definition gives no
+            // equations: unconstrained by the definition, so a parameter of the library (every
+            // theorem then holds for every implementation of it), never an axiom
+            let (field, why) = match sym.hook() {
+                Some(h) => (h.clone(), format!("hook {h} has no implementation")),
+                None => (
+                    format!("fn.{}", names::demangle(f)),
+                    "no equations, no hook".to_string(),
+                ),
+            };
+            fns.insert(
+                f.clone(),
+                FnSig {
+                    lean: format!("Hooks.«{field}»"),
+                    partial: true,
+                    args: args.clone(),
+                    result: result.clone(),
+                },
+            );
+            if !params.iter().any(|(p, _, _)| *p == field) {
+                params.push((field, args, result));
+            }
+            notes.push(format!(
+                "{} is a parameter of the library ({why})",
+                names::demangle(f)
             ));
+            continue;
         }
         fns.insert(
             f.clone(),
@@ -684,7 +768,7 @@ pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Genera
         }
     }
     // generate, deciding purity on the way (callees first, so their purity is known)
-    let mut lean = String::new();
+    let mut lean = helpers;
     let mut unfold = Vec::new();
     for scc in &sccs {
         if scc.iter().any(|f| recursive.contains(f)) {
@@ -802,6 +886,7 @@ pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Genera
     let recursive = recursive.iter().map(|f| fns[f].lean.clone()).collect();
     Ok(Generated {
         fns,
+        params,
         lean,
         unfold,
         recursive,

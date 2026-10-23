@@ -159,8 +159,9 @@ pub fn for_symbol(d: &crate::ir::SymbolDecl) -> Option<HookImpl> {
     None
 }
 
-/// Implementations whose result type Lean cannot infer from the arguments: the generated code
-/// ascribes their type.
+/// Implementations whose result type Lean cannot infer from the arguments (polymorphic in the
+/// collection carrier or its elements): the generated code ascribes their type where nothing else
+/// fixes it (a `match` scrutinee, an argument of another hook).
 pub fn needs_ascription(lean: &str) -> bool {
     lean.starts_with("KPrelude.IOHook.")
         || matches!(
@@ -169,6 +170,14 @@ pub fn needs_ascription(lean: &str) -> bool {
                 | "KPrelude.SetHook.choice"
                 | "KPrelude.ListHook.get"
                 | "KPrelude.ListHook.make"
+                | "KPrelude.MapHook.keys"
+                | "KPrelude.MapHook.values"
+                | "KPrelude.MapHook.element"
+                | "KPrelude.MapHook.unit"
+                | "KPrelude.SetHook.element"
+                | "KPrelude.SetHook.unit"
+                | "KPrelude.ListHook.element"
+                | "KPrelude.ListHook.unit"
         )
 }
 

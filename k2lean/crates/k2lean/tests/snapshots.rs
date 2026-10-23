@@ -119,3 +119,11 @@ fn peano() {
 fn counter() {
     snapshot("counter", "Counter");
 }
+
+/// A hook the hook library does not implement (`Bytes2Hex`) and a function without equations
+/// (`oracle`): the fields of the generated `Hooks` class, with `variable [Hooks]` in the modules
+/// after `Terms`; `Int2Bytes` and `Bytes2Int` through their generated adapters.
+#[test]
+fn params() {
+    snapshot("params", "Params");
+}
