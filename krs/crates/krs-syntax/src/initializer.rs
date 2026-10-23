@@ -391,15 +391,10 @@ impl InitializerFunction {
             0,
             TokenRange::for_tokens(&self.body)?,
         ));
-        let mut cell_ordinal = 0;
-        let mut constructor_ordinal = 0;
-        let mut term_ordinal = 0;
         append_initializer_anchors(
             &self.cells,
             &mut anchors,
-            &mut cell_ordinal,
-            &mut constructor_ordinal,
-            &mut term_ordinal,
+            &mut InitializerAnchorCounters::default(),
         )?;
         // Constant islands are numbered per kind over the initializer's terms
         // in the order expansion visits them.
@@ -1131,20 +1126,30 @@ fn parse_initializer_state_term(
     )?))
 }
 
+/// Ordinals of the initializer's cell, constructor, term, and `k!`/`map!`
+/// structure anchors. Each runs across the whole initializer, in the order
+/// expansion visits the nodes (cells in declaration order, nested groups in
+/// place), because a provenance key names one authored node of the sentence.
+#[derive(Default)]
+struct InitializerAnchorCounters {
+    cell: usize,
+    constructor: usize,
+    term: usize,
+    structure: crate::parse::ProvenanceAnchors,
+}
+
 fn append_initializer_anchors(
     cells: &[FixedCellInitializer],
     output: &mut Vec<ProvenanceAnchor>,
-    cell_ordinal: &mut usize,
-    constructor_ordinal: &mut usize,
-    term_ordinal: &mut usize,
+    counters: &mut InitializerAnchorCounters,
 ) -> Result<(), SyntaxError> {
     for cell in cells {
         let current = checked_ordinal(
-            *cell_ordinal,
+            counters.cell,
             ProvenanceRole::InitializerCell,
             cell.name.span(),
         )?;
-        *cell_ordinal += 1;
+        counters.cell += 1;
         let range = TokenRange::for_tokens(&cell.field.member)?;
         output.push(ProvenanceAnchor::new(
             ProvenanceRole::InitializerCell,
@@ -1164,11 +1169,11 @@ fn append_initializer_anchors(
                 ..
             } => {
                 let current = checked_ordinal(
-                    *constructor_ordinal,
+                    counters.constructor,
                     ProvenanceRole::InitializerCellConstructor,
                     constructor.span(),
                 )?;
-                *constructor_ordinal += 1;
+                counters.constructor += 1;
                 output.push(ProvenanceAnchor::new(
                     ProvenanceRole::InitializerCellConstructor,
                     current,
@@ -1178,30 +1183,24 @@ fn append_initializer_anchors(
                         TokenRange::for_tokens(constructor)?
                     },
                 ));
-                append_state_term_anchors(value, output, term_ordinal)?;
+                append_state_term_anchors(value, output, counters)?;
             }
             InitializerCellContent::Nested {
                 constructor,
                 children,
             } => {
                 let current = checked_ordinal(
-                    *constructor_ordinal,
+                    counters.constructor,
                     ProvenanceRole::InitializerNestedConstructor,
                     constructor.span(),
                 )?;
-                *constructor_ordinal += 1;
+                counters.constructor += 1;
                 output.push(ProvenanceAnchor::new(
                     ProvenanceRole::InitializerNestedConstructor,
                     current,
                     TokenRange::for_tokens(constructor)?,
                 ));
-                append_initializer_anchors(
-                    children,
-                    output,
-                    cell_ordinal,
-                    constructor_ordinal,
-                    term_ordinal,
-                )?;
+                append_initializer_anchors(children, output, counters)?;
             }
         }
     }
@@ -1227,8 +1226,9 @@ fn collect_initializer_terms<'a>(
 fn append_state_term_anchors(
     value: &StateTerm,
     output: &mut Vec<ProvenanceAnchor>,
-    term_ordinal: &mut usize,
+    counters: &mut InitializerAnchorCounters,
 ) -> Result<(), SyntaxError> {
+    let term_ordinal = &mut counters.term;
     match value {
         // Initializers hold templates only, never `Some`/`None` or instance lists.
         StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
@@ -1236,14 +1236,14 @@ fn append_state_term_anchors(
             append_term_anchors(term, output, term_ordinal)
         }
         StateTerm::KSequence(sequence) => {
-            output.extend(sequence.provenance()?);
+            append_structure_anchors(sequence.provenance()?, &mut counters.structure, output)?;
             for term in sequence.items() {
                 append_term_anchors(term, output, term_ordinal)?;
             }
             Ok(())
         }
         StateTerm::Map(map) => {
-            output.extend(map.provenance()?);
+            append_structure_anchors(map.provenance()?, &mut counters.structure, output)?;
             match map.body() {
                 MapBody::Empty { .. } => Ok(()),
                 MapBody::Items { items, .. } => {
@@ -1261,6 +1261,25 @@ fn append_state_term_anchors(
             }
         }
     }
+}
+
+/// Renumbers one `k!` or `map!` node's structure anchors, which its own
+/// `provenance` numbers from 0, so that a second node of the same role
+/// continues after the first instead of repeating its keys.
+fn append_structure_anchors(
+    anchors: Vec<ProvenanceAnchor>,
+    structure: &mut crate::parse::ProvenanceAnchors,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    for anchor in anchors {
+        let ordinal = structure.next(anchor.role(), anchor.range().first())?;
+        output.push(ProvenanceAnchor::new(
+            anchor.role(),
+            ordinal,
+            anchor.range(),
+        ));
+    }
+    Ok(())
 }
 
 fn append_term_anchors(
