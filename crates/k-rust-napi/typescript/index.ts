@@ -1481,6 +1481,7 @@ export type FuzzUnjudgedReason =
   | 'backend-error'
   | 'stack-exhausted'
   | 'clock'
+  | 'cancelled'
   | 'work-bound'
   | 'depth-bound'
   | 'halt-indeterminate'
@@ -1523,7 +1524,7 @@ export interface FuzzTotals {
   /** `unsupported` cases per reason; the counts sum to `classes.unsupported`. */
   'unsupported-reasons': Partial<Record<FuzzUnjudgedReason, number>>
   /** `baseline-incomplete` cases per reason; the counts sum to `classes['baseline-incomplete']`. */
-  'incomplete-reasons': Partial<Record<FuzzUnjudgedReason, number>>
+  'baseline-incomplete-reasons': Partial<Record<FuzzUnjudgedReason, number>>
   coverage: { applied: string[]; matched: string[] }
   'target-blocked': number
   'best-score': number[] | null

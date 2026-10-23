@@ -862,9 +862,10 @@ fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<
         .into_iter()
         .map(|function| {
             format!(
-                "not-ceil-free: a case ended in a configuration holding an application of the \
-                 partial function `{function}` that no equation evaluates, so it may denote no \
-                 value and the case could not be judged"
+                "not-ceil-free: a leaf holds an application of `{function}` that no equation \
+                 evaluates (a partial function, or one defined only by `anywhere` or overload \
+                 rules), so the configuration may denote no value and the case could not be \
+                 judged; a program or hole range whose runs avoid that application can be"
             )
         })
         .collect()

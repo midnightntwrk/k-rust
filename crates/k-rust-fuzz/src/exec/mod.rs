@@ -262,7 +262,8 @@ pub enum NormalEndKind {
     SingleK,
     /// The default for a configuration whose `<k>` cell lies under a cell of multiplicity `*`
     /// or `?` (threads): every `<k>` cell of the leaf holds `.K`, and a leaf with no `<k>` cell
-    /// left (every thread finished and was removed) is a natural end too. A semantics that
+    /// left (every thread finished and was removed) is a natural end too when the initial
+    /// configuration had a `<k>` cell. A semantics that
     /// removes a thread on error, or leaves a result in a finished thread's `<k>`, needs its own
     /// pattern.
     EveryK,
@@ -706,11 +707,12 @@ fn leaf_reason(leaf: &LeafReport, reached: bool) -> UnjudgedReason {
         None if reached && leaf.halt == HaltReasonOutput::Trivial => {
             UnjudgedReason::ReachedUndefinedStep
         }
-        Some(UnjudgedReason::WorkBound | UnjudgedReason::DepthBound | UnjudgedReason::Clock)
-            if reached =>
-        {
-            UnjudgedReason::ReachedCutPath
-        }
+        Some(
+            UnjudgedReason::WorkBound
+            | UnjudgedReason::DepthBound
+            | UnjudgedReason::Clock
+            | UnjudgedReason::Cancelled,
+        ) if reached => UnjudgedReason::ReachedCutPath,
         Some(reason) => reason,
         None => UnjudgedReason::EngineDefect,
     }

@@ -349,6 +349,11 @@ pub(crate) struct Executor {
     normal_end: LeafMatcher,
     /// Which normal end applies ([`NormalEnd::kind`]).
     normal_end_kind: NormalEndKind,
+    /// Under [`NormalEndKind::EveryK`], whether the definition's initial configuration holds a
+    /// `<k>` cell, found on the first leaf with no `<k>` cell left ([`initial_has_k`]) and kept:
+    /// the cells of the initial configuration are fixed by the configuration declaration, which
+    /// configuration variables only fill.
+    initial_has_k: std::cell::Cell<Option<bool>>,
     /// The pattern compiler, built on the first [`Self::compile_pattern`] when the executor was
     /// built from a compiled normal-end pattern without one.
     compiler: Option<PatternCompiler>,
@@ -468,6 +473,7 @@ impl Executor {
             backend,
             normal_end: prepared,
             normal_end_kind: normal_end.kind,
+            initial_has_k: std::cell::Cell::new(None),
             compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
@@ -543,6 +549,7 @@ impl Executor {
         let judge = Judge {
             normal_end: &self.normal_end,
             normal_end_kind: self.normal_end_kind,
+            initial_has_k: &self.initial_has_k,
             matchers,
             options: SimplificationOptions {
                 max_iterations: self.max_simplification_iterations,
@@ -606,6 +613,7 @@ impl Executor {
         let judge = Judge {
             normal_end: &self.normal_end,
             normal_end_kind: self.normal_end_kind,
+            initial_has_k: &self.initial_has_k,
             matchers: &[],
             options: SimplificationOptions::default(),
             constructor_only: false,
@@ -640,6 +648,7 @@ enum Execution {
 struct Judge<'a> {
     normal_end: &'a LeafMatcher,
     normal_end_kind: NormalEndKind,
+    initial_has_k: &'a std::cell::Cell<Option<bool>>,
     matchers: &'a [&'a LeafMatcher],
     options: SimplificationOptions,
     constructor_only: bool,
@@ -665,6 +674,9 @@ struct Internal {
     reasons: Vec<UncleanReason>,
     /// The normal-termination pattern matched (a `stuck` leaf whose state was decided).
     normal_end: bool,
+    /// The every-`<k>` default matched a leaf with no `<k>` cell left: a natural end only when
+    /// the initial configuration held a `<k>` cell ([`Judge::judge`]).
+    vacuous: bool,
     matches: Vec<bool>,
     constructor_only: Option<bool>,
     /// Solver `unknown`s the leaf's matching met, in either evaluation mode (review 2, NI-2).
@@ -678,6 +690,10 @@ impl Judge<'_> {
         request: ExecuteRequest,
         execution: Execution,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+        // The initial state, kept for the one probe of whether it holds a `<k>` cell.
+        let probe = (self.normal_end_kind == NormalEndKind::EveryK
+            && self.initial_has_k.get().is_none())
+        .then(|| request.state.clone());
         let executed = match execution {
             Execution::Plain => backend.execute(request),
             Execution::Observed { rules } => {
@@ -691,7 +707,7 @@ impl Judge<'_> {
         }
         match executed {
             Ok(result) => {
-                let judged = self.judge(backend, &result)?;
+                let judged = self.judge(backend, &result, probe.as_ref())?;
                 Ok((judged, result.leaves))
             }
             Err(error) => Ok((self.failed(failure_of(&error)?), Vec::new())),
@@ -724,7 +740,12 @@ impl Judge<'_> {
         })
     }
 
-    fn judge(&self, backend: &mut Backend, result: &ExecutionResult) -> Result<CaseResult, Abort> {
+    fn judge(
+        &self,
+        backend: &mut Backend,
+        result: &ExecutionResult,
+        probe: Option<&KorePattern>,
+    ) -> Result<CaseResult, Abort> {
         let run_allowance_refusals = result
             .allowance_refusals
             .iter()
@@ -770,10 +791,31 @@ impl Judge<'_> {
                 constructor_only: None,
             });
         }
-        let internal = match self.judge_internally(backend, &leaves) {
+        let mut internal = match self.judge_internally(backend, &leaves) {
             Ok(internal) => internal,
             Err(error) => return Ok(self.failed(failure_of(&error)?)),
         };
+        // A leaf with no `<k>` cell left is a natural end only when the initial configuration
+        // held one: otherwise no thread ever ran there, and the program may have stopped
+        // elsewhere having done nothing (FZ-UNSUPPORTED review N1).
+        if internal
+            .iter()
+            .any(|judged| judged.vacuous && judged.normal_end)
+        {
+            let known = self.initial_has_k.get().or_else(|| {
+                let found = probe.and_then(|state| initial_has_k(backend, state));
+                if found.is_some() {
+                    self.initial_has_k.set(found);
+                }
+                found
+            });
+            if known != Some(true) {
+                for judged in internal.iter_mut().filter(|judged| judged.vacuous) {
+                    judged.normal_end = false;
+                    judged.reasons.push(UncleanReason::NaturalEndUndecided);
+                }
+            }
+        }
         let mut smt_unknowns = result.smt_unknowns;
         for (leaf, internal) in leaves.iter_mut().zip(internal) {
             smt_unknowns = smt_unknowns.saturating_add(internal.smt_unknowns);
@@ -943,7 +985,12 @@ impl Judge<'_> {
         }
         if leaf.halt == HaltReasonOutput::Stuck {
             let verdict = match self.normal_end_kind {
-                NormalEndKind::EveryK => every_k_cell_empty(&pattern.term),
+                NormalEndKind::EveryK => {
+                    let verdict = every_k_cell_empty(&pattern.term);
+                    internal.vacuous =
+                        verdict == MatchVerdict::Matched && attributes.k_cells() == 0;
+                    verdict
+                }
                 NormalEndKind::SingleK if attributes.k_cells() != 1 => MatchVerdict::Undecided,
                 NormalEndKind::SingleK | NormalEndKind::Pattern => {
                     self.match_leaf(definition, solver, self.normal_end, &pattern, &mut internal)?
@@ -1046,6 +1093,41 @@ pub(super) fn every_k_cell_empty(term: &Term) -> MatchVerdict {
         verdict = both(verdict, cell_verdict);
     });
     verdict
+}
+
+/// Whether the initial configuration `state` holds a `<k>` cell: `state` run to depth 0, so
+/// that the configuration's initializers are evaluated, and its one leaf internalized. `None`
+/// when that run or the internalization fails (then nothing is kept, and the leaf it was asked
+/// for stays undecided).
+fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
+    let request = ExecuteRequest {
+        max_depth: Some(0),
+        max_work: None,
+        max_breadth: None,
+        terminal_rules: Vec::new(),
+        cut_point_rules: Vec::new(),
+        stop_at_branch: false,
+        collect_coverage: false,
+        collect_offered: false,
+        trace: false,
+        step_timeout_ms: None,
+        ..ExecuteRequest::new(state.clone())
+    };
+    let result = backend.execute(request).ok()?;
+    let leaf = result.leaves.first()?;
+    let initial = codec::from_value(&leaf.state).ok()?;
+    backend
+        .with_solver_over(None, &[&initial], |definition, _solver| {
+            Ok::<_, BackendError>(
+                definition
+                    .admit_unverified(&initial, &[])
+                    .internalize_pattern()
+                    .ok()
+                    .map(|pattern| pattern.term.attributes().k_cells() > 0),
+            )
+        })
+        .ok()
+        .flatten()
 }
 
 /// The K label of the first application of a partial function in `term`, in preorder, looking

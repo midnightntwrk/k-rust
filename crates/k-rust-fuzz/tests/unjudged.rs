@@ -103,7 +103,7 @@ fn assert_reasons_sum(report: &FuzzReport) {
         report.totals
     );
     assert_eq!(
-        sum(&report.totals.incomplete_reasons),
+        sum(&report.totals.baseline_incomplete_reasons),
         count(report, OutcomeClass::BaselineIncomplete),
         "{:?}",
         report.totals
@@ -192,7 +192,7 @@ fn not_ceil_free_cases_are_counted_and_name_the_partial_function() {
         report
             .warnings
             .iter()
-            .any(|warning| warning.contains("partial function `find`")),
+            .any(|warning| warning.contains("application of `find`")),
         "{:?}",
         report.warnings
     );
@@ -271,8 +271,77 @@ fn an_incomplete_baseline_names_the_bound() {
     let incomplete = count(&report, OutcomeClass::BaselineIncomplete);
     assert!(incomplete > 0, "{:?}", report.totals);
     assert_eq!(
-        report.totals.incomplete_reasons,
+        report.totals.baseline_incomplete_reasons,
         BTreeMap::from([(UnjudgedReason::DepthBound, incomplete)])
     );
     assert_reasons_sum(&report);
+}
+
+/// Review S3 (`crash.toml`): THREADS `fail(N)` against a negated property that holds. `fail(0)`
+/// removes its thread on error, so the every-`<k>` default calls it finished and every case is
+/// `miss`; the report must say once that the default applied and how to override it. With the
+/// pattern the warning is gone, and the crash is `stuck`.
+#[test]
+fn the_every_k_default_is_named_when_it_decides_cases() {
+    let crash = |normal_end_pattern: Option<&str>| {
+        let mut spec = spec(
+            &THREADS,
+            None,
+            "threads/fail.pgm",
+            "fail(3)",
+            "3",
+            (0, 3),
+            unreachable_pattern(),
+            CaseOptions {
+                normal_end_pattern: normal_end_pattern.map(str::to_owned),
+                ..CaseOptions::default()
+            },
+        );
+        spec.target.negated_property = true;
+        run(spec, 20)
+    };
+    let every_k = |report: &FuzzReport| {
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.starts_with("every-k:"))
+            .count()
+    };
+    let default = crash(None);
+    assert_eq!(count(&default, OutcomeClass::Miss), default.totals.cases);
+    assert_eq!(every_k(&default), 1, "{:?}", default.warnings);
+    let warning = default
+        .warnings
+        .iter()
+        .find(|warning| warning.starts_with("every-k:"))
+        .expect("the warning");
+    for spelling in [
+        "normal-end-pattern",
+        "--normal-end",
+        "removes a thread on error",
+    ] {
+        assert!(warning.contains(spelling), "{warning}");
+    }
+    let pattern = crash(Some("<errors> 0 </errors>"));
+    assert_eq!(every_k(&pattern), 0, "{:?}", pattern.warnings);
+    assert!(
+        count(&pattern, OutcomeClass::Stuck) > 0,
+        "{:?}",
+        pattern.totals
+    );
+    // A single-`<k>` definition never gets it.
+    let taint = run(
+        spec(
+            &TAINT,
+            None,
+            "taint/get.pgm",
+            "get(1)",
+            "1",
+            (1, 1),
+            unreachable_pattern(),
+            CaseOptions::default(),
+        ),
+        3,
+    );
+    assert_eq!(every_k(&taint), 0, "{:?}", taint.warnings);
 }

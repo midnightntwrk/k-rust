@@ -690,11 +690,20 @@ fixture!(
     ]
 );
 
+// The <k> cell under a `?` cell absent from the initial configuration, the program in <code>
+// (FZ-UNSUPPORTED review N1).
+fixture!(
+    QOPT,
+    "qopt/qopt.k",
+    "QOPT",
+    &[program!("qopt/bad.pgm"), program!("qopt/start.pgm")]
+);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 38] = [
+pub static ALL: [&Fixture; 39] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -733,4 +742,5 @@ pub static ALL: [&Fixture; 38] = [
     &NOISE,
     &DRAIN,
     &THREADS,
+    &QOPT,
 ];

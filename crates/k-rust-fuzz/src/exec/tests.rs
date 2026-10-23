@@ -618,6 +618,48 @@ fn a_thread_removed_on_error_follows_a_supplied_pattern() {
     assert_eq!(class(&finished, &[false], false), OutcomeClass::Miss);
 }
 
+/// Review N1: `<k>` under a `?` cell absent from the initial configuration, the program in
+/// `<code>`. A leaf with no `<k>` left is not a natural end when the initial configuration had
+/// no `<k>` either: `bad(3)` stopped having done nothing, and was `miss` before the hardening.
+#[test]
+fn no_k_left_is_no_natural_end_when_the_initial_configuration_had_none() {
+    let fixture = support::QOPT.compiled();
+    let kind = PatternCompiler::new(&fixture.definition())
+        .expect("the execution definition resolves")
+        .normal_end(&fixture.grammar, &CaseOptions::default())
+        .expect("the pattern compiles")
+        .kind();
+    assert_eq!(kind, NormalEndKind::EveryK);
+    for program in ["bad(3)", "start(3)"] {
+        let result = fixture.run(program);
+        let leaf = only_leaf(&result);
+        assert_eq!(leaf.halt, HaltReasonOutput::Stuck, "{program}");
+        assert!(!leaf.natural_end, "{program}");
+        assert_eq!(
+            leaf.unclean,
+            [UncleanReason::NaturalEndUndecided],
+            "{program}"
+        );
+        assert_eq!(
+            classify_explained(&result, &[false], false).expect("no defect"),
+            (
+                OutcomeClass::Unsupported,
+                Some(UnjudgedReason::NaturalEndUndecided)
+            ),
+            "{program}"
+        );
+    }
+    // The answer is kept per executor: a second run on the same executor agrees.
+    let mut executor = fixture.executor(&CaseOptions::default());
+    let shape = CaseRequestShape::new(&CaseOptions::default(), &TargetNeeds::default());
+    for _ in 0..2 {
+        let result = executor
+            .run(&fixture.initial_of("bad(3)"), &shape, &[], None)
+            .expect("no solver prelude fails");
+        assert!(!only_leaf(&result).natural_end);
+    }
+}
+
 // ---------------------------------------------------------------- stops and refusals
 
 #[test]

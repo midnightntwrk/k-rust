@@ -12,7 +12,7 @@ use super::{
     shrink::{Verdict, shrink},
 };
 use crate::{
-    exec::{Abort, OutcomeClass, UnjudgedReason},
+    exec::{Abort, NormalEndKind, OutcomeClass, UnjudgedReason},
     report::{
         CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord, NoWitness,
         NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride,
@@ -612,11 +612,11 @@ impl State {
             OutcomeClass::BaselineIncomplete => self.cuts.incomplete.add(run.cut),
             _ => {}
         }
-        // `Totals::unsupported_reasons` and `incomplete_reasons` sum to their classes' counts;
+        // `Totals::unsupported_reasons` and `baseline_incomplete_reasons` sum to their classes' counts;
         // every runner gives a reason.
         let reasons = match class {
             OutcomeClass::Unsupported => Some(&mut self.totals.unsupported_reasons),
-            OutcomeClass::BaselineIncomplete => Some(&mut self.totals.incomplete_reasons),
+            OutcomeClass::BaselineIncomplete => Some(&mut self.totals.baseline_incomplete_reasons),
             _ => None,
         };
         if let Some(reasons) = reasons {
@@ -661,6 +661,9 @@ impl State {
         outcome: CampaignOutcome,
     ) -> FuzzReport {
         let totals = self.totals_snapshot();
+        if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
+            self.warn(warning);
+        }
         FuzzReport {
             schema: REPORT_SCHEMA.into(),
             version: REPORT_VERSION,
@@ -677,6 +680,33 @@ impl State {
             engine_defects: self.defects,
         }
     }
+}
+
+/// When the every-`<k>` default normal end applied to a definition and some case's class rests
+/// on a natural end judgement (`miss`, `stuck`, `hit`, `reached-unfinished`), the warning that
+/// says so and how to override it: the default reads only the `<k>` cells, so a semantics that
+/// removes a thread on error gives `miss` where its program failed (FZ-UNSUPPORTED review S3).
+pub(crate) fn every_k_warning(normal_end: Option<NormalEnds>, totals: &Totals) -> Option<String> {
+    let ends = normal_end?;
+    let every_k =
+        ends.baseline == NormalEndKind::EveryK || ends.mutant == Some(NormalEndKind::EveryK);
+    let decided = [
+        OutcomeClass::Miss,
+        OutcomeClass::Stuck,
+        OutcomeClass::Hit,
+        OutcomeClass::ReachedUnfinished,
+    ]
+    .iter()
+    .any(|class| totals.classes.get(class).is_some_and(|count| *count > 0));
+    (every_k && decided).then(|| {
+        "every-k: no normal-end pattern was given and the configuration's <k> cell lies under a \
+         multiplicity cell, so a stuck run counted as finished when every <k> cell held .K or \
+         no <k> cell was left (the initial configuration having had one); a semantics that \
+         removes a thread on error, or leaves a value in a finished thread's <k>, needs a \
+         pattern of its finished configuration: campaign key `normal-end-pattern`, command \
+         line `--normal-end`, library `CaseOptions::normal_end_pattern`"
+            .to_owned()
+    })
 }
 
 /// The clause of the no-witness statement that counts unjudged cases per reason
@@ -830,7 +860,7 @@ pub(crate) fn no_witness(
             plural(incomplete, "case")
         )
         .expect("writing to a String");
-        reason_clause(&mut text, &totals.incomplete_reasons);
+        reason_clause(&mut text, &totals.baseline_incomplete_reasons);
         bound_advice(&mut text, &cuts.incomplete, options, "a baseline path", "");
         if cuts.incomplete.none > 0 {
             write!(

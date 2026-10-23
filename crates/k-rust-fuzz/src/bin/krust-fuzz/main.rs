@@ -18,8 +18,8 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use k_rust_fuzz::{
-    Campaign, OutcomeClass,
-    exec::{NormalEndKind, UnjudgedReason},
+    Campaign,
+    exec::UnjudgedReason,
     report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
     target::RuleMode,
 };
@@ -561,15 +561,17 @@ fn summary(report: &FuzzReport) -> String {
 
 /// For a report with a witness, its `unsupported` and `baseline-incomplete` cases per reason,
 /// largest first, with the largest one's remedy (a report without a witness says the same in
-/// its no-witness statement); and, when a definition's classes rest on the every-`<k>` default
-/// and some case is `stuck`, that a semantics whose finished threads keep a value in `<k>`
-/// needs its own pattern.
+/// its no-witness statement). The every-`<k>` default is named by a report warning
+/// (`every-k: …`), which the summary prints with the others.
 fn write_unjudged(text: &mut String, report: &FuzzReport) {
     use std::fmt::Write as _;
     if report.witness().is_some() {
         for (label, reasons) in [
             ("unsupported", &report.totals.unsupported_reasons),
-            ("baseline-incomplete", &report.totals.incomplete_reasons),
+            (
+                "baseline-incomplete",
+                &report.totals.baseline_incomplete_reasons,
+            ),
         ] {
             let mut ranked: Vec<(UnjudgedReason, u64)> = reasons
                 .iter()
@@ -590,23 +592,6 @@ fn write_unjudged(text: &mut String, report: &FuzzReport) {
                 let _ = writeln!(text, "  for {}: {remedy}", top.name());
             }
         }
-    }
-    let every_k = report.normal_end.is_some_and(|ends| {
-        ends.baseline == NormalEndKind::EveryK || ends.mutant == Some(NormalEndKind::EveryK)
-    });
-    let stuck = report
-        .totals
-        .classes
-        .get(&OutcomeClass::Stuck)
-        .copied()
-        .unwrap_or(0);
-    if every_k && stuck > 0 {
-        let _ = writeln!(
-            text,
-            "note: {stuck} stuck: under the every-k default normal end a run finished only when \
-             every <k> cell is empty or no thread is left; if finished threads keep a value in \
-             <k>, set normal-end-pattern"
-        );
     }
 }
 

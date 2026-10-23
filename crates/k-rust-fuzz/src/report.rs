@@ -647,7 +647,7 @@ pub struct Totals {
     /// `baseline-incomplete` cases per reason, counted as [`Self::unsupported_reasons`] are;
     /// the counts sum to the `baseline-incomplete` entry of [`Self::classes`].
     #[serde(default)]
-    pub incomplete_reasons: BTreeMap<UnjudgedReason, u64>,
+    pub baseline_incomplete_reasons: BTreeMap<UnjudgedReason, u64>,
     /// Rules the cases reached (see [`CoverageTotals`]).
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
@@ -1077,7 +1077,7 @@ mod tests {
                     (RejectionReason::BackendRefused, 1),
                 ]),
                 unsupported_reasons: BTreeMap::from([(UnjudgedReason::NaturalEndUndecided, 2)]),
-                incomplete_reasons: BTreeMap::new(),
+                baseline_incomplete_reasons: BTreeMap::new(),
                 coverage: CoverageTotals {
                     applied: BTreeSet::from(["b".to_owned(), "a".to_owned()]),
                     matched: BTreeSet::from(["c".to_owned()]),
@@ -1171,7 +1171,8 @@ mod tests {
             r#""totals":{"cases":40,"work":1234,"#,
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
-            r#""unsupported-reasons":{"natural-end-undecided":2},"incomplete-reasons":{},"#,
+            r#""unsupported-reasons":{"natural-end-undecided":2},"#,
+            r#""baseline-incomplete-reasons":{},"#,
             r#""coverage":{"applied":["a","b"],"matched":["c"]},"target-blocked":3,"#,
             r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,

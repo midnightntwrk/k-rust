@@ -6,7 +6,7 @@
 //! that demoted a hit candidate, a run fact on no leaf, or, for a differential case, the judge's
 //! refusal to compare two ends. This module names those facts ([`UnjudgedReason`]) so that the
 //! report can count cases per reason ([`crate::report::Totals::unsupported_reasons`],
-//! [`crate::report::Totals::incomplete_reasons`]) and say what to do next.
+//! [`crate::report::Totals::baseline_incomplete_reasons`]) and say what to do next.
 //!
 //! A case is counted once, under one reason: of the reasons that each make it unjudged, the
 //! first in [`UnjudgedReason`]'s declaration order. The order runs from the facts of the run as a
@@ -32,9 +32,12 @@ pub enum UnjudgedReason {
     BackendError,
     /// The run stopped for lack of stack ([`StopCause::StackExhausted`]).
     StackExhausted,
-    /// A clock stopped the run or a path: the per-case safety limit, a step deadline or a
-    /// cancellation (`baseline-incomplete` only; such a case is otherwise `timeout`).
+    /// A clock stopped the run or a path: the per-case safety limit or a step deadline
+    /// (`baseline-incomplete` only; such a case is otherwise `timeout`).
     Clock,
+    /// The caller cancelled the run (a watchdog's or a client's cancellation token) while the
+    /// case ran (`baseline-incomplete` only; such a case is otherwise `timeout`).
+    Cancelled,
     /// A path stopped at `max-work` (`baseline-incomplete` only; otherwise `work-bound`).
     WorkBound,
     /// A path stopped at `max-depth` or the breadth bound (`baseline-incomplete` only;
@@ -117,6 +120,43 @@ pub enum UnjudgedReason {
 }
 
 impl UnjudgedReason {
+    /// Every reason, in declaration order.
+    pub const ALL: [Self; 33] = [
+        Self::BackendError,
+        Self::StackExhausted,
+        Self::Clock,
+        Self::Cancelled,
+        Self::WorkBound,
+        Self::DepthBound,
+        Self::HaltIndeterminate,
+        Self::HaltUnsupportedHook,
+        Self::HaltSimplificationError,
+        Self::HaltVacuous,
+        Self::HaltUnexpected,
+        Self::NotCeilFree,
+        Self::UndecidedState,
+        Self::InternalizationFailed,
+        Self::ImplementationChosenValue,
+        Self::ContradictedClaim,
+        Self::IterationExhaustion,
+        Self::SimplificationFailure,
+        Self::UndecidedMatch,
+        Self::StackStops,
+        Self::SmtUnknowns,
+        Self::AllowanceRefusal,
+        Self::UnsupportedHook,
+        Self::RunFactOffLeaves,
+        Self::ReachedUndefinedStep,
+        Self::ReachedCutPath,
+        Self::NaturalEndUndecided,
+        Self::Unobservable,
+        Self::KillOnChosenValue,
+        Self::MutantEndNotData,
+        Self::BaselineEndNotData,
+        Self::Unconfirmed,
+        Self::EngineDefect,
+    ];
+
     /// The reason's report name (`"natural-end-undecided"`, …).
     #[must_use]
     pub fn name(self) -> String {
@@ -126,46 +166,79 @@ impl UnjudgedReason {
             .unwrap_or_default()
     }
 
-    /// What to do about a case with this reason, as one sentence, when the campaign or the
-    /// program can do something; `None` when the reason is a fact of the definition or of
-    /// k-rust that no option changes.
+    /// What to do about a case with this reason, or why nothing can be done, as one sentence;
+    /// `None` when the reason is a fact of the definition or of k-rust that the reason's name
+    /// already states. A remedy suggests only actions that keep every verdict sound: a bound or
+    /// limit, a normal-end or target pattern (the campaign's own statement of what it asks), or
+    /// another program or hole range. It never suggests changing the definition's claims (such
+    /// as `total`): k-rust trusts a claim it cannot refute, so a false one would turn an
+    /// unjudged case into a silent `miss`. Options are named by campaign key, command-line flag
+    /// and library field where they differ.
     #[must_use]
     pub fn remedy(self) -> Option<&'static str> {
         Some(match self {
             Self::NaturalEndUndecided => {
-                "set normal-end-pattern to a pattern of the configuration a finished program ends \
-                 in (the default reads only the <k> cells)"
+                "whether the program finished could not be decided from the <k> cells; state the \
+                 finished configuration with a normal-end pattern (campaign key \
+                 `normal-end-pattern`, command line `--normal-end`, library \
+                 `CaseOptions::normal_end_pattern`)"
             }
             Self::NotCeilFree => {
-                "a leaf holds an undefined application of a partial function (see the warnings \
-                 for its symbol): give the function an equation for that argument, mark it \
-                 total if it is, or choose values for which the program avoids it"
-            }
-            Self::Clock => "raise or remove the safety limit",
-            Self::WorkBound => "raise max-work",
-            Self::DepthBound => "raise max-depth",
-            Self::IterationExhaustion => "raise max-simplification-iterations",
-            Self::ReachedUndefinedStep => {
-                "the target matched the state before an undefined step; with run-to-completion \
-                 such a case is reached-unfinished instead"
-            }
-            Self::ReachedCutPath => "raise the bound that cut the reaching path",
-            Self::UndecidedMatch => {
-                "make the target pattern decidable on the leaves: avoid function applications \
-                 and open values in it"
+                "a leaf holds an application of a partial function that no equation evaluates \
+                 (often a function only through `anywhere` or overload rules, as SIMPLE's \
+                 array lookup `_[_]`), so the configuration may denote no value and this case \
+                 cannot be judged; a warning names the function when it is known; choose a \
+                 program or hole range whose runs do not reach that application"
             }
             Self::MutantEndNotData | Self::BaselineEndNotData => {
-                "the end is not data (it holds an unevaluated function application, or an \
-                 application of an overloaded production that k-rust does not count as data), \
-                 so the two ends cannot be compared: choose a program whose ends hold only \
-                 constructors and builtin values, or add the equations that evaluate the \
-                 application"
+                "the end is not data: it holds an application of a function that no equation \
+                 evaluates, or of an overloaded production (as SIMPLE's argument lists \
+                 `_,_Exps`) that k-rust does not count as data, so the two ends cannot be \
+                 compared and this case cannot be judged; a program or hole range whose ends \
+                 hold only constructors and builtin values can be"
+            }
+            Self::Clock => {
+                "raise or remove the per-case safety limit (campaign key \
+                 `safety-limit-seconds` or `no-safety-limit`, command line `--safety-limit` or \
+                 `--no-safety-limit`, library `CaseOptions::safety_limit_ms`)"
+            }
+            Self::Cancelled => {
+                "the caller cancelled the run (a watchdog or a stop request), so this case was \
+                 not judged; no campaign option changes that"
+            }
+            Self::WorkBound => {
+                "raise the work bound (campaign key `max-work`, command line `--max-work`, \
+                 library `CaseOptions::max_work`)"
+            }
+            Self::DepthBound => {
+                "raise the depth bound (campaign key `max-depth`, command line `--max-depth`, \
+                 library `CaseOptions::max_depth`)"
+            }
+            Self::IterationExhaustion => {
+                "raise the simplification iteration bound (campaign key \
+                 `max-simplification-iterations`, which has no command-line flag; library \
+                 `CaseOptions::max_simplification_iterations`)"
+            }
+            Self::ReachedUndefinedStep => {
+                "the target matched the state before an undefined step, which is no end, so \
+                 this case cannot be a hit (with run-to-completion it is reached-unfinished, \
+                 no hit either); an undefined step is not a target yet"
+            }
+            Self::ReachedCutPath => "raise the bound or limit that cut the reaching path",
+            Self::UndecidedMatch => {
+                "the target pattern could not be decided on a leaf; a pattern without function \
+                 applications or values left open by the definition can be"
             }
             Self::KillOnChosenValue | Self::ImplementationChosenValue => {
                 "the result depends on a value k-rust chose where the definition leaves it open \
-                 (map or set order, say): avoid that operation on this path"
+                 (such as map or set order), so this case cannot be judged; a program or hole \
+                 range whose path does not read such a value can be"
             }
-            Self::SmtUnknowns => "raise the solver's smt-timeout-ms",
+            Self::SmtUnknowns => {
+                "raise the solver's time limit per query (campaign key `smt-timeout-ms`, \
+                 command line `--smt-timeout`, library \
+                 `CaseOptions::backend.smt_timeout_ms`)"
+            }
             Self::BackendError
             | Self::StackExhausted
             | Self::HaltIndeterminate
@@ -222,7 +295,8 @@ impl UnjudgedReason {
             H::Vacuous => Self::HaltVacuous,
             H::WorkBound => Self::WorkBound,
             H::DepthBound | H::BreadthBound => Self::DepthBound,
-            H::Timeout | H::Cancelled => Self::Clock,
+            H::Timeout => Self::Clock,
+            H::Cancelled => Self::Cancelled,
             H::Terminal | H::Branch | H::CutPoint => Self::HaltUnexpected,
             H::Stuck | H::Trivial => return None,
         })
@@ -233,7 +307,8 @@ impl UnjudgedReason {
     pub fn of_failure(failure: &CaseFailure) -> Self {
         match &failure.cause {
             FailureCause::Stop(StopCause::StackExhausted(_)) => Self::StackExhausted,
-            FailureCause::Stop(StopCause::Cancelled | StopCause::Deadline(_)) => Self::Clock,
+            FailureCause::Stop(StopCause::Deadline(_)) => Self::Clock,
+            FailureCause::Stop(StopCause::Cancelled) => Self::Cancelled,
             FailureCause::Stop(StopCause::SolverPrelude(_))
             | FailureCause::StateRefused
             | FailureCause::Other => Self::BackendError,
@@ -281,10 +356,13 @@ pub(crate) fn incomplete(result: &CaseResult) -> Option<UnjudgedReason> {
     if result.run_facts_off_leaves {
         reasons.push(UnjudgedReason::RunFactOffLeaves);
     }
+    // A clock break is named above (the safety limit) or by the leaves' and the failure's own
+    // halts and causes, which tell a deadline from a cancellation.
     reasons.extend(
         result
             .determinism_breaks()
             .into_iter()
+            .filter(|fact| *fact != DeterminismBreak::Clock)
             .map(UnjudgedReason::of_break),
     );
     if result.stack_stops > 0 {
@@ -317,6 +395,68 @@ fn incomplete_leaf(leaf: &LeafReport) -> Option<UnjudgedReason> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_reason_is_listed_once_in_order_and_no_remedy_suggests_a_claim() {
+        assert!(UnjudgedReason::ALL.windows(2).all(|pair| pair[0] < pair[1]));
+        for reason in UnjudgedReason::ALL {
+            let Some(remedy) = reason.remedy() else {
+                continue;
+            };
+            // A false claim goes undetected and turns an unjudged case into a silent `miss`
+            // (review S1): no remedy may suggest adding one, nor an equation to the definition.
+            for forbidden in ["total", "functional", "claim", "add the", "equation for"] {
+                assert!(!remedy.contains(forbidden), "{}: {remedy}", reason.name());
+            }
+            // An option is named by its campaign key and its command-line flag (review S2).
+            if remedy.contains("campaign key") {
+                assert!(
+                    remedy.contains("command line") || remedy.contains("no command-line flag"),
+                    "{}: {remedy}",
+                    reason.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_cancellation_is_told_from_a_clock() {
+        let leaf = |halt| LeafReport {
+            halt,
+            depth: 1,
+            state: k_rust::kore::parser::parse_pattern(r"\top{SortK{}}()").expect("parses"),
+            unclean: vec![UncleanReason::Halt],
+            natural_end: false,
+            matches: Vec::new(),
+            rewrites: Vec::new(),
+            constructor_only: None,
+        };
+        let result = |halt, safety_limit_hit| CaseResult {
+            leaves: vec![leaf(halt)],
+            work: 1,
+            coverage: None,
+            stack_stops: 0,
+            smt_unknowns: 0,
+            run_allowance_refusals: 0,
+            load_records: Vec::new(),
+            safety_limit_hit,
+            failure: None,
+            run_facts_off_leaves: false,
+        };
+        assert_eq!(
+            incomplete(&result(HaltReasonOutput::Cancelled, false)),
+            Some(UnjudgedReason::Cancelled)
+        );
+        // The safety limit cancels through the case's own token.
+        assert_eq!(
+            incomplete(&result(HaltReasonOutput::Cancelled, true)),
+            Some(UnjudgedReason::Clock)
+        );
+        assert_eq!(
+            incomplete(&result(HaltReasonOutput::Timeout, false)),
+            Some(UnjudgedReason::Clock)
+        );
+    }
 
     #[test]
     fn reason_names_are_kebab_case_and_read_back() {
