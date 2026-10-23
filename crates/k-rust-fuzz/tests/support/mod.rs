@@ -722,6 +722,26 @@ pub const R3_PLAINQ_PROGRAMS: &[Program] = &[program!("r3-plainq/go.pgm")];
 fixture!(R3_PLAINQ, "r3-plainq/b.k", "PQ", R3_PLAINQ_PROGRAMS);
 fixture!(R3_PLAINQ_M, "r3-plainq/m.k", "PQ", R3_PLAINQ_PROGRAMS);
 
+/// FZ-DATAEND review round 4: `f(_:S) => a` beside `f(_:S) => bb` over a sort `S` with no normal
+/// form (no production, or only a partial function no rule rewrites). Every model has an element
+/// of `S`, so each theory equates `a` with `bb`; each baseline stores `a` and its mutant `bb`.
+pub const R4_EMPTY_PROGRAMS: &[Program] = &[program!("r4-empty/go.pgm")];
+fixture!(R4_EMPTY, "r4-empty/b.k", "RE", R4_EMPTY_PROGRAMS);
+fixture!(R4_EMPTY_M, "r4-empty/m.k", "RE", R4_EMPTY_PROGRAMS);
+pub const R4_PARTNORULE_PROGRAMS: &[Program] = &[program!("r4-partnorule/go.pgm")];
+fixture!(
+    R4_PARTNORULE,
+    "r4-partnorule/b.k",
+    "RP",
+    R4_PARTNORULE_PROGRAMS
+);
+fixture!(
+    R4_PARTNORULE_M,
+    "r4-partnorule/m.k",
+    "RP",
+    R4_PARTNORULE_PROGRAMS
+);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -949,7 +969,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 74] = [
+pub static ALL: [&Fixture; 78] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1024,4 +1044,8 @@ pub static ALL: [&Fixture; 74] = [
     &R3_PROPAGATE_M,
     &R3_PLAINQ,
     &R3_PLAINQ_M,
+    &R4_EMPTY,
+    &R4_EMPTY_M,
+    &R4_PARTNORULE,
+    &R4_PARTNORULE_M,
 ];
