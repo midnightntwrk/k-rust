@@ -116,10 +116,10 @@ pub enum ClaimRemoval {
 /// state, re-pin P-1 of repin-0068938b). Not claims:
 /// `constructor` (kompile drops a source `constructor` and derives freeness itself,
 /// `k-rust/src/kompile/module_to_kore.rs` 1512-1523 and 1539-1545), a value production's
-/// `functional` (derived from its equations, `compatibility.md` 1163-1166), `trusted` (on
-/// reachability claims, which execution never reads, `compatibility.md` 2267), the `assoc`,
+/// `functional` (derived from its equations, `compatibility.md` 1169-1172), `trusted` (on
+/// reachability claims, which execution never reads, `compatibility.md` 2273), the `assoc`,
 /// `unit` and `idem` axioms of a function (emitted but never used by the backend, which
-/// evaluates it by its equations, `compatibility.md` 1541; `comm` is not emitted on a function)
+/// evaluates it by its equations, `compatibility.md` 1547; `comm` is not emitted on a function)
 /// and kompile's generated lambdas (KK-71). A rewrite rule's `ensures` is the rule's meaning,
 /// and `freshGenerator`, `impure`, `memo` and `no-evaluators` are not consistency axioms.
 /// Termination and the SMT prelude stay premises. kink-patch's test `trusted_claims_are_pinned`
@@ -128,27 +128,27 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "total",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1136, 1629-1639; backend-port.md 323",
+        citation: "compatibility.md 1142, 1635-1645; backend-port.md 323",
     },
     TrustedClaim {
         claim: "functional",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1168, 1631; backend-port.md 323",
+        citation: "compatibility.md 1174, 1637; backend-port.md 323",
     },
     TrustedClaim {
         claim: "injective",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1181 (a user-written injective is an axiom)",
+        citation: "compatibility.md 1187 (a user-written injective is an axiom)",
     },
     TrustedClaim {
         claim: "smt-hook",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2819; backend-port.md 316; k-rust-backend/src/smt.rs 207",
+        citation: "compatibility.md 2825; backend-port.md 316; k-rust-backend/src/smt.rs 207",
     },
     TrustedClaim {
         claim: "smtlib",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2819-2820; k-rust-backend/src/smt.rs 207",
+        citation: "compatibility.md 2825-2826; k-rust-backend/src/smt.rs 207",
     },
     TrustedClaim {
         claim: "preserves-definedness",
@@ -158,12 +158,12 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "smt-lemma",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2819; backend-port.md 316; k-rust-backend/src/smt.rs 207, 1214-1225",
+        citation: "compatibility.md 2825; backend-port.md 316; k-rust-backend/src/smt.rs 207, 1214-1225",
     },
     TrustedClaim {
         claim: "simplification",
         removal: ClaimRemoval::Sentence,
-        citation: "compatibility.md 1136, 1387, 1566",
+        citation: "compatibility.md 1142, 1393, 1572",
     },
     TrustedClaim {
         claim: "ensures",
@@ -173,12 +173,12 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "concrete-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1136 (concrete or symbolic equations are theorems of the executable equations)",
+        citation: "compatibility.md 1142 (concrete or symbolic equations are theorems of the executable equations)",
     },
     TrustedClaim {
         claim: "hooked-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1136 (a hooked symbol's equations agree with its hook)",
+        citation: "compatibility.md 1142 (a hooked symbol's equations agree with its hook)",
     },
 ];
 
