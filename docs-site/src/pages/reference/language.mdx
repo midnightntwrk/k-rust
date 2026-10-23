@@ -214,8 +214,10 @@ As in K, every generated cell sort is a subsort of `KItem`, so the binder may al
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
 rustc resolves the record's path with the block's `use Cmd::*` in scope, as it resolves every unqualified path in the block, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
-In the subject, a group record leaves the children it does not name unconstrained, as a constructor record does: `frame: Frame { pc: p, .. }` emits `<frame> <pc> P:Int </pc> <gas> _ </gas> </frame>`; `k::fragment![Frame { pc: p, .. }]` reads the same, and a fragment pattern without `..` names every child.
-A record pattern may name no field at all, as in Rust: `Projection::DerefTruncate { .. }` or `frame: Frame { .. }` matches that constructor or group whatever its fields hold, and is the pattern that writes each field `_` (`krs expand` writes `DerefTruncate(_)`), in readable rules and claims, `k::equations!` rows, and `k::term![..]` patterns; `Ctor()` and `Ctor {}` still name every field, so they are rejected for a constructor that has fields.
+At the group's own cell position, the subject's record matches the running configuration's cell, so it leaves the children it does not name unconstrained, with or without `..`: `frame: Frame { pc: p }` and `frame: Frame { pc: p, .. }` both emit `<frame> <pc> P:Int </pc> <gas> _ </gas> </frame>`.
+Anywhere else, a group record is the group's cell term, a value of its cell sort like any constructor term: in a list element (`list::item(saved @ Frame { pc: p, .. })`), a constructor argument (`Held { saved: Frame { pc: p, gas: g } }`), an alias target, or a result.
+It means exactly `k::fragment![Frame { .. }]` there, which may also be written in each of those places, and as a value it is complete: a pattern ends in `..` to leave the children it does not name unconstrained, and without `..` names every child (`krs::analysis::invalid-term` otherwise).
+A record pattern may name no field at all, as in Rust: `Projection::DerefTruncate { .. }` or `frame: Frame { .. }` matches that constructor or group whatever its fields hold, and is the pattern that writes each field `_` (`krs expand` writes `DerefTruncate(_)`), in readable rules and claims, `k::equations!` rows, and the subjects of `#[k::rule]`, `#[k::equation]`, and `#[k::simplification]` fns, with or without `k::term![..]`; `Ctor()` and `Ctor {}` still name every field, so they are rejected for a constructor that has fields.
 A result group record names every child, or [updates a matched group](#updating-a-matched-record).
 Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
 A rule that names a group and a cell inside it is rejected (`krs::analysis::group-and-descendant`), and so is a configuration in which one `#[k::cell]` struct is the content of two fields, because its K cell sort would name two cells (`krs::analysis::ambiguous-cell-sort`).
@@ -262,12 +264,13 @@ Optional and collection entries are not allowed in a context alias or an equatio
 
 In a K pattern, `X:Int` is a runtime test: the rule matches only when the term bound to `X` has sort `Int`.
 In KRS it is the binder's declared type: `where x: Int` after a readable clause, or a typed parameter before the subject of a rule fn.
+A rule fn's subject is a pattern, so it needs no wrapper: `fn unwrap(Wrap { value: v }: Term<Exp>)` is `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>)`, compiler-owned islands below its root included; `krs expand` and this reference write the `k::term![..]` spelling.
 `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` infers `v` at the sort of `Wrap`'s field, emits `rule wrap(V:Exp) => V:Exp`, and matches every expression; `fn unwrap(v: Term<Int>, k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` emits `rule wrap(V:Int) => V:Int`, so `wrap(1 + 2)` no longer matches.
 A declared sort may be narrower than inference would choose, never wider or unrelated: a binder declared `Bool` in an `Exp` position is rejected (`krs::analysis::incompatible-binder`, "binder `x` is declared `Bool` but this occurrence needs `Exp`").
 A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Exp, k::term![IsExpression(_e)]: Term<Bool>) -> Term<Bool>` emits `rule isExpression(_E:Exp) => true`.
 
 The binder list is all or nothing.
-A rule fn whose subject is a `k::term![..]` either declares no binders, and every sort is inferred, or declares every subject binder exactly once, in the order the binders first occur in the subject; a `cells!` rule always declares all of them.
+A rule fn whose subject is a term pattern either declares no binders, and every sort is inferred, or declares every subject binder exactly once, in the order the binders first occur in the subject; a `cells!` rule always declares all of them.
 `_`, remainders such as `tail @ ..`, and the `here` binder of a context alias are not declared.
 Narrowing one binder therefore means declaring all of them, each other one at its inferred sort; `krs expand` writes a readable rule's `where` the same way.
 A partial or misordered list, a binder declared twice, and a declared binder the subject never binds are syntax errors.
@@ -343,7 +346,7 @@ A configuration variable of `#[k::init]` is not checked here: its Rust type is t
 K writes the name last, `( pair ( A:Exp , B:Exp ) #as P:Exp )`, and KRS emits exactly that, always parenthesised.
 Like `tail @ ..`, `name @ pattern` binds what its pattern matched; unlike Rust's `@`, which copies or moves a value, K's alias is the matched term itself (a conjunction of patterns), so a result can reuse it without rebuilding it.
 `dup_pair: Dup(p @ Pair(a, b)) => Pair(p, Pair(b, a));` turns `dup(pair(1, 2))` into `pair(pair(1, 2), pair(2, 1))`.
-An alias may name any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, a `map!` key or value, or a readable clause pattern, but not a whole rule subject, whose root is the matched constructor or function.
+An alias may name any subterm of a rule subject, a `cells!` cell value, a `k!` item, a `map!` key or value, or a readable clause pattern, a group's cell term included (`saved @ CallState { .. }` or `saved @ k::fragment![CallState { .. }]` in a list element), but not a whole rule subject, whose root is the matched constructor or function.
 A readable `for Machine` record's computation items and cell values are not rule subjects, so an alias may name a whole one: `charge: { k: [op @ (Push() | Pop()), ..], gas: g } => { k: [Charged(op), ..], gas: int::sub(g, 3) }` emits `<k> ( ( push #Or pop ) #as Op:Op ) => charged ( Op:Op ) ... </k>`.
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
 `@` in a result, a requires or ensures condition, or an initializer is a syntax error (K's `#as` is left-hand-side only), as are `ref` or `mut` on the alias, an alias inside its own pattern (rustc's E0416), and `name @ ..` outside a sequence, collection, or `cells!` pattern.
@@ -376,7 +379,7 @@ In a readable record, `frame: saved @ Frame { pc: p, .. }` matches the group and
 ```rust
 return_from_call: {
     k: [Return { gas_left }, ..],
-    call_stack: k::term![list::concat(list::item(saved @ k::fragment![CallState { word_stack: s, gas: g, .. }]), rest)],
+    call_stack: list::concat(list::item(saved @ CallState { word_stack: s, gas: g, .. }), rest),
     call_state: _,
 } => {
     k: [..],
@@ -385,7 +388,7 @@ return_from_call: {
 };
 ```
 
-The alias is written outside `k::fragment![..]`, as any alias of a fragment is.
+In the list element, `CallState { .. }` is the group's cell term, as `k::fragment![CallState { .. }]` is, and it ends in `..` because a cell term outside the group's own cell position is complete; `krs expand` writes it as the fragment.
 
 ### Pattern alternatives
 
@@ -790,7 +793,7 @@ A lifetime, const, defaulted, otherwise bounded, or unused parameter, a where cl
 ### Local rewrites
 
 K writes a rule as one pattern with `=>` inside it, around exactly what changes; the rest of the pattern is the frame.
-A `#[k::rule]` fn that returns `()` is such a single-body rule: its `k::cells!` or `k::term!` subject is the whole rule, and `k::rewrite!(from => to)` marks each change.
+A `#[k::rule]` fn that returns `()` is such a single-body rule: its `k::cells!` or term subject (with or without `k::term![..]`) is the whole rule, and `k::rewrite!(from => to)` marks each change.
 
 ```rust
 #[k::rule(label = "assign")]
@@ -1025,15 +1028,15 @@ The configuration may then name only what `<NS>-CONFIGURATION` imports: an initi
 
 | Island | Result |
 | --- | --- |
-| `k::term![...]` | checked symbolic term/pattern application |
-| `k::id![...]` | claim-only builtin identifier literal |
-| `k::bytes![...]` | claim-only builtin Bytes literal |
+| `k::term![...]` | checked symbolic term/pattern application; a pattern reads every island below without it, so around a pattern it changes nothing, and `krs expand` keeps it around fn subjects as the reference spelling. A term in ordinary Rust code, outside any KRS sentence, still needs it |
+| `k::id![...]` | builtin `Id` literal, one constant of `Id`: a rule, an equation, or a claim matches or builds it like any constant |
+| `k::bytes![...]` | builtin `Bytes` literal, one constant of `Bytes`: `IsElf(k::bytes!(b"\x7fELF"))` in an equation's subject matches exactly those bytes, and `k::bytes!(b"")` in a result is the empty `Bytes` |
 | `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result |
 | `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules and claims |
 | `k::is!(Sort, t)` | K's generated sort predicate `isSort(T)`: a total Bool in results, guards, and claims, never in a pattern |
 | `k::project!(Sort, t)` | K's generated projection `{T}:>Sort` (`project:Sort`): a partial function with no value when `t` is not a `Sort`, never in a pattern |
 | `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands |
-| `k::fragment![...]` | nominal nested-cell fragment |
+| `k::fragment![...]` | nominal nested-cell term, anywhere a pattern or a term stands; a record of the `#[k::cell]` struct means the same ([whole nested-cell variables](#whole-nested-cell-variables)) |
 | `k::k![...]` | K sequence, including tails/splice/erase notation |
 | `k::map![...]` | builtin Map pattern or value in a `cells!` entry or an initializer: `map![]` or `map![.Map]` is the empty map, `map![k -> v, ..]` a framed one; a term writes `map::empty()` |
 | `k::cells![...]` | explicit multi-cell rule body |
@@ -1081,6 +1084,9 @@ K 7.1.337 strings hold code points U+0000 to U+00FF (Latin-1) only, so a code po
 KRS spells each value one way in the emitted K: `"\u{c1}"` in Rust is `"\xc1"` in K.
 A `char` literal is rejected (K has no `Char` sort; write `"a"`), and so is a byte string (write `k::bytes!(b"..")`).
 Code points from U+0080 to U+00FF evaluate alike on every backend, with one exception: Java K's LLVM backend does not match a rule's `"\xc1"` against a program's, which k-rust does.
+
+`k::bytes!(b"..")` is one K `Bytes` token and `k::id!("$name")` one K `Id` token, in rules, equations, and claims, in patterns as well as results, as a string literal is: `fn is_elf(IsElf(k::bytes!(b"\x7fELF")): k::Term<Int>) -> k::Term<Int> { 1 }` emits `rule isElf ( b"\x7f\x45\x4c\x46" ) => 1`, which matches exactly those four bytes, and `k::id!("$main")` emits `#token("$main","Id")`.
+A call such as `bytes::empty()` computes a value and cannot be matched; the literal can.
 
 K has one `Float` sort, and every value carries its precision and exponent range in its token.
 Rust's `f32` and `f64` are K's binary32 and binary64: `0.1f32` is the K token `0.1f`, `1.5f64` is `1.5d`, and an unsuffixed `1.5` is K's default, binary64.
