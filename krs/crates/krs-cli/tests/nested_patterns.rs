@@ -602,3 +602,106 @@ fn a_group_record_may_omit_children_where_it_matches_a_configuration_cell() {
             <slot> <frame> <pc> P:Int </pc> <gas> _ </gas> </frame> </slot>"]]
     .assert_eq(rule(&emitted_k(target.path(), &manifest), "slot"));
 }
+
+/// Rules that bind `frame` inside `outer` by a binder, `_`, and an alias
+/// over a group record, save it on the stack, update it in place, and write
+/// it back.
+const CHILD_BINDERS: &str = r"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    seq: { k: [Seq { a, b }, ..] } => { k: [a, b, ..] };
+    push: { k: [Push(), ..], stack: s, outer: Outer { frame: fr, .. } } => { k: [..], stack: [fr, ..s] };
+    pop: { k: [Pop(), ..], stack: [fr, s @ ..], outer: Outer { frame: _, flag: x } } => { k: [..], stack: s, outer: Outer { frame: fr, flag: x } };
+    bump: { k: [Bump(), ..], outer: o @ Outer { frame: fr @ Frame { pc: p, .. }, .. } } => { k: [..], outer: Outer { frame: Frame { pc: int::add(p, 1), ..fr }, ..o } };
+    look: { k: [Look(), ..], stack: s, outer: Outer { frame: fr @ Frame { pc: 1, .. }, flag: _ } } => { k: [..], stack: [fr, ..s] };
+    report: { k: [Report(), ..], stack: [Frame { pc: p, gas: g }, ..], outer: Outer { frame: Frame { pc: q }, flag: f } } => { k: [int::add(int::add(p, q), int::add(g, f)), ..] };
+}
+";
+
+/// A group child of a cell term may be a binder or `_` at the child's cell
+/// sort, as a group entry may (U5): `Outer { frame: fr, .. }` binds the
+/// `<frame>` cell, a result writes it back, and an update of a group may
+/// nest inside an update of its parent. An alias over a group child names
+/// the matched child and is rebuilt where it is used (N7); one bound twice
+/// is rejected. `krs expand` writes an omitted group child as `frame: _`,
+/// which checks to the same rule.
+#[test]
+fn a_group_child_may_be_a_binder_or_wildcard() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = library_package(
+        temporary.path(),
+        "children",
+        &format!("{TWO_LEVEL}{CHILD_BINDERS}"),
+    );
+    let k = emitted_k(target.path(), &manifest);
+    expect_test::expect![[r"
+        rule [push]:
+            <k> push => .K ... </k>
+            <stack> S:List => ListItem(Fr:FrameCell) S:List </stack>
+            <outer> Fr:FrameCell <flag> _ </flag> </outer>
+        rule [pop]:
+            <k> pop => .K ... </k>
+            <stack> ListItem(Fr:FrameCell) S:List => S:List </stack>
+            (<outer> _ <flag> X:Int </flag> </outer> => <outer> Fr:FrameCell <flag> X:Int </flag> </outer>)
+        rule [bump]:
+            <k> bump => .K ... </k>
+            (<outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer> => <outer> <frame> <pc> P:Int +Int 1 </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>)
+        rule [look]:
+            <k> look => .K ... </k>
+            <stack> S:List => ListItem(<frame> <pc> Krs_UpdateFrPc:Int </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame>) S:List </stack>
+            <outer> <frame> <pc> ( 1 #as Krs_UpdateFrPc:Int ) </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame> <flag> _ </flag> </outer>"]].assert_eq(&["push", "pop", "bump", "look"].map(|label| rule(&k, label)).join("\n"));
+    let run = |manifest: &Path, program: &str| {
+        let file = manifest.with_file_name("program.txt");
+        fs::write(&file, program).unwrap();
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            manifest,
+            "run",
+            &[file.to_str().unwrap(), "-c", "ITEM=0"],
+        );
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("<k>"),
+            "{program}: {success}\n{stdout}\n{stderr}"
+        );
+        format!(
+            "{program} => {}",
+            &flat[flat.find("<k>").unwrap()..flat.find("</outer>").unwrap() + 8]
+        )
+    };
+    let programs = [
+        "seq(push, seq(bump, seq(bump, pop)))",
+        "seq(bump, seq(look, report))",
+    ];
+    expect_test::expect![[r#"
+        [
+            "seq(push, seq(bump, seq(bump, pop))) => <k> .K </k> <stack> .List </stack> <outer> <frame> <pc> 0 </pc> <gas> 100 </gas> </frame> <flag> 0 </flag> </outer>",
+            "seq(bump, seq(look, report)) => <k> 102 ~> .K </k> <stack> ListItem ( <frame> <pc> 1 </pc> <gas> 100 </gas> </frame> ) </stack> <outer> <frame> <pc> 1 </pc> <gas> 100 </gas> </frame> <flag> 0 </flag> </outer>",
+        ]
+    "#]].assert_debug_eq(&programs.map(|program| run(&manifest, program)));
+
+    let twice = library_package(
+        temporary.path(),
+        "twice",
+        &format!(
+            "{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    look: {{ k: [Look(), ..], stack: [fr @ Frame {{ .. }}, ..], outer: Outer {{ frame: fr @ Frame {{ pc: 1, .. }}, flag: _ }} }} => {{ k: [..] }};\n}}\n"
+        ),
+    );
+    expect_test::expect![[r#"error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::look (rule): the alias `fr` over the group child "frame" names one matched cell, so it must be bound once and outside `|`"#]].assert_eq(&check_errors(target.path(), &twice));
+
+    let omitted = library_package(
+        temporary.path(),
+        "omitted",
+        &format!(
+            "{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    look: {{ k: [Look(), ..], outer: Outer {{ flag: f }} }} => {{ k: [f, ..] }};\n}}\n"
+        ),
+    );
+    let (success, expanded, stderr) = krs(target.path(), &omitted, "expand", &[]);
+    assert!(success, "{stderr}");
+    assert!(expanded.contains("frame : _, flag : f"), "{expanded}");
+    let reference = library_package(temporary.path(), "omitted-expanded", &expanded);
+    assert_eq!(run(&reference, "look"), run(&omitted, "look"));
+}

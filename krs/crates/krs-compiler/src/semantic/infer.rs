@@ -2255,22 +2255,52 @@ impl StructuredTermBuilder<'_> {
                 ProtocolCellContent::Leaf { sort, .. } => {
                     self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
                 }
+                // A group child is a value of its cell sort: a group record
+                // or fragment, a binder, `_`, or an alias over a group record,
+                // which the record updates rebuild where it is used (N7).
                 ProtocolCellContent::Nested {
                     declaration: nested,
                 } => {
-                    let DescriptorTerm::Cell { declaration, .. } = field.value.as_ref() else {
-                        return Err(self.invalid_term(format!(
-                            "nested child {:?} must be authored with fragment!",
-                            declared.rust_field
-                        )));
+                    let record = match field.value.as_ref() {
+                        DescriptorTerm::Cell { declaration, .. } => Some(declaration),
+                        DescriptorTerm::As { name, pattern, .. } => {
+                            let DescriptorTerm::Cell { declaration, .. } = pattern.as_ref() else {
+                                return Err(self.invalid_term(format!(
+                                    "the alias `{name}` over the group child {:?} must alias a group record",
+                                    declared.rust_field
+                                )));
+                            };
+                            if !self.record_updates.updates.is_dropped(name) {
+                                return Err(self.invalid_term(format!(
+                                    "the alias `{name}` over the group child {:?} names one matched cell, so it must be bound once and outside `|`",
+                                    declared.rust_field
+                                )));
+                            }
+                            Some(declaration)
+                        }
+                        DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. } => None,
+                        _ => {
+                            return Err(self.invalid_term(format!(
+                                "the group child {:?} is a group record, `k::fragment!`, a binder, or `_`",
+                                declared.rust_field
+                            )));
+                        }
                     };
-                    if declaration != &nested.declaration {
-                        return Err(self.invalid_term(format!(
-                            "nested child {:?} uses the wrong cell declaration",
-                            declared.rust_field
-                        )));
+                    if let Some(declaration) = record {
+                        if declaration != &nested.declaration {
+                            return Err(self.invalid_term(format!(
+                                "nested child {:?} uses the wrong cell declaration",
+                                declared.rust_field
+                            )));
+                        }
+                        self.infer(&field.value, Some(&self.cell_k_item_sort()?), subject)?;
+                    } else {
+                        self.infer(
+                            &field.value,
+                            Some(&SemanticSortRef::Cell(nested.declaration.clone())),
+                            subject,
+                        )?;
                     }
-                    self.infer(&field.value, Some(&self.cell_k_item_sort()?), subject)?;
                 }
             }
         }
@@ -2336,7 +2366,7 @@ impl StructuredTermBuilder<'_> {
                 ProtocolCellContent::Nested {
                     declaration: nested,
                 } => match value {
-                    Some(value) => {
+                    Some(value @ (DescriptorTerm::Cell { .. } | DescriptorTerm::As { .. })) => {
                         // A group child a base's fills rebuild binds its own
                         // children (N7).
                         if let Some(alias) = &record.alias
@@ -2348,6 +2378,14 @@ impl StructuredTermBuilder<'_> {
                         }
                         self.lower(value, Some(&self.cell_k_item_sort()?), record.subject)?
                     }
+                    // A binder or `_` is matched or written at the child's
+                    // cell sort, as a child the term leaves out is.
+                    Some(value) => self.lower_record_field(
+                        Some(value),
+                        &field_id,
+                        Some(&SemanticSortRef::Cell(nested.declaration.clone())),
+                        record,
+                    )?,
                     None => self.lower_record_field(
                         None,
                         &field_id,
