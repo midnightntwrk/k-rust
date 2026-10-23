@@ -312,10 +312,12 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
         [RuleExtra::HaveMap { cell, entries }]
             if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
+    // A cell result is a term written into the cell, whatever its head:
+    // semantic analysis checks it against the cell's type.
     assert!(matches!(
         block.clauses()[1].extras(),
-        [RuleExtra::UpdateMap { cell, base, .. }]
-            if cell == "env" && base == "e"
+        [RuleExtra::RewriteCell { cell, after: Some(after), .. }]
+            if cell == "env" && after.spelling() == "map :: update (e , name , value)"
     ));
     let update_roles = block.clauses()[1]
         .provenance()
@@ -425,7 +427,11 @@ fn a_fixed_cell_left_out_of_the_result_is_read_only() {
             after: None,
             ..
         },
-        RuleExtra::UpdateMap { cell: regs, .. },
+        RuleExtra::RewriteCell {
+            cell: regs,
+            after: Some(_),
+            ..
+        },
         RuleExtra::RewriteCell {
             cell: frame,
             after: None,
@@ -447,7 +453,7 @@ fn a_fixed_cell_left_out_of_the_result_is_read_only() {
             .filter(|anchor| anchor.role() == role)
             .count()
     };
-    assert_eq!(count(ProvenanceRole::RuleLeftCellsField), 2);
+    assert_eq!(count(ProvenanceRole::RuleLeftCellsField), 3);
     assert_eq!(count(ProvenanceRole::RuleRightCellsField), 1);
 }
 

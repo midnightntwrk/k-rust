@@ -4,16 +4,14 @@ use syn::ext::IdentExt;
 use syn::parse::discouraged::Speculative;
 use syn::parse::{ParseStream, Parser};
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, Ident, ItemFn, Pat, PatIdent, Path, Token, Type, braced, bracketed};
+use syn::{Attribute, Expr, Ident, ItemFn, Pat, Path, Token, Type, braced, bracketed};
 
 use super::block::{
     BracketAlternative, ReadableSentence, RuleClause, RuleClauseLayout, RuleHead, RuleHeadItem,
     RuleHeadResult, RuleListPattern, RuleListRest, RuleListResult, RuleNarrowing,
     take_claim_clause_attribute, take_rule_clause_attribute,
 };
-use super::condition::{
-    MapUpdateExtra, RuleExtra, RuleMapEntry, condition_token_range, parse_map_update,
-};
+use super::condition::{RuleExtra, RuleMapEntry, condition_token_range};
 use super::item::RuleItem;
 use super::pattern::{
     NegativeLiteralSpans, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
@@ -1548,26 +1546,18 @@ fn assemble_machine_clause(
                         continue;
                     }
                 };
-                let map_update = match pattern.native_pattern() {
-                    Some(Pat::Ident(PatIdent { ident: base, .. })) => {
-                        parse_machine_update(cell, base, result).ok()
-                    }
-                    _ => None,
-                };
-                if let Some(update) = map_update {
-                    extra_bindings.push(update.base.clone());
-                    extras.push(update.into());
-                } else {
-                    extra_bindings.extend(pattern.bindings().iter().cloned());
-                    extras.push(RuleExtra::RewriteCell {
-                        cell: cell.clone(),
-                        before: pattern.clone(),
-                        before_tree: before_tree.clone(),
-                        after: Some(Box::new(TermExpression::from_expression(
-                            (**result).clone(),
-                        )?)),
-                    });
-                }
+                // The result is a term written into the cell, whatever its
+                // head: `map::update(e, k, v)` and a user function
+                // `Put(e, k, v)` alike are checked against the cell's type.
+                extra_bindings.extend(pattern.bindings().iter().cloned());
+                extras.push(RuleExtra::RewriteCell {
+                    cell: cell.clone(),
+                    before: pattern.clone(),
+                    before_tree: before_tree.clone(),
+                    after: Some(Box::new(TermExpression::from_expression(
+                        (**result).clone(),
+                    )?)),
+                });
             }
         }
     }
@@ -1853,12 +1843,4 @@ fn computation_result(
         RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => Some(quote!(true)),
     };
     Ok((Some(head_result), placeholder))
-}
-
-fn parse_machine_update(
-    cell: &Ident,
-    base: &Ident,
-    expression: &Expr,
-) -> Result<MapUpdateExtra, ParseError> {
-    parse_map_update(cell, base, expression, "the map update base must be")
 }

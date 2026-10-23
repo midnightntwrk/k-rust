@@ -92,6 +92,11 @@ impl Machine {
     }
 }
 
+/// Stores a statement in a map: its result declares no element types.
+#[k::function(total, internal)]
+pub fn Put3(m: Term<Map>, key: Term<Id>, value: Term<Stmt>) -> Term<Map> {
+    map::update(m, key, value)
+}
 "#;
 
 /// Every accepted way of writing into and reading from typed cells.
@@ -109,6 +114,7 @@ k::rules! {
     lookup: { k: [Op(7), Put(name, _), ..], env: e } => { k: [map::get(e, name), ..] };
     keys: { k: [Op(8), ..], env: e, seen: _ } => { k: [..], seen: map::keys(e) };
     widen: { k: [Op(9), ..], env: _, frame: Frame { locals: l, .. } } => { k: [..], env: l };
+    untyped_function: { k: [Op(10), Put(name, s), ..], env: e } => { k: [..], env: Put3(e, name, s) };
     untyped_cell: { k: [Op(11), ..], raw: r, env: _ } => { k: [..], env: r };
     stash: { k: [Op(12), Hold(m), ..], env: _ } => { k: [..], env: m };
 }
@@ -226,6 +232,10 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
                 "warning[krs::analysis::untyped-collection]: `r` is matched in the cell `raw`, declared `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
                 "r",
             ),
+            (
+                "warning[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
+                "Put3",
+            ),
         ]
     "#]]
     .assert_debug_eq(&diagnostics(&check_stderr));
@@ -246,6 +256,7 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
             "<k> op 5 ~> put Name:Id _ => V:Int ... </k> <env> Name:Id |-> V:Int ... </env>",
             "<k> op 6 ~> puti Name:Id _ => puti Name:Id {M:Map [ Name:Id ]}:>Int +Int 1 ... </k> <frame> <locals> M:Map </locals> <depth> _ </depth> </frame>",
             "<k> op 7 ~> put Name:Id _ => {E:Map [ Name:Id ]}:>Value ... </k> <env> E:Map </env>",
+            "<k> op 10 ~> put Name:Id S:Stmt => .K ... </k> <env> E:Map => put3 ( E:Map , Name:Id , S:Stmt ) </env>",
         ]
     "#]]
     .assert_debug_eq(&[
@@ -254,6 +265,7 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
         rule(&definition, "read-int"),
         rule(&definition, "increment"),
         rule(&definition, "lookup"),
+        rule(&definition, "untyped-function"),
     ]);
 
     // The expanded reference rules check the same: they declare every
@@ -517,4 +529,32 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "{name}:\n{stderr}"
         );
     }
+}
+
+/// A three-argument user function whose result is written into a map cell
+/// is a term like any other: it is no map update, and its untyped result
+/// warns rather than failing as a misread update.
+#[test]
+fn a_user_function_result_is_not_read_as_a_map_update() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "user-function",
+        &format!(
+            "{PREAMBLE}{}",
+            rules(
+                "probe: { k: [Put(name, s), ..], env: e } => { k: [..], env: Put3(e, name, s) };"
+            )
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    assert_eq!(
+        diagnostics(&stderr),
+        [(
+            "warning[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`".to_owned(),
+            "Put3".to_owned()
+        )]
+    );
 }
