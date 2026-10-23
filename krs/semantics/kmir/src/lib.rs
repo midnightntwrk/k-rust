@@ -669,11 +669,11 @@ k::equations! {
     get_ty_of_field:
         (types, _, [Field { ty, .. }, tail @ ..]) => GetTyOf { types, ty, projections: tail };
     get_ty_of_element:
-        (types, ty, [Index(_) | ConstantIndex(_, _, _), tail @ ..])
+        (types, ty, [Index { .. } | ConstantIndex { .. }, tail @ ..])
         => GetTyOf { types, ty: ElemTy { info: map::get(types, ty) }, projections: tail };
     /// A subslice keeps its array type, and a downcast keeps its enum type.
     get_ty_of_same_type:
-        (types, ty, [Subslice(_, _, _) | Downcast(_), tail @ ..])
+        (types, ty, [Subslice { .. } | Downcast { .. }, tail @ ..])
         => GetTyOf { types, ty, projections: tail };
     #[k::equation(priority = 60)]
     get_ty_of_other  : (_, _, _)           => TyUnknown();
@@ -941,24 +941,27 @@ k::equations! {
     size_of_aggregate:
         (
             _,
-            EnumType(_, _, _, _, layout)
-            | StructType(_, _, _, layout)
-            | UnionType(_, _, _, layout)
-            | TupleType(_, layout)
+            EnumType { layout, .. }
+            | StructType { layout, .. }
+            | UnionType { layout, .. }
+            | TupleType { layout, .. }
         ) => LayoutSize(layout);
-    size_of_dynamic_array: (_, ArrayType(_, MirMaybeTyConst::NoTyConst())) => 0;
+    size_of_dynamic_array: (_, ArrayType { size: MirMaybeTyConst::NoTyConst(), .. }) => 0;
     size_of_static_array:
         (
             types,
-            ArrayType(
+            ArrayType {
                 element,
-                MirMaybeTyConst::SomeTyConst(
-                    MirTyConst::TyConst(
-                        MirTyConstKind::Value(_, MirAllocation::Allocation(bytes, _, _, _)),
-                        _
-                    )
-                )
-            )
+                size: MirMaybeTyConst::SomeTyConst(
+                    MirTyConst::TyConst {
+                        kind: MirTyConstKind::Value {
+                            allocation: MirAllocation::Allocation { bytes, .. },
+                            ..
+                        },
+                        ..
+                    }
+                ),
+            },
         ) => SizeOfTypeInfo(types, map::get(types, element)) * ReadTyConstInt(bytes, 0, 1, 0);
     size_of_pointer:
         (types, PointerType(pointee) | ReferenceType(pointee)) => SizeOfTypeInfo(
@@ -983,13 +986,13 @@ k::equations! {
     align_of_aggregate:
         (
             _,
-            EnumType(_, _, _, _, layout)
-            | StructType(_, _, _, layout)
-            | UnionType(_, _, _, layout)
-            | TupleType(_, layout)
+            EnumType { layout, .. }
+            | StructType { layout, .. }
+            | UnionType { layout, .. }
+            | TupleType { layout, .. }
         ) => LayoutAlign(layout);
     align_of_array:
-        (types, ArrayType(element, _)) => AlignOfTypeInfo(types, map::get(types, element));
+        (types, ArrayType { element, .. }) => AlignOfTypeInfo(types, map::get(types, element));
     align_of_pointer:
         (types, PointerType(_) | ReferenceType(_))
         => AlignOfTypeInfo(types, PrimitiveType(UnsignedInteger(MirUintTy::Usize())));
@@ -1490,9 +1493,9 @@ k::equations! {
     for DecodeZeroSizedConstant;
     use MirTypeInfo::*;
     decode_zero_sized_aggregate:
-        StructType(_, _, _, _) | TupleType(_, _) | FunType(_)
+        StructType { .. } | TupleType { .. } | FunType { .. }
         => Value::Aggregate { variant: 0, fields: list::empty() };
-    decode_zero_sized_array: ArrayType(_, _) => Value::Range { elements: list::empty() };
+    decode_zero_sized_array: ArrayType { .. } => Value::Range { elements: list::empty() };
 }
 
 k::equations! {
@@ -1536,13 +1539,13 @@ k::equations! {
         PrimitiveType {
             primitive: Bool() | Char() | SignedInteger(_) | UnsignedInteger(_) | Float(_)
         }
-        | PointerType(_)
-        | ReferenceType(_)
-        | StructType(_, _, _, _)
-        | UnionType(_, _, _, _)
-        | TupleType(_, _)
-        | EnumType(_, _, _, _, _)
-        | FunType(_)
+        | PointerType { .. }
+        | ReferenceType { .. }
+        | StructType { .. }
+        | UnionType { .. }
+        | TupleType { .. }
+        | EnumType { .. }
+        | FunType { .. }
         | VoidType() => NoMetadataSize();
     /// `str` is a sequence of UTF-8 bytes laid out as `[u8]`, so a pointer to
     /// either carries the number of elements, which for `str` is its byte length.
@@ -1697,7 +1700,7 @@ k::equations! {
         (_, [Field { ty, .. }, tail @ ..], types)
         => ProjectionMetadataSize { ty, projections: tail, types };
     projection_metadata_size_element:
-        (ty, [Index(_) | ConstantIndex(_, _, _), tail @ ..], types) => ProjectionMetadataSize {
+        (ty, [Index { .. } | ConstantIndex { .. }, tail @ ..], types) => ProjectionMetadataSize {
             ty: ArrayElementType { info: map::get(types, ty) },
             projections: tail,
             types
@@ -1970,7 +1973,7 @@ k::equations! {
         };
     materialize_array: (AggregateArray(_), values) => Range { elements: values };
     materialize_tuple:
-        (AggregateTuple() | AggregateClosure(_, _), values)
+        (AggregateTuple() | AggregateClosure { .. }, values)
         => Aggregate { variant: 0, fields: values };
 }
 
@@ -2447,7 +2450,7 @@ k::equations! {
     /// allocation reference names its allocation by `AllocId`, which does not
     /// depend on the call stack.
     adjust_ref_unchanged:
-        (value @ (Integer(_, _, _) | Boolean(_) | AllocationReference(_, _, _) | Moved()), _)
+        (value @ (Integer { .. } | Boolean { .. } | AllocationReference { .. } | Moved()), _)
         => value;
 }
 
@@ -2647,12 +2650,12 @@ k::equations! {
     freeze_projections_fixed:
         (
             [
-                head @ (Field(_, _)
+                head @ (Field { .. }
                 | WrapStruct()
-                | ConstantIndex(_, _, _)
-                | Subslice(_, _, _)
-                | Downcast(_)
-                | PointerOffset(_, _)),
+                | ConstantIndex { .. }
+                | Subslice { .. }
+                | Downcast { .. }
+                | PointerOffset { .. }),
                 tail @ ..
             ],
             locals
@@ -3465,10 +3468,7 @@ k::rules! {
 
     #[k::rule(owise)]
     address_of_local: {
-        k: [
-            ResolveAddressOf { entry: TypedValue(_, _, _), mutability, referenced, destination },
-            ..
-        ],
+        k: [ResolveAddressOf { entry: TypedValue { .. }, mutability, referenced, destination }, ..],
         locals,
     } => {
         k: [
@@ -4720,9 +4720,7 @@ k::rules! {
     finish_transmute_identity: {
         k: [
             Continue {
-                value: value @ (Reference(_, _, _, _)
-                | Pointer(_, _, _, _)
-                | AllocationReference(_, _, _)),
+                value: value @ (Reference { .. } | Pointer { .. } | AllocationReference { .. }),
                 continuation: FinishTransmute { place, source: info, target: info }
             },
             ..
@@ -4734,7 +4732,7 @@ k::rules! {
     finish_same_pointee_ptr_cast: {
         k: [
             Continue {
-                value: value @ Pointer(_, _, _, _),
+                value: value @ Pointer { .. },
                 continuation: FinishPtrCast {
                     place,
                     source: PointerType { pointee } | ReferenceType { pointee },
@@ -4821,7 +4819,7 @@ k::rules! {
             cast @ ResolvePtrCast {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
-                source: PrimitiveType(_) | ArrayType(_, _) | PointerType(_),
+                source: PrimitiveType { .. } | ArrayType { .. } | PointerType { .. },
                 target: VoidType(),
                 projections,
                 target_size,
@@ -4848,7 +4846,7 @@ k::rules! {
                 phase: MirPtrCastPhase::Compare(),
                 pointer_place,
                 source: VoidType(),
-                target: target @ (PrimitiveType(_) | ArrayType(_, _) | PointerType(_)),
+                target: target @ (PrimitiveType { .. } | ArrayType { .. } | PointerType { .. }),
                 projections,
                 target_size,
                 ..
@@ -5949,12 +5947,12 @@ k::rules! {
     finish_pointer_eq_different: {
         k: [
             Continue {
-                value: Pointer(_, _, _, _),
+                value: Pointer { .. },
                 continuation: FinishBinary {
                     place,
                     checked: false,
                     operation: BinOpEq(),
-                    lhs: Pointer(_, _, _, _)
+                    lhs: Pointer { .. }
                 }
             },
             ..
@@ -5984,12 +5982,12 @@ k::rules! {
     finish_pointer_ne_different: {
         k: [
             Continue {
-                value: Pointer(_, _, _, _),
+                value: Pointer { .. },
                 continuation: FinishBinary {
                     place,
                     checked: false,
                     operation: BinOpNe(),
-                    lhs: Pointer(_, _, _, _)
+                    lhs: Pointer { .. }
                 }
             },
             ..
