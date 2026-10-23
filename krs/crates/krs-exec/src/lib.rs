@@ -15,6 +15,7 @@
 //! The serialized reports form the `krs-exec/1` JSON shape that `krs run --output json` prints.
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 
+mod cell_types;
 mod claims;
 mod configuration;
 mod console;
@@ -216,6 +217,44 @@ pub enum PrintStyle {
     Pretty,
 }
 
+/// A part of a configuration value that does not fit the element types of the typed collection
+/// cell its variable fills ([`ExecError::CollectionElementSort`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ElementSortMismatch {
+    /// The variable, without `$`.
+    pub variable: String,
+    /// The Rust field of the cell.
+    pub cell: String,
+    /// The cell's declared type (`Map<Id, Value>`).
+    pub declared: String,
+    /// Where the part is in the value (``the value at key `x` ``).
+    pub position: String,
+    /// The part, printed through the definition's grammar.
+    pub element: String,
+    /// The part's sort.
+    pub sort: String,
+    /// The declared element sort it is not at most.
+    pub expected: String,
+}
+
+impl fmt::Display for ElementSortMismatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            variable,
+            cell,
+            declared,
+            position,
+            element,
+            sort,
+            expected,
+        } = self;
+        write!(
+            formatter,
+            "configuration variable `${variable}`: the cell `{cell}` is declared `{declared}`, but {position} is `{element}` of sort {sort}, which is not a subsort of {expected}"
+        )
+    }
+}
+
 /// A failure of a `krs-exec` operation.
 #[derive(Debug)]
 pub enum ExecError {
@@ -297,6 +336,9 @@ pub enum ExecError {
         /// Why the value does not fit.
         error: ValueError,
     },
+    /// A configuration value with a part that does not fit the element types of the typed
+    /// collection cell the variable fills (`skip` stored in a `Map<Id, Value>` cell).
+    CollectionElementSort(Box<ElementSortMismatch>),
 }
 
 impl fmt::Display for ExecError {
@@ -389,10 +431,41 @@ impl fmt::Display for ExecError {
             Self::Value { variable, error } => {
                 write!(formatter, "configuration variable `${variable}`: {error}")
             }
+            Self::CollectionElementSort(mismatch) => mismatch.fmt(formatter),
             Self::SearchWithStreams => formatter.write_str(
                 "krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)",
             ),
         }
+    }
+}
+
+/// The value of an `initGeneratedTopCell` map entry: the map holds each value boxed as one
+/// `KItem`, `#KConfigValue(V ~> .K)`, and `V` is the sequence's one item.
+fn unboxed_configuration_value(boxed: &Pattern) -> &Pattern {
+    let box_symbol = k_rust::kompile::encode_kore_label(&k_rust::kast::Label::new("#KConfigValue"));
+    let Pattern::Application { symbol, arguments } = boxed else {
+        return boxed;
+    };
+    let [sequence] = arguments.as_slice() else {
+        return boxed;
+    };
+    if symbol.name != box_symbol.name {
+        return boxed;
+    }
+    match sequence {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == k_rust::names::WellKnownSymbol::KSeq.as_str() =>
+        {
+            match arguments.as_slice() {
+                [item, Pattern::Application { symbol: tail, .. }]
+                    if tail.name == k_rust::names::WellKnownSymbol::DotK.as_str() =>
+                {
+                    item
+                }
+                _ => sequence,
+            }
+        }
+        _ => sequence,
     }
 }
 
@@ -432,6 +505,8 @@ pub struct Semantics {
     unparser: krs_unparse::Unparser,
     configuration: Configuration,
     values: Arc<ValueIndex>,
+    /// The typed cells configuration variables fill, which [`Self::configure`] checks.
+    cell_types: cell_types::CellTypes,
     frontend_definition: NativeDefinition,
     main_module: String,
     definition_kore: String,
@@ -522,15 +597,13 @@ impl Semantics {
             .map_err(ExecError::from)
         })?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
-        let values = timings.try_span("exec.values", |_| {
+        let (values, cell_types) = timings.try_span("exec.values", |_| {
             let backend_definition = backend
                 .select_definition(None)
                 .map_err(|error| ExecError::Backend(error.to_string()))?;
-            Ok::<_, ExecError>(Arc::new(ValueIndex::new(
-                definition,
-                &backend_definition,
-                &sort_hooks,
-            )))
+            let values = ValueIndex::new(definition, &backend_definition, &sort_hooks);
+            let cell_types = cell_types::CellTypes::new(definition, &backend_definition, &values);
+            Ok::<_, ExecError>((Arc::new(values), cell_types))
         })?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
@@ -554,6 +627,7 @@ impl Semantics {
             unparser,
             configuration,
             values,
+            cell_types,
             frontend_definition,
             main_module,
             definition_kore,
@@ -820,13 +894,13 @@ impl Semantics {
             .as_deref()
             .filter(|_| self.console.stdin)
             .map(console::buffered_input);
-        self.configuration
+        let pattern = self
+            .configuration
             .assemble_pattern(
                 program.map(|program| program.text.as_str()),
                 &bound,
                 stdin.as_deref(),
             )
-            .map(State)
             .map_err(|error| match error {
                 configuration::AssemblyError::Value { variable, error } => ExecError::Value {
                     variable,
@@ -841,7 +915,61 @@ impl Semantics {
                 configuration::AssemblyError::Configuration(error) => {
                     configuration_error(&error, program, &names, &self.variables)
                 }
+            })?;
+        self.check_cell_types(&pattern)?;
+        Ok(State(pattern))
+    }
+
+    /// Check every configuration variable's value in `pattern`, an assembled
+    /// `initGeneratedTopCell`, against the typed cell it fills ([`cell_types`]).
+    fn check_cell_types(&self, pattern: &Pattern) -> Result<(), ExecError> {
+        let Pattern::Application { arguments, .. } = pattern else {
+            return Ok(());
+        };
+        let Some(entries) = arguments
+            .first()
+            .and_then(|map| self.values.collection_items(map, krs_ir::BuiltinSort::Map))
+        else {
+            return Ok(());
+        };
+        let mut bindings = entries
+            .iter()
+            .filter_map(|entry| {
+                let [key, value] = entry.as_slice() else {
+                    return None;
+                };
+                let Pattern::DomainValue { value: name, .. } = values::strip_injections(key) else {
+                    return None;
+                };
+                let name = name.as_utf8().ok()?.strip_prefix('$')?.to_owned();
+                Some((name, unboxed_configuration_value(value)))
             })
+            .collect::<Vec<_>>();
+        bindings.sort_by(|left, right| left.0.cmp(&right.0));
+        let print = |pattern: &Pattern| {
+            self.unparser
+                .print_kore(
+                    pattern,
+                    &krs_unparse::Options::new(krs_unparse::Mode::Pretty),
+                )
+                .text
+        };
+        for (variable, value) in bindings {
+            if let Some(mismatch) = self.cell_types.check(&self.values, &variable, value) {
+                return Err(ExecError::CollectionElementSort(Box::new(
+                    ElementSortMismatch {
+                        variable,
+                        cell: mismatch.cell,
+                        declared: mismatch.declared,
+                        position: cell_types::describe(&mismatch.path, print),
+                        element: print(mismatch.element),
+                        sort: mismatch.sort,
+                        expected: mismatch.expected,
+                    },
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn resolve_variable(&self, written: &str) -> Result<&ConfigVariable, ExecError> {

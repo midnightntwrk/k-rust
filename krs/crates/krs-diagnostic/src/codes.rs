@@ -440,6 +440,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         BACKEND: "krs::exec::backend" => "The native backend failed while loading or running the definition.",
         PROGRAM: "krs::exec::program" => "FILE was given without $PGM, or omitted with $PGM.",
         VARIABLE: "krs::exec::variable" => "A configuration variable is unknown, bound twice, or missing.",
+        COLLECTION_ELEMENT_SORT: "krs::exec::collection-element-sort" => "A configuration variable's value has a part that does not fit the element types of the typed collection cell it fills.",
         PARSE: "krs::exec::parse" => "Program or configuration-variable text does not parse at its sort.",
         SORT: "krs::exec::sort" => "A requested parse sort is not a program sort.",
         CLAIM: "krs::exec::claim" => "A claim label matched no claim, several claims, or the definition has no claims.",

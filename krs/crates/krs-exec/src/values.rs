@@ -575,6 +575,8 @@ pub(crate) struct CellNode {
 struct BackendSymbols {
     known: HashSet<String>,
     free_constructors: HashSet<String>,
+    /// The result sort of each symbol whose result sort is a sort without parameters.
+    result_sorts: HashMap<String, String>,
     collections: HashMap<String, (Collection, Role)>,
     builders: [CollectionSymbols; 3],
 }
@@ -583,6 +585,7 @@ impl BackendSymbols {
     fn scan(backend: &BackendDefinition) -> Self {
         let mut known = HashSet::new();
         let mut free_constructors = HashSet::new();
+        let mut result_sorts = HashMap::new();
         let mut collections = HashMap::new();
         let mut builders: [CollectionSymbols; 3] = Default::default();
         for (name, symbol) in backend.symbols() {
@@ -590,6 +593,14 @@ impl BackendSymbols {
             known.insert(name.clone());
             if symbol.attributes.head_role() == HeadRole::FreeConstructor {
                 free_constructors.insert(name.clone());
+            }
+            if let k_rust::k_rust_backend::term::SortNode::Application {
+                name: sort,
+                arguments,
+            } = symbol.result_sort.node()
+                && arguments.is_empty()
+            {
+                result_sorts.insert(name.clone(), sort.to_string());
             }
             let Some(hook) = symbol.attributes.hook.as_ref().map(ToString::to_string) else {
                 continue;
@@ -636,6 +647,7 @@ impl BackendSymbols {
         Self {
             known,
             free_constructors,
+            result_sorts,
             collections,
             builders,
         }
@@ -656,6 +668,7 @@ pub struct ValueIndex {
     kast_sort_hooks: HashMap<String, String>,
     known_symbols: HashSet<String>,
     free_constructors: HashSet<String>,
+    result_sorts: HashMap<String, String>,
     collections: HashMap<String, (Collection, Role)>,
     builders: [CollectionSymbols; 3],
     cells: Vec<CellNode>,
@@ -670,7 +683,7 @@ const fn collection_slot(collection: Collection) -> usize {
     }
 }
 
-fn kore_sort_name(k_name: &str) -> String {
+pub(crate) fn kore_sort_name(k_name: &str) -> String {
     match &encode_kore_sort(&KastSort::new(k_name)) {
         Sort::Application { name, .. } | Sort::Variable(name) => name.clone(),
     }
@@ -760,6 +773,7 @@ impl ValueIndex {
             kast_sort_hooks: kast_sort_hooks.clone(),
             known_symbols: symbols.known,
             free_constructors: symbols.free_constructors,
+            result_sorts: symbols.result_sorts,
             collections: symbols.collections,
             builders: symbols.builders,
             cells,
@@ -850,6 +864,59 @@ impl ValueIndex {
 
     pub(crate) fn top_symbol(&self) -> &str {
         &self.top
+    }
+
+    /// The KORE name of the sort of a ground term, below its injections: a domain value's sort,
+    /// or the result sort its symbol declares, which bounds every value an unevaluated function
+    /// application can take. `None` for a variable, a connective, and a symbol whose result
+    /// sort has parameters or sort variables.
+    pub(crate) fn sort_of(&self, pattern: &Pattern) -> Option<String> {
+        match strip_injections(pattern) {
+            Pattern::DomainValue {
+                sort: Sort::Application { name, arguments },
+                ..
+            } if arguments.is_empty() => Some(name.clone()),
+            Pattern::Application { symbol, .. }
+            | Pattern::AssociativeApplication { symbol, .. } => {
+                self.result_sorts.get(&symbol.name).cloned()
+            }
+            _ => None,
+        }
+    }
+
+    /// The arguments of each element of a `sort` collection built from its unit, element, and
+    /// concatenation symbols, below its injections: one argument per `List` or `Set` element, a
+    /// key and a value per `Map` entry. `None` when `sort` is no collection or a part of the
+    /// term is neither (a function application, a variable).
+    pub(crate) fn collection_items<'p>(
+        &self,
+        pattern: &'p Pattern,
+        sort: BuiltinSort,
+    ) -> Option<Vec<Vec<&'p Pattern>>> {
+        let collection = match sort {
+            BuiltinSort::List => Collection::List,
+            BuiltinSort::Set => Collection::Set,
+            BuiltinSort::Map => Collection::Map,
+            _ => return None,
+        };
+        let mut elements = Vec::new();
+        self.collection_elements(strip_injections(pattern), collection, &mut elements)
+            .then_some(elements)
+    }
+
+    /// A KORE sort's name as a KRS author writes it: the last segment of a KRS sort's Rust
+    /// path, a builtin sort's K name, or else the K name the KORE name encodes.
+    pub(crate) fn sort_display(&self, kore: &str) -> String {
+        match self.sorts_by_kore.get(kore) {
+            Some(SortRef::Declared(decl)) => decl
+                .path()
+                .rsplit("::")
+                .next()
+                .unwrap_or(decl.path())
+                .to_owned(),
+            Some(SortRef::Builtin(sort)) => sort.k_name().to_owned(),
+            None => kore.strip_prefix("Sort").unwrap_or(kore).to_owned(),
+        }
     }
 
     /// Decode a pattern of this definition.
@@ -1239,6 +1306,17 @@ impl ValueIndex {
             .convert(&pattern)
             .map_err(|error| ValueError::Unencodable(error.to_string()))
     }
+}
+
+/// `pattern` below its injections: `inj{A, B}(a)` is `a` viewed in `B`.
+pub(crate) fn strip_injections(mut pattern: &Pattern) -> &Pattern {
+    while let Pattern::Application { symbol, arguments } = pattern
+        && symbol.name == WellKnownSymbol::Inj.as_str()
+        && let [argument] = arguments.as_slice()
+    {
+        pattern = argument;
+    }
+    pattern
 }
 
 fn kore_sort(name: &str) -> Sort {
