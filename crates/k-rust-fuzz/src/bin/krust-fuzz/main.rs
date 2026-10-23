@@ -17,10 +17,11 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
+use k_rust::backend::CompiledRuleKind;
 use k_rust_fuzz::{
     Campaign,
     report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
-    target::RuleMode,
+    target::{RuleMode, common_directory},
 };
 
 use crate::{
@@ -81,8 +82,15 @@ struct Args {
     #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
     config_vars: Vec<String>,
 
-    /// Target: the rule with this label fires (or see --rule-mode).
-    #[arg(long, value_name = "LABEL", conflicts_with_all = ["pattern", "differential"])]
+    /// Target: this rule fires (or see `--rule-mode`); the help text says how `RULE` is read.
+    #[arg(
+        long,
+        value_name = "RULE",
+        conflicts_with_all = ["pattern", "differential"],
+        help = "Target: this rule fires (or see --rule-mode). RULE is FILE:LINE (any line of the \
+                rule, as kink lists rules), the rule's unique id (64 hexadecimal digits, as the \
+                report names rules), or its label (IMP.overflow, or overflow when no label is that)"
+    )]
     reach_rule: Option<String>,
 
     /// What counts as reaching the rule (only with a rule target).
@@ -548,6 +556,7 @@ fn summary(report: &FuzzReport) -> String {
     if let Some(no_witness) = report.no_witness() {
         let _ = writeln!(text, "{}", no_witness.statement);
     }
+    write_coverage(&mut text, report);
     for warning in &report.warnings {
         let _ = writeln!(text, "warning: {warning}");
     }
@@ -556,6 +565,83 @@ fn summary(report: &FuzzReport) -> String {
     }
     text
 }
+
+/// The rules the cases reached, by source location, label and unique id (`totals.coverage`):
+/// the rewrite rules applied, then those whose condition was entered but which never applied;
+/// equations are only counted. Each list stops after [`LISTED_RULES`] rules, in source order.
+fn write_coverage(text: &mut String, report: &FuzzReport) {
+    use std::fmt::Write as _;
+    let coverage = &report.totals.coverage;
+    let rule = |id: &&String| {
+        coverage
+            .names
+            .get(id.as_str())
+            .is_none_or(|name| name.kind == CompiledRuleKind::Rewrite)
+    };
+    let applied: Vec<&String> = coverage.applied.iter().filter(rule).collect();
+    let blocked: Vec<&String> = coverage
+        .matched
+        .iter()
+        .filter(rule)
+        .filter(|id| !coverage.applied.contains(id.as_str()))
+        .collect();
+    let equations = coverage.applied.len() - applied.len();
+    let list = |text: &mut String, heading: String, mut ids: Vec<&String>| {
+        let _ = writeln!(text, "{heading}");
+        ids.sort_by_key(|id| {
+            let location = coverage
+                .names
+                .get(id.as_str())
+                .and_then(|name| name.locations.first());
+            (location.is_none(), location.cloned(), (*id).clone())
+        });
+        let base = common_directory(
+            ids.iter()
+                .filter_map(|id| coverage.names.get(id.as_str()))
+                .flat_map(|name| &name.locations)
+                .map(|location| location.source.as_str()),
+        );
+        for id in ids.iter().take(LISTED_RULES) {
+            match coverage.names.get(id.as_str()) {
+                Some(name) => {
+                    let _ = writeln!(text, "  {}", name.describe(id, &base));
+                }
+                None => {
+                    let _ = writeln!(text, "  (not in the catalog) unique id {id}");
+                }
+            }
+        }
+        if ids.len() > LISTED_RULES {
+            let _ = writeln!(
+                text,
+                "  ... and {} more in the report's totals.coverage (--json, --report)",
+                ids.len() - LISTED_RULES
+            );
+        }
+    };
+    if !applied.is_empty() || equations > 0 {
+        let heading = format!(
+            "rules applied: {}{}",
+            applied.len(),
+            match equations {
+                0 => String::new(),
+                1 => " (and 1 equation)".to_owned(),
+                _ => format!(" (and {equations} equations)"),
+            }
+        );
+        list(text, heading, applied);
+    }
+    if !blocked.is_empty() {
+        let heading = format!(
+            "rules whose condition was reached but which never applied: {}",
+            blocked.len()
+        );
+        list(text, heading, blocked);
+    }
+}
+
+/// How many rules each list of [`write_coverage`] names.
+const LISTED_RULES: usize = 30;
 
 fn write_case(text: &mut String, case: &WitnessCase) {
     use std::fmt::Write as _;
@@ -624,6 +710,33 @@ mod tests {
         assert_eq!(parse_seed("24301"), Ok(24301));
         assert_eq!(parse_seed("0x5eed"), Ok(0x5eed));
         assert!(parse_seed("seed").is_err());
+    }
+
+    #[test]
+    fn a_rule_reference_is_read_by_its_shape() {
+        use crate::campaign::rule_ref;
+        use k_rust_fuzz::target::RuleRef;
+        let source = |source: &str, line| RuleRef::Source {
+            source: source.to_owned(),
+            line,
+        };
+        assert_eq!(rule_ref("imp.k:47"), Ok(source("imp.k", 47)));
+        assert_eq!(rule_ref("./lib/imp.k:5"), Ok(source("lib/imp.k", 5)));
+        assert_eq!(rule_ref("/abs/imp.k:52"), Ok(source("/abs/imp.k", 52)));
+        assert!(rule_ref("imp.k:0").is_err());
+        assert!(rule_ref("imp.k:99999999999").is_err());
+        let id = "5AC0F147".repeat(8);
+        assert_eq!(
+            rule_ref(&id),
+            Ok(RuleRef::UniqueId(id.to_ascii_lowercase()))
+        );
+        for label in ["IMP.neg", "neg", "5ac0f147", "imp.k:", ":12", "a:b"] {
+            assert_eq!(
+                rule_ref(label),
+                Ok(RuleRef::Label(label.to_owned())),
+                "{label}"
+            );
+        }
     }
 
     #[test]

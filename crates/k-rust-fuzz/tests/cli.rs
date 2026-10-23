@@ -68,6 +68,12 @@ literal = "5"
 
 /// Write the compiled directory of `fixture` to `directory`, as `krust kcompile` writes it.
 fn write_compiled(fixture: &'static Fixture, directory: &Path) {
+    write_compiled_source(fixture.file, fixture.source, fixture.main_module, directory);
+}
+
+/// Write the compiled directory of the definition `source`, named `file`, whose main module is
+/// `main_module`, to `directory`, as `krust kcompile` writes it.
+fn write_compiled_source(file: &str, source: &str, main_module: &str, directory: &Path) {
     fs::create_dir_all(directory).expect("the compiled directory is created");
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
@@ -77,15 +83,15 @@ fn write_compiled(fixture: &'static Fixture, directory: &Path) {
         ..CompilationBackend::Rust.load_options()
     };
     let (loaded, syntax_module) = load_for_compilation(
-        ResolvedSource::new(fixture.file, fixture.source),
-        fixture.main_module,
+        ResolvedSource::new(file, source),
+        main_module,
         None,
         &mut resolver,
         &options,
     )
-    .unwrap_or_else(|error| panic!("{} does not load: {error:?}", fixture.file));
+    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-        .unwrap_or_else(|error| panic!("{} does not compile: {error}", fixture.file));
+        .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
     for (name, text) in [
         ("definition.kore", &artifacts.definition_kore),
         ("syntaxDefinition.kore", &artifacts.syntax_definition_kore),
@@ -95,7 +101,7 @@ fn write_compiled(fixture: &'static Fixture, directory: &Path) {
     }
     write_runnable_artifact(
         directory,
-        fixture.main_module,
+        main_module,
         &syntax_module,
         loaded.definition(),
         loaded.source_table(),
@@ -902,5 +908,234 @@ fn a_witness_whose_report_has_another_schema_or_version_is_refused() {
         assert_eq!(replay.status.code(), Some(2), "{field}: {stderr}");
         assert!(stderr.contains(expected), "{field}: {stderr}");
         assert!(stderr.contains("krust-fuzz-report"), "{field}: {stderr}");
+    }
+}
+
+/// FZ-RULEREF: a workspace holding kink's IMP (`kink/examples/imp/imp.k`, the pl-tutorial
+/// lesson whose expression rules carry no label), compiled as `krust kcompile imp.k` compiles
+/// it, and `files`.
+fn kink_imp_workspace(test: &str, files: &[(&str, &str)]) -> PathBuf {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../kink/examples/imp/imp.k");
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read `{}`: {error}", path.display()));
+    let directory = workspace(test, &[], files);
+    write_compiled_source("imp.k", &source, "IMP", &directory.join("imp-kompiled"));
+    directory
+}
+
+/// The TRIAL2 campaign on kink's IMP (items 8 and 9): `program` with two `Int` holes, the rule
+/// target `rule` in mode `covered` with run-to-completion.
+fn kink_imp_campaign(program: &str, rule: &str, holes: [(&str, &str, &str); 2]) -> String {
+    use std::fmt::Write as _;
+    let mut text = format!(
+        "definition = \"imp-kompiled\"\nprogram = \"{program}\"\nseed = 1\ncases = 100\n\
+         [target]\nrule = \"{rule}\"\nmode = \"covered\"\nrun-to-completion = true\n\
+         [options]\nmax-work = 20000\n"
+    );
+    for (name, find, literal) in holes {
+        let _ = write!(
+            text,
+            "[[hole]]\nname = \"{name}\"\nsort = \"Int\"\nfind = \"{find}\"\n\
+             literal = \"{literal}\"\nrange = {{ min = 0, max = 1000 }}\n"
+        );
+    }
+    text
+}
+
+/// TRIAL2's `clamp` (item 8): rule 47 `- I1` fires only when `lo <= x` fails.
+const CLAMP: &str = "// Clamp: r is x when x is at least lo, else -1.\nint x, lo, r;\nx = 7;\nlo = 3;\n\
+                     if (lo <= x) { r = x; } else { r = -1; }\n";
+
+/// TRIAL2's `guard` (item 9): rule 52 `false && _` fires only when `x <= 10` fails.
+const GUARD: &str = "// Divide only when both operands are small.\nint x, y, r;\nx = 5;\ny = 8;\n\
+                     if (x <= 10 && y <= 10) { r = x / y; } else { r = 0; }\n";
+
+/// The report a `--json` run printed, as JSON.
+fn json_value(output: &Output) -> serde_json::Value {
+    serde_json::from_str(text(&output.stdout).trim()).unwrap_or_else(|error| {
+        panic!(
+            "no report ({error}); stdout: {}; stderr: {}",
+            text(&output.stdout),
+            text(&output.stderr)
+        )
+    })
+}
+
+/// The ids the report's coverage names with a location in a file ending with `file` that
+/// starts on `line`.
+fn named_ids(report: &serde_json::Value, file: &str, line: u64) -> Vec<String> {
+    let names = report["totals"]["coverage"]["names"]
+        .as_object()
+        .unwrap_or_else(|| panic!("the coverage names no rule: {report}"));
+    names
+        .iter()
+        .filter(|(_, name)| {
+            name["locations"].as_array().is_some_and(|locations| {
+                locations.iter().any(|location| {
+                    location["source"]
+                        .as_str()
+                        .is_some_and(|source| source.ends_with(file))
+                        && location["line"].as_u64() == Some(line)
+                })
+            })
+        })
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+/// FZ-RULEREF (DOGFOOD B2, TRIAL2): the uncovered unlabelled rules of TRIAL2's IMP corpus are
+/// targeted from the command line, with no labelled copy of the definition, by the file and
+/// start line kink lists, and by the unique id the report names them with.
+#[test]
+fn an_unlabelled_rule_is_targeted_by_source_line_or_unique_id() {
+    let neg = kink_imp_campaign(
+        "clamp.imp",
+        "imp.k:47",
+        [("X", "x = 7;", "7"), ("LO", "lo = 3;", "3")],
+    );
+    let and = kink_imp_campaign(
+        "guard.imp",
+        "imp.k:52",
+        [("X", "x = 5;", "5"), ("Y", "y = 8;", "8")],
+    );
+    let directory = kink_imp_workspace(
+        "rule-by-location",
+        &[
+            ("clamp.imp", CLAMP),
+            ("guard.imp", GUARD),
+            ("neg.toml", &neg),
+            ("and.toml", &and),
+        ],
+    );
+    for (campaign, line) in [("neg.toml", 47), ("and.toml", 52)] {
+        let output = krust_fuzz(&directory, &["--campaign", campaign, "--json"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{campaign}: {}",
+            text(&output.stderr)
+        );
+        let report = json_value(&output);
+        assert_eq!(report["outcome"]["status"], "witness-found", "{report}");
+        let ids = named_ids(&report, "imp.k", line);
+        assert_eq!(ids.len(), 1, "{campaign}: {report}");
+        // The id the report names the rule with targets it too, from the flag.
+        let by_id = krust_fuzz(
+            &directory,
+            &["--campaign", campaign, "--reach-rule", &ids[0], "--json"],
+        );
+        assert_eq!(
+            by_id.status.code(),
+            Some(0),
+            "{campaign}: {}",
+            text(&by_id.stderr)
+        );
+        assert_eq!(json_value(&by_id)["outcome"]["status"], "witness-found");
+    }
+    // The flag takes the location too, and replaces the file's rule.
+    let output = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "and.toml",
+            "--reach-rule",
+            "imp.k:47",
+            "--json",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+}
+
+/// FZ-RULEREF: a source reference names the rule whose span holds the line, not only the rule
+/// that starts on it (MAZE's `enter` spans lines 37 to 40).
+#[test]
+fn a_line_inside_a_multi_line_rule_names_that_rule() {
+    let campaign = "program = \"walk.pgm\"\ndefinition = \"maze-kompiled\"\ncases = 5\n\
+                    [[hole]]\nname = \"A\"\nsort = \"Int\"\nfind = \"walk(0,\"\nliteral = \"0\"\n";
+    let directory = workspace(
+        "rule-span",
+        &[("maze-kompiled", &support::MAZE)],
+        &[
+            ("walk.pgm", support::MAZE.program("maze/walk.pgm").text),
+            ("walk.toml", campaign),
+        ],
+    );
+    for line in ["37", "39", "40"] {
+        let rule = format!("maze.k:{line}");
+        let output = krust_fuzz(
+            &directory,
+            &["--campaign", "walk.toml", "--reach-rule", &rule],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{rule}: {}",
+            text(&output.stderr)
+        );
+    }
+}
+
+/// FZ-RULEREF: an unknown rule reference is refused in words, with the candidates an author
+/// can name instead.
+#[test]
+fn an_unknown_rule_reference_lists_candidates() {
+    let div = IMP.program("imp/div.imp").text;
+    let campaign = "definition = \"imp-kompiled\"\nprogram = \"div.imp\"\ncases = 5\n\
+                    [[hole]]\nname = \"Y\"\nsort = \"Int\"\nfind = \"y = 2;\"\nliteral = \"2\"\n";
+    let directory = workspace(
+        "rule-unknown",
+        &[("imp-kompiled", &IMP)],
+        &[("div.imp", div), ("div.toml", campaign)],
+    );
+    let refused = |rule: &str, needles: &[&str]| {
+        let output = krust_fuzz(
+            &directory,
+            &["--campaign", "div.toml", "--reach-rule", rule],
+        );
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{rule}: {stderr}");
+        assert!(!stderr.contains("UnknownRule"), "{rule}: {stderr}");
+        for needle in needles {
+            assert!(stderr.contains(needle), "{rule}: no `{needle}` in {stderr}");
+        }
+    };
+    // The nearest labels, and the unlabelled rules' other names.
+    refused(
+        "asign",
+        &["`asign`", "[IMP.assign]", "rewrite rules have no label"],
+    );
+    // The rules starting nearest a line between rules (55 is blank; 56 is `*`).
+    refused(
+        "imp.k:55",
+        &["line 55 of `imp.k`", "imp/imp.k:56", "imp/imp.k:54"],
+    );
+    // A file that holds no rule: the files that do.
+    refused("nosuch.k:3", &["nosuch.k", "imp/imp.k"]);
+    // An id of no catalog entry.
+    refused(&"0".repeat(64), &["unique id", &"0".repeat(64)]);
+}
+
+/// FZ-RULEREF: the summary names the rules the campaign reached by source location and label.
+#[test]
+fn the_summary_names_the_rules_the_campaign_reached() {
+    let div = IMP.program("imp/div.imp").text;
+    let campaign = "definition = \"imp-kompiled\"\nprogram = \"div.imp\"\ncases = 5\n\
+                    [target]\nrule = \"imp.k:57\"\n\
+                    [[hole]]\nname = \"Y\"\nsort = \"Int\"\nfind = \"y = 2;\"\nliteral = \"2\"\n";
+    let directory = workspace(
+        "rule-summary",
+        &[("imp-kompiled", &IMP)],
+        &[("div.imp", div), ("div.toml", campaign)],
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "div.toml"]);
+    let stdout = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&output.stderr)
+    );
+    for needle in ["imp/imp.k:57", "imp/imp.k:73", "IMP.assign"] {
+        assert!(stdout.contains(needle), "no `{needle}` in {stdout}");
     }
 }

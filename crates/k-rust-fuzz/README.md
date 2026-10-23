@@ -126,8 +126,16 @@ Each release ships `krust-fuzz` in its own archive (package `k-rust-fuzz`, built
 ```text
 krust fuzz --definition imp-kompiled --program transfer.imp --campaign holes.toml \
   --reach-rule IMP.overflow --max-work 100000 --cases 5000 --seed 0x5eed --json
+krust fuzz --campaign holes.toml --reach-rule imp.k:47
 krust fuzz --replay witness.json
 ```
+
+A rule target (`--reach-rule RULE`, the file's `rule`) names one rule of the definition's catalog, read by the shape of `RULE`:
+`FILE:LINE`, where `LINE` is a decimal number, is a source position, any line from the rule's first to its last, as kink lists uncovered rules (`imp.k:47`); `FILE` is the catalog's path, a suffix of it after a `/`, or an absolute path ending with it, and a leading `./` is dropped.
+Exactly 64 hexadecimal digits are a unique id, as the report names rules and the summary's `krun` line prints them; any other text is a label, `IMP.neg` or, when no label is that, `neg`.
+Every rule has a source position and a unique id, so a label of either shape is still named by those, and unlabelled rules (most of SIMPLE's, IMP's expression rules) need no labelled copy of the definition.
+A reference that names no rule is refused with what can be named instead: the nearest labels and the number of unlabelled rules, the rules written nearest the line, or the files that hold rules; one that names several rules lists them with their unique ids.
+The report's `totals.coverage.names` gives every reached id its kind, label and source locations, and the summary lists the rewrite rules the cases applied, and those whose condition was entered but which never applied, by source position, label and unique id.
 
 A compiled directory is loaded as `krust krun --definition` loads it (`k_rust::native::load_runnable_artifact`, plus the directory's `syntaxDefinition.kore` and `macros.kore`, which printing and reading back data values need), and every backend is built on krun's route, with the compiler's rewrite order.
 The program's path as written names it, as `krust krun` names a program: span holes address that name, and the program's locations carry it.
@@ -143,7 +151,7 @@ program = "transfer.imp"      # --program; `sort` (--sort) and `config-vars = ["
 seed = "0x5eed"               # --seed; `cases` (--cases) or `work` (--work) is the budget, 1000 cases by default
 
 [target]                      # exactly one of rule, pattern, differential (OD-2)
-rule = "IMP.overflow"         # --reach-rule, by label; `mode` (--rule-mode) is fired, covered or condition-reached
+rule = "IMP.overflow"         # --reach-rule: FILE:LINE, a unique id or a label; `mode` (--rule-mode) is fired, covered or condition-reached
 # pattern = '<k> .K </k> ...' # --pattern, in krun's --pattern syntax with `requires`; `at` is final
 # run-to-completion = true    # --run-to-completion; negated-property (--negated-property)
 
