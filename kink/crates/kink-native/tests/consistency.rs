@@ -148,6 +148,10 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// above them) and `definition.rs`'s down 32 (MLP/10's 7fec17247, FU-27, the sweep and the ks3
 /// engine work); only the line numbers are re-pinned.
 ///
+/// fz26 phase-5 integration (INT7): FZ-DATAEND's data-term paragraph (6 lines, "Anywhere
+/// rules") moved the second and third compatibility.md passages down 6, byte-identical; only
+/// their lines are re-pinned, by digest.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -160,14 +164,14 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     ),
     (
         "docs/compatibility.md",
-        1094,
         1100,
+        1106,
         "263edf4fe0dc7d38e545e15c1f70d869c36f421975fbd69204b2e35c35988a8f",
     ),
     (
         "docs/compatibility.md",
-        1116,
-        1129,
+        1122,
+        1135,
         "6a3b482248576ca08648f5e2bfd7c0211ad147f43d433245a4044507b4de472c",
     ),
     (
