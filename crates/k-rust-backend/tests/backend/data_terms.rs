@@ -172,15 +172,20 @@ fn an_unjoined_critical_pair_withdraws_the_head() {
     let heads = definition.data_heads();
     assert!(!heads.names().any(|name| name.as_ref() == "exps"));
     assert!(!data(&definition, &heads, FUN_EXPS));
-    // The tainted family's overload equations mention the constructors they lower to; the
-    // family may identify those too (FZ-DATAEND review B2), so no term holding one is data,
-    // constructor-like or not.
+    // The members of the overload equations rooted at the tainted indexes are refused: the
+    // family may equate their applications (FZ-DATAEND review B2), so no term holding one is
+    // data, constructor-like or not. Symbols the family does not relate stay data.
     let refused: Vec<String> = heads.refused().map(ToString::to_string).collect();
-    for symbol in ["bottoms", "dotBottoms", "vals", "exps"] {
+    for symbol in ["bottoms", "vals", "exps"] {
         assert!(refused.iter().any(|name| name == symbol), "{refused:?}");
     }
-    assert!(!data(&definition, &heads, EMPTY_EXPS));
+    assert!(!data(
+        &definition,
+        &heads,
+        "inj{SortBottoms{}, SortExps{}}(bottoms{}(bottom{}(), dotBottoms{}()))"
+    ));
     assert!(data(&definition, &heads, "fun{}()"));
+    assert!(data(&definition, &heads, "state{}(matchFailure{}())"));
 }
 
 /// An overload equation whose argument is not a variable or an injection of one (here the
@@ -252,48 +257,49 @@ fn a_head_with_another_equation_or_a_lemma_is_not_a_data_head() {
     );
 }
 
+/// A term is judged by each definition with its own facts (FZ-DATAEND review round 2): a sort
+/// `Zero` that is below `Val` in one definition and only below `Exp` in the other makes
+/// `exps(inj{Zero,Exp}(zero), .Exps)` reducible in the first (the overload equation to `vals`
+/// matches through the subsort) and a normal form in the second. A comparison of ends across the
+/// two must refuse it: it is data in one definition only.
 #[test]
-fn two_definitions_agree_on_the_heads_whose_overload_equations_are_equal() {
-    let baseline = definition(FIXTURE);
-    let same = definition(FIXTURE);
+fn each_definition_judges_a_term_by_its_own_subsorts() {
+    let zero = |below: &str| {
+        with_sentences(&format!(
+            r#"
+    sort SortZero{{}} []
+    symbol zero{{}}() : SortZero{{}} [constructor{{}}()]
+    axiom{{R}} \exists{{R}}(V:Sort{below}{{}}, \equals{{Sort{below}{{}}, R}}(V:Sort{below}{{}}, inj{{SortZero{{}}, Sort{below}{{}}}}(F:SortZero{{}})))
+        [subsort{{SortZero{{}}, Sort{below}{{}}}}()]
+    axiom{{R}} \exists{{R}}(V:SortExp{{}}, \equals{{SortExp{{}}, R}}(V:SortExp{{}}, inj{{SortZero{{}}, SortExp{{}}}}(F:SortZero{{}})))
+        [subsort{{SortZero{{}}, SortExp{{}}}}()]
+"#
+        ))
+    };
+    let below_val = zero("Val");
+    let only_exp = zero("Name");
+    let subject = format!("exps{{}}(inj{{SortZero{{}}, SortExp{{}}}}(zero{{}}()), {EMPTY_EXPS})");
+    assert!(!data(&below_val, &below_val.data_heads(), &subject));
+    assert!(data(&only_exp, &only_exp.data_heads(), &subject));
+    // The heads themselves are the same in both: only the judgement of the term differs.
     assert_eq!(
-        baseline.data_heads().agreeing_with(&same.data_heads()),
-        baseline.data_heads()
-    );
-    // Without its overload equation `listExp` roots no equation, and its applications denote
-    // other values: `[one]` is `inj(listVal(one))` in the baseline and itself there.
-    let unlowered = without_sentence("symbol-overload{}(listExp{}(), listVal{}())");
-    assert_eq!(
-        names(&baseline.data_heads().agreeing_with(&unlowered.data_heads())),
-        ["dotExps", "dotVals", "exps", "vals"]
+        names(&below_val.data_heads()),
+        names(&only_exp.data_heads())
     );
 }
 
-/// Whether an overload equation applies reads the subsort order below the sorts its arguments
-/// inject from. A new sort below `Val` changes what `exps(inj{Val,Exp}(K0), ..)` matches, so
-/// `exps` no longer means the same in both definitions; `vals` and `listExp`, whose equations
-/// read only `Bottom` and `Vals`, still do.
+/// The two definitions give `exps` different equations (one lacks the lowering to `vals`), and
+/// `one, .Exps` is a normal form of the second only.
 #[test]
-fn two_definitions_disagree_on_a_head_whose_argument_sorts_have_other_subsorts() {
+fn each_definition_judges_a_term_by_its_own_equations() {
     let baseline = definition(FIXTURE);
-    let mutant = with_sentences(
-        r#"
-    sort SortZero{} []
-    symbol zero{}() : SortZero{} [constructor{}()]
-    axiom{R} \exists{R}(V:SortVal{}, \equals{SortVal{}, R}(V:SortVal{}, inj{SortZero{}, SortVal{}}(F:SortZero{})))
-        [subsort{SortZero{}, SortVal{}}()]
-    axiom{R} \exists{R}(V:SortExp{}, \equals{SortExp{}, R}(V:SortExp{}, inj{SortZero{}, SortExp{}}(F:SortZero{})))
-        [subsort{SortZero{}, SortExp{}}()]
-"#,
+    let unlowered = without_sentence("symbol-overload{}(listExp{}(), listVal{}())");
+    let list = format!(
+        "listExp{{}}(inj{{SortVals{{}}, SortExps{{}}}}(vals{{}}(one{{}}(), {EMPTY_VALS})))"
     );
-    let agreeing = baseline.data_heads().agreeing_with(&mutant.data_heads());
-    assert_eq!(names(&agreeing), ["dotExps", "dotVals", "listExp", "vals"]);
-    let zero = format!("exps{{}}(inj{{SortZero{{}}, SortExp{{}}}}(zero{{}}()), {EMPTY_EXPS})");
-    assert!(!mutant.is_data(&term(&mutant, &zero), &mutant.data_heads()));
-    assert!(mutant.is_data(&term(&mutant, FUN_EXPS), &mutant.data_heads()));
-    assert!(!mutant.is_data(&term(&mutant, FUN_EXPS), &agreeing));
-    assert!(mutant.is_data(
-        &term(&mutant, &format!("vals{{}}(one{{}}(), {EMPTY_VALS})")),
-        &agreeing
-    ));
+    assert!(!data(&baseline, &baseline.data_heads(), &list));
+    // Without its overload equation `listExp` roots no equation: not a data head either.
+    assert!(!data(&unlowered, &unlowered.data_heads(), &list));
+    assert!(data(&baseline, &baseline.data_heads(), FUN_EXPS));
+    assert!(data(&unlowered, &unlowered.data_heads(), FUN_EXPS));
 }
