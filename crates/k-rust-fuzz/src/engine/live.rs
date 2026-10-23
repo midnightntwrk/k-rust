@@ -839,7 +839,8 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
     }
 }
 
-/// For a case not judged because a leaf is not ceil-free ([`UnjudgedReason::NotCeilFree`]), a
+/// For a case not judged because a leaf is not ceil-free ([`UnjudgedReason::NotCeilFree`]: an
+/// `unsupported` case, or a `baseline-incomplete` one whose baseline holds such a leaf), a
 /// warning naming each partial function whose application a leaf of `result` holds; the report
 /// lists each distinct text once, so the warnings name the functions, not the cases.
 fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<String> {
@@ -863,7 +864,7 @@ fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<
             format!(
                 "not-ceil-free: a case ended in a configuration holding an application of the \
                  partial function `{function}` that no equation evaluates, so it may denote no \
-                 value and the case is unsupported"
+                 value and the case could not be judged"
             )
         })
         .collect()

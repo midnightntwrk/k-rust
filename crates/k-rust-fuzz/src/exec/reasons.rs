@@ -104,7 +104,8 @@ pub enum UnjudgedReason {
     KillOnChosenValue,
     /// Differential: an end of the mutant that the baseline does not reach, or the mutant's set
     /// against which a baseline end would be removed, holds an end that is not data (an
-    /// unevaluated function application; condition 4), so the ends cannot be compared.
+    /// unevaluated function application, or an overloaded production's application k-rust does
+    /// not count as data; condition 4), so the ends cannot be compared.
     MutantEndNotData,
     /// Differential: the baseline's set, against which a mutant end would be added, or a
     /// baseline end the mutant does not reach, holds an end that is not data (condition 4).
@@ -154,9 +155,11 @@ impl UnjudgedReason {
                  and open values in it"
             }
             Self::MutantEndNotData | Self::BaselineEndNotData => {
-                "the end holds a function application that no equation reduces, so it cannot be \
-                 compared as data: add the missing equations, or choose a program whose ends \
-                 hold only constructors and builtin values"
+                "the end is not data (it holds an unevaluated function application, or an \
+                 application of an overloaded production that k-rust does not count as data), \
+                 so the two ends cannot be compared: choose a program whose ends hold only \
+                 constructors and builtin values, or add the equations that evaluate the \
+                 application"
             }
             Self::KillOnChosenValue | Self::ImplementationChosenValue => {
                 "the result depends on a value k-rust chose where the definition leaves it open \
