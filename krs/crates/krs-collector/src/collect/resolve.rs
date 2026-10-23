@@ -619,6 +619,12 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             .map(Some)
             .map_err(|error| error.with_reference_key(key))
     }
+
+    fn term(&mut self, term: krs_ir::HostTerm) -> Result<krs_ir::HostTerm, Self::Error> {
+        Ok(group_record_term(term, self.declarations, |_, _, open| {
+            open
+        }))
+    }
 }
 
 /// Reads a readable record in a cell position as the group term it names
@@ -627,14 +633,16 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
 /// application's head and field keys become the cell term's, as the
 /// `fragment!` spelling numbers them. An alias `saved @ Frame { .. }` names
 /// the group it matches, and a result's `Frame { pc: e, ..saved }` updates
-/// it (F5). A subject record, like a constructor record in a pattern, leaves
-/// the children it does not name unconstrained.
+/// it (F5). The cell position is the running configuration's own cell, so a
+/// subject record there leaves the children it does not name unconstrained
+/// with or without `..`; every record below it is read by
+/// [`group_record_term`] instead.
 fn readable_group_term(
     term: krs_ir::HostTerm,
     subject: bool,
     groups: &GroupRecords<'_>,
 ) -> krs_ir::HostTerm {
-    use krs_ir::{Arguments, HostApplicationTarget, Term};
+    use krs_ir::Term;
     if let Term::As {
         key,
         binding_key,
@@ -649,12 +657,36 @@ fn readable_group_term(
             pattern: Box::new(readable_group_term(*pattern, subject, groups)),
         };
     }
+    group_record_term(term, groups.declarations, |target, fields, _| {
+        subject
+            && groups
+                .children
+                .get(&target)
+                .is_some_and(|children| fields < *children)
+    })
+}
+
+/// Reads a record whose head rustc resolved to a `#[k::cell]` struct as the
+/// group's cell term, at any depth of any term (a list element, a
+/// constructor argument, an alias target): the group's cell is a value of
+/// its generated cell sort like any constructor term, and `CallState { .. }`
+/// names it as `k::fragment![CallState { .. }]` does. Outside a
+/// configuration cell position the term is a complete value, so a pattern
+/// leaves children unconstrained only with `..`; `open` decides from the
+/// group's type identity, the number of named children, and the record's
+/// own `..`. Any other term is returned unchanged.
+fn group_record_term(
+    term: krs_ir::HostTerm,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    open: impl FnOnce(TypeId, usize, bool) -> bool,
+) -> krs_ir::HostTerm {
+    use krs_ir::{Arguments, HostApplicationTarget, Term};
     let Term::Application {
         head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
         reference,
         arguments,
         instance,
-        open,
+        open: authored_open,
         ..
     } = &term
     else {
@@ -664,19 +696,18 @@ fn readable_group_term(
         return term;
     };
     // A record, `Frame { pc: p }`, or a pattern naming no child, `Frame { .. }`.
-    let record = matches!(arguments, Arguments::Named(_)) || (*open && arguments.is_empty());
+    let record =
+        matches!(arguments, Arguments::Named(_)) || (*authored_open && arguments.is_empty());
     if !instance.is_empty()
         || !record
         || !matches!(
-            groups
-                .declarations
-                .get(&HostApplicationIdentity::Nominal(target.key.resolve())),
+            declarations.get(&HostApplicationIdentity::Nominal(target.key.resolve())),
             Some((_, ItemKind::Cell))
         )
     {
         return term;
     }
-    let children = groups.children.get(&target.key.resolve()).copied();
+    let authored_open = *authored_open;
     let Term::Application {
         reference,
         arguments,
@@ -700,8 +731,8 @@ fn readable_group_term(
         .collect::<Vec<_>>();
     Term::Cell {
         key: reference.key,
+        open: open(declaration.key.resolve(), fields.len(), authored_open),
         declaration,
-        open: subject && children.is_some_and(|children| fields.len() < children),
         fields,
         update,
     }

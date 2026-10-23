@@ -1,6 +1,7 @@
 use krs_ir::ProvenanceKey;
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::ToTokens;
+use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{Ident, Member, Pat, PatIdent, PatMacro, Path};
 
@@ -8,7 +9,7 @@ use crate::parse::{checked_ordinal, unsupported_rule_pattern as unsupported_patt
 use crate::path::is_plain_path;
 use crate::term::{is_term_macro, unexpected_macro};
 use crate::{
-    IntegerLiteral, ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError,
+    CellTerm, IntegerLiteral, ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError,
     TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode,
     TermSymbolKind, TermTree, TokenRange,
 };
@@ -386,14 +387,23 @@ pub(super) fn append_rule_term_anchors(
     Ok(())
 }
 
+/// Parses a rule subject (`root_identifier_is_binding` false: a fn's
+/// subject parameter, whose root is the matched constructor or function) or
+/// a readable cell value or computation item (true: a bare root identifier
+/// binds the value). The native grammar reads every pattern a `k::term!`
+/// payload reads, compiler-owned islands included, so the wrapper is never
+/// needed around a pattern; `k::rewrite!` stands only in a fn's subject, whose
+/// item decides whether it is a single-body rule.
 pub(super) fn parse_rule_pattern(
     pattern: Pat,
-    allow_record_rest: bool,
     root_identifier_is_binding: bool,
     mut signs: NegativeLiteralSpans,
 ) -> Result<(RulePattern, TermTree), SyntaxError> {
+    let allow_rewrite = !root_identifier_is_binding;
     match pattern {
-        Pat::Macro(macro_pattern) => {
+        Pat::Macro(macro_pattern)
+            if !root_identifier_is_binding || is_term_macro(&macro_pattern.mac.path) =>
+        {
             if crate::term::is_sort_test_macro(&macro_pattern.mac.path) {
                 return Err(crate::term::matched_sort_test(&macro_pattern.mac.path));
             }
@@ -441,42 +451,27 @@ pub(super) fn parse_rule_pattern(
             let mut paths = Vec::new();
             let mut bindings = Vec::new();
             let mut nodes = Vec::new();
-            let tree = if root_identifier_is_binding {
-                match &pattern {
-                    Pat::Ident(identifier) if identifier.subpat.is_none() => {
-                        validate_native_binding(identifier, &mut paths, &mut bindings, &mut nodes)?
-                    }
-                    // A cell value is not a rule subject, so `name @ pattern`
-                    // at its root aliases the value, as below a constructor.
-                    Pat::Ident(_) => validate_native_pattern(
-                        &pattern,
-                        false,
-                        allow_record_rest,
-                        &mut paths,
-                        &mut bindings,
-                        &mut nodes,
-                        &mut signs,
-                    )?,
-                    _ => validate_native_pattern(
-                        &pattern,
-                        true,
-                        allow_record_rest,
-                        &mut paths,
-                        &mut bindings,
-                        &mut nodes,
-                        &mut signs,
-                    )?,
-                }
-            } else {
+            let mut validate = |is_root| {
                 validate_native_pattern(
                     &pattern,
-                    true,
-                    allow_record_rest,
+                    is_root,
+                    allow_rewrite,
                     &mut paths,
                     &mut bindings,
                     &mut nodes,
                     &mut signs,
-                )?
+                )
+            };
+            let tree = match &pattern {
+                Pat::Ident(identifier)
+                    if root_identifier_is_binding && identifier.subpat.is_none() =>
+                {
+                    validate_native_binding(identifier, &mut paths, &mut bindings, &mut nodes)?
+                }
+                // A cell value is not a rule subject, so `name @ pattern` or an
+                // island at its root stands as it does below a constructor.
+                Pat::Ident(_) | Pat::Macro(_) if root_identifier_is_binding => validate(false)?,
+                _ => validate(true)?,
             };
             Ok((
                 RulePattern::Native {
@@ -498,7 +493,7 @@ pub(super) fn parse_rule_pattern(
 fn validate_native_pattern(
     pattern: &Pat,
     is_root: bool,
-    allow_record_rest: bool,
+    allow_rewrite: bool,
     paths: &mut Vec<Path>,
     bindings: &mut Vec<Ident>,
     nodes: &mut Vec<TermNode>,
@@ -534,7 +529,7 @@ fn validate_native_pattern(
                 validate_native_pattern(
                     subpattern,
                     false,
-                    allow_record_rest,
+                    allow_rewrite,
                     paths,
                     bindings,
                     nodes,
@@ -551,7 +546,7 @@ fn validate_native_pattern(
                     let tree = validate_native_pattern(
                         alternative,
                         is_root,
-                        allow_record_rest,
+                        allow_rewrite,
                         paths,
                         &mut alternative_bindings,
                         nodes,
@@ -599,7 +594,7 @@ fn validate_native_pattern(
                 arguments.push(validate_native_pattern(
                     element,
                     false,
-                    allow_record_rest,
+                    allow_rewrite,
                     paths,
                     bindings,
                     nodes,
@@ -625,7 +620,7 @@ fn validate_native_pattern(
                 arguments.push(validate_native_pattern(
                     element,
                     false,
-                    allow_record_rest,
+                    allow_rewrite,
                     paths,
                     bindings,
                     nodes,
@@ -646,12 +641,6 @@ fn validate_native_pattern(
                 return Err(unsupported_pattern(
                     "expected a plain record constructor path",
                     record.span(),
-                ));
-            }
-            if !allow_record_rest && let Some(rest) = &record.rest {
-                return Err(unsupported_pattern(
-                    "record rest patterns are outside the simple rule shape",
-                    rest.span(),
                 ));
             }
             paths.push(record.path.clone());
@@ -675,7 +664,7 @@ fn validate_native_pattern(
                     value: validate_native_pattern(
                         &field.pat,
                         false,
-                        allow_record_rest,
+                        allow_rewrite,
                         paths,
                         bindings,
                         nodes,
@@ -695,7 +684,7 @@ fn validate_native_pattern(
         Pat::Paren(paren) => validate_native_pattern(
             &paren.pat,
             is_root,
-            allow_record_rest,
+            allow_rewrite,
             paths,
             bindings,
             nodes,
@@ -715,24 +704,6 @@ fn validate_native_pattern(
             let literal = validate_pattern_literal(literal, nodes, signs)?;
             Ok(TermTree::Literal(literal))
         }
-        Pat::Macro(macro_pattern)
-            if !is_root
-                && macro_pattern.attrs.is_empty()
-                && macro_pattern
-                    .mac
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|segment| segment.ident == "lexeme") =>
-        {
-            let (sort, text) =
-                crate::term::parse_lexeme_arguments(macro_pattern.mac.tokens.clone())?;
-            nodes.push(TermNode::Lexeme {
-                sort: sort.clone(),
-                text: text.clone(),
-            });
-            Ok(TermTree::Lexeme { sort, text })
-        }
         Pat::Macro(macro_pattern) if crate::term::is_sort_test_macro(&macro_pattern.mac.path) => {
             Err(crate::term::matched_sort_test(&macro_pattern.mac.path))
         }
@@ -743,12 +714,7 @@ fn validate_native_pattern(
             Err(crate::term::matched_matches(&macro_pattern.mac.path))
         }
         Pat::Macro(macro_pattern)
-            if macro_pattern
-                .mac
-                .path
-                .segments
-                .last()
-                .is_some_and(|segment| segment.ident == "rewrite") =>
+            if crate::term::is_rewrite_macro(&macro_pattern.mac.path) && !allow_rewrite =>
         {
             Err(crate::term::local_rewrite_error(
                 crate::term::REWRITE_IN_READABLE.to_owned(),
@@ -758,15 +724,125 @@ fn validate_native_pattern(
         Pat::Macro(macro_pattern) if crate::rule::is_bits_macro(&macro_pattern.mac.path) => Err(
             crate::rule::misplaced_bit_template(macro_pattern.mac.path.span()),
         ),
-        Pat::Macro(macro_pattern) => Err(unsupported_pattern(
-            "nested pattern macros other than `k::lexeme!` are not supported",
-            macro_pattern.span(),
-        )),
+        // A rule subject's root is the matched constructor or function.
+        Pat::Macro(macro_pattern) if is_root => Err(unexpected_macro(&macro_pattern.mac.path)),
+        // `k::fragment![Group { .. }]` is the group's cell term: its children
+        // are patterns of this grammar.
+        Pat::Macro(macro_pattern) if crate::term::is_fragment_macro(&macro_pattern.mac.path) => {
+            validate_native_cell_pattern(
+                macro_pattern,
+                allow_rewrite,
+                paths,
+                bindings,
+                nodes,
+                signs,
+            )
+        }
+        // Every other island builds the tree `k::term!` builds for it.
+        Pat::Macro(macro_pattern) => {
+            let start = nodes.len();
+            let mut symbols = Vec::new();
+            let tree =
+                crate::term::validate_pattern_island(macro_pattern, signs, &mut symbols, nodes)?;
+            paths.extend(symbols.iter().map(|symbol| symbol.path().clone()));
+            // Its bare names bind as in a `k::term!` subject; a rewrite's
+            // right side only uses them.
+            let (left, _) = crate::term::split_rewrite_images(&nodes[start..]);
+            for binding in left.into_iter().filter_map(|node| match node {
+                TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
+                TermNode::As { binding, .. } => Some(binding.clone()),
+                _ => None,
+            }) {
+                crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
+                push_unique_binding(bindings, binding);
+            }
+            Ok(tree)
+        }
         _ => Err(unsupported_pattern(
             "expected a named constructor with plain bindings, literals, or `_` arguments",
             pattern.span(),
         )),
     }
+}
+
+/// `k::fragment![Group { f: p, .. }]` in a native pattern: the twin of the
+/// term grammar's cell pattern, whose child values are native patterns. `..`
+/// leaves the children it does not name unconstrained; without it every
+/// child must be named, which semantic lowering checks.
+fn validate_native_cell_pattern(
+    value: &syn::ExprMacro,
+    allow_rewrite: bool,
+    paths: &mut Vec<Path>,
+    bindings: &mut Vec<Ident>,
+    nodes: &mut Vec<TermNode>,
+    signs: &mut NegativeLiteralSpans,
+) -> Result<TermTree, SyntaxError> {
+    let complete = || "complete cell terms require unadorned named fields";
+    if !value.attrs.is_empty() {
+        return Err(unsupported_pattern(
+            "pattern attributes are not supported",
+            value.span(),
+        ));
+    }
+    let Pat::Struct(record) =
+        Pat::parse_multi.parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?
+    else {
+        return Err(unsupported_pattern(
+            "fragment! requires one nominal cell record",
+            value.mac.tokens.span(),
+        ));
+    };
+    if record.qself.is_some() || !record.attrs.is_empty() || !is_plain_path(&record.path) {
+        return Err(unsupported_pattern(
+            "expected a plain cell record path",
+            record.span(),
+        ));
+    }
+    if let Some(rest) = &record.rest
+        && !rest.attrs.is_empty()
+    {
+        return Err(unsupported_pattern(
+            "pattern attributes are not supported",
+            rest.span(),
+        ));
+    }
+    let open = record.rest.is_some();
+    paths.push(record.path.clone());
+    nodes.push(TermNode::ApplicationHead(record.path.clone()));
+    let mut fields = Vec::with_capacity(record.fields.len());
+    for field in &record.fields {
+        let Member::Named(name) = &field.member else {
+            return Err(unsupported_pattern(complete(), field.span()));
+        };
+        if !field.attrs.is_empty() {
+            return Err(unsupported_pattern(complete(), field.span()));
+        }
+        fields.push(TermNamedArgument {
+            name: name.clone(),
+            value: validate_native_pattern(
+                &field.pat,
+                false,
+                allow_rewrite,
+                paths,
+                bindings,
+                nodes,
+                signs,
+            )?,
+        });
+    }
+    if fields.is_empty() && !open {
+        return Err(unsupported_pattern(
+            "complete cell terms require at least one child field",
+            record.span(),
+        ));
+    }
+    Ok(TermTree::Cell(CellTerm {
+        range: TokenRange::for_tokens(value)?,
+        owner: record.path,
+        fields,
+        open,
+        update: None,
+    }))
 }
 
 fn validate_root_identifier(

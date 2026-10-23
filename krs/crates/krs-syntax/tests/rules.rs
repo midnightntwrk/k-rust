@@ -256,10 +256,6 @@ fn malformed_rule_patterns_and_bodies_are_rejected() {
             "pattern",
         ),
         (
-            "fn rest(Foo { value, .. }: Term<Expr>) -> Term<Expr> { Done }",
-            "pattern",
-        ),
-        (
             "fn other(other![Foo]: Term<Expr>) -> Term<Expr> { Done }",
             "macro",
         ),

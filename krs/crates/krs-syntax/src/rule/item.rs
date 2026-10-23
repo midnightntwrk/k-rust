@@ -139,7 +139,6 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             parse_rule_term_sort,
-            true,
             false,
             signs,
             false,
@@ -195,15 +194,7 @@ impl RuleItem {
         signs: NegativeLiteralSpans,
         form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(
-            &mut item,
-            parse_rule_term_sort,
-            false,
-            false,
-            signs,
-            false,
-            form,
-        )
+        Self::from_item_with_sort_parser(&mut item, parse_rule_term_sort, false, signs, false, form)
     }
 
     /// Validates a desugar clause fn with its `#[k::desugar(..)]` payload
@@ -247,7 +238,6 @@ impl RuleItem {
             &mut item,
             parse_term_sort,
             false,
-            false,
             signs,
             wildcards,
             ClauseForm::Plain,
@@ -266,7 +256,6 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             crate::term_sort::parse_function_result_sort,
-            true,
             false,
             signs,
             false,
@@ -282,7 +271,6 @@ impl RuleItem {
             &mut item,
             parse_readable_sort,
             true,
-            true,
             signs,
             false,
             ClauseForm::Plain,
@@ -296,7 +284,6 @@ impl RuleItem {
     fn from_item_with_sort_parser(
         item: &mut ItemFn,
         sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
-        allow_record_rest: bool,
         root_identifier_is_binding: bool,
         signs: NegativeLiteralSpans,
         result_wildcards: bool,
@@ -331,12 +318,8 @@ impl RuleItem {
                 argument.attrs[0].span(),
             ));
         }
-        let (pattern, subject_tree) = parse_rule_pattern(
-            (*argument.pat).clone(),
-            allow_record_rest,
-            root_identifier_is_binding,
-            signs,
-        )?;
+        let (pattern, subject_tree) =
+            parse_rule_pattern((*argument.pat).clone(), root_identifier_is_binding, signs)?;
         // A unit-returning `#[k::rule]` fn is a single-body rule (KF-011):
         // its subject's `k::rewrite!` islands say what changes.
         let rewrite = pattern

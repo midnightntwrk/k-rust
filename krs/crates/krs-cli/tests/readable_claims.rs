@@ -982,3 +982,109 @@ fn a_readable_claim_holds_a_bytes_literal() {
     "#]]
     .assert_debug_eq(&proved(target.path(), &readable, &[]));
 }
+
+/// A machine whose stack holds tagged Bytes values.
+const TAGGED_MACHINE: &str = r#"use k::builtin::{Bytes, Int, KSequence, List, bytes, list};
+use k::KResult;
+
+k::sorts! {
+    Exp: k::KItem;
+    Tagged: k::KItem;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Op {
+    #[k::syntax("peek")]
+    Peek(),
+}
+
+#[k::constructors(sort = Tagged, result = KResult)]
+pub enum Tag {
+    #[k::syntax("tag({b})")]
+    Tag { b: Bytes },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell]
+    pub pc: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm], stack: list::empty(), pc: 0 }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Op::*;
+
+    peek: { k: [Peek(), ..], stack: list::concat(list::item(Tag::Tag { b }), s), pc: _ } => {
+        k: [..],
+        pc: bytes::length(b),
+    };
+}
+"#;
+
+/// A readable claim whose list element holds `k::bytes!(..)` and
+/// `k::anonymous!(..)`, with or without the `k::term!` wrapper.
+fn tagged_claims(wrapped: bool) -> String {
+    let stack = r#"list::concat(list::item(Tag::Tag { b: k::bytes!(b"yz") }), list::item(k::anonymous!(Int, "_N")))"#;
+    let stack = if wrapped {
+        format!("k::term![{stack}]")
+    } else {
+        stack.to_owned()
+    };
+    format!(
+        r#"k::claims! {{
+    for Machine;
+    use Op::*;
+
+    #[k::claim(all_paths)]
+    peeks: {{ k: [Peek()], stack: {stack}, pc: k::anonymous!(Int, "_Pc") }} => {{
+        k: [],
+        pc: 2,
+    }};
+}}
+"#
+    )
+}
+
+/// The claim-only islands stand anywhere in a claim's pattern, as any
+/// island does: inside a list element they need no `k::term!` wrapper, emit
+/// the wrapped claim's K, and prove.
+#[test]
+fn a_readable_claim_reads_islands_inside_list_elements() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let native = package(
+        temporary.path(),
+        "tagged-native",
+        "ORG-KRS-TAGGED",
+        &format!("{TAGGED_MACHINE}{}", tagged_claims(false)),
+    );
+    let wrapped = package(
+        temporary.path(),
+        "tagged-wrapped",
+        "ORG-KRS-TAGGED",
+        &format!("{TAGGED_MACHINE}{}", tagged_claims(true)),
+    );
+    let spec = emitted_spec(target.path(), &native);
+    assert_eq!(spec, emitted_spec(target.path(), &wrapped));
+    assert!(
+        spec.contains(r#"<stack> ListItem(tag ( b"\x79\x7a" )) ListItem(_N:Int) </stack>"#),
+        "{spec}"
+    );
+    expect_test::expect![[r#"
+        [
+            "ORG-KRS-TAGGED-SPEC.peeks: proven",
+        ]
+    "#]]
+    .assert_debug_eq(&proved(target.path(), &native, &[]));
+}

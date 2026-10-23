@@ -2206,7 +2206,7 @@ impl StructuredTermBuilder<'_> {
             || (!partial && supplied.len() != declaration.fields.len())
         {
             return Err(self.invalid_term(format!(
-                "fragment! for {:?} must provide every child field exactly once",
+                "the cell term for {:?} (a `k::fragment!` or a group record) must name every child field exactly once; a pattern ends in `..` to leave the others unconstrained, and a result takes them from a matched group with `..base`",
                 owner.item_name()
             )));
         }

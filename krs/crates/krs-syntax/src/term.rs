@@ -1988,19 +1988,35 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
 }
 
-/// Whether `path` names a compiler-owned literal macro: `k::bytes!`,
-/// `k::id!`, `k::lexeme!`, or `k::anonymous!`, each one token of a builtin
-/// or user sort.
-pub(crate) fn is_literal_macro(path: &Path) -> bool {
-    matches!(
-        special_macro_kind(path),
-        Some(
-            TermMacroKind::Bytes
-                | TermMacroKind::Id
-                | TermMacroKind::Lexeme
-                | TermMacroKind::Anonymous
-        )
-    )
+/// Whether `path` names `k::fragment!`, a complete nested-cell term.
+pub(crate) fn is_fragment_macro(path: &Path) -> bool {
+    matches!(special_macro_kind(path), Some(TermMacroKind::Fragment))
+}
+
+/// Whether `path` names `k::rewrite!`, K's local rewrite.
+pub(crate) fn is_rewrite_macro(path: &Path) -> bool {
+    matches!(special_macro_kind(path), Some(TermMacroKind::Rewrite))
+}
+
+/// Validates a compiler-owned island inside a pattern that the pattern
+/// grammar of a `k::term!` payload would read: the island builds the tree
+/// and nodes it builds there, so a pattern means the same with or without
+/// the wrapper. `k::fragment!` is read by the caller, whose own grammar reads
+/// the cell's child patterns; `k::rewrite!` is read here, and its caller
+/// decides whether the position admits one. The island's negative literals
+/// leave `signs`, since the island parses its own tokens.
+pub(crate) fn validate_pattern_island(
+    value: &ExprMacro,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
+    if is_rewrite_macro(&value.mac.path) {
+        reject_attributes(&value.attrs, value.span())?;
+        return validate_rewrite(value, symbols, nodes);
+    }
+    validate_special_macro(value, TermExpressionContext::Pattern, symbols, nodes)
 }
 
 fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
