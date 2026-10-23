@@ -503,7 +503,9 @@ fn a_rule_witness_replays_on_the_definition_compiled_elsewhere() {
             .expect("the witness file is JSON");
     let source = &recorded["report"]["identity"]["target-rule"]["name"]["locations"][0]["source"];
     assert!(
-        source.as_str().is_some_and(|source| source.ends_with("/A/src/imp.k")),
+        source
+            .as_str()
+            .is_some_and(|source| source.ends_with("/A/src/imp.k")),
         "the target rule is named where it was compiled: {source}"
     );
     let replay = krust_fuzz(
