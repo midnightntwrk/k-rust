@@ -103,8 +103,15 @@ fn tour_minimal_expands_through_the_protocol() {
     assert_eq!(value["registrations"].as_array().unwrap().len(), 7);
     let map = &value["source_map"];
     assert_eq!(map["authored_file"], "src/lib.rs");
-    assert_eq!(map["invocations"].as_array().unwrap().len(), 6);
-    assert_eq!(map["invocations"][4]["parent"], 3);
+    // The initializer re-emits no island, so no invocation is nested.
+    assert_eq!(map["invocations"].as_array().unwrap().len(), 5);
+    assert!(
+        map["invocations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|invocation| invocation["parent"].is_null())
+    );
     let segments = map["segments"].as_array().unwrap();
     assert_eq!(segments.last().unwrap()["class"], "generated-only");
     assert_eq!(

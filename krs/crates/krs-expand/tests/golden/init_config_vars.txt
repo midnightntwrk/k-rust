@@ -4,7 +4,10 @@ pub fn init(
     env: k::builtin::Map<k::builtin::Id, ReadableValue>,
 ) -> Self {
     Self {
-        k: k::configuration::KCell::new(k::k![pgm]),
+        k: k::configuration::KCell::new({
+            let _ = &pgm;
+            ::k::configuration::__term()
+        }),
         store: Store {
             env: k::configuration::Cell::new(env),
         },

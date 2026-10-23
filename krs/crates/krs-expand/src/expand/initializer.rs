@@ -17,7 +17,7 @@ use krs_ir::{
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
-    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree,
+    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermNode, TermTree,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -179,7 +179,7 @@ fn init_inner(
             parameter.attrs.clear();
         }
     }
-    inject_inferred_initializer_wrappers(&mut method, &initializer, &facade)?;
+    inject_inferred_initializer_wrappers(&mut method, &initializer, &facade, &bindings)?;
     method.attrs.push(parse_quote!(
         #[allow(clippy::must_use_candidate, clippy::needless_pass_by_value)]
     ));
@@ -211,6 +211,7 @@ fn inject_inferred_initializer_wrappers(
     method: &mut syn::ImplItemFn,
     initializer: &krs_syntax::InitializerFunction,
     facade: &Path,
+    bindings: &[Ident],
 ) -> crate::Result<()> {
     let [syn::Stmt::Expr(syn::Expr::Struct(body), None)] = method.block.stmts.as_mut_slice() else {
         return Err(ExpandError::new(
@@ -219,13 +220,14 @@ fn inject_inferred_initializer_wrappers(
             "a fixed initializer must contain exactly one struct expression",
         ));
     };
-    inject_initializer_cell_list(body, initializer.cells(), facade)
+    inject_initializer_cell_list(body, initializer.cells(), facade, bindings)
 }
 
 fn inject_initializer_cell_list(
     body: &mut syn::ExprStruct,
     cells: &[FixedCellInitializer],
     facade: &Path,
+    bindings: &[Ident],
 ) -> crate::Result<()> {
     for cell in cells {
         let Some(field) = body
@@ -258,7 +260,7 @@ fn inject_initializer_cell_list(
             &mut field.expr
         };
         let has_colon = field.colon_token.is_some();
-        inject_initializer_value(expression, cell, facade)?;
+        inject_initializer_value(expression, cell, facade, bindings)?;
         if !has_colon {
             field.colon_token = Some(syn::token::Colon::default());
         }
@@ -270,90 +272,86 @@ fn inject_initializer_value(
     expression: &mut syn::Expr,
     cell: &FixedCellInitializer,
     facade: &Path,
+    bindings: &[Ident],
 ) -> crate::Result<()> {
-    {
-        qualify_initializer_state_macro(expression, facade)?;
-        match cell.content() {
-            InitializerCellContent::Leaf {
-                computation,
-                inferred_constructor: true,
-                ..
-            } => {
-                let value = if is_ground_initializer_term(expression) {
-                    parse_quote!(#facade::configuration::__term())
-                } else {
-                    expression.clone()
-                };
-                *expression = if *computation {
-                    parse_quote!(#facade::configuration::KCell::new(#value))
-                } else {
-                    parse_quote!(#facade::configuration::Cell::new(#value))
-                };
+    match cell.content() {
+        InitializerCellContent::Leaf {
+            value,
+            computation,
+            inferred_constructor: true,
+            ..
+        } => {
+            let value = initializer_value_stand_in(expression, value, facade, bindings);
+            *expression = if *computation {
+                parse_quote!(#facade::configuration::KCell::new(#value))
+            } else {
+                parse_quote!(#facade::configuration::Cell::new(#value))
+            };
+        }
+        InitializerCellContent::Leaf {
+            value,
+            inferred_constructor: false,
+            ..
+        } => {
+            if let syn::Expr::Call(call) = expression
+                && let Some(argument) = call.args.first_mut()
+            {
+                *argument = initializer_value_stand_in(argument, value, facade, bindings);
             }
-            InitializerCellContent::Leaf {
-                inferred_constructor: false,
-                ..
-            } => {
-                if let syn::Expr::Call(call) = expression
-                    && let Some(argument) = call.args.first_mut()
-                    && is_ground_initializer_term(argument)
-                {
-                    *argument = parse_quote!(#facade::configuration::__term());
-                }
-            }
-            InitializerCellContent::Nested { children, .. } => {
-                let syn::Expr::Struct(nested) = expression else {
-                    return Err(ExpandError::new(
-                        expand::INITIALIZER_CELL_SHAPE,
-                        expression.span(),
-                        "a nested fixed-cell initializer must be a struct expression",
-                    ));
-                };
-                inject_initializer_cell_list(nested, children, facade)?;
-            }
+        }
+        InitializerCellContent::Nested { children, .. } => {
+            let syn::Expr::Struct(nested) = expression else {
+                return Err(ExpandError::new(
+                    expand::INITIALIZER_CELL_SHAPE,
+                    expression.span(),
+                    "a nested fixed-cell initializer must be a struct expression",
+                ));
+            };
+            inject_initializer_cell_list(nested, children, facade, bindings)?;
         }
     }
     Ok(())
 }
 
-/// A literal, call, island, or named-constant term (`1`, `-1`, `list::empty()`,
-/// `k::bytes!(b"..")`, `PC_START`, or notation for a call such as `a && b`), which is not a
-/// Rust value of the cell's marker type;
-/// a binding path and a state macro are.
-fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
-    matches!(
-        expression,
-        syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
-    ) || matches!(expression, syn::Expr::Macro(island) if krs_syntax::is_island_macro(&island.mac.path))
-        || krs_syntax::is_expression_notation(expression)
-        || matches!(expression, syn::Expr::Path(path)
-        if path.qself.is_none()
-            && path.path.segments.last().is_some_and(|segment| {
-                krs_syntax::is_constant_name(&segment.ident)
-            }))
-}
-
-fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {
-    let macro_expression = match expression {
-        syn::Expr::Macro(expression) => Some(expression),
-        syn::Expr::Call(call) => call.args.first_mut().and_then(|argument| match argument {
-            syn::Expr::Macro(expression) => Some(expression),
+/// What rustc sees of a leaf cell's value in the re-emitted method.
+///
+/// A configuration variable that is the cell's whole content stays, so rustc
+/// checks that its Rust type is the cell's. Any other value is a KRS term
+/// (a literal, constructor, function application, `k!`, `map!`), whose names
+/// the payload's slots resolve and whose sorts KRS checks; as a Rust
+/// expression it is not checkable (a struct variant cannot be called, a KRS
+/// function is a Rust struct), so it becomes `__term()`, preceded by a use of
+/// each configuration variable it names, at the authored token: the term the
+/// payload carries uses them.
+fn initializer_value_stand_in(
+    expression: &syn::Expr,
+    value: &StateTerm,
+    facade: &Path,
+    bindings: &[Ident],
+) -> syn::Expr {
+    if let StateTerm::Term(term) = value
+        && let TermTree::Reference(path) = term.tree()
+        && is_bound_ident_path(path, bindings)
+    {
+        return expression.clone();
+    }
+    let uses = value
+        .terms()
+        .into_iter()
+        .flat_map(TermExpression::nodes)
+        .filter_map(|node| match node {
+            TermNode::Reference(path) if is_bound_ident_path(path, bindings) => Some(path),
             _ => None,
-        }),
-        _ => None,
-    };
-    let Some(expression) = macro_expression else {
-        return Ok(());
-    };
-    if expression.mac.path.leading_colon.is_some() || expression.mac.path.segments.len() != 1 {
-        return Ok(());
+        })
+        .collect::<Vec<_>>();
+    if uses.is_empty() {
+        parse_quote!(#facade::configuration::__term())
+    } else {
+        parse_quote!({
+            #(let _ = &#uses;)*
+            #facade::configuration::__term()
+        })
     }
-    let name = expression.mac.path.segments[0].ident.clone();
-    if !matches!(name.to_string().as_str(), "k" | "map") {
-        return Ok(());
-    }
-    expression.mac.path = syn::parse2(quote!(#facade::#name))?;
-    Ok(())
 }
 
 #[derive(Default)]

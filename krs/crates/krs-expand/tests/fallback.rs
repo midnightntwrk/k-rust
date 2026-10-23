@@ -42,7 +42,6 @@ fn tour_minimal_expands_in_a_fallback_process() {
             AttributeMacro::Constructors.name(),
             AttributeMacro::Configuration.name(),
             AttributeMacro::Init.name(),
-            FunctionMacro::K.name(),
             FunctionMacro::Rules.name(),
         ]
     );
@@ -61,7 +60,7 @@ fn tour_minimal_expands_in_a_fallback_process() {
     // the environment locates them at `k::rules!`, so the nonce is rustc's
     // (native `krs emit-k` build of tour-minimal, display file `src/lib.rs`).
     assert!(
-        outputs[5]
+        outputs[4]
             .to_string()
             .contains("__krs_head_rule_sort_edc54d797361b2d2")
     );

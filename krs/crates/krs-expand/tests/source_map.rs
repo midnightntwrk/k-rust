@@ -530,7 +530,7 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
         ("KResult", 315..322),
         ("Foo", 429..432),
         ("k", 538..539),
-        ("Object::Foo", 649..660),
+        ("Object", 649..655),
     ] {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(
@@ -550,8 +550,12 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
             assert_eq!(printed.source.text[witness], TOUR_MINIMAL[head.clone()]);
         }
     }
-    // The initializer body contains the nested `k::k!`; rustc spans it as
-    // authored code, and so does the map.
+    // The initializer's `k::k![Object::Foo()]` reaches rustc only through
+    // the payload's type key of the head's owner, which repeats the
+    // authored `Object` exactly; the variant is resolved through a generated
+    // marker, as a qualified head in a rule term is, so it has no exact
+    // authored token.
+    assert!(exact_generated_ranges(&printed, &(657..660)).is_empty());
     assert!(!exact_generated_ranges(&printed, &(621..674)).is_empty());
 }
 
