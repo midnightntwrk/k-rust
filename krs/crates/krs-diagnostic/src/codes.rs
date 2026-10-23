@@ -357,6 +357,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
                 SELECTION: "krs::expand::selection" => "An explicitly selected invocation does not match a discovered one.",
         PRINT: "krs::expand::print" => "An expansion cannot be printed as text without changing its tokens.",
         DESCRIPTOR_CAPACITY: "krs::expand::descriptor-capacity" => "A descriptor count or ordinal exceeds its u32 representation.",
+        DUPLICATE_PROVENANCE_KEY: "krs::expand::duplicate-provenance-key" => "KRS numbered two authored nodes of one sentence with the same provenance key; this is a bug in KRS, not in the definition.",
         HELPER_PAYLOAD_FORM: "krs::expand::helper-payload-form" => "A helper attribute requires a parenthesized payload.",
         CFG_REPRODUCTION: "krs::expand::cfg-reproduction" => "A cfg attribute could not be reproduced for generated tokens.",
         MISSING_COMPUTATION_CELL: "krs::expand::missing-computation-cell" => "A configuration-owned rule has no computation-cell field.",
