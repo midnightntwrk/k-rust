@@ -450,12 +450,36 @@ pub(super) struct CollectionTyping {
     /// The sort `map::get`, `map::get_or_default`, and `list::get` read, by
     /// application key.
     projections: BTreeMap<ProvenanceKey, ElementSite>,
+    /// The sort of an element of a collection whose element types nothing
+    /// declares (a bare `Map`, `List`, or `Set`): `KItem`, which K's
+    /// `ListItem`, `|->`, and `SetItem` hold and its lookups return, when
+    /// the definition selects it.
+    untyped_element: Option<SemanticSortRef>,
 }
 
 impl CollectionTyping {
     /// The sort an element operand is inferred at, if it has one.
     pub(super) fn element(&self, term: &DescriptorTerm) -> Option<&ElementSite> {
         self.elements.get(term_key(term))
+    }
+
+    /// The sort an element operand is inferred and lowered at: the element
+    /// sort of its typed collection, or [`Self::untyped_element`] for an
+    /// element of a collection whose element types nothing declares. Only
+    /// called for a term that stands at an element position.
+    pub(super) fn element_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
+        self.element(term)
+            .map(|site| site.sort.clone())
+            .or_else(|| self.untyped_element.clone())
+    }
+
+    /// The sort of an element of a collection whose element types nothing
+    /// declares: `KItem`, when the definition selects it. A binder that
+    /// occurs only at such positions is a `KItem`, a wildcard there matches
+    /// any element, and a read of such a collection that no position sorts
+    /// is a `KItem`.
+    pub(super) fn untyped_element(&self) -> Option<&SemanticSortRef> {
+        self.untyped_element.as_ref()
     }
 
     /// The sort a probe operand must share a sort with, if it has one.
@@ -491,6 +515,7 @@ impl CollectionTyping {
             element_binders: BTreeMap::new(),
             reads: BTreeMap::new(),
             projections: BTreeMap::new(),
+            untyped_element: None,
         };
         &EMPTY
     }
@@ -568,7 +593,12 @@ impl<'a> Walker<'a> {
             declarations,
             catalog,
             parents,
-            typing: CollectionTyping::default(),
+            typing: CollectionTyping {
+                untyped_element: declarations.and_then(|declarations| {
+                    super::rules::framework_k_item_sort(declarations).ok()
+                }),
+                ..CollectionTyping::default()
+            },
             binding: true,
             locals: Vec::new(),
         }

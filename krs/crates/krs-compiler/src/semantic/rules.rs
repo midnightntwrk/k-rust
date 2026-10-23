@@ -1098,6 +1098,17 @@ fn infer_head_rule(
                     for entry in entries {
                         let expected = builder.collections.element_sort(&entry.key);
                         builder.infer(&entry.key, expected.as_ref(), true)?;
+                        // A value read from a bare map is any `KItem`; a typed
+                        // map's value binder is seeded with its value sort.
+                        if !builder.binding_sorts.contains_key(&entry.value_binding)
+                            && let Some(k_item) = builder.collections.untyped_element()
+                        {
+                            builder
+                                .binding_constraints
+                                .entry(entry.value_binding.clone())
+                                .or_default()
+                                .insert(k_item.clone());
+                        }
                     }
                 }
                 krs_ir::ProtocolHeadRuleExtra::UpdateMap {

@@ -86,14 +86,14 @@ impl StateRuleTerms<'_> {
     }
 
     /// Infers and lowers one key or value of a `map![..]` state, at its
-    /// element sort when the map is typed.
+    /// element sort when the map is typed and as a `KItem` otherwise.
     fn element(
         &mut self,
         term: &DescriptorTerm,
         binding_sorts: &BTreeMap<String, SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        let sort = self.collections.element(term).map(|site| site.sort.clone());
+        let sort = self.collections.element_sort(term);
         self.term(term, sort.as_ref(), binding_sorts, subject)
     }
 

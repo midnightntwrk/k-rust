@@ -1,7 +1,8 @@
 //! The sort a binder gets, end to end: an existential or fresh binder has
 //! exactly its declared sort in every rule form, and every sort but `K` is a
 //! `KItem`, so a `KItem` position admits a term of any other sort and never
-//! narrows a binder.
+//! narrows a binder. An element of a bare `Map`, `List`, or `Set` is a
+//! `KItem` too.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -65,12 +66,15 @@ pub struct Machine {
 
 impl Machine {
     #[k::init]
-    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "QUEUE")] queue: List,
+    ) -> Self {
         Self {
             k: k::k![pgm],
             env: map::empty(),
             stack: list::empty(),
-            queue: list::empty(),
+            queue,
             acc: 0,
             raw: map::empty(),
             raw2: map::empty(),
@@ -465,7 +469,7 @@ fn a_held_statement_runs_natively() {
         target.path(),
         &manifest,
         "run",
-        &[program.to_str().unwrap()],
+        &[program.to_str().unwrap(), "-c", "QUEUE=.List"],
     );
     assert!(success, "{stdout}\n{stderr}");
     let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -524,5 +528,213 @@ fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
     assert_eq!(
         rule(&emitted(target.path(), &manifest), "sum"),
         "<k> hold ( X:Int ) ~> pair ( X:Int , Y:Int ) => .K ... </k> <acc> _ => X:Int +Int Y:Int </acc>"
+    );
+}
+
+/// The final `queue` after `krs run` of `program` on a queue holding an
+/// integer, a statement, and a Boolean.
+fn run_queue(target: &Path, manifest: &Path, program: &str) -> String {
+    let file = manifest.with_file_name("program.txt");
+    fs::write(&file, program).unwrap();
+    let (success, stdout, stderr) = krs(
+        target,
+        manifest,
+        "run",
+        &[
+            file.to_str().unwrap(),
+            "-c",
+            "QUEUE=ListItem(1) ListItem(skip) ListItem(true)",
+        ],
+    );
+    assert!(success, "`krs run {program}` failed:\n{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = flat.find("<queue> ").unwrap() + "<queue> ".len();
+    let end = start + flat[start..].find(" </queue>").unwrap();
+    flat[start..end].to_owned()
+}
+
+/// An element of a bare collection is a `KItem`: a wildcard there matches
+/// any element, a binder that no other occurrence sorts is a `KItem`, one
+/// that another occurrence sorts takes that sort, and a read that no
+/// position sorts is a `KItem`, in readable rules, `cells!` rules, equations,
+/// and function bodies; the rules run on a list of mixed elements.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One package of rules over bare collections, with the K each emits."
+)]
+fn an_element_of_a_bare_collection_is_a_k_item() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "bare",
+        &format!(
+            "{}{}",
+            rules(
+                "drop: { k: [Op(1), ..], queue: [_, ..] } => { k: [..], queue: [..] };
+    rotate: { k: [Op(2), ..], queue: [a, ..] } => { k: [..], queue: [.., a] };
+    swap: { k: [Op(3), ..], queue: [a, b, ..] } => { k: [..], queue: [b, a, ..] };
+    tail: { k: [Op(4), ..], queue: [_x, rest @ ..] } => { k: [..], queue: rest };
+    to_k: { k: [Op(5), ..], queue: [a, ..] } => { k: [a, ..], queue: [..] };
+    concat: { k: [Op(6), ..], queue: list::concat(list::item(a), rest) } => { k: [..], queue: list::concat(rest, list::item(a)) };
+    to_set: { k: [Op(7), ..], queue: [a, ..], bag: s } => { k: [..], queue: [..], bag: set::concat(s, set::item(a)) };
+    move_entry: { k: [Op(8), ..], acc: kk, raw: { kk -> vv, .. }, raw2: r2 } => { k: [..], raw2: map::update(r2, kk, vv) };
+    get_k: { k: [Op(9), ..], queue: q } => { k: [list::get(q, 0), ..] };
+    get_map: { k: [Op(10), ..], queue: q, raw2: r } => { k: [..], raw2: map::update(r, 0, list::get(q, 0)) };
+    narrowed: { k: [Op(11), ..], queue: [a, ..], acc: _ } => { k: [..], queue: [..], acc: a };"
+            ),
+            r"
+#[k::rule]
+pub fn cells_rotate(
+    a: Term<KItem>,
+    rest: Term<List>,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::Op(12), tail @ ..), queue: k::configuration::Cell(list::concat(list::item(a), rest)), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), queue: k::configuration::Cell(list::concat(rest, list::item(a))), ..state }
+}
+
+#[k::rule]
+pub fn cells_drop(
+    rest: Term<List>,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::Op(13), tail @ ..), queue: k::configuration::Cell(list::concat(list::item(_), rest)), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), queue: k::configuration::Cell(rest), ..state }
+}
+
+/// The list rotated by one.
+#[k::function(total, internal)]
+pub fn Rotated(l: Term<List>) -> Term<List> {
+    match l {
+        [a, rest @ ..] => [..rest, a],
+        _ => l,
+    }
+}
+
+/// The first element of a list.
+#[k::function(partial, internal)]
+pub fn First(l: Term<List>) -> Term<KItem>;
+
+k::equations! {
+    for First;
+    first: [x, ..] => x;
+}
+
+/// Moves the front element to the back.
+#[k::function(partial, internal)]
+pub fn Back(l: Term<List>) -> Term<List>;
+
+#[k::equation]
+fn back(k::term![Back([a, rest @ ..])]: Term<List>) -> Term<List> {
+    [..rest, a]
+}
+",
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let definition = emitted(target.path(), &manifest);
+    let mut equations = definition
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("rule ") && !line.starts_with("rule ["))
+        .map(|line| line.split(" [").next().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    equations.sort();
+    expect_test::expect![[r#"
+        (
+            [
+                "<k> op 1 => .K ... </k> <queue> ListItem(_) Krs_RestQueue:List => Krs_RestQueue:List </queue>",
+                "<k> op 2 => .K ... </k> <queue> ListItem(A:KItem) Krs_RestQueue:List => Krs_RestQueue:List ListItem(A:KItem) </queue>",
+                "<k> op 3 => .K ... </k> <queue> ListItem(A:KItem) ListItem(B:KItem) Krs_RestQueue:List => ListItem(B:KItem) ListItem(A:KItem) Krs_RestQueue:List </queue>",
+                "<k> op 4 => .K ... </k> <queue> ListItem(_X:KItem) Rest:List => Rest:List </queue>",
+                "<k> op 5 => A:KItem ... </k> <queue> ListItem(A:KItem) Krs_RestQueue:List => Krs_RestQueue:List </queue>",
+                "<k> op 6 => .K ... </k> <queue> ListItem(A:KItem) Rest:List => Rest:List ListItem(A:KItem) </queue>",
+                "<k> op 7 => .K ... </k> <queue> ListItem(A:KItem) Krs_RestQueue:List => Krs_RestQueue:List </queue> <bag> S:Set => S:Set SetItem(A:KItem) </bag>",
+                "<k> op 8 => .K ... </k> <raw> Kk:Int |-> Vv:KItem ... </raw> <acc> Kk:Int </acc> <raw2> R2:Map => R2:Map [ Kk:Int <- Vv:KItem ] </raw2>",
+                "<k> op 9 => {Q:List [ 0 ]}:>KItem ... </k> <queue> Q:List </queue>",
+                "<k> op 10 => .K ... </k> <queue> Q:List </queue> <raw2> R:Map => R:Map [ 0 <- {Q:List [ 0 ]}:>KItem ] </raw2>",
+                "<k> op 11 => .K ... </k> <queue> ListItem(A:Int) Krs_RestQueue:List => Krs_RestQueue:List </queue> <acc> _ => A:Int </acc>",
+                "<k> op 12 ~> Tail:K => .K ~> Tail:K </k> <queue> ListItem(A:KItem) Rest:List => Rest:List ListItem(A:KItem) </queue>",
+                "<k> op 13 ~> Tail:K => .K ~> Tail:K </k> <queue> ListItem(_) Rest:List => Rest:List </queue>",
+            ],
+            [
+                "rule back ( ListItem(A:KItem) Rest:List ) => Rest:List ListItem(A:KItem)",
+                "rule first ( ListItem(X:KItem) _ ) => X:KItem",
+                "rule rotated ( L:List ) => L:List",
+                "rule rotated ( ListItem(A:KItem) Rest:List ) => Rest:List ListItem(A:KItem)",
+            ],
+        )
+    "#]].assert_debug_eq(&(
+        [
+            "drop",
+            "rotate",
+            "swap",
+            "tail",
+            "to-k",
+            "concat",
+            "to-set",
+            "move-entry",
+            "get-k",
+            "get-map",
+            "narrowed",
+            "cells_rotate",
+            "cells_drop",
+        ]
+        .map(|label| rule(&definition, label)),
+        equations,
+    ));
+    assert_eq!(
+        ["op 2", "op 1", "op 3"].map(|program| run_queue(target.path(), &manifest, program)),
+        [
+            "ListItem ( skip ) ListItem ( true ) ListItem ( 1 )",
+            "ListItem ( skip ) ListItem ( true )",
+            "ListItem ( skip ) ListItem ( 1 ) ListItem ( true )",
+        ]
+    );
+}
+
+/// A `KItem` chooses no operator: a sum of two elements of a bare `List`
+/// names the binders and the narrowing that picks `Int`, and a typed
+/// `List<Value>` says which sorts the operands have; the narrowed rule
+/// emits the `Int` sum.
+#[test]
+fn an_operator_on_bare_elements_names_the_narrowing() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    assert_rejected(
+        target.path(),
+        temporary.path(),
+        &[
+            (
+                "bare-sum",
+                rules("sum: { k: [Op(1), ..], queue: [a, .., z], acc: _ } => { k: [..], acc: a + z };"),
+                "error[krs::analysis::ambiguous-operator]: `+` has operands `a` and `z`, which no occurrence sorts more precisely than `KItem`, so they choose no builtin domain; narrow them (`where a: Int, z: Int`) or write the operation you mean: `a.add::<Int>(b)`, `a.concat::<String>(b)`, or `a.add::<Float>(b)`".to_owned(),
+                "+",
+            ),
+            (
+                "bare-read-sum",
+                rules("sum: { k: [Op(1), ..], queue: q, acc: _ } => { k: [..], acc: list::get(q, 0) + list::get(q, 1) };"),
+                "error[krs::analysis::ambiguous-operator]: `+` has operands of sorts `KItem` and `KItem`, which choose no builtin domain; write the operation you mean: `a.add::<Int>(b)`, `a.concat::<String>(b)`, or `a.add::<Float>(b)`".to_owned(),
+                "+",
+            ),
+            (
+                "typed-sum",
+                rules("sum: { k: [Op(1), ..], stack: [a, .., z], acc: _ } => { k: [..], acc: a + z };"),
+                "error[krs::analysis::ambiguous-operator]: `+` has operands of sorts `Value` and `Value`, which choose no builtin domain; write the operation you mean: `a.add::<Int>(b)`, `a.concat::<String>(b)`, or `a.add::<Float>(b)`".to_owned(),
+                "+",
+            ),
+        ],
+    );
+    let manifest = package(
+        temporary.path(),
+        "narrowed-sum",
+        &rules(
+            "sum: { k: [Op(1), ..], queue: [a, .., z], acc: _ } => { k: [..], acc: a + z } where a: Int, z: Int;",
+        ),
+    );
+    assert_eq!(
+        rule(&emitted(target.path(), &manifest), "sum"),
+        "<k> op 1 => .K ... </k> <queue> ListItem(A:Int) Krs_RestQueue:List ListItem(Z:Int) </queue> <acc> _ => A:Int +Int Z:Int </acc>"
     );
 }

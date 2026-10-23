@@ -184,7 +184,10 @@ swap: { k: [Swap(), ..], queue: [a, .., z] } => { k: [..], queue: [z, .., a] };
 log:  { k: [Log(e), ..], logs }              => { k: [..], logs: [..logs, e] };
 ```
 
-`swap` emits `<queue> ListItem(A:Int) Krs_RestQueue:List ListItem(Z:Int) => ListItem(Z:Int) Krs_RestQueue:List ListItem(A:Int) </queue>`.
+`swap` emits `<queue> ListItem(A:Int) Krs_RestQueue:List ListItem(Z:Int) => ListItem(Z:Int) Krs_RestQueue:List ListItem(A:Int) </queue>`: these examples' `queue` is a `List<Int>`.
+On a bare `List` an element is any `KItem`, as in K: `[_, ..] => [..]` drops the front element whatever it is, `[a, ..] => [.., a]` rotates whatever the list holds (`ListItem(A:KItem)`), and a binder that another occurrence sorts takes that sort (`[v, ..] => acc: v` with an `Int` cell `acc` emits `ListItem(V:Int)`).
+A `KItem` chooses no operator, so `[a, .., z] => acc: a + z` on a bare `List` needs `where a: Int, z: Int` or a `List<Int>` cell (`krs::analysis::ambiguous-operator` names the binders and the narrowing).
+The same holds for the keys and values of a bare `Map` and the elements of a bare `Set`, and a read such as `list::get(q, 0)` that no position sorts is a `KItem`.
 A named rest, `[a, b, rest @ ..] => [b, a, ..rest]`, may be used elsewhere, and a result may also be one term, `[_, rest @ ..] => rest` or `s => [v, ..s]`.
 A bracketed value reads by the cell's declared type: the computation cell reads items, a List collection instances, and a list cell elements.
 The macro cannot see declared types, so it reads one bracketed value of a record as the computation cell's, a cell named `k` if there is one, and the collector moves that reading to the configuration's computation cell; a record may therefore name the stack first, `{ word_stack: [a, ..], k: [Pop(), ..] }`, and a configuration may call its computation cell anything.
@@ -311,7 +314,7 @@ A cell declared `env: Map<Id, Value>` says what every reachable configuration ho
 K's collections hold `KItem`s, so K neither states nor checks that; KRS checks it, and the element types are erased from the emitted K.
 A collection type is `Map<K, V>`, `List<T>`, or `Set<T>`; each argument is a sort, `k::Term<S>` or `k::Term<dyn S>` (read as `S`), or a collection type itself, as in KEVM's `accessed_storage: Map<Int, Set<Int>>`.
 A cell, a constructor field, and a function parameter or result take a collection type: `Body { blocks: List<BasicBlock> }`, `fn MarkAccountAccess(accessed: k::Term<Set<Int>>, account: k::Term<Int>) -> k::Term<Set<Int>>`, and in the long form `#[k::function(sort = Set<Int>, ..)]`.
-A bare `Map`, `List`, or `Set` is untyped and accepts every write; `Map<Id>`, one argument where a map takes two, is an error, as is an element type that is neither a sort nor a collection type (`krs::syntax::invalid-collection-argument`).
+A bare `Map`, `List`, or `Set` is untyped and accepts every write, and its keys, values, and elements are `KItem`s; `Map<Id>`, one argument where a map takes two, is an error, as is an element type that is neither a sort nor a collection type (`krs::syntax::invalid-collection-argument`).
 
 The check is an induction over transitions: if the initializer fits the declared types and every rule writes only fitting terms, assuming every binder matched at a typed position has that position's type, then every reachable configuration fits.
 So a pattern gives types and a written term is checked:
@@ -1287,6 +1290,7 @@ An operator does not name its domain: KRS chooses it after sort inference, from 
 An operand pins a domain when its sort is that domain or a subsort of it: an Int literal, a binder inferred or declared `Int`, or a function returning `Int` pins `Int`, and a comparison is a `Bool` in every domain.
 The operator denotes the operation of the one domain its operands pin, and from then on sort inference, arity, SMT restrictions, the coverage lint, the overlap check, and the emitted K are those of the call: `a + 1` with `a` a binder of sort `Value`, a supersort of `Int`, narrows `a` to `Int` exactly as `int::add(a, 1)` does, and a binder declared `Value` is rejected as it is for the call.
 Each builtin domain defines its operations on that domain only, so operands that pin a domain leave one well-sorted reading, and KRS never guesses one: operands that pin no domain, such as two binders of a user sort, or two domains, such as an `Int` and a `Float`, are an error (`krs::analysis::ambiguous-operator`) that lists the explicit forms, `a.eq::<Int>(b)` through `a.eq::<K>(b)`.
+A binder that no occurrence sorts more precisely than `KItem`, such as an element of a bare `List`, is named in the error with the narrowing that picks a domain, `where a: Int, z: Int` in a readable rule; the operator never takes its domain from the position it is written at.
 An operand whose sort is only fixed later in the sentence, as when `a * b` precedes the cells that bind `a` and `b`, is read once inference has seen the whole sentence.
 `Bytes` and the collections have no operators, and `==` compares values of a builtin domain, not terms: `==` on a user sort, `Bytes`, a collection, or `K` points to `a.eq::<K>(b)` (`==K`), which compares terms and means something different to the solver.
 An operator the chosen domain does not define is an error (`krs::syntax::invalid-expression-notation`) naming what to write instead; `Float` has no remainder in the catalog, and `<<` and `>>` are `Int` only.

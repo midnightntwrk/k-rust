@@ -22,8 +22,8 @@ use std::collections::BTreeMap;
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, CollectionResultSort,
-    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorTerm, OperationSort,
-    OperatorDomain, OperatorReading, ProvenanceKey, SortTestKind,
+    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorPayload, DescriptorTerm,
+    OperationSort, OperatorDomain, OperatorReading, ProvenanceKey, SortTestKind,
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
@@ -108,8 +108,13 @@ impl StructuredTermBuilder<'_> {
                 }
                 DomainChoice::Unknown(sorts) => {
                     if self.operators.pending.is_none() {
-                        self.operators.pending =
-                            Some(self.ambiguous_operator(&reference.key, operator, &sorts, &[]));
+                        self.operators.pending = Some(self.ambiguous_operator(
+                            &reference.key,
+                            operator,
+                            &operands,
+                            &sorts,
+                            &[],
+                        ));
                     }
                     if let Some(result) = operator.uniform_result() {
                         self.check_operator_result(result, expected_sort)?;
@@ -123,6 +128,7 @@ impl StructuredTermBuilder<'_> {
                     return Err(self.ambiguous_operator(
                         &reference.key,
                         operator,
+                        &operands,
                         &sorts,
                         &domains,
                     ));
@@ -373,6 +379,7 @@ impl StructuredTermBuilder<'_> {
                     self.collections
                         .projection(&reference.key)
                         .map(|site| site.sort.clone())
+                        .or_else(|| self.collections.untyped_element().cloned())
                 })
             }
             DescriptorApplicationRef::List(operation) => {
@@ -380,6 +387,7 @@ impl StructuredTermBuilder<'_> {
                     self.collections
                         .projection(&reference.key)
                         .map(|site| site.sort.clone())
+                        .or_else(|| self.collections.untyped_element().cloned())
                 })
             }
             DescriptorApplicationRef::Set(operation) => {
@@ -387,6 +395,7 @@ impl StructuredTermBuilder<'_> {
                     self.collections
                         .projection(&reference.key)
                         .map(|site| site.sort.clone())
+                        .or_else(|| self.collections.untyped_element().cloned())
                 })
             }
             // A list's sort is the position's, which an operand does not have.
@@ -414,42 +423,145 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
-    /// The error for operands that choose no domain or two.
+    /// The error for operands that choose no domain or two. A binder that no
+    /// occurrence sorts, or sorts no more precisely than `KItem` (an element
+    /// of a bare collection), is named, with the narrowing that says which
+    /// domain is meant.
     fn ambiguous_operator(
         &self,
         key: &ProvenanceKey,
         operator: BuiltinOperator,
+        operands: &[&DescriptorTerm],
         sorts: &[Option<SemanticSortRef>],
         domains: &[OperatorDomain],
     ) -> DescriptorLoweringError {
-        let choice = if domains.is_empty() {
-            "which choose no builtin domain".to_owned()
-        } else {
-            format!(
-                "which choose the domains {}",
-                prose_list(
-                    &domains
-                        .iter()
-                        .map(|domain| format!("`{}`", domain.name()))
-                        .collect::<Vec<_>>(),
-                    "and"
-                )
-            )
-        };
         let alternative = if operator == BuiltinOperator::BitOr && domains.is_empty() {
             "; `|` joins pattern alternatives only on a left-hand side"
         } else {
             ""
         };
-        self.operator_error(
-            key,
-            OperatorProblem::Ambiguous,
+        let forms = explicit_forms(operator);
+        let unsorted = operands
+            .iter()
+            .zip(sorts)
+            .map(|(operand, sort)| match operand {
+                DescriptorTerm::Variable { name, .. }
+                    if !self.is_let_local_name(name)
+                        && !self.is_inferring_local(name)
+                        && sort.as_ref().is_none_or(is_k_item) =>
+                {
+                    Some(name.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let names = unsorted.iter().flatten().copied().collect::<Vec<_>>();
+        let reason = if domains.is_empty() && !names.is_empty() {
+            self.unsorted_operands(operator, &unsorted, sorts, &forms, alternative)
+        } else {
+            let choice = if domains.is_empty() {
+                "which choose no builtin domain".to_owned()
+            } else {
+                format!(
+                    "which choose the domains {}",
+                    prose_list(
+                        &domains
+                            .iter()
+                            .map(|domain| format!("`{}`", domain.name()))
+                            .collect::<Vec<_>>(),
+                        "and"
+                    )
+                )
+            };
             format!(
-                "`{}` has {}, {choice}; write the operation you mean: {}{alternative}",
+                "`{}` has {}, {choice}; write the operation you mean: {forms}{alternative}",
                 operator.symbol(),
                 describe_sorts(sorts),
-                explicit_forms(operator)
-            ),
+            )
+        };
+        self.operator_error(key, OperatorProblem::Ambiguous, reason)
+    }
+
+    /// The reason of an ambiguous operator some of whose operands are
+    /// binders `unsorted` names, which no occurrence sorts more precisely
+    /// than `KItem`: the binders and the narrowing that picks a domain.
+    fn unsorted_operands(
+        &self,
+        operator: BuiltinOperator,
+        unsorted: &[Option<&str>],
+        sorts: &[Option<SemanticSortRef>],
+        forms: &str,
+        alternative: &str,
+    ) -> String {
+        let names = unsorted.iter().flatten().copied().collect::<Vec<_>>();
+        let operands = if names.len() == unsorted.len() {
+            let sorted = if sorts.iter().all(Option::is_none) {
+                String::new()
+            } else {
+                " more precisely than `KItem`".to_owned()
+            };
+            let (noun, verb) = if names.len() == 1 {
+                ("the operand", "it chooses")
+            } else {
+                ("operands", "they choose")
+            };
+            format!(
+                "{noun} {}, which no occurrence sorts{sorted}, so {verb} no builtin domain",
+                prose_list(
+                    &names
+                        .iter()
+                        .map(|name| format!("`{name}`"))
+                        .collect::<Vec<_>>(),
+                    "and"
+                )
+            )
+        } else {
+            let described = unsorted
+                .iter()
+                .zip(sorts)
+                .map(|(name, sort)| match (name, sort) {
+                    (Some(name), Some(_)) => {
+                        format!("`{name}`, which no occurrence sorts more precisely than `KItem`,")
+                    }
+                    (Some(name), None) => format!("`{name}`, which no occurrence sorts,"),
+                    (None, Some(sort)) => {
+                        format!("an operand of sort `{}`", super::overload::sort_name(sort))
+                    }
+                    (None, None) => "an operand of an unknown sort".to_owned(),
+                })
+                .collect::<Vec<_>>();
+            format!(
+                "operands {}, which choose no builtin domain",
+                prose_list(&described, "and")
+            )
+        };
+        let domain = operator
+            .domains()
+            .first()
+            .map_or("Int", |domain| domain.name());
+        let narrowing = if matches!(self.descriptor.payload(), DescriptorPayload::HeadRule(_)) {
+            format!(
+                "`where {}`",
+                names
+                    .iter()
+                    .map(|name| format!("{name}: {domain}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            format!(
+                "the typed binders `{}`",
+                names
+                    .iter()
+                    .map(|name| format!("{name}: Term<{domain}>"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let them = if names.len() == 1 { "it" } else { "them" };
+        format!(
+            "`{}` has {operands}; narrow {them} ({narrowing}) or write the operation you mean: {forms}{alternative}",
+            operator.symbol(),
         )
     }
 
@@ -555,6 +667,13 @@ fn collection_result(result: CollectionResultSort) -> Option<SemanticSortRef> {
         CollectionResultSort::Builtin(sort) => Some(SemanticSortRef::Builtin(sort)),
         CollectionResultSort::Projected => None,
     }
+}
+
+/// Whether `sort` is the framework's `KItem`, the sort of every element of a
+/// bare collection, which pins no operator domain.
+fn is_k_item(sort: &SemanticSortRef) -> bool {
+    matches!(sort, SemanticSortRef::Declared(id)
+        if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
 }
 
 /// `` operands of sorts `Exp` and `Int` `` or `` an operand of an unknown sort ``.

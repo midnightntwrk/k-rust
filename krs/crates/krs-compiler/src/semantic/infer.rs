@@ -83,10 +83,17 @@ impl<'a> CollectionUse<'a> {
         Self::new(CollectionTyping::empty())
     }
 
-    /// The sort an element of a typed collection is inferred at, when
-    /// `term` stands at an element position.
+    /// The sort an element is inferred at, when `term` stands at an element
+    /// position: its typed collection's element sort, or `KItem` in a
+    /// collection whose element types nothing declares.
     pub(super) fn element_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
-        self.typing.element(term).map(|site| site.sort.clone())
+        self.typing.element_sort(term)
+    }
+
+    /// The sort of an element of a collection whose element types nothing
+    /// declares ([`CollectionTyping::untyped_element`]).
+    pub(super) fn untyped_element(&self) -> Option<&'a SemanticSortRef> {
+        self.typing.untyped_element()
     }
 
     /// The element sort a projecting read returns, by its application key.
@@ -1376,18 +1383,16 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
-    /// The sort an element of a typed collection is lowered at, if `term`
-    /// is one.
+    /// The sort an element is lowered at: its typed collection's element
+    /// sort, or `KItem` in a collection whose element types nothing declares.
     pub(super) fn collection_element_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
-        self.collections
-            .typing
-            .element(term)
-            .map(|site| site.sort.clone())
+        self.collections.element_sort(term)
     }
 
     /// The sort an operand is inferred at: its row's builtin sort, or for an
-    /// element of a typed collection its element sort. A probe into a typed
-    /// collection must share a sort with its elements.
+    /// element its collection's element sort, `KItem` when nothing declares
+    /// it. A probe into a typed collection must share a sort with its
+    /// elements.
     pub(super) fn collection_operand_expected(
         &mut self,
         operand: &DescriptorTerm,
@@ -1422,7 +1427,7 @@ impl StructuredTermBuilder<'_> {
             }
             return Ok(None);
         }
-        Ok(typing.element(operand).map(|site| site.sort.clone()))
+        Ok(typing.element_sort(operand))
     }
 
     /// Lowers a collection application's operands, in wire order, with its result sort.
@@ -1446,7 +1451,7 @@ impl StructuredTermBuilder<'_> {
                     typing
                         .read(operand)
                         .is_none()
-                        .then(|| typing.element(operand).map(|site| site.sort.clone()))
+                        .then(|| typing.element_sort(operand))
                         .flatten()
                 });
                 self.lower(operand, expected.as_ref(), subject)
@@ -1457,7 +1462,9 @@ impl StructuredTermBuilder<'_> {
 
     /// The result sort of a collection application: its row's, or for a
     /// projecting read the sort its position expects, and with no position
-    /// the element sort of the typed collection it reads.
+    /// the element sort of the typed collection it reads, or `KItem`, the
+    /// sort of K's lookup, for a collection whose element types nothing
+    /// declares.
     fn collection_result_sort<O: CollectionApplication>(
         &self,
         key: &ProvenanceKey,
@@ -1474,6 +1481,7 @@ impl StructuredTermBuilder<'_> {
                         .projection(key)
                         .map(|site| site.sort.clone())
                 })
+                .or_else(|| self.collections.untyped_element().cloned())
                 .ok_or_else(|| {
                     let marker = operation.facade_marker();
                     self.invalid_term(format!(
