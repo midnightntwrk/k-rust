@@ -611,6 +611,7 @@ pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
 ```
 
 It is the struct `pub struct Byte { pub value: k::Term<Int> }` with `#[k::function(total, internal, sort = Int, syntax = "byte({value})")]`, plus the equation `#[k::equation] fn byte(k::term![Byte(value)]: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(value, 256) }`, and `krs expand` prints exactly that pair.
+Its fields, like those of a `#[k::constructor]` struct, an enum variant, a syntactic list's cons variant, or a token's representation, may carry doc comments, which document the Rust item and have no K meaning; any other field attribute is an error.
 The fn is named as its applications are written, `Byte(x)`, in UpperCamelCase, so the name a rule uses is the name the declaration spells; the equation takes the snake-case name, `byte` (`FieldX` gives `field_x`, `R8` gives `r8`).
 The return type is the sort, so a `sort` key is rejected; every parameter is a plain name typed `k::Term<S>`, because Rust parameters are irrefutable: cases are written as [branches](#branching-bodies) of the body, rows of a table, or `#[k::equation]` fns.
 `#[k::requires(..)]` on the fn guards the equation, `total` and `partial` mean what they mean on the struct, and a generic fn, a pattern parameter, `#[k::equation(..)]`, and `hook` with a body are rejected (`krs::syntax::invalid-function-shorthand`).

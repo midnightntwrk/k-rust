@@ -46,7 +46,7 @@ The [evaluation chapter](/imp/evaluation) gives them their operational meaning.
 
 The checked statement grammar on the [configuration page](/imp/configuration-and-state) supplies the remaining production helpers.
 `#[k::format(...)]` controls canonical rendering without changing the parsed term, and the `avoid` flag makes a production lose an otherwise ambiguous parse—for IMP, it resolves the dangling `else`.
-Production doc comments become generated grammar documentation.
+Production doc comments become generated grammar documentation; doc comments on a production's fields document only the Rust item and stay in rustdoc.
 
 When same-tier nesting must be rejected, write `non_assoc` explicitly in an enum precedence group.
 Bare groups do not mean non-associative.

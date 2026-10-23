@@ -12,7 +12,7 @@ use crate::attribute::{
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
-use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
 use crate::term_sort::{parse_typed_readable_sort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -1290,9 +1290,9 @@ fn parse_variant_fields(
         Fields::Named(named) => {
             let mut parsed = Vec::with_capacity(named.named.len());
             for field in &named.named {
-                if let Some(attribute) = field.attrs.first() {
+                if let Some(attribute) = first_non_doc_attribute(&field.attrs) {
                     return Err(unsupported_enum(
-                        "enum constructor field attributes are unsupported",
+                        "an enum constructor field takes only doc comments",
                         attribute.span(),
                     ));
                 }
