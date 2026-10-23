@@ -535,6 +535,26 @@ k::equations! {
     gated: value => 1;
 }
 
+/// Bounded equations whose guards apply a function: the ground analysis
+/// evaluates it, so the witnesses are exact.
+#[k::function(total, internal)]
+pub fn Field(op: Term<Int>) -> Term<Int> {
+    (op >> 1) & 3
+}
+
+#[k::function(total, internal)]
+pub fn Decoded(op: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Decoded;
+    #[k::requires(0 <= op && op < 8 && Field(op) == 0)]
+    decoded_0: op => 0;
+    #[k::requires(0 <= op && op < 8 && Field(op) == 1)]
+    decoded_1: op => 1;
+    #[k::requires(0 <= op && op < 8 && Field(op) == 2)]
+    decoded_2: op => 2;
+}
+
 #[k::configuration(root = "machine")]
 pub struct Machine {
     pub k: k::configuration::KCell<KSequence>,
@@ -803,10 +823,12 @@ fn guards_that_apply_functions_and_match_patterns_are_read() {
     assert!(success, "{lines:#?}");
     let headlines = lines
         .into_iter()
-        .filter(|line| line.starts_with("warning["))
+        .filter(|line| line.starts_with("warning[") || line.contains("also uncovered"))
         .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
+            "warning[krs::analysis::uncovered-total-function]: total function `Decoded` has no equation for `Decoded(6)`",
+            "= note: also uncovered: `Decoded(7)`; `Decoded(8)`",
             "warning[krs::analysis::uncovered-total-function]: total function `LooseSign` has no equation for `LooseSign(0)`",
             "warning[krs::analysis::uncovered-total-function]: total function `PartialScore` has no equation for `PartialScore(value)` when `Classify(value)` is `Kinds::C`",
             "warning[krs::analysis::uncovered-total-function]: total function `SignedLess` has no equation for `SignedLess(0, right)` when `Sign(right)` is 0",

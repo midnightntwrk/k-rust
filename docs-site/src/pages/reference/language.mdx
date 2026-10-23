@@ -475,7 +475,7 @@ A guarded equation covers its pattern where its `requires` holds.
 When every equation of the function bounds each `Int` argument its `requires` reads to finitely many values, by a literal pattern, an or-pattern of literals, or top-level comparisons with constants (`0 <= x && x < 256`, which every [bit template](#bit-templates) has), and those values, with one more outside them per argument, are at most 2^16 argument vectors, the check evaluates every `requires` on each of them.
 That decides coverage exactly: outside the bounded values a bounded equation does not apply and the others do not read the argument, so one value there stands for all of them.
 The four templates `k::bits!("00 yyy zzz")` to `k::bits!("11 bbb zzz")` of `DecodeCb` cover `0..=255` and no more, so the witness is `DecodeCb(256)`.
-The evaluation is the builtins' definition on literals, with constructor terms as values and `k::matches!` of a value as matching; a `requires` that calls a function, or is undefined somewhere (`12 / x` at `0`) unless a false top-level conjunct already rules that argument out, ends it, and the check falls back to the abstraction below.
+The evaluation is the builtins' definition on literals, with constructor terms as values, `k::matches!` of a value as matching, and an application of a total function by the function's own equations (as the [overlap check](#overlapping-equations) evaluates it); a `requires` that calls a function the evaluation cannot evaluate, or is undefined somewhere (`12 / x` at `0`) unless a false top-level conjunct already rules that argument out, ends it, and the check falls back to the abstraction below.
 
 Otherwise the check decides a set of guards as Boolean combinations of comparisons with integer constants (`x < 0`, `x == 3`, `0 < x`, folded through `+`, `-`, `*` and the like), of the order of two integer terms (`a < b`, `a == b`, `b < a`, exactly one of which holds), and of opaque Bool atoms, which two equations share when they test the same term; literal patterns count, so `sgn(-1)`, `sgn(x)` when `x < -1`, when `x == 0` and when `x > 0` cover Int.
 
@@ -575,7 +575,7 @@ Two arms it proves to apply to one argument with different results are `krs::ana
 error[krs::analysis::overlapping-match-arms]: branches `small_1` and `small_2` of `Small` both apply to `Small(0)` and give it different results, `1` and `2`; Rust would take the earlier arm, but each branch is an equation and equations are unordered, so the arms of a branching body must not overlap. ..
 ```
 
-The check reports an overlap only when it can exhibit an argument, so arms whose patterns or guards it cannot decide, such as guards that call a function like `Sign`, pass unchecked; the common shapes, distinct constructors, distinct literals, and Int comparisons on one binder, are decided.
+The check reports an overlap only when it can exhibit an argument, so arms whose patterns or guards it cannot decide pass unchecked; the common shapes, distinct constructors, distinct literals, and Int comparisons on one binder, are decided, and so is a guard that calls a total function like `Sign` wherever the function's own equations evaluate it on the argument, as for `(1, v) if v < 10` and `(_, v) if v >= 5` on `(TwoSign(value), value)`, which both apply to `5`.
 An arm that overlaps an earlier one with the same result is not reported, since both readings then give the argument one value.
 
 Each equation is named after the function and its branch's position, from 1, and a branch inside a branch appends its own: `signed_less_2` for the second arm, `nested_2_1` for the first branch of the second arm's `match`.
@@ -746,7 +746,10 @@ error[krs::analysis::overlapping-equations]: equations `lookup_known` and `looku
 Two arms of one [branching body](#branching-bodies) that overlap are `krs::analysis::overlapping-match-arms` instead, at the later arm.
 Identical results agree, so equations that overlap with them are no error.
 A `k::matches!` test is read as the coverage check reads it, which proves disjoint the equations a test and its negation separate, and evaluated on the concrete argument as matching.
-A pair is not reported when a pattern is one the check does not decompose (a collection pattern), when a `requires` calls a function or a partial operation the guard reading does not read, or when the integer values it finds do not make both `requires` evaluate to `true`; templates over more than 16 bits are compared pair by pair, and the table check above still compares unguarded rows' templates of any width.
+An application of a `total` function that neither the backend nor the SMT solver defines, and none of whose equations reads the configuration, is evaluated by the function's own equations: in the lowest priority (`owise` is 200) at which an equation's patterns match and its `requires` evaluates to `true`, every such equation must give the same value, which is the application's value.
+The evaluation gives up, and the pair is not reported, when no equation applies, two applying equations give different values, a pattern or `requires` is one it cannot evaluate, a `requires` is undefined there (where a lazy and a strict reading disagree), or the calls nest deeper than 64 or exceed 4096; so it states only values the definition states.
+The same evaluation decides the bounded case above, so `Field(op) == 1` on `0 <= op < 8` is evaluated on each of the eight values.
+A pair is not reported when a pattern is one the check does not decompose (a collection pattern), when a `requires` calls a function the evaluation cannot evaluate or a partial operation the guard reading does not read, or when none of the integer values it tries, up to 64 arguments per pair, makes both `requires` evaluate to `true`; templates over more than 16 bits are compared pair by pair, and the table check above still compares unguarded rows' templates of any width.
 
 ### Sort-parametric productions
 

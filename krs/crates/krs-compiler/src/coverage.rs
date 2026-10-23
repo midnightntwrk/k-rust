@@ -61,7 +61,9 @@ use krs_ir_levels::{
 };
 use num_bigint::BigInt;
 
-use crate::equation_domain::{ColumnValues, Domain, Evaluator, Ground, Undecided, equation_view};
+use crate::equation_domain::{
+    ColumnValues, Domain, Evaluator, Ground, Undecided, equation_view, evaluable_functions,
+};
 use crate::int_facts::{IntFact, IntFacts};
 
 /// The pattern-matrix nodes one function may visit before the lint gives up
@@ -80,7 +82,7 @@ const WITNESS_LIMIT: usize = 3;
 #[must_use]
 pub fn coverage_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
     let signature = Signature::new(modules);
-    let evaluator = Evaluator::new(&signature);
+    let evaluator = Evaluator::with_functions(&signature, evaluable_functions(modules));
     let analysis = Analysis::new(&signature, &evaluator, modules);
     let raw = modules
         .iter()
@@ -248,7 +250,7 @@ impl RangeOf for Analysis<'_> {
 
 /// Whether the lint judges a production: a total function the backend or
 /// the SMT solver does not define.
-fn checked(production: &SemanticProduction) -> bool {
+pub(crate) fn checked(production: &SemanticProduction) -> bool {
     let has = |test: fn(&ProductionAttribute<Sort, StableItemId>) -> bool| {
         production.attributes().iter().any(test)
     };
@@ -2975,13 +2977,15 @@ pub(crate) fn decide(
     facts: &BTreeMap<String, Fact>,
     projections: &Projections,
 ) -> Verdict {
-    decide_counted(guards, facts, projections, true).0
+    decide_counted(guards, facts, projections, true, 0).0
 }
 
 /// [`decide`], with the number of valuations it had to consider. With
 /// `minimize`, a refuting valuation is reduced to a condition every
 /// valuation of which refutes (see [`minimize`]); without, it is the whole
-/// valuation.
+/// valuation. The enumeration begins at valuation `start`, so a caller can
+/// ask for the refutation after one it rejected; the number returned is
+/// then the index after the last valuation considered.
 #[expect(
     clippy::too_many_lines,
     reason = "One enumeration of the valuations: values, their consistency with projections and orders, truths, and the refutation."
@@ -2991,6 +2995,7 @@ fn decide_counted(
     facts: &BTreeMap<String, Fact>,
     projections: &Projections,
     minimize: bool,
+    start: u64,
 ) -> (Verdict, u64) {
     let mut atoms = BTreeSet::new();
     for guard in guards {
@@ -3045,7 +3050,7 @@ fn decide_counted(
         return (Verdict::Valid, 0);
     }
     let orders_of = [Order::Less, Order::Equal, Order::Greater];
-    for index in 0..count {
+    for index in start..count {
         let mut rest = index;
         let mut values = BTreeMap::new();
         let mut regions = BTreeMap::new();
@@ -3486,7 +3491,7 @@ impl Search<'_> {
                 .iter()
                 .map(|(subject, fact)| (subject.clone(), fact.clone())),
         );
-        let (verdict, valuations) = decide_counted(&guards, &facts, self.projections, true);
+        let (verdict, valuations) = decide_counted(&guards, &facts, self.projections, true, 0);
         self.valuations = self.valuations.saturating_add(valuations);
         if self.valuations > FUNCTION_VALUATION_BUDGET {
             self.exhausted = true;

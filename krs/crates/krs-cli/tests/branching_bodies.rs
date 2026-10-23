@@ -579,6 +579,104 @@ k::equations! {{
     assert!(!stderr.contains("error"), "{stderr}");
 }
 
+/// Arms whose overlap depends on a function's value: the check evaluates
+/// the function by its own equations on the candidate argument, and stays
+/// silent where it cannot.
+#[test]
+fn arms_that_overlap_through_a_function_guard_are_an_error() {
+    let target = shared_fixture_target();
+    let emitted = |name: &str, source: &str| {
+        let temporary = temp_dir();
+        package(temporary.path(), name, "ORG-KRS-EVALUATED", source);
+        let manifest = workspace(temporary.path(), &[name]);
+        let (success, stderr, _) = emit(
+            target.path(),
+            &manifest,
+            name,
+            &temporary.path().join("emitted"),
+        );
+        (success, stderr)
+    };
+    let arms = |helper: &str, bound: u32| {
+        format!(
+            "{PRELUDE}
+#[k::function(total, internal)]
+pub fn TwoSign(value: Term<Int>) -> Term<Int> {{
+    if value >= 0 {{ 1 }} else {{ -1 }}
+}}
+
+#[k::function(total, internal)]
+pub fn Overlapping(value: Term<Int>) -> Term<Int> {{
+    match ({helper}(value), value) {{
+        (1, v) if v < 10 => 1,
+        (_, v) if v >= {bound} => 2,
+        _ => 3,
+    }}
+}}
+"
+        )
+    };
+    let (success, stderr) = emitted("overlapping", &arms("TwoSign", 5));
+    assert!(!success, "{stderr}");
+    assert!(
+        stderr.contains("error[krs::analysis::overlapping-match-arms]: branches `overlapping_1` and `overlapping_2` of `Overlapping` both apply to `Overlapping(5)` and give it different results, `1` and `2`"),
+        "{stderr}"
+    );
+    // Disjoint: the second arm starts where the first ends.
+    let (success, stderr) = emitted("disjoint", &arms("TwoSign", 10));
+    assert!(success, "{stderr}");
+    assert!(!stderr.contains("error"), "{stderr}");
+    // The prelude's `Sign` has no equations, so nothing evaluates it.
+    let (success, stderr) = emitted("unevaluated", &arms("Sign", 5));
+    assert!(success, "{stderr}");
+    assert!(!stderr.contains("error"), "{stderr}");
+}
+
+/// The ground analysis evaluates a function its guards apply, so bounded
+/// equations that overlap through it are found on the argument where they
+/// do.
+#[test]
+fn bounded_equations_that_overlap_through_a_function_are_an_error() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    package(
+        temporary.path(),
+        "fields",
+        "ORG-KRS-FIELDS",
+        &format!(
+            "{PRELUDE}
+#[k::function(total, internal)]
+pub fn Field(op: Term<Int>) -> Term<Int> {{
+    (op >> 1) & 3
+}}
+
+#[k::function(total, internal)]
+pub fn Decode(op: Term<Int>) -> Term<Int>;
+
+k::equations! {{
+    for Decode;
+    #[k::requires(0 <= op && op < 8 && Field(op) == 1)]
+    decode_field: op => 1;
+    #[k::requires(0 <= op && op < 8 && op == 3)]
+    decode_three: op => 2;
+}}
+"
+        ),
+    );
+    let manifest = workspace(temporary.path(), &["fields"]);
+    let (success, stderr, _) = emit(
+        target.path(),
+        &manifest,
+        "fields",
+        &temporary.path().join("emitted"),
+    );
+    assert!(!success, "{stderr}");
+    assert!(
+        stderr.contains("error[krs::analysis::overlapping-equations]: equations `decode_field` and `decode_three` of `Decode` both apply to `Decode(3)` at the same priority and give it different results, `1` and `2`"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn the_coverage_lint_reads_branches_as_equations() {
     let target = shared_fixture_target();

@@ -31,7 +31,7 @@
 //! hold once concrete) reports nothing, as the ground analysis does when it
 //! gives up.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{ApplicationRef, BuiltinSort, SemanticId};
 use krs_ir_levels::{
@@ -46,8 +46,13 @@ use super::{
     path_text, pattern_at, snake_case,
 };
 use crate::equation_domain::{
-    Environment, EquationOverlap, Evaluator, Ground, ground_literal, guard_holds,
+    Environment, EquationOverlap, Evaluator, Ground, evaluable_functions, ground_literal,
+    guard_holds,
 };
+
+/// The distinct concrete arguments one pair may try before the check gives
+/// up on it.
+const CANDIDATE_LIMIT: usize = 64;
 
 /// The sorts and constructors equations are unified over.
 pub(crate) struct EquationSignature(Signature);
@@ -57,9 +62,10 @@ impl EquationSignature {
         Self(Signature::new(modules))
     }
 
-    /// An evaluator of ground terms over this signature.
-    pub(crate) fn evaluator(&self) -> Evaluator<'_> {
-        Evaluator::new(&self.0)
+    /// An evaluator of ground terms over this signature that applies the
+    /// total functions of `modules` by their equations.
+    pub(crate) fn evaluator<'a>(&'a self, modules: &'a [SemanticModule]) -> Evaluator<'a> {
+        Evaluator::with_functions(&self.0, evaluable_functions(modules))
     }
 }
 
@@ -649,7 +655,10 @@ fn pair(
 
 /// The overlap of two unified alternatives, confirmed exactly: a valuation
 /// under which both residual guards may hold, made concrete, on which both
-/// original guards hold and the results differ.
+/// original guards hold and the results differ. The abstraction treats a
+/// function's application as free, so a valuation may have no argument
+/// (`TwoSign(v)` is 1 where `v` is -5): the search moves on to the next
+/// valuation, up to [`CANDIDATE_LIMIT`] distinct arguments.
 #[expect(
     clippy::too_many_arguments,
     reason = "One candidate: the two sides, their unified argument, guards, facts, and the budget."
@@ -665,64 +674,94 @@ fn candidate(
     valuations: &mut u64,
 ) -> Option<EquationOverlap> {
     let negations = guards.map(|guard| guard.clone().not());
-    let (verdict, count) = decide_counted(
-        &negations.iter().collect::<Vec<_>>(),
-        facts,
-        projections,
-        false,
-    );
-    *valuations = valuations.saturating_add(count);
-    let Verdict::Refuted(candidate) = verdict else {
-        return None;
-    };
-    let values = int_values(unified, &candidate.values)?;
-    let (first_environment, second_environment) = (
-        environment(first, unified, &values),
-        environment(second, unified, &values),
-    );
-    let holds = |side: &Side<'_>, environment: &Environment<'_>| {
-        side.guard
-            .is_none_or(|guard| guard_holds(evaluator, guard, environment) == Some(true))
-    };
-    if !holds(first, &first_environment) || !holds(second, &second_environment) {
-        return None;
+    let negations = negations.iter().collect::<Vec<_>>();
+    let mut start = 0;
+    let mut tried = BTreeSet::new();
+    loop {
+        if *valuations > FUNCTION_VALUATION_BUDGET || tried.len() >= CANDIDATE_LIMIT {
+            return None;
+        }
+        let (verdict, next) = decide_counted(&negations, facts, projections, false, start);
+        *valuations = valuations.saturating_add(next.saturating_sub(start));
+        let Verdict::Refuted(candidate) = verdict else {
+            return None;
+        };
+        start = next;
+        let values = int_values(unified, &candidate.values)?;
+        if !tried.insert(values.clone()) {
+            continue;
+        }
+        if let Confirmed::Overlap(overlap) =
+            confirm(evaluator, production, (first, second), unified, &values)?
+        {
+            return Some(*overlap);
+        }
     }
-    let (Some(left), Some(right)) = (
+}
+
+/// What a concrete argument shows about a pair.
+enum Confirmed {
+    /// Both original guards evaluate to `true` and the results differ.
+    Overlap(Box<EquationOverlap>),
+    /// A guard is false there, or the results agree.
+    Rejected,
+}
+
+/// [`Confirmed`] at a concrete argument; `None` when the evaluation cannot
+/// tell, which ends the search for the pair (another argument would meet
+/// the same term).
+fn confirm(
+    evaluator: &Evaluator<'_>,
+    production: &SemanticProduction,
+    (first, second): (&Side<'_>, &Side<'_>),
+    unified: &[Pattern],
+    values: &BTreeMap<Path, i128>,
+) -> Option<Confirmed> {
+    let (first_environment, second_environment) = (
+        environment(first, unified, values),
+        environment(second, unified, values),
+    );
+    let holds = |side: &Side<'_>, environment: &Environment<'_>| match side.guard {
+        None => Some(true),
+        Some(guard) => guard_holds(evaluator, guard, environment),
+    };
+    if !holds(first, &first_environment)? || !holds(second, &second_environment)? {
+        return Some(Confirmed::Rejected);
+    }
+    let (left, right) = (
         substitute(
             evaluator,
             first.result,
             first,
             unified,
-            &values,
+            values,
             &first_environment,
-        ),
+        )?,
         substitute(
             evaluator,
             second.result,
             second,
             unified,
-            &values,
+            values,
             &second_environment,
-        ),
-    ) else {
-        return None;
-    };
+        )?,
+    );
     if left.0 == right.0 {
-        return None;
+        return Some(Confirmed::Rejected);
     }
     let function = display_name(production.id());
     let arguments = unified
         .iter()
         .enumerate()
-        .map(|(index, pattern)| pattern_text(pattern, &mut vec![index], &values).1)
+        .map(|(index, pattern)| pattern_text(pattern, &mut vec![index], values).1)
         .collect::<Vec<_>>();
-    Some(EquationOverlap {
+    Some(Confirmed::Overlap(Box::new(EquationOverlap {
         application: format!("{function}({})", arguments.join(", ")),
         function,
         first: first.rule.id().clone(),
         second: second.rule.id().clone(),
         results: (left.1, right.1),
-    })
+    })))
 }
 
 /// The first exact overlap among equations at one priority, sorted by

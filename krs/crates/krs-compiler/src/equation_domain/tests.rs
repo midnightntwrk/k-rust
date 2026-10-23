@@ -7,11 +7,16 @@ use krs_ir::{
 };
 use krs_ir_levels::{SemanticSortRef as Sort, SemanticTerm};
 
-use super::{ColumnValues, Domain, EquationView, Evaluator, Undecided};
+use std::collections::BTreeMap;
+
+use super::{
+    ColumnValues, Domain, EquationView, Evaluator, Ground, Undecided, ground_literal, guard_holds,
+};
 use crate::coverage::Signature;
 
 use BuiltinOperation::{
-    BoolAndThen, BoolOrElse, IntBitRange, IntEqual, IntGreaterEqual, IntLess, IntNotEqual, IntTDiv,
+    BoolAndThen, BoolNot, BoolOrElse, IntAdd, IntBitAnd, IntBitRange, IntEqual, IntGreater,
+    IntGreaterEqual, IntLess, IntMul, IntNotEqual, IntSub, IntTDiv,
 };
 
 const INT: Sort = Sort::Builtin(BuiltinSort::Int);
@@ -527,4 +532,213 @@ fn the_enumeration_decides_every_argument_as_brute_force_does() {
         }
     }
     assert!(checked > 500_000, "{checked}");
+}
+
+// ---------------------------------------------------------------------------
+// Total functions evaluated by their own equations
+
+fn call(name: &str, arguments: Vec<SemanticTerm>) -> SemanticTerm {
+    SemanticTerm::application(
+        origin(),
+        INT,
+        ApplicationRef::Declared(item(name)),
+        arguments,
+    )
+}
+
+/// An evaluator that applies each function by `equations`, given by name
+/// with each equation's priority.
+fn functions(equations: &[(&str, u32, &Equation)]) -> &'static Evaluator<'static> {
+    let signature: &'static Signature = Box::leak(Box::default());
+    let mut bands =
+        BTreeMap::<&'static StableItemId, BTreeMap<u32, Vec<EquationView<'static>>>>::new();
+    for (name, priority, equation) in equations {
+        let equation: &'static Equation = Box::leak(Box::new(Equation {
+            id: equation.id.clone(),
+            arguments: equation.arguments.clone(),
+            guard: equation.guard.clone(),
+            result: equation.result.clone(),
+        }));
+        let id: &'static StableItemId = Box::leak(Box::new(item(name)));
+        let view = EquationView {
+            id: &equation.id,
+            arguments: &equation.arguments,
+            guard: equation.guard.as_ref(),
+            result: &equation.result,
+        };
+        bands
+            .entry(id)
+            .or_default()
+            .entry(*priority)
+            .or_default()
+            .push(view);
+    }
+    Box::leak(Box::new(Evaluator::with_functions(
+        signature,
+        bands
+            .into_iter()
+            .map(|(id, bands)| (id, bands.into_values().collect()))
+            .collect(),
+    )))
+}
+
+/// The value of `name(arguments)`, or `None` when the evaluator gives up.
+fn value_of(evaluator: &Evaluator<'_>, name: &str, arguments: &[i128]) -> Option<String> {
+    ground_literal(
+        evaluator,
+        &call(
+            name,
+            arguments.iter().map(|argument| int(*argument)).collect(),
+        ),
+        &BTreeMap::new(),
+    )
+}
+
+/// `sign(v) => 1 requires v >= 0` and `sign(v) => -1 requires not (v >= 0)`.
+fn sign() -> Vec<Equation> {
+    let nonnegative = || builtin(IntGreaterEqual, vec![variable("v"), int(0)]);
+    vec![
+        equation("sign_1", vec![variable("v")], Some(nonnegative()), int(1)),
+        equation(
+            "sign_2",
+            vec![variable("v")],
+            Some(builtin(BoolNot, vec![nonnegative()])),
+            int(-1),
+        ),
+    ]
+}
+
+#[test]
+fn a_total_function_evaluates_by_its_own_equations() {
+    let sign = sign();
+    let evaluator = functions(&[("sign", 50, &sign[0]), ("sign", 50, &sign[1])]);
+    assert_eq!(value_of(evaluator, "sign", &[5]).as_deref(), Some("1"));
+    assert_eq!(value_of(evaluator, "sign", &[0]).as_deref(), Some("1"));
+    assert_eq!(value_of(evaluator, "sign", &[-5]).as_deref(), Some("-1"));
+    // A guard that applies it.
+    let guard = builtin(IntEqual, vec![call("sign", vec![variable("x")]), int(1)]);
+    let x = SemanticId::new("x".to_owned()).unwrap();
+    let at = |value: i128| BTreeMap::from([(&x, Ground::Int(value))]);
+    assert_eq!(guard_holds(evaluator, &guard, &at(3)), Some(true));
+    assert_eq!(guard_holds(evaluator, &guard, &at(-3)), Some(false));
+    // A function the evaluator does not hold decides nothing.
+    assert_eq!(value_of(evaluator, "other", &[5]), None);
+}
+
+#[test]
+fn the_first_priority_band_that_applies_gives_the_value() {
+    // `pick(0) => 10`, and `pick(_) => 20` as `owise`.
+    let zero = equation("pick_zero", vec![int(0)], None, int(10));
+    let other = equation("pick_other", vec![variable("v")], None, int(20));
+    let evaluator = functions(&[("pick", 50, &zero), ("pick", 200, &other)]);
+    assert_eq!(value_of(evaluator, "pick", &[0]).as_deref(), Some("10"));
+    assert_eq!(value_of(evaluator, "pick", &[1]).as_deref(), Some("20"));
+}
+
+#[test]
+fn the_evaluator_gives_up_rather_than_guess() {
+    // No equation applies to 1.
+    let only_zero = equation("only_zero", vec![int(0)], None, int(1));
+    // Two equations at one priority that disagree on 0, and agree on 1.
+    let first = equation(
+        "first",
+        vec![variable("v")],
+        None,
+        builtin(IntMul, vec![variable("v"), int(2)]),
+    );
+    let second = equation("second", vec![variable("v")], None, variable("v"));
+    // `forever(v) => forever(v)`, and `count(0) => 0`, `count(n) => count(n - 1) + 1`.
+    let forever = equation(
+        "forever",
+        vec![variable("v")],
+        None,
+        call("forever", vec![variable("v")]),
+    );
+    let count_zero = equation("count_zero", vec![int(0)], None, int(0));
+    let count_more = equation(
+        "count_more",
+        vec![variable("n")],
+        Some(builtin(IntGreater, vec![variable("n"), int(0)])),
+        builtin(
+            IntAdd,
+            vec![
+                call("count", vec![builtin(IntSub, vec![variable("n"), int(1)])]),
+                int(1),
+            ],
+        ),
+    );
+    // A guard undefined at 0, where a lazy and a strict reading disagree.
+    let undefined = equation(
+        "undefined",
+        vec![variable("v")],
+        Some(builtin(
+            BoolOrElse,
+            vec![
+                builtin(IntEqual, vec![variable("v"), int(0)]),
+                builtin(
+                    IntGreater,
+                    vec![builtin(IntTDiv, vec![int(1), variable("v")]), int(0)],
+                ),
+            ],
+        )),
+        int(1),
+    );
+    let calls_unknown = equation(
+        "calls_unknown",
+        vec![variable("v")],
+        None,
+        call("unknown", vec![variable("v")]),
+    );
+    let evaluator = functions(&[
+        ("only_zero", 50, &only_zero),
+        ("twice", 50, &first),
+        ("twice", 50, &second),
+        ("forever", 50, &forever),
+        ("count", 50, &count_zero),
+        ("count", 50, &count_more),
+        ("undefined", 50, &undefined),
+        ("calls_unknown", 50, &calls_unknown),
+    ]);
+    assert_eq!(value_of(evaluator, "only_zero", &[0]).as_deref(), Some("1"));
+    assert_eq!(value_of(evaluator, "only_zero", &[1]), None);
+    assert_eq!(value_of(evaluator, "twice", &[0]).as_deref(), Some("0"));
+    assert_eq!(value_of(evaluator, "twice", &[1]), None);
+    assert_eq!(value_of(evaluator, "forever", &[1]), None);
+    assert_eq!(value_of(evaluator, "count", &[10]).as_deref(), Some("10"));
+    // Deeper than the call depth.
+    assert_eq!(value_of(evaluator, "count", &[1000]), None);
+    assert_eq!(value_of(evaluator, "undefined", &[0]), None);
+    assert_eq!(value_of(evaluator, "undefined", &[1]).as_deref(), Some("1"));
+    assert_eq!(value_of(evaluator, "calls_unknown", &[1]), None);
+}
+
+#[test]
+fn the_ground_analysis_evaluates_function_guards() {
+    // `low(v) => v &Int 3`, and `pick(op)` on `0 <= op < 8` by `low(op)`.
+    let low = equation(
+        "low",
+        vec![variable("v")],
+        None,
+        builtin(IntBitAnd, vec![variable("v"), int(3)]),
+    );
+    let evaluator = functions(&[("low", 50, &low)]);
+    let row = |name: &str, value: i128| {
+        let mut guard = vec![
+            builtin(IntGreaterEqual, vec![variable("op"), int(0)]),
+            builtin(IntLess, vec![variable("op"), int(8)]),
+        ];
+        guard.push(builtin(
+            IntEqual,
+            vec![call("low", vec![variable("op")]), int(value)],
+        ));
+        equation(name, vec![variable("op")], Some(all(guard)), int(value))
+    };
+    let equations = [row("pick_0", 0), row("pick_1", 1), row("pick_2", 2)];
+    let views = views(&equations);
+    let domain = Domain::new(evaluator, &[INT], &views).unwrap();
+    let uncovered = domain
+        .points()
+        .filter(|point| (0..views.len()).all(|index| !domain.applies(index, point).unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(uncovered, [vec![3], vec![7], vec![8]]);
 }

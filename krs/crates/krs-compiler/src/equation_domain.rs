@@ -14,17 +14,18 @@
 //! priority, and the coverage lint of `total` functions.
 //!
 //! The evaluation is the builtins' definition on literals (`int_facts`),
-//! constructors as free terms, and `k::matches!` (`P :=K t`) of a value as
-//! pattern matching ([`Evaluator`]), and it decides nothing it is unsure of:
-//! a guard that calls a function, reads a binder the pattern does not bind,
-//! overflows `i128`, or is undefined anywhere (`10 /Int x` at `x == 0`,
-//! unless a top-level conjunct is already false there) makes the analysis
-//! give up on the whole set, so a consumer reports nothing rather than
-//! guess. Matching logic reads an undefined
-//! guard as not holding while a short-circuiting backend may read
-//! `true orElseBool ⊥` as true; giving up keeps the analysis out of that
-//! disagreement.
+//! constructors as free terms, `k::matches!` (`P :=K t`) of a value as
+//! pattern matching, and total functions by their own equations
+//! ([`Evaluator`]), and it decides nothing it is unsure of: a guard that
+//! calls a function it cannot evaluate, reads a binder the pattern does not
+//! bind, overflows `i128`, or is undefined anywhere (`10 /Int x` at
+//! `x == 0`, unless a top-level conjunct is already false there) makes the
+//! analysis give up on the whole set, so a consumer reports nothing rather
+//! than guess. Matching logic reads an undefined guard as not holding while
+//! a short-circuiting backend may read `true orElseBool ⊥` as true; giving
+//! up keeps the analysis out of that disagreement.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
@@ -36,7 +37,7 @@ use krs_ir_levels::{
 };
 
 use crate::coverage::{
-    EquationSignature, Signature, binder_text, display_name, instantiate,
+    EquationSignature, Signature, binder_text, checked, display_name, instantiate,
     production_argument_sorts, symbolic_overlap,
 };
 use crate::int_facts::{IntFact, IntFacts, evaluate_int};
@@ -140,15 +141,203 @@ pub(crate) enum Ground {
 /// The values of an equation's binders.
 pub(crate) type Environment<'a> = BTreeMap<&'a SemanticId, Ground>;
 
-/// Evaluates ground terms: builtins on literals, constructors, and
-/// `P :=K t` once `t` has a value, as pattern matching.
+/// The deepest chain of function calls one evaluation follows.
+const CALL_DEPTH: u32 = 64;
+/// The function calls one evaluation may make in all.
+const CALL_BUDGET: u32 = 4096;
+
+/// A total function's equations, by priority band, lowest first (`owise`
+/// is priority 200).
+pub(crate) type Bands<'a> = Vec<Vec<EquationView<'a>>>;
+
+/// Evaluates ground terms: builtins on literals, constructors, `P :=K t`
+/// once `t` has a value, as pattern matching, and applications of the
+/// total functions it holds by their own equations ([`Evaluator::call`]).
 pub(crate) struct Evaluator<'a> {
     signature: &'a Signature,
+    functions: BTreeMap<&'a StableItemId, Bands<'a>>,
+    /// The calls the current evaluation may still make, and its depth.
+    budget: Cell<u32>,
+    depth: Cell<u32>,
+    /// The values of calls already evaluated.
+    values: RefCell<BTreeMap<(StableItemId, Vec<Ground>), Ground>>,
 }
 
 impl<'a> Evaluator<'a> {
+    /// An evaluator of builtins, constructors and `k::matches!` only.
+    #[cfg(test)]
     pub(crate) fn new(signature: &'a Signature) -> Self {
-        Self { signature }
+        Self::with_functions(signature, BTreeMap::new())
+    }
+
+    /// An evaluator that also applies `functions` by their equations.
+    pub(crate) fn with_functions(
+        signature: &'a Signature,
+        functions: BTreeMap<&'a StableItemId, Bands<'a>>,
+    ) -> Self {
+        Self {
+            signature,
+            functions,
+            budget: Cell::new(CALL_BUDGET),
+            depth: Cell::new(0),
+            values: RefCell::default(),
+        }
+    }
+
+    /// The value of `id(arguments)` by the function's own equations: in the
+    /// first priority band where an equation applies (its patterns match
+    /// and its guard evaluates to `true`), the one value every applying
+    /// equation's result evaluates to. `None` (the evaluation cannot tell)
+    /// when no equation applies, two applying results differ, any part
+    /// cannot be evaluated (a pattern or guard the evaluation does not
+    /// read, a guard undefined there, on which a lazy and a strict reading
+    /// disagree), or the call depth or the calls run out. Each of those
+    /// gives up rather than guess, so a value it returns is the value the
+    /// definition states.
+    fn call(&self, id: &StableItemId, bands: &Bands<'_>, arguments: Vec<Ground>) -> Option<Ground> {
+        let key = (id.clone(), arguments);
+        if let Some(value) = self.values.borrow().get(&key) {
+            return Some(value.clone());
+        }
+        if self.depth.get() == 0 {
+            self.budget.set(CALL_BUDGET);
+        }
+        if self.depth.get() >= CALL_DEPTH || self.budget.get() == 0 {
+            return None;
+        }
+        self.budget.set(self.budget.get() - 1);
+        self.depth.set(self.depth.get() + 1);
+        let value = self.apply(bands, &key.1);
+        self.depth.set(self.depth.get() - 1);
+        if let Some(value) = &value {
+            self.values.borrow_mut().insert(key, value.clone());
+        }
+        value
+    }
+
+    /// See [`Evaluator::call`].
+    fn apply(&self, bands: &Bands<'_>, arguments: &[Ground]) -> Option<Ground> {
+        for band in bands {
+            let mut found: Option<Ground> = None;
+            for view in band {
+                if view.arguments.len() != arguments.len() {
+                    return None;
+                }
+                let mut environment = Environment::new();
+                let mut matched = true;
+                for (pattern, value) in view.arguments.iter().zip(arguments) {
+                    if !self.bind(pattern, value, &mut environment)? {
+                        matched = false;
+                        break;
+                    }
+                }
+                if !matched {
+                    continue;
+                }
+                if let Some(guard) = view.guard {
+                    let refuted = conjuncts(guard).iter().any(|conjunct| {
+                        self.evaluate(conjunct, &environment) == Some(Ground::Bool(false))
+                    });
+                    if refuted {
+                        continue;
+                    }
+                    match self.evaluate(guard, &environment)? {
+                        Ground::Bool(true) => {}
+                        Ground::Bool(false) => continue,
+                        Ground::Int(_) | Ground::Term { .. } | Ground::Undefined => return None,
+                    }
+                }
+                let result = self.evaluate(view.result, &environment)?;
+                if result == Ground::Undefined {
+                    return None;
+                }
+                match &found {
+                    None => found = Some(result),
+                    Some(other) if *other == result => {}
+                    Some(_) => return None,
+                }
+            }
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+
+    /// Matches an equation's argument pattern against a value, binding its
+    /// binders: `None` when the evaluation cannot tell.
+    fn bind<'p>(
+        &self,
+        pattern: &'p SemanticTerm,
+        value: &Ground,
+        environment: &mut Environment<'p>,
+    ) -> Option<bool> {
+        match pattern.kind() {
+            SemanticTermKind::Variable { variable } => {
+                if !self.signature.value_in_sort(value, pattern.sort())? {
+                    return Some(false);
+                }
+                Some(bind_name(environment, variable, value))
+            }
+            SemanticTermKind::As {
+                alias,
+                pattern: inner,
+            } => {
+                if !self.bind(inner, value, environment)? {
+                    return Some(false);
+                }
+                Some(bind_name(environment, alias, value))
+            }
+            SemanticTermKind::Or { alternatives } => {
+                // Alternatives bind the same names; two that match with
+                // different bindings would be two equations at once.
+                let mut chosen: Option<Environment<'p>> = None;
+                for alternative in alternatives {
+                    let mut candidate = environment.clone();
+                    if self.bind(alternative, value, &mut candidate)? {
+                        match &chosen {
+                            None => chosen = Some(candidate),
+                            Some(other) if *other == candidate => {}
+                            Some(_) => return None,
+                        }
+                    }
+                }
+                match chosen {
+                    Some(bound) => {
+                        *environment = bound;
+                        Some(true)
+                    }
+                    None => Some(false),
+                }
+            }
+            SemanticTermKind::Application {
+                application: ApplicationRef::Declared(id),
+                arguments,
+                instance,
+                ..
+            } if self.signature.is_constructor(id) => match value {
+                Ground::Term {
+                    id: other,
+                    instance: other_instance,
+                    arguments: values,
+                } => {
+                    if id != other || instance != other_instance || arguments.len() != values.len()
+                    {
+                        return Some(false);
+                    }
+                    for (argument, value) in arguments.iter().zip(values) {
+                        if !self.bind(argument, value, environment)? {
+                            return Some(false);
+                        }
+                    }
+                    Some(true)
+                }
+                Ground::Int(_) | Ground::Bool(_) => Some(false),
+                Ground::Undefined => None,
+            },
+            SemanticTermKind::Token { .. } => self.matches(pattern, value),
+            _ => None,
+        }
     }
 
     /// The value of a term under an environment, `None` when the analysis
@@ -195,6 +384,21 @@ impl<'a> Evaluator<'a> {
                     instance: instance.clone(),
                     arguments: values,
                 })
+            }
+            SemanticTermKind::Application {
+                application: ApplicationRef::Declared(id),
+                arguments,
+                ..
+            } => {
+                let bands = self.functions.get(id)?;
+                let values = arguments
+                    .iter()
+                    .map(|argument| self.evaluate(argument, environment))
+                    .collect::<Option<Vec<_>>>()?;
+                if values.contains(&Ground::Undefined) {
+                    return Some(Ground::Undefined);
+                }
+                self.call(id, bands, values)
             }
             SemanticTermKind::Matches {
                 subject, pattern, ..
@@ -930,6 +1134,51 @@ pub(crate) fn function_equations(
     grouped
 }
 
+/// Binds a pattern's binder to a value, or, when it is already bound (it
+/// occurs twice), whether the value is the one bound: constructors are
+/// free, so equal values are equal terms and different ones differ.
+fn bind_name<'p>(environment: &mut Environment<'p>, name: &'p SemanticId, value: &Ground) -> bool {
+    if let Some(bound) = environment.get(name) {
+        return bound == value;
+    }
+    environment.insert(name, value.clone());
+    true
+}
+
+/// The equations of each total function the evaluator can apply: a
+/// non-parametric total function that neither the backend nor the SMT
+/// solver defines, all of whose equations the evaluation can read (none
+/// reads the configuration or has a matching-logic `requires`).
+pub(crate) fn evaluable_functions(
+    modules: &[SemanticModule],
+) -> BTreeMap<&StableItemId, Bands<'_>> {
+    let mut functions = BTreeMap::new();
+    for (production, instance, rules) in function_equations(modules) {
+        if !instance.is_empty() || !production.parameters().is_empty() || !checked(production) {
+            continue;
+        }
+        let Some(views) = rules
+            .iter()
+            .map(|rule| {
+                Some((
+                    rule.priority()
+                        .map_or(50, krs_ir_levels::SemanticRulePriority::value),
+                    equation_view(rule)?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let mut bands = BTreeMap::<u32, Vec<EquationView<'_>>>::new();
+        for (priority, view) in views {
+            bands.entry(priority).or_default().push(view);
+        }
+        functions.insert(production.id(), bands.into_values().collect());
+    }
+    functions
+}
+
 /// The view of an equation, or `None` when the analysis cannot read it: it
 /// reads the configuration (a function context) or has a matching-logic
 /// `requires`.
@@ -977,7 +1226,7 @@ pub(crate) fn render_point(head: &str, domain: &Domain<'_>, point: &[i128]) -> S
 /// their overlap is no violation: the equations are confluent there.
 pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<EquationOverlap> {
     let signature = EquationSignature::new(modules);
-    let evaluator = signature.evaluator();
+    let evaluator = signature.evaluator(modules);
     for (production, instance, rules) in function_equations(modules) {
         let columns = instantiate(
             &production_argument_sorts(production),
