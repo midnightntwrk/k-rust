@@ -48,8 +48,9 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// Version 5 (phase 5) adds `identity.effective-constraints`, `identity.target-rule`,
 /// `totals.coverage.names`, `totals.unsupported-reasons`, `totals.baseline-incomplete-reasons`,
 /// the top-level `normal-end` and a witness side's `halts`, renames the clean-leaf facts of ends
-/// (`*-end-final`, `*-data`), adds the target's `data-end`, and changes the meaning of the
-/// definition digests and of the differential classes (`docs/compatibility.md`, "Format
+/// (`*-end-final`, `*-data`), and changes the meaning of the definition digests and of the
+/// differential classes; the campaign specification's `Target`, versioned with the report, gains
+/// `data-end` (`docs/compatibility.md`, "Format
 /// versions").
 pub const REPORT_VERSION: u32 = 5;
 
@@ -132,6 +133,11 @@ impl FuzzReport {
     }
 
     /// Read a report written by [`Self::to_canonical_json`].
+    ///
+    /// It checks no `version`: fields added since an older version default, so an older report
+    /// may read back with its own `version`. A caller that needs this version's meaning checks
+    /// `schema` and `version` against [`REPORT_SCHEMA`] and [`REPORT_VERSION`] first, as
+    /// `krust fuzz --replay` does.
     ///
     /// Every report this crate writes reads back, whatever the depth of its hole values (HARD-B
     /// review S3): outside WebAssembly, `serde_json`'s recursion limit of 128 nested arrays and

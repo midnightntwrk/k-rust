@@ -38,7 +38,7 @@ A rule or pattern target with `run-to-completion` asks for a witness that become
 
 ### Natural ends
 
-`miss` against `stuck`, a run-to-completion hit and a differential end all rest on the natural end: a clean `stuck` leaf on which the program finished.
+`miss` against `stuck`, a run-to-completion hit and a differential end under `run-to-completion` all rest on the natural end: a clean `stuck` leaf on which the program finished (without `run-to-completion`, any clean decided `stuck` leaf is a differential end, a natural end or an abnormal stop alike).
 A campaign's `normal-end-pattern` (`CaseOptions::normal_end_pattern`) decides it when given; otherwise the default reads the `<k>` cells:
 
 - `single-k`, for a configuration whose `<k>` cell is not under a multiplicity cell: the leaf matches `<k> .K </k>` with the rest of the configuration free;
@@ -181,7 +181,7 @@ krust fuzz --replay witness.json
 ```
 
 A rule target (`--reach-rule RULE`, the file's `rule`) names one rule of the definition's catalog, read by the shape of `RULE`:
-`FILE:LINE`, where `LINE` is a decimal number, is a source position, any line from the rule's first to its last, as kink lists uncovered rules (`imp.k:47`). `FILE:FIRST-LAST`, the range the summary prints for a rule written on several lines (`calc.k:28-30`), names the rule that spans `FIRST`, as `FILE:FIRST` does; the summary's `target rule:` line shows the rule chosen.
+`FILE:LINE`, where `LINE` is a decimal number, is a source position, any line from the rule's first to its last, as kink lists uncovered rules (`imp.k:47`). `FILE:FIRST-LAST`, the range the summary prints for a rule written on several lines (`calc.k:28-30`), names the rule that spans `FIRST`, as `FILE:FIRST` does, and is refused before any case unless that rule spans `LAST` too (a range past one rule may name another); the summary's `target rule:` line shows the rule chosen.
 `FILE` must name exactly one file of the definition: a whole catalog path names its file; otherwise the paths it is a suffix of after a `/`, or, for an absolute `FILE`, the relative paths it ends with; a leading `./` is dropped, and a `FILE` that names several files is refused, whatever the line, with the files listed.
 Exactly 64 hexadecimal digits are a unique id, as the report names rules and the summary's `krun` line prints them; any other text is a label, `IMP.neg` or, when no label is that, `neg`.
 Every rule has a source position and a unique id, so a label of either shape is still named by those, and unlabelled rules (most of SIMPLE's, IMP's expression rules) need no labelled copy of the definition.

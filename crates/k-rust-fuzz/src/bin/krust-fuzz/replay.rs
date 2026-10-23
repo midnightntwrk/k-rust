@@ -134,11 +134,11 @@ impl WitnessFile {
 /// The identity fields of `recorded` that `now` does not have, one sentence each, named by
 /// their path in the report (`definitions[0].syntax-definition-digest`).
 ///
-/// Every field of the report's identity is compared except nine, and `target-rule`'s name: the proposers and the budget,
-/// which the replay sets itself (one explicit assignment, one case), `options.shrink` (a replay
-/// does not shrink), the engine version, which covers the proposer and generator code that
-/// chooses cases, `dictionary`, the dictionary proposer's parameters, which only weigh its
-/// draws, `climb`, the climb proposer's parameters, which only choose its moves (the
+/// Every field of the report's identity is compared except nine, and `target-rule`'s name: the
+/// proposers and the budget, which the replay sets itself (one explicit assignment, one case),
+/// `options.shrink` (a replay does not shrink), the engine version, which covers the proposer and
+/// generator code that chooses cases, `dictionary`, the dictionary proposer's parameters, which
+/// only weigh its draws, `climb`, the climb proposer's parameters, which only choose its moves (the
 /// condition records a climbing campaign asks for change no other field of a result),
 /// `corpus`, the corpus proposer's parameters, which only choose its mutations, and `solve`,
 /// the solve proposer's parameters, which only decide its queries, and `effective-constraints`,
@@ -149,10 +149,10 @@ impl WitnessFile {
 /// change the replayed case. Of `target-rule`, only the id is compared: the rule is a function
 /// of the definitions and the target, which are compared, and its name is read from the
 /// catalog, whose source paths say where the definition was compiled (a definition compiled
-/// again elsewhere names the same rule by the same id). (Replaying with the recorded proposers instead would
-/// record a dictionary that chose nothing, and still no draw would differ.) Every other field
-/// is an input of the replayed case's execution or of its assembly, so a difference makes the
-/// replay another campaign.
+/// again elsewhere names the same rule by the same id). (Replaying with the recorded proposers
+/// instead would record a dictionary that chose nothing, and still no draw would differ.) Every
+/// other field is an input of the replayed case's execution or of its assembly, so a difference
+/// makes the replay another campaign.
 pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> Vec<String> {
     let comparable = |identity: &ReportIdentity| {
         let mut identity = identity.clone();

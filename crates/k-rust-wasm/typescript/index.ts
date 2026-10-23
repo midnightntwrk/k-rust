@@ -1238,7 +1238,8 @@ export interface FuzzTarget {
   /**
    * With `run-to-completion`, a rule or pattern hit's end must also be data (constructors,
    * injections, domain values, well-formed collections and irreducible overload applications);
-   * `true` when absent.
+   * `true` when absent. A negated property is exempt: its counterexample is decided by its
+   * match.
    */
   'data-end'?: boolean
 }
@@ -1484,7 +1485,7 @@ export interface FuzzWitnessCase {
     'initial-configuration': string
     'final-configurations': string[]
     /** The halt of each final configuration, in order (`trivial`: an undefined step, no end). */
-    halts?: string[]
+    halts?: Array<ExecutionLeaf['reason']>
   }[]
   /** `step`: for an observer target, the step of the leaf's path at which the observer hit. */
   reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }

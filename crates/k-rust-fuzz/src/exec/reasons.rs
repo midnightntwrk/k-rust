@@ -137,27 +137,34 @@ pub enum UnjudgedReason {
 }
 
 /// The remedy of [`UnjudgedReason::MutantEndNotData`] and [`UnjudgedReason::BaselineEndNotData`].
-const NOT_DATA_REMEDY: &str = "the end is not data in both definitions: it holds an application of a function that no \
-     equation evaluates, an overload application that an overload equation could still lower, \
-     an application of a symbol of a broken overload family, or one the other definition's \
-     equations, overload members or subsorts would rewrite, so the two ends cannot be compared \
-     and this case cannot be judged; a program or hole range whose ends hold only constructors, \
-     builtin values and irreducible overload applications can be";
+const NOT_DATA_REMEDY: &str = concat!(
+    "the end is not data in both definitions: it holds an application of a function that no",
+    " equation evaluates, an overload application that an overload equation could still ",
+    "lower, an application of a symbol of a broken overload family, or one the other ",
+    "definition's equations, overload members or subsorts would rewrite, so the two ends ",
+    "cannot be compared and this case cannot be judged; a program or hole range whose ends ",
+    "hold only constructors, builtin values and irreducible overload applications can be",
+);
 
 /// The remedy of [`UnjudgedReason::DefinitionNotConfluent`].
-const DEFINITION_NOT_CONFLUENT_REMEDY: &str = "a definition of the case has no data: its full critical-pair check reports a pair it does \
-     not join, an equation the evaluator does not apply to every subject it describes, or a \
-     violated precondition (the report's warnings name each one, `definition-not-confluent`), \
-     so no end of it can be compared and no case of this definition pair can be judged, \
-     whatever the budget, bounds or values; a pair the check reports may also be one it cannot \
-     decide, so read each finding before changing an equation";
+const DEFINITION_NOT_CONFLUENT_REMEDY: &str = concat!(
+    "a definition of the case has no data: its full critical-pair check reports a pair it ",
+    "does not join, an equation the evaluator does not apply to every subject it describes,",
+    " or a violated precondition (the report's warnings name each one, ",
+    "`definition-not-confluent`), so no end of it can be compared and no case of this ",
+    "definition pair can be judged, whatever the budget, bounds or values; a pair the check",
+    " reports may also be one it cannot decide, so read each finding before changing an ",
+    "equation",
+);
 
 /// The remedy of [`UnjudgedReason::ReachedEndNotData`].
-const REACHED_END_NOT_DATA_REMEDY: &str = "the target was reached on a natural end that is not data, so the witness's end could not \
-     be compared with a mutant's; choose a program or hole range whose ends hold only \
-     constructors, builtin values and irreducible overload applications, or accept such ends \
-     (campaign key `data-end = false`, command line `--no-data-end`, library \
-     `Target::data_end`); a negated property is exempt";
+const REACHED_END_NOT_DATA_REMEDY: &str = concat!(
+    "the target was reached on a natural end that is not data, so the witness's end could ",
+    "not be compared with a mutant's; choose a program or hole range whose ends hold only ",
+    "constructors, builtin values and irreducible overload applications, or accept such ",
+    "ends (campaign key `data-end = false`, command line `--no-data-end`, library ",
+    "`Target::data_end`); a negated property is exempt",
+);
 
 impl UnjudgedReason {
     /// Every reason, in declaration order.
@@ -270,9 +277,9 @@ impl UnjudgedReason {
             Self::KillWithoutEvidence => {
                 "the mutant's ends differ from the baseline's, but its result rests on a value \
                  k-rust chose where the definition leaves it open (such as map or set order), or \
-                 contradicts an attribute the mutant asserts about a function, so its ends are \
-                 no evidence and this case cannot be judged; a program or hole range whose runs \
-                 avoid both can be"
+                 contradicts an attribute the mutant asserts of a function or a rule, so its \
+                 ends are no evidence and this case cannot be judged; a program or hole range \
+                 whose runs avoid both can be"
             }
             Self::ImplementationChosenValue => {
                 "the result depends on a value k-rust chose where the definition leaves it open \
