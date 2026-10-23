@@ -5,7 +5,7 @@ use syn::{
     TraitBoundModifier, TypeParamBound,
 };
 
-use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
 use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
@@ -94,9 +94,9 @@ impl ConstructorDeclaration {
     ///
     /// Rejects where clauses, generic parameters other than K sort
     /// parameters `S: ?Sized` used by a field, tuple structs, field
-    /// attributes, and record fields not typed as `Term<SortPath>`,
-    /// `Term<dyn SortPath>`, or `Term<S>` for a sort parameter `S`, at the
-    /// responsible token.
+    /// attributes other than doc comments, and record fields not typed as
+    /// `Term<SortPath>`, `Term<dyn SortPath>`, or `Term<S>` for a sort
+    /// parameter `S`, at the responsible token.
     pub fn from_item(item: ItemStruct) -> Result<Self, SyntaxError> {
         let parameters = sort_parameters(&item.generics)?;
 
@@ -105,9 +105,9 @@ impl ConstructorDeclaration {
             Fields::Named(named) => {
                 let mut parsed = Vec::with_capacity(named.named.len());
                 for field in &named.named {
-                    if let Some(attribute) = field.attrs.first() {
+                    if let Some(attribute) = first_non_doc_attribute(&field.attrs) {
                         return Err(unsupported_constructor(
-                            "constructor field attributes are not supported",
+                            "a constructor field takes only doc comments",
                             attribute.span(),
                         ));
                     }

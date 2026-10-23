@@ -13,7 +13,7 @@ use proc_macro2::{Span, TokenStream};
 use syn::{Attribute, Ident, LitStr, Token};
 
 use crate::grammar::validate_regex;
-use crate::parse::{KrsSyntax, ParseError, checked_ordinal, structured};
+use crate::parse::{KrsSyntax, ParseError, checked_ordinal, first_non_doc_attribute, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One `Name = r"..";` entry of a `k::lexical!` block.
@@ -104,10 +104,7 @@ impl KrsSyntax for LexicalDeclaration {
             let mut seen = BTreeSet::new();
             while !input.is_empty() {
                 let attributes = input.call(Attribute::parse_outer)?;
-                if let Some(attribute) = attributes
-                    .iter()
-                    .find(|attribute| !attribute.path().is_ident("doc"))
-                {
+                if let Some(attribute) = first_non_doc_attribute(&attributes) {
                     return Err(invalid(
                         "a `k::lexical!` entry takes only doc comments",
                         attribute.pound_token.span,

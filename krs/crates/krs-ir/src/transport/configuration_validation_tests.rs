@@ -790,3 +790,57 @@ fn cell_and_sibling_identities_preserve_owner_and_field_comparisons_on_both_stag
     );
     assert_duplicate_nested_children::<HostStage>(host, &type_key::<Owner>());
 }
+
+/// A one-item `k!` shell whose payload, item, and term keys carry `ordinal`;
+/// the item's literal is keyed by the item.
+fn k_sequence_shell(ordinal: u32) -> ProtocolInitializerStateTerm<Term<DescriptorStage>> {
+    let item = ProvenanceKey::new(ProvenanceRole::KSequenceItem, ordinal);
+    ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
+        payload_key: Some(ProvenanceKey::new(
+            ProvenanceRole::KSequencePayload,
+            ordinal,
+        )),
+        dot_k_key: None,
+        notation: DescriptorKSequenceNotation::Comma,
+        items: vec![ProtocolKSequenceItem {
+            key: item.clone(),
+            value: ProtocolInitializerTerm {
+                key: ProvenanceKey::new(ProvenanceRole::InitializerTerm, ordinal),
+                term: Term::Literal {
+                    key: item,
+                    literal: DescriptorLiteral::Int("1".into()),
+                },
+            },
+        }],
+    })
+}
+
+/// The `k!` shells of one initializer are numbered across it: a second shell
+/// continues at payload 1, and one that repeats payload 0 is rejected.
+#[test]
+fn k_sequence_shells_are_numbered_across_the_initializer() {
+    let validate = |second| {
+        let mut counters = InitializerCounters::default();
+        let mut keys = BTreeSet::new();
+        validate_state_term::<DescriptorStage>(
+            &k_sequence_shell(0),
+            &BTreeSet::new(),
+            &mut counters,
+            &mut keys,
+        )?;
+        validate_state_term::<DescriptorStage>(
+            &k_sequence_shell(second),
+            &BTreeSet::new(),
+            &mut counters,
+            &mut keys,
+        )
+    };
+    assert_eq!(validate(1), Ok(()));
+    assert_eq!(
+        validate(0),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceKey::new(ProvenanceRole::KSequencePayload, 1),
+            actual: key(ProvenanceRole::KSequencePayload),
+        })
+    );
+}

@@ -344,3 +344,147 @@ fn initializer_terms_take_record_syntax() {
         assert_eq!(first, headline, "{name}: {stderr}");
     }
 }
+
+/// A configuration with two cells of each kind and a nested group.
+const SIBLINGS: &str = r#"
+use k::KResult;
+use k::builtin::{Bytes, Id, Int, KSequence, List, Map, list};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("skip")]
+    Skip(),
+    #[k::syntax("tick")]
+    Tick(),
+    #[k::syntax("wrap ( {v} )")]
+    Wrap { v: Int },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub fk: KSequence,
+    #[k::cell]
+    pub fenv: Map<Id, Value>,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub slot: KSequence,
+    #[k::cell]
+    pub env: Map<Id, Value>,
+    #[k::cell]
+    pub env2: Map<Id, Value>,
+    #[k::cell]
+    pub mem: Bytes,
+    #[k::cell]
+    pub mem2: Bytes,
+    #[k::cell]
+    pub stack: List<Stmt>,
+    #[k::cell]
+    pub stack2: List<Stmt>,
+    #[k::cell(nested)]
+    pub frame: Frame,
+}
+"#;
+
+/// An initializer for `SIBLINGS` with `env2` as that cell's value.
+fn sibling_initializer(env2: &str) -> String {
+    format!(
+        "{SIBLINGS}impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt, n: Id) -> Self {{\n        Self {{\n            k: k::k![pgm, StmtSyntax::Tick()],\n            slot: k::k![1, 2],\n            env: k::map![n -> 1],\n            env2: {env2},\n            mem: k::bytes!(b\"a\"),\n            mem2: k::bytes!(b\"b\"),\n            stack: list::item(StmtSyntax::Wrap {{ v: 1 }}),\n            stack2: list::item(StmtSyntax::Wrap {{ v: 2 }}),\n            frame: Frame {{ fk: k::k![3], fenv: k::map![n -> 4] }},\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// Any number of cells may start with a non-empty `k::k!` or `k::map!`: each
+/// node is its own part of the one configuration term, so a second one of a
+/// kind, in a sibling cell or in a nested group, is checked, emitted, and run
+/// like the first.
+#[test]
+fn sibling_cells_each_start_with_their_own_structure() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "siblings",
+        &sibling_initializer("k::map![n -> 2]"),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let definition = emit(target.path(), &manifest);
+    expect_test::expect![[r#"
+        <k> $PGM:Stmt ~> tick </k>
+        <slot> 1 ~> 2 </slot>
+        <env> $N:Id |-> 1 </env>
+        <env2> $N:Id |-> 2 </env2>
+        <mem> b"\x61" </mem>
+        <mem2> b"\x62" </mem2>
+        <stack> ListItem(wrap ( 1 )) </stack>
+        <stack2> ListItem(wrap ( 2 )) </stack2>
+        <frame>
+        <fk> 3 </fk>
+        <fenv> $N:Id |-> 4 </fenv>
+        </frame>"#]]
+    .assert_eq(&configuration(&definition));
+
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "skip").unwrap();
+    let (_, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &["--depth", "0", "-c", "N=x", program.to_str().unwrap()],
+    );
+    let state = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    for cell in [
+        "<k> skip ~> tick ~> .K </k>",
+        "<slot> 1 ~> 2 ~> .K </slot>",
+        "<env> x |-> 1 </env>",
+        "<env2> x |-> 2 </env2>",
+        "<fk> 3 ~> .K </fk>",
+        "<fenv> x |-> 4 </fenv>",
+    ] {
+        assert!(state.contains(cell), "{cell}\n{stdout}\n{stderr}");
+    }
+
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let reference = package(temporary.path(), "siblings-expanded", &expanded);
+    assert_eq!(emit(target.path(), &reference), definition);
+
+    // A diagnostic in the second map lands on that map's value.
+    let ill_sorted = package(
+        temporary.path(),
+        "siblings-ill-sorted",
+        &sibling_initializer("k::map![n -> StmtSyntax::Tick()]"),
+    );
+    let (success, _, stderr) = krs(target.path(), &ill_sorted, "check", &[]);
+    assert!(!success, "{stderr}");
+    let lines = stderr.lines().collect::<Vec<_>>();
+    let index = lines
+        .iter()
+        .position(|line| line.starts_with("error"))
+        .unwrap_or_else(|| panic!("{stderr}"));
+    assert!(
+        lines[index].starts_with("error[krs::analysis::collection-element-sort]"),
+        "{stderr}"
+    );
+    let source = lines[index + 3].split_once(" | ").unwrap().1;
+    let carets = lines[index + 4].split_once(" | ").unwrap().1;
+    let start = carets.find('^').unwrap();
+    let width = carets[start..].chars().take_while(|c| *c == '^').count();
+    assert!(source.trim_start().starts_with("env2:"), "{stderr}");
+    assert_eq!(
+        &source[start..start + width],
+        "StmtSyntax::Tick",
+        "{stderr}"
+    );
+}

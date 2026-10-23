@@ -264,6 +264,15 @@ impl<K> ReferenceCandidate<K> {
     }
 }
 
+/// The first attribute that is not documentation. Doc comments (`///`,
+/// `#[doc = ".."]`, `#[doc(..)]`) document the Rust item and carry no K
+/// meaning, so positions that take no attribute still accept them.
+pub(crate) fn first_non_doc_attribute(attributes: &[Attribute]) -> Option<&Attribute> {
+    attributes
+        .iter()
+        .find(|attribute| !attribute.path().is_ident("doc"))
+}
+
 pub(crate) fn duplicate(name: &'static str, span: Span) -> ParseError {
     SyntaxError::new(SyntaxErrorKind::DuplicateArgument { name }, span).into()
 }

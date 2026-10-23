@@ -45,6 +45,8 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
 > {
+    #[allow(unused_imports)]
+    use ::k::configuration::__KrsInitializerFallback as _;
     let (initializer, initializer_slots, initializer_provenance) = Machine::__krs_initializer_payload()?;
     ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,

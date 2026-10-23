@@ -73,6 +73,8 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 `#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
+Every configuration has exactly one `#[k::init]`, in an inherent `impl`: it is where the initial state is written, and no cell has a default value, since a cell's sort does not determine its initial content (a computation cell may start empty or with the program).
+Without one, including when a `cfg` removes it, `krs check` reports `krs::expand::missing-initializer` at the struct.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 A configuration variable is a value supplied at start, so the initializer may read it anywhere and more than once, as in `regs: k::map![Reg::A -> a, Reg::B -> b]`; each read is K's `$NAME:Sort`.
 Its declared type is its parameter's type, element types included (`xs: List<Value>`, `sets: Map<Int, Set<Int>>`), and the initializer may place it anywhere that type fits ([typed collections](#typed-collections)).
@@ -611,6 +613,7 @@ pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
 ```
 
 It is the struct `pub struct Byte { pub value: k::Term<Int> }` with `#[k::function(total, internal, sort = Int, syntax = "byte({value})")]`, plus the equation `#[k::equation] fn byte(k::term![Byte(value)]: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(value, 256) }`, and `krs expand` prints exactly that pair.
+Its fields, like those of a `#[k::constructor]` struct, an enum variant, a syntactic list's cons variant, or a token's representation, may carry doc comments, which document the Rust item and have no K meaning; any other field attribute is an error.
 The fn is named as its applications are written, `Byte(x)`, in UpperCamelCase, so the name a rule uses is the name the declaration spells; the equation takes the snake-case name, `byte` (`FieldX` gives `field_x`, `R8` gives `r8`).
 The return type is the sort, so a `sort` key is rejected; every parameter is a plain name typed `k::Term<S>`, because Rust parameters are irrefutable: cases are written as [branches](#branching-bodies) of the body, rows of a table, or `#[k::equation]` fns.
 `#[k::requires(..)]` on the fn guards the equation, `total` and `partial` mean what they mean on the struct, and a generic fn, a pattern parameter, `#[k::equation(..)]`, and `hook` with a body are rejected (`krs::syntax::invalid-function-shorthand`).

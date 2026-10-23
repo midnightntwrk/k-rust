@@ -426,3 +426,58 @@ fn configuration_variables_keep_their_element_types() {
         ["Self", "List", "Map", "Int", "Value", "Id", "Set", "Int"]
     );
 }
+
+/// The `k!` and `map!` structure anchors of one initializer name distinct
+/// nodes: each role's ordinals run `0..n` across the cells, in cell order with
+/// nested groups in place, so no two nodes share a provenance key.
+#[test]
+fn structure_anchors_are_numbered_across_the_initializer() {
+    let initializer = krs_syntax::InitializerFunction::parse_source(
+        "fn init(pgm: Stmt, n: Id, m: Map<Id, Value>) -> Self {
+            Self {
+                k: k::k![pgm, StmtSyntax::Tick()],
+                slot: k::k![1, 2],
+                env: k::map![n -> 1],
+                frame: Frame { fk: k::k![3], fenv: k::map![n -> 3, Id(\"o\") -> 4] },
+                env2: k::map![m[n <- 2]],
+            }
+        }",
+    )
+    .unwrap();
+    let anchors = initializer.provenance().unwrap();
+    let mut keys = std::collections::BTreeSet::new();
+    for anchor in &anchors {
+        assert!(
+            keys.insert((anchor.role(), anchor.ordinal())),
+            "repeated key {:?} {}",
+            anchor.role(),
+            anchor.ordinal()
+        );
+    }
+    for (role, count) in [
+        (ProvenanceRole::KSequencePayload, 3),
+        (ProvenanceRole::KSequenceItem, 5),
+        (ProvenanceRole::MapPayload, 3),
+        (ProvenanceRole::MapKey, 4),
+        (ProvenanceRole::MapValue, 4),
+        (ProvenanceRole::MapUpdateBase, 1),
+    ] {
+        let numbered = anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .map(|anchor| {
+                let start = anchor.range().start();
+                (anchor.ordinal(), (start.line, start.column))
+            })
+            .collect::<Vec<_>>();
+        let ordinals = numbered
+            .iter()
+            .map(|(ordinal, _)| *ordinal)
+            .collect::<Vec<_>>();
+        assert_eq!(ordinals, (0..count).collect::<Vec<u32>>(), "{role:?}");
+        assert!(
+            numbered.windows(2).all(|pair| pair[0].1 < pair[1].1),
+            "{role:?} is not in source order: {numbered:?}"
+        );
+    }
+}

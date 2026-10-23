@@ -129,3 +129,40 @@ fn a_failed_initializer_reports_only_its_krs_error() {
         );
     }
 }
+
+#[test]
+fn a_configuration_without_an_initializer_is_reported_at_its_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let name = PREAMBLE.find("pub struct Machine").unwrap();
+    let line = PREAMBLE[..name].lines().count() + 1;
+    let location = format!("lib.rs:{line}:12");
+    let removed = format!(
+        "{PREAMBLE}\nimpl Machine {{\n    #[cfg(any())]\n    #[k::init]\n    pub fn init() -> Self {{\n        Self {{ k: k::k![], env: map::empty(), stack: list::empty() }}\n    }}\n}}\n"
+    );
+    let cases = [("missing", PREAMBLE.to_owned()), ("cfg-removed", removed)];
+    for (name, library) in cases {
+        let manifest = package(temporary.path(), name, &library);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{name}: {stderr}");
+        let errors = stderr
+            .lines()
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            errors,
+            [
+                "error[krs::expand::missing-initializer]: configuration `Machine` has no `#[k::init]` initializer"
+            ],
+            "{name}: {stderr}"
+        );
+        assert!(stderr.contains(&location), "{name}: {stderr}");
+        assert!(
+            stderr.contains("= note: an initializer gives each cell its initial value"),
+            "{name}: {stderr}"
+        );
+        for internal in ["E0599", "E0277", "__krs", "__Krs"] {
+            assert!(!stderr.contains(internal), "{name}: {stderr}");
+        }
+    }
+}
