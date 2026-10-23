@@ -1193,7 +1193,7 @@ export type FuzzHoleLocation =
   | { kind: 'kore-variable'; name: string }
 
 export interface FuzzConstraints {
-  range?: { min?: string; max?: string } | null
+  range?: { min?: string | null; max?: string | null } | null
   length?: { min?: number | null; max?: number | null } | null
   elements?:
     | { collection: 'elements'; element: string }
