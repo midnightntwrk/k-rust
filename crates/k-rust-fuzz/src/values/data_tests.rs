@@ -325,16 +325,9 @@ fn builtins_in_the_excluded_set_stay_generated() {
 fn holes_resolve_data_holes_with_the_rules_exclusions() {
     use crate::{
         holes::{HoleDecl, HoleLocation, resolve as resolve_holes},
-        spec::{CompiledDefinition, ProgramInput, ProgramSource, ProgramText},
+        spec::{ProgramInput, ProgramSource, ProgramText},
     };
-    let definition = values();
-    let compiled = CompiledDefinition::from_artifacts(
-        definition.main_module,
-        definition.syntax_module.clone(),
-        definition.frontend.clone(),
-        definition.artifacts.clone(),
-    )
-    .unwrap();
+    let compiled = crate::support::VALUES.compiled().definition();
     let bindings = [
         ("SHAPE", "circle(5)"),
         ("REC", "rec(true, unit, node(leaf(1), leaf(2)))"),
@@ -368,7 +361,7 @@ fn holes_resolve_data_holes_with_the_rules_exclusions() {
         hole("REC", "Rec"),
         hole("PAIR", "Pair"),
     ];
-    let resolved = resolve_holes(&decls, &program, &compiled, &definition.backend)
+    let resolved = resolve_holes(&decls, &program, &compiled, &values().backend)
         .unwrap_or_else(|error| panic!("{error:?}"));
     for resolved in &resolved.holes {
         assert!(

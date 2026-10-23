@@ -51,6 +51,7 @@ use k_rust::{
         parser::parse_definition,
     },
     outer::{LoadOptions, ResolvedSource, load_for_compilation},
+    provenance::SourceTable,
 };
 use k_rust_fuzz::{BackendRoute, CompiledDefinition, ProgramSource, spec::ProgramText};
 
@@ -93,6 +94,11 @@ pub struct Compiled {
     pub artifacts: CompiledKoreArtifacts,
     /// `artifacts.definition_kore`, parsed.
     pub kore: KoreDefinition,
+    /// The loaded frontend definition, which `krust kcompile` stores in a compiled directory and
+    /// the program grammar extends with named-field projections.
+    pub loaded: Definition,
+    /// The loaded definition's sources, which its provenance indexes.
+    pub source_table: SourceTable,
 }
 
 impl std::fmt::Debug for Compiled {
@@ -129,7 +135,7 @@ impl Fixture {
 }
 
 /// Load `source`, whose source name is `file`, and compile it, as [`Fixture::compiled`] does:
-/// the frontend definition, the syntax module and the compiler's output.
+/// the frontend definition, its source table, the syntax module and the compiler's output.
 ///
 /// # Panics
 ///
@@ -140,7 +146,7 @@ fn load_and_compile(
     source: &str,
     main_module: &str,
     expected: &[DiagnosticCode],
-) -> (Definition, String, CompiledKoreArtifacts) {
+) -> (Definition, SourceTable, String, CompiledKoreArtifacts) {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -170,11 +176,17 @@ fn load_and_compile(
         "{file} compiles with other diagnostics than expected: {:#?}",
         artifacts.diagnostics
     );
-    (loaded.into_definition(), syntax_module, artifacts)
+    let source_table = loaded.source_table().clone();
+    (
+        loaded.into_definition(),
+        source_table,
+        syntax_module,
+        artifacts,
+    )
 }
 
 fn compile(fixture: &'static Fixture) -> Compiled {
-    let (frontend, syntax_module, artifacts) = load_and_compile(
+    let (frontend, source_table, syntax_module, artifacts) = load_and_compile(
         fixture.file,
         fixture.source,
         fixture.main_module,
@@ -190,6 +202,8 @@ fn compile(fixture: &'static Fixture) -> Compiled {
         grammar,
         artifacts,
         kore,
+        loaded: frontend,
+        source_table,
     }
 }
 
@@ -201,9 +215,16 @@ fn compile(fixture: &'static Fixture) -> Compiled {
 ///
 /// If the definition does not load or compile, or compiles with any diagnostic.
 pub fn compile_source(file: &str, source: &str, main_module: &str) -> CompiledDefinition {
-    let (frontend, syntax_module, artifacts) = load_and_compile(file, source, main_module, &[]);
-    CompiledDefinition::from_artifacts(main_module, syntax_module, frontend, artifacts)
-        .unwrap_or_else(|error| panic!("{file}: {error:?}"))
+    let (frontend, source_table, syntax_module, artifacts) =
+        load_and_compile(file, source, main_module, &[]);
+    CompiledDefinition::from_artifacts(
+        main_module,
+        syntax_module,
+        frontend,
+        source_table,
+        artifacts,
+    )
+    .unwrap_or_else(|error| panic!("{file}: {error:?}"))
 }
 
 impl Compiled {
@@ -322,7 +343,8 @@ impl Compiled {
         CompiledDefinition::from_artifacts(
             self.fixture.main_module,
             self.syntax_module.clone(),
-            self.frontend().clone(),
+            self.loaded.clone(),
+            self.source_table.clone(),
             self.artifacts.clone(),
         )
         .unwrap_or_else(|error| panic!("{}: {error:?}", self.fixture.file))

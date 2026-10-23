@@ -159,10 +159,12 @@ fn compile(options: FuzzDefinitionOptions) -> Result<CompiledDefinition, String>
     .map_err(display_error)?;
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
         .map_err(format_compile_error)?;
+    let source_table = loaded.source_table().clone();
     CompiledDefinition::from_artifacts(
         options.module_name,
         syntax_module,
         loaded.into_definition(),
+        source_table,
         artifacts,
     )
     .map_err(display_error)

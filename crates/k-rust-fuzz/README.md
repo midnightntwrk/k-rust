@@ -64,7 +64,7 @@ User token sorts such as `Id` are refused, because an identifier names a declara
 
 ## Library usage
 
-The caller compiles the definition (`CompiledDefinition::from_artifacts` takes an in-process compilation), builds a `CampaignSpec` (the definitions, the program, the holes, the target, the case options, the proposers, the seed), and runs it:
+The caller compiles the definition (`CompiledDefinition::from_artifacts` takes an in-process compilation, with the loaded definition's source table, and reduces it to what `krust kcompile` stores in a compiled directory, so that both give one definition), builds a `CampaignSpec` (the definitions, the program, the holes, the target, the case options, the proposers, the seed), and runs it:
 
 ```rust
 use k_rust_fuzz::{Budget, Campaign, CampaignError, CampaignSpec, FuzzReport};
@@ -186,6 +186,7 @@ A witness file (`schema: "krust-fuzz-witness"`, `version: 1`) holds the campaign
 `--replay FILE` loads the recorded definitions and program, rebuilds the specification and checks that its identity is the witness's.
 It compares every field of the report's identity except eight: the proposers and the budget, which the replay sets itself, `options.shrink`, and the engine version and the dictionary's, the climb's, the corpus's and the solve proposer's parameters (`dictionary`, `climb`, `corpus`, `solve`), which cover only the code that chooses cases.
 That includes the k-rust revision, each definition's modules, execution digest, route, rewrite order, frontend, execution-definition and syntax-and-macro digests and initial configuration, the program, overlay and target digests, the options, the bounds and the solver.
+The frontend and execution-definition digests are the SHA-256 of each definition's canonical provenance JSON with its source table, which holds every sentence, attribute, term and provenance record and reads back to an equal definition: one definition gives one digest whether it was loaded from a compiled directory or compiled in process, and for a compiled directory written by this k-rust it is the digest `runtime.json` records for `frontend.json` and `execution.json`.
 On a mismatch it lists every difference by its path in the report (for example `definitions[0].syntax-definition-digest`) and refuses (exit status 2) unless `--force` is given.
 A forced replay prints each mismatch and a `forced: replayed despite N identity mismatches` line; its exit status still says whether the cases reproduced.
 It then runs the first and, when there is one, the shrunk witness case as the campaign's only explicit assignment, without shrinking, and a case reproduces when the replay confirms a hit whose witness case (hole values, class, initial and final configurations, reaching leaf and step count) equals the recorded one; the exit status is 0 when every case reproduced and 1 otherwise.

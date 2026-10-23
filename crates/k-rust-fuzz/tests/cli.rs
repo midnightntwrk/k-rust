@@ -68,6 +68,12 @@ literal = "5"
 
 /// Write the compiled directory of `fixture` to `directory`, as `krust kcompile` writes it.
 fn write_compiled(fixture: &'static Fixture, directory: &Path) {
+    write_compiled_source(fixture.file, fixture.source, fixture.main_module, directory);
+}
+
+/// Write the compiled directory of `source`, under the source name `file`, to `directory`, as
+/// `krust kcompile` writes it.
+fn write_compiled_source(file: &str, source: &str, main_module: &str, directory: &Path) {
     fs::create_dir_all(directory).expect("the compiled directory is created");
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
@@ -77,15 +83,15 @@ fn write_compiled(fixture: &'static Fixture, directory: &Path) {
         ..CompilationBackend::Rust.load_options()
     };
     let (loaded, syntax_module) = load_for_compilation(
-        ResolvedSource::new(fixture.file, fixture.source),
-        fixture.main_module,
+        ResolvedSource::new(file, source),
+        main_module,
         None,
         &mut resolver,
         &options,
     )
-    .unwrap_or_else(|error| panic!("{} does not load: {error:?}", fixture.file));
+    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-        .unwrap_or_else(|error| panic!("{} does not compile: {error}", fixture.file));
+        .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
     for (name, text) in [
         ("definition.kore", &artifacts.definition_kore),
         ("syntaxDefinition.kore", &artifacts.syntax_definition_kore),
@@ -95,7 +101,7 @@ fn write_compiled(fixture: &'static Fixture, directory: &Path) {
     }
     write_runnable_artifact(
         directory,
-        fixture.main_module,
+        main_module,
         &syntax_module,
         loaded.definition(),
         loaded.source_table(),
@@ -375,19 +381,66 @@ fn the_command_line_runs_the_library_campaign() {
         library.identity.target_digest
     );
     assert_eq!(report.identity.options, library.identity.options);
-    // A runnable artifact stores the frontend and execution definitions pruned to what krun
-    // reads (`native::write_runnable_artifact`), so their `Debug` digests differ from an
-    // in-process compilation's; every other definition field, the initial configuration's
-    // digest included, is equal.
-    let comparable = |identity: &k_rust_fuzz::report::ReportIdentity| {
-        let mut definitions = identity.definitions.clone();
-        for definition in &mut definitions {
-            definition.frontend_digest.clear();
-            definition.execution_definition_digest.clear();
-        }
-        definitions
-    };
-    assert_eq!(comparable(&report.identity), comparable(&library.identity));
+    // One definition gives one identity whichever route loaded it: the compiled directory and
+    // the in-process compilation of the same source (FZ-SETUP).
+    assert_eq!(report.identity.definitions, library.identity.definitions);
+    // The frontend and execution-definition digests are the SHA-256 of the definitions'
+    // canonical provenance JSON, which is what the compiled directory stores and its manifest
+    // records the digest of.
+    let manifest: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(directory.join("imp-kompiled/runtime.json")).unwrap(),
+    )
+    .unwrap();
+    let definition = &report.identity.definitions[0];
+    assert_eq!(
+        manifest["frontend"]["sha256"], definition.frontend_digest,
+        "the frontend digest is the stored frontend payload's"
+    );
+    assert_eq!(
+        manifest["execution"]["sha256"], definition.execution_definition_digest,
+        "the execution-definition digest is the stored execution payload's"
+    );
+}
+
+/// FZ-SETUP: a grammar change the frontend digest caught when it hashed the definition's
+/// `Debug` rendering is still caught. Making `-` right-associative changes how `a - b - c`
+/// parses, so a program can assemble into another initial configuration.
+#[test]
+fn a_replay_on_a_changed_grammar_is_refused() {
+    let directory = le_workspace("grammar");
+    let output = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--witness",
+            "witness.json",
+            "--no-shrink",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let production = r#"| AExp "-" AExp              [symbol(_-_), left,"#;
+    assert_eq!(IMP.source.matches(production).count(), 1);
+    let source = IMP.source.replace(
+        production,
+        r#"| AExp "-" AExp              [symbol(_-_), right,"#,
+    );
+    write_compiled_source(
+        IMP.file,
+        &source,
+        IMP.main_module,
+        &directory.join("imp-right"),
+    );
+    let refused = krust_fuzz(
+        &directory,
+        &["--replay", "witness.json", "--definition", "imp-right"],
+    );
+    let stderr = text(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("identity mismatch: definitions[0].frontend-digest"),
+        "{stderr}"
+    );
 }
 
 #[test]

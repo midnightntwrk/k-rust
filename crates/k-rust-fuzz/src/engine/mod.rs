@@ -728,8 +728,8 @@ fn identity(
             role,
             main_module: definition.main_module.clone(),
             syntax_module: definition.syntax_module.clone(),
-            frontend_digest: debug_digest(&definition.frontend_definition),
-            execution_definition_digest: debug_digest(&definition.execution_definition),
+            frontend_digest: definition.frontend_digest()?,
+            execution_definition_digest: definition.execution_definition_digest()?,
             syntax_definition_digest: digest_hex(
                 format!(
                     "{}\n{}",
@@ -783,29 +783,6 @@ fn identity(
             .then(|| CorpusParameters::for_target(&spec.target.kind)),
         solve: (weight(&spec.proposers, ProposerKind::Solve) > 0).then(SolveParameters::current),
     })
-}
-
-/// [`digest_hex`] of `value`'s `Debug` rendering, streamed into the hash. The frontend
-/// definition types hold only ordered containers, so the rendering is deterministic for one
-/// k-rust revision, which the identity also records.
-fn debug_digest(value: &impl std::fmt::Debug) -> String {
-    use sha2::{Digest as _, Sha256};
-    use std::fmt::Write as _;
-    struct Hasher(Sha256);
-    impl std::fmt::Write for Hasher {
-        fn write_str(&mut self, text: &str) -> std::fmt::Result {
-            self.0.update(text.as_bytes());
-            Ok(())
-        }
-    }
-    let mut hasher = Hasher(Sha256::new());
-    write!(hasher, "{value:?}").expect("hashing does not fail");
-    let digest = hasher.0.finalize();
-    let mut text = String::with_capacity(64);
-    for byte in digest {
-        write!(text, "{byte:02x}").expect("writing to a String does not fail");
-    }
-    text
 }
 
 /// Canonical JSON of a spec part the identity digests.

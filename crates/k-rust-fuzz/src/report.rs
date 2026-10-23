@@ -549,12 +549,18 @@ pub struct DefinitionIdentity {
     pub execution_digest: String,
     /// `"source-execution"` or `"from-definition"` ([`crate::BackendRoute`]).
     pub route: String,
-    /// [`digest_hex`] of the `Debug` rendering of the frontend definition the program grammar
-    /// is resolved from, which the execution digest does not cover: two definitions with equal
-    /// KORE can parse one program into different initial configurations.
+    /// [`digest_hex`] of the canonical provenance JSON of the frontend definition the program
+    /// grammar is resolved from, with its source table
+    /// ([`crate::CompiledDefinition::frontend_digest`]), which for a compiled directory written
+    /// by this k-rust is the SHA-256 its manifest records for `frontend.json`. The execution
+    /// digest does not cover it: two definitions with equal KORE can parse one program into
+    /// different initial configurations.
     pub frontend_digest: String,
-    /// [`digest_hex`] of the `Debug` rendering of the execution definition that pattern targets
-    /// and the normal-termination pattern are compiled in.
+    /// [`digest_hex`] of the canonical provenance JSON of the execution definition that pattern
+    /// targets and the normal-termination pattern are compiled in
+    /// ([`crate::CompiledDefinition::execution_definition_digest`]), which for a compiled
+    /// directory written by this k-rust is the SHA-256 its manifest records for
+    /// `execution.json`.
     pub execution_definition_digest: String,
     /// [`digest_hex`] of `syntaxDefinition.kore` and of `macros.kore`, joined by a newline:
     /// collection and data-sort values are printed from the one and read back through the
