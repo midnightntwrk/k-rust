@@ -151,3 +151,151 @@ fn entry_point_names_round_trip() {
     assert_eq!(AttributeMacro::from_name("sorts"), None);
     assert_eq!(FunctionMacro::from_name("sort"), None);
 }
+
+/// Expands a failing attribute and returns its stand-in items, parsed.
+fn failed_stand_in(entry: AttributeMacro, attributes: &str, item: &str) -> Vec<syn::Item> {
+    let env = TestEnvironment::new(None);
+    let error = krs_expand::expand_attribute(
+        entry,
+        &env,
+        attributes.parse().unwrap(),
+        item.parse().unwrap(),
+    )
+    .unwrap_err();
+    syn::parse_file(&error.stand_in().to_string())
+        .unwrap()
+        .items
+}
+
+fn tokens(item: &impl quote::ToTokens) -> String {
+    quote::ToTokens::to_token_stream(item).to_string()
+}
+
+/// A failed `#[k::constructors]` enum leaves the enum with its name,
+/// documentation, and `#[cfg]`, field-less variants of the same kinds without
+/// their KRS helpers, and the generated interface other expansions name: a
+/// marker function and a rule-application impl per variant, under the enum's
+/// and the variant's `#[cfg]`. The enum loses its generics.
+#[test]
+fn a_failed_enum_family_leaves_its_names_and_interface() {
+    let items = failed_stand_in(
+        AttributeMacro::Constructors,
+        "sort = ObjectTerm",
+        r#"
+        #[cfg(feature = "objects")]
+        /// Objects.
+        enum Object<T> {
+            /// The empty object.
+            #[k::syntax("foo")]
+            Foo(),
+            #[cfg(feature = "bar")]
+            #[k::syntax("bar({value})")]
+            Bar { value: Int, rest: T },
+            #[k::syntax("baz")]
+            Baz,
+        }
+        "#,
+    );
+    let syn::Item::Enum(stand_in) = &items[0] else {
+        panic!("{items:?}");
+    };
+    assert_eq!(stand_in.ident, "Object");
+    assert!(stand_in.generics.params.is_empty());
+    assert_eq!(
+        stand_in.attrs.iter().map(tokens).collect::<Vec<_>>(),
+        [
+            "# [cfg (feature = \"objects\")]",
+            "# [doc = \" Objects.\"]",
+            "# [allow (dead_code)]",
+        ]
+    );
+    assert_eq!(
+        stand_in.variants.iter().map(tokens).collect::<Vec<_>>(),
+        [
+            "# [doc = \" The empty object.\"] Foo ()",
+            "# [cfg (feature = \"bar\")] Bar { }",
+            "Baz",
+        ]
+    );
+    let syn::Item::Impl(markers) = &items[1] else {
+        panic!("{items:?}");
+    };
+    assert!(markers.trait_.is_none());
+    assert_eq!(
+        markers
+            .items
+            .iter()
+            .map(|item| {
+                let syn::ImplItem::Fn(function) = item else {
+                    panic!("{item:?}");
+                };
+                function.sig.ident.to_string()
+            })
+            .collect::<Vec<_>>(),
+        [
+            "__krs_variant_type_id_Foo",
+            "__krs_variant_type_id_Bar",
+            "__krs_variant_type_id_Baz",
+        ]
+    );
+    let applications = items[2..]
+        .iter()
+        .map(|item| {
+            let syn::Item::Impl(implementation) = item else {
+                panic!("{item:?}");
+            };
+            let (_, path, _) = implementation.trait_.as_ref().unwrap();
+            assert_eq!(
+                tokens(&path.segments.last().unwrap().ident),
+                "__KrsRuleApplication"
+            );
+            implementation.attrs.iter().map(tokens).collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        applications,
+        [
+            vec!["# [cfg (feature = \"objects\")]"],
+            vec![
+                "# [cfg (feature = \"objects\")]",
+                "# [cfg (feature = \"bar\")]"
+            ],
+            vec!["# [cfg (feature = \"objects\")]"],
+        ]
+    );
+}
+
+/// A failed `#[k::syntax_list]` enum also leaves its sort marker trait and
+/// its `KItemSort` impl, which `k::sorts!` membership lines name.
+#[test]
+fn a_failed_syntax_list_leaves_its_sort_marker() {
+    let items = failed_stand_in(
+        AttributeMacro::SyntaxList,
+        "separator = \",\", bogus",
+        "pub enum Objects { Cons { head: Int, tail: Objects }, Nil() }",
+    );
+    let rendered = items.iter().map(tokens).collect::<Vec<_>>();
+    assert_eq!(rendered[0], "pub enum Objects { Cons { } , Nil () , }");
+    assert_eq!(rendered.len(), 6, "{rendered:?}");
+    assert!(
+        rendered[4].ends_with("pub trait ObjectsSort : :: k :: KItemSort { }"),
+        "{rendered:?}"
+    );
+    assert_eq!(rendered[5], "impl :: k :: KItemSort for Objects { }");
+}
+
+/// A failed `#[k::spec_module]` leaves an empty module of the same name and
+/// visibility under its `#[cfg]`, which another spec module's `imports`
+/// names; its items are not re-emitted.
+#[test]
+fn a_failed_spec_module_leaves_an_empty_module() {
+    let items = failed_stand_in(
+        AttributeMacro::SpecModule,
+        "imports = [crate], bogus",
+        "#[cfg(test)] /// Proofs.\n pub(crate) mod first { fn helper() {} }",
+    );
+    assert_eq!(
+        items.iter().map(tokens).collect::<Vec<_>>(),
+        ["# [cfg (test)] # [allow (dead_code)] pub (crate) mod first { }"]
+    );
+}

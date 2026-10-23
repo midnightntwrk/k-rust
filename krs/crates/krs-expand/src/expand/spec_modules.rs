@@ -34,6 +34,38 @@ pub(crate) fn spec_module(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
+    let stand_in = spec_module_stand_in(&item);
+    spec_module_inner(env, attributes, item).map_err(|error| error.with_stand_in(stand_in))
+}
+
+/// The empty module a failed spec module leaves in place of its expansion,
+/// under the module's `#[cfg]`: another spec module's `imports = [name]` is
+/// `use name as _;`, and an import whose first segment names nothing is an
+/// error rustc does not silence after a `compile_error!`. Its items are not
+/// re-emitted, since rustc would then check what KRS just rejected; paths
+/// through the module resolve their first segment and stay silent. It is
+/// empty when the item is not a module or a `#[cfg]` cannot be reproduced.
+fn spec_module_stand_in(item: &TokenStream) -> TokenStream {
+    let Ok(module) = syn::parse2::<syn::ItemMod>(item.clone()) else {
+        return TokenStream::new();
+    };
+    let Ok(cfg) = super::tokens::call_site_cfg_attributes(&module.attrs) else {
+        return TokenStream::new();
+    };
+    let visibility = &module.vis;
+    let ident = &module.ident;
+    quote! {
+        #(#cfg)*
+        #[allow(dead_code)]
+        #visibility mod #ident {}
+    }
+}
+
+fn spec_module_inner(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
     let attribute = SpecModuleAttribute::parse_tokens(attributes)?;
     let module = SpecModuleItem::parse_tokens(item)?;
     let facade = env.facade_path()?;
