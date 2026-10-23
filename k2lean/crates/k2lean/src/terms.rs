@@ -1,0 +1,883 @@
+//! `Terms.lean`: carriers, the mutual term block, equality, serialization and order,
+//! injections and projections, collection isomorphisms, printing.
+
+use crate::model::{Builtin, Coll, Kind, Model};
+use crate::names;
+use std::fmt::Write;
+
+/// A constructor of a Lean type in the block: name and argument types.
+pub struct LCtor {
+    pub name: String,
+    pub args: Vec<String>,
+    /// How to print it: K label, or a special form.
+    pub print: Print,
+}
+
+pub enum Print {
+    Label(String),
+    Transparent,
+    KSeq,
+    DotK,
+    MapNil,
+    MapCons,
+    SetNil,
+    SetCons,
+    ListNil,
+    ListCons,
+}
+
+/// The Lean types of the block, with their constructors.
+pub fn block_types(m: &Model) -> Vec<(String, Vec<LCtor>)> {
+    let mut out = Vec::new();
+    for s in &m.block {
+        let info = m.sort(s);
+        match &info.kind {
+            Kind::Coll(Coll::Map) => out.push((
+                s.clone(),
+                vec![
+                    LCtor {
+                        name: "nil".into(),
+                        args: vec![],
+                        print: Print::MapNil,
+                    },
+                    LCtor {
+                        name: "cons".into(),
+                        args: vec![info.elems[0].clone(), info.elems[1].clone(), s.clone()],
+                        print: Print::MapCons,
+                    },
+                ],
+            )),
+            Kind::Coll(Coll::Set) => out.push((
+                s.clone(),
+                vec![
+                    LCtor {
+                        name: "nil".into(),
+                        args: vec![],
+                        print: Print::SetNil,
+                    },
+                    LCtor {
+                        name: "cons".into(),
+                        args: vec![info.elems[0].clone(), s.clone()],
+                        print: Print::SetCons,
+                    },
+                ],
+            )),
+            Kind::Coll(Coll::List) => out.push((
+                s.clone(),
+                vec![
+                    LCtor {
+                        name: "nil".into(),
+                        args: vec![],
+                        print: Print::ListNil,
+                    },
+                    LCtor {
+                        name: "cons".into(),
+                        args: vec![info.elems[0].clone(), s.clone()],
+                        print: Print::ListCons,
+                    },
+                ],
+            )),
+            Kind::Plain => {
+                let own: Vec<LCtor> = info
+                    .own
+                    .iter()
+                    .map(|c| {
+                        let ci = &m.ctors[c];
+                        let print = match c.as_str() {
+                            "kseq" => Print::KSeq,
+                            "dotk" => Print::DotK,
+                            _ => Print::Label(ci.klabel.clone()),
+                        };
+                        LCtor {
+                            name: ci.lean.clone(),
+                            args: ci.args.clone(),
+                            print,
+                        }
+                    })
+                    .collect();
+                if info.is_simple() {
+                    out.push((s.clone(), own));
+                } else {
+                    let sum: Vec<LCtor> = info
+                        .leaves
+                        .iter()
+                        .map(|l| LCtor {
+                            name: format!("inj_{}", names::short_sort(l)),
+                            args: vec![m.own_ty(l)],
+                            print: Print::Transparent,
+                        })
+                        .collect();
+                    out.push((s.clone(), sum));
+                    if !own.is_empty() {
+                        out.push((format!("{s}.Own"), own));
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+    out
+}
+
+/// A Lean type name as a function-name suffix (`SortExpr.Own` → `SortExpr_Own`).
+pub fn fsuffix(ty: &str) -> String {
+    ty.replace('.', "_")
+}
+
+fn builtin_lean(b: &Builtin) -> &'static str {
+    match b {
+        Builtin::Int => "Int",
+        Builtin::Bool => "Bool",
+        Builtin::String => "String",
+        Builtin::Bytes => "List UInt8",
+    }
+}
+
+/// Options of the term universe.
+#[derive(Clone, Copy, Default)]
+pub struct TermOpts {
+    /// Linear-size proofs only: the order is the serialization order (no structural
+    /// comparison), and projections are inverted by `split` rather than `cases`.
+    pub linear: bool,
+}
+
+pub fn emit_with(m: &Model, ns: &str, opts: TermOpts) -> String {
+    let mut o = String::new();
+    let types = block_types(m);
+    writeln!(
+        o,
+        "import KPrelude.Order\nimport KPrelude.SAL\nimport KPrelude.Coll\nimport KPrelude.Hooks\nimport KPrelude.Rules\nimport KPrelude.Ext\n\n/-! Generated by k2lean from compiled KORE; do not edit.\n\n\
+Term universe: one Lean type per sort (a sum over its leaf sorts when it has subsorts),\n\
+the own constructors of a sort with subsorts in `<Sort>.Own`, collection carriers inside the\n\
+mutual block. -/\n\nset_option linter.unusedSimpArgs false\nset_option maxHeartbeats 0\nset_option maxRecDepth 100000\n\nnamespace {ns}\n\nopen KPrelude\n"
+    )
+    .unwrap();
+    // builtins and tokens
+    for s in m.sorts.values() {
+        match &s.kind {
+            Kind::Builtin(Builtin::Bytes) => {
+                let n = &s.name;
+                writeln!(o, "abbrev {n} := List UInt8\n").unwrap();
+                writeln!(
+                    o,
+                    "def ser_{n} (x : {n}) : List Tok := KPrelude.BytesHook.ser x"
+                )
+                .unwrap();
+                writeln!(o, "def dec_{n} : Nat → List Tok → Option ({n} × List Tok) := KPrelude.BytesHook.dec").unwrap();
+                writeln!(
+                    o,
+                    "theorem dec_ser_{n} (a : {n}) (r : List Tok) (n : Nat) (h : (ser_{n} a).length ≤ n) :\n    dec_{n} n (ser_{n} a ++ r) = some (a, r) := KPrelude.BytesHook.dec_ser a r n h"
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "def toK_{n} (x : {n}) : String := (KPrelude.BytesHook.toStr x).quote"
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "def cmp_{n} (a b : {n}) : Ordering := compare (ser_{n} a) (ser_{n} b)"
+                )
+                .unwrap();
+                writeln!(o, "theorem cmp_{n}_eq (a b : {n}) : cmp_{n} a b = compare (ser_{n} a) (ser_{n} b) := rfl").unwrap();
+                writeln!(o, "{}\n", append_lemma(n)).unwrap();
+            }
+            Kind::Builtin(b) => {
+                let lt = builtin_lean(b);
+                let (tok, pat) = match b {
+                    Builtin::Int => ("i", "i"),
+                    Builtin::Bool => ("b", "b"),
+                    Builtin::String | Builtin::Bytes => ("s", "s"),
+                };
+                let _ = pat;
+                writeln!(o, "abbrev {} := {lt}\n", s.name).unwrap();
+                writeln!(o, "def ser_{0} (x : {0}) : List Tok := [.{tok} x]", s.name).unwrap();
+                writeln!(
+                    o,
+                    "def dec_{0} : Nat → List Tok → Option ({0} × List Tok)\n  | _, .{tok} x :: t => some (x, t)\n  | _, _ => none",
+                    s.name
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "theorem dec_ser_{0} (a : {0}) (r : List Tok) (n : Nat) (_ : (ser_{0} a).length ≤ n) :\n    dec_{0} n (ser_{0} a ++ r) = some (a, r) := by simp [ser_{0}, dec_{0}]",
+                    s.name
+                )
+                .unwrap();
+                let show = match b {
+                    Builtin::Int => "toString x",
+                    Builtin::Bool => "toString x",
+                    Builtin::String | Builtin::Bytes => "x.quote",
+                };
+                writeln!(o, "def toK_{0} (x : {0}) : String := {show}", s.name).unwrap();
+                writeln!(
+                    o,
+                    "def cmp_{0} (a b : {0}) : Ordering := compare a b",
+                    s.name
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "theorem cmp_{0}_eq (a b : {0}) : cmp_{0} a b = compare (ser_{0} a) (ser_{0} b) := by\n  simp [cmp_{0}, ser_{0}, compare_cons_cons]",
+                    s.name
+                )
+                .unwrap();
+                writeln!(o, "{}\n", append_lemma(&s.name)).unwrap();
+            }
+            Kind::Token => {
+                writeln!(
+                    o,
+                    "/-- Token sort `{}`: its domain values are strings. -/",
+                    names::short_sort(&s.name)
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "structure {} where\n  val : String\n  deriving DecidableEq, Repr\n",
+                    s.name
+                )
+                .unwrap();
+                writeln!(o, "def ser_{0} (x : {0}) : List Tok := [.s x.val]", s.name).unwrap();
+                writeln!(
+                    o,
+                    "def dec_{0} : Nat → List Tok → Option ({0} × List Tok)\n  | _, .s x :: t => some (⟨x⟩, t)\n  | _, _ => none",
+                    s.name
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "theorem dec_ser_{0} (a : {0}) (r : List Tok) (n : Nat) (_ : (ser_{0} a).length ≤ n) :\n    dec_{0} n (ser_{0} a ++ r) = some (a, r) := by simp [ser_{0}, dec_{0}]",
+                    s.name
+                )
+                .unwrap();
+                writeln!(o, "def toK_{0} (x : {0}) : String := x.val", s.name).unwrap();
+                writeln!(
+                    o,
+                    "def cmp_{0} (a b : {0}) : Ordering := compare a.val b.val",
+                    s.name
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "theorem cmp_{0}_eq (a b : {0}) : cmp_{0} a b = compare (ser_{0} a) (ser_{0} b) := by\n  simp [cmp_{0}, ser_{0}, compare_cons_cons]",
+                    s.name
+                )
+                .unwrap();
+                writeln!(o, "{}\n", append_lemma(&s.name)).unwrap();
+            }
+            _ => {}
+        }
+    }
+    // the block
+    writeln!(o, "mutual").unwrap();
+    for (ty, ctors) in &types {
+        writeln!(o, "inductive {ty} where").unwrap();
+        for c in ctors {
+            write!(o, "  | {}", c.name).unwrap();
+            for (i, a) in c.args.iter().enumerate() {
+                write!(o, " (a{i} : {a})").unwrap();
+            }
+            writeln!(o).unwrap();
+        }
+    }
+    writeln!(o, "end\n").unwrap();
+
+    // serialization
+    writeln!(
+        o,
+        "/-! Serialization: injective (`dec_ser_*`), it induces the order on `SortKItem`. -/\n"
+    )
+    .unwrap();
+    writeln!(o, "mutual").unwrap();
+    for (ty, ctors) in &types {
+        let f = fsuffix(ty);
+        writeln!(o, "def ser_{f} : {ty} → List Tok").unwrap();
+        for (i, c) in ctors.iter().enumerate() {
+            let vars: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+            let rhs = if c.args.is_empty() {
+                format!("[.c {i}]")
+            } else {
+                let parts: Vec<String> = c
+                    .args
+                    .iter()
+                    .zip(&vars)
+                    .map(|(a, v)| format!("ser_{} {v}", fsuffix(a)))
+                    .collect();
+                let mut body = parts.last().unwrap().clone();
+                for p in parts.iter().rev().skip(1) {
+                    body = format!("({p} ++ {body})");
+                }
+                format!(".c {i} :: {body}")
+            };
+            writeln!(o, "  | .{} {} => {rhs}", c.name, vars.join(" ")).unwrap();
+        }
+    }
+    writeln!(o, "end\n").unwrap();
+    writeln!(o, "mutual").unwrap();
+    for (ty, ctors) in &types {
+        let f = fsuffix(ty);
+        writeln!(o, "def dec_{f} : Nat → List Tok → Option ({ty} × List Tok)").unwrap();
+        for (i, c) in ctors.iter().enumerate() {
+            if c.args.is_empty() {
+                writeln!(o, "  | _ + 1, .c {i} :: t => pure (.{}, t)", c.name).unwrap();
+            } else {
+                let mut body = String::from("do");
+                for (j, a) in c.args.iter().enumerate() {
+                    write!(body, " let (a{j}, t) ← dec_{} n t;", fsuffix(a)).unwrap();
+                }
+                let vars: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+                write!(body, " pure (.{} {}, t)", c.name, vars.join(" ")).unwrap();
+                writeln!(o, "  | n + 1, .c {i} :: t => {body}").unwrap();
+            }
+        }
+        writeln!(o, "  | _, _ => none").unwrap();
+    }
+    writeln!(o, "end\n").unwrap();
+    writeln!(o, "mutual").unwrap();
+    for (ty, ctors) in &types {
+        let f = fsuffix(ty);
+        writeln!(
+            o,
+            "theorem dec_ser_{f} : (a : {ty}) → ∀ (r : List Tok) (n : Nat), (ser_{f} a).length ≤ n →\n    dec_{f} n (ser_{f} a ++ r) = some (a, r)"
+        )
+        .unwrap();
+        for c in ctors {
+            let vars: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+            writeln!(o, "  | .{} {}, r, n, h => by", c.name, vars.join(" ")).unwrap();
+            writeln!(o, "    match n with").unwrap();
+            if opts.linear {
+                // `ser` and `dec` unfold definitionally (`show`, `rfl`): no equation lemmas of
+                // the mutual definitions are generated (their proofs dominate otherwise)
+                writeln!(o, "    | 0 => exact absurd h (Nat.not_succ_le_zero _)").unwrap();
+                if c.args.is_empty() {
+                    writeln!(o, "    | n + 1 => rfl").unwrap();
+                    continue;
+                }
+                writeln!(o, "    | n + 1 =>").unwrap();
+                let lens: Vec<String> = c
+                    .args
+                    .iter()
+                    .zip(&vars)
+                    .map(|(a, v)| format!("(ser_{} {v}).length", fsuffix(a)))
+                    .collect();
+                let parts: Vec<String> = c
+                    .args
+                    .iter()
+                    .zip(&vars)
+                    .map(|(a, v)| format!("ser_{} {v}", fsuffix(a)))
+                    .collect();
+                let mut body = parts.last().unwrap().clone();
+                for p in parts.iter().rev().skip(1) {
+                    body = format!("({p} ++ {body})");
+                }
+                writeln!(
+                    o,
+                    "      have hl : ({}) + 1 ≤ n + 1 := by\n        have e : (ser_{f} (.{} {})).length = ({body}).length + 1 := rfl\n        simp only [List.length_append] at e; omega",
+                    lens.join(" + "),
+                    c.name,
+                    vars.join(" ")
+                )
+                .unwrap();
+                let mut chain = String::new();
+                for (j, a) in c.args.iter().enumerate() {
+                    let input = if j == 0 {
+                        "_".to_string()
+                    } else {
+                        "t".to_string()
+                    };
+                    chain.push_str(&format!(
+                        "dec_{} n {input} >>= fun (a{j}, t) => ",
+                        fsuffix(a)
+                    ));
+                }
+                writeln!(
+                    o,
+                    "      show ({chain}pure ({ty}.{} {}, t)) = _",
+                    c.name,
+                    vars.join(" ")
+                )
+                .unwrap();
+                let ih: Vec<String> = c
+                    .args
+                    .iter()
+                    .zip(&vars)
+                    .map(|(a, v)| format!("dec_ser_{} {v} _ n (by omega)", fsuffix(a)))
+                    .collect();
+                writeln!(
+                    o,
+                    "      simp only [List.append_eq, List.append_assoc, {}, Option.bind_eq_bind, Option.bind_some, Option.pure_def]",
+                    ih.join(", ")
+                )
+                .unwrap();
+                continue;
+            }
+            writeln!(o, "    | 0 => simp [ser_{f}] at h").unwrap();
+            if c.args.is_empty() {
+                writeln!(o, "    | n + 1 => simp [ser_{f}, dec_{f}]").unwrap();
+            } else {
+                writeln!(o, "    | n + 1 =>").unwrap();
+                writeln!(
+                    o,
+                    "      simp only [ser_{f}, List.length_cons, List.length_append] at h"
+                )
+                .unwrap();
+                let ih: Vec<String> = c
+                    .args
+                    .iter()
+                    .zip(&vars)
+                    .map(|(a, v)| format!("dec_ser_{} {v} _ n (by omega)", fsuffix(a)))
+                    .collect();
+                writeln!(
+                    o,
+                    "      simp only [ser_{f}, List.cons_append, List.append_assoc, dec_{f}, {}, Option.bind_eq_bind, Option.bind_some, Option.pure_def]",
+                    ih.join(", ")
+                )
+                .unwrap();
+            }
+        }
+    }
+    writeln!(o, "end\n").unwrap();
+    for (ty, _) in &types {
+        let f = fsuffix(ty);
+        writeln!(
+            o,
+            "theorem ser_{f}_inj (a b : {ty}) (h : ser_{f} a = ser_{f} b) : a = b := by\n  have ha := dec_ser_{f} a [] (ser_{f} a).length (Nat.le_refl _)\n  have hb := dec_ser_{f} b [] (ser_{f} a).length (by simp [h])\n  rw [h] at ha\n  simp_all\n"
+        )
+        .unwrap();
+    }
+    // a structural comparison, equal to the serialization order
+    for (ty, _) in &types {
+        writeln!(o, "{}", append_lemma(ty)).unwrap();
+    }
+    for (ty, ctors) in &types {
+        let f = fsuffix(ty);
+        writeln!(o, "def tag_{f} : {ty} → Nat").unwrap();
+        for (i, c) in ctors.iter().enumerate() {
+            let wild = vec!["_"; c.args.len()].join(" ");
+            writeln!(o, "  | .{} {wild} => {i}", c.name).unwrap();
+        }
+    }
+    if opts.linear {
+        // the comparison is the serialization order itself: linear to elaborate (the structural
+        // comparison's proof is quadratic in the constructors of a type)
+        for (ty, _) in &types {
+            let f = fsuffix(ty);
+            writeln!(
+                o,
+                "def cmp_{f} (a b : {ty}) : Ordering := compare (ser_{f} a) (ser_{f} b)"
+            )
+            .unwrap();
+            writeln!(o, "theorem cmp_{f}_eq (a b : {ty}) : cmp_{f} a b = compare (ser_{f} a) (ser_{f} b) := rfl").unwrap();
+        }
+        writeln!(o).unwrap();
+    } else {
+        writeln!(o, "\nmutual").unwrap();
+        for (ty, ctors) in &types {
+            let f = fsuffix(ty);
+            writeln!(o, "def cmp_{f} (a b : {ty}) : Ordering :=\n  match a with").unwrap();
+            for (i, c) in ctors.iter().enumerate() {
+                let av: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+                let bv: Vec<String> = (0..c.args.len()).map(|j| format!("b{j}")).collect();
+                let body = if c.args.is_empty() {
+                    ".eq".to_string()
+                } else {
+                    let parts: Vec<String> = c
+                        .args
+                        .iter()
+                        .enumerate()
+                        .map(|(j, a)| format!("cmp_{} a{j} b{j}", fsuffix(a)))
+                        .collect();
+                    let mut b = parts.last().unwrap().clone();
+                    for p in parts.iter().rev().skip(1) {
+                        b = format!("({p}).then ({b})");
+                    }
+                    b
+                };
+                writeln!(
+                    o,
+                    "  | .{} {} =>\n    match b with\n    | .{} {} => {body}",
+                    c.name,
+                    av.join(" "),
+                    c.name,
+                    bv.join(" ")
+                )
+                .unwrap();
+                if ctors.len() > 1 {
+                    writeln!(o, "    | _ => compare {i} (tag_{f} b)").unwrap();
+                }
+            }
+            if ctors
+                .iter()
+                .any(|c| c.args.iter().any(|a| types.iter().any(|(t, _)| t == a)))
+            {
+                writeln!(o, "  termination_by structural a").unwrap();
+            }
+        }
+        writeln!(o, "end\n").unwrap();
+        writeln!(o, "mutual").unwrap();
+        for (ty, ctors) in &types {
+            let f = fsuffix(ty);
+            writeln!(
+                o,
+                "theorem cmp_{f}_eq : ∀ (a b : {ty}), cmp_{f} a b = compare (ser_{f} a) (ser_{f} b)"
+            )
+            .unwrap();
+            for c in ctors {
+                let av: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+                let mut lemmas: Vec<String> = vec![
+                    format!("cmp_{f}"),
+                    format!("tag_{f}"),
+                    format!("ser_{f}"),
+                    "compare_cons_cons".into(),
+                ];
+                for a in &c.args {
+                    let fa = fsuffix(a);
+                    lemmas.push(format!("compare_append_ser_{fa}"));
+                    lemmas.push(format!("cmp_{fa}_eq"));
+                }
+                lemmas.sort();
+                lemmas.dedup();
+                writeln!(
+                o,
+                "  | .{} {}, b => by\n    cases b <;> (try simp only [{}, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl",
+                c.name,
+                av.join(" "),
+                lemmas.join(", ")
+            )
+            .unwrap();
+            }
+            if ctors
+                .iter()
+                .any(|c| c.args.iter().any(|a| types.iter().any(|(t, _)| t == a)))
+            {
+                writeln!(o, "  termination_by structural a _ => a").unwrap();
+            }
+        }
+        writeln!(o, "end\n").unwrap();
+    }
+    // decidable equality from the comparison
+    for (ty, _) in &types {
+        let f = fsuffix(ty);
+        writeln!(
+            o,
+            "instance : DecidableEq {ty} := fun a b =>\n  if h : cmp_{f} a b = .eq then isTrue (ser_{f}_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_{f}_eq a b) ▸ h)))\n  else isFalse (fun e => h (by subst e; rw [cmp_{f}_eq]; exact Std.ReflOrd.compare_self))"
+        )
+        .unwrap();
+    }
+    writeln!(o).unwrap();
+    // the order on KItem (map keys and set elements)
+    // the order on map keys and set elements
+    let mut key_sorts: Vec<String> = Vec::new();
+    for s in &m.block {
+        let info = m.sort(s);
+        if matches!(info.kind, Kind::Coll(Coll::Map | Coll::Set))
+            && !key_sorts.contains(&info.elems[0])
+        {
+            key_sorts.push(info.elems[0].clone());
+        }
+    }
+    if m.sorts.contains_key("SortKItem") && !key_sorts.iter().any(|k| k == "SortKItem") {
+        key_sorts.insert(0, "SortKItem".into());
+    }
+    for k in &key_sorts {
+        let f = fsuffix(k);
+        if !types.iter().any(|(t, _)| t == k) {
+            // a token sort as a map key (a typed `Map<Id, V>`) needs the order of
+            // its strings, with the same laws as the block's orders; builtins keep Lean's own order
+            if matches!(m.sort(k).kind, Kind::Token) {
+                writeln!(
+                    o,
+                    "theorem ser_{f}_inj (a b : {k}) (h : ser_{f} a = ser_{f} b) : a = b := by\n  cases a; cases b; simp [ser_{f}] at h; simp [h]"
+                )
+                .unwrap();
+                writeln!(o, "instance : Ord {k} := ⟨cmp_{f}⟩").unwrap();
+                writeln!(
+                    o,
+                    "instance : Std.TransOrd {k} := transOrd_of_cmp cmp_{f} ser_{f} cmp_{f}_eq"
+                )
+                .unwrap();
+                writeln!(
+                    o,
+                    "instance : Std.LawfulEqOrd {k} :=\n  lawfulEqOrd_of_cmp cmp_{f} ser_{f} cmp_{f}_eq ser_{f}_inj\n"
+                )
+                .unwrap();
+            }
+            continue; // builtin keys: Lean's own order
+        }
+        writeln!(o, "instance : Ord {k} := ⟨cmp_{f}⟩").unwrap();
+        writeln!(
+            o,
+            "instance : Std.TransOrd {k} := transOrd_of_cmp cmp_{f} ser_{f} cmp_{f}_eq"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "instance : Std.LawfulEqOrd {k} :=\n  lawfulEqOrd_of_cmp cmp_{f} ser_{f} cmp_{f}_eq ser_{f}_inj\n"
+        )
+        .unwrap();
+    }
+    // collections: list isomorphisms
+    for s in &m.block {
+        let info = m.sort(s);
+        let (elem, cons_pat, cons_build, pair) = match &info.kind {
+            Kind::Coll(Coll::Map) => (
+                format!("{} × {}", info.elems[0], info.elems[1]),
+                ".cons k v r",
+                "(k, v) :: r.toList",
+                "(k, v) :: r",
+            ),
+            Kind::Coll(Coll::Set) => (
+                format!("{} × Unit", info.elems[0]),
+                ".cons k r",
+                "(k, ()) :: r.toList",
+                "(k, _) :: r",
+            ),
+            Kind::Coll(Coll::List) => (
+                info.elems[0].clone(),
+                ".cons k r",
+                "k :: r.toList",
+                "k :: r",
+            ),
+            _ => continue,
+        };
+        let (kt, vt) = (
+            info.elems[0].clone(),
+            info.elems.get(1).cloned().unwrap_or_default(),
+        );
+        let kvb = if kt == vt {
+            format!("(k v : {kt})")
+        } else {
+            format!("(k : {kt}) (v : {vt})")
+        };
+        let back = match &info.kind {
+            Kind::Coll(Coll::Map) => ".cons k v (ofList r)",
+            _ => ".cons k (ofList r)",
+        };
+        writeln!(
+            o,
+            "def {s}.toList : {s} → List ({elem})\n  | .nil => []\n  | {cons_pat} => {cons_build}"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "def {s}.ofList : List ({elem}) → {s}\n  | [] => .nil\n  | {pair} => {back}"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "theorem {s}.toList_ofList : ∀ l, {s}.toList ({s}.ofList l) = l\n  | [] => rfl\n  | {pair} => by simp [{s}.ofList, {s}.toList, {s}.toList_ofList r]"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "theorem {s}.ofList_toList : ∀ m, {s}.ofList ({s}.toList m) = m\n  | .nil => rfl\n  | {cons_pat} => by simp [{s}.ofList, {s}.toList, {s}.ofList_toList r]"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "instance : ListIso {s} ({elem}) := ⟨{s}.toList, {s}.ofList, {s}.toList_ofList, {s}.ofList_toList⟩\n"
+        )
+        .unwrap();
+        if info.kind == Kind::Coll(Coll::Map) {
+            // direct implementations of the hot map operations, equal to the list operations
+            writeln!(
+                o,
+                r#"def {s}.lookupR (k : {kt}) : {s} → Option {vt}
+  | .nil => none
+  | .cons k' v t => match compare k k' with
+    | .lt => none
+    | .eq => some v
+    | .gt => {s}.lookupR k t
+def {s}.insertR {kvb} : {s} → {s}
+  | .nil => .cons k v .nil
+  | .cons k' v' t => match compare k k' with
+    | .lt => .cons k v (.cons k' v' t)
+    | .eq => .cons k v t
+    | .gt => .cons k' v' ({s}.insertR k v t)
+def {s}.eraseR (k : {kt}) : {s} → {s}
+  | .nil => .nil
+  | .cons k' v' t => match compare k k' with
+    | .lt => .cons k' v' t
+    | .eq => t
+    | .gt => .cons k' v' ({s}.eraseR k t)
+def {s}.sortedR : {s} → Bool
+  | .nil => true
+  | .cons _ _ .nil => true
+  | .cons k₁ _ (.cons k₂ v₂ t) => compare k₁ k₂ == .lt && {s}.sortedR (.cons k₂ v₂ t)
+theorem {s}.lookupR_eq (k : {kt}) : ∀ m, {s}.lookupR k m = SAL.lookup k m.toList
+  | .nil => rfl
+  | .cons k' v t => by
+    simp only [{s}.lookupR, {s}.toList, SAL.lookup, {s}.lookupR_eq k t]
+    generalize compare k k' = o; cases o <;> rfl
+theorem {s}.insertR_eq {kvb} : ∀ m, {s}.insertR k v m = {s}.ofList (SAL.insert k v m.toList)
+  | .nil => rfl
+  | .cons k' v' t => by
+    simp only [{s}.insertR, {s}.toList, SAL.insert]
+    generalize compare k k' = o; cases o <;> simp [{s}.ofList, {s}.ofList_toList, {s}.insertR_eq k v t]
+theorem {s}.eraseR_eq (k : {kt}) : ∀ m, {s}.eraseR k m = {s}.ofList (SAL.erase k m.toList)
+  | .nil => rfl
+  | .cons k' v' t => by
+    simp only [{s}.eraseR, {s}.toList, SAL.erase]
+    generalize compare k k' = o; cases o <;> simp [{s}.ofList, {s}.ofList_toList, {s}.eraseR_eq k t]
+theorem {s}.sortedR_eq : ∀ m, {s}.sortedR m = SAL.sortedAdj m.toList
+  | .nil => rfl
+  | .cons _ _ .nil => rfl
+  | .cons k₁ _ (.cons k₂ v₂ t) => by
+    simp only [{s}.sortedR, {s}.toList, SAL.sortedAdj, {s}.sortedR_eq (.cons k₂ v₂ t)]
+instance : MapRepr {s} {kt} {vt} where
+  lookupR := {s}.lookupR
+  insertR := {s}.insertR
+  eraseR := {s}.eraseR
+  sortedR := {s}.sortedR
+  lookupR_eq := {s}.lookupR_eq
+  insertR_eq := {s}.insertR_eq
+  eraseR_eq := {s}.eraseR_eq
+  sortedR_eq := {s}.sortedR_eq
+"#
+            )
+            .unwrap();
+        }
+        if info.kind == Kind::Coll(Coll::Set) {
+            // a set is a map to `Unit`; the map operations on lists serve it directly
+            writeln!(o, "instance : MapRepr {s} {kt} Unit := {{}}\n").unwrap();
+        }
+    }
+    // injections and projections
+    writeln!(
+        o,
+        "/-! Injections `inj{{A,B}}` re-tag the leaf; projections are their partial inverses. -/\n"
+    )
+    .unwrap();
+    for (a, b) in inj_pairs(m) {
+        let ia = m.sort(&a);
+        let fa = names::short_sort(&a);
+        let fb = names::short_sort(&b);
+        if ia.is_simple() {
+            writeln!(
+                o,
+                "@[reducible] def inj_{fa}_{fb} (x : {a}) : {b} := {}.inj_{fa} x",
+                b
+            )
+            .unwrap();
+            let wild = if m.sort(&b).leaves.len() > 1 {
+                "\n  | _ => none"
+            } else {
+                ""
+            };
+            writeln!(
+                o,
+                "def proj_{fb}_{fa} : {b} → Option {a}\n  | .inj_{fa} x => some x{wild}"
+            )
+            .unwrap();
+        } else {
+            writeln!(o, "def inj_{fa}_{fb} : {a} → {b}").unwrap();
+            for l in &ia.leaves {
+                let fl = names::short_sort(l);
+                writeln!(o, "  | .inj_{fl} x => .inj_{fl} x").unwrap();
+            }
+            writeln!(o, "def proj_{fb}_{fa} : {b} → Option {a}").unwrap();
+            for l in &ia.leaves {
+                let fl = names::short_sort(l);
+                writeln!(o, "  | .inj_{fl} x => some (.inj_{fl} x)").unwrap();
+            }
+            if ia.leaves.len() < m.sort(&b).leaves.len() {
+                writeln!(o, "  | _ => none").unwrap();
+            }
+        }
+        if ia.is_simple() {
+            writeln!(o, "@[simp] theorem proj_inj_{fb}_{fa} (x : {a}) : proj_{fb}_{fa} (inj_{fa}_{fb} x) = some x := rfl").unwrap();
+        } else {
+            writeln!(o, "@[simp] theorem proj_inj_{fb}_{fa} (x : {a}) : proj_{fb}_{fa} (inj_{fa}_{fb} x) = some x := by\n  cases x <;> rfl").unwrap();
+        }
+        writeln!(
+            o,
+            "theorem inj_proj_{fb}_{fa} {{y : {b}}} {{x : {a}}} (h : proj_{fb}_{fa} y = some x) : inj_{fa}_{fb} x = y := by\n  {}",
+            if opts.linear {
+                format!("unfold proj_{fb}_{fa} at h\n  split at h <;> simp at h <;> (try subst h) <;> rfl")
+            } else {
+                format!("cases y <;> simp [proj_{fb}_{fa}] at h <;> (try subst h) <;> rfl")
+            }
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "theorem proj_eq_some_{fb}_{fa} {{y : {b}}} {{x : {a}}} : proj_{fb}_{fa} y = some x ↔ y = inj_{fa}_{fb} x :=\n  ⟨fun h => (inj_proj_{fb}_{fa} h).symm, fun h => by subst h; exact proj_inj_{fb}_{fa} x⟩\n"
+        )
+        .unwrap();
+    }
+    // printing
+    writeln!(
+        o,
+        "/-! Printing (for test reports), in a KORE-like notation with K labels. -/\n"
+    )
+    .unwrap();
+    writeln!(o, "mutual").unwrap();
+    for (ty, ctors) in &types {
+        let f = fsuffix(ty);
+        writeln!(o, "def toK_{f} : {ty} → String").unwrap();
+        for c in ctors {
+            let vars: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+            let shown: Vec<String> = c
+                .args
+                .iter()
+                .zip(&vars)
+                .map(|(a, v)| format!("toK_{} {v}", fsuffix(a)))
+                .collect();
+            let rhs = match &c.print {
+                Print::Transparent => shown[0].clone(),
+                Print::KSeq => format!("{} ++ \" ~> \" ++ {}", shown[0], shown[1]),
+                Print::DotK => "\".K\"".into(),
+                Print::MapNil => "\".Map\"".into(),
+                Print::SetNil => "\".Set\"".into(),
+                Print::ListNil => "\".List\"".into(),
+                Print::MapCons => format!(
+                    "{} ++ \" |-> \" ++ {} ++ \" \" ++ {}",
+                    shown[0], shown[1], shown[2]
+                ),
+                Print::SetCons => format!("\"SetItem(\" ++ {} ++ \") \" ++ {}", shown[0], shown[1]),
+                Print::ListCons => {
+                    format!("\"ListItem(\" ++ {} ++ \") \" ++ {}", shown[0], shown[1])
+                }
+                Print::Label(l) => {
+                    if shown.is_empty() {
+                        names::string_lit(l)
+                    } else {
+                        format!(
+                            "{} ++ \"(\" ++ {} ++ \")\"",
+                            names::string_lit(l),
+                            shown.join(" ++ \", \" ++ ")
+                        )
+                    }
+                }
+            };
+            writeln!(o, "  | .{} {} => {rhs}", c.name, vars.join(" ")).unwrap();
+        }
+    }
+    writeln!(o, "end\n").unwrap();
+    writeln!(o, "end {ns}").unwrap();
+    o
+}
+
+fn append_lemma(ty: &str) -> String {
+    let f = fsuffix(ty);
+    format!(
+        "theorem compare_append_ser_{f} (a b : {ty}) (r r' : List Tok) :\n    compare (ser_{f} a ++ r) (ser_{f} b ++ r') = (compare (ser_{f} a) (ser_{f} b)).then (compare r r') :=\n  compare_append_ser ser_{f} dec_{f} dec_ser_{f} a b r r'"
+    )
+}
+
+/// The injection pairs `(A, B)` with `A < B` and `B` a sum type.
+pub fn inj_pairs(m: &Model) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for a in m.sorts.values() {
+        for b in m.sorts.values() {
+            if a.name == b.name || b.is_simple() || b.kind != Kind::Plain {
+                continue;
+            }
+            if a.leaves.iter().all(|l| b.leaves.contains(l)) && m.subsort_closure(&a.name, &b.name)
+            {
+                out.push((a.name.clone(), b.name.clone()));
+            }
+        }
+    }
+    out
+}
