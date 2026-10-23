@@ -11,12 +11,12 @@ The output of `k2lean gen --kore definition.kore --runtime runtime.json --out DI
 
 | module | content |
 |---|---|
-| `NS/Terms.lean` | one Lean type per sort, constructors, injections and projections, decidable equality and an order on terms |
-| `NS/Functions.lean` | each function defined by KORE equations, as a Lean definition; hooked functions are the prelude's |
+| `NS/Terms.lean` | one Lean type per sort (with `--arity-terms`, one family indexed by the sorts, §2.1), constructors, injections and projections, decidable equality and an order on terms |
+| `NS/Functions.lean` | each function defined by KORE equations, as a Lean definition; hooked functions are the prelude's, and the library's parameters (§2) are the fields of `class Hooks` |
 | `NS/Equations.lean` | each K equation and simplification rule as a theorem about the generated definitions, or, when its generated proof fails, a named open obligation (`def Eqn.….statement : Prop`) |
 | `NS/Rules.lean` | `App c` (some rule applies at `c`), `Step c c'` (one constructor per rewrite rule) and the executable `step` |
 | `NS/Adequacy.lean` | `step` against `Step` and `App`: sound by construction, complete rule by rule |
-| `NS/Determinism.lean` | `Step` is deterministic, by cases on pairs of rules; for a definition whose rules match a map at several keys, why it is not claimed, and the check `uniqueAt c` instead |
+| `NS/Determinism.lean` | `Step` is deterministic, by cases on pairs of rules, or along the rule index modulo the definition's overlapping pairs (`--det2`, §3.1); for a definition whose rules match a map at several keys, why it is not claimed, and the check `uniqueAt c` instead |
 | `NS/Init.lean` | `init`, the initial configuration of the configuration declaration, with one parameter per configuration variable |
 | `NS/Preserves.lean` | `Step.Case.r P` per rule and `Step.preserves_of`, the per-rule preservation principle |
 | `NS/InvariantDefs.lean`, `NS/Invariants.lean` | with `--invariant NAME[@CELL]` or `--sidecar FILE`: the invariant and its `Preserved` theorem (`invariants.md`, §3) |
@@ -50,9 +50,36 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
   A map pattern whose key is bound nowhere else (`K |-> V REST`, the cell maps of SIMPLE's threads) matches once per binding, so `step` returns the first match whose result is defined and `successors` all of them.
 - **Overloads.** A left-hand side that mentions an overloaded symbol matches its variants modulo the `symbol-overload` axioms (`crates/k2lean/src/overload.rs`).
 
+### 2.1 The arity-indexed universe (`--arity-terms`)
+
+The default universe is one Lean type per sort, all in one `mutual` block, a sort with subsorts having one constructor per leaf injection.
+Two limits of Lean make it unusable at KEVM's size (measured 2026-10-23, Lean v4.24.0 and v4.30.0, shared 32-CPU host):
+
+- the auxiliary constructions of a mutual block (recursors, `below`, `brecOn`, `sizeOf`) grow with types × (types + constructors): SIMPLE's block (86 types, 362 constructors) took 284 s, and KEVM's (392 types, 1,160 constructors) had not finished after 90 minutes at 17.9 GB;
+- Lean's runtime cannot compile a constructor with fields at index 244 or above, and KEVM's `KItem` has 277 injections (KMIR's 309).
+
+A single indexed family with one constructor per K constructor elaborates, but every `match` at a fixed sort then refutes every other constructor of the family (2.4 s per two-arm match on KEVM's 1,160) and it is not executable either.
+
+`gen --arity-terms` (`crates/k2lean/src/terms_arity.rs`) writes one family `Term : Tag → Type` indexed by the sorts, with one constructor per arity of the sorts' own constructors (`c2 (c : C2 s) (a0 : Term (A2_0 s c)) (a1 : Term (A2_1 s c))`, `Ck s` enumerating sort `s`'s constructors of arity k), one per builtin carrier, one per collection sort (a nested list), and the leaf injection `inj (hs : hasLeaves s = true) (l) (h : leafOK s l = true) (a : Term l)`.
+Each K constructor keeps its name as a reducible `@[match_pattern]` definition, so the rest of the library is generated as before.
+It is the same model: a value of a sort is one of its constructors applied to values of its argument sorts, or one leaf injection with a proof field, so canonical forms, and Lean's `=` as K's equality, are unchanged; kimp and SIMPLE give the default encoding's goldens, traces and case results exactly (the gate's `arity` tier).
+The family has about twenty constructors whatever the definition, its enumerations are scalars, and a match at a fixed sort splits the family's constructors (all but one refuted by their index) and then that sort's own enumeration.
+It needs Lean ≥ v4.30.0, whose match compiler accepts nested patterns whose enumeration type depends on the family's index (v4.24.0 rejects them).
+
+Measured on 2026-10-24 (Lean v4.30.0, 1-minute load 25 to 53): `Terms.lean` of kimp builds in 5.5 s (per-sort 46 s), SIMPLE's in 17 s (per-sort 302 s), KEVM's in 396 s / 814 CPU-s / 5.7 GB peak, and KMIR's (338 types, 1,145 constructors) in 78 s / 3.0 GB (2026-10-23).
+The gate's arity tier (kimp and SIMPLE, built and tested) took 310 s wall and 736 s of CPU from an empty work tree, 4.6 GB peak; the light tier, which builds kimp and three variants of it in the per-sort encoding, took 884 s.
+Whether the arity universe becomes the default is open (§9).
+
+Two choices in the family follow from its match compilation (measured 2026-10-23 on KEVM, load 2 to 10):
+
+- `hasLeaves s` comes before the leaf tag in `inj`: a match at a sort without leaves refutes `inj` on that field, instead of splitting the leaf tag over every sort; on `evm.md:751:5` the match compiler's subgoals drop from 2,512 to 130 and the matcher's elaboration from 1.78 s to 0.44 s.
+- Every `match` on a non-variable pattern gets a fallback arm, an irrefutable one too (`--no-fallback-arms` turns it off), so the other constructors of the family go to `_` instead of being refuted one by one: KEVM's 626 matchers take 252 s / 443 CPU-s without the arms and 121 s / 211 CPU-s with them, and `Adequacy` 740 against 803 CPU-s (loads 15 and 34), so the arms cost the proofs little.
+  In the per-sort encoding a match on a single-constructor sort is exhaustive and Lean rejects the arm as redundant, so the default encoding has none; it does not have the refutation cost either.
+
 ## 3. What is proved, and how it is checked
 
 - `Adequacy`: the executable `step` (and `successors`, for rules with several matches) agrees with `Step` and `App`: sound by construction, since every matcher returns a proof of its match, and complete rule by rule.
+  That a rule is in the index bucket of its own left-hand side (`Rules.r.mem`, `memS`) is the path the generator took through the index tree, one `apply` per node, so no tactic reduces the rest of the index (KEVM: 10 lemmas in 1.5 CPU-s, against 25.9 by reducing the index); the per-rule `complete`/`applies` proof evaluates the matcher test by test, identifying each split's bound value with the relation's (`k2l_fundep1`) so that the next `match` reduces instead of being split.
 - `Equations`: each K equation is a theorem, proved by generic tactics (`k2l_eqn_a`, `k2l_eqn_b`, `k2l_eqn_r`, `k2l_fold_eqn`); it shows that the theory restricted to the generated symbols is consistent with this model.
   An equation the tactics do not prove is listed in `open-obligations.txt` and emitted as a statement: it is never assumed, never proved with `sorry`, and never under the axiom guard.
   `k2lean open-from-log Equations.lean BUILD.log open-obligations.txt` adds the theorems whose proofs failed in a Lake build log.
@@ -60,6 +87,19 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
 - Test data from krust runs compares the model with krust's executions: `k2lean goldens` (initial configurations by `krust krun --depth 0`, expected finals recorded from kimp, and step traces against krust and K's LLVM backend), `k2lean cases` (SIMPLE's tests, krust's final configurations, with search) and `k2lean configs` (benchmark programs).
 - `k2lean claims` states K reachability claims (`claim` sentences of a `--for-proving` definition) as Lean propositions over `Step` (`KClaims`, `lean/claims`), proves those its tactic can, and lists the others for hand proofs; `k2lean claims replay` turns a proof that `krust kore-rpc` explores into a Lean script of named steps.
 - `k2lean relate` pairs the rules and symbols of two definitions of one language and generates the translation and, when every rule pairs, a bisimulation proof (`demos/ImpRel`).
+
+### 3.1 Determinism along the rule index (`--det2`)
+
+The default proof of determinism is one `cases h₁ <;> cases h₂`: every pair of rules, quadratic in their number (KEVM's 597 rules of one rank: 356,409 inversions).
+`gen --det2` (`crates/k2lean/src/det2.rs`, implied by `--arity-terms`) goes along the structure the index already has:
+
+- the first item of the `<k>` cell, as an enumeration `Det.Key`, splits each rank's relation (`Det.split{i}`, one linear `cases`), and each rule's lemma `Rules.r.det` inverts only its key's relation and that of the rules without a key (KEVM: 137 keys, the largest group 108 rules, 9 rules without a key, 36,512 inversions);
+- a pair classifier (`crates/k2lean/src/pairs.rs`: the KORE left-hand sides unified with sorts, the requires under the unifier by the definition's equations, the builtin hooks, complementary atoms, `z3` and finite case splits) chooses one certificate per goal that survives the inversion (`k2l_case`, with the closers of `KPrelude.Determinism`); it is untrusted, a failed certificate is reported and its goal goes to the default closers, and the kernel checks every proof;
+- the pairs it cannot separate are the definition's own overlaps: `overlaps` lists them, `noOverlap c` decides that no listed pair applies with both rules, and the theorems are `Step.deterministic_of (h : noOverlap c = true)`, `step_complete_of` and `step_iff_of_noOverlap` (with no overlap, `Step.deterministic`, `step_complete` and `step_iff`).
+
+kimp has no overlap; its `Determinism.lean` builds in 9.8 s on the default encoding, against 107 s by cases on pairs, and in 14 s on the arity universe, where cases on pairs did not finish in ten minutes (2026-10-24, load 25 to 53; 2026-10-23).
+KEVM has 79 overlapping pairs: 78 in `driver.md` and `state-utils.md`, and `evm.md`'s stack underflow and overflow rules, which both apply to `DUP(N)` with `N ≥ 1025` and a stack of 1,024 to `N − 1` items.
+The gate's light tier builds kimp with `--det2` and one exclusive pair listed as overlapping (`kimp-d2`), so the conditional statements are built too.
 
 The gate (`tests/gate.sh`, `docs/testing.md` of the repository) regenerates every library and demonstration and fails when an open set grows, a guard loses a theorem, a `k2l_preserve` call closes fewer rules, a recorded output changes, a generated file changes without an accepted baseline, or any Lean source contains `sorry`, `admit` or an `axiom`.
 
@@ -114,6 +154,7 @@ The generator refuses a cell that is not in the definition, whose content is not
 ## 7. Lean version
 
 Every generated project, the prelude and KClaims pin Lean v4.30.0 (`LEAN_TOOLCHAIN` in `crates/k2lean/src/main.rs`, and each `lean-toolchain`); the generated tactics and the prelude's proofs are checked on that version only.
+The arity-indexed universe needs v4.30.0 or later (§2.1).
 The repository's own Lean proofs (`lean/`) are a separate project with a toolchain of their own.
 
 ## 8. Limits
@@ -123,3 +164,32 @@ The repository's own Lean proofs (`lean/`) are a separate project with a toolcha
 - Determinism is not generated for definitions with several-match rules; `uniqueAt c` checks it at one configuration.
 - Recursive functions on lists close only in the fold shape `k2l_fold_eqn` recognizes; other equations the tactics cannot prove stay open obligations (`generated/*/open-obligations.txt` lists them per library).
 - The limits of the invariant tooling are in `invariants.md`, §9.
+
+## 9. Large definitions: cost and what is open
+
+KEVM through `pipelines/kevm.sh` (krust's compilation of `driver.md`, `gen --arity-terms --termination kevm-termination.toml`, the matchers split into four modules, `lean -j 8`), measured on 2026-10-24 on a shared 32-CPU host:
+
+| module | wall | CPU | peak | load |
+|---|---|---|---|---|
+| krust `kcompile`, `k2lean gen` | 12 s, 3 s | | 0.4 GB | 32 |
+| `Terms` | 396 s | 814 s | 5.7 GB | 32 → 31 |
+| `Functions` (21 recursive groups, no `sorry`) | 92 to 209 s | 136 to 200 s | 2.7 GB | 31 to 52 |
+| `RulesRel` (`App`, `Step0`, `Step`) | 164 to 345 s | 165 to 266 s | 9.2 GB | 28 to 52 |
+| the 626 matchers, four modules | 530 s | 582 s | 3.2 GB | 52 to 66 |
+| `Rules` (index, `step`, `run`) | 47 s | 50 s | 2.3 GB | 66 → 43 |
+| `Adequacy` (2,504 per-rule lemmas and the global theorems) | 256 s | 602 s | 9.6 GB | 43 → 26 |
+
+Every module builds without an error, a `sorry` or an axiom beyond Lean's three; KEVM's 13 `KRYPTO` hooks are the parameters of `class Hooks`, and `senderTxData`, whose rewriting diverges at chain id −4, is a least fixed point (`pipelines/kevm-sender-diverges.lean` proves it has no value there).
+KMIR's term universe builds (78 s, 3.0 GB, 2026-10-23); `gen` stops at its one `ensures` rule.
+
+Open, in the order they block a KEVM library with kimp's guarantees:
+
+- **KEVM `Equations`** (1,111 statements) does not build as one module: it exceeds 20 GB. In chunks of 139 theorems (2026-10-24), at least 273 of the 694 that finished fail: 171 are the equations of the two schedule functions, which are recursive and need to be unfolded once (`eq_def`) before the generic proof; the 83 equations of `#dasmOpCode`, a 150-rule cascade, exceed 20 GB together and need the cascade evaluated at the equation's own left-hand side; and the module needs splitting. The equations of a least fixed point (`senderTxData`) have no generic proof yet.
+- **KEVM determinism** (`--det2`, 79 overlapping pairs) was built against the statements of `Adequacy` with their proofs omitted (2026-10-24): 543 of the 626 per-rule lemmas proved, 74 CPU-minutes in 16 files at `lean -j 4` (one file exceeds 20 GB), with 75 goals open in 62 lemmas (102 with the first closers): 32 that `z3` separated with bytes, string and set facts that `omega` lacks, 26 that need evaluating a variable's membership in a set of literals, 7 complementary atoms equal only after evaluating a call, 10 clashes inside map and list patterns; and 21 lemmas out of heartbeats, three of them rules whose first `<k>` item is a variable of sort `Gas`, which invert all 597 rules of their rank and cost a third of the module. Not rebuilt against the real `Adequacy`.
+- **Termination**: all 21 recursive groups of KEVM that Lean's own search does not prove are proved, 15 by the generator's measures and 5 by `kevm-termination.toml`; a mutual group gets no synthesized measure, and the termination file's lemmas name generated definitions and the arity universe's constructors, so a change to either breaks them at build time.
+- **A KEVM run**: the test drivers need an instance of `Hooks` (real hashes, outside the semantics) and krust-produced initial configurations; none is generated yet.
+- **KMIR**: `ensures` rules, and per-program instances of its three equation-less `lookup*Kore` functions, now parameters.
+- **The arity universe as the default**: kimp's and SIMPLE's results are equal on both encodings and the arity universe builds them several times faster (§2.1); not checked on it are the invariant tooling (kinds 1 and 2), `relate`, the claims, and the typed collections of the KRS sidecar. A delaborator from `Term.cK` back to the K constructors' names would make its goals readable.
+- **`--det2` as the default** for the per-sort encoding: kimp's `Determinism.lean` takes 9.8 s with it and 107 s without (§3.1).
+- **`Terms` cost**: about 280 of KEVM's 665 CPU-s are the decoder's round trip by `simp` and 128 leaf-inclusion lemmas by `decide` (estimate from a profile, 2026-10-23).
+- **Lean's realization of match equations and equation lemmas for imported constants** runs under the default 200,000 heartbeats whatever the importing file sets (Lean v4.30.0): the adequacy proofs avoid splitting large matches of another module and each equation proof unfolds only its own definitions, but another proof that does either can reach that limit.

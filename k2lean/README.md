@@ -14,7 +14,8 @@ It is part of k-rust's repository: the generator is a member of k-rust's workspa
 | `demos` | K inputs, hand-written Lean projects over generated libraries, and `regen.sh`, which regenerates and builds them |
 | `generated` | where the libraries are generated; git tracks only each library's open lists and hand-written invariant module |
 | `tests` | the gate (`gate.sh`, `gate-check.py`, `libs.sh`), its baseline and recorded outputs, kimp's golden cases, and the generator's fixtures |
-| `docs` | `design.md` (what is generated and why it is sound) and `invariants.md` (the user guide to preserved invariants) |
+| `pipelines` | human-run scripts that generate and build KEVM (`kevm.sh`, with KEVM's termination file) and KMIR (`kmir.sh`) in the arity-indexed term universe; not gate tiers |
+| `docs` | `design.md` (what is generated and why it is sound, the encodings, measured costs, and what is open) and `invariants.md` (the user guide to preserved invariants) |
 
 ## Quick start
 
@@ -64,10 +65,16 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/k/kimp-inv`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
 | `demos/claims` | K claims of kimp proved in Lean, generically or by hand |
 
+## Large definitions
+
+The default term universe is one Lean type per sort, in one `mutual` block.
+For definitions of KEVM's size, `gen --arity-terms` writes one inductive family indexed by the sorts instead, and `gen --det2` proves determinism along the rule index rather than over all pairs of rules (`--arity-terms` implies it); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
+`pipelines/kevm.sh` and `pipelines/kmir.sh` run KEVM and KMIR through the generator and Lean, step by step; `docs/design.md`, §9, lists what is open.
+
 ## Testing
 
 `cargo test -p k2lean` runs the generator's tests, which the workspace suite includes.
-`tests/gate.sh light|heavy` is the regression gate; `docs/testing.md` of the repository describes both and when they are owed (`k2lean-light`, `k2lean-heavy` in `scripts/gates.toml`).
+`tests/gate.sh light|heavy|arity` is the regression gate; `docs/testing.md` of the repository describes the tiers and when they are owed (`k2lean-light`, `k2lean-heavy`, `k2lean-arity` in `scripts/gates.toml`).
 
 ## Third-party material
 

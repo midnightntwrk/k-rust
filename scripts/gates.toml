@@ -484,3 +484,11 @@ name = "k2lean-heavy"
 run = "heavy"
 command = "k2lean/tests/gate.sh heavy"
 paths = ["@krust", "@k2lean"]
+
+# k2lean's arity tier: kimp and SIMPLE in the arity-indexed term universe (`gen --arity-terms`),
+# whose goldens, step traces and SIMPLE cases must equal the default encoding's.
+[[gate]]
+name = "k2lean-arity"
+run = "heavy"
+command = "k2lean/tests/gate.sh arity"
+paths = ["@krust", "@k2lean"]
