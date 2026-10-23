@@ -708,6 +708,17 @@ impl<'a> InitializerBuilder<'a> {
                         path_key: key,
                         name,
                     })
+                } else if let Some(name) = super::terms::snake_case_bare_name(path) {
+                    // An initializer's bare snake-case names are its
+                    // parameters, by KRS's spelling rule never Rust items.
+                    Err(ExpandError::new(
+                        expand::UNBOUND_NAME,
+                        syn::spanned::Spanned::span(path),
+                        format!(
+                            "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters{}",
+                            super::terms::did_you_mean(&name, self.bindings.iter())
+                        ),
+                    ))
                 } else {
                     let target = self
                         .terms

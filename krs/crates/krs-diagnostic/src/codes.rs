@@ -395,6 +395,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         EMPTY_BRACKET: "krs::expand::empty-bracket" => "A bracket template contains no descriptor-bearing tokens.",
         ENUM_VARIANT_COLLISION: "krs::expand::enum-variant-collision" => "Two enum variants have the same readable rule resolution name.",
         RULE_RESULT_WILDCARD: "krs::expand::rule-result-wildcard" => "A rule result contains a wildcard.",
+        UNBOUND_NAME: "krs::expand::unbound-name" => "A bare snake-case name outside a pattern is not bound by the sentence: not by its pattern, an existential or fresh binder, a parameter, or an enclosing `let`.",
         INVALID_RECORD_UPDATE: "krs::expand::invalid-record-update" => "The base `t` of a record update `Ctor { f: e, ..t }` is not a binder of the rule.",
         PATTERN_AS_OUTSIDE_LHS: "krs::expand::pattern-as-outside-lhs" => "A `name @ pattern` (K's `#as`) occurs outside a left-hand side.",
         PATTERN_OR_OUTSIDE_LHS: "krs::expand::pattern-or-outside-lhs" => "An `A | B` or-pattern (K's `#Or`) occurs outside a left-hand side.",

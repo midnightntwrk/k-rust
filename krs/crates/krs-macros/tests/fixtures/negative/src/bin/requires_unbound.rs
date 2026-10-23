@@ -10,7 +10,7 @@ pub struct Guarded {
 }
 
 #[rule]
-#[renamed_krs::requires(renamed_krs::builtin::int::gt(unbound, 0))] //~ ERROR cannot find type `unbound`
+#[renamed_krs::requires(renamed_krs::builtin::int::gt(unbound, 0))] //~ ERROR `unbound` is not bound in this sentence
 fn invalid(Guarded { value }: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     Guarded { value }
 }

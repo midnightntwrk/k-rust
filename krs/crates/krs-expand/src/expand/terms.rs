@@ -483,6 +483,18 @@ impl<'a> TermBuilder<'a> {
             .any(|binders| is_bound_ident_path(path, binders))
     }
 
+    /// The names in scope at the current term: the sentence's bindings and
+    /// the enclosing local binders.
+    fn names_in_scope(&self) -> impl Iterator<Item = &Ident> {
+        self.bindings.iter().chain(
+            self.local_binders
+                .iter()
+                .chain(&self.let_pattern_binders)
+                .chain(&self.let_scopes)
+                .flatten(),
+        )
+    }
+
     /// Whether a `let` pattern is being expanded.
     const fn in_let_pattern(&self) -> bool {
         self.let_pattern_binders.is_some()
@@ -772,6 +784,18 @@ impl<'a> TermBuilder<'a> {
                         path_key,
                         name: binder_spelling(path),
                     })
+                } else if let Some(name) = snake_case_bare_name(path) {
+                    // A bare snake-case name is a binder by KRS's spelling
+                    // rule, never a Rust item, so an unbound one is a free
+                    // variable of the sentence, not a path for rustc.
+                    Err(ExpandError::new(
+                        expand::UNBOUND_NAME,
+                        syn::spanned::Spanned::span(path),
+                        format!(
+                            "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one{}",
+                            did_you_mean(&name, self.names_in_scope())
+                        ),
+                    ))
                 } else {
                     let authored_path = spelling(path);
                     let target = if lexical {
@@ -1581,6 +1605,60 @@ fn check_ml_item(path: &Path) -> crate::Result<()> {
             ML_CONNECTIVES.join(", ml::")
         ),
     ))
+}
+
+/// The name of a bare snake-case path: one unqualified segment without
+/// arguments whose first character after any leading underscores is
+/// lowercase (`zz`, `_tmp`, `r#type`). KRS binders are spelled this way and
+/// Rust items are not, so outside a pattern such a name uses a binder.
+pub(super) fn snake_case_bare_name(path: &Path) -> Option<String> {
+    let name = path.get_ident()?.unraw().to_string();
+    name.trim_start_matches('_')
+        .starts_with(|first: char| first.is_lowercase())
+        .then_some(name)
+}
+
+/// "; did you mean `x`?" for the in-scope name closest to `name`, within an
+/// edit distance (a swap of two adjacent letters counting as one edit) of a
+/// third of its length, at least one, or nothing.
+pub(super) fn did_you_mean<'a>(name: &str, candidates: impl Iterator<Item = &'a Ident>) -> String {
+    let bound = (name.len() / 3).max(1);
+    candidates
+        .map(|candidate| candidate.unraw().to_string())
+        .filter(|candidate| candidate != name)
+        .map(|candidate| (transposition_distance(name, &candidate), candidate))
+        .filter(|(distance, _)| *distance <= bound)
+        .min()
+        .map(|(_, candidate)| format!("; did you mean `{candidate}`?"))
+        .unwrap_or_default()
+}
+
+/// The edit distance between two ASCII identifiers that counts insertions,
+/// deletions, substitutions, and swaps of two adjacent letters (the
+/// restricted Damerau-Levenshtein distance), so `valeu` is one edit from
+/// `value`.
+fn transposition_distance(left: &str, right: &str) -> usize {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let mut rows = vec![(0..=right.len()).collect::<Vec<_>>()];
+    for (row, left_byte) in left.iter().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right_byte) in right.iter().enumerate() {
+            let previous = &rows[row];
+            let mut distance = (previous[column] + usize::from(left_byte != right_byte))
+                .min(previous[column + 1] + 1)
+                .min(current[column] + 1);
+            if row > 0
+                && column > 0
+                && *left_byte == right[column - 1]
+                && left[row - 1] == *right_byte
+            {
+                distance = distance.min(rows[row - 1][column - 1] + 1);
+            }
+            current.push(distance);
+        }
+        rows.push(current);
+    }
+    rows[left.len()][right.len()]
 }
 
 /// The Levenshtein distance between two ASCII identifiers.
