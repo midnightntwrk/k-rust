@@ -136,8 +136,14 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
     else {
         return Err("walkthrough requires an application replacement".into());
     };
-    let krs_ir::DescriptorApplicationRef::Builtin(operation) = &result.application else {
-        return Err("walkthrough replacement requires a builtin".into());
+    let application = match &result.application {
+        krs_ir::DescriptorApplicationRef::Builtin(operation) => {
+            format!("builtin:{}", enum_name(operation))
+        }
+        krs_ir::DescriptorApplicationRef::Operator(operator) => {
+            format!("operator:{}", enum_name(operator))
+        }
+        _ => return Err("walkthrough replacement requires a builtin or an operator".into()),
     };
     let args = result_args
         .iter()
@@ -155,7 +161,7 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
         "cell":computation.cell.field.as_str(),
         "bindings":rule.bindings.iter().map(|b|b.name.as_str()).collect::<Vec<_>>(),
         "subject":{"application":id.item_name(),"arguments":fields},
-        "result":{"application":format!("builtin:{}",enum_name(operation)),"arguments":args},
+        "result":{"application":application,"arguments":args},
     }))
 }
 

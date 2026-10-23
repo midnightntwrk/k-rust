@@ -99,7 +99,7 @@
 //! `kind: "descriptor_details"` accepts exact `module_path` and `item_name` filters and `public_only` (default false).
 //! It returns `{rows}` with `module_path`, `item_name`, `item_kind`, exact `visibility`, optional `explicit_symbol`, and opaque `normalized` descriptors.
 //! Normalized descriptors remove provenance recursively and reduce every package to its `k_namespace`; all other descriptor fields remain exact.
-//! `kind: "head_rule_walkthrough"` requires `item_name` and selects exactly one head rule with a declared named-argument subject and builtin positional-variable replacement.
+//! `kind: "head_rule_walkthrough"` requires `item_name` and selects exactly one head rule with a declared named-argument subject and builtin or operator positional-variable replacement (`builtin:<operation>` or `operator:<operator>`).
 //! It returns `{id,kind,sentence_kind,label,configuration,cell,bindings,subject,result}`.
 //! `subject` and `result` each contain `application` and ordered `arguments`; builtin application names carry the `builtin:` prefix.
 //! Unsupported walkthrough shapes and ambiguous identities are errors.
