@@ -112,7 +112,7 @@ impl WitnessFile {
 /// The identity fields of `recorded` that `now` does not have, one sentence each, named by
 /// their path in the report (`definitions[0].syntax-definition-digest`).
 ///
-/// Every field of the report's identity is compared except nine: the proposers and the budget,
+/// Every field of the report's identity is compared except nine, and `target-rule`'s name: the proposers and the budget,
 /// which the replay sets itself (one explicit assignment, one case), `options.shrink` (a replay
 /// does not shrink), the engine version, which covers the proposer and generator code that
 /// chooses cases, `dictionary`, the dictionary proposer's parameters, which only weigh its
@@ -124,7 +124,10 @@ impl WitnessFile {
 /// case is still checked against the declared constraints, and the definitions, program and
 /// overlay they derive from are compared). None of the code the last six describe runs when a
 /// fixed assignment is replayed, so they cannot
-/// change the replayed case. (Replaying with the recorded proposers instead would
+/// change the replayed case. Of `target-rule`, only the id is compared: the rule is a function
+/// of the definitions and the target, which are compared, and its name is read from the
+/// catalog, whose source paths say where the definition was compiled (a definition compiled
+/// again elsewhere names the same rule by the same id). (Replaying with the recorded proposers instead would
 /// record a dictionary that chose nothing, and still no draw would differ.) Every other field
 /// is an input of the replayed case's execution or of its assembly, so a difference makes the
 /// replay another campaign.
@@ -140,7 +143,17 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
         identity.corpus = None;
         identity.solve = None;
         identity.effective_constraints = Vec::new();
-        serde_json::to_value(identity).unwrap_or(serde_json::Value::Null)
+        let mut value = serde_json::to_value(identity).unwrap_or(serde_json::Value::Null);
+        // Of `target-rule`, only the id: its name (kind, label, source paths and references)
+        // is read from the definition's catalog, whose source paths name where the definition
+        // was compiled, not what it is.
+        if let Some(rule) = value
+            .get_mut("target-rule")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            rule.remove("name");
+        }
+        value
     };
     let mut mismatches = Vec::new();
     differ(&comparable(recorded), &comparable(now), "", &mut mismatches);

@@ -1101,6 +1101,58 @@ fn an_unlabelled_rule_is_targeted_by_source_line_or_unique_id() {
     );
 }
 
+/// A replay compares the target rule by its id only (FZ-RULEREF review I2): its name is read
+/// from the definition's catalog, whose source paths say where the definition was compiled.
+#[test]
+fn a_rule_witness_replay_compares_the_target_rule_by_id() {
+    let neg = kink_imp_campaign(
+        "clamp.imp",
+        "imp.k:47",
+        [("X", "x = 7;", "7"), ("LO", "lo = 3;", "3")],
+    );
+    let directory = kink_imp_workspace(
+        "rule-replay-id",
+        &[("clamp.imp", CLAMP), ("neg.toml", &neg)],
+    );
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "neg.toml", "--witness", "w.json"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("w.json")).unwrap())
+            .expect("the witness file is JSON");
+    // Another path for the rule's source, as a definition compiled elsewhere records: the
+    // witness still reproduces.
+    let mut moved = recorded.clone();
+    let location = &mut moved["report"]["identity"]["target-rule"]["name"]["locations"][0];
+    location["source"] = serde_json::Value::String("/elsewhere/imp.k".to_owned());
+    location["reference"] = serde_json::Value::String("elsewhere/imp.k".to_owned());
+    fs::write(directory.join("moved.json"), moved.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "moved.json"]);
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+    // Another id is another rule: refused.
+    let mut other = recorded;
+    other["report"]["identity"]["target-rule"]["id"] = serde_json::Value::String("0".repeat(64));
+    fs::write(directory.join("other.json"), other.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "other.json"]);
+    assert_eq!(replay.status.code(), Some(2), "{}", text(&replay.stdout));
+    assert!(
+        text(&replay.stdout).contains("target-rule.id")
+            || text(&replay.stderr).contains("target-rule.id"),
+        "{}{}",
+        text(&replay.stdout),
+        text(&replay.stderr)
+    );
+}
+
 /// FZ-RULEREF: a source reference names the rule whose span holds the line, not only the rule
 /// that starts on it (MAZE's `enter` spans lines 37 to 40).
 #[test]
