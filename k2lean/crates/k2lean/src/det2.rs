@@ -185,6 +185,8 @@ pub struct Out {
 
 /// The options of `gen --det2`.
 pub struct Opts {
+    /// The term universe is the arity-indexed family (the injection-algebra proofs differ).
+    pub arity: bool,
     /// Pairs of rules (display names) listed as overlapping whatever their class
     /// (`--det2-overlap A,B`): the theorem then assumes them apart, which exercises the
     /// conditional statements on a definition whose classification finds no overlap.
@@ -194,8 +196,9 @@ pub struct Opts {
 }
 
 impl Opts {
-    pub fn from_args(rest: &[String]) -> Opts {
+    pub fn from_args(rest: &[String], arity: bool) -> Opts {
         let mut o = Opts {
+            arity,
             forced: vec![],
             heartbeats: 400_000,
         };
@@ -398,6 +401,8 @@ set_option maxHeartbeats {}\nset_option maxRecDepth 100000\nset_option linter.un
             let n = format!("Det.comp_{fb}_{fa}_{fd}");
             let proof = if simple(b) {
                 "rfl".to_string()
+            } else if opts.arity {
+                "match x with\n  | Term.inj _ _ _ _ => rfl".to_string()
             } else {
                 "by cases x <;> rfl".to_string()
             };
@@ -419,6 +424,10 @@ set_option maxHeartbeats {}\nset_option maxRecDepth 100000\nset_option linter.un
             let n = format!("Det.projinj_{fb}_{fa}_{fc}");
             let proof = if simple(b) {
                 format!("by first | rfl | simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}]")
+            } else if opts.arity {
+                format!(
+                    "match x with\n  | Term.inj _ l h _ => by simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}, sub_{fb}_{fc} l h]"
+                )
             } else {
                 format!(
                     "by cases x <;> first | rfl | simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}]"

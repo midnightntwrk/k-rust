@@ -6,7 +6,9 @@ usage: gate-check.py check WORK BASELINE TIER   measure WORK, write WORK/measure
        gate-check.py accept WORK BASELINE        make WORK's last measurements the baseline, and
                                                  copy its expected outputs to expected/ beside it
 
-What is compared (each entry of the baseline names its tier, light or heavy):
+What is compared (each entry of the baseline names its tier, light, heavy or arity; an arity run
+compares its libraries with the arity entries, and kimp's goldens, SIMPLE's cases and their
+recorded outputs with the default encoding's, which they must equal):
   status    every step of the run succeeded (generation, builds, axiom guards, tests)
   unit      generator tests: none fails, and no fewer pass
   lib.X     the open-obligation set of library X may only shrink (a new member fails, and is
@@ -43,7 +45,7 @@ from pathlib import Path
 
 LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
         "imptypes": ("KImpTypes", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
-        "simpleinv": ("KSimpleInv", "heavy")}
+        "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
 NO_GUARD = {"kimpinv", "simpleinv"}
 INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy")}
@@ -62,17 +64,21 @@ OUTPUTS = {  # recorded output → (tier, normalization)
     "replay/branching.toml": ("heavy", "strip-seconds"),
     "replay/sum-loop.toml": ("heavy", "strip-seconds"),
 }
+# the recorded outputs an arity run produces, compared with the default encoding's
+ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "simple-acceptance.md"}
 # generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
-NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean"}
+NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
+                   "generated/kimp-ar/KImpBench/Programs.lean"}
 SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv"],
-               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv"]}
+               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv"],
+               "arity": ["generated/kimp-ar", "generated/simple-ar"]}
 DEMO_SOURCES = ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                 "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
                 "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"]
 
 
 def tiers(tier):
-    return ["light"] if tier == "light" else ["light", "heavy"]
+    return {"light": ["light"], "heavy": ["light", "heavy"], "arity": ["arity"]}[tier]
 
 
 # ---------------------------------------------------------------- measuring
@@ -268,12 +274,13 @@ def measure(work, tier):
         # still says how many rules the tactic closed
         m["demo"][p] = {"tier": t, "guarded": guarded(logs / f"build-{p}.log") if ok else None,
                         "preserve": preserve_lines(logs / f"build-{p}.log")}
-    if tier == "heavy":
+    if tier in ("heavy", "arity"):
         acc = read(meas / "simple-acceptance.toml")
         m["simple"] = {"tier": "heavy",
                        "cases": len(re.findall(r"^\[\[case\]\]", acc, re.M)) if acc else None,
                        "lean_eq_krust": len(re.findall(r'^lean_vs_krust = "pass"', acc, re.M)) if acc else None,
                        "lean_out_eq_out": len(re.findall(r'^lean_vs_out = "pass"', acc, re.M)) if acc else None}
+    if tier == "heavy":
         ct = read(meas / "claims.toml")
         ax = read(meas / "axioms.txt")
         kc = read(meas / "kc-auto-stats.txt")
@@ -283,7 +290,7 @@ def measure(work, tier):
                        "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
                        "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
                        "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
-    m["outputs"] = {k: (t, norm) for k, (t, norm) in OUTPUTS.items() if t in tiers(tier)}
+    m["outputs"] = {k: (t, norm) for k, (t, norm) in OUTPUTS.items() if t in tiers(tier) or (tier == "arity" and k in ARITY_OUTPUTS)}
     m["sources"] = sources(tree, tier)
     m["banned"], m["axioms"] = banned(tree, logs)
     return m
@@ -323,7 +330,10 @@ def to_baseline(m, old=None):
     b["unit"] = {"tier": "light", "passed": m["unit"]["passed"]}
     for d, e in m["lib"].items():
         b["lib"][d] = e
-    b["kimp"] = m["kimp"]
+    # an arity run records only its libraries and sources: its goldens, cases and outputs are
+    # compared with the default encoding's entries, which it keeps
+    arity = m["tier"] == "arity"
+    b["kimp"] = old.get("kimp", m["kimp"]) if arity else m["kimp"]
     for p, e in m["demo"].items():
         b["demo"][p] = e
     for d, e in m["inv"].items():
@@ -331,12 +341,13 @@ def to_baseline(m, old=None):
     for d, e in m["negative"].items():
         b["negative"][d] = {k: v for k, v in e.items() if k != "first_error"}
     for k in ("simple", "claims"):
-        if k in m:
+        if k in m and not arity:
             b[k] = m[k]
         elif k in old:
             b[k] = old[k]
-    outs = {k: v for k, v in old.get("outputs", {}).items() if keep(v)}
-    outs.update({k: {"tier": t, "compare": n} for k, (t, n) in m["outputs"].items()})
+    outs = {k: v for k, v in old.get("outputs", {}).items() if keep(v) or arity}
+    if not arity:
+        outs.update({k: {"tier": t, "compare": n} for k, (t, n) in m["outputs"].items()})
     b["outputs"] = outs
     srcs = {k: v for k, v in old.get("sources", {}).get("sha256", {}).items() if keep(v)}
     srcs.update({k: {"tier": t, "sha256": h} for k, (t, h) in m["sources"].items()})
@@ -535,7 +546,7 @@ def compare(m, base, expected, accept_cmd):
             N(f"negative.{d}: not in the baseline")
 
     for sec in ("simple", "claims"):
-        if "heavy" not in run_t:
+        if "heavy" not in run_t and not (m["tier"] == "arity" and sec == "simple"):
             break
         e, b = m.get(sec, {}), base.get(sec)
         if b is None:
@@ -548,7 +559,7 @@ def compare(m, base, expected, accept_cmd):
             P(f"{sec}: " + ", ".join(f"{f} {e[f]}" for f in b if f != "tier"))
 
     for name, entry in base.get("outputs", {}).items():
-        if entry.get("tier") not in run_t:
+        if entry.get("tier") not in run_t and not (m["tier"] == "arity" and name in ARITY_OUTPUTS):
             continue
         got, exp = m["work"] / "measured" / name, expected / name
         if not got.exists():

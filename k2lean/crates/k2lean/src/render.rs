@@ -270,6 +270,21 @@ fn pad(n: usize) -> String {
     " ".repeat(n)
 }
 
+static FALLBACK_ARMS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether every `match` on a non-variable pattern gets a fallback arm, irrefutable ones too:
+/// set for the arity-indexed universe (`gen --arity-terms`, unless `--no-fallback-arms`). It
+/// changes no statement: a matcher's `none` carries no proof, and a matcher that returned `none`
+/// wrongly would fail the rule's `complete` theorem. Off by default: in the per-sort encoding an
+/// irrefutable match is exhaustive and Lean rejects the arm as redundant.
+pub fn set_fallback_arms(on: bool) {
+    FALLBACK_ARMS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn fallback_arms() -> bool {
+    FALLBACK_ARMS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn render_from(
     steps: &[Step],
     i: usize,
@@ -307,7 +322,11 @@ fn render_from(
                 pat.render()
             ));
             render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            if *refutable {
+            // a fallback arm also after an irrefutable non-variable pattern (a single-constructor
+            // cell): the match compiler then sends every other constructor of the inductive to
+            // `_` instead of refuting each one (`fallback_arms`); a variable pattern gets none,
+            // which Lean would reject as redundant
+            if *refutable || (fallback_arms() && !matches!(pat, L::Var(_))) {
                 out.push_str(&format!("{p}| _ => {}\n", fail(i)));
             }
         }

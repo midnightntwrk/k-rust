@@ -18,8 +18,14 @@
 #                                 cell map, of simpleinv, demos/k/simple-inv; the kind 2 demo
 #                                 SimpleEnv) and kimp-claims (claims.toml, krust kprove, kc_auto
 #                                 statistics, three replays)
+#   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp and SIMPLE in the
+#                                 arity-indexed term universe (`gen --arity-terms`, libraries kimp-ar
+#                                 and simple-ar): built with their axiom guards, kimp's goldens and
+#                                 step traces, SIMPLE's cases against krust; their recorded outputs
+#                                 must equal the default encoding's (expected/)
 #   k2lean/tests/gate.sh accept   make the last run's measurements the baseline (tests/baseline.toml
-#                                 and tests/expected/); a light run replaces only the light entries
+#                                 and tests/expected/); a light run replaces only the light entries,
+#                                 an arity run only the arity entries (and no recorded output)
 #
 # Exit status: 0 the tier passes; 1 a regression (the `FAIL` lines say which); 2 a setup error.
 # A clean light run builds five Lean libraries and five Lean projects: on 2026-10-24, on a shared
@@ -82,7 +88,7 @@ mkdir -p "$W" "$CACHE"
 W=$(cd "$W" && pwd) CACHE=$(cd "$CACHE" && pwd)
 
 case $TIER in
-  light|heavy) ;;
+  light|heavy|arity) ;;
   accept) exec python3 -I "$CHECK" accept "$W" "$BASE" ;;
   *) sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;
 esac
@@ -106,8 +112,10 @@ GOLDENS=$ROOT/tests/goldens
 [ -d "$BUILTIN" ] || need "K's builtin modules at $BUILTIN (set GATE_K_CHECKOUT or GATE_K_BUILTIN)"
 [ -d "$KIMP" ] || need "kimp's sources at $KIMP (set GATE_IMP_CHECKOUT or GATE_KIMP)"
 [ -d "$GOLDENS" ] || need "the golden cases at $GOLDENS"
-if [ "$TIER" = heavy ]; then
+if [ "$TIER" != light ]; then
   [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
+fi
+if [ "$TIER" = heavy ]; then
   [ -d "$SPECS" ] || need "kimp's claims at $SPECS (set GATE_IMP_CHECKOUT)"
 fi
 for t in cargo lake python3 rsync; do command -v "$t" > /dev/null || need "$t on PATH"; done
@@ -205,9 +213,11 @@ kc() { # NAME: krust's compiled KORE of NAME (tests/libs.sh)
 }
 kc kimp
 kc kimp-verif
-kc kimp-inv
-kc imp-typing
-kc kmut
+if [ "$TIER" != arity ]; then
+  kc kimp-inv
+  kc imp-typing
+  kc kmut
+fi
 phase llvm
 key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
 LLVM=$CACHE/kimp-llvm-$key
@@ -227,8 +237,8 @@ lbuild() { # DIR LOGNAME TARGET...: lake build in a project, timed
   local dir=$1 log=$L/$2.log; shift 2
   (cd "$dir" && "$RT" lake build "$@") > "$log" 2>&1
 }
-goldens() {
-  libs_goldens "$W/goldens-tmp" "$LLVM/interpreter" > "$L/goldens.log" 2>&1
+goldens() { # DIR: the goldens and traces of kimp's library DIR (kimp or kimp-ar)
+  libs_goldens "$W/goldens-tmp" "$LLVM/interpreter" "$1" > "$L/goldens.log" 2>&1
 }
 eqns() { # DIR NAME: build NAME.Equations; on failure turn the failed proofs into open obligations,
   # regenerate and retry (twice at most)
@@ -247,8 +257,8 @@ lib() { # DIR NAME
   mkdir -p "$o"; touch "$o/open-obligations.txt"
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$o/open-obligations.txt"
   genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
-  if [ "$d" = kimp ]; then
-    if goldens; then ok goldens "$L/goldens.log"; else bad goldens "$L/goldens.log"; fi
+  if [ "$d" = kimp ] || [ "$d" = kimp-ar ]; then
+    if goldens "$d"; then ok goldens "$L/goldens.log"; else bad goldens "$L/goldens.log"; fi
   fi
   eqns "$d" "$n" || return 1
   lbuild "$o" "build-$d" "$n" || { bad "build $d" "$L/build-$d.log"; return 1; }
@@ -256,13 +266,15 @@ lib() { # DIR NAME
   lbuild "$o" "build-$d-guard" "${n}Test.Axioms" || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
   ok "guard $d" "$L/build-$d-guard.log"
 }
-lib kimp KImp && {
-  phase "kimp tests"
-  if lbuild "$GEN/kimp" build-kimp-test kimp-test; then
-    "$GEN/kimp/.lake/build/bin/kimp-test" --toml "$MEAS/goldens.toml" > "$MEAS/kimp-test.out" 2> "$L/kimp-test.err" \
-      && ok kimp-test "$MEAS/kimp-test.out" || bad kimp-test "$MEAS/kimp-test.out"
-  else bad "build kimp-test" "$L/build-kimp-test.log"; fi
+kimp_tests() { # DIR: build and run kimp's test driver of library DIR (goldens and traces)
+  phase "$1 tests"
+  if lbuild "$GEN/$1" "build-$1-test" kimp-test; then
+    "$GEN/$1/.lake/build/bin/kimp-test" --toml "$MEAS/goldens.toml" > "$MEAS/kimp-test.out" 2> "$L/$1-test.err" \
+      && ok "$1-test" "$MEAS/kimp-test.out" || bad "$1-test" "$MEAS/kimp-test.out"
+  else bad "build $1-test" "$L/build-$1-test.log"; fi
 }
+if [ "$TIER" != arity ]; then
+lib kimp KImp && kimp_tests kimp
 # kimp with determinism along the rule index (tests/libs.sh): Terms … Equations are kimp's, so
 # its build starts from kimp's (only Determinism and the guard differ)
 mkdir -p "$GEN/kimp-d2"
@@ -388,41 +400,51 @@ if "$G" new-invariant --lib "$GEN/kimp" --out "$K2T" --name KImpTpl > "$L/kind2-
   if lbuild "$K2T" build-Kind2Template; then ok "build Kind2Template" "$L/build-Kind2Template.log"
   else bad "build Kind2Template" "$L/build-Kind2Template.log"; fi
 else bad "new-invariant kimp" "$L/kind2-new.log"; fi
+fi # not arity
 
 # 6. heavy: SIMPLE and the kimp claims
-lib_simple() { # SIMPLE: generate, cases, build, guard, run the cases, acceptance table
-  local o=$GEN/simple
+lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the cases, acceptance table
+  local d=$1 o=$GEN/$1
   mkdir -p "$o"; touch "$o/open-obligations.txt"
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$o/open-obligations.txt"
-  genlib simple || { bad "gen simple" "$L/gen-simple.log"; return 1; }
+  genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
   # the cases' expected results come from krust runs (about a minute); they are cached under the
   # hash of everything they depend on: the compiled definition, krust, the generator, the tests
   local key; key=$( { sha256sum "$KO/simple/definition.kore" "$KRUST" "$G"; printf '%s\n' "${LIBS_SIMPLE_CASES[@]}";
     cat "$SD"/tests/*/*.simple* 2>/dev/null; } | sha256sum | cut -c1-16)
   local cached=$CACHE/simple-cases-$key.lean
   if [ -f "$cached" ]; then
-    cp "$cached" "$o/KSimpleTest/Cases.lean"; echo "cached $cached" > "$L/cases-simple.log"
+    cp "$cached" "$o/KSimpleTest/Cases.lean"; echo "cached $cached" > "$L/cases-$d.log"
   else
-    libs_cases "$o/KSimpleTest/Cases.lean" > "$L/cases-simple.log" 2>&1 \
-      || { bad "cases simple" "$L/cases-simple.log"; return 1; }
+    libs_cases "$o/KSimpleTest/Cases.lean" > "$L/cases-$d.log" 2>&1 \
+      || { bad "cases $d" "$L/cases-$d.log"; return 1; }
     cp "$o/KSimpleTest/Cases.lean" "$cached"
   fi
-  eqns simple KSimple || return 1
-  lbuild "$o" build-simple KSimple || { bad "build simple" "$L/build-simple.log"; return 1; }
-  ok "build simple" "$L/build-simple.log"
-  lbuild "$o" build-simple-guard KSimpleTest.Axioms || { bad "guard simple" "$L/build-simple-guard.log"; return 1; }
-  ok "guard simple" "$L/build-simple-guard.log"
-  lbuild "$o" build-simple-test ksimple-test || { bad "build ksimple-test" "$L/build-simple-test.log"; return 1; }
-  "$o/.lake/build/bin/ksimple-test" > "$L/simple-test.out" 2>&1
-  python3 -I "$SELF/tests/simple-acceptance.py" "$L/simple-test.out" "$SD/tests" "$KRUST" "$KO/simple" \
+  eqns "$d" KSimple || return 1
+  lbuild "$o" "build-$d" KSimple || { bad "build $d" "$L/build-$d.log"; return 1; }
+  ok "build $d" "$L/build-$d.log"
+  lbuild "$o" "build-$d-guard" KSimpleTest.Axioms || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
+  ok "guard $d" "$L/build-$d-guard.log"
+  lbuild "$o" "build-$d-test" ksimple-test || { bad "build ksimple-test" "$L/build-$d-test.log"; return 1; }
+  "$o/.lake/build/bin/ksimple-test" > "$L/$d-test.out" 2>&1
+  python3 -I "$SELF/tests/simple-acceptance.py" "$L/$d-test.out" "$SD/tests" "$KRUST" "$KO/simple" \
     "$MEAS/simple-acceptance.toml" > "$MEAS/simple-acceptance.md" 2> "$L/simple-acceptance.err"
 }
+if [ "$TIER" = arity ]; then
+  lib kimp-ar KImp && kimp_tests kimp-ar
+  phase "lib simple-ar"
+  if libs_kcompile simple > "$L/kcompile-simple.log" 2>&1; then
+    ok "kcompile simple"
+    libs_simple_cases
+    lib_simple simple-ar && ok "simple-ar acceptance" "$MEAS/simple-acceptance.md"
+  else bad "kcompile simple" "$L/kcompile-simple.log"; fi
+fi
 if [ "$TIER" = heavy ]; then
   phase "lib simple"
   if libs_kcompile simple > "$L/kcompile-simple.log" 2>&1; then
     ok "kcompile simple"
     libs_simple_cases
-    lib_simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
+    lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
     diffs simple
   else bad "kcompile simple" "$L/kcompile-simple.log"; fi
 

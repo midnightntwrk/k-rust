@@ -483,6 +483,30 @@ impl Sidecar {
     }
 }
 
+/// `ListSizeOf` for each collection sort of the arity-indexed universe (`Term.coll_S l` has
+/// `sizeOf` one more than `l`): the size facts of the collection hooks in termination proofs.
+pub fn list_size_instances(m: &Model) -> String {
+    let mut o = String::new();
+    for (s, info) in &m.sorts {
+        let crate::model::Kind::Coll(k) = &info.kind else {
+            continue;
+        };
+        let e = &info.elems;
+        let elem = match k {
+            crate::model::Coll::Map => format!("{} × {}", e[0], e[1]),
+            crate::model::Coll::Set => format!("{} × Unit", e[0]),
+            crate::model::Coll::List => e[0].clone(),
+        };
+        o.push_str(&format!(
+            "instance : KPrelude.ListSizeOf {s} ({elem}) := ⟨fun _ => by simp [ListIso.ofList, {s}.ofList]⟩\n"
+        ));
+    }
+    if !o.is_empty() {
+        o.push('\n');
+    }
+    o
+}
+
 /// The equations of one function, lowered: (equation index, steps, left-hand-side steps, result).
 type Lowered = Vec<(usize, Vec<crate::lower::Step>, usize, L)>;
 

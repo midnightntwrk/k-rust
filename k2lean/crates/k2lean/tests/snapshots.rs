@@ -157,3 +157,11 @@ fn measure() {
 fn counter_det2() {
     snapshot_with("counter", "Counter", &["--det2"], "expected-det2");
 }
+
+/// The counter fixture in the arity-indexed term universe (`--arity-terms`): the `Term` family,
+/// fallback arms on every non-variable match, the collections' `ListSizeOf` instances, and
+/// determinism along the rule index.
+#[test]
+fn counter_arity() {
+    snapshot_with("counter", "Counter", &["--arity-terms"], "expected-arity");
+}

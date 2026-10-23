@@ -37,18 +37,20 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple) echo KSimple ;; simpleinv) echo KSimpleInv ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple|simple-ar) echo KSimple ;; simpleinv) echo KSimpleInv ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
 
-# libs_gen DIR: generate library DIR into GEN/DIR, with its open-obligation list.
+# libs_gen DIR: generate library DIR into GEN/DIR, with its open-obligation list. kimp-ar and
+# simple-ar are kimp and SIMPLE in the arity-indexed term universe (`--arity-terms`).
 libs_gen() {
   local o=$GEN/$1
   case $1 in
-    kimp) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
+    kimp|kimp-ar) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
             --out "$o" --name KImp --prelude ../../lean/prelude \
-            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" ;;
+            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
+            $([ "$1" = kimp-ar ] && echo --arity-terms) ;;
     # kimp with determinism along the rule index (`--det2`), and one exclusive pair of rules listed
     # as overlapping, so that the conditional statements (`Step.deterministic_of`) are built too
     kimp-d2) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
@@ -68,6 +70,9 @@ libs_gen() {
     simple) "$G" gen --kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json" \
             --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms \
             --open-obligations "$o/open-obligations.txt" ;;
+    simple-ar) "$G" gen --kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json" \
+            --out "$o" --name KSimple --prelude ../../lean/prelude --arity-terms \
+            --open-obligations "$o/open-obligations.txt" ;;
     # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
     # is inside the `<thread>` cell map, so it is lifted to "every thread"
     simpleinv) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
@@ -86,12 +91,12 @@ libs_gen_ill_typed() {
     --open-obligations "$1/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json"
 }
 
-# libs_goldens SCRATCH INTERPRETER: kimp's golden cases and step traces (KImpTest/Goldens.lean,
-# KImpTest/Traces.lean); INTERPRETER is K's LLVM interpreter of kimp.
+# libs_goldens SCRATCH INTERPRETER [DIR]: kimp's golden cases and step traces (KImpTest/Goldens.lean,
+# KImpTest/Traces.lean) for library DIR (default kimp); INTERPRETER is K's LLVM interpreter of kimp.
 libs_goldens() {
   "$G" goldens --kore "$(kore_dir kimp)/definition.kore" --name KImp --krust "$KRUST" --definition "$(kore_dir kimp)" \
     --goldens "$GOLDENS/krs-reference" --goldens "$GOLDENS/kimp-llvm" \
-    --lean-out "$GEN/kimp/KImpTest/Goldens.lean" --scratch "$1" --interpreter "$2" \
+    --lean-out "$GEN/${3:-kimp}/KImpTest/Goldens.lean" --scratch "$1" --interpreter "$2" \
     --depths krs-block-sequence:30 --depths example-sumto10:404:4 --depths example-gcd-while:163:3
 }
 

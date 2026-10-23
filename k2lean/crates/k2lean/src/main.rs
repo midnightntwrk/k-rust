@@ -33,6 +33,7 @@ mod survey;
 mod template;
 mod termination;
 mod terms;
+mod terms_arity;
 
 use std::path::PathBuf;
 
@@ -163,6 +164,11 @@ fn main() {
         return open_from_log(&raw[1..]);
     }
     let a = parse_args();
+    let arity = a.rest.iter().any(|x| x == "--arity-terms");
+    // fallback arms on irrefutable matches: for the arity-indexed family only, whose match
+    // compiler would otherwise refute every other constructor of the family; in the per-sort
+    // encoding such a match is exhaustive and Lean rejects the arm as redundant
+    render::set_fallback_arms(arity && !a.rest.iter().any(|x| x == "--no-fallback-arms"));
     let text = std::fs::read_to_string(&a.kore).unwrap();
     let def = ir::load(&text).unwrap();
     match a.cmd.as_str() {
@@ -299,13 +305,15 @@ fn main() {
             let topts = terms::TermOpts {
                 linear: a.rest.iter().any(|x| x == "--linear-terms"),
             };
-            write(
-                &out.join(ns).join("Terms.lean"),
-                &terms::emit_with(&m, ns, topts),
-            );
+            let (terms_text, size_instances) = if arity {
+                (terms_arity::emit(&m, ns), funcs::list_size_instances(&m))
+            } else {
+                (terms::emit_with(&m, ns, topts), String::new())
+            };
+            write(&out.join(ns).join("Terms.lean"), &terms_text);
             write(
                 &out.join(ns).join("Functions.lean"),
-                &functions_module(ns, &fgen, ""),
+                &functions_module(ns, &fgen, &size_instances),
             );
             if multi {
                 write(
@@ -380,9 +388,11 @@ fn main() {
                     &with_hooks(rules::emit_determinism(&top, ns, &unfold), ns, &fgen.params),
                 );
             }
-            // determinism along the rule index, modulo the overlapping pairs (`det2`)
+            // determinism along the rule index, modulo the overlapping pairs (`det2`): with
+            // `--det2`, and always in the arity-indexed universe, where the proof by cases on
+            // pairs of rules (the default's) does not finish
             let mut det_overlaps = 0;
-            if a.rest.iter().any(|x| x == "--det2") {
+            if arity || a.rest.iter().any(|x| x == "--det2") {
                 if multi {
                     eprintln!(
                         "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
@@ -399,7 +409,7 @@ fn main() {
                         &rules::ctor_info(&m),
                         &unfold,
                         &fgen.fns,
-                        &det2::Opts::from_args(&a.rest),
+                        &det2::Opts::from_args(&a.rest, arity),
                     );
                     write(
                         &out.join(ns).join("Determinism.lean"),
@@ -678,10 +688,12 @@ fn main() {
             let topts = terms::TermOpts {
                 linear: a.rest.iter().any(|x| x == "--linear-terms"),
             };
-            write(
-                &out.join(ns).join("Terms.lean"),
-                &terms::emit_with(&m, ns, topts),
-            );
+            let text = if arity {
+                terms_arity::emit(&m, ns)
+            } else {
+                terms::emit_with(&m, ns, topts)
+            };
+            write(&out.join(ns).join("Terms.lean"), &text);
             for n in &m.notes {
                 eprintln!("note: {n}");
             }
