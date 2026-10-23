@@ -273,6 +273,7 @@ fn settings(holes: usize) -> LoopSettings {
         pool_rank: std::collections::BTreeMap::new(),
         normal_end: None,
         rule_names: std::sync::Arc::default(),
+        domain: None,
     }
 }
 
@@ -2301,4 +2302,45 @@ fn the_climb_spends_at_most_half_of_the_cases_and_of_the_work() {
             "work {climb_work}/{work} (cost {climb_cost})"
         );
     }
+}
+
+/// The holes' finite domain (FZ-POLISH N-T1): choices, a Boolean and bounded integer ranges
+/// multiply; an unbounded hole, another sort or a product above the cap has none.
+#[test]
+fn a_finite_domain_is_the_product_of_the_holes_finite_domains() {
+    use super::campaign_loop::{FiniteDomain, MAX_EXHAUSTIVE};
+    use crate::values::ValueSort;
+    let range = |min: i64, max: i64| Constraints {
+        range: Some(IntRange {
+            min: Some(BigInt::from(min)),
+            max: Some(BigInt::from(max)),
+        }),
+        ..Constraints::default()
+    };
+    let choices = Constraints {
+        choices: Some(vec![int(1), int(2), int(1)]),
+        ..Constraints::default()
+    };
+    let unbounded = Constraints::default();
+    let size = |holes: &[(&ValueSort, &Constraints)]| {
+        FiniteDomain::of(holes.iter().copied()).map(|domain| domain.size())
+    };
+    let small = range(-2, 2);
+    assert_eq!(
+        size(&[
+            (&ValueSort::Int, &small),
+            (&ValueSort::Bool, &unbounded),
+            (&ValueSort::Int, &choices)
+        ]),
+        Some(5 * 2 * 2)
+    );
+    assert_eq!(
+        size(&[(&ValueSort::MInt { width: 4 }, &unbounded)]),
+        Some(16)
+    );
+    assert_eq!(size(&[(&ValueSort::Int, &unbounded)]), None);
+    assert_eq!(size(&[(&ValueSort::String, &unbounded)]), None);
+    let wide = range(1, i64::try_from(MAX_EXHAUSTIVE).expect("fits") + 1);
+    assert_eq!(size(&[(&ValueSort::Int, &wide)]), None);
+    assert_eq!(size(&[]), None);
 }

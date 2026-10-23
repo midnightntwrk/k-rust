@@ -942,3 +942,48 @@ fn a_mutant_that_stops_at_max_work_where_the_baseline_ended_is_not_told_to_raise
         "{statement}"
     );
 }
+
+/// TRIAL2 N-T1 (FZ-POLISH): a campaign whose holes all have finite domains ends once every
+/// assignment has run. An `Id` hole with the two choices `sum` (the anchor) and `n` on the
+/// equivalent `add-commuted` has two assignments: the campaign stops with `domain exhausted`
+/// once both have run, not after its budget of 50. At seed 7 the first blind draw repeats the
+/// anchor, so that is after three cases (a repeated assignment is still a case).
+#[test]
+fn a_finite_domain_is_exhausted_after_its_assignments() {
+    let token = |text: &str| Value::Token {
+        sort: "Id".into(),
+        text: text.into(),
+    };
+    let hole = HoleDecl {
+        name: "V".into(),
+        sort: "Id".into(),
+        location: HoleLocation::Span(SpanAddress {
+            program: "imp-diff/sum.imp".into(),
+            line: None,
+            find: "int n, sum;".into(),
+            literal: "sum".into(),
+        }),
+        constraints: Constraints {
+            choices: Some(vec![token("sum"), token("n")]),
+            ..Constraints::default()
+        },
+        allow_refused_sort: true,
+    };
+    let report = Campaign::new(trial_spec(
+        &IMP_DIFF,
+        &IMP_ADD_COMMUTED,
+        "imp-diff/sum.imp",
+        vec![hole],
+        Vec::new(),
+        PathMode::OnePath,
+    ))
+    .expect("valid")
+    .run(Budget::Cases(50), None);
+    let statement = &report.no_witness().expect("no kill").statement;
+    assert_eq!(report.totals.cases, 3, "{statement}");
+    assert!(
+        statement.contains("Domain exhausted: every one of the 2 assignments"),
+        "{statement}"
+    );
+    assert!(!statement.contains("The budget was spent"), "{statement}");
+}

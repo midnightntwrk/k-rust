@@ -21,7 +21,7 @@ use crate::{
     score::{Score, Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
     target::RuleName,
-    values::{Constraints, Value},
+    values::{Constraints, Value, ValueSort},
 };
 
 /// The most shrink candidates the engine executes for one witness. Shrinking is also bounded
@@ -57,6 +57,160 @@ pub(crate) struct LoopSettings {
     /// The names of every id in the catalog of the definition whose coverage the cases record,
     /// from which the report names the rules its coverage holds.
     pub(crate) rule_names: Arc<std::collections::BTreeMap<String, RuleName>>,
+    /// The holes' finite domains, when every hole has one and their product is at most
+    /// [`MAX_EXHAUSTIVE`]: the campaign ends once every assignment of them has run.
+    pub(crate) domain: Option<FiniteDomain>,
+}
+
+/// The most assignments a campaign's finite domain may have for the loop to track which ran
+/// and end when all have ([`FiniteDomain`]).
+pub(crate) const MAX_EXHAUSTIVE: u64 = 4096;
+
+/// The finite set of values one hole is generated from (FZ-POLISH N-T1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum HoleDomain {
+    /// The hole's choices.
+    Choices(Vec<Value>),
+    /// `true` and `false`.
+    Bool,
+    /// The integers of an inclusive range (an `Int` hole, or the unsigned values of an `MInt`
+    /// hole, its range cut to the width).
+    Ints {
+        min: num_bigint::BigInt,
+        max: num_bigint::BigInt,
+        /// For an `MInt` hole, its width.
+        width: Option<u32>,
+    },
+}
+
+impl HoleDomain {
+    /// The domain of a hole of `sort` generated under `constraints` (its effective
+    /// constraints), when it is finite.
+    fn of(sort: &ValueSort, constraints: &Constraints) -> Option<Self> {
+        if let Some(choices) = &constraints.choices {
+            let mut distinct: Vec<Value> = Vec::new();
+            for choice in choices {
+                if !distinct.contains(choice) {
+                    distinct.push(choice.clone());
+                }
+            }
+            return Some(Self::Choices(distinct));
+        }
+        let range = constraints.range.as_ref();
+        match sort.generated() {
+            ValueSort::Bool => Some(Self::Bool),
+            ValueSort::Int => Some(Self::Ints {
+                min: range?.min.clone()?,
+                max: range?.max.clone()?,
+                width: None,
+            }),
+            ValueSort::MInt { width } => {
+                let top: num_bigint::BigInt = (num_bigint::BigInt::from(1) << *width) - 1;
+                let min = range
+                    .and_then(|range| range.min.clone())
+                    .unwrap_or_default()
+                    .max(num_bigint::BigInt::default());
+                let max = range
+                    .and_then(|range| range.max.clone())
+                    .map_or_else(|| top.clone(), |max| max.min(top.clone()));
+                Some(Self::Ints {
+                    min,
+                    max,
+                    width: Some(*width),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// How many values the domain has, when it fits a `u64`.
+    fn size(&self) -> Option<u64> {
+        match self {
+            Self::Choices(choices) => u64::try_from(choices.len()).ok(),
+            Self::Bool => Some(2),
+            Self::Ints { min, max, .. } if max < min => Some(0),
+            Self::Ints { min, max, .. } => u64::try_from(max - min + 1).ok(),
+        }
+    }
+
+    fn contains(&self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Choices(choices), value) => choices.contains(value),
+            (Self::Bool, Value::Bool(_)) => true,
+            (
+                Self::Ints {
+                    min,
+                    max,
+                    width: None,
+                },
+                Value::Int(value),
+            ) => min <= value && value <= max,
+            (
+                Self::Ints {
+                    min,
+                    max,
+                    width: Some(width),
+                },
+                Value::MInt {
+                    width: value_width,
+                    value,
+                },
+            ) => {
+                let value = num_bigint::BigInt::from(value.clone());
+                width == value_width && *min <= value && value <= *max
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The product of the holes' finite domains (FZ-POLISH N-T1): a campaign whose every hole takes
+/// finitely many values (choices, a Boolean, a bounded integer range) has finitely many
+/// assignments, and once each has run, more cases only repeat them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FiniteDomain {
+    holes: Vec<HoleDomain>,
+    size: u64,
+}
+
+impl FiniteDomain {
+    /// The domain of holes of `sorts` generated under `constraints`, in hole order, when every
+    /// hole's is finite and the product is at most [`MAX_EXHAUSTIVE`]; `None` otherwise, and for
+    /// a campaign without holes (whose one assignment the anchors run).
+    pub(crate) fn of<'a>(
+        holes: impl IntoIterator<Item = (&'a ValueSort, &'a Constraints)>,
+    ) -> Option<Self> {
+        let holes = holes
+            .into_iter()
+            .map(|(sort, constraints)| HoleDomain::of(sort, constraints))
+            .collect::<Option<Vec<_>>>()?;
+        if holes.is_empty() {
+            return None;
+        }
+        let mut size = 1_u64;
+        for hole in &holes {
+            size = size.checked_mul(hole.size()?)?;
+            if size > MAX_EXHAUSTIVE {
+                return None;
+            }
+        }
+        (size > 0).then_some(Self { holes, size })
+    }
+
+    /// Whether `values` (in hole order) is an assignment of the domain.
+    fn contains(&self, values: &[Value]) -> bool {
+        values.len() == self.holes.len()
+            && self
+                .holes
+                .iter()
+                .zip(values)
+                .all(|(hole, value)| hole.contains(value))
+    }
+
+    /// How many assignments the domain has.
+    pub(crate) fn size(&self) -> u64 {
+        self.size
+    }
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -161,6 +315,17 @@ pub(crate) fn run_loop(
         state.score(case, observation.score.as_ref());
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
+        if let Some(domain) = &settings.domain
+            && proposal.failure.is_none()
+            && domain.contains(&proposal.values)
+        {
+            state.assignments.insert(render(&proposal.values));
+            if u64::try_from(state.assignments.len()).unwrap_or(u64::MAX) >= domain.size() {
+                break Ending::DomainExhausted {
+                    assignments: domain.size(),
+                };
+            }
+        }
     };
     schedule.contribute(&mut state.totals);
     let no_witness = no_witness(
@@ -172,7 +337,9 @@ pub(crate) fn run_loop(
         settings.rejection_cap,
     );
     let outcome = match ending {
-        Ending::Budget | Ending::Exhausted => CampaignOutcome::NoWitnessFound { no_witness },
+        Ending::Budget | Ending::Exhausted | Ending::DomainExhausted { .. } => {
+            CampaignOutcome::NoWitnessFound { no_witness }
+        }
         Ending::RejectedOut => CampaignOutcome::RejectedOut { no_witness },
         Ending::Cancelled => CampaignOutcome::Cancelled { no_witness },
         Ending::Aborted => CampaignOutcome::Aborted {
@@ -523,6 +690,8 @@ pub(crate) struct Diverging {
 struct State {
     budget: Budget,
     totals: Totals,
+    /// The canonical JSON of each assignment of [`LoopSettings::domain`] that ran.
+    assignments: BTreeSet<String>,
     /// The `miss` cases scored, and the best score with the earliest case that reached it
     /// ([`Totals::best_score`]).
     scored: u64,
@@ -542,6 +711,7 @@ impl State {
                 case_sequence_digest: digest_hex(b""),
                 ..Totals::default()
             },
+            assignments: BTreeSet::new(),
             scored: 0,
             best: None,
             cuts: Cuts::default(),
@@ -810,6 +980,12 @@ pub(crate) enum Ending {
     Budget,
     /// Every proposer was exhausted before the budget.
     Exhausted,
+    /// Every one of the `assignments` assignments of the holes' finite domains ran
+    /// ([`FiniteDomain`]).
+    DomainExhausted {
+        /// How many assignments the domain has.
+        assignments: u64,
+    },
     /// The rejection cap was reached.
     RejectedOut,
     /// The caller cancelled.
@@ -853,6 +1029,13 @@ pub(crate) fn no_witness(
             " The campaign ended before its budget because every proposer was exhausted; enable \
              the blind proposer to run more cases.",
         ),
+        Ending::DomainExhausted { assignments } => write!(
+            text,
+            " Domain exhausted: every one of the {assignments} assignments of the holes' finite \
+             domains (each hole's choices, a Boolean, or a bounded integer range, as generated) \
+             ran, so the campaign ended before its budget; more cases would only repeat them."
+        )
+        .expect("writing to a String"),
         Ending::RejectedOut => {
             let reasons: Vec<String> = totals
                 .rejections
