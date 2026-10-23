@@ -326,7 +326,10 @@ impl<S, C> FixedCell<S, C> {
             id,
             name,
             attributes,
-            content: FixedCellContent::Term { sort },
+            content: FixedCellContent::Term {
+                sort,
+                arguments: Vec::new(),
+            },
             declaration: None,
             field: None,
         })
@@ -398,6 +401,19 @@ impl<S, C> FixedCell<S, C> {
         self
     }
 
+    /// Records the element types of a leaf cell's collection content
+    /// (`Id` and `Value` of `Map<Id, Value>`); a nested cell ignores them.
+    #[must_use]
+    pub fn with_arguments(mut self, arguments: Vec<CellSortArgument<S>>) -> Self {
+        if let FixedCellContent::Term {
+            arguments: slot, ..
+        } = &mut self.content
+        {
+            *slot = arguments;
+        }
+        self
+    }
+
     /// Records the Rust field that declares the cell.
     #[must_use]
     pub fn with_field(mut self, field: impl Into<String>) -> Self {
@@ -456,12 +472,31 @@ pub enum FixedCellContent<S, C> {
     Term {
         /// Exact leaf content sort.
         sort: S,
+        /// The element types of a collection content sort, in order (`Id`
+        /// and `Value` of `Map<Id, Value>`); empty for a bare collection and
+        /// for every other sort. K erases them; they state the invariant
+        /// every value of the cell keeps, which execution checks for the
+        /// configuration values it is given.
+        #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+        arguments: Vec<CellSortArgument<S>>,
     },
     /// Structural content made exclusively of fixed children.
     Children {
         /// Ordered exactly-once child cells.
         children: Vec<FixedCell<S, C>>,
     },
+}
+
+/// One element type of a cell's collection content: a sort, or a collection
+/// type with element types of its own (`Set<Int>` in `Map<Int, Set<Int>>`).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CellSortArgument<S> {
+    /// The argument's sort.
+    pub sort: S,
+    /// The element types of a collection argument, in order.
+    #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<CellSortArgument<S>>,
 }
 
 /// One ordered external configuration variable.

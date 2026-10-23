@@ -6,14 +6,14 @@ use crate::ir_level::{
 };
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellCollectionType,
-    CellContentFrame, CellMultiplicity, CellPost, ClausePart, CollectionOperandSort,
-    CollectionOperationSpec, CollectionResultSort, ConfigurationClause, FixedCell, FixedCellClause,
-    FixedCellContent, FixedConfiguration, FixedConfigurationRewrite, FixedInitializerCell,
-    FixedInitializerContent, FormatFragment, GeneratedOperation, GrammarProductionItem,
-    GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
-    HookSortConstraint, InstanceClause, InstanceOrdering, InstancesClause, ListOperation,
-    MapOperation, OperationSort, OptionalCellClause, PartPost, PrecedenceRelation, Presence,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
+    CellContentFrame, CellMultiplicity, CellPost, CellSortArgument, ClausePart,
+    CollectionOperandSort, CollectionOperationSpec, CollectionResultSort, ConfigurationClause,
+    FixedCell, FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
+    FixedInitializerCell, FixedInitializerContent, FormatFragment, GeneratedOperation,
+    GrammarProductionItem, GrammarProductionItemKind, HookOperation, HookPointSortSource,
+    HookSignature, HookSortConstraint, InstanceClause, InstanceOrdering, InstancesClause,
+    ListOperation, MapOperation, OperationSort, OptionalCellClause, PartPost, PrecedenceRelation,
+    Presence, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
     SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -149,6 +149,7 @@ pub(crate) enum ValidationError<L: Validation> {
     EmptyText(krs_ir::IrField),
     ExistentialScopeViolation(SemanticId),
     InitializerLeafSortMismatch,
+    CellArgumentArity,
     InitializerTreeMismatch,
     InvalidAliasProduction,
     InvalidAliasRoot(L::RuleId),
@@ -229,6 +230,31 @@ pub(crate) fn require_sort<L: Validation>(
     }
     if let Some(id) = L::cell_sort(sort) {
         L::require_cell_sort(declarations, id)?;
+    }
+    Ok(())
+}
+
+/// Every element type of a leaf cell names a declared sort, and each
+/// collection sort carries the number of element types it takes: two for a
+/// `Map`, one for a `List` or `Set`, none for a bare collection or any other
+/// sort.
+fn require_cell_arguments<L: Validation>(
+    declarations: &Declarations<L>,
+    sort: &L::Sort,
+    arguments: &[CellSortArgument<L::Sort>],
+) -> Result<(), L::Error> {
+    let collection = |builtin| *sort == L::builtin_sort(builtin);
+    let expected = match () {
+        () if collection(BuiltinSort::Map) => 2,
+        () if collection(BuiltinSort::List) || collection(BuiltinSort::Set) => 1,
+        () => 0,
+    };
+    if !arguments.is_empty() && arguments.len() != expected {
+        return Err(L::error(ValidationError::CellArgumentArity));
+    }
+    for argument in arguments {
+        require_sort::<L>(declarations, &argument.sort)?;
+        require_cell_arguments::<L>(declarations, &argument.sort, &argument.arguments)?;
     }
     Ok(())
 }
@@ -352,8 +378,12 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
             return Err(L::error(ValidationError::InitializerTreeMismatch));
         }
         match (cell.content(), initialized.content()) {
-            (FixedCellContent::Term { sort }, FixedInitializerContent::Term { term }) => {
+            (
+                FixedCellContent::Term { sort, arguments },
+                FixedInitializerContent::Term { term },
+            ) => {
                 require_sort::<L>(declarations, sort)?;
+                require_cell_arguments::<L>(declarations, sort, arguments)?;
                 validate_term::<L>(
                     term,
                     scope,
@@ -397,7 +427,7 @@ fn configuration_leaf_sorts<L: Validation>(
     ) -> Result<(), L::Error> {
         for cell in cells {
             match cell.content() {
-                FixedCellContent::Term { sort } => {
+                FixedCellContent::Term { sort, .. } => {
                     if output.insert(cell.id().clone(), sort.clone()).is_some() {
                         return Err(L::error(ValidationError::InvalidCellFraming));
                     }

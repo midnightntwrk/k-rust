@@ -4,9 +4,9 @@ use std::fmt;
 
 use krs_diagnostic::{Diagnostic, Label, Location, ToDiagnostic, codes};
 use krs_ir::{
-    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationClause,
-    ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
-    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, CellSortArgument,
+    ConfigurationClause, ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent,
+    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
     GrammarProductionItemKind, GroupAssociativitySentence, IntLiterals, IrIdentityError,
     LayoutSentence, LexicalSentence, ModuleId, NodeOrigin, OriginFrame, OriginStack,
@@ -1567,14 +1567,15 @@ fn lower_fixed_cells(
             let origin = origins.lower(cell.origin(), "cell", None, Some(cell.id().as_str()))?;
             let attributes = lower_cell_attributes(cell.attributes(), origins)?;
             let lowered = match cell.content() {
-                FixedCellContent::Term { sort } => FixedCell::leaf(
+                FixedCellContent::Term { sort, arguments } => FixedCell::leaf(
                     origin,
                     symbol,
                     cell.name(),
                     attributes,
                     lower_sort_ref(sort, names)?,
                 )
-                .map_err(state_shape_error),
+                .map_err(state_shape_error)?
+                .with_arguments(lower_cell_arguments(arguments, names)?),
                 FixedCellContent::Children { children } => FixedCell::nested(
                     origin,
                     symbol,
@@ -1582,11 +1583,26 @@ fn lower_fixed_cells(
                     attributes,
                     lower_fixed_cells(children, names, origins)?,
                 )
-                .map_err(state_shape_error),
-            }?;
+                .map_err(state_shape_error)?,
+            };
             Ok(match cell.field() {
                 Some(field) => lowered.with_field(field),
                 None => lowered,
+            })
+        })
+        .collect()
+}
+
+fn lower_cell_arguments(
+    arguments: &[CellSortArgument<SemanticSortRef>],
+    names: &NamingPass,
+) -> Result<Vec<CellSortArgument<DefinitionSortRef>>, LoweringError> {
+    arguments
+        .iter()
+        .map(|argument| {
+            Ok(CellSortArgument {
+                sort: lower_sort_ref(&argument.sort, names)?,
+                arguments: lower_cell_arguments(&argument.arguments, names)?,
             })
         })
         .collect()

@@ -530,7 +530,8 @@ impl BuiltinRequirements {
     fn fixed_cells(&mut self, cells: &[FixedCell<DefinitionSortRef, SymbolId>]) {
         for cell in cells {
             match cell.content() {
-                FixedCellContent::Term { sort } => self.sort(sort),
+                // Element types are erased in K.
+                FixedCellContent::Term { sort, .. } => self.sort(sort),
                 FixedCellContent::Children { children } => self.fixed_cells(children),
             }
         }

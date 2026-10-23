@@ -771,7 +771,7 @@ fn cell_rows(
 ) {
     for cell in cells {
         let (sort, variable) = match cell.content() {
-            FixedCellContent::Term { sort } => (
+            FixedCellContent::Term { sort, .. } => (
                 Some(context.sort(sort)),
                 initializers
                     .iter()

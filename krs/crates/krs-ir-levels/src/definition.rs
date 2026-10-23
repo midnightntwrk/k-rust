@@ -1882,6 +1882,9 @@ pub enum DefinitionValidationError {
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
     InitializerLeafSortMismatch,
+    /// A leaf cell's element types do not fit its content sort: a `Map`
+    /// takes two, a `List` or `Set` one, and any other sort none.
+    CellArgumentArity,
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
     /// A Map operation had a wrong result or operand sort.
@@ -2165,6 +2168,9 @@ impl fmt::Display for DefinitionValidationError {
             Self::InitializerLeafSortMismatch => {
                 formatter.write_str("initializer leaf term must match its cell content sort")
             }
+            Self::CellArgumentArity => formatter.write_str(
+                "a cell's element types must be two for a Map, one for a List or Set, and none for any other sort",
+            ),
             Self::MapSortMismatch => formatter.write_str("Map term must have builtin Map sort"),
             Self::MapOperationSignature(operation) => {
                 write!(formatter, "{operation} has an invalid signature")

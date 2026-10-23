@@ -108,12 +108,12 @@ pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
     CellAttribute, CellClauseKind, CellCollectionType, CellColor, CellContentFrame,
-    CellMultiplicity, CellPost, CellStream, ClausePart, ConfigurationClause, ConfigurationRoot,
-    FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, InstanceChild, InstanceClause, InstanceOrdering,
-    InstancesClause, ListOperation, MapOperation, OptionalCellClause, PartPost, Presence,
-    SetOperation, StateShapeError, TermMapOperation,
+    CellMultiplicity, CellPost, CellSortArgument, CellStream, ClausePart, ConfigurationClause,
+    ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, InstanceChild,
+    InstanceClause, InstanceOrdering, InstancesClause, ListOperation, MapOperation,
+    OptionalCellClause, PartPost, Presence, SetOperation, StateShapeError, TermMapOperation,
 };
 pub use transport::configuration::{
     CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
@@ -206,7 +206,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(66);
+    pub const CURRENT: Self = Self(67);
 }
 
 impl Default for SchemaVersion {

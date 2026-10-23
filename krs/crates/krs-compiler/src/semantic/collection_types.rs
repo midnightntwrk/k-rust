@@ -44,10 +44,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 
 use krs_ir::{
-    BuiltinSort, CollectionApplication, Descriptor, DescriptorApplicationRef, DescriptorCellField,
-    DescriptorIndex, DescriptorSortArgument, DescriptorSortRef, DescriptorTerm, ListNotation,
-    ListOperation, OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
+    BuiltinSort, CellSortArgument, CollectionApplication, Descriptor, DescriptorApplicationRef,
+    DescriptorCellField, DescriptorIndex, DescriptorSortArgument, DescriptorSortRef,
+    DescriptorTerm, ListNotation, ListOperation, OperationSort, ProtocolCellContent,
+    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation,
+    StableItemId, TermMapOperation,
 };
 use krs_ir_levels::SemanticSortRef;
 
@@ -173,6 +174,17 @@ impl SortType {
     /// Whether this is a collection whose element types are declared.
     fn is_typed(&self) -> bool {
         self.kind().is_some() && !self.arguments.is_empty()
+    }
+
+    /// The element types, as the Semantic IR records them on a leaf cell.
+    pub(super) fn ir_arguments(&self) -> Vec<CellSortArgument<SemanticSortRef>> {
+        self.arguments
+            .iter()
+            .map(|argument| CellSortArgument {
+                sort: argument.sort.clone(),
+                arguments: argument.ir_arguments(),
+            })
+            .collect()
     }
 
     /// The sort, without arguments.

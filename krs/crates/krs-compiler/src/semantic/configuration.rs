@@ -413,8 +413,10 @@ fn lower_cell_declaration(
         let cell = match &field.content {
             ProtocolCellContent::Leaf { sort, .. } => {
                 // A collection type has the right number of arguments.
-                SortType::of_cell(field, descriptor)?;
+                let arguments = SortType::of_cell(field, descriptor)?
+                    .map_or_else(Vec::new, |ty| ty.ir_arguments());
                 FixedCell::leaf(origin, id, name, attributes, semantic_sort_ref(&sort.sort))?
+                    .with_arguments(arguments)
             }
             ProtocolCellContent::Nested { declaration } => {
                 if !visiting.insert(declaration.declaration.clone()) {

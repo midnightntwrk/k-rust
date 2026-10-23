@@ -1752,6 +1752,7 @@ impl<
             vec![
                 Self::Term {
                     sort: sample::<S>(),
+                    arguments: sample::<Vec<CellSortArgument<S>>>(),
                 },
                 Self::Children {
                     children: sample::<Vec<FixedCell<S, C>>>(),
@@ -1769,7 +1770,20 @@ impl<
     fn first() -> Self {
         Self::Term {
             sort: sample::<S>(),
+            arguments: Vec::new(),
         }
+    }
+}
+/// A cell's element type with a nested one, as in `Map<Int, Set<Int>>`.
+impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for CellSortArgument<S> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<S>(),
+            arguments: vec![Self {
+                sort: sample::<S>(),
+                arguments: Vec::new(),
+            }],
+        }]
     }
 }
 impl<

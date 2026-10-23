@@ -681,6 +681,7 @@ fn registry() -> Registry {
     trace!(BuiltinSort: BuiltinSort);
     trace!(SortedByKey: krs_ir::sorted::SortedByKey<ModuleId>);
     trace!(CellCollectionType: CellCollectionType);
+    trace!(CellSortArgument: CellSortArgument<String>);
     trace!(CellColor: CellColor);
     trace!(CellMultiplicity: CellMultiplicity);
     trace!(CellClauseKind: CellClauseKind);

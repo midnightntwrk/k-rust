@@ -1133,7 +1133,8 @@ fn computation_cell(modules: &[SemanticModule]) -> Option<(&SemanticId, &Semanti
         matches!(
             cell.content(),
             krs_ir::FixedCellContent::Term {
-                sort: SemanticSortRef::Builtin(BuiltinSort::KSequence)
+                sort: SemanticSortRef::Builtin(BuiltinSort::KSequence),
+                ..
             }
         )
     });

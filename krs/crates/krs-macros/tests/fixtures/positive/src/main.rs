@@ -2785,9 +2785,18 @@ mod tests {
             assert_eq!(explicit.attributes().len(), readable.attributes().len());
             match (explicit.content(), readable.content()) {
                 (
-                    krs_ir::FixedCellContent::Term { sort: explicit },
-                    krs_ir::FixedCellContent::Term { sort: readable },
-                ) => assert_eq!(explicit, readable),
+                    krs_ir::FixedCellContent::Term {
+                        sort: explicit,
+                        arguments: explicit_arguments,
+                    },
+                    krs_ir::FixedCellContent::Term {
+                        sort: readable,
+                        arguments: readable_arguments,
+                    },
+                ) => {
+                    assert_eq!(explicit, readable);
+                    assert_eq!(explicit_arguments, readable_arguments);
+                }
                 _ => panic!("equivalent semantic configurations must use leaf cells"),
             }
         }
