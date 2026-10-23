@@ -214,10 +214,15 @@ The omitted computation cell is framed like every omitted cell, so the rule fire
 Such a rule is rejected when it changes no cell, for instance when it only reads (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
 
-A readable record reads entries of a Map cell with `env: { name -> value, .. }`: the rule applies only where the key is present, `value` binds what it maps to, and the cell is left unchanged, so the result record does not restate `env`.
+A readable record reads entries of a Map cell with `env: { name -> value, .. }`: `value` binds what the entry maps to, and the cell is left unchanged, so the result record does not restate `env`.
+The key is a pattern, like every other position of the subject record.
+A key name the subject binds elsewhere looks its entry up, so the rule applies only where that key is present: `var: { k: [name, ..], env: { name -> value, .. } } => { k: [value, ..] }`.
+A key name that nothing else in the subject binds matches the key of any entry and binds it, so the rule applies once per entry, a nondeterministic choice that `krs search` shows as one solution per entry: `pick: { k: [Pick(), ..], threads: { tid -> t, .. } } => ..` emits `<threads> Tid |-> T ... </threads>`, and a `Map<K, V>` cell gives `tid` the type `K`.
+`{ _ -> value, .. }` reads the value of any entry without naming its key.
 It may read several, `regs: { a -> x, b -> y, .. }`, which is K's `<regs> A |-> X B |-> Y ... </regs>` and the `cells!` entry `regs: k::configuration::Cell(map![a -> x, b -> y, ..])`.
 Each item is a different entry of the map, so the pattern matches only where the keys differ: with `a` and `b` bound to one key, the rule does not apply.
 Two keys written as the same term could never differ, so `{ a -> x, a -> y, .. }` is a syntax error, and so is the pattern `map![a -> x, a -> y, ..]` in a `cells!` entry; read one entry and bind its value once instead.
+Two `_` keys are two distinct entries: `{ _ -> x, _ -> y, .. }` matches a map with at least two.
 Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is in an initializer.
 
 A leaf cell of a builtin collection sort is emptied, or matched only when empty, with the term for the empty collection: `functions: map::empty()`, `seen: set::empty()`, and `stack: []` (or `list::empty()`) are K's `.Map`, `.Set`, and `.List`, on either side of a readable rule or claim and in every other term.

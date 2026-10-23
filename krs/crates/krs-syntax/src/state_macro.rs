@@ -1099,9 +1099,10 @@ fn parse_map(
                 }
                 let key = parse_map_item_key(input)?;
                 // A pattern's items are distinct entries of the map, so two
-                // keys that are the same term can never both match.
+                // keys that are the same term can never both match; two `_`
+                // keys match two distinct entries.
                 let text = key.to_string();
-                if context == StateMacroContext::Pattern && keys.contains(&text) {
+                if context == StateMacroContext::Pattern && text != "_" && keys.contains(&text) {
                     return Err(state_error(
                         "map",
                         "a map pattern names one key twice; \

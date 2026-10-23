@@ -767,6 +767,8 @@ impl RuleClause {
                             TokenRange::for_tokens(value)?,
                         ));
                         append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
+                        // A `_` key matches any entry's key.
+                        append_wildcard_anchors(&mut anchors, key.tree(), &mut wildcard)?;
                     }
                 }
                 RuleExtra::UpdateMap { cell, update, .. } => {
@@ -1622,6 +1624,33 @@ impl RuleBlock {
                     .into());
                 }
                 bindings.push(introduced.clone());
+            }
+            // `have` marks every name it introduces with `let`, so a key
+            // name is a reference to a binding of the rule; reading any
+            // entry is the record read's free key.
+            for extra in &extras {
+                let TermTableExtra::Have(have) = extra else {
+                    continue;
+                };
+                for node in have.key.nodes() {
+                    if let crate::TermNode::Reference(path) = node
+                        && let Some(name) = crate::path::pattern_binder(path)
+                        && !bindings
+                            .iter()
+                            .any(|binding| binding.unraw() == name.unraw())
+                    {
+                        return Err(syn::Error::new(
+                            name.span(),
+                            format!(
+                                "`{name}` is bound nowhere in this rule; `have` reads the entry at a key the rule already knows; to read any entry, bind the key with a record read `{cell}: {{ {name} -> {value}, .. }}`",
+                                name = name.unraw(),
+                                cell = have.cell.unraw(),
+                                value = have.value.unraw(),
+                            ),
+                        )
+                        .into());
+                    }
+                }
             }
             let mut mentioned_cells = Vec::<Ident>::new();
             for extra in &extras {

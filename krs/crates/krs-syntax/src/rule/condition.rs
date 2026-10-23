@@ -212,7 +212,7 @@ impl RuleMapUpdate {
 
 pub(super) struct HaveMapExtra {
     pub(super) cell: Ident,
-    key: Box<TermExpression>,
+    pub(super) key: Box<TermExpression>,
     pub(super) value: Ident,
 }
 

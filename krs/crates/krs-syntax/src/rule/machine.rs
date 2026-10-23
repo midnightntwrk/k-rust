@@ -550,7 +550,8 @@ fn parse_machine_pattern_record(
 }
 
 /// Parses a readable map pattern, `{ k1 -> v1, ..., kn -> vn, .. }`: one
-/// or more entries of a map cell, each a key term and a value binder.
+/// or more entries of a map cell, each a key term (or `_`, any key) and a
+/// value binder.
 fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Ident)>, ParseError> {
     let map = content.call(|input| {
         let map;
@@ -564,11 +565,13 @@ fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Iden
         let value = map.call(Ident::parse_any)?;
         validate_authored_binder(&value.to_string(), value.span())?;
         // The entries are distinct items of one map, so two keys
-        // that are the same term can never both match.
+        // that are the same term can never both match; two `_` keys match
+        // two distinct entries.
         let text = key.to_token_stream().to_string();
-        if entries
-            .iter()
-            .any(|(existing, _)| existing.to_token_stream().to_string() == text)
+        if !matches!(key, Expr::Infer(_))
+            && entries
+                .iter()
+                .any(|(existing, _)| existing.to_token_stream().to_string() == text)
         {
             return Err(syn::Error::new_spanned(
                 &key,
@@ -603,6 +606,15 @@ fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Iden
             .into());
     }
     Ok(entries)
+}
+
+/// The key term of a readable map read: a term, or `_` for any key.
+fn map_read_key(key: &Expr) -> Result<TermExpression, ParseError> {
+    Ok(if matches!(key, Expr::Infer(_)) {
+        TermExpression::from_pattern_expression(key.clone())?
+    } else {
+        TermExpression::from_expression(key.clone())?
+    })
 }
 
 pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> syn::Result<Expr> {
@@ -1478,7 +1490,7 @@ fn assemble_machine_clause(
                         .iter()
                         .map(|(key, value)| {
                             Ok(RuleMapEntry {
-                                key: Box::new(TermExpression::from_expression(key.clone())?),
+                                key: Box::new(map_read_key(key)?),
                                 value: value.clone(),
                             })
                         })
@@ -1727,6 +1739,29 @@ fn assemble_machine_clause(
             continue;
         }
         bindings.push(introduced);
+    }
+    // A map read's key is a pattern position of the same record. A name in
+    // it that the subject binds elsewhere looks its entry up; one that
+    // nothing else binds is bound by the read and matches the key of any
+    // entry, so the rule applies once per entry. Keys are read last, so the
+    // lookup holds in any cell order.
+    for extra in &extras {
+        let RuleExtra::HaveMap { entries, .. } = extra else {
+            continue;
+        };
+        for entry in entries {
+            for node in entry.key.nodes() {
+                if let crate::TermNode::Reference(path) = node
+                    && let Some(name) = crate::path::pattern_binder(path)
+                    && !bindings
+                        .iter()
+                        .any(|binding| binding.unraw() == name.unraw())
+                {
+                    validate_authored_binder(&name.to_string(), name.span())?;
+                    bindings.push(name.clone());
+                }
+            }
+        }
     }
     for narrowing in narrowings {
         if !bindings
