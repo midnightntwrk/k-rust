@@ -310,14 +310,11 @@ fn configuration_rule_typing(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<CollectionTyping, DescriptorLoweringError> {
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
-    walker.checked_binders(
-        rule.claim
-            .iter()
-            .flat_map(|claim| &claim.existentials)
-            .chain(&rule.existentials)
-            .chain(&rule.fresh)
-            .map(|binder| binder.name.as_str()),
-    );
+    if let Some(claim) = &rule.claim {
+        walker.existentials(&claim.existentials, true);
+    }
+    walker.existentials(&rule.existentials, rule.claim.is_some());
+    walker.checked_binders(rule.fresh.iter().map(|binder| binder.name.as_str()));
     let mut roots = Vec::new();
     for (cells, subject) in std::iter::once((&rule.subject, true))
         .chain(rule.result.iter().map(|result| (result, false)))

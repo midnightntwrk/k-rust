@@ -45,10 +45,10 @@ use std::fmt::{self, Write as _};
 
 use krs_ir::{
     BuiltinSort, CellSortArgument, CollectionApplication, Descriptor, DescriptorApplicationRef,
-    DescriptorCellField, DescriptorConfigurationVariable, DescriptorIndex, DescriptorSortArgument,
-    DescriptorSortRef, DescriptorTerm, ListNotation, ListOperation, OperationSort,
-    ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm,
-    ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
+    DescriptorCellField, DescriptorClaimBinder, DescriptorConfigurationVariable, DescriptorIndex,
+    DescriptorSortArgument, DescriptorSortRef, DescriptorTerm, ListNotation, ListOperation,
+    OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
 };
 use krs_ir_levels::SemanticSortRef;
 
@@ -502,9 +502,10 @@ enum Matched {
     /// Matched in a bare collection cell.
     Untyped(String),
     /// Fits every type that sort inference lets it stand at: a configuration
-    /// variable of a sort that is not a collection, whose occurrences sort
-    /// inference checks against its declared sort, or a claim's existential,
-    /// which stands for whatever the state holds.
+    /// variable or a transition existential of a sort that is not a
+    /// collection, whose occurrences sort inference checks against its
+    /// declared sort; a claim's existential, which stands for whatever the
+    /// state holds; or a fresh binder, which is never a collection.
     Checked,
 }
 
@@ -693,8 +694,36 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Marks `names` as binders that fit every type: configuration
-    /// variables, whose types rustc checks, and existentials.
+    /// Classifies a sentence's `#[k::exists]` binders by what they range
+    /// over. A transition's existential is a value the step introduces, any
+    /// value of its sort: one of sort `Map`, `List`, or `Set` is an unknown
+    /// collection whose elements nothing constrains, an untyped source. A
+    /// claim's existential stands for whatever the target state holds where
+    /// it occurs, so it fits every type. An existential of any other sort is
+    /// checked by sort inference.
+    pub(super) fn existentials(&mut self, binders: &[DescriptorClaimBinder], claim: bool) {
+        for binder in binders {
+            let kind = SortType {
+                sort: semantic_sort_ref(&binder.sort.sort),
+                arguments: Vec::new(),
+            }
+            .kind();
+            let matched = match kind {
+                Some(kind) if !claim => Matched::Untyped(format!(
+                    "`{}` is an existential `{}`, an unknown {} whose elements nothing constrains",
+                    binder.name,
+                    kind.k_name(),
+                    kind.k_name().to_lowercase(),
+                )),
+                _ => Matched::Checked,
+            };
+            self.typing.binders.insert(binder.name.clone(), matched);
+        }
+    }
+
+    /// Marks `names` as binders that fit every type that sort inference lets
+    /// them stand at: claim existentials, and fresh binders, whose sort is a
+    /// fresh generator's result and so never a collection.
     pub(super) fn checked_binders<'n>(&mut self, names: impl IntoIterator<Item = &'n str>) {
         for name in names {
             self.typing

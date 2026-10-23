@@ -1198,3 +1198,85 @@ fn configuration_variables_are_binders_of_their_declared_types() {
         );
     }
 }
+
+/// A transition's `#[k::exists(m: Map)]` is a value the step introduces, any
+/// map at all, so writing it into a typed position is an untyped source in
+/// every rule form; a claim's existential stands for what the target state
+/// holds, and a scalar existential is checked by sort inference. These
+/// checks run on the Haskell route, since the default route refuses
+/// existential rules first.
+#[test]
+fn transition_existentials_of_collection_sorts_are_untyped_sources() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cells_rule = r#"
+#[k::rule(label = "probe")]
+#[k::exists(m: Map)]
+pub fn probe(
+    k::cells! {
+        k: k::configuration::KCell(crate::StmtSyntax::Op(1), tail @ ..),
+        env: k::configuration::Cell(_),
+        state @ ..
+    }: crate::Machine,
+) -> crate::Machine {
+    k::cells! { k: k::configuration::KCell(..tail), env: k::configuration::Cell(m), ..state }
+}
+"#;
+    let env = "the cell `env`, declared `Map<Id, Value>`";
+    let untyped = |name: &str, kind: &str, position: &str| {
+        format!(
+            "error[krs::analysis::untyped-collection]: `{name}` is an existential `{kind}`, an unknown {} whose elements nothing constrains, so nothing checks the elements it writes to {position}",
+            kind.to_lowercase()
+        )
+    };
+    let rejected = [
+        (
+            "readable",
+            rules("#[k::exists(m: Map)]\n    probe: { k: [Op(1), ..], env: _ } => { k: [..], env: m };"),
+            untyped("m", "Map", env),
+        ),
+        ("cells-rule", cells_rule.to_owned(), untyped("m", "Map", env)),
+        (
+            "term-rule",
+            "k::rules! {\n    for Stmt;\n    use StmtSyntax::*;\n\n    #[k::exists(m: Map)]\n    probe: Op(1) => Keep(m);\n}\n".to_owned(),
+            untyped("m", "Map", "the field `m` of `Keep`, declared `Map<Id, Value>`"),
+        ),
+        (
+            "list-concat",
+            rules("#[k::exists(m: List)]\n    probe: { k: [Op(1), ..], stack: l } => { k: [..], stack: list::concat(m, l) };"),
+            untyped("m", "List", "the cell `stack`, declared `List<Value>`"),
+        ),
+    ];
+    for (name, source, headline) in rejected {
+        let manifest = package(temporary.path(), name, &format!("{PREAMBLE}{source}"));
+        let (success, _, stderr) =
+            krs(target.path(), &manifest, "check", &["--backend", "haskell"]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first().map(|(headline, _)| headline),
+            Some(&headline),
+            "{name}:\n{stderr}"
+        );
+    }
+    let accepted = [
+        (
+            "untyped-cell",
+            rules("#[k::exists(m: Map)]\n    probe: { k: [Op(1), ..], raw: _ } => { k: [..], raw: m };"),
+        ),
+        (
+            "scalar",
+            rules("#[k::exists(v: Value)]\n    probe: { k: [Put(name, _), ..], env: e } => { k: [..], env: map::update(e, name, v) };"),
+        ),
+        (
+            "claim",
+            "k::claims! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    #[k::exists(m: Map)]\n    probe: { k: [Op(1)], env: _ } => { k: [], env: m };\n}\n".to_owned(),
+        ),
+    ];
+    for (name, source) in accepted {
+        let manifest = package(temporary.path(), name, &format!("{PREAMBLE}{source}"));
+        let (success, _, stderr) =
+            krs(target.path(), &manifest, "check", &["--backend", "haskell"]);
+        assert!(success, "{name}:\n{stderr}");
+        assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
+    }
+}

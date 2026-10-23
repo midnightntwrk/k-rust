@@ -405,6 +405,7 @@ error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, s
 ```
 
 The fix is to declare the element types where the collection comes from: the cell, the constructor field, or the function's signature.
+A rule's `#[k::exists(m: Map)]` is an untyped source too: the step may put any map there, so writing `m` into a typed position is `untyped-collection` in every rule form; a claim's existential is not, since it stands for what the target state holds.
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
 A configuration variable of `#[k::init]` is a binder of its parameter's type, as a typed function's parameter is: placed as a cell's whole content, rustc checks that its type is the cell's; placed anywhere else, KRS checks the flow, so `xs: List<Stmt>` in `stack: list::concat(xs, list::item(1))` is `collection-element-sort` and a bare `xs: List` there is `untyped-collection`.
 A variable of any other sort is checked by sort inference, as any occurrence is.
@@ -1005,6 +1006,7 @@ An existential, like a fresh value, has exactly its declared sort: one written w
 Ensures conditions are object-language Bool terms.
 This is symbolic execution, unlike Rust's `rand()`, which produces a concrete value: the Haskell backend and k-rust run such rules, and `krs search` reports one final state per path with its constraints.
 Concrete (LLVM) execution cannot, so `krs build --backend llvm` refuses a definition with an existential rule (`krs::capability::unavailable`), `krs emit-k` marks the rule with a `// krs-capability: RuleExistential <label>` comment, and an LLVM build of a rule with `ensures` alone warns that the condition is ignored (`krs::capability::ignored-ensures`).
+An existential of a collection sort ranges over every collection of that sort, whatever a typed cell declares, so a rule may not write one into a typed position (`krs::analysis::untyped-collection`); introduce the elements instead, as in `env: map::update(e, name, v)` with `#[k::exists(v: Value)]`, or declare the cell without element types.
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way, and a claim's `requires` and `ensures` may also be [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates).
 Cell-field helpers carry names, colors, nesting, multiplicity (`?` or `*`), `initial`, and cell collection type (`Set`, `Map`, or `List`) only in the shapes described in [optional cells and cell collections](#optional-cells-and-cell-collections) and [current boundaries](/reference/boundaries).
 

@@ -265,12 +265,8 @@ fn head_rule_typing(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<CollectionTyping, DescriptorLoweringError> {
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
-    walker.checked_binders(
-        rule.existentials
-            .iter()
-            .chain(&rule.fresh)
-            .map(|binder| binder.name.as_str()),
-    );
+    walker.existentials(&rule.existentials, rule.claim.is_some());
+    walker.checked_binders(rule.fresh.iter().map(|binder| binder.name.as_str()));
     let mut roots = Vec::new();
     let untyped = |term, subject| Root::Term {
         term,
@@ -399,7 +395,10 @@ fn structured_rule_typing(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<CollectionTyping, DescriptorLoweringError> {
-    let walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    // A term rule is a transition or an equation; claims are `cells!` rules.
+    walker.existentials(&rule.existentials, false);
+    walker.checked_binders(rule.fresh.iter().map(|binder| binder.name.as_str()));
     let mut roots = Vec::new();
     for cell in rule
         .function_context
