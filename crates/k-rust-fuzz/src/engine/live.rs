@@ -42,6 +42,9 @@ pub(crate) struct Side {
     pub(crate) holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
     shape: CaseRequestShape,
+    /// The differential mutant's all-paths shape in the one-path mode, for the cases
+    /// [`differential::needs_all_paths`] selects; `None` for every other side.
+    all_paths_shape: Option<CaseRequestShape>,
     /// On the `source-execution` route, the internalized definition the backend's session holds
     /// (`Backend::select_definition`), shared, not copied: the campaign's only internalization
     /// of this definition, from which the rule graph's backend and the confirmations' backends
@@ -114,6 +117,7 @@ impl Side {
                 holes: holes.clone(),
                 round_trip: Arc::clone(round_trip),
                 shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+                all_paths_shape: None,
                 internalized,
             });
         }
@@ -162,8 +166,34 @@ impl Side {
             holes,
             round_trip,
             shape: CaseRequestShape::new(&spec.options, &TargetNeeds::default()),
+            all_paths_shape: None,
             internalized,
         })
+    }
+
+    /// In the one-path mode, the differential mutant's all-paths run of `initial` when its
+    /// one-path result `one_path` could kill only by a removed end
+    /// ([`differential::needs_all_paths`]; ARCHITECTURE 4.3 as amended by FZ-DIFFEND); `None`
+    /// otherwise, and for every other side. The case counts its work, and its result then
+    /// stands for the mutant everywhere.
+    fn rerun_on_all_paths(
+        &mut self,
+        initial: &KorePattern,
+        baseline: &CaseResult,
+        one_path: &CaseResult,
+        run_to_completion: bool,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<Option<CaseResult>, Abort> {
+        match &self.all_paths_shape {
+            Some(shape)
+                if !refused(baseline)
+                    && !refused(one_path)
+                    && differential::needs_all_paths(baseline, one_path, run_to_completion) =>
+            {
+                Ok(Some(self.executor.run(initial, shape, &[], cancel)?))
+            }
+            Some(_) | None => Ok(None),
+        }
     }
 
     /// Print, instantiate, assemble with `assembler` and round-trip-check `values`; the
@@ -414,6 +444,10 @@ impl LiveCases {
             )?)?;
             baseline.shape = CaseRequestShape::new(&spec.options, &plan.baseline);
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);
+            mutant.all_paths_shape = plan
+                .mutant_all_paths
+                .as_ref()
+                .map(|needs| CaseRequestShape::new(&spec.options, needs));
             Judge::Differential(Box::new(mutant))
         } else {
             let target = ResolvedTarget::resolve_with(
@@ -484,6 +518,10 @@ impl LiveCases {
         self.baseline.shape = self.baseline.shape.with_counts();
         if let Judge::Differential(mutant) = &mut self.judge {
             mutant.shape = mutant.shape.with_counts();
+            mutant.all_paths_shape = mutant
+                .all_paths_shape
+                .as_ref()
+                .map(CaseRequestShape::with_counts);
         }
     }
 
@@ -708,36 +746,46 @@ impl LiveCases {
         let baseline = side
             .executor
             .run(&baseline_case.assembled, &side.shape, &[], cancel)?;
-        let mutated = mutant
+        let one_path = mutant
             .executor
             .run(&mutant_case.assembled, &mutant.shape, &[], cancel)?;
-        let mut run = run_of(&mutated, &[&baseline, &mutated]);
+        let run_to_completion = self.spec.target.run_to_completion;
+        let rerun = mutant.rerun_on_all_paths(
+            &mutant_case.assembled,
+            &baseline,
+            &one_path,
+            run_to_completion,
+            cancel,
+        )?;
+        let (mutated, paths) = match &rerun {
+            Some(all_paths) => (all_paths, PathMode::AllPaths),
+            None => (&one_path, self.spec.options.paths),
+        };
+        let mut sides = vec![&baseline, &one_path];
+        sides.extend(&rerun);
+        let mut run = run_of(mutated, &sides);
         // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
         // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
-        if refused(&baseline) || refused(&mutated) {
+        if refused(&baseline) || refused(mutated) {
             run.class = OutcomeClass::Rejected;
             run.rejection = Some(RejectionReason::BackendRefused);
             return Ok(run);
         }
-        match differential::judge_pair(
-            &baseline,
-            &mutated,
-            self.spec.options.paths,
-            self.spec.target.run_to_completion,
-        ) {
+        match differential::judge_pair(&baseline, mutated, paths, run_to_completion) {
             Ok(judgement) => {
                 run.class = judgement.class;
                 run.cut = cut_of(if judgement.class == OutcomeClass::BaselineIncomplete {
                     &baseline
                 } else {
-                    &mutated
+                    mutated
                 });
                 if judgement.class == OutcomeClass::Hit {
-                    // An added end: the killing mutant leaf. A removed end (all-paths mode): the
+                    // An added end: the killing mutant leaf. A removed end (all-paths mode, or the
+                    // one-path mode's all-paths re-run): the
                     // baseline end the mutant cannot reach. Both sides list every leaf.
                     let witness = judgement.witness().and_then(|(kind, index)| {
                         let (role, side) = match kind {
-                            KillKind::AddedEnd => (DefinitionRole::Mutant, &mutated),
+                            KillKind::AddedEnd => (DefinitionRole::Mutant, mutated),
                             KillKind::RemovedEnd => (DefinitionRole::Baseline, &baseline),
                         };
                         side.leaves.get(index).map(|leaf| (kind, role, index, leaf))
@@ -748,7 +796,7 @@ impl LiveCases {
                             holes,
                             sides: vec![
                                 side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
-                                side_of(DefinitionRole::Mutant, &mutant_case, &mutated),
+                                side_of(DefinitionRole::Mutant, &mutant_case, mutated),
                             ],
                             reaching: Reaching {
                                 role,
@@ -872,6 +920,7 @@ fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> Wi
             .iter()
             .map(|leaf| leaf.state.to_string())
             .collect(),
+        halts: result.leaves.iter().map(|leaf| leaf.halt).collect(),
     }
 }
 

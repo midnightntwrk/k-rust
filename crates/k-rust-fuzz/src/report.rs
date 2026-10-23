@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use k_rust::backend::HaltReasonOutput;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -846,7 +847,8 @@ pub struct Reaching {
 pub enum KillKind {
     /// The mutant reaches an end the baseline cannot.
     AddedEnd,
-    /// The baseline reaches an end the mutant cannot (all-paths mode).
+    /// The baseline reaches an end the mutant cannot, judged against the mutant's all-paths
+    /// run (the all-paths mode, or the one-path mode's re-run).
     RemovedEnd,
 }
 
@@ -858,9 +860,17 @@ pub struct WitnessSide {
     pub role: DefinitionRole,
     /// The concrete initial configuration this definition's grammar assembled, as KORE text.
     pub initial_configuration: String,
-    /// Every leaf's configuration, as KORE text, in the backend's order: for the baseline of a
-    /// differential witness, its complete set of ends. [`WitnessCase::reaching`] indexes it.
+    /// Every leaf's configuration, as KORE text, in the backend's order.
+    /// [`WitnessCase::reaching`] indexes it. For a differential witness, a side's ends are the
+    /// entries whose halt ([`Self::halts`]) is `stuck`: an undefined step's entry is a
+    /// configuration that is not stuck and has no successor, whose outcome is undefinedness, no
+    /// end (ARCHITECTURE 4.3).
     pub final_configurations: Vec<String>,
+    /// The halt of each leaf of [`Self::final_configurations`], in the same order, as the
+    /// backend names it (`stuck`; `trivial` for an undefined step; `depth-bound`, ...), for every
+    /// witness kind. Replay compares it with the configurations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub halts: Vec<HaltReasonOutput>,
 }
 
 /// One hole of a witness: its location and its value as K text, KORE and value
@@ -1036,6 +1046,7 @@ mod tests {
                 role: DefinitionRole::Baseline,
                 initial_configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
                 final_configurations: vec!["Lbl'-LT-'generatedTop'-GT-'{}()".into()],
+                halts: vec![HaltReasonOutput::Stuck],
             }],
             reaching: Reaching {
                 role: DefinitionRole::Baseline,
@@ -1222,7 +1233,8 @@ mod tests {
             r#""value":{"int":"-7"}}],"class":"hit","#,
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
-            r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"]}],"#,
+            r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"],"#,
+            r#""halts":["stuck"]}],"#,
             r#""reaching":{"role":"baseline","leaf":0,"step":4},"steps":12}"#,
         );
         let expected = expected

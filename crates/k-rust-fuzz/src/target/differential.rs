@@ -1,29 +1,71 @@
-//! The differential target: does the mutant reach a clean end that the baseline cannot reach on
-//! the same input, or, on all paths, lose one the baseline reaches (ARCHITECTURE 4.3)?
-//! Owner: FZ-08.
+//! The differential target: does the mutant reach a final configuration that the baseline cannot
+//! reach on the same input, or lose one the baseline reaches (ARCHITECTURE 4.3, amended by
+//! FZ-DIFFEND)? Owner: FZ-08; ends and state sets: FZ-DIFFEND.
 //!
-//! A case runs the baseline on all paths and the mutant on the campaign's path mode, each on its
-//! own backend, with hole values generated from the baseline's signature and internalized per
-//! side. [`judge_pair`] then decides the case from the two [`CaseResult`]s alone.
+//! A case runs the baseline on all paths and the mutant on the campaign's path mode, both as
+//! state sets, each on its own backend, with hole values generated from the baseline's signature
+//! and internalized per side. [`judge_pair`] then decides the case from the two [`CaseResult`]s
+//! alone. In the one-path mode a case whose one mutant path could kill only by a removed end is
+//! decided by a second, all-paths run of the mutant ([`needs_all_paths`]).
+//!
+//! # What an end is
+//!
+//! A run's outcome on a path is either a final configuration or undefinedness. A side's *set of
+//! ends* on an input is the set of final configurations its paths from the initial configuration
+//! reach. A clean, decided `stuck` leaf is one: a reached configuration to which no rule applies
+//! (`docs/compatibility.md`, "Work budget" in "Execution results"), whether the program finished
+//! there (a natural end) or stopped mid-way (an abnormal stop). The natural-end label decides
+//! `miss` against `stuck` for one run's class, not membership in the set. An undefined step
+//! (`trivial`) is no end: its configuration is reached and exists, and the path to it is real,
+//! but it is not stuck, since a rule applies to it and shuts out the lower priorities, and it has
+//! no successor ("Undefined steps in proofs"); the run's outcome there is undefinedness, which is
+//! no configuration (`krun` prints `\bottom`, "Trivial rule results"). A clean undefined step is
+//! a decided fact (this path's outcome is undefined) and keeps a side complete, but contributes
+//! no configuration to its set: a mutant whose every path takes an undefined step has the empty
+//! set of ends. Leaving undefinedness out of the compared sets only gives kills up (a mutant that
+//! removes an undefined path and keeps every end is not killed); it never invents one, since an
+//! end outside the other side's set of configurations is outside its set of outcomes too.
 //!
 //! # Why the hit rule is sound
 //!
 //! An *added end* claims that the mutant reaches, on this input, a final configuration that the
-//! baseline does not reach on any path. The baseline's set of final configurations is known only
-//! when its all-paths run is complete: every leaf is a decided, clean end (`stuck`, or an
-//! undefined step, whose configuration is the one before the step). A bound, a stop, an
-//! undecided or unsupported leaf leaves paths unexplored, and an end outside a partial set proves
-//! nothing; such a case is `baseline-incomplete`, never a miss. The mutant's configuration must
-//! be a clean natural end (the program finished on the mutant) whose internalized term is built
-//! from free constructors, injections, domain values and well-formed collections only, so that
-//! it denotes itself and syntactic inequality is inequality of values. An implementation-chosen
-//! value on either side would make the comparison depend on a choice k-rust made, not on the
-//! definitions.
+//! baseline does not reach on any path. The baseline's set of ends is known only when its
+//! all-paths run is complete: every leaf is a clean `stuck` leaf or a clean undefined step. A
+//! bound, a stop, an undecided or unsupported leaf leaves paths unexplored, and an end outside a
+//! partial set proves nothing; such a case is `baseline-incomplete`, never a miss. The mutant's
+//! end must be a clean, decided `stuck` leaf whose internalized term is built from free
+//! constructors, injections, domain values and well-formed collections only, so that it denotes
+//! itself and syntactic inequality is inequality of values (condition 4); the baseline's ends
+//! must pass the same test, or one of them may denote the mutant's end (D15). An
+//! implementation-chosen value on either side would make the comparison depend on a choice
+//! k-rust made, not on the definitions; a contradicted claim (a `total` or
+//! `preserves-definedness` attribute the run refuted) makes that side's theory inconsistent on
+//! this input, so neither its ends nor its undefined steps are facts of the definition. Either
+//! mark anywhere on a side's result (a leaf, or the result's lists, which hold the marks of
+//! arrivals a state-set merge absorbed) makes it no evidence: an incomplete baseline, or an
+//! `unsupported` case for the mutant.
 //!
 //! A *removed end* is the same claim with the roles exchanged, so it needs the same facts the
-//! other way round: the mutant's all-paths run is complete, and a baseline leaf that is a clean,
-//! constructor-only natural end is not in the mutant's set. Only the all-paths mode can find it,
-//! because one mutant path says nothing about the ends the mutant's other paths reach.
+//! other way round: the mutant's all-paths run is complete (its set may be empty), every mutant
+//! end is data, and a baseline end that is data is not in the mutant's set. One mutant path
+//! does not establish the mutant's set, so the one-path mode re-runs the mutant on all paths
+//! where only a removed end could kill.
+//!
+//! # State sets
+//!
+//! Both sides run with `result_modality: state-set`. k-rust's contract
+//! (`docs/compatibility.md`, "Search results") is that a state-set execution reports the same
+//! configurations as the path-set one without exploring the paths that converge on them, where
+//! the path-set run stays within `maxBreadth` (the fuzz sets none); the leaf it reports for
+//! merged paths carries the diagnostics of every path merged into it, and the marks of arrivals
+//! merged during exploration are on the result's `implementationChosenValues` and
+//! `contradictedClaims` lists, which [`CaseResult::run_facts_off_leaves`] reads. A `work-bound`
+//! or `cancelled` leaf is never merged; a bound or undecided leaf is absorbed only by an earlier
+//! `stuck` leaf of its configuration (which loses no configuration, the stuck halt being decided
+//! by the configuration) or merges with another bound or undecided leaf of it (both stay
+//! incomplete), so incompleteness stays visible. The leaf that
+//! stands for merged paths carries the trace and depth of the first path, so a witness's reaching
+//! leaf may differ from a path-set run's.
 //!
 //! # Comparison
 //!
@@ -59,6 +101,9 @@ pub(crate) struct DifferentialPlan {
     /// The mutant runs on the campaign's path mode and reports
     /// [`crate::exec::LeafReport::constructor_only`].
     pub(crate) mutant: TargetNeeds,
+    /// In the one-path mode, the mutant on all paths, for the cases [`needs_all_paths`] selects;
+    /// `None` in the all-paths mode, whose mutant run already explores every path.
+    pub(crate) mutant_all_paths: Option<TargetNeeds>,
 }
 
 /// The judgement of one baseline/mutant pair.
@@ -71,7 +116,8 @@ pub(crate) struct DifferentialJudgement {
     /// For a hit by an added end, the index of the mutant leaf whose configuration (the added
     /// end) the baseline cannot reach.
     pub(crate) killing_leaf: Option<usize>,
-    /// For a hit by a removed end (all-paths mode only), the index of the baseline leaf whose
+    /// For a hit by a removed end (judged against an all-paths mutant result: the all-paths
+    /// mode's, or the one-path mode's re-run), the index of the baseline leaf whose
     /// configuration (the removed end) the mutant cannot reach. A hit has at least one of the
     /// two indices, and may have both.
     pub(crate) removed_end: Option<usize>,
@@ -100,23 +146,23 @@ impl DifferentialJudgement {
 }
 
 /// The needs of each side for `options`: the baseline on all paths, whatever the campaign's
-/// path mode; the mutant on the campaign's path mode, with the constructor-only judgement of
-/// condition 4. The baseline's leaves carry that judgement too, in both modes: an end outside
-/// the baseline's set is a kill only when every baseline end is data, and in the all-paths mode a
-/// baseline end can be the witness of a removed end. Neither side needs traces or terminal
-/// rules: the differential target names no rule.
+/// path mode; the mutant on the campaign's path mode (and, in the one-path mode, on all paths for
+/// the re-run), with the constructor-only judgement of condition 4. The baseline's leaves carry
+/// that judgement too: an end outside the baseline's set is a kill only when every baseline end
+/// is data, and a baseline end can be the witness of a removed end. Both sides run as state
+/// sets, whose set of final configurations is the path set's (the module documentation, "State
+/// sets"). Neither side needs traces or terminal rules: the differential target names no rule.
 pub(crate) fn plan(options: &CaseOptions) -> DifferentialPlan {
+    let side = |paths| TargetNeeds {
+        paths: Some(paths),
+        constructor_only: true,
+        state_set: true,
+        ..TargetNeeds::default()
+    };
     DifferentialPlan {
-        baseline: TargetNeeds {
-            paths: Some(PathMode::AllPaths),
-            constructor_only: true,
-            ..TargetNeeds::default()
-        },
-        mutant: TargetNeeds {
-            constructor_only: true,
-            paths: Some(options.paths),
-            ..TargetNeeds::default()
-        },
+        baseline: side(PathMode::AllPaths),
+        mutant: side(options.paths),
+        mutant_all_paths: (options.paths == PathMode::OnePath).then(|| side(PathMode::AllPaths)),
     }
 }
 
@@ -282,23 +328,28 @@ fn strip_positions(value: &mut serde_json::Value) {
     }
 }
 
-/// Judge one pair (ARCHITECTURE 4.3); `paths` is the campaign's path mode, which the mutant ran
-/// on. A case is a hit by an *added end* if and only if:
-/// 1. the baseline run with all paths is complete: every leaf is a clean `stuck` or `undefined`
-///    end, with no bound, stop, timeout, unknown or unsupported leaf;
-/// 2. the mutant leaf is a clean natural end;
-/// 3. neither side carries an implementation-chosen value mark;
+/// Judge one pair (ARCHITECTURE 4.3 as amended by FZ-DIFFEND); `paths` is the path mode the
+/// mutant's result was run in. A case is a hit by an *added end* if and only if:
+/// 1. the baseline run with all paths is complete: every leaf is a clean `stuck` leaf or a clean
+///    undefined step, with no bound, stop, timeout, unknown or unsupported leaf; its set of ends
+///    holds the `stuck` leaves' configurations only (an undefined step's outcome is no
+///    configuration);
+/// 2. the mutant leaf is a clean, decided `stuck` leaf: a final configuration of the mutant,
+///    natural end or abnormal stop alike (under `run_to_completion`, a natural end only);
+/// 3. neither side is no evidence: no implementation-chosen value mark and no contradicted
+///    claim on a leaf or off every leaf;
 /// 4. the mutant leaf's internalized configuration is constructor-only (internal term kinds,
 ///    not KORE symbols);
-/// 5. that configuration is not in the baseline's set of final configurations, compared as
-///    printed KORE after k-rust's normalization, and every end in that set passes condition 4
-///    too (decision D15): a baseline end such as an unevaluated application of a total function
-///    may denote the mutant's configuration, so a syntactic difference from it proves nothing.
+/// 5. that configuration is not in the baseline's set of ends, compared as printed KORE after
+///    k-rust's normalization, and every end in that set passes condition 4 too (decision D15):
+///    a baseline end such as an unevaluated application of a total function may denote the
+///    mutant's configuration, so a syntactic difference from it proves nothing.
 ///
-/// In the all-paths mode a case is also a hit by a *removed end* if conditions 1 and 3 hold, the
-/// mutant's run is complete in the sense of condition 1 with every end constructor-only, and
-/// some baseline leaf is a clean natural end with a constructor-only configuration that is not
-/// in the mutant's set of final configurations. The mutant's ends must be data too: a mutant end
+/// With `paths` all-paths a case is also a hit by a *removed end* if conditions 1 and 3 hold, the
+/// mutant's run is complete in the sense of condition 1 (its set of ends may be empty, when every
+/// path takes an undefined step) with every end constructor-only, and some baseline end (a
+/// clean `stuck` leaf, a natural end under `run_to_completion`) with a constructor-only
+/// configuration is not in the mutant's set. The mutant's ends must be data too: a mutant end
 /// such as an unevaluated application of a total function may denote the baseline's end, so its
 /// syntactic difference proves nothing.
 ///
@@ -309,14 +360,15 @@ fn strip_positions(value: &mut serde_json::Value) {
 /// Otherwise the mutant's leaves are classed by [`exec::classify`], a leaf "reaching the target"
 /// when it is an added end. Two outcomes are neither a hit nor a pass, and are `unsupported`,
 /// as a target-reaching leaf that is not clean is (ARCHITECTURE 5.3):
-/// - an added or removed end exists, but the mutant's result carries an implementation-chosen
-///   value: a mark on some leaf, or a value or contradicted claim the run noted on no leaf
-///   ([`CaseResult::run_facts_off_leaves`]); condition 3 is a fact of the whole result;
+/// - an added or removed end exists, but the mutant's result is no evidence
+///   ([`no_evidence`]): an implementation-chosen value or a contradicted claim on some leaf, or
+///   one the run noted on no leaf ([`CaseResult::run_facts_off_leaves`]); condition 3 is a fact
+///   of the whole result;
 /// - no kill exists, but some end outside the other side's set could not be judged: a clean
-///   natural end that is not constructor-only, a `stuck` leaf that is not clean or whose
-///   natural end is undecided ([`UncleanReason::NaturalEndUndecided`]), or a
-///   would-be kill against a complete set that holds an end that is not data (the set is
-///   complete, so the case is not `baseline-incomplete`, but its ends cannot be compared).
+///   end that is not constructor-only, a `stuck` leaf that is not clean (or, under
+///   `run_to_completion`, whose natural end is undecided), or a would-be kill against a
+///   complete set that holds an end that is not data (the set is complete, so the case is not
+///   `baseline-incomplete`, but its ends cannot be compared).
 ///
 /// # Errors
 ///
@@ -338,22 +390,17 @@ pub(crate) fn judge_pair(
             OutcomeClass::BaselineIncomplete,
         ));
     };
-    let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant")?;
+    let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant", run_to_completion)?;
     let removed = match (paths, complete_ends(mutant)) {
         (PathMode::AllPaths, Some(mutant_set)) => {
-            Verdicts::outside(baseline, mutant, &mutant_set, "baseline")?
+            Verdicts::outside(baseline, mutant, &mutant_set, "baseline", run_to_completion)?
         }
         (PathMode::OnePath, _) | (PathMode::AllPaths, None) => Verdicts::none(baseline),
     };
     let killing_leaf = added.kills.iter().position(|&kills| kills);
     let removed_end = removed.kills.iter().position(|&kills| kills);
     let class = exec::classify(mutant, &added.kills, run_to_completion)?;
-    let chosen_value = mutant.run_facts_off_leaves
-        || mutant.leaves.iter().any(|leaf| {
-            leaf.unclean
-                .contains(&UncleanReason::ImplementationChosenValue)
-        });
-    if (killing_leaf.is_some() || removed_end.is_some()) && chosen_value {
+    if (killing_leaf.is_some() || removed_end.is_some()) && no_evidence(mutant) {
         return Ok(DifferentialJudgement::class(OutcomeClass::Unsupported));
     }
     if class == OutcomeClass::Hit && killing_leaf.is_none() {
@@ -376,17 +423,72 @@ pub(crate) fn judge_pair(
     Ok(DifferentialJudgement::class(class))
 }
 
-/// A side's set of final configurations when its all-paths run is complete (condition 1, with
-/// condition 3 for that side: a marked leaf is not clean), or `None`.
+/// Whether the mutant's result is no evidence of a kill (condition 3): some leaf carries an
+/// implementation-chosen value or a contradicted claim, or the run noted one on no leaf (which,
+/// under state sets, includes the marks of an arrival a merge absorbed). A chosen value makes
+/// the result depend on a choice k-rust made; a contradicted claim (`total`, or
+/// `preserves-definedness`) makes the definition inconsistent on this input, so no end and no
+/// undefined step of it is a fact of the definition. Either one anywhere on the result is
+/// enough: the leaves of a result are judged together, as one set.
+fn no_evidence(result: &CaseResult) -> bool {
+    result.run_facts_off_leaves
+        || result.leaves.iter().any(|leaf| {
+            leaf.unclean.iter().any(|reason| {
+                matches!(
+                    reason,
+                    UncleanReason::ImplementationChosenValue | UncleanReason::ContradictedClaim
+                )
+            })
+        })
+}
+
+/// Whether a one-path case must be decided by an all-paths run of the mutant: one path cannot
+/// establish the mutant's set of ends, so it can show no removed end, and this is the only case
+/// in which a removed end may still kill. That is when the baseline is complete, the mutant's one
+/// path is complete in the same sense (a clean end or a clean undefined step, no mark, no claim:
+/// otherwise its all-paths run, which contains that path, cannot be complete either) and adds no
+/// end, and some baseline end that could be a removed end (data, and a natural end under
+/// `run_to_completion`) is not among the ends the one path reached. The case of TRIAL2's B-T1 is
+/// one: the baseline stops where the mutant's one path takes an undefined step, whose outcome is
+/// no end. A deterministic definition reaches its one end on its one path, so the re-run happens
+/// only where the one path ends in an undefined step or at another end than the baseline's.
+pub(crate) fn needs_all_paths(
+    baseline: &CaseResult,
+    one_path: &CaseResult,
+    run_to_completion: bool,
+) -> bool {
+    let (Some(baseline_set), Some(reached)) = (complete_ends(baseline), complete_ends(one_path))
+    else {
+        return false;
+    };
+    let adds_none = one_path
+        .leaves
+        .iter()
+        .all(|leaf| leaf.halt != HaltReasonOutput::Stuck || baseline_set.contains(&leaf.state));
+    adds_none
+        && baseline.leaves.iter().any(|leaf| {
+            leaf.halt == HaltReasonOutput::Stuck
+                && leaf.constructor_only == Some(true)
+                && (!run_to_completion || leaf.natural_end)
+                && !reached.contains(&leaf.state)
+        })
+}
+
+/// A side's set of ends when its all-paths run is complete (condition 1, with condition 3 for
+/// that side: a marked leaf is not clean), or `None`.
 ///
 /// A complete run returned leaves, was not stopped by the safety limit, counted no stack stop,
 /// SMT unknown or run allowance refusal, is inside the determinism contract (no stack stop in
 /// its definition's load either, [`CaseResult::determinism_breaks`]), noted no
 /// implementation-chosen value or contradicted claim that no leaf carries
 /// ([`CaseResult::run_facts_off_leaves`]), and every leaf is a clean `stuck` leaf or an
-/// undefined step (`trivial`) whose only unclean reason is its halt: a decided, ceil-free
-/// configuration with no diagnostic, the configuration before the undefined step. Load records
-/// are facts about the definition and do not make a run incomplete (T-5).
+/// undefined step (`trivial`) whose only unclean reason is its halt (a decided, ceil-free
+/// configuration with no diagnostic, so that the step's undefinedness is decided, not resting
+/// on a mark or a refuted claim). The set holds the `stuck` leaves' configurations only: an
+/// undefined step's leaf holds a configuration that is not stuck and has no successor, and the
+/// path's outcome there is undefinedness, no configuration (the module documentation, "What an
+/// end is"). Load records are facts
+/// about the definition and do not make a run incomplete (T-5).
 ///
 /// Why the off-leaf facts matter (review B1): an unmarked leaf exists in every model of the
 /// definition, but work that read an open value and vanished (an undefined candidate beside a
@@ -406,14 +508,22 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
         && result.run_allowance_refusals == 0
         && result.determinism_breaks().is_empty()
         && !result.leaves.is_empty();
-    if !run_clean || !result.leaves.iter().all(complete_end) {
+    if !run_clean || !result.leaves.iter().all(complete_leaf) {
         return None;
     }
-    Some(result.leaves.iter().map(|leaf| &leaf.state).collect())
+    Some(
+        result
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
+            .map(|leaf| &leaf.state)
+            .collect(),
+    )
 }
 
-/// Whether a leaf is an end a complete set may hold (condition 1).
-fn complete_end(leaf: &LeafReport) -> bool {
+/// Whether a leaf may be part of a complete run (condition 1): a clean `stuck` leaf (an end) or
+/// a clean undefined step (no end).
+fn complete_leaf(leaf: &LeafReport) -> bool {
     match leaf.halt {
         HaltReasonOutput::Stuck => leaf.is_clean(),
         HaltReasonOutput::Trivial => leaf
@@ -427,11 +537,11 @@ fn complete_end(leaf: &LeafReport) -> bool {
 /// What one side's leaves show against the other side's complete set of ends.
 #[derive(Debug, Eq, PartialEq)]
 struct Verdicts {
-    /// `kills[i]`: leaf `i` is a clean natural end (condition 2) whose configuration is
+    /// `kills[i]`: leaf `i` is a clean `stuck` leaf (condition 2) whose configuration is
     /// constructor-only (condition 4) and not in the other side's set (condition 5).
     kills: Vec<bool>,
-    /// Some end outside the other side's set could not be judged: a clean natural end that is
-    /// not constructor-only, or (on the mutant side) a `stuck` leaf that is not clean.
+    /// Some end outside the other side's set could not be judged: a clean end that is not
+    /// constructor-only, or a `stuck` leaf that is not clean.
     undecided: bool,
 }
 
@@ -450,45 +560,54 @@ impl Verdicts {
     ///
     /// A kill needs data on both sides (conditions 4 and 5, decision D15): when some end of
     /// `others` is not constructor-only, an end that `others_set` lacks syntactically may still
-    /// be one the other side reaches, so every would-be kill is undecided instead.
+    /// be one the other side reaches, so every would-be kill is undecided instead. Only the
+    /// ends of `others` count: the outcome of its undefined steps is no configuration.
+    ///
+    /// Every clean, decided `stuck` leaf is an end, a natural end or an abnormal stop alike: in
+    /// both, no rule applies, so the configuration is final in that definition's transition
+    /// system, and set exclusion is about final configurations. Under `run_to_completion` the
+    /// author asked that a kill also end the program, so only a natural end kills, and a leaf
+    /// whose natural end is undecided is undecided.
     fn outside(
         side: &CaseResult,
         others: &CaseResult,
         others_set: &BTreeSet<&KorePattern>,
         role: &str,
+        run_to_completion: bool,
     ) -> Result<Self, EngineDefect> {
         let mut verdicts = Self::none(side);
         for (index, leaf) in side.leaves.iter().enumerate() {
-            // Only a stuck leaf is an end that may be a kill; an undefined step, a bound or a
-            // stop is classed by `exec::classify`.
+            // Only a stuck leaf is an end that may be a kill; an undefined step's outcome is no end,
+            // and a bound or a stop is classed by `exec::classify`.
             if leaf.halt != HaltReasonOutput::Stuck || others_set.contains(&leaf.state) {
                 continue;
             }
-            // A leaf whose natural end is undecided is clean, but neither a natural end nor an
-            // abnormal stop is established for it, so it is no kill and no proof of none.
-            if !leaf.is_clean() || leaf.natural_end_undecided() {
+            if !leaf.is_clean() {
                 verdicts.undecided = true;
-            } else if leaf.natural_end {
-                match leaf.constructor_only {
-                    Some(true) => verdicts.kills[index] = true,
-                    Some(false) => verdicts.undecided = true,
-                    None => {
-                        return Err(EngineDefect {
-                            case: None,
-                            description: format!(
-                                "{role} leaf {index} is a natural end without the \
-                                 constructor-only judgement the differential plan requests"
-                            ),
-                        });
-                    }
+                continue;
+            }
+            if run_to_completion && !leaf.natural_end {
+                verdicts.undecided |= leaf.natural_end_undecided();
+                continue;
+            }
+            match leaf.constructor_only {
+                Some(true) => verdicts.kills[index] = true,
+                Some(false) => verdicts.undecided = true,
+                None => {
+                    return Err(EngineDefect {
+                        case: None,
+                        description: format!(
+                            "{role} leaf {index} is an end without the constructor-only \
+                             judgement the differential plan requests"
+                        ),
+                    });
                 }
             }
-            // A clean stuck leaf that is not a natural end is an abnormal stop: the program did
-            // not finish on that path, so its configuration is no kill (condition 2).
         }
         let others_are_data = others
             .leaves
             .iter()
+            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
             .all(|leaf| leaf.constructor_only == Some(true));
         if !others_are_data && verdicts.kills.contains(&true) {
             verdicts.kills.fill(false);
@@ -577,7 +696,7 @@ mod tests {
 
     fn added(baseline: &CaseResult, mutant: &CaseResult) -> Verdicts {
         let ends = complete_ends(baseline).expect("the baseline is complete");
-        Verdicts::outside(mutant, baseline, &ends, "mutant").expect("no engine defect")
+        Verdicts::outside(mutant, baseline, &ends, "mutant", false).expect("no engine defect")
     }
 
     fn hit(killing_leaf: Option<usize>, removed_end: Option<usize>) -> DifferentialJudgement {
@@ -593,17 +712,22 @@ mod tests {
     // ---- plan
 
     #[test]
-    fn baseline_runs_all_paths_and_mutant_the_campaign_mode() {
+    fn baseline_runs_all_paths_and_mutant_the_campaign_mode_both_as_state_sets() {
         for paths in BOTH_MODES {
             let plan = plan(&CaseOptions {
                 paths,
                 ..CaseOptions::default()
             });
             assert_eq!(plan.baseline.paths, Some(PathMode::AllPaths));
-            assert!(plan.baseline.constructor_only);
             assert_eq!(plan.mutant.paths, Some(paths));
-            assert!(plan.mutant.constructor_only);
-            for needs in [&plan.baseline, &plan.mutant] {
+            let rerun = plan.mutant_all_paths.as_ref();
+            assert_eq!(rerun.is_some(), paths == PathMode::OnePath);
+            if let Some(rerun) = rerun {
+                assert_eq!(rerun.paths, Some(PathMode::AllPaths));
+            }
+            for needs in [&plan.baseline, &plan.mutant].into_iter().chain(rerun) {
+                assert!(needs.constructor_only);
+                assert!(needs.state_set);
                 assert!(!needs.trace);
                 assert!(needs.terminal_rules.is_empty());
             }
@@ -613,7 +737,7 @@ mod tests {
     // ---- condition 1: completeness
 
     #[test]
-    fn complete_baseline_holds_its_stuck_and_undefined_ends() {
+    fn complete_baseline_holds_its_stuck_ends_and_not_its_undefined_steps() {
         let undefined = config(7, 0);
         let baseline = result(vec![
             natural(config(3, 0), None),
@@ -626,8 +750,19 @@ mod tests {
             leaf(HaltReasonOutput::Stuck, config(9, 0), Vec::new()),
         ]);
         let ends = complete_ends(&baseline).expect("complete");
-        assert_eq!(ends.len(), 3);
-        assert!(ends.contains(&undefined));
+        assert_eq!(ends.len(), 2);
+        // An undefined step's configuration is not stuck, and its outcome is no configuration.
+        assert!(!ends.contains(&undefined));
+        // Every path an undefined step: complete, with no end.
+        let all_undefined = result(vec![leaf(
+            HaltReasonOutput::Trivial,
+            undefined,
+            vec![UncleanReason::Halt],
+        )]);
+        assert_eq!(
+            complete_ends(&all_undefined).map(|ends| ends.len()),
+            Some(0)
+        );
     }
 
     #[test]
@@ -769,10 +904,58 @@ mod tests {
         assert_eq!(added(&coin_baseline(), &mutant).kills, vec![true]);
     }
 
+    /// A clean abnormal stop (a `stuck` leaf that is not a natural end) with the given
+    /// constructor-only judgement.
+    fn abnormal(state: KorePattern, constructor_only: Option<bool>) -> LeafReport {
+        LeafReport {
+            constructor_only,
+            ..leaf(HaltReasonOutput::Stuck, state, Vec::new())
+        }
+    }
+
+    /// A clean undefined step from `state`.
+    fn undefined(state: KorePattern) -> LeafReport {
+        leaf(HaltReasonOutput::Trivial, state, vec![UncleanReason::Halt])
+    }
+
     #[test]
-    fn an_abnormal_stop_or_undefined_step_outside_the_set_does_not_kill() {
+    fn an_abnormal_stop_outside_the_set_kills() {
+        // FZ-DIFFEND: condition 2 asks for a final configuration, which an abnormal stop is.
+        let mutant = result(vec![abnormal(config(5, 0), Some(true))]);
+        assert_eq!(added(&coin_baseline(), &mutant).kills, vec![true]);
+        // Under run-to-completion only a natural end kills.
+        let baseline = coin_baseline();
+        let ends = complete_ends(&baseline).expect("complete");
+        let verdicts =
+            Verdicts::outside(&mutant, &baseline, &ends, "mutant", true).expect("no engine defect");
+        assert_eq!(verdicts.kills, vec![false]);
+        assert!(!verdicts.undecided);
+        assert_eq!(
+            judge_pair(&coin_baseline(), &mutant, PathMode::OnePath, true)
+                .expect("no engine defect"),
+            DifferentialJudgement::class(OutcomeClass::Stuck)
+        );
+    }
+
+    #[test]
+    fn an_end_whose_natural_end_is_undecided_is_still_an_end() {
+        // Set membership does not depend on the natural end (FZ-08 review 2, S4).
+        let mut end = abnormal(config(5, 0), Some(true));
+        end.unclean = vec![UncleanReason::NaturalEndUndecided];
+        let mutant = result(vec![end]);
+        assert_eq!(added(&coin_baseline(), &mutant).kills, vec![true]);
+        // Under run-to-completion it is neither a kill nor a proof of none.
+        let baseline = coin_baseline();
+        let ends = complete_ends(&baseline).expect("complete");
+        let verdicts =
+            Verdicts::outside(&mutant, &baseline, &ends, "mutant", true).expect("no engine defect");
+        assert_eq!(verdicts.kills, vec![false]);
+        assert!(verdicts.undecided);
+    }
+
+    #[test]
+    fn an_undefined_step_or_a_bound_outside_the_set_does_not_kill() {
         let mutant = result(vec![
-            leaf(HaltReasonOutput::Stuck, config(5, 0), Vec::new()),
             leaf(
                 HaltReasonOutput::Trivial,
                 config(6, 0),
@@ -787,7 +970,7 @@ mod tests {
         assert_eq!(
             added(&coin_baseline(), &mutant),
             Verdicts {
-                kills: vec![false, false, false],
+                kills: vec![false, false],
                 undecided: false,
             }
         );
@@ -826,10 +1009,10 @@ mod tests {
         let mutant = result(vec![natural(config(5, 0), None)]);
         let baseline = coin_baseline();
         let ends = complete_ends(&baseline).expect("complete");
-        assert!(Verdicts::outside(&mutant, &baseline, &ends, "mutant").is_err());
+        assert!(Verdicts::outside(&mutant, &baseline, &ends, "mutant", false).is_err());
         // Inside the set the judgement is not read.
         let agreeing = result(vec![natural(config(3, 0), None)]);
-        assert!(Verdicts::outside(&agreeing, &baseline, &ends, "mutant").is_ok());
+        assert!(Verdicts::outside(&agreeing, &baseline, &ends, "mutant", false).is_ok());
     }
 
     // ---- classes
@@ -1069,19 +1252,20 @@ mod tests {
     }
 
     #[test]
-    fn a_baseline_end_whose_natural_end_is_undecided_is_no_proof_of_a_miss() {
-        // The baseline's 3 is clean but its natural end is undecided (review S4): outside the
-        // mutant's complete set it is neither a removed end nor an abnormal stop.
-        let mut undecided = leaf(
-            HaltReasonOutput::Stuck,
-            config(3, 0),
-            vec![UncleanReason::NaturalEndUndecided],
-        );
-        undecided.constructor_only = Some(true);
+    fn a_baseline_end_whose_natural_end_is_undecided_can_be_removed() {
+        // The baseline's 3 is clean and final; whether it is a natural end is undecided (review
+        // S4), which decides no set membership: outside the mutant's complete set it is a
+        // removed end. Under run-to-completion it is neither a removed end nor a proof of none.
+        let mut undecided = abnormal(config(3, 0), Some(true));
+        undecided.unclean = vec![UncleanReason::NaturalEndUndecided];
         let baseline = result(vec![undecided, natural(config(4, 0), Some(true))]);
         let mutant = result(vec![natural(config(4, 0), Some(true))]);
         assert_eq!(
             judge(&baseline, &mutant, PathMode::AllPaths),
+            hit(None, Some(0))
+        );
+        assert_eq!(
+            judge_pair(&baseline, &mutant, PathMode::AllPaths, true).expect("no engine defect"),
             DifferentialJudgement::class(OutcomeClass::Unsupported)
         );
         assert_eq!(
@@ -1091,21 +1275,131 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_abnormal_stop_or_undefined_step_is_no_hit() {
+    fn a_removed_abnormal_stop_is_a_hit_and_a_baseline_undefined_step_is_no_end() {
         let baseline = result(vec![
-            leaf(HaltReasonOutput::Stuck, config(3, 0), Vec::new()),
-            leaf(
-                HaltReasonOutput::Trivial,
-                config(5, 0),
-                vec![UncleanReason::Halt],
-            ),
+            abnormal(config(3, 0), Some(true)),
+            undefined(config(5, 0)),
             natural(config(4, 0), Some(true)),
         ]);
         let mutant = result(vec![natural(config(4, 0), Some(true))]);
         assert_eq!(
             judge(&baseline, &mutant, PathMode::AllPaths),
+            hit(None, Some(0))
+        );
+        // Without the abnormal stop nothing is removed: the undefined step reached no end.
+        let baseline = result(vec![
+            undefined(config(5, 0)),
+            natural(config(4, 0), Some(true)),
+        ]);
+        assert_eq!(
+            judge(&baseline, &mutant, PathMode::AllPaths),
             DifferentialJudgement::class(OutcomeClass::Miss)
         );
+    }
+
+    // ---- undefined steps (FZ-DIFFEND, TRIAL2 B-T1)
+
+    #[test]
+    fn a_mutant_whose_every_path_is_undefined_removes_every_baseline_end() {
+        // B-T1: the baseline stops at S (here the end 3); the mutant's only path takes an
+        // undefined step, from S itself or elsewhere. Its complete set of ends is empty.
+        let baseline = result(vec![abnormal(config(3, 0), Some(true))]);
+        for from in [config(3, 0), config(8, 0)] {
+            let mutant = result(vec![undefined(from)]);
+            assert_eq!(
+                judge(&baseline, &mutant, PathMode::AllPaths),
+                hit(None, Some(0))
+            );
+            // One path establishes no set: the one-path judgement is the mutant's class, and
+            // the engine re-runs the mutant on all paths (`needs_all_paths`).
+            assert_eq!(
+                judge(&baseline, &mutant, PathMode::OnePath),
+                DifferentialJudgement::class(OutcomeClass::Undefined)
+            );
+            assert!(needs_all_paths(&baseline, &mutant, false));
+        }
+    }
+
+    #[test]
+    fn a_baseline_whose_every_path_is_undefined_has_no_end_a_mutant_end_can_be_in() {
+        let baseline = result(vec![undefined(config(3, 0))]);
+        let mutant = result(vec![natural(config(3, 0), Some(true))]);
+        for paths in BOTH_MODES {
+            assert_eq!(judge(&baseline, &mutant, paths), hit(Some(0), None));
+        }
+        // Both sides undefined on every path: two empty sets agree.
+        let mutant = result(vec![undefined(config(4, 0))]);
+        assert_eq!(
+            judge(&baseline, &mutant, PathMode::AllPaths),
+            DifferentialJudgement::class(OutcomeClass::Undefined)
+        );
+        assert!(!needs_all_paths(&baseline, &mutant, false));
+    }
+
+    #[test]
+    fn a_contradicted_claim_anywhere_on_the_mutant_makes_it_no_evidence() {
+        // An undefined step that refutes a `total` or `preserves-definedness` claim: the
+        // mutant's theory is inconsistent on this input, so neither its empty set nor its other
+        // ends kill.
+        let claimed = || {
+            leaf(
+                HaltReasonOutput::Trivial,
+                config(8, 0),
+                vec![UncleanReason::ContradictedClaim, UncleanReason::Halt],
+            )
+        };
+        let baseline = result(vec![abnormal(config(3, 0), Some(true))]);
+        let only_claimed = result(vec![claimed()]);
+        assert!(complete_ends(&only_claimed).is_none());
+        assert!(!needs_all_paths(&baseline, &only_claimed, false));
+        let beside_an_added_end = result(vec![natural(config(5, 0), Some(true)), claimed()]);
+        let mut off_leaves = result(vec![natural(config(5, 0), Some(true))]);
+        off_leaves.run_facts_off_leaves = true;
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge(&baseline, &only_claimed, paths),
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                "{paths:?}"
+            );
+            for mutant in [&beside_an_added_end, &off_leaves] {
+                assert_eq!(
+                    judge(&baseline, mutant, paths),
+                    DifferentialJudgement::class(OutcomeClass::Unsupported),
+                    "{paths:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_one_path_re_run_happens_only_where_a_removed_end_could_kill() {
+        let single = result(vec![natural(config(3, 0), Some(true))]);
+        // The one path reaches the baseline's only end, or adds an end: nothing to re-run.
+        assert!(!needs_all_paths(&single, &single, false));
+        let adds = result(vec![natural(config(5, 0), Some(true))]);
+        assert!(!needs_all_paths(&single, &adds, false));
+        // The one path misses one of two baseline ends (COIN): only all paths can tell.
+        let three = result(vec![natural(config(3, 0), Some(true))]);
+        assert!(needs_all_paths(&coin_baseline(), &three, false));
+        // An incomplete one path or baseline: its all-paths run cannot be complete either.
+        let bounded = result(vec![leaf(
+            HaltReasonOutput::WorkBound,
+            config(3, 0),
+            vec![UncleanReason::Halt],
+        )]);
+        assert!(!needs_all_paths(&single, &bounded, false));
+        assert!(!needs_all_paths(&bounded, &undefined_only(), false));
+        // A baseline end that could not be removed (not data; or, under run-to-completion, not
+        // a natural end).
+        let not_data = result(vec![natural(config(3, 0), Some(false))]);
+        assert!(!needs_all_paths(&not_data, &undefined_only(), false));
+        let stop = result(vec![abnormal(config(3, 0), Some(true))]);
+        assert!(needs_all_paths(&stop, &undefined_only(), false));
+        assert!(!needs_all_paths(&stop, &undefined_only(), true));
+    }
+
+    fn undefined_only() -> CaseResult {
+        result(vec![undefined(config(8, 0))])
     }
 
     #[test]
@@ -1483,6 +1777,53 @@ mod fixture_tests {
     }
 
     /// Run `pick(1, 2)` on `fixture` as `side`'s plan asks under `options`.
+    #[test]
+    fn a_state_set_merge_moves_an_arrival_mark_to_the_result_list_which_the_judge_reads() {
+        // DIAMOND: `go(5)` reaches `d(5)` through `b` and through `c`, and only `c` reads a
+        // chosen value. Under path-set the `c` leaf carries the mark; under state-set the
+        // arrivals merge into one unmarked `d(5)` leaf, and the mark is on the result's list,
+        // which `run_facts_off_leaves` reads (docs/compatibility.md, "Marks in executions").
+        let program = support::DIAMOND.program("diamond/go.pgm");
+        // A depth bound instead of the default work bound: under `max_work` every leaf carries
+        // every mark of the run (`docs/compatibility.md`, "Marks in executions").
+        let options = CaseOptions {
+            max_depth: Some(50),
+            ..options(PathMode::AllPaths)
+        };
+        let needs = |state_set| TargetNeeds {
+            paths: Some(PathMode::AllPaths),
+            constructor_only: true,
+            state_set,
+            ..TargetNeeds::default()
+        };
+        let path_set =
+            Side::new(&support::DIAMOND, &needs(false), &options).run(program.file, program.text);
+        assert_eq!(path_set.leaves.len(), 2);
+        assert_eq!(
+            path_set
+                .leaves
+                .iter()
+                .filter(|leaf| leaf
+                    .unclean
+                    .contains(&UncleanReason::ImplementationChosenValue))
+                .count(),
+            1
+        );
+        let state_set =
+            Side::new(&support::DIAMOND, &needs(true), &options).run(program.file, program.text);
+        assert_eq!(state_set.leaves.len(), 1);
+        assert!(
+            state_set.leaves[0].is_clean(),
+            "{:?}",
+            state_set.leaves[0].unclean
+        );
+        assert!(state_set.run_facts_off_leaves);
+        assert!(state_set.work <= path_set.work);
+        // As a baseline the merged result is incomplete; as a mutant it is no evidence.
+        assert!(complete_ends(&state_set).is_none());
+        assert!(no_evidence(&state_set));
+    }
+
     fn pick(fixture: &'static Fixture, needs: &TargetNeeds, options: &CaseOptions) -> CaseResult {
         let program = support::VANISH.program("vanish/pick.pgm");
         Side::new(fixture, needs, options).run(program.file, program.text)

@@ -74,6 +74,21 @@ When the start sort is `K` or `KItem`, the closure is every non-hooked sort of t
 User token sorts such as `Id` are refused, because an identifier names a declaration of the program.
 `allow_refused_sort` overrides a refusal, and the report records the override.
 
+## Differential target
+
+A differential campaign (a mutant beside the definition) looks for an input on which the two definitions' sets of ends differ (ARCHITECTURE 4.3).
+A side's ends on an input are its final configurations: each clean, decided `stuck` leaf, whether the program finished there (a natural end) or stopped mid-way (an abnormal stop); in both, no rule applies.
+An undefined step (a `trivial` leaf) is no end: its configuration is reached but is not stuck, since a rule applies to it, and it has no successor, so the run's outcome there is undefinedness, which is no configuration (`krun` prints `\bottom`; `docs/compatibility.md`, "Undefined steps in proofs", "Trivial rule results"). A side whose every path takes one has no end at all.
+A case kills the mutant by an *added end*, a mutant end that the baseline's complete set lacks, or a *removed end*, a baseline end that the mutant's complete set lacks: a baseline that stops where the mutant's step is undefined (a dropped guard on a division) is one.
+Every compared end must be data (constructors, injections, domain values, well-formed collections), on both sides.
+A side that carries an implementation-chosen value or a contradicted claim (`total` or `preserves-definedness`), on a leaf or on its result's lists, is no evidence: the baseline is then `baseline-incomplete`, and a would-be kill of the mutant `unsupported`.
+Under `run-to-completion` only natural ends kill.
+
+The baseline runs on all paths and the mutant on the campaign's path mode, both as state sets (`result_modality: state-set`), which report the same final configurations as path sets without exploring the paths that converge on them (`docs/compatibility.md`, "Search results").
+One mutant path cannot show what the mutant's other paths reach, so in the one-path mode a case whose one mutant path is complete, adds no end and misses some baseline end is decided by a second run of the mutant on all paths, whose work the case counts.
+Each side of a witness lists every leaf's configuration with its halt (`final-configurations`, `halts`; every witness kind carries `halts`, and `--replay` compares them); the witness's `clean-leaf-facts` name the conditions its kind of kill rests on.
+The all-paths mode can refuse a kill the one-path mode takes: when a chosen value or a contradicted claim lies on another path than the killing one (on a leaf, or on the result's lists after a state-set merge), the all-paths result carries it and the case is `unsupported`, while the one path never met it and its end kills. Both are sound: the one-path kill rests only on its own path, which carries no mark, and the all-paths refusal is conservative, since it judges the result as a whole and a mark anywhere on it could stand for a path that differs in another model; it can only miss a kill.
+
 ## Library usage
 
 The caller compiles the definition (`CompiledDefinition::from_artifacts` takes an in-process compilation), builds a `CampaignSpec` (the definitions, the program, the holes, the target, the case options, the proposers, the seed), and runs it:
@@ -180,6 +195,7 @@ config-var = "TX"             # a configuration variable's whole value
 A value is written as a TOML integer (an `Int`, or the unsigned value of an `MInt{N}` hole), boolean or string, or as a table in the library's JSON form, such as `{ int = "123456789012345678901234567890" }` or `{ list = [{ int = "1" }] }`.
 
 Every case has a wall-clock safety limit of 60 seconds unless `--safety-limit SECONDS` or `--no-safety-limit` says otherwise (D24): `max-work` counts steps, and a step whose ground function evaluation does not terminate would otherwise never end.
+The limit bounds each execution of a case, so a differential case (baseline, mutant, and in the one-path mode possibly the mutant's all-paths re-run) can take up to about three times it.
 A limit of 0 seconds, which would stop every case, is refused, and so is a campaign file that sets both `safety-limit-seconds` and `no-safety-limit`.
 A case the limit stops is `timeout` and outside the determinism contract; the report's options record the limit.
 The library sets no limit by default.

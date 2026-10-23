@@ -158,6 +158,7 @@ fn the_request_follows_the_options_and_the_target_needs() {
         terminal_rules: vec!["rule-id".to_owned()],
         constructor_only: true,
         paths: Some(PathMode::AllPaths),
+        state_set: true,
     };
     let shape = CaseRequestShape::new(&options, &needs);
     let state = parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a pattern");
@@ -170,6 +171,7 @@ fn the_request_follows_the_options_and_the_target_needs() {
     assert!(request.trace);
     assert_eq!(request.terminal_rules, ["rule-id"]);
     assert!(shape.constructor_only);
+    assert_eq!(request.result_modality, ResultModalityOutput::StateSet);
 }
 
 // ---------------------------------------------------------------- clean leaves (5.2)
