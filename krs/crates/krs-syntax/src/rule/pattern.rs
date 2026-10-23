@@ -387,18 +387,33 @@ pub(super) fn append_rule_term_anchors(
     Ok(())
 }
 
-/// Parses a rule subject (`root_identifier_is_binding` false: a fn's
-/// subject parameter, whose root is the matched constructor or function) or
-/// a readable cell value or computation item (true: a bare root identifier
-/// binds the value). The native grammar reads every pattern a `k::term!`
-/// payload reads, compiler-owned islands included, so the wrapper is never
-/// needed around a pattern; `k::rewrite!` stands only in a fn's subject, whose
-/// item decides whether it is a single-body rule.
+/// What a rule pattern's root is, which decides how the root reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PatternRoot {
+    /// A fn's subject parameter: the root is the matched constructor or
+    /// function.
+    Subject,
+    /// A readable `for Sort` clause's subject: the root is the matched
+    /// constructor, a bare root identifier binds the subject, and an alias
+    /// or island at the root stands as it does below a constructor.
+    Clause,
+    /// A readable record's value (a cell value, a list element, a
+    /// computation item): not a rule subject, so the whole pattern, `|` and
+    /// parentheses at its root included, reads as below a constructor.
+    Value,
+}
+
+/// Parses a rule pattern whose root reads as `root` says. The native
+/// grammar reads every pattern a `k::term!` payload reads, compiler-owned
+/// islands included, so the wrapper is never needed around a pattern;
+/// `k::rewrite!` stands only in a fn's subject, whose item decides whether
+/// it is a single-body rule.
 pub(super) fn parse_rule_pattern(
     pattern: Pat,
-    root_identifier_is_binding: bool,
+    root: PatternRoot,
     mut signs: NegativeLiteralSpans,
 ) -> Result<(RulePattern, TermTree), SyntaxError> {
+    let root_identifier_is_binding = root != PatternRoot::Subject;
     let allow_rewrite = !root_identifier_is_binding;
     match pattern {
         Pat::Macro(macro_pattern)
@@ -418,7 +433,11 @@ pub(super) fn parse_rule_pattern(
             let term = TermExpression::parse_pattern_tokens(crate::parse::strip_trailing_comma(
                 macro_pattern.mac.tokens.clone(),
             ))?;
-            if let TermTree::As { binding, .. } = term.tree() {
+            // A readable value stands below the rule's subject, so `|` and
+            // an alias at its root read as they do below a constructor.
+            if let TermTree::As { binding, .. } = term.tree()
+                && root != PatternRoot::Value
+            {
                 return Err(SyntaxError::new(
                     crate::SyntaxErrorKind::InvalidPatternAs {
                         reason: format!(
@@ -428,7 +447,9 @@ pub(super) fn parse_rule_pattern(
                     binding.span(),
                 ));
             }
-            if let TermTree::Or { range, .. } = term.tree() {
+            if let TermTree::Or { range, .. } = term.tree()
+                && root != PatternRoot::Value
+            {
                 return Err(SyntaxError::new(
                     crate::SyntaxErrorKind::InvalidPatternOr {
                         reason: "`|` cannot join whole `k::term!` subjects: the root is the matched constructor or function; put the alternatives inside its arguments".to_owned(),
@@ -436,7 +457,7 @@ pub(super) fn parse_rule_pattern(
                     range.first(),
                 ));
             }
-            let bindings = term_pattern_bindings(&term)?;
+            let bindings = term_pattern_bindings(&term, root != PatternRoot::Value)?;
             let tree = term.tree().clone();
             Ok((
                 RulePattern::TermMacro {
@@ -462,15 +483,19 @@ pub(super) fn parse_rule_pattern(
                     &mut signs,
                 )
             };
-            let tree = match &pattern {
-                Pat::Ident(identifier)
-                    if root_identifier_is_binding && identifier.subpat.is_none() =>
-                {
+            let tree = match (root, &pattern) {
+                (PatternRoot::Clause, Pat::Ident(identifier)) if identifier.subpat.is_none() => {
                     validate_native_binding(identifier, &mut paths, &mut bindings, &mut nodes)?
                 }
-                // A cell value is not a rule subject, so `name @ pattern` or an
-                // island at its root stands as it does below a constructor.
-                Pat::Ident(_) | Pat::Macro(_) if root_identifier_is_binding => validate(false)?,
+                // A readable value is not a rule subject, so its root,
+                // alternatives and parentheses included, reads as a pattern
+                // below a constructor: a bare name binds, and
+                // `name @ pattern`, `_`, or an island stands as it does there.
+                // At a clause's root, `name @ pattern` or an island stands as
+                // it does below a constructor too.
+                (PatternRoot::Value, _) | (PatternRoot::Clause, Pat::Ident(_) | Pat::Macro(_)) => {
+                    validate(false)?
+                }
                 _ => validate(true)?,
             };
             Ok((
@@ -537,8 +562,9 @@ fn validate_native_pattern(
                 )
             })
         }
-        // `A | B | ..` is K's #Or (KF-030). At the root each alternative is a
-        // whole subject, so a bare identifier names a unit constructor there.
+        // `A | B | ..` is K's #Or (KF-030). At a subject's root each
+        // alternative is a whole subject, so a bare identifier names a unit
+        // constructor there.
         Pat::Or(or) => {
             let (tree, names) =
                 crate::term::validate_pattern_or(or, nodes, |alternative, nodes| {
@@ -991,11 +1017,15 @@ fn validate_binding(identifier: &PatIdent, bindings: &mut Vec<Ident>) -> Result<
     }
 }
 
-fn term_pattern_bindings(term: &TermExpression) -> Result<Vec<Ident>, SyntaxError> {
+fn term_pattern_bindings(
+    term: &TermExpression,
+    subject_root: bool,
+) -> Result<Vec<Ident>, SyntaxError> {
     let mut bindings = Vec::new();
-    // The root path names the matched constructor or function; every later
-    // bare reference and every `name @ pattern` alias binds, in preorder.
-    let mut root = true;
+    // A subject's root path names the matched constructor or function; every
+    // later bare reference and every `name @ pattern` alias binds, in
+    // preorder. A readable value has no such root.
+    let mut root = subject_root;
     // Only the left image binds (KF-011): the right side of a `k::rewrite!`
     // uses the subject's bindings.
     let (left, _) = crate::term::split_rewrite_images(term.nodes());

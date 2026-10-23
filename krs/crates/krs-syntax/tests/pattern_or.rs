@@ -151,6 +151,64 @@ fn malformed_or_patterns_are_rejected() {
     assert!(inside.is_ok(), "{:?}", inside.err());
 }
 
+fn record_bindings(source: &str) -> Vec<String> {
+    let block = krs_syntax::RuleBlock::parse_source(source)
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+    block.clauses()[0]
+        .bindings()
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// `|` and parentheses at a readable value's root read as below a
+/// constructor: a bare name binds (so a unit constructor is written
+/// `Name()`), and `_` and islands stand as alternatives.
+#[test]
+fn a_readable_values_alternatives_read_as_below_a_constructor() {
+    for (source, expected) in [
+        (
+            "for Machine; a: { k: [Go(), ..], pc: (p) } => { k: [p, ..] };",
+            &["p"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], pc: k::term![p] } => { k: [p, ..] };",
+            &["p"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], stack: [Held { saved: 0 } | _, s @ ..] } => { k: [..], stack: s };",
+            &["s"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], stack: [k::fragment![Frame { pc: 0, gas: g }] | k::fragment![Frame { pc: 1, gas: g }], s @ ..] } => { k: [g, ..], stack: s };",
+            &["g", "s"][..],
+        ),
+    ] {
+        assert_eq!(record_bindings(source), expected, "{source}");
+    }
+    for (source, expected) in [
+        (
+            "for Machine; a: { k: [Go(), ..], pc: (0 | p) } => { k: [..] };",
+            "variable `p` is not bound in all alternatives",
+        ),
+        (
+            "for Machine; a: { k: [(Pick2 | Pick3), ..] } => { k: [..] };",
+            "variable `Pick2` is not bound in all alternatives",
+        ),
+    ] {
+        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+        assert!(reason(&error).contains(expected), "{source}: {error}");
+    }
+    // A `for Sort` clause's subject keeps its reading: its root is the
+    // matched constructor, so a bare name inside `|` there is a unit
+    // constructor and binds nothing.
+    let clause = krs_syntax::RuleBlock::parse_source(
+        "for Step; use StepSyntax::*; either: Frame { value: 0 } | Other => Done;",
+    )
+    .unwrap();
+    assert!(clause.clauses()[0].bindings().is_empty());
+}
+
 #[test]
 fn bar_outside_a_pattern_is_the_bitwise_or_operator() {
     // A result has no alternatives: `|` there is the operator, whose operands

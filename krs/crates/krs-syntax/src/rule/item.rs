@@ -6,9 +6,9 @@ use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 use super::condition::{RuleCondition, take_requires_helper};
 use super::existentials::RuleExistentials;
 use super::pattern::{
-    NegativeLiteralSpans, RulePattern, canonical_key, is_bound_path, is_bound_reference,
-    parse_rule_pattern, push_candidate, push_term_node_anchors, push_term_reference_candidates,
-    push_wildcard_anchors,
+    NegativeLiteralSpans, PatternRoot, RulePattern, canonical_key, is_bound_path,
+    is_bound_reference, parse_rule_pattern, push_candidate, push_term_node_anchors,
+    push_term_reference_candidates, push_wildcard_anchors,
 };
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
@@ -139,7 +139,7 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             parse_rule_term_sort,
-            false,
+            PatternRoot::Subject,
             signs,
             false,
             ClauseForm::Equation,
@@ -194,7 +194,14 @@ impl RuleItem {
         signs: NegativeLiteralSpans,
         form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_rule_term_sort, false, signs, false, form)
+        Self::from_item_with_sort_parser(
+            &mut item,
+            parse_rule_term_sort,
+            PatternRoot::Subject,
+            signs,
+            false,
+            form,
+        )
     }
 
     /// Validates a desugar clause fn with its `#[k::desugar(..)]` payload
@@ -237,7 +244,7 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             parse_term_sort,
-            false,
+            PatternRoot::Subject,
             signs,
             wildcards,
             ClauseForm::Plain,
@@ -256,21 +263,40 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             crate::term_sort::parse_function_result_sort,
-            false,
+            PatternRoot::Subject,
             signs,
             false,
             ClauseForm::Equation,
         )
     }
 
+    /// Validates a readable `for Sort` clause, whose subject's root is the
+    /// matched constructor.
     pub(super) fn from_readable_item(
+        item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_readable_item_with_root(item, PatternRoot::Clause, signs)
+    }
+
+    /// Validates a readable machine record's head, whose subject is its
+    /// first computation item: a readable value, not a rule subject.
+    pub(super) fn from_readable_value_item(
+        item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_readable_item_with_root(item, PatternRoot::Value, signs)
+    }
+
+    fn from_readable_item_with_root(
         mut item: ItemFn,
+        root: PatternRoot,
         signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
         Self::from_item_with_sort_parser(
             &mut item,
             parse_readable_sort,
-            true,
+            root,
             signs,
             false,
             ClauseForm::Plain,
@@ -284,7 +310,7 @@ impl RuleItem {
     fn from_item_with_sort_parser(
         item: &mut ItemFn,
         sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
-        root_identifier_is_binding: bool,
+        root: PatternRoot,
         signs: NegativeLiteralSpans,
         result_wildcards: bool,
         form: ClauseForm,
@@ -318,8 +344,7 @@ impl RuleItem {
                 argument.attrs[0].span(),
             ));
         }
-        let (pattern, subject_tree) =
-            parse_rule_pattern((*argument.pat).clone(), root_identifier_is_binding, signs)?;
+        let (pattern, subject_tree) = parse_rule_pattern((*argument.pat).clone(), root, signs)?;
         // A unit-returning `#[k::rule]` fn is a single-body rule (KF-011):
         // its subject's `k::rewrite!` islands say what changes.
         let rewrite = pattern
@@ -418,7 +443,7 @@ impl RuleItem {
         }
         // A readable clause checks its existentials against every cell it
         // writes (`RuleClause::check_existentials`); its item has only the head.
-        if !root_identifier_is_binding {
+        if root == PatternRoot::Subject {
             existentials.check_shadowing(pattern.bindings())?;
             existentials.check_scope(
                 requires.as_ref().map(RuleCondition::term),

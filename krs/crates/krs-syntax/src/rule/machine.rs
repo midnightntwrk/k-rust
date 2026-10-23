@@ -14,7 +14,7 @@ use super::block::{
 use super::condition::{RuleExtra, RuleMapEntry, condition_token_range};
 use super::item::RuleItem;
 use super::pattern::{
-    NegativeLiteralSpans, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
+    NegativeLiteralSpans, PatternRoot, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
 };
 use crate::parse::{ParseError, validate_authored_binder};
 use crate::path::{is_plain_path, parametric_collection_error};
@@ -1387,7 +1387,7 @@ fn readable_cell_pattern(
         // A builtin literal (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`),
         // a claim's `k::anonymous!(..)`, or a `k::fragment![..]` cell term is
         // a whole cell value, as any pattern is.
-        pattern => parse_rule_pattern(pattern, true, signs)?,
+        pattern => parse_rule_pattern(pattern, PatternRoot::Value, signs)?,
     })
 }
 
@@ -1668,7 +1668,7 @@ fn assemble_machine_clause(
             if top_level_or && let Some(syn::FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
                 *typed.pat = first;
             }
-            RuleItem::from_readable_item(item, signs)?
+            RuleItem::from_readable_value_item(item, signs)?
         } else {
             // `[]` matches the empty computation: like a record without
             // the computation cell, its subject is a placeholder.
@@ -1852,7 +1852,7 @@ fn framed_rule_item(
         #(#retained)*
         pub fn #name(#subject: #configuration_type) -> #configuration_type { #placeholder }
     })?;
-    Ok(RuleItem::from_readable_item(
+    Ok(RuleItem::from_readable_value_item(
         item,
         NegativeLiteralSpans::default(),
     )?)
