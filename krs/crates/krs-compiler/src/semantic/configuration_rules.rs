@@ -40,7 +40,8 @@ struct StateRuleTerms<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     /// The element types of the rule's typed cells.
     collections: &'a CollectionTyping,
-    /// The rule's existential and fresh binders at their declared sorts.
+    /// The rule's term, existential, and fresh binders at their declared
+    /// sorts.
     declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
@@ -360,19 +361,31 @@ pub(super) fn lower_configuration_rule_descriptor(
         variables,
     } = configuration_rule_bindings(rule)?;
     let typing = configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
+    let mut declared_binders = declared_existentials(
+        rule.claim
+            .iter()
+            .flat_map(|claim| &claim.existentials)
+            .chain(&rule.existentials)
+            .chain(&rule.fresh),
+    );
+    // The binder list declares each term binder, as a `where` does: every
+    // cell term checks its occurrences against the declared sort.
+    declared_binders.extend(rule.bindings.iter().filter_map(|binding| {
+        let ProtocolRuleBindingKind::Term { sort } = &binding.kind else {
+            return None;
+        };
+        Some((
+            binding.name.clone(),
+            (semantic_sort_ref(&sort.sort), sort.key.clone()),
+        ))
+    }));
     let mut terms = StateRuleTerms {
         descriptor,
         declarations,
         sort_parents,
         catalog,
         collections: &typing,
-        declared_binders: declared_existentials(
-            rule.claim
-                .iter()
-                .flat_map(|claim| &claim.existentials)
-                .chain(&rule.existentials)
-                .chain(&rule.fresh),
-        ),
+        declared_binders,
         wildcard_ordinal: 0,
         variables,
     };

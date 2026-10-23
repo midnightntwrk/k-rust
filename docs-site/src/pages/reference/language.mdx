@@ -304,10 +304,14 @@ Optional and collection entries are not allowed in a context alias or an equatio
 ### Typed binders
 
 In a K pattern, `X:Int` is a runtime test: the rule matches only when the term bound to `X` has sort `Int`.
-In KRS it is the binder's declared type: `where x: Int` after a readable clause, or a typed parameter before the subject of a rule fn.
+In KRS it is the binder's declared type: `where x: Int` after a readable clause, a typed parameter before the subject of a rule fn, or an entry of a `cells!` rule's binder list.
+The three are one declaration: the binder has exactly that sort, and the emitted K is `X:Int`.
 A rule fn's subject is a pattern, so it needs no wrapper: `fn unwrap(Wrap { value: v }: Term<Exp>)` is `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>)`, compiler-owned islands below its root included; `krs expand` and this reference write the `k::term![..]` spelling.
 `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` infers `v` at the sort of `Wrap`'s field, emits `rule wrap(V:Exp) => V:Exp`, and matches every expression; `fn unwrap(v: Term<Int>, k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` emits `rule wrap(V:Int) => V:Int`, so `wrap(1 + 2)` no longer matches.
 A declared sort may be narrower than inference would choose, never wider or unrelated: a binder declared `Bool` in an `Exp` position is rejected (`krs::analysis::incompatible-binder`, "binder `x` is declared `Bool` but this occurrence needs `Exp`").
+Every occurrence must admit the declared sort, in the pattern, the result, a condition, or a collection read alike; a `where` on a value read from a typed map names the value type or a sort below it.
+A binder without a declaration is inferred as the most specific sort its occurrences share.
+An unrelated declaration is rejected even when some terms have both sorts: with `Value: Stmt + Exp`, `where s: Stmt` on the binder of an `Exp` field names a sort the rule does not test, and the error's help names the declaration that does, `where s: Value`; a wider one, `where s: KItem` there, states more than the rule tests, and the help names `Exp`.
 A `KItem` occurrence never narrows a binder, because every sort but `K` is a `KItem`: with `Hold { saved: k::KItem }`, `{ k: [Hold { saved: s }, ..] } => { k: [s, ..] } where s: Stmt` emits `hold ( S:Stmt ) => S:Stmt`, a binder that also occurs in a `Stmt` field is a `Stmt`, and one that occurs only at `KItem` positions is a `KItem`.
 A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Exp, k::term![IsExpression(_e)]: Term<Bool>) -> Term<Bool>` emits `rule isExpression(_E:Exp) => true`.
 

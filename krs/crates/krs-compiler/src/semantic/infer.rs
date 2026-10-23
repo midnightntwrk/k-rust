@@ -2832,19 +2832,49 @@ impl StructuredTermBuilder<'_> {
                 Self::term_key(occurrence),
             ));
         }
-        Err(DescriptorLoweringError::IncompatibleBinder {
-            item: Box::new(self.descriptor.id().clone()),
-            reason: format!(
-                "binder `{name}` is declared `{}` but this occurrence needs `{}`",
-                super::overload::sort_name(declared),
-                super::overload::sort_name(expected),
-            ),
-            range: self
-                .descriptor
+        let declared_name = super::overload::sort_name(declared);
+        let expected_name = super::overload::sort_name(expected);
+        let range = |key: &ProvenanceKey| {
+            self.descriptor
                 .provenance()
                 .origin_for(key)
                 .and_then(krs_ir::OriginStack::exact_authored_range)
-                .map(Box::new),
+                .map(Box::new)
+        };
+        // A wider declaration states more than the rule tests; an unrelated
+        // one names a sort that is not the one tested, and when one sort is
+        // the greatest below both, declaring it tests exactly what the
+        // position and the declaration both admit.
+        let help = if semantic_is_subsort(expected, declared, self.sort_parents) {
+            Some(format!(
+                "this position admits only `{expected_name}`: declare `{name}` as `{expected_name}` or a sort below it"
+            ))
+        } else {
+            match most_specific_common_descendants(
+                &BTreeSet::from([declared.clone(), expected.clone()]),
+                self.sort_parents,
+            )
+            .as_slice()
+            {
+                [] => Some(format!(
+                    "no term is both a `{declared_name}` and a `{expected_name}`"
+                )),
+                [meet] => Some(format!(
+                    "a `{declared_name}` that fits here is a `{}`: declare `{name}` as `{}`",
+                    super::overload::sort_name(meet),
+                    super::overload::sort_name(meet),
+                )),
+                _ => None,
+            }
+        };
+        Err(DescriptorLoweringError::IncompatibleBinder {
+            item: Box::new(self.descriptor.id().clone()),
+            reason: format!(
+                "binder `{name}` is declared `{declared_name}` but this occurrence needs `{expected_name}`"
+            ),
+            range: range(key),
+            occurrence: range(Self::term_key(occurrence)).map(|range| (range, expected_name)),
+            help,
         })
     }
 

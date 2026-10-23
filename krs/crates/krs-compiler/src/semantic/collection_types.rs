@@ -2096,27 +2096,53 @@ pub(super) fn share_a_sort(
         .is_empty()
 }
 
-/// The error for a map read `{ k -> v, .. }` whose value binder is narrowed
-/// to a sort no value of the map has.
-pub(super) fn disjoint_refinement(
+/// The error for a map read `{ k -> v, .. }` whose value binder is declared
+/// at a sort that is not below the map's value type. When some values have
+/// both sorts and one sort is the greatest below both, the error names it:
+/// declaring that sort reads exactly those values.
+pub(super) fn map_value_refinement(
     descriptor: &Descriptor,
     cell: &str,
     declared: &SortType,
     name: &str,
     refinement: &SemanticSortRef,
     key: &ProvenanceKey,
+    parents: &SortParents,
 ) -> DescriptorLoweringError {
-    let value = declared
-        .map_value()
-        .map_or_else(String::new, |value| super::overload::sort_name(&value.sort));
+    let value_sort = declared.map_value().map(|value| value.sort.clone());
+    let value = value_sort
+        .as_ref()
+        .map_or_else(String::new, super::overload::sort_name);
     let refinement_sort = refinement;
     let refinement = super::overload::sort_name(refinement);
-    DescriptorLoweringError::CollectionElementSort {
-        item: Box::new(descriptor.id().clone()),
-        reason: format!(
+    let reason = match &value_sort {
+        Some(value_sort) if share_a_sort(refinement_sort, value_sort, parents) => {
+            let meet = match most_specific_common_descendants(
+                &BTreeSet::from([refinement_sort.clone(), value_sort.clone()]),
+                parents,
+            )
+            .as_slice()
+            {
+                [meet] => format!(
+                    "; a value that is also {} is {}: write `where {name}: {}`",
+                    a(refinement_sort),
+                    a(meet),
+                    super::overload::sort_name(meet),
+                ),
+                _ => String::new(),
+            };
+            format!(
+                "`{name}` is read as a value of the cell `{cell}`, declared `{declared}`, so `where {name}: {refinement}` must name {value} or a sort below it{meet}"
+            )
+        }
+        _ => format!(
             "`{name}` is read as a value of the cell `{cell}`, declared `{declared}`, but `where {name}: {refinement}` asks for {}, which no {value} is",
             a(refinement_sort)
         ),
+    };
+    DescriptorLoweringError::CollectionElementSort {
+        item: Box::new(descriptor.id().clone()),
+        reason,
         range: authored_range(descriptor, key),
     }
 }

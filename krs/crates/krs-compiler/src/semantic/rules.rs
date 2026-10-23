@@ -16,10 +16,10 @@ use krs_ir_levels::{
 };
 use krs_syntax::ProvenanceRole;
 
-use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
-use super::collection_types::{
-    CollectionTyping, Root, SortType, Walker, selected_cell_type, share_a_sort,
+use super::catalog::{
+    ProductionSignature, common_sequence_item_sort, semantic_is_subsort, semantic_sort_ref,
 };
+use super::collection_types::{CollectionTyping, Root, SortType, Walker, selected_cell_type};
 use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
@@ -508,6 +508,18 @@ pub(super) fn lower_head_rule_descriptor(
                 .map(|binder| binder.name.clone()),
         )
         .collect::<BTreeSet<_>>();
+    // A `where` sort is the binder's declaration, as an existential's is:
+    // the binder has exactly that sort, and every occurrence must admit it.
+    let mut declared_binders =
+        super::infer::declared_existentials(rule.existentials.iter().chain(&rule.fresh));
+    declared_binders.extend(rule.bindings.iter().filter_map(|binding| {
+        binding.refinement.as_ref().map(|refinement| {
+            (
+                binding.name.clone(),
+                (semantic_sort_ref(&refinement.sort), refinement.key.clone()),
+            )
+        })
+    }));
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
@@ -516,11 +528,9 @@ pub(super) fn lower_head_rule_descriptor(
         sort_parents,
         binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),
-        binding_sorts: rule
-            .existentials
+        binding_sorts: declared_binders
             .iter()
-            .chain(&rule.fresh)
-            .map(|binder| (binder.name.clone(), semantic_sort_ref(&binder.sort.sort)))
+            .map(|(name, (sort, _))| (name.clone(), sort.clone()))
             .collect(),
         binding_constraints,
         wildcard_offset: 0,
@@ -529,9 +539,7 @@ pub(super) fn lower_head_rule_descriptor(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
-        declared_binders: super::infer::declared_existentials(
-            rule.existentials.iter().chain(&rule.fresh),
-        ),
+        declared_binders,
         subject_keys: BTreeMap::new(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: CollectionUse::new(&typing),
@@ -989,12 +997,20 @@ fn seed_head_rule_sorts(
             "head-anchored rule has duplicate bindings",
         ));
     }
+    // A `where` sort is a declaration, not a seed: it is checked against
+    // each occurrence ([`lower_head_rule_descriptor`]). These seeds are the
+    // sorts an undeclared binder takes from the cells it is read from.
+    let refinements = rule
+        .bindings
+        .iter()
+        .filter_map(|binding| {
+            binding
+                .refinement
+                .as_ref()
+                .map(|refinement| (binding.name.clone(), refinement))
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut binding_sorts = BTreeMap::new();
-    for binding in &rule.bindings {
-        if let Some(refinement) = &binding.refinement {
-            binding_sorts.insert(binding.name.clone(), semantic_sort_ref(&refinement.sort));
-        }
-    }
     let mut cell_sorts = BTreeMap::new();
     for extra in &rule.extras {
         let cell = head_rule_extra_cell(extra);
@@ -1010,23 +1026,25 @@ fn seed_head_rule_sorts(
         };
         cell_sorts.insert(cell.cell.clone(), semantic_sort_ref(&sort.sort));
         // A value read from a typed map is one of its values: its binder
-        // has the value sort, unless a narrowing tests for a subsort; a
-        // narrowing no value can pass is an error.
+        // has the value sort, unless its declaration is a subsort of it,
+        // which the read then tests for.
         if let krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } = extra
             && let Some(declared_type) = SortType::of_cell(declared, descriptor)?
             && let Some(value) = declared_type.map_value()
         {
             for entry in entries {
-                match binding_sorts.get(&entry.value_binding) {
+                match refinements.get(&entry.value_binding) {
                     Some(refinement) => {
-                        if !share_a_sort(refinement, value.sort(), sort_parents) {
-                            return Err(super::collection_types::disjoint_refinement(
+                        let sort = semantic_sort_ref(&refinement.sort);
+                        if !semantic_is_subsort(&sort, value.sort(), sort_parents) {
+                            return Err(super::collection_types::map_value_refinement(
                                 descriptor,
                                 &declared.rust_field,
                                 &declared_type,
                                 &entry.value_binding,
-                                refinement,
-                                &cell.key,
+                                &sort,
+                                &refinement.key,
+                                sort_parents,
                             ));
                         }
                     }
@@ -1043,7 +1061,13 @@ fn seed_head_rule_sorts(
                     detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
                 }
             })?;
-            match binding_sorts.get(base_binding) {
+            let refinement = refinements
+                .get(base_binding)
+                .map(|refinement| semantic_sort_ref(&refinement.sort));
+            match refinement
+                .as_ref()
+                .or_else(|| binding_sorts.get(base_binding))
+            {
                 Some(sort) if sort != cell_sort => {
                     return Err(DescriptorLoweringError::invalid_term(
                         descriptor.id(),

@@ -455,7 +455,7 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
                 "probe: { k: [Put(name, _), ..], env: { name -> v, .. } } => { k: [..] } where v: Stmt;",
             ),
             "error[krs::analysis::collection-element-sort]: `v` is read as a value of the cell `env`, declared `Map<Id, Value>`, but `where v: Stmt` asks for a Stmt, which no Value is".to_owned(),
-            "env",
+            "Stmt",
         ),
         (
             "read-occurrence",
@@ -488,8 +488,10 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
         (
             "single-body",
             "#[k::rule]\npub fn probe(\n    name: Term<Id>,\n    s: Term<Stmt>,\n    k::cells! { k: k::configuration::KCell(k::rewrite!(StmtSyntax::Put(name, s) => ()), ..), env: k::configuration::Cell(map![name -> k::rewrite!(_ => s), ..]), .. }: Machine,\n) {}\n".to_owned(),
-            stored("s", "Stmt", env_value, "a Value"),
-            "k::rewrite!(_ => s)",
+            // The binder list declares `s`, so the declaration is what the
+            // value position refuses.
+            "error[krs::analysis::incompatible-binder]: binder `s` is declared `Stmt` but this occurrence needs `Value`".to_owned(),
+            "Stmt",
         ),
         (
             "untyped-cell",

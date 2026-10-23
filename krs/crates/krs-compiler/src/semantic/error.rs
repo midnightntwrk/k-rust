@@ -252,6 +252,10 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the binder's declared type.
         range: Option<Box<SourceRange>>,
+        /// The occurrence's exact authored range and the sort it needs.
+        occurrence: Option<(Box<SourceRange>, String)>,
+        /// The declaration that fits, when there is one.
+        help: Option<String>,
     },
     /// A term at a typed collection position (`Map<K, V>`, `List<T>`,
     /// `Set<T>`) does not fit its element types, a read asks for a sort the
@@ -956,6 +960,21 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .with_note(format!("second equation: {second}")),
             Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
                 diagnostic.with_note(format!("rule: {rule}"))
+            }
+            Self::IncompatibleBinder {
+                occurrence, help, ..
+            } => {
+                let diagnostic = match occurrence {
+                    Some((range, needed)) => diagnostic.with_secondary(
+                        krs_diagnostic::Label::new(Location::Source((**range).clone()))
+                            .with_message(format!("this occurrence needs `{needed}`")),
+                    ),
+                    None => diagnostic,
+                };
+                match help {
+                    Some(help) => diagnostic.with_help(help.clone()),
+                    None => diagnostic,
+                }
             }
             Self::PrivateProductionInSpec {
                 sentence,
