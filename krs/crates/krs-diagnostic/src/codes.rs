@@ -365,6 +365,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         MISSING_CHECKED_FIELD: "krs::expand::missing-checked-field" => "A field accepted by syntax validation is absent during rendering.",
         INITIALIZER_CELL_SHAPE: "krs::expand::initializer-cell-shape" => "A nested fixed-cell initializer is not a struct expression.",
         CELL_STATE_FAMILY_MISMATCH: "krs::expand::cell-state-family-mismatch" => "A cell wrapper disagrees with the state family of its initializer or rule.",
+        MISSING_INITIALIZER: "krs::expand::missing-initializer" => "A configuration has no inherent `#[k::init]` initializer, which gives each cell its initial content.",
         INITIALIZER_RECORD_UPDATE: "krs::expand::initializer-record-update" => "An initializer term is a record update `Ctor { f: e, ..t }` or an open record `Ctor { f: e, .. }`; an initializer term names every field.",
         INITIALIZER_WILDCARD: "krs::expand::initializer-wildcard" => "An initializer term contains a wildcard.",
         CLAIM_ONLY_TERM: "krs::expand::claim-only-term" => "A claim-only term island occurs outside a claim.",

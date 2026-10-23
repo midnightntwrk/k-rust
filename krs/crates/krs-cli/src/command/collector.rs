@@ -353,19 +353,23 @@ fn rust_diagnostics(
             relay_unused_imports(plan, manifest, diagnostic, &mut failed, &mut diagnostics)?;
             continue;
         }
-        // A KRS proc macro's `compile_error!` carries its code in the message.
-        let (code, text) = match (&diagnostic.code, untag_rustc_message(&diagnostic.message)) {
-            (Some(code), _) => (
+        // A KRS proc macro's `compile_error!`, or a facade trait's
+        // `on_unimplemented` message, carries its registered code in the
+        // message; only KRS writes the tag, so it wins over rustc's code.
+        let untagged = untag_rustc_message(&diagnostic.message);
+        let tagged = untagged.is_some();
+        let (code, text) = match (&diagnostic.code, untagged) {
+            (_, Some((code, text))) => (code, text),
+            (Some(code), None) => (
                 Code::foreign(code.code.clone()),
                 diagnostic.message.as_str(),
             ),
-            (None, Some((code, text))) => (code, text),
             (None, None) => (
                 codes::rust_expansion::UNCODED_ERROR,
                 diagnostic.message.as_str(),
             ),
         };
-        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, |_| true)?;
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, tagged, |_| true)?;
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(plan, manifest, span)? {
                 let mut relayed =
@@ -431,7 +435,7 @@ fn relay_unused_imports(
                 && edit.byte_start <= import.byte_start
                 && import.byte_end <= edit.byte_end
         };
-        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, |edit| {
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, false, |edit| {
             covers(edit, span)
                 && !primary
                     .iter()
@@ -535,6 +539,11 @@ impl<'a> FailedItems<'a> {
 /// A suggested edit is relayed only when `keep_edit` accepts its span; a
 /// suggestion whose every edit is left out is omitted.
 ///
+/// For a `tagged` diagnostic, whose message KRS wrote, a child that names a
+/// hidden generated item (`__krs…`, `__Krs…`) describes the mechanism that
+/// raised it, not the author's code, so it is omitted. An untagged rustc error
+/// keeps such a child, which may be the only hint of what rustc tried.
+///
 /// A child whose every span lies in macro-generated code describes tokens the author did not
 /// write, such as a KRS expansion's hidden helper items, so it is omitted. A suggested
 /// replacement is relayed as the edit it makes to the authored source; one that would edit
@@ -543,12 +552,16 @@ fn rust_children(
     plan: &CollectorPlan,
     manifest: &str,
     children: &[RustDiagnosticChild],
+    tagged: bool,
     keep_edit: impl Fn(&RustDiagnosticSpan) -> bool,
 ) -> Result<(Vec<String>, Vec<String>), CommandError> {
     let mut notes = Vec::new();
     let mut help = Vec::new();
     for child in children {
         if !child.spans.is_empty() && child.spans.iter().all(|span| span.expansion.is_some()) {
+            continue;
+        }
+        if tagged && names_hidden_item(&child.message) {
             continue;
         }
         let mut edits = Vec::new();
@@ -596,6 +609,11 @@ fn rust_children(
         }
     }
     Ok((notes, help))
+}
+
+/// Whether a rustc message names an item KRS generates and hides from authors.
+fn names_hidden_item(message: &str) -> bool {
+    message.contains("__krs") || message.contains("__Krs")
 }
 
 /// A source file of a selected package, read at the revision rustc diagnosed.
@@ -989,6 +1007,72 @@ mod tests {
                 (
                     "unused_imports".to_owned(),
                     "unused import: `Cmd::*`".to_owned(),
+                    vec![],
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tagged_rustc_error_takes_the_krs_code_and_drops_hidden_item_children() {
+        let source = "pub struct Machine {}\n";
+        let (_directory, manifest, plan) = language_plan(source);
+        let name = source.find("Machine").unwrap();
+        let message = |text: &str| {
+            serde_json::json!({
+                "reason": "compiler-message",
+                "manifest_path": manifest,
+                "message": {
+                    "level": "error",
+                    "message": text,
+                    "code": { "code": "E0277" },
+                    "spans": [{
+                        "file_name": "src/lib.rs", "byte_start": name, "byte_end": name + 7,
+                        "line_start": 1, "column_start": name + 1, "is_primary": true,
+                    }],
+                    "children": [
+                        { "level": "help", "message": "the trait `krs::configuration::__KrsInitializer` is not implemented for `Machine`", "spans": [] },
+                        { "level": "note", "message": "an initializer gives each cell its initial value", "spans": [] },
+                        { "level": "note", "message": "required by a bound in `__KrsInitializerFallback::__krs_initializer_payload`", "spans": [] },
+                    ],
+                    "rendered": null,
+                },
+            })
+            .to_string()
+        };
+        let stdout = [
+            message("[krs::expand::missing-initializer] configuration `Machine` has no `#[k::init]` initializer"),
+            message("the trait bound `Machine: Rule` is not satisfied"),
+        ]
+        .join("\n");
+        let reported: Vec<_> = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .into_iter()
+            .map(|envelope| {
+                (
+                    envelope.code,
+                    envelope.message,
+                    envelope.notes,
+                    envelope.help,
+                )
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                (
+                    "E0277".to_owned(),
+                    "the trait bound `Machine: Rule` is not satisfied".to_owned(),
+                    vec![
+                        "an initializer gives each cell its initial value".to_owned(),
+                        "required by a bound in `__KrsInitializerFallback::__krs_initializer_payload`".to_owned(),
+                    ],
+                    vec!["the trait `krs::configuration::__KrsInitializer` is not implemented for `Machine`".to_owned()],
+                ),
+                (
+                    "krs::expand::missing-initializer".to_owned(),
+                    "configuration `Machine` has no `#[k::init]` initializer".to_owned(),
+                    vec!["an initializer gives each cell its initial value".to_owned()],
                     vec![],
                 ),
             ]

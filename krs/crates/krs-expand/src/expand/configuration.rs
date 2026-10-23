@@ -14,7 +14,7 @@ use krs_ir::{
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
@@ -90,7 +90,19 @@ pub(crate) fn configuration(
             .merge(initializer_provenance)
             .expect("configuration and initializer provenance keys are disjoint")
         },
-        prelude: quote!(let (initializer, initializer_slots, initializer_provenance) = #declared::__krs_initializer_payload()?;),
+        prelude: {
+            // Spanned at the configuration's name, where rustc reports a
+            // missing initializer through the fallback trait's bound.
+            let span = declaration.name().span();
+            let mut configuration = declared.clone();
+            configuration.set_span(span);
+            let payload = quote_spanned!(span=> #configuration::__krs_initializer_payload());
+            quote! {
+                #[allow(unused_imports)]
+                use #facade::configuration::__KrsInitializerFallback as _;
+                let (initializer, initializer_slots, initializer_provenance) = #payload?;
+            }
+        },
     }
     .render();
 
