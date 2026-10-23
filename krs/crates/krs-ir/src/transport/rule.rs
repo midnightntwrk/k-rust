@@ -2792,7 +2792,18 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         let local = self.counters.in_matches_pattern
             || self.counters.in_let_pattern
             || self.let_scopes.iter().any(|scope| scope.contains(name));
-        if !local && !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
+        // A condition sees every variable the left side binds, the
+        // computation and map remainders included.
+        let condition = matches!(
+            self.side,
+            ValidationSide::Requires | ValidationSide::Ensures | ValidationSide::RuleEnsures
+        );
+        if !local
+            && !binding_has_kind(self.bindings, name, RuleBindingUse::Term)
+            && !(condition
+                && (binding_has_kind(self.bindings, name, RuleBindingUse::KSequenceFrame)
+                    || binding_has_kind(self.bindings, name, RuleBindingUse::MapFrame)))
+        {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::RuleVariableBindingIsNotATerm,
             ));

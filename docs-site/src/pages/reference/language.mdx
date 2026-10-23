@@ -318,6 +318,8 @@ A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Ex
 The binder list is all or nothing.
 A rule fn whose subject is a term pattern either declares no binders, and every sort is inferred, or declares every subject binder exactly once, in the order the binders first occur in the subject; a `cells!` rule always declares all of them.
 `_`, remainders such as `tail @ ..`, and the `here` binder of a context alias are not declared.
+A remainder is still a binder of the rule: `#[k::requires]` and `#[k::ensures]` may name a computation remainder, a `K`, and a map remainder, a map of its cell's type (`#[k::requires(k::is!(KResult, tail))]` emits `requires isKResult(Tail:K)`).
+The configuration remainder `state @ ..` and a collection's remaining instances stand for cells the rule leaves out and are not terms, so a condition that names one is an error (`krs::syntax::unsupported-rule-body`).
 Narrowing one binder therefore means declaring all of them, each other one at its inferred sort; `krs expand` writes a readable rule's `where` the same way.
 A partial or misordered list, a binder declared twice, and a declared binder the subject never binds are syntax errors.
 KRS has no strict cast `::S` or `{T}<:S`: rule bodies are resolved Rust paths, never parsed by K, so there is nothing to disambiguate; `k::project!` is the cast a rule computes with.

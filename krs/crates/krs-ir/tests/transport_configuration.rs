@@ -768,22 +768,52 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     assert!(expected.contains(&key(ProvenanceRole::RuleRequiresReference, 0)));
     assert!(expected.contains(&key(ProvenanceRole::RuleRequiresLiteral, 0)));
 
-    let mut structural_frame = rule.clone();
-    let DescriptorTerm::Application { arguments, .. } =
-        &mut structural_frame.requires.as_mut().unwrap().term
+    // A condition sees every variable the left side binds: the computation
+    // and map remainders are `Tail:K` and `Rest:Map`, while the
+    // configuration remainder binds no variable.
+    for (remainder, accepted) in [("tail", true), ("rest", true), ("state", false)] {
+        let mut structural_frame = rule.clone();
+        let DescriptorTerm::Application { arguments, .. } =
+            &mut structural_frame.requires.as_mut().unwrap().term
+        else {
+            unreachable!()
+        };
+        let krs_ir::Arguments::Positional(arguments) = arguments else {
+            unreachable!()
+        };
+        let DescriptorTerm::Variable { name, .. } = arguments[0].as_mut() else {
+            unreachable!()
+        };
+        *name = remainder.into();
+        let validated = structural_frame.validate(ItemKind::Rule);
+        if accepted {
+            assert!(validated.is_ok(), "{remainder}: {validated:?}");
+        } else {
+            assert!(
+                matches!(
+                    validated,
+                    Err(StateTransportError::InvalidTerm(
+                        StateTermReason::RuleVariableBindingIsNotATerm
+                    ))
+                ),
+                "{remainder}: {validated:?}"
+            );
+        }
+    }
+
+    // A result term is not a condition: a remainder there stays refused.
+    let mut remainder_in_result = rule.clone();
+    let ProtocolRuleStateTerm::KSequence(sequence) =
+        &mut remainder_in_result.result.as_mut().unwrap().cells[0].value
     else {
         unreachable!()
     };
-    let krs_ir::Arguments::Positional(arguments) = arguments else {
-        unreachable!()
-    };
-    let value = &mut arguments[0];
-    let DescriptorTerm::Variable { name, .. } = value.as_mut() else {
+    let DescriptorTerm::Variable { name, .. } = &mut sequence.items[0].value else {
         unreachable!()
     };
     *name = "tail".into();
     assert!(matches!(
-        structural_frame.validate(ItemKind::Rule),
+        remainder_in_result.validate(ItemKind::Rule),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::RuleVariableBindingIsNotATerm
         ))

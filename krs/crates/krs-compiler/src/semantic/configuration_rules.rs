@@ -247,12 +247,15 @@ impl StateRuleTerms<'_> {
     }
 }
 
-/// Binding sorts visible to a configuration rule's subject and result, and the
-/// declared variables in binding order followed by the existentials and the
-/// fresh binders.
+/// Binding sorts visible to a configuration rule's subject, result, and
+/// conditions, and the declared variables in binding order followed by the
+/// existentials and the fresh binders. A condition sees every variable the
+/// left side binds, the computation (`K`) and map remainders included.
 struct ConfigurationRuleBindings {
     subject_sorts: BTreeMap<String, SemanticSortRef>,
     result_sorts: BTreeMap<String, SemanticSortRef>,
+    requires_sorts: BTreeMap<String, SemanticSortRef>,
+    ensures_sorts: BTreeMap<String, SemanticSortRef>,
     variables: Vec<SemanticVariable>,
 }
 
@@ -260,6 +263,7 @@ fn configuration_rule_bindings(
     rule: &krs_ir::DescriptorConfigurationRule,
 ) -> Result<ConfigurationRuleBindings, DescriptorLoweringError> {
     let mut subject_sorts = BTreeMap::new();
+    let mut remainder_sorts = BTreeMap::new();
     let mut variables = Vec::new();
     for binding in &rule.bindings {
         let sort = match &binding.kind {
@@ -271,6 +275,8 @@ fn configuration_rule_bindings(
         };
         if matches!(binding.kind, ProtocolRuleBindingKind::Term { .. }) {
             subject_sorts.insert(binding.name.clone(), sort.clone());
+        } else {
+            remainder_sorts.insert(binding.name.clone(), sort.clone());
         }
         variables.push(SemanticVariable::new(
             SemanticId::new(binding.name.clone())?,
@@ -294,9 +300,15 @@ fn configuration_rule_bindings(
             sort,
         ));
     }
+    let mut requires_sorts = subject_sorts.clone();
+    requires_sorts.extend(remainder_sorts.clone());
+    let mut ensures_sorts = result_sorts.clone();
+    ensures_sorts.extend(remainder_sorts);
     Ok(ConfigurationRuleBindings {
         subject_sorts,
         result_sorts,
+        requires_sorts,
+        ensures_sorts,
         variables,
     })
 }
@@ -358,6 +370,8 @@ pub(super) fn lower_configuration_rule_descriptor(
     let ConfigurationRuleBindings {
         subject_sorts,
         result_sorts,
+        requires_sorts,
+        ensures_sorts,
         variables,
     } = configuration_rule_bindings(rule)?;
     let typing = configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
@@ -485,14 +499,14 @@ pub(super) fn lower_configuration_rule_descriptor(
             terms.condition(
                 rule.sentence_kind.into(),
                 condition,
-                &subject_sorts,
+                &requires_sorts,
                 "rule-requires",
                 false,
             )
         })
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
-    let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
+    let (existentials, ensures) = lower_existentials(&mut terms, rule, &ensures_sorts)?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,

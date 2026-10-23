@@ -325,6 +325,30 @@ pub(super) fn configuration_rule(
         .cloned()
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
+    // A condition sees every variable the left side binds: the term
+    // binders and the computation and map remainders (`Tail:K`,
+    // `Rest:Map`). The configuration and instance remainders bind none.
+    let remainder_idents = rule
+        .bindings()
+        .iter()
+        .filter(|binding| {
+            matches!(
+                binding.kind(),
+                StateRuleBindingKind::KSequenceFrame | StateRuleBindingKind::MapFrame
+            )
+        })
+        .map(|binding| binding.name().clone())
+        .collect::<Vec<_>>();
+    let requires_idents = binding_idents
+        .iter()
+        .chain(&remainder_idents)
+        .cloned()
+        .collect::<Vec<_>>();
+    let ensures_idents = result_idents
+        .iter()
+        .chain(&remainder_idents)
+        .cloned()
+        .collect::<Vec<_>>();
     let (existentials, existential_key_functions) =
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let (fresh, fresh_key_functions) =
@@ -359,7 +383,7 @@ pub(super) fn configuration_rule(
         &facade,
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
-        &binding_idents,
+        &requires_idents,
     );
     condition_builder.id_token_ordinal = right.counters.id_token;
     condition_builder.bytes_token_ordinal = right.counters.bytes_token;
@@ -377,8 +401,12 @@ pub(super) fn configuration_rule(
     } else {
         None
     };
-    let mut ensures_builder =
-        TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &result_idents);
+    let mut ensures_builder = TermBuilder::new(
+        &facade,
+        nonce ^ 0x2000_0000_0000_0000,
+        &cfg,
+        &ensures_idents,
+    );
     ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
     ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
