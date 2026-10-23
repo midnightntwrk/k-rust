@@ -203,7 +203,20 @@ impl StateClaimItem {
     /// cannot be represented.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut output = self.rule.provenance()?;
-        output.retain(|anchor| anchor.role() != ProvenanceRole::RuleDeclaration);
+        // A claim numbers its literal islands below, with its ensures
+        // condition.
+        output.retain(|anchor| {
+            !matches!(
+                anchor.role(),
+                ProvenanceRole::RuleDeclaration
+                    | ProvenanceRole::ClaimIdToken
+                    | ProvenanceRole::ClaimBytesToken
+                    | ProvenanceRole::ClaimAnonymous
+                    | ProvenanceRole::ClaimAnonymousSort
+                    | ProvenanceRole::ClaimAnonymousSpelling
+                    | ProvenanceRole::ClaimOrBool
+            )
+        });
         output.push(ProvenanceAnchor::new(
             ProvenanceRole::ClaimDeclaration,
             0,
@@ -910,6 +923,16 @@ impl StateRuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             crate::term::push_ml_binder_anchors(&mut output, ensures.nodes(), &mut closures)?;
         }
+        // Builtin `Id` and `Bytes` literals, each kind numbered across the
+        // cells, the condition, then the ensures condition (a claim numbers
+        // its own, with its claim-only islands).
+        append_claim_node_anchors(
+            claim_terms(self, None)
+                .into_iter()
+                .map(TermExpression::nodes)
+                .chain(self.existentials.ensures().map(TermExpression::nodes)),
+            &mut output,
+        )?;
         Ok(output)
     }
 

@@ -845,13 +845,6 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::IdToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "id! is currently claim-only",
-                    ));
-                }
                 let ordinal = self.id_token_ordinal;
                 self.id_token_ordinal += 1;
                 Ok(WireTerm::BuiltinToken {
@@ -861,13 +854,6 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::BytesToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "bytes! is currently claim-only",
-                    ));
-                }
                 let ordinal = self.bytes_token_ordinal;
                 self.bytes_token_ordinal += 1;
                 Ok(WireTerm::BuiltinToken {

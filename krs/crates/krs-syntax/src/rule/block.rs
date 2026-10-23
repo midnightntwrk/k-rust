@@ -408,8 +408,8 @@ impl RuleClause {
         self.claim.as_ref()
     }
 
-    /// Anchors a claim's claim-only nodes (`k::id!`, `k::bytes!`,
-    /// `k::anonymous!`, `k::or_bool!`), each kind numbered in one sequence
+    /// Anchors a clause's literal islands (`k::id!`, `k::bytes!`, and a
+    /// claim's `k::anonymous!`, `k::or_bool!`), each kind numbered in one sequence
     /// across the clause in the order expansion visits the clause's terms:
     /// the subject's terms, then the result's, then the `requires` and
     /// `ensures` conditions.
@@ -569,9 +569,20 @@ impl RuleClause {
     )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.rule.full_provenance()?;
-        if self.claim.is_some() {
-            self.append_claim_literal_anchors(&mut anchors)?;
-        }
+        // The clause numbers its literal islands across all its cells, not
+        // across the head item's alone.
+        anchors.retain(|anchor| {
+            !matches!(
+                anchor.role(),
+                ProvenanceRole::ClaimIdToken
+                    | ProvenanceRole::ClaimBytesToken
+                    | ProvenanceRole::ClaimAnonymous
+                    | ProvenanceRole::ClaimAnonymousSort
+                    | ProvenanceRole::ClaimAnonymousSpelling
+                    | ProvenanceRole::ClaimOrBool
+            )
+        });
+        self.append_claim_literal_anchors(&mut anchors)?;
         // A claim clause is a claim: its declaration has the claim role, and
         // its name, its label, is anchored by its `#[k::claim(..)]` (F7).
         if self.claim.is_some() {

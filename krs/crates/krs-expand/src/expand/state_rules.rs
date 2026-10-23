@@ -345,6 +345,9 @@ pub(super) fn configuration_rule(
         &result_idents,
         RuleSide::Right,
     );
+    // Builtin literal ordinals run across the whole rule, as a claim's do.
+    right.counters.id_token = left.counters.id_token;
+    right.counters.bytes_token = left.counters.bytes_token;
     right.terms.continue_ordinals(&left.terms);
     let result = match (rule.result(), &result_type) {
         (Some(result), Some(result_type)) => {
@@ -358,6 +361,8 @@ pub(super) fn configuration_rule(
         &cfg,
         &binding_idents,
     );
+    condition_builder.id_token_ordinal = right.counters.id_token;
+    condition_builder.bytes_token_ordinal = right.counters.bytes_token;
     condition_builder.continue_ordinals(&right.terms);
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
@@ -993,13 +998,6 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::IdToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "id! is currently claim-only",
-                    ));
-                }
                 let ordinal = take_counter(&mut self.counters.id_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: wire_key(ProvenanceRole::ClaimIdToken, ordinal),
@@ -1008,13 +1006,6 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::BytesToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "bytes! is currently claim-only",
-                    ));
-                }
                 let ordinal = take_counter(&mut self.counters.bytes_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),

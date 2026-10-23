@@ -750,6 +750,10 @@ impl RuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             sides.push(ensures.nodes());
         }
+        // Builtin `Id` and `Bytes` literals, each kind numbered in one
+        // sequence in expansion order (the claim-only islands never reach a
+        // rule's descriptor: expansion rejects them).
+        crate::state_rule::append_claim_node_anchors(sides.iter().copied(), &mut anchors)?;
         let mut aliases = 0_usize;
         for nodes in &sides {
             crate::term::push_pattern_as_anchors(&mut anchors, nodes, &mut aliases)?;
@@ -1249,10 +1253,10 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
         ));
     };
     match expression {
+        // A compiler-owned island is a whole result term, as it is anywhere
+        // below the root.
         Expr::Macro(expression_macro)
-            if crate::term::is_sort_test_macro(&expression_macro.mac.path)
-                || crate::term::is_matches_macro(&expression_macro.mac.path)
-                || crate::term::is_std_matches(&expression_macro.mac.path) =>
+            if crate::term::is_island_macro(&expression_macro.mac.path) =>
         {
             TermExpression::from_expression(expression.clone())
         }

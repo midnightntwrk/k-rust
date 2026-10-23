@@ -115,11 +115,12 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn builtin_token(
         &mut self,
-        _: &ProvenanceKey,
-        _: BuiltinSort,
-        _: &str,
+        key: &ProvenanceKey,
+        sort: BuiltinSort,
+        value: &str,
     ) -> Result<(), Self::Error> {
-        unsupported_claim_term()
+        require_key(key, self.provenance)?;
+        builtin_token_role(sort, value).map(|_| ())
     }
 
     fn anonymous(
@@ -468,11 +469,18 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
 
     fn builtin_token(
         &mut self,
-        _: &ProvenanceKey,
-        _: BuiltinSort,
-        _: &str,
+        key: &ProvenanceKey,
+        sort: BuiltinSort,
+        value: &str,
     ) -> Result<(), Self::Error> {
-        unsupported_claim_term()
+        let role = builtin_token_role(sort, value)?;
+        let counter = match role {
+            ProvenanceRole::ClaimIdToken => &mut self.counters.id_token,
+            _ => &mut self.counters.bytes_token,
+        };
+        insert_exact(self.keys, key, role, *counter)?;
+        *counter = increment(*counter)?;
+        Ok(())
     }
 
     fn anonymous(
@@ -751,6 +759,33 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     }
 }
 
+/// The provenance role of a builtin `Id` or `Bytes` literal: one constant
+/// of its builtin sort, which a rule may match or build as a claim may.
+/// The token must be a valid literal of the sort.
+fn builtin_token_role(
+    sort: BuiltinSort,
+    value: &str,
+) -> Result<ProvenanceRole, GrammarTransportError> {
+    match sort {
+        BuiltinSort::Id
+            if value.strip_prefix('$').is_some_and(|tail| {
+                !tail.is_empty()
+                    && tail
+                        .chars()
+                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            }) =>
+        {
+            Ok(ProvenanceRole::ClaimIdToken)
+        }
+        BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
+            Ok(ProvenanceRole::ClaimBytesToken)
+        }
+        _ => Err(GrammarTransportError::InvalidTerm(
+            GrammarTermReason::InvalidCompilerOwnedBuiltinToken,
+        )),
+    }
+}
+
 fn unsupported_claim_term() -> Result<(), GrammarTransportError> {
     Err(GrammarTransportError::InvalidTerm(
         GrammarTermReason::UnexpectedClaimTerm,
@@ -906,6 +941,55 @@ mod tests {
                     key(ProvenanceRole::RuleLeftLiteral, 1),
                     key(ProvenanceRole::RuleLeftLiteral, 2),
                 ])
+            );
+        }
+    }
+
+    /// A rule's builtin `Id` and `Bytes` literals are constants of their
+    /// sorts, as a claim's are: each takes the next ordinal of its kind,
+    /// and a malformed token is rejected.
+    #[test]
+    fn grammar_rules_hold_builtin_literals() {
+        let token = |sort, ordinal, value: &str| DescriptorTerm::BuiltinToken {
+            key: key(
+                match sort {
+                    BuiltinSort::Id => ProvenanceRole::ClaimIdToken,
+                    _ => ProvenanceRole::ClaimBytesToken,
+                },
+                ordinal,
+            ),
+            sort,
+            value: value.to_owned(),
+        };
+        let term = application(vec![
+            DescriptorTermArgument::Positional {
+                value: Box::new(token(BuiltinSort::Bytes, 0, r#"b"\x01""#)),
+            },
+            DescriptorTermArgument::Positional {
+                value: Box::new(token(BuiltinSort::Id, 0, "$x")),
+            },
+            DescriptorTermArgument::Positional {
+                value: Box::new(token(BuiltinSort::Bytes, 1, r#"b"""#)),
+            },
+        ]);
+        assert_eq!(
+            term.validate(|_| true, &BTreeSet::new(), &mut BTreeSet::new(), true),
+            Ok(())
+        );
+        let mut keys = BTreeSet::new();
+        term.collect_expected_term_keys(&mut keys, TermSide::Left, &mut TermKeyCounters::default())
+            .unwrap();
+        assert!(keys.contains(&key(ProvenanceRole::ClaimBytesToken, 1)));
+        assert!(keys.contains(&key(ProvenanceRole::ClaimIdToken, 0)));
+        for malformed in [
+            token(BuiltinSort::Id, 0, "x"),
+            token(BuiltinSort::Bytes, 0, "x"),
+        ] {
+            assert_eq!(
+                malformed.validate(|_| true, &BTreeSet::new(), &mut BTreeSet::new(), true),
+                Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidCompilerOwnedBuiltinToken
+                )),
             );
         }
     }

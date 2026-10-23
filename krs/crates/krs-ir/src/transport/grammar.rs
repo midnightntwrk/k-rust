@@ -4344,6 +4344,8 @@ impl StructuredRuleDescriptor {
         for key in &context_keys {
             let counter = match key.role() {
                 ProvenanceRole::LexemeText => &mut subject.lexeme,
+                ProvenanceRole::ClaimIdToken => &mut subject.id_token,
+                ProvenanceRole::ClaimBytesToken => &mut subject.bytes_token,
                 ProvenanceRole::SortTest => &mut subject.sort_test,
                 ProvenanceRole::PatternAs => &mut subject.pattern_as,
                 ProvenanceRole::PatternOr => &mut subject.pattern_or,
@@ -4508,6 +4510,10 @@ struct TermKeyCounters {
     /// Lexeme ordinals are side-neutral: they continue from the subject
     /// through the result and the condition.
     lexeme: u32,
+    /// Builtin `Id` and `Bytes` token ordinals, side-neutral like lexeme
+    /// ordinals.
+    id_token: u32,
+    bytes_token: u32,
     /// Sort-test ordinals are side-neutral like lexeme ordinals.
     sort_test: u32,
     /// Turbofish instance ordinals, side-neutral like sort tests (KF-027).
@@ -4547,6 +4553,8 @@ impl TermKeyCounters {
             record_field: 0,
             wildcard: 0,
             lexeme: self.lexeme,
+            id_token: self.id_token,
+            bytes_token: self.bytes_token,
             sort_test: self.sort_test,
             application_instance: self.application_instance,
             pattern_as: self.pattern_as,

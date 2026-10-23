@@ -267,6 +267,7 @@ details! {
     /// A grammar term validation failure.
     GrammarTermReason {
         UnexpectedClaimTerm => "claim-only term used outside a whole-configuration claim",
+        InvalidCompilerOwnedBuiltinToken => "invalid compiler-owned builtin token",
         CompleteCellTermsRequireConfigurationRules => "complete cell terms require configuration rules",
         InvalidExplicitRuleLabel => "invalid explicit rule label",
         InvalidPriorityKind => "priority must be an equation priority or transition ordered fallback",
