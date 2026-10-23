@@ -13,6 +13,15 @@ Runtime Verification's pyk test data, crates/k-rust/tests/fixtures/kore/LICENSE.
   from the same commit.
 - The test fixture `crates/k-rust-fuzz/tests/data/imp/imp.k` is the K Team's IMP
   definition, unchanged, with its copyright line.
+- The test fixture `crates/k-rust-fuzz/tests/data/simple/simple.md` is the K
+  pl-tutorial's SIMPLE untyped definition
+  (`k-distribution/tests/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/simple-untyped.md`)
+  from the same commit, with its copyright line, modified only by removing the
+  `stream` attributes of its `<input>` and `<output>` cells.
+- The test fixture `crates/k-rust-fuzz/tests/data/imp-diff/imp.k` is the K
+  tutorial's lesson-4 IMP (`k-distribution/tests/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k`)
+  from the same commit, unchanged below a source header, with its licence in
+  `LICENSE-K.md` beside it; the `imp-diff/imp-*.k` mutants modify one rule each.
 
 Haskell backend (BSD 3-Clause License, licenses/HASKELL-BACKEND-BSD-3-Clause.txt):
 - `crates/k-rust-backend` ports the behaviour of runtimeverification/haskell-backend
