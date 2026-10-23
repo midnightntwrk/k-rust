@@ -758,7 +758,8 @@ impl LiveCases {
                     mutated
                 });
                 if judgement.class == OutcomeClass::Hit {
-                    // An added end: the killing mutant leaf. A removed end (all-paths mode): the
+                    // An added end: the killing mutant leaf. A removed end (all-paths mode, or the
+                    // one-path mode's all-paths re-run): the
                     // baseline end the mutant cannot reach. Both sides list every leaf.
                     let witness = judgement.witness().and_then(|(kind, index)| {
                         let (role, side) = match kind {

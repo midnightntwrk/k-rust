@@ -256,7 +256,10 @@ pub struct CaseOptions {
     /// exactly one `<k>` cell may use (ARCHITECTURE 5.2, R-2).
     pub normal_end_pattern: Option<String>,
     /// Per-case wall-clock safety limit in milliseconds. A case it stops is `timeout` and
-    /// outside the determinism contract (ARCHITECTURE 5.1, 5.4). `None`: no limit.
+    /// outside the determinism contract (ARCHITECTURE 5.1, 5.4). `None`: no limit. It bounds
+    /// each execution of the case: a differential case runs the baseline and the mutant, and in
+    /// the one-path mode possibly the mutant again on all paths, so its wall time can reach about
+    /// three times the limit.
     ///
     /// Without a limit nothing but the caller's token bounds one rewrite step: `max_work` and
     /// `max_depth` count steps, and a step whose ground function evaluation does not terminate

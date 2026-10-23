@@ -10,17 +10,21 @@
 //!
 //! # What an end is
 //!
-//! Each definition is a transition system; a side's *set of ends* on an input is the set of final
-//! configurations its paths from the initial configuration reach. A clean, decided `stuck` leaf
-//! is one: no rule applies to its configuration, whether the program finished there (a natural
-//! end) or stopped mid-way (an abnormal stop). The natural-end label decides `miss` against
-//! `stuck` for one run's class, not membership in the set. An undefined step (`trivial`) is not
-//! one: the step's successor denotes no state, so it is no successor and the path through it is
-//! no path (`docs/compatibility.md`, "A contradicted `total` attribute is named, not repaired",
-//! "Undefined steps in proofs"); the leaf's configuration is the one *before* the step, which has
-//! a rule that applies, so it is not final. A clean undefined step is a decided fact (this path
-//! ends in no state) and keeps a side complete, but contributes nothing to its set: a mutant
-//! whose every path takes an undefined step has the empty set of ends.
+//! A run's outcome on a path is either a final configuration or undefinedness. A side's *set of
+//! ends* on an input is the set of final configurations its paths from the initial configuration
+//! reach. A clean, decided `stuck` leaf is one: a reached configuration to which no rule applies
+//! (`docs/compatibility.md`, "Work budget" in "Execution results"), whether the program finished
+//! there (a natural end) or stopped mid-way (an abnormal stop). The natural-end label decides
+//! `miss` against `stuck` for one run's class, not membership in the set. An undefined step
+//! (`trivial`) is no end: its configuration is reached and exists, and the path to it is real,
+//! but it is not stuck, since a rule applies to it and shuts out the lower priorities, and it has
+//! no successor ("Undefined steps in proofs"); the run's outcome there is undefinedness, which is
+//! no configuration (`krun` prints `\bottom`, "Trivial rule results"). A clean undefined step is
+//! a decided fact (this path's outcome is undefined) and keeps a side complete, but contributes
+//! no configuration to its set: a mutant whose every path takes an undefined step has the empty
+//! set of ends. Leaving undefinedness out of the compared sets only gives kills up (a mutant that
+//! removes an undefined path and keeps every end is not killed); it never invents one, since an
+//! end outside the other side's set of configurations is outside its set of outcomes too.
 //!
 //! # Why the hit rule is sound
 //!
@@ -56,8 +60,10 @@
 //! merged paths carries the diagnostics of every path merged into it, and the marks of arrivals
 //! merged during exploration are on the result's `implementationChosenValues` and
 //! `contradictedClaims` lists, which [`CaseResult::run_facts_off_leaves`] reads. A `work-bound`
-//! or `cancelled` leaf is never merged, and a bound leaf only into a `stuck` leaf of its
-//! configuration, which loses no configuration, so incompleteness stays visible. The leaf that
+//! or `cancelled` leaf is never merged; a bound or undecided leaf is absorbed only by an earlier
+//! `stuck` leaf of its configuration (which loses no configuration, the stuck halt being decided
+//! by the configuration) or merges with another bound or undecided leaf of it (both stay
+//! incomplete), so incompleteness stays visible. The leaf that
 //! stands for merged paths carries the trace and depth of the first path, so a witness's reaching
 //! leaf may differ from a path-set run's.
 //!
@@ -110,7 +116,8 @@ pub(crate) struct DifferentialJudgement {
     /// For a hit by an added end, the index of the mutant leaf whose configuration (the added
     /// end) the baseline cannot reach.
     pub(crate) killing_leaf: Option<usize>,
-    /// For a hit by a removed end (all-paths mode only), the index of the baseline leaf whose
+    /// For a hit by a removed end (judged against an all-paths mutant result: the all-paths
+    /// mode's, or the one-path mode's re-run), the index of the baseline leaf whose
     /// configuration (the removed end) the mutant cannot reach. A hit has at least one of the
     /// two indices, and may have both.
     pub(crate) removed_end: Option<usize>,
@@ -325,7 +332,8 @@ fn strip_positions(value: &mut serde_json::Value) {
 /// mutant's result was run in. A case is a hit by an *added end* if and only if:
 /// 1. the baseline run with all paths is complete: every leaf is a clean `stuck` leaf or a clean
 ///    undefined step, with no bound, stop, timeout, unknown or unsupported leaf; its set of ends
-///    holds the `stuck` leaves' configurations only (an undefined step reaches no state);
+///    holds the `stuck` leaves' configurations only (an undefined step's outcome is no
+///    configuration);
 /// 2. the mutant leaf is a clean, decided `stuck` leaf: a final configuration of the mutant,
 ///    natural end or abnormal stop alike (under `run_to_completion`, a natural end only);
 /// 3. neither side is no evidence: no implementation-chosen value mark and no contradicted
@@ -441,8 +449,8 @@ fn no_evidence(result: &CaseResult) -> bool {
 /// otherwise its all-paths run, which contains that path, cannot be complete either) and adds no
 /// end, and some baseline end that could be a removed end (data, and a natural end under
 /// `run_to_completion`) is not among the ends the one path reached. The case of TRIAL2's B-T1 is
-/// one: the baseline stops where the mutant's one path takes an undefined step, which reaches no
-/// end. A deterministic definition reaches its one end on its one path, so the re-run happens
+/// one: the baseline stops where the mutant's one path takes an undefined step, whose outcome is
+/// no end. A deterministic definition reaches its one end on its one path, so the re-run happens
 /// only where the one path ends in an undefined step or at another end than the baseline's.
 pub(crate) fn needs_all_paths(
     baseline: &CaseResult,
@@ -477,8 +485,9 @@ pub(crate) fn needs_all_paths(
 /// undefined step (`trivial`) whose only unclean reason is its halt (a decided, ceil-free
 /// configuration with no diagnostic, so that the step's undefinedness is decided, not resting
 /// on a mark or a refuted claim). The set holds the `stuck` leaves' configurations only: an
-/// undefined step's leaf holds the configuration before the step, which is not final, and its
-/// path reaches no state (the module documentation, "What an end is"). Load records are facts
+/// undefined step's leaf holds a configuration that is not stuck and has no successor, and the
+/// path's outcome there is undefinedness, no configuration (the module documentation, "What an
+/// end is"). Load records are facts
 /// about the definition and do not make a run incomplete (T-5).
 ///
 /// Why the off-leaf facts matter (review B1): an unmarked leaf exists in every model of the
@@ -552,7 +561,7 @@ impl Verdicts {
     /// A kill needs data on both sides (conditions 4 and 5, decision D15): when some end of
     /// `others` is not constructor-only, an end that `others_set` lacks syntactically may still
     /// be one the other side reaches, so every would-be kill is undecided instead. Only the
-    /// ends of `others` count: its undefined steps reach no configuration to compare with.
+    /// ends of `others` count: the outcome of its undefined steps is no configuration.
     ///
     /// Every clean, decided `stuck` leaf is an end, a natural end or an abnormal stop alike: in
     /// both, no rule applies, so the configuration is final in that definition's transition
@@ -568,7 +577,7 @@ impl Verdicts {
     ) -> Result<Self, EngineDefect> {
         let mut verdicts = Self::none(side);
         for (index, leaf) in side.leaves.iter().enumerate() {
-            // Only a stuck leaf is an end that may be a kill; an undefined step reaches no end,
+            // Only a stuck leaf is an end that may be a kill; an undefined step's outcome is no end,
             // and a bound or a stop is classed by `exec::classify`.
             if leaf.halt != HaltReasonOutput::Stuck || others_set.contains(&leaf.state) {
                 continue;
@@ -742,7 +751,7 @@ mod tests {
         ]);
         let ends = complete_ends(&baseline).expect("complete");
         assert_eq!(ends.len(), 2);
-        // The configuration before an undefined step is not final, and its path reaches none.
+        // An undefined step's configuration is not stuck, and its outcome is no configuration.
         assert!(!ends.contains(&undefined));
         // Every path an undefined step: complete, with no end.
         let all_undefined = result(vec![leaf(
