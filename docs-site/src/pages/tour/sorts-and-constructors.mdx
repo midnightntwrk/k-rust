@@ -32,7 +32,7 @@ The package is the complete definition:
 ```
 
 `k::sorts!` declares the sort `Nat`.
-The `: KItem` after it says that every `Nat` is also a `KItem`, K's sort of the items that the `k` cell holds, as in the [previous lesson](/tour/definitions-compile-into-tools); the lesson on the `k` cell explains `KItem`.
+The `: KItem` after it says that every `Nat` is also a `KItem`, K's sort of the items that the `k` cell holds, as in the [previous lesson](/tour/definitions-compile-into-tools); every sort but `K` is a `KItem` already, so the declaration only states it, and shows where K's `syntax KItem ::= Nat` comes from. The lesson on the `k` cell explains `KItem`.
 
 The enum declares the constructors of `Nat`, one per variant.
 `#[k::constructors(sort = Nat, ...)]` says which sort every variant builds.

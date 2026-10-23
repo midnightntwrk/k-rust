@@ -42,7 +42,7 @@ The imports combine as Rust's do: an explicit `use Boxed::Load;` shadows the `Lo
 
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
 Constructor families put `#[k::constructors(sort = ..., result = ...)]` (readable) or `#[k::constructors(sort = ..., reference)]` on an enum and attach syntax to its variants; every variant constructs `sort` itself, and the enum is not a sort.
-A family whose productions need a sort of their own declares that sort in `k::sorts!`, for example `Freezer: KItem;`, and names it with `sort = Freezer`.
+A family whose productions need a sort of their own declares that sort in `k::sorts!`, for example `Freezer: KItem;` (every sort is a `KItem` anyway, [declared or not](#framework-and-builtin-sorts)), and names it with `sort = Freezer`.
 The family form is preferred when a closed set of alternatives shares an open result sort; the standalone form remains useful for declarations owned independently.
 
 ## Helper attributes
@@ -235,7 +235,7 @@ Braces on a leaf cell are no empty map: `{ .. }` names a Set or Map collection's
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.
 In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: [f, ..s] }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
 The group clause is written bare, never inside `<frame>...</frame>`, and a group the rule names covers every cell inside it.
-As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: [Held { saved: f }, ..s]` emits `ListItem(held ( F:FrameCell ))`.
+As in K, every generated cell sort is a subsort of `KItem`, like [every sort but `K`](#framework-and-builtin-sorts), so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: [Held { saved: f }, ..s]` emits `ListItem(held ( F:FrameCell ))`.
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
 Inside a group record, a group child may likewise be a binder or `_`: with `outer` holding the `frame` group, `outer: Outer { frame: fr, .. }` binds the `<frame>` cell as `Fr:FrameCell`, and a result `outer: Outer { frame: fr, flag: x }` writes it back; an alias over a group child, `frame: fr @ Frame { pc: p, .. }`, names the matched child, and a use of it is that child [rebuilt from its children](#pattern-aliases).
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
@@ -295,6 +295,7 @@ In KRS it is the binder's declared type: `where x: Int` after a readable clause,
 A rule fn's subject is a pattern, so it needs no wrapper: `fn unwrap(Wrap { value: v }: Term<Exp>)` is `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>)`, compiler-owned islands below its root included; `krs expand` and this reference write the `k::term![..]` spelling.
 `fn unwrap(k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` infers `v` at the sort of `Wrap`'s field, emits `rule wrap(V:Exp) => V:Exp`, and matches every expression; `fn unwrap(v: Term<Int>, k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` emits `rule wrap(V:Int) => V:Int`, so `wrap(1 + 2)` no longer matches.
 A declared sort may be narrower than inference would choose, never wider or unrelated: a binder declared `Bool` in an `Exp` position is rejected (`krs::analysis::incompatible-binder`, "binder `x` is declared `Bool` but this occurrence needs `Exp`").
+A `KItem` occurrence never narrows a binder, because every sort but `K` is a `KItem`: with `Hold { saved: k::KItem }`, `{ k: [Hold { saved: s }, ..] } => { k: [s, ..] } where s: Stmt` emits `hold ( S:Stmt ) => S:Stmt`, a binder that also occurs in a `Stmt` field is a `Stmt`, and one that occurs only at `KItem` positions is a `KItem`.
 A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Exp, k::term![IsExpression(_e)]: Term<Bool>) -> Term<Bool>` emits `rule isExpression(_E:Exp) => true`.
 
 The binder list is all or nothing.
@@ -1208,7 +1209,8 @@ The Rust item a constant expands to is a unit struct of the same name, which giv
 
 ## Framework and builtin sorts
 
-`KItem` is the framework top sort for computation items.
+`KItem` is the framework sort of computation items, and every sort except `K` is a `KItem`, declared or not: each declared sort, each builtin sort, and each generated cell sort.
+A `KItem` field, parameter, or result admits a term of any sort but `K` (`Hold { saved: Seq { .. } }`, `Hold { saved: true }`), and `X: KItem` in `k::sorts!` is allowed and states nothing KRS does not already know; it still emits `syntax KItem ::= X`.
 `KResult` marks terms that count as evaluated results for strictness.
 `KSequence` is the symbolic computation sequence sort.
 The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
