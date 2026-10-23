@@ -475,10 +475,13 @@ fn main() {
                 eprintln!("{} lemmas from {}", more.len(), lp.display());
                 stated.extend(more);
             }
-            // definitions and hooks, but not the injections/projections (their lemmas instead)
-            let mut eq_unfold = fgen.unfold.clone();
-            eq_unfold.extend(hooks::eq_unfold_names().iter().map(|s| s.to_string()));
-            eq_unfold.extend(terms::inj_pairs(&m).iter().map(|(x, y)| {
+            // hooks and the projection lemmas (not the injections/projections), in every proof's
+            // simp set; the generated definitions, of which each proof gets those it names
+            let mut eq_base: Vec<String> = hooks::eq_unfold_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            eq_base.extend(terms::inj_pairs(&m).iter().map(|(x, y)| {
                 format!(
                     "proj_eq_some_{}_{}",
                     names::short_sort(y),
@@ -492,7 +495,8 @@ fn main() {
                         ns,
                         &stated,
                         &open,
-                        &eq_unfold,
+                        &eq_base,
+                        &fgen.unfold,
                         &fgen.recursive,
                         &fgen.list_recursive,
                     ),
