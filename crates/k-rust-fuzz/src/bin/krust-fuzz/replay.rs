@@ -112,15 +112,18 @@ impl WitnessFile {
 /// The identity fields of `recorded` that `now` does not have, one sentence each, named by
 /// their path in the report (`definitions[0].syntax-definition-digest`).
 ///
-/// Every field of the report's identity is compared except eight: the proposers and the budget,
+/// Every field of the report's identity is compared except nine: the proposers and the budget,
 /// which the replay sets itself (one explicit assignment, one case), `options.shrink` (a replay
 /// does not shrink), the engine version, which covers the proposer and generator code that
 /// chooses cases, `dictionary`, the dictionary proposer's parameters, which only weigh its
 /// draws, `climb`, the climb proposer's parameters, which only choose its moves (the
 /// condition records a climbing campaign asks for change no other field of a result),
 /// `corpus`, the corpus proposer's parameters, which only choose its mutations, and `solve`,
-/// the solve proposer's parameters, which only decide its queries. None of the code the last
-/// five describe runs when a fixed assignment is replayed, so they cannot
+/// the solve proposer's parameters, which only decide its queries, and `effective-constraints`,
+/// the generation bounds narrowed to the program's syntax, which only bound what is drawn (each
+/// case is still checked against the declared constraints, and the definitions, program and
+/// overlay they derive from are compared). None of the code the last six describe runs when a
+/// fixed assignment is replayed, so they cannot
 /// change the replayed case. (Replaying with the recorded proposers instead would
 /// record a dictionary that chose nothing, and still no draw would differ.) Every other field
 /// is an input of the replayed case's execution or of its assembly, so a difference makes the
@@ -136,6 +139,7 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
         identity.climb = None;
         identity.corpus = None;
         identity.solve = None;
+        identity.effective_constraints = Vec::new();
         serde_json::to_value(identity).unwrap_or(serde_json::Value::Null)
     };
     let mut mismatches = Vec::new();

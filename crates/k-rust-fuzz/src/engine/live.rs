@@ -117,7 +117,7 @@ impl Side {
                 internalized,
             });
         }
-        let holes = executor
+        let mut holes = executor
             .backend_mut()
             .with_solver(None, |backend, _| {
                 holes::resolve(&spec.holes, &spec.program, definition, backend)
@@ -143,6 +143,19 @@ impl Side {
             &spec.program,
             &holes,
         )?);
+        // The values this side's grammar can hold at each span hole bound what is generated
+        // (FZ-INTGEN, `holes::narrow`).
+        holes.narrow(holes::probe_negatives(
+            &holes,
+            &round_trip,
+            &assembly,
+            definition,
+            &spec.program,
+            match role {
+                DefinitionRole::Baseline => "baseline",
+                DefinitionRole::Mutant => "mutant",
+            },
+        )?)?;
         Ok(Self {
             definition: Arc::clone(definition),
             assembly,
@@ -390,6 +403,16 @@ impl LiveCases {
                     .map(SideCache::seed)
                     .unwrap_or_default(),
             )?;
+            // A value the mutant's grammar cannot hold at a hole makes every case with it
+            // `rejected`, so the mutant's narrowings bound the baseline's generation too.
+            baseline.holes.narrow(holes::probe_negatives(
+                &baseline.holes,
+                &mutant.round_trip,
+                &mutant.assembly,
+                &mutant.definition,
+                &spec.program,
+                "mutant",
+            )?)?;
             baseline.shape = CaseRequestShape::new(&spec.options, &plan.baseline);
             mutant.shape = CaseRequestShape::new(&spec.options, &plan.mutant);
             Judge::Differential(Box::new(mutant))
@@ -1175,7 +1198,7 @@ impl CaseRunner for LiveRunner<'_> {
             .holes
             .get(hole)
             .is_some_and(|hole| {
-                values::check_constraints(value, &hole.sort, &hole.decl.constraints).is_ok()
+                values::check_constraints(value, &hole.sort, &hole.constraints).is_ok()
             })
     }
 }

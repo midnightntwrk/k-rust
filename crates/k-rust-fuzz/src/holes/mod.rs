@@ -32,7 +32,9 @@
 //! hole's sort must be its variable's sort, and a configuration-variable hole's sort the
 //! variable's declared sort or a subsort of it.
 
+mod narrow;
 mod position;
+pub(crate) use narrow::{Narrowing, probe as probe_negatives};
 #[cfg(feature = "z3")]
 pub(crate) use position::replace_at;
 mod sorts;
@@ -162,6 +164,15 @@ pub(crate) struct ResolvedHole {
     /// Every refusal the override admitted: the refused sort and why, the hole's own sort first,
     /// then the contained sorts by name. Empty when nothing was refused.
     pub(crate) refusals: Vec<(String, SortRefusal)>,
+    /// The constraints its values are generated under: the declared constraints, with the range
+    /// narrowed where the program's syntax cannot hold a value at the hole
+    /// ([`ResolvedHoles::narrow`]). Generators, proposers and shrinking read these; the per-case
+    /// check reads the declared constraints, so a value outside these bounds that a proposer
+    /// still offers (an explicit assignment) is judged by the round-trip check, as before.
+    pub(crate) constraints: Constraints,
+    /// Why [`Self::constraints`] is narrower than the declared constraints; `None` when they
+    /// are equal.
+    pub(crate) narrowing: Option<Narrowing>,
 }
 
 impl ResolvedHole {
@@ -368,6 +379,8 @@ pub(crate) fn resolve(
             anchor_text,
             anchor,
             refusals,
+            constraints: decl.constraints.clone(),
+            narrowing: None,
         });
     }
     Ok(ResolvedHoles { holes })

@@ -19,7 +19,7 @@ use crate::{
     exec::OutcomeClass,
     holes::HoleLocation,
     spec::{Budget, CaseOptions, PathMode, ProposerConfig},
-    values::{GenerationBounds, Value},
+    values::{Constraints, GenerationBounds, Value},
 };
 
 /// The report's `schema` field.
@@ -202,6 +202,28 @@ pub struct ReportIdentity {
     /// proposer has a positive weight; absent from the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solve: Option<SolveParameters>,
+    /// The holes whose values are generated under narrower constraints than they declare,
+    /// because the program's syntax cannot hold the values left out at the hole (an `Int`
+    /// literal position that reads no negative integer back): one entry per such hole, in the
+    /// order of the holes, with both constraints and the reason. Absent from the JSON when no
+    /// hole was narrowed. The declared constraints stay the ones every case is checked against.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effective_constraints: Vec<EffectiveConstraints>,
+}
+
+/// A hole whose generation constraints are narrower than its declared ones (see
+/// [`ReportIdentity::effective_constraints`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct EffectiveConstraints {
+    /// The hole's name.
+    pub hole: String,
+    /// The constraints the hole declares.
+    pub declared: Constraints,
+    /// The constraints its values are generated under.
+    pub effective: Constraints,
+    /// Why they differ: the probed value and what the program's syntax made of it at the hole.
+    pub reason: String,
 }
 
 /// The fixed parameters of the solve proposer (ARCHITECTURE 8.6), which with the definitions,
@@ -1028,6 +1050,7 @@ mod tests {
                 climb: None,
                 corpus: None,
                 solve: None,
+                effective_constraints: Vec::new(),
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {

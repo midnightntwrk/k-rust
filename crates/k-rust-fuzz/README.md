@@ -54,6 +54,15 @@ range = { min = 0, max = 1000000 }
 
 In the library, the same hole is a `HoleDecl` with a `HoleLocation::Span(SpanAddress { .. })` and its `Constraints`.
 
+A span hole can take only the values whose printed text the grammar reads back, at the hole's position, as that value: every case is round-trip-checked, and a value that reads as something else is `rejected`.
+For an `Int` hole the difference is the sign. Digits read back wherever the anchor's did, but whether `-` followed by digits reads back as a negative integer depends on the grammar there: a signed literal token (`INT-SYNTAX`) reads it as the value, while a grammar of unsigned literals (`UNSIGNED-INT-SYNTAX`, as in IMP and SIMPLE) reads a unary minus applied to the magnitude, or does not parse it.
+So `Campaign::new` probes each `Int` span hole whose range admits a negative value (and whose anchor is not negative) once, with the admissible negative value nearest zero, through the same round-trip check at the same position; when the probe does not read back, the hole's effective bounds start at 0.
+Generators, the dictionary, the climb, the corpus, the solve proposer and shrinking use the effective bounds; the declared constraints still judge each case, so an explicit negative value is tried and rejected by the round-trip check as before.
+The report lists every narrowed hole in `identity.effective-constraints` (the declared and effective constraints, the probe and what the grammar made of it), and a warning says the same.
+A declared range that holds only negative values is refused at such a hole, since no value of it can be written there.
+Configuration-variable and KORE-template holes, holes with `choices`, and other sorts are not narrowed: a binding is parsed whole at its variable's sort, a template's values are never printed, and a choice set is the author's own list.
+To give such a language a negative input, write the program with a unary minus before the literal (`- 5`) and keep the hole on the digits.
+
 A hole is data, and `Campaign::new` enforces it (ARCHITECTURE 2.4).
 It refuses a hole whose sort is `K`, `KItem`, a cell sort, or a user sort in the closure of the program start sort's productions (a sort in which programs are written, such as `AExp` or `Stmt` in IMP).
 It accepts builtin and hooked sorts that have a generator (`Int`, `Bool`, `String`, `Bytes`, `MInt`), collections with declared element sorts, and user sorts outside that closure, such as transactions, events or records declared in semantic modules.

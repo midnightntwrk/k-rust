@@ -1326,6 +1326,21 @@ export interface FuzzReportIdentity {
    * the WebAssembly package, which refuses that weight).
    */
   solve?: FuzzSolveParameters
+  /**
+   * The holes generated under narrower constraints than they declare, because the program's
+   * syntax cannot hold the values left out at the hole (an `Int` literal position that reads no
+   * negative integer back); absent when no hole was narrowed.
+   */
+  'effective-constraints'?: FuzzEffectiveConstraints[]
+}
+
+/** A hole whose generation constraints are narrower than its declared ones. */
+export interface FuzzEffectiveConstraints {
+  hole: string
+  declared: FuzzConstraints
+  effective: FuzzConstraints
+  /** The probed value and what the program's syntax made of it at the hole. */
+  reason: string
 }
 
 /** Probabilities are `[numerator, denominator]`. */

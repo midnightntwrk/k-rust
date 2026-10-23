@@ -694,7 +694,7 @@ impl SolveProposer {
             .iter()
             .map(|hole| SolveHole {
                 sort: hole.sort.clone(),
-                constraints: hole.decl.constraints.clone(),
+                constraints: hole.constraints.clone(),
             })
             .collect();
         Self {
