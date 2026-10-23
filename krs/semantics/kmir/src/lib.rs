@@ -854,7 +854,7 @@ k::equations! {
             bytes: value,
             index: index + 1,
             multiplier: multiplier * 256,
-            result: result + bytes::get(value, index) * multiplier
+            result: result + bytes::get(value, index) * multiplier,
         };
 }
 
@@ -896,7 +896,7 @@ k::equations! {
     for LayoutSize;
     layout_size_known:
         MirMaybeLayoutShape::SomeLayoutShape {
-            layout: MirLayoutShape::LayoutShape { size: MirMachineSize::MachineSize { bits }, .. }
+            layout: MirLayoutShape::LayoutShape { size: MirMachineSize::MachineSize { bits }, .. },
         } => bits / 8;
     layout_size_unknown: MirMaybeLayoutShape::NoLayoutShape() => 0;
 }
@@ -905,7 +905,7 @@ k::equations! {
     for LayoutAlign;
     layout_align_known:
         MirMaybeLayoutShape::SomeLayoutShape {
-            layout: MirLayoutShape::LayoutShape { abi_align: MirAlign::Align { bytes }, .. }
+            layout: MirLayoutShape::LayoutShape { abi_align: MirAlign::Align { bytes }, .. },
         } => bytes;
     layout_align_unknown: MirMaybeLayoutShape::NoLayoutShape() => 1;
 }
@@ -959,14 +959,14 @@ k::equations! {
                             ..
                         },
                         ..
-                    }
+                    },
                 ),
             },
         ) => SizeOfTypeInfo(types, map::get(types, element)) * ReadTyConstInt(bytes, 0, 1, 0);
     size_of_pointer:
         (types, PointerType(pointee) | ReferenceType(pointee)) => SizeOfTypeInfo(
             types,
-            PrimitiveType(UnsignedInteger(MirUintTy::Usize()))
+            PrimitiveType(UnsignedInteger(MirUintTy::Usize())),
         ) * PointerWords(map::get(types, pointee));
     #[k::equation(priority = 60)]
     size_of_other           : (_, _)                                    => 0;
@@ -1064,18 +1064,18 @@ k::equations! {
                                 tag: MirScalar::InitializedScalar {
                                     scalar: MirScalarInitialized::ScalarInitializedFields {
                                         value: MirPrimitive::IntegerPrimitive {
-                                            integer: MirPrimitiveInt::PrimitiveInt { length, .. }
+                                            integer: MirPrimitiveInt::PrimitiveInt { length, .. },
                                         },
                                         ..
-                                    }
+                                    },
                                 },
                                 tag_encoding: MirTagEncoding::Direct(),
                                 tag_field: 0,
-                                variants: layouts
-                            }
+                                variants: layouts,
+                            },
                         },
                         ..
-                    }
+                    },
                 },
                 ..
             }
@@ -1084,10 +1084,10 @@ k::equations! {
             bytes,
             index: FindVariantIndex {
                 tag: DecodeEnumDirectTag { bytes, width: length },
-                discriminants
+                discriminants,
             },
             fields,
-            layouts
+            layouts,
         };
     #[k::requires(ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 } == 0)]
     decode_allocated_niche_pointer_none:
@@ -1097,15 +1097,15 @@ k::equations! {
             EnumType {
                 discriminants: [
                     MirDiscriminant::Discriminant { value: 0 },
-                    MirDiscriminant::Discriminant { value: 1 }
+                    MirDiscriminant::Discriminant { value: 1 },
                 ],
                 fields: [[], [_]],
                 layout: SomeLayoutShape {
                     layout: LayoutShape {
                         fields: FieldsShapeArbitrary {
                             fields: ArbitraryFields {
-                                offsets: [MirMachineSize::MachineSize { bits: 0 }]
-                            }
+                                offsets: [MirMachineSize::MachineSize { bits: 0 }],
+                            },
                         },
                         variants: MirVariantsShape::VariantsShapeMultiple {
                             variants: MirVariantsShapeMultiple::MultipleVariants {
@@ -1114,17 +1114,17 @@ k::equations! {
                                         value: MirPrimitive::PointerPrimitive(_),
                                         valid_range: MirWrappingRange::WrappingRange {
                                             start: 1,
-                                            end: 0
-                                        }
-                                    }
+                                            end: 0,
+                                        },
+                                    },
                                 },
                                 tag_encoding: MirTagEncoding::Niche(),
                                 tag_field: 0,
                                 ..
-                            }
+                            },
                         },
                         ..
-                    }
+                    },
                 },
                 ..
             }
@@ -1142,14 +1142,14 @@ k::equations! {
                             ..
                         },
                         ..
-                    }
-                }
+                    },
+                },
             }
         ) => DecodeArrayAllocation {
             types,
             bytes,
             info: map::get(types, element),
-            length: ReadTyConstInt { bytes: length_bytes, index: 0, multiplier: 1, result: 0 }
+            length: ReadTyConstInt { bytes: length_bytes, index: 0, multiplier: 1, result: 0 },
         };
     decode_allocated_slice:
         (types, bytes, ArrayType { element, size: MirMaybeTyConst::NoTyConst() })
@@ -1168,13 +1168,13 @@ k::equations! {
                     layout: LayoutShape {
                         fields: FieldsShapeArbitrary { fields: ArbitraryFields { offsets } },
                         ..
-                    }
+                    },
                 },
                 ..
             }
         ) => Aggregate {
             variant: 0,
-            fields: DecodeFieldsWithOffsets { types, bytes, fields, offsets }
+            fields: DecodeFieldsWithOffsets { types, bytes, fields, offsets },
         };
     #[k::requires(bytes::length(bytes) == 0)]
     decode_allocated_empty_tuple:
@@ -1194,21 +1194,21 @@ k::equations! {
                     layout: LayoutShape {
                         fields: FieldsShapeArbitrary { fields: ArbitraryFields { offsets } },
                         ..
-                    }
-                }
+                    },
+                },
             }
         ) => Aggregate {
             variant: 0,
-            fields: DecodeFieldsWithOffsets { types, bytes, fields: [first, ..remaining], offsets }
+            fields: DecodeFieldsWithOffsets { types, bytes, fields: [first, ..remaining], offsets },
         };
     #[k::requires(NoFields { fields } == true)]
     decode_allocated_fieldless_enum:
         (_, bytes, EnumType { discriminants, fields, .. }) => Aggregate {
             variant: FindVariantIndex {
                 tag: ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 },
-                discriminants
+                discriminants,
             },
-            fields: list::empty()
+            fields: list::empty(),
         };
 }
 
@@ -1296,7 +1296,7 @@ k::equations! {
             [
                 MirLayoutShape::LayoutShape {
                     fields: MirFieldsShape::FieldsShapeArbitrary {
-                        fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets }
+                        fields: MirFieldsShapeArbitrary::ArbitraryFields { offsets },
                     },
                     ..
                 },
@@ -1338,7 +1338,7 @@ k::equations! {
                     layout: MirLayoutShape::LayoutShape {
                         size: MirMachineSize::MachineSize { bits },
                         ..
-                    }
+                    },
                 },
                 ..
             }
@@ -1351,7 +1351,7 @@ k::equations! {
                     layout: MirLayoutShape::LayoutShape {
                         size: MirMachineSize::MachineSize { bits },
                         ..
-                    }
+                    },
                 },
                 ..
             }
@@ -1369,14 +1369,14 @@ k::equations! {
                             ..
                         },
                         ..
-                    }
-                }
+                    },
+                },
             }
         ) => ElementSize { types, info: map::get(types, element) } * ReadTyConstInt {
             bytes,
             index: 0,
             multiplier: 1,
-            result: 0
+            result: 0,
         };
 }
 
@@ -1395,7 +1395,7 @@ k::equations! {
         (types, [field, fields @ ..], [MirMachineSize::MachineSize { bits }, offsets @ ..])
         => Maximum {
             first: bits / 8 + ElementSize { types, info: map::get(types, field) },
-            second: NeededBytesForOffsets { types, fields, offsets }
+            second: NeededBytesForOffsets { types, fields, offsets },
         };
 }
 
@@ -1413,13 +1413,13 @@ k::equations! {
                     bytes: bytes::substr(
                         bytes,
                         bits / 8,
-                        bits / 8 + ElementSize { types, info: map::get(types, field) }
+                        bits / 8 + ElementSize { types, info: map::get(types, field) },
                     ),
                     info: map::get(types, field),
-                    types
-                }
+                    types,
+                },
             ),
-            DecodeFieldsWithOffsets { types, bytes, fields, offsets }
+            DecodeFieldsWithOffsets { types, bytes, fields, offsets },
         );
 }
 
@@ -1462,10 +1462,10 @@ k::equations! {
                     DecodeAllocatedValue {
                         bytes: bytes::substr(bytes, 0, ElementSize { types, info }),
                         info,
-                        types
-                    }
-                )
-            )
+                        types,
+                    },
+                ),
+            ),
         };
     #[k::requires(remaining <= 0 && bytes::length(bytes) == 0)]
     decode_array_elements_done: (_, bytes, _, remaining, accumulated) => accumulated;
@@ -1509,8 +1509,8 @@ k::equations! {
             metadata: MirMetadata::Metadata {
                 size: MetadataSizeOf { info: map::get(types, pointee) },
                 offset: 0,
-                origin_size: MetadataSizeOf { info: map::get(types, pointee) }
-            }
+                origin_size: MetadataSizeOf { info: map::get(types, pointee) },
+            },
         };
     #[k::requires(bytes::length(bytes) == 16)]
     decode_allocated_reference_fat:
@@ -1519,13 +1519,13 @@ k::equations! {
             projections: [],
             metadata: MirMetadata::Metadata {
                 size: MirMetadataSize::DynamicSize(
-                    ReadTyConstInt { bytes, index: 8, multiplier: 1, result: 0 }
+                    ReadTyConstInt { bytes, index: 8, multiplier: 1, result: 0 },
                 ),
                 offset: 0,
                 origin_size: MirMetadataSize::DynamicSize(
-                    ReadTyConstInt { bytes, index: 8, multiplier: 1, result: 0 }
-                )
-            }
+                    ReadTyConstInt { bytes, index: 8, multiplier: 1, result: 0 },
+                ),
+            },
         };
 }
 
@@ -1537,7 +1537,7 @@ k::equations! {
     /// A pointer to any of these types carries no size metadata.
     metadata_size_of_thin:
         PrimitiveType {
-            primitive: Bool() | Char() | SignedInteger(_) | UnsignedInteger(_) | Float(_)
+            primitive: Bool() | Char() | SignedInteger(_) | UnsignedInteger(_) | Float(_),
         }
         | PointerType { .. }
         | ReferenceType { .. }
@@ -1561,7 +1561,7 @@ k::equations! {
                         ..
                     },
                     ..
-                }
+                },
             },
             ..
         } => StaticSize(ReadTyConstInt { bytes: value, index: 0, multiplier: 1, result: 0 });
@@ -1585,11 +1585,11 @@ k::equations! {
             layout: MirLayoutShape::LayoutShape {
                 fields: MirFieldsShape::FieldsShapeArbitrary {
                     fields: MirFieldsShapeArbitrary::ArbitraryFields {
-                        offsets: [MirMachineSize::MachineSize { bits: 0 }]
-                    }
+                        offsets: [MirMachineSize::MachineSize { bits: 0 }],
+                    },
                 },
                 ..
-            }
+            },
         } => true;
 }
 
@@ -1703,13 +1703,13 @@ k::equations! {
         (ty, [Index { .. } | ConstantIndex { .. }, tail @ ..], types) => ProjectionMetadataSize {
             ty: ArrayElementType { info: map::get(types, ty) },
             projections: tail,
-            types
+            types,
         };
     projection_metadata_size_reference_deref:
         (ty, [Deref(), tail @ ..], types) => ProjectionMetadataSize {
             ty: ReferencePointeeType { info: map::get(types, ty) },
             projections: tail,
-            types
+            types,
         };
 }
 
@@ -1769,18 +1769,18 @@ k::equations! {
             projections: [
                 ConstantIndex { offset: index, min_length: 0, from_end: false },
                 ..projections
-            ]
+            ],
         };
     projections_for_subslice:
         ([SubsliceContext { start, from_back, .. }, tail @ ..], projections) => ProjectionsFor {
             contexts: tail,
-            projections: [Subslice { from: start, to: from_back, from_end: false }, ..projections]
+            projections: [Subslice { from: start, to: from_back, from_end: false }, ..projections],
         };
     projections_for_pointer_offset:
         ([PointerOffsetContext { offset, origin_size, .. }, tail @ ..], projections)
         => ProjectionsFor {
             contexts: tail,
-            projections: [PointerOffset { offset, origin_size }, ..projections]
+            projections: [PointerOffset { offset, origin_size }, ..projections],
         };
     projections_for_wrap_struct:
         ([WrapStructContext(), tail @ ..], projections)
@@ -1943,33 +1943,33 @@ k::equations! {
                         place: MirPlace::Place { local, projections },
                         metadata: Metadata { offset, origin_size, .. },
                         ..
-                    }
+                    },
                 ),
                 list::concat(
                     list::item(Integer { value: length, width: 64, signed: false }),
-                    list::empty()
-                )
+                    list::empty(),
+                ),
             )
         ) => Pointer {
             height,
             place: MirPlace::Place { local, projections: RemoveIndexTail { projections } },
             mutability,
-            metadata: Metadata { size: MirMetadataSize::DynamicSize(length), offset, origin_size }
+            metadata: Metadata { size: MirMetadataSize::DynamicSize(length), offset, origin_size },
         };
     materialize_thin_raw_pointer:
         (
             AggregateRawPointer { mutability, .. },
             list::concat(
                 list::item(
-                    Pointer { height, place, metadata: Metadata { offset, origin_size, .. }, .. }
+                    Pointer { height, place, metadata: Metadata { offset, origin_size, .. }, .. },
                 ),
-                list::concat(list::item(Aggregate { fields: list::empty(), .. }), list::empty())
+                list::concat(list::item(Aggregate { fields: list::empty(), .. }), list::empty()),
             )
         ) => Pointer {
             height,
             place,
             mutability,
-            metadata: Metadata { size: MirMetadataSize::NoMetadataSize(), offset, origin_size }
+            metadata: Metadata { size: MirMetadataSize::NoMetadataSize(), offset, origin_size },
         };
     materialize_array: (AggregateArray(_), values) => Range { elements: values };
     materialize_tuple:
@@ -2386,7 +2386,7 @@ k::equations! {
     reserve_for_cons:
         [MirLocalDecl::LocalDecl { ty, mutability, .. }, tail @ ..] => list::concat(
             list::item(LocalValue::NewLocal { ty, mutability }),
-            ReserveFor { locals: tail }
+            ReserveFor { locals: tail },
         );
 }
 
@@ -2421,7 +2421,7 @@ k::equations! {
     map_ref_offset_cons:
         (list::concat(list::item(value), tail), offset) => list::concat(
             list::item(AdjustRef { value, offset }),
-            MapRefOffset { values: tail, offset }
+            MapRefOffset { values: tail, offset },
         );
 }
 
@@ -2494,7 +2494,7 @@ k::equations! {
         => LocalValue::TypedValue {
             value: WriteProjection { value: original, projections, replacement: value, locals },
             ty,
-            mutability
+            mutability,
         };
 }
 
@@ -2531,10 +2531,10 @@ k::equations! {
                     entry: list::get(frame_locals, local),
                     projections,
                     value,
-                    locals
-                }
+                    locals,
+                },
             ),
-            span
+            span,
         };
 }
 
@@ -2630,7 +2630,7 @@ k::equations! {
                 PointerOffset { offset, origin_size: OriginSize { size: origin_size } },
                 DerefTruncate { size },
                 ..tail
-            ]
+            ],
         };
 }
 
@@ -2665,7 +2665,7 @@ k::equations! {
             ConstantIndex {
                 offset: ExpectUsize { entry: list::get(locals, local) },
                 min_length: 0,
-                from_end: false
+                from_end: false,
             },
             ..FreezeProjections { projections: tail, locals }
         ];
@@ -2746,7 +2746,7 @@ k::equations! {
         (Range { elements }, [Index { local }, tail @ ..], locals) => ReadProjection {
             value: list::get(elements, ExpectUsize { entry: list::get(locals, local) }),
             projections: tail,
-            locals
+            locals,
         };
     read_projection_deref:
         (
@@ -2757,7 +2757,7 @@ k::equations! {
         ) => ReadProjection {
             value: LocalValueOf { entry: list::get(locals, local) },
             projections: AppendProjections { first: referenced, second: tail },
-            locals
+            locals,
         };
     #[k::requires(offset >= 0 && offset < list::size(elements))]
     read_projection_constant_index_front:
@@ -2772,7 +2772,7 @@ k::equations! {
         ) => ReadProjection {
             value: list::get(elements, min_length - offset),
             projections: tail,
-            locals
+            locals,
         };
     #[k::requires(
         from >= 0
@@ -2786,7 +2786,7 @@ k::equations! {
         => ReadProjection {
             value: Range { elements: list::range(elements, from, list::size(elements) - to) },
             projections: tail,
-            locals
+            locals,
         };
     #[k::requires(
         from >= 0 && to >= 0 && to < list::size(elements) && from <= list::size(elements) - to
@@ -2796,7 +2796,7 @@ k::equations! {
         => ReadProjection {
             value: Range { elements: list::range(elements, from, to) },
             projections: tail,
-            locals
+            locals,
         };
 }
 
@@ -2816,9 +2816,9 @@ k::equations! {
                     value: list::get(fields, field),
                     projections: tail,
                     replacement,
-                    locals
-                }
-            )
+                    locals,
+                },
+            ),
         };
     write_projection_downcast:
         (Aggregate { fields, .. }, [Downcast { variant }, tail @ ..], replacement, locals)
@@ -2826,7 +2826,7 @@ k::equations! {
             value: Aggregate { variant, fields },
             projections: tail,
             replacement,
-            locals
+            locals,
         };
     write_projection_index:
         (Range { elements }, [Index { local }, tail @ ..], replacement, locals) => Range {
@@ -2837,9 +2837,9 @@ k::equations! {
                     value: list::get(elements, ExpectUsize { entry: list::get(locals, local) }),
                     projections: tail,
                     replacement,
-                    locals
-                }
-            )
+                    locals,
+                },
+            ),
         };
     #[k::requires(offset >= 0 && offset < list::size(elements))]
     write_projection_constant_index_front:
@@ -2856,9 +2856,9 @@ k::equations! {
                     value: list::get(elements, offset),
                     projections: tail,
                     replacement,
-                    locals
-                }
-            )
+                    locals,
+                },
+            ),
         };
     #[k::requires(offset > 0 && offset <= min_length && min_length == list::size(elements))]
     write_projection_constant_index_end:
@@ -2875,9 +2875,9 @@ k::equations! {
                     value: list::get(elements, min_length - offset),
                     projections: tail,
                     replacement,
-                    locals
-                }
-            )
+                    locals,
+                },
+            ),
         };
     #[k::requires(
         from >= 0
@@ -2900,14 +2900,14 @@ k::equations! {
                 replacement: RangeElements {
                     value: WriteProjection {
                         value: Range {
-                            elements: list::range(elements, from, list::size(elements) - to)
+                            elements: list::range(elements, from, list::size(elements) - to),
                         },
                         projections: tail,
                         replacement,
-                        locals
-                    }
-                }
-            }
+                        locals,
+                    },
+                },
+            },
         };
     #[k::requires(
         from >= 0 && to >= 0 && to < list::size(elements) && from <= list::size(elements) - to
@@ -2928,10 +2928,10 @@ k::equations! {
                         value: Range { elements: list::range(elements, from, to) },
                         projections: tail,
                         replacement,
-                        locals
-                    }
-                }
-            }
+                        locals,
+                    },
+                },
+            },
         };
 }
 
@@ -2949,7 +2949,7 @@ k::equations! {
     build_projection_update_field:
         (value, [FieldContext { variant, fields, field, .. }, tail @ ..]) => BuildProjectionUpdate {
             value: Aggregate { variant, fields: list::update(fields, field, value) },
-            contexts: tail
+            contexts: tail,
         };
     build_projection_update_union_field:
         (value, [UnionFieldContext { field, .. }, tail @ ..])
@@ -2962,7 +2962,7 @@ k::equations! {
     build_projection_update_index:
         (value, [IndexContext { elements, index }, tail @ ..]) => BuildProjectionUpdate {
             value: Range { elements: list::update(elements, index, value) },
-            contexts: tail
+            contexts: tail,
         };
     build_projection_update_subslice:
         (
@@ -2970,7 +2970,7 @@ k::equations! {
             [SubsliceContext { elements, start, from_back }, tail @ ..]
         ) => BuildProjectionUpdate {
             value: Range { elements: ReplaceSubslice { elements, start, from_back, replacement } },
-            contexts: tail
+            contexts: tail,
         };
     build_projection_update_pointer_offset:
         (
@@ -2978,9 +2978,9 @@ k::equations! {
             [PointerOffsetContext { elements, offset, .. }, tail @ ..]
         ) => BuildProjectionUpdate {
             value: Range {
-                elements: ReplaceSubslice { elements, start: offset, from_back: 0, replacement }
+                elements: ReplaceSubslice { elements, start: offset, from_back: 0, replacement },
             },
-            contexts: tail
+            contexts: tail,
         };
 }
 
@@ -3306,7 +3306,7 @@ k::rules! {
         k: [
             EvalRvalue {
                 value: Cast { kind: PointerCoercion { coercion: Unsize() }, operand, .. },
-                place
+                place,
             },
             ..
         ],
@@ -3314,7 +3314,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand,
-                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } },
             },
             ..
         ],
@@ -3327,9 +3327,9 @@ k::rules! {
                     kind: PtrToPtr(),
                     operand: operand @ (Copy(Place { local, projections })
                     | Move(Place { local, projections })),
-                    target
+                    target,
                 },
-                place
+                place,
             },
             ..
         ],
@@ -3346,11 +3346,11 @@ k::rules! {
                         ty: GetTyOf {
                             types,
                             ty: LocalTy { entry: list::get(locals, local) },
-                            projections
-                        }
+                            projections,
+                        },
                     },
-                    target: map::get(types, target)
-                }
+                    target: map::get(types, target),
+                },
             },
             ..
         ],
@@ -3363,9 +3363,9 @@ k::rules! {
                     kind: Transmute(),
                     operand: operand @ (Copy(Place { local, projections })
                     | Move(Place { local, projections })),
-                    target
+                    target,
                 },
-                place
+                place,
             },
             ..
         ],
@@ -3382,11 +3382,11 @@ k::rules! {
                         ty: GetTyOf {
                             types,
                             ty: LocalTy { entry: list::get(locals, local) },
-                            projections
-                        }
+                            projections,
+                        },
                     },
-                    target: map::get(types, target)
-                }
+                    target: map::get(types, target),
+                },
             },
             ..
         ],
@@ -3411,12 +3411,12 @@ k::rules! {
                         size: ProjectionMetadataSize {
                             ty: LocalTy { entry: list::get(locals, local) },
                             projections,
-                            types
+                            types,
                         },
                         offset: 0,
-                        origin_size: NoMetadataSize()
-                    }
-                }
+                        origin_size: NoMetadataSize(),
+                    },
+                },
             },
             ..
         ],
@@ -3426,7 +3426,7 @@ k::rules! {
         k: [
             EvalRvalue {
                 value: AddressOf { mutability, place: Place { local, projections } },
-                place: destination
+                place: destination,
             },
             ..
         ],
@@ -3437,7 +3437,7 @@ k::rules! {
                 entry: list::get(locals, local),
                 mutability,
                 referenced: Place { local, projections },
-                destination
+                destination,
             },
             ..
         ],
@@ -3452,7 +3452,7 @@ k::rules! {
                 },
                 mutability,
                 referenced: Place { projections: [Deref()], .. },
-                destination
+                destination,
             },
             ..
         ],
@@ -3460,7 +3460,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place: destination,
-                value: Pointer { height, place: referenced, mutability, metadata }
+                value: Pointer { height, place: referenced, mutability, metadata },
             },
             ..
         ],
@@ -3481,9 +3481,9 @@ k::rules! {
                     metadata: Metadata {
                         size: NoMetadataSize(),
                         offset: 0,
-                        origin_size: NoMetadataSize()
-                    }
-                }
+                        origin_size: NoMetadataSize(),
+                    },
+                },
             },
             ..
         ],
@@ -3512,8 +3512,8 @@ k::rules! {
                 value: Integer {
                     value: SizeOfTypeInfo { types, info: map::get(types, ty) },
                     width: 64,
-                    signed: false
-                }
+                    signed: false,
+                },
             },
             ..
         ],
@@ -3530,8 +3530,8 @@ k::rules! {
                 value: Integer {
                     value: AlignOfTypeInfo { types, info: map::get(types, ty) },
                     width: 64,
-                    signed: false
-                }
+                    signed: false,
+                },
             },
             ..
         ],
@@ -3543,7 +3543,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: lhs,
-                continuation: BinaryRight { place, operation, rhs, checked: false }
+                continuation: BinaryRight { place, operation, rhs, checked: false },
             },
             ..
         ],
@@ -3555,7 +3555,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: lhs,
-                continuation: BinaryRight { place, operation, rhs, checked: true }
+                continuation: BinaryRight { place, operation, rhs, checked: true },
             },
             ..
         ],
@@ -3576,7 +3576,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: head,
-                continuation: AggregateNext { place, kind, values: list::empty(), remaining: tail }
+                continuation: AggregateNext { place, kind, values: list::empty(), remaining: tail },
             },
             ..
         ],
@@ -3590,9 +3590,9 @@ k::rules! {
                     count: MirTyConst::TyConst {
                         kind: MirTyConstKind::Value { allocation: Allocation { bytes, .. }, .. },
                         ..
-                    }
+                    },
                 },
-                place
+                place,
             },
             ..
         ],
@@ -3602,8 +3602,8 @@ k::rules! {
                 operand: element,
                 continuation: FinishRepeat {
                     place,
-                    count: ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 }
-                }
+                    count: ReadTyConstInt { bytes, index: 0, multiplier: 1, result: 0 },
+                },
             },
             ..
         ],
@@ -3639,10 +3639,10 @@ k::rules! {
                         ty: GetTyOf {
                             types,
                             ty: LocalTy { entry: list::get(locals, local) },
-                            projections
-                        }
-                    }
-                }
+                            projections,
+                        },
+                    },
+                },
             },
             ..
         ],
@@ -3662,14 +3662,14 @@ k::rules! {
                         bytes,
                         provenance: MirProvenanceMap::SingletonProvenanceMap {
                             offset: 0,
-                            allocation
+                            allocation,
                         },
                         ..
                     },
                     ty,
                     ..
                 },
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3683,9 +3683,9 @@ k::rules! {
                     bytes,
                     stored: map::get(memory, allocation),
                     info: map::get(types, ty),
-                    types
+                    types,
                 },
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3703,7 +3703,7 @@ k::rules! {
                     ty,
                     ..
                 },
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3712,7 +3712,7 @@ k::rules! {
         k: [
             Continue {
                 value: DecodeAllocatedValue { bytes, info: map::get(types, ty), types },
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3737,7 +3737,7 @@ k::rules! {
                 entry: list::get(locals, local),
                 move_after: false,
                 index: local,
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3747,7 +3747,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: Copy(Place { local, projections: [head, tail @ ..] }),
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3758,7 +3758,7 @@ k::rules! {
                 entry: list::get(locals, local),
                 local,
                 projections: [head, ..tail],
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3773,7 +3773,7 @@ k::rules! {
                 entry: list::get(locals, local),
                 move_after: true,
                 index: local,
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3783,7 +3783,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: Move(Place { local, projections: [head, tail @ ..] }),
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3794,7 +3794,7 @@ k::rules! {
                 entry: list::get(locals, local),
                 local,
                 projections: [head, ..tail],
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3812,7 +3812,7 @@ k::rules! {
                 entry: TypedValue { value, ty, mutability },
                 move_after: true,
                 index,
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3828,7 +3828,7 @@ k::rules! {
                 entry: TypedValue { value, .. },
                 local,
                 projections,
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3841,7 +3841,7 @@ k::rules! {
                 projections,
                 contexts: [],
                 locals,
-                action: ReadAction(continuation)
+                action: ReadAction(continuation),
             },
             ..
         ],
@@ -3853,7 +3853,7 @@ k::rules! {
                 entry: TypedValue { value, .. },
                 local,
                 projections,
-                continuation
+                continuation,
             },
             ..
         ],
@@ -3866,7 +3866,7 @@ k::rules! {
                 projections,
                 contexts: [],
                 locals,
-                action: MoveAction(continuation)
+                action: MoveAction(continuation),
             },
             ..
         ],
@@ -3891,7 +3891,7 @@ k::rules! {
                 action: ReferenceAction {
                     place,
                     mutability,
-                    metadata: Metadata { size, offset, origin_size }
+                    metadata: Metadata { size, offset, origin_size },
                 },
                 ..
             },
@@ -3905,15 +3905,15 @@ k::rules! {
                     height: 0,
                     place: Place {
                         local,
-                        projections: ProjectionsFor { contexts, projections: [] }
+                        projections: ProjectionsFor { contexts, projections: [] },
                     },
                     mutability,
                     metadata: Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
-                        origin_size
-                    }
-                }
+                        origin_size,
+                    },
+                },
             },
             ..
         ],
@@ -3929,7 +3929,7 @@ k::rules! {
                 action: ReferenceAction {
                     place,
                     mutability,
-                    metadata: Metadata { size, offset, origin_size }
+                    metadata: Metadata { size, offset, origin_size },
                 },
                 ..
             },
@@ -3943,15 +3943,15 @@ k::rules! {
                     height,
                     place: Place {
                         local,
-                        projections: ProjectionsFor { contexts, projections: [] }
+                        projections: ProjectionsFor { contexts, projections: [] },
                     },
                     mutability,
                     metadata: Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
-                        origin_size
-                    }
-                }
+                        origin_size,
+                    },
+                },
             },
             ..
         ],
@@ -3983,9 +3983,9 @@ k::rules! {
                     metadata: Metadata {
                         size: MaybeDynamicSize { size, value },
                         offset,
-                        origin_size
-                    }
-                }
+                        origin_size,
+                    },
+                },
             },
             ..
         ],
@@ -4006,7 +4006,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place: Place { local, projections: [] },
-                value: BuildProjectionUpdate { value: replacement, contexts }
+                value: BuildProjectionUpdate { value: replacement, contexts },
             },
             ..
         ],
@@ -4036,10 +4036,10 @@ k::rules! {
                 projections: [],
                 value: AdjustRef {
                     value: BuildProjectionUpdate { value: replacement, contexts },
-                    offset: -height
+                    offset: -height,
                 },
-                locals
-            }
+                locals,
+            },
         ),
     };
 
@@ -4059,7 +4059,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place: Place { local, projections: [] },
-                value: BuildProjectionUpdate { value: Moved(), contexts }
+                value: BuildProjectionUpdate { value: Moved(), contexts },
             },
             Continue { value, continuation },
             ..
@@ -4074,7 +4074,7 @@ k::rules! {
                 projections: [],
                 contexts,
                 locals,
-                action: MoveAction(continuation)
+                action: MoveAction(continuation),
             },
             ..
         ],
@@ -4090,10 +4090,10 @@ k::rules! {
                 projections: [],
                 value: AdjustRef {
                     value: BuildProjectionUpdate { value: Moved(), contexts },
-                    offset: -height
+                    offset: -height,
                 },
-                locals
-            }
+                locals,
+            },
         ),
     };
 
@@ -4156,7 +4156,7 @@ k::rules! {
             TraverseProjection {
                 value: Aggregate {
                     variant: 0,
-                    fields: list::concat(list::item(value), list::empty())
+                    fields: list::concat(list::item(value), list::empty()),
                 },
                 projections: tail,
                 contexts: [WrapStructContext(), ..contexts],
@@ -4205,7 +4205,7 @@ k::rules! {
                 contexts: [
                     IndexContext {
                         elements,
-                        index: ExpectUsize { entry: list::get(locals, local) }
+                        index: ExpectUsize { entry: list::get(locals, local) },
                     },
                     ..contexts
                 ],
@@ -4427,7 +4427,7 @@ k::rules! {
                 projections: DerefProjectionPath { referenced, size, offset, origin_size, tail },
                 contexts: [],
                 locals,
-                action
+                action,
             },
             ..
         ],
@@ -4464,12 +4464,12 @@ k::rules! {
                 value: LocalFromFrame {
                     frame: list::get(stack, height - 1),
                     local,
-                    offset: height
+                    offset: height,
                 },
                 projections: DerefProjectionPath { referenced, size, offset, origin_size, tail },
                 contexts: [],
                 locals,
-                action
+                action,
             },
             ..
         ],
@@ -4481,7 +4481,7 @@ k::rules! {
                 value: AllocationReference {
                     allocation,
                     projections: referenced,
-                    metadata: Metadata { size, .. }
+                    metadata: Metadata { size, .. },
                 },
                 projections: [Deref(), tail @ ..],
                 locals,
@@ -4501,11 +4501,11 @@ k::rules! {
                     size,
                     offset: 0,
                     origin_size: NoMetadataSize(),
-                    tail
+                    tail,
                 },
                 contexts: [],
                 locals,
-                action: ReadAction(continuation)
+                action: ReadAction(continuation),
             },
             ..
         ],
@@ -4517,7 +4517,7 @@ k::rules! {
                 value: AllocationReference {
                     allocation,
                     projections: referenced,
-                    metadata: Metadata { size, .. }
+                    metadata: Metadata { size, .. },
                 },
                 projections: [Deref(), tail @ ..],
                 locals,
@@ -4537,11 +4537,11 @@ k::rules! {
                     size,
                     offset: 0,
                     origin_size: NoMetadataSize(),
-                    tail
+                    tail,
                 },
                 contexts: [],
                 locals,
-                action: ReferenceAction { place, mutability, metadata }
+                action: ReferenceAction { place, mutability, metadata },
             },
             ..
         ],
@@ -4564,8 +4564,8 @@ k::rules! {
                 place,
                 value: MaterializeAggregate {
                     kind,
-                    values: list::concat(values, list::item(value))
-                }
+                    values: list::concat(values, list::item(value)),
+                },
             },
             ..
         ],
@@ -4575,7 +4575,7 @@ k::rules! {
         k: [
             Continue {
                 value,
-                continuation: AggregateNext { place, kind, values, remaining: [head, tail @ ..] }
+                continuation: AggregateNext { place, kind, values, remaining: [head, tail @ ..] },
             },
             ..
         ],
@@ -4587,8 +4587,8 @@ k::rules! {
                     place,
                     kind,
                     values: list::concat(values, list::item(value)),
-                    remaining: tail
-                }
+                    remaining: tail,
+                },
             },
             ..
         ],
@@ -4607,7 +4607,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Integer { value: list::size(elements), width: 64, signed: false }
+                value: Integer { value: list::size(elements), width: 64, signed: false },
             },
             ..
         ],
@@ -4617,7 +4617,7 @@ k::rules! {
         k: [
             Continue {
                 value: Aggregate { variant, .. },
-                continuation: FinishDiscriminant { place, info: EnumType { discriminants, .. } }
+                continuation: FinishDiscriminant { place, info: EnumType { discriminants, .. } },
             },
             ..
         ],
@@ -4628,8 +4628,8 @@ k::rules! {
                 value: Integer {
                     value: LookupDiscriminant { discriminants, index: variant },
                     width: 0,
-                    signed: false
-                }
+                    signed: false,
+                },
             },
             ..
         ],
@@ -4642,9 +4642,9 @@ k::rules! {
                     height,
                     place: pointer_place,
                     mutability,
-                    metadata: Metadata { size: StaticSize(size), offset, origin_size }
+                    metadata: Metadata { size: StaticSize(size), offset, origin_size },
                 },
-                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } },
             },
             ..
         ],
@@ -4656,8 +4656,8 @@ k::rules! {
                     height,
                     place: pointer_place,
                     mutability,
-                    metadata: Metadata { size: DynamicSize(size), offset, origin_size }
-                }
+                    metadata: Metadata { size: DynamicSize(size), offset, origin_size },
+                },
             },
             ..
         ],
@@ -4670,9 +4670,9 @@ k::rules! {
                     height,
                     place: referenced,
                     mutability,
-                    metadata: Metadata { size: StaticSize(size), offset, origin_size }
+                    metadata: Metadata { size: StaticSize(size), offset, origin_size },
                 },
-                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } },
             },
             ..
         ],
@@ -4684,8 +4684,8 @@ k::rules! {
                     height,
                     place: referenced,
                     mutability,
-                    metadata: Metadata { size: DynamicSize(size), offset, origin_size }
-                }
+                    metadata: Metadata { size: DynamicSize(size), offset, origin_size },
+                },
             },
             ..
         ],
@@ -4697,9 +4697,9 @@ k::rules! {
                 value: AllocationReference {
                     allocation,
                     projections,
-                    metadata: Metadata { size: StaticSize(size), offset, origin_size }
+                    metadata: Metadata { size: StaticSize(size), offset, origin_size },
                 },
-                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } }
+                continuation: FinishCast { place, kind: PointerCoercion { coercion: Unsize() } },
             },
             ..
         ],
@@ -4710,8 +4710,8 @@ k::rules! {
                 value: AllocationReference {
                     allocation,
                     projections,
-                    metadata: Metadata { size: DynamicSize(size), offset, origin_size }
-                }
+                    metadata: Metadata { size: DynamicSize(size), offset, origin_size },
+                },
             },
             ..
         ],
@@ -4721,7 +4721,7 @@ k::rules! {
         k: [
             Continue {
                 value: value @ (Reference { .. } | Pointer { .. } | AllocationReference { .. }),
-                continuation: FinishTransmute { place, source: info, target: info }
+                continuation: FinishTransmute { place, source: info, target: info },
             },
             ..
         ],
@@ -4736,8 +4736,8 @@ k::rules! {
                 continuation: FinishPtrCast {
                     place,
                     source: PointerType { pointee } | ReferenceType { pointee },
-                    target: PointerType { pointee } | ReferenceType { pointee }
-                }
+                    target: PointerType { pointee } | ReferenceType { pointee },
+                },
             },
             ..
         ],
@@ -4753,8 +4753,8 @@ k::rules! {
                 continuation: FinishPtrCast {
                     place: destination,
                     source: PointerType { pointee: source } | ReferenceType { pointee: source },
-                    target: PointerType { pointee: target } | ReferenceType { pointee: target }
-                }
+                    target: PointerType { pointee: target } | ReferenceType { pointee: target },
+                },
             },
             ..
         ],
@@ -4771,7 +4771,7 @@ k::rules! {
                 source: map::get(types, source),
                 target: map::get(types, target),
                 projections: [],
-                target_size: MetadataSizeOf { info: map::get(types, target) }
+                target_size: MetadataSizeOf { info: map::get(types, target) },
             },
             ..
         ],
@@ -4789,7 +4789,7 @@ k::rules! {
                 source: info,
                 target: info,
                 projections,
-                target_size
+                target_size,
             },
             ..
         ],
@@ -4803,12 +4803,12 @@ k::rules! {
                         local,
                         projections: AppendCastProjections {
                             first: pointer_projections,
-                            second: projections
-                        }
+                            second: projections,
+                        },
                     },
                     mutability,
-                    metadata: ConvertPointerMetadata { metadata, target_size }
-                }
+                    metadata: ConvertPointerMetadata { metadata, target_size },
+                },
             },
             ..
         ],
@@ -4875,8 +4875,8 @@ k::rules! {
         SameTypeInfo {
             first: map::get(types, element),
             second: PrimitiveType {
-                primitive: UnsignedInteger { kind: U8() }
-            }
+                primitive: UnsignedInteger { kind: U8() },
+            },
         }
     )]
     resolve_ptr_cast_bytes_to_str: {
@@ -4901,8 +4901,8 @@ k::rules! {
         SameTypeInfo {
             first: map::get(types, element),
             second: PrimitiveType {
-                primitive: UnsignedInteger { kind: U8() }
-            }
+                primitive: UnsignedInteger { kind: U8() },
+            },
         }
     )]
     resolve_ptr_cast_str_to_bytes: {
@@ -4927,8 +4927,8 @@ k::rules! {
             ZeroFieldOffset { layout },
             SameTypeInfo {
                 first: ArrayType { element: source_element, size: source_size },
-                second: map::get(types, field)
-            }
+                second: map::get(types, field),
+            },
         )
     )]
     resolve_ptr_cast_array_to_exact_wrapper: {
@@ -4999,7 +4999,7 @@ k::rules! {
                 source: map::get(types, field),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [Field { field: 0, ty: field }]
+                    second: [Field { field: 0, ty: field }],
                 },
                 target_size,
                 ..cast
@@ -5029,7 +5029,7 @@ k::rules! {
                 source: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [ConstantIndex { offset: 0, min_length: 0, from_end: false }]
+                    second: [ConstantIndex { offset: 0, min_length: 0, from_end: false }],
                 },
                 target_size,
                 ..cast
@@ -5060,7 +5060,7 @@ k::rules! {
                 source: PrimitiveType { primitive: UnsignedInteger { kind: U8() } },
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [ConstantIndex { offset: 0, min_length: 0, from_end: false }]
+                    second: [ConstantIndex { offset: 0, min_length: 0, from_end: false }],
                 },
                 target_size,
                 ..cast
@@ -5113,7 +5113,7 @@ k::rules! {
                 target: map::get(types, element),
                 projections: AppendCastProjections {
                     first: projections,
-                    second: [SingletonArray()]
+                    second: [SingletonArray()],
                 },
                 target_size,
                 ..cast
@@ -5154,7 +5154,7 @@ k::rules! {
         k: [
             Continue {
                 value: Integer { value, width, signed: true },
-                continuation: FinishUnary { place, operation: UnOpNeg() }
+                continuation: FinishUnary { place, operation: UnOpNeg() },
             },
             ..
         ],
@@ -5165,8 +5165,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateSigned { value: -value, width },
                     width,
-                    signed: true
-                }
+                    signed: true,
+                },
             },
             ..
         ],
@@ -5176,7 +5176,7 @@ k::rules! {
         k: [
             Continue {
                 value: Boolean(value),
-                continuation: FinishUnary { place, operation: UnOpNot() }
+                continuation: FinishUnary { place, operation: UnOpNot() },
             },
             ..
         ],
@@ -5188,7 +5188,7 @@ k::rules! {
         k: [
             Continue {
                 value: Integer { value, width, signed },
-                continuation: FinishUnary { place, operation: UnOpNot() }
+                continuation: FinishUnary { place, operation: UnOpNot() },
             },
             ..
         ],
@@ -5199,8 +5199,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: value ^ -1, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5212,7 +5212,7 @@ k::rules! {
                 value: Pointer { metadata: Metadata { size: DynamicSize(size), .. }, .. }
                 | Reference { metadata: Metadata { size: DynamicSize(size), .. }, .. }
                 | AllocationReference { metadata: Metadata { size: DynamicSize(size), .. }, .. },
-                continuation: FinishUnary { place, operation: UnOpPtrMetadata() }
+                continuation: FinishUnary { place, operation: UnOpPtrMetadata() },
             },
             ..
         ],
@@ -5229,7 +5229,7 @@ k::rules! {
         k: [
             EvalOperand {
                 operand: rhs,
-                continuation: FinishBinary { place, operation, lhs, checked }
+                continuation: FinishBinary { place, operation, lhs, checked },
             },
             ..
         ],
@@ -5246,8 +5246,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpAdd(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5258,8 +5258,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs + rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5276,8 +5276,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpAddUnchecked(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5288,8 +5288,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs + rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5303,8 +5303,8 @@ k::rules! {
                     place,
                     checked: true,
                     operation: BinOpAdd(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5319,19 +5319,19 @@ k::rules! {
                             Integer {
                                 value: TruncateInteger { value: lhs + rhs, width, signed },
                                 width,
-                                signed
-                            }
+                                signed,
+                            },
                         ),
                         list::concat(
                             list::item(
                                 Boolean(
                                     TruncateInteger { value: lhs + rhs, width, signed } != lhs + rhs
-                                )
+                                ),
                             ),
-                            list::empty()
-                        )
-                    )
-                }
+                            list::empty(),
+                        ),
+                    ),
+                },
             },
             ..
         ],
@@ -5348,8 +5348,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpSub(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5360,8 +5360,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs - rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5378,8 +5378,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpSubUnchecked(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5390,8 +5390,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs - rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5405,8 +5405,8 @@ k::rules! {
                     place,
                     checked: true,
                     operation: BinOpSub(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5421,19 +5421,19 @@ k::rules! {
                             Integer {
                                 value: TruncateInteger { value: lhs - rhs, width, signed },
                                 width,
-                                signed
-                            }
+                                signed,
+                            },
                         ),
                         list::concat(
                             list::item(
                                 Boolean(
                                     TruncateInteger { value: lhs - rhs, width, signed } != lhs - rhs
-                                )
+                                ),
                             ),
-                            list::empty()
-                        )
-                    )
-                }
+                            list::empty(),
+                        ),
+                    ),
+                },
             },
             ..
         ],
@@ -5450,8 +5450,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpMul(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5462,8 +5462,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs * rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5480,8 +5480,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpMulUnchecked(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5492,8 +5492,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs * rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5507,8 +5507,8 @@ k::rules! {
                     place,
                     checked: true,
                     operation: BinOpMul(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5523,19 +5523,19 @@ k::rules! {
                             Integer {
                                 value: TruncateInteger { value: lhs * rhs, width, signed },
                                 width,
-                                signed
-                            }
+                                signed,
+                            },
                         ),
                         list::concat(
                             list::item(
                                 Boolean(
                                     TruncateInteger { value: lhs * rhs, width, signed } != lhs * rhs
-                                )
+                                ),
                             ),
-                            list::empty()
-                        )
-                    )
-                }
+                            list::empty(),
+                        ),
+                    ),
+                },
             },
             ..
         ],
@@ -5553,8 +5553,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpDiv(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5565,8 +5565,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs / rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5585,8 +5585,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpRem(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5597,8 +5597,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs - lhs / rhs * rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5612,8 +5612,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpBitXor(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5629,8 +5629,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpBitAnd(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5646,8 +5646,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpBitOr(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5663,8 +5663,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpShl(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5675,8 +5675,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs << rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5691,8 +5691,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpShlUnchecked(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5703,8 +5703,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs << rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5718,8 +5718,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpShr(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5730,8 +5730,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs >> rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5746,8 +5746,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpShrUnchecked(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -5758,8 +5758,8 @@ k::rules! {
                 value: Integer {
                     value: TruncateInteger { value: lhs >> rhs, width, signed },
                     width,
-                    signed
-                }
+                    signed,
+                },
             },
             ..
         ],
@@ -5773,8 +5773,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpBitXor(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -5790,8 +5790,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpBitAnd(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -5807,8 +5807,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpBitOr(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -5825,8 +5825,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpOffset(),
-                    lhs: Pointer { height, place: pointer_place, mutability, metadata }
-                }
+                    lhs: Pointer { height, place: pointer_place, mutability, metadata },
+                },
             },
             ..
         ],
@@ -5834,7 +5834,7 @@ k::rules! {
         k: [
             SetLocalValue {
                 place,
-                value: Pointer { height, place: pointer_place, mutability, metadata }
+                value: Pointer { height, place: pointer_place, mutability, metadata },
             },
             ..
         ],
@@ -5857,10 +5857,10 @@ k::rules! {
                         metadata: Metadata {
                             size,
                             offset: current_offset,
-                            origin_size: DynamicSize(origin_size)
-                        }
-                    }
-                }
+                            origin_size: DynamicSize(origin_size),
+                        },
+                    },
+                },
             },
             ..
         ],
@@ -5875,9 +5875,9 @@ k::rules! {
                     metadata: Metadata {
                         size,
                         offset: current_offset + offset,
-                        origin_size: DynamicSize(origin_size)
-                    }
-                }
+                        origin_size: DynamicSize(origin_size),
+                    },
+                },
             },
             ..
         ],
@@ -5900,10 +5900,10 @@ k::rules! {
                         metadata: Metadata {
                             size,
                             offset: current_offset,
-                            origin_size: StaticSize(origin_size)
-                        }
-                    }
-                }
+                            origin_size: StaticSize(origin_size),
+                        },
+                    },
+                },
             },
             ..
         ],
@@ -5918,9 +5918,9 @@ k::rules! {
                     metadata: Metadata {
                         size,
                         offset: current_offset + offset,
-                        origin_size: StaticSize(origin_size)
-                    }
-                }
+                        origin_size: StaticSize(origin_size),
+                    },
+                },
             },
             ..
         ],
@@ -5934,8 +5934,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpEq(),
-                    lhs: Pointer { height, place: pointer_place, metadata, .. }
-                }
+                    lhs: Pointer { height, place: pointer_place, metadata, .. },
+                },
             },
             ..
         ],
@@ -5952,8 +5952,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpEq(),
-                    lhs: Pointer { .. }
-                }
+                    lhs: Pointer { .. },
+                },
             },
             ..
         ],
@@ -5969,8 +5969,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpNe(),
-                    lhs: Pointer { height, place: pointer_place, metadata, .. }
-                }
+                    lhs: Pointer { height, place: pointer_place, metadata, .. },
+                },
             },
             ..
         ],
@@ -5987,8 +5987,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpNe(),
-                    lhs: Pointer { .. }
-                }
+                    lhs: Pointer { .. },
+                },
             },
             ..
         ],
@@ -6004,8 +6004,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpEq(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -6021,8 +6021,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpLt(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -6038,8 +6038,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpLe(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -6055,8 +6055,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpNe(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -6072,8 +6072,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpGe(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -6089,8 +6089,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpGt(),
-                    lhs: Integer { value: lhs, width, signed }
-                }
+                    lhs: Integer { value: lhs, width, signed },
+                },
             },
             ..
         ],
@@ -6106,8 +6106,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpEq(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -6123,8 +6123,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpLt(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -6140,8 +6140,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpLe(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -6157,8 +6157,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpNe(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -6174,8 +6174,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpGe(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -6191,8 +6191,8 @@ k::rules! {
                     place,
                     checked: false,
                     operation: BinOpGt(),
-                    lhs: Boolean(lhs)
-                }
+                    lhs: Boolean(lhs),
+                },
             },
             ..
         ],
@@ -6216,7 +6216,7 @@ k::rules! {
                 entry: list::get(locals, local),
                 local,
                 projections: [head, ..tail],
-                value
+                value,
             },
             ..
         ],
@@ -6228,7 +6228,7 @@ k::rules! {
                 entry: TypedValue { value: original, .. },
                 local,
                 projections,
-                value
+                value,
             },
             ..
         ],
@@ -6241,7 +6241,7 @@ k::rules! {
                 projections,
                 contexts: [],
                 locals,
-                action: WriteAction(value)
+                action: WriteAction(value),
             },
             ..
         ],
@@ -6299,8 +6299,8 @@ k::rules! {
                     args,
                     destination,
                     target,
-                    unwind
-                }
+                    unwind,
+                },
             ),
             ..
         ],
@@ -6330,10 +6330,10 @@ k::rules! {
                     target: old_target,
                     unwind: old_unwind,
                     locals: caller_locals,
-                    span
-                }
+                    span,
+                },
             ),
-            stack
+            stack,
         ),
     };
 
@@ -6363,7 +6363,7 @@ k::rules! {
         k: [SetArgFromStack { index, operand: Copy(Place { local, projections: [] }) }, ..],
         stack: list::concat(
             list::item(StackFrame { caller, dest, target, unwind, locals: caller_locals, span }),
-            rest
+            rest,
         ),
     } => {
         k: [
@@ -6371,8 +6371,8 @@ k::rules! {
                 place: Place { local: index, projections: [] },
                 value: AdjustRef {
                     value: LocalValueOf { entry: list::get(caller_locals, local) },
-                    offset: 1
-                }
+                    offset: 1,
+                },
             },
             ..
         ],
@@ -6382,7 +6382,7 @@ k::rules! {
         k: [SetArgFromStack { index, operand: Move(Place { local, projections: [] }) }, ..],
         stack: list::concat(
             list::item(StackFrame { caller, dest, target, unwind, locals: caller_locals, span }),
-            rest
+            rest,
         ),
     } => {
         k: [
@@ -6390,8 +6390,8 @@ k::rules! {
                 place: Place { local: index, projections: [] },
                 value: AdjustRef {
                     value: LocalValueOf { entry: list::get(caller_locals, local) },
-                    offset: 1
-                }
+                    offset: 1,
+                },
             },
             ..
         ],
@@ -6405,12 +6405,12 @@ k::rules! {
                     locals: list::update(
                         caller_locals,
                         local,
-                        MovedEntry { entry: list::get(caller_locals, local) }
+                        MovedEntry { entry: list::get(caller_locals, local) },
                     ),
-                    span
-                }
+                    span,
+                },
             ),
-            rest
+            rest,
         ),
     };
 
@@ -6457,7 +6457,7 @@ k::rules! {
         k: [
             Continue {
                 value: Boolean(condition),
-                continuation: FinishAssert { expected, message }
+                continuation: FinishAssert { expected, message },
             },
             ..
         ],
@@ -6479,8 +6479,8 @@ k::rules! {
             Continue {
                 value: Boolean(true),
                 continuation: SelectBlock(
-                    SwitchTargets { branches: [Branch { value: 1, target }, ..], .. }
-                )
+                    SwitchTargets { branches: [Branch { value: 1, target }, ..], .. },
+                ),
             },
             ..
         ],
@@ -6497,9 +6497,9 @@ k::rules! {
                 continuation: SelectBlock(
                     SwitchTargets {
                         branches: [Branch { value: branch_value, .. }, tail @ ..],
-                        otherwise
-                    }
-                )
+                        otherwise,
+                    },
+                ),
             },
             ..
         ],
@@ -6507,7 +6507,7 @@ k::rules! {
         k: [
             Continue {
                 value: Boolean(true),
-                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise })
+                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise }),
             },
             ..
         ],
@@ -6518,8 +6518,8 @@ k::rules! {
             Continue {
                 value: Boolean(false),
                 continuation: SelectBlock(
-                    SwitchTargets { branches: [Branch { value: 0, target }, ..], .. }
-                )
+                    SwitchTargets { branches: [Branch { value: 0, target }, ..], .. },
+                ),
             },
             ..
         ],
@@ -6536,9 +6536,9 @@ k::rules! {
                 continuation: SelectBlock(
                     SwitchTargets {
                         branches: [Branch { value: branch_value, .. }, tail @ ..],
-                        otherwise
-                    }
-                )
+                        otherwise,
+                    },
+                ),
             },
             ..
         ],
@@ -6546,7 +6546,7 @@ k::rules! {
         k: [
             Continue {
                 value: Boolean(false),
-                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise })
+                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise }),
             },
             ..
         ],
@@ -6558,8 +6558,8 @@ k::rules! {
             Continue {
                 value: Integer { value, width, .. },
                 continuation: SelectBlock(
-                    SwitchTargets { branches: [Branch { value: branch_value, target }, ..], .. }
-                )
+                    SwitchTargets { branches: [Branch { value: branch_value, target }, ..], .. },
+                ),
             },
             ..
         ],
@@ -6576,9 +6576,9 @@ k::rules! {
                 continuation: SelectBlock(
                     SwitchTargets {
                         branches: [Branch { value: branch_value, .. }, tail @ ..],
-                        otherwise
-                    }
-                )
+                        otherwise,
+                    },
+                ),
             },
             ..
         ],
@@ -6586,7 +6586,7 @@ k::rules! {
         k: [
             Continue {
                 value: Integer { value, width, signed },
-                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise })
+                continuation: SelectBlock(SwitchTargets { branches: tail, otherwise }),
             },
             ..
         ],
@@ -6602,7 +6602,7 @@ k::rules! {
         unwind: callee_unwind,
         locals: list::concat(
             list::item(TypedValue { value, ty: return_ty, mutability: return_mutability }),
-            callee_locals_tail
+            callee_locals_tail,
         ),
         stack: list::concat(
             list::item(
@@ -6612,10 +6612,10 @@ k::rules! {
                     target: new_target,
                     unwind: new_unwind,
                     locals: new_locals,
-                    span: return_span
-                }
+                    span: return_span,
+                },
             ),
-            remaining_stack
+            remaining_stack,
         ),
         functions,
         ret_val: NoReturn(),
@@ -6645,7 +6645,7 @@ k::rules! {
         unwind: callee_unwind,
         locals: list::concat(
             list::item(NewLocal { ty: return_ty, mutability: return_mutability }),
-            callee_locals_tail
+            callee_locals_tail,
         ),
         stack: list::concat(
             list::item(
@@ -6655,10 +6655,10 @@ k::rules! {
                     target: new_target,
                     unwind: new_unwind,
                     locals: new_locals,
-                    span: return_span
-                }
+                    span: return_span,
+                },
             ),
-            remaining_stack
+            remaining_stack,
         ),
         functions,
         ret_val: NoReturn(),
