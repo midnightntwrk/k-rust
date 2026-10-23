@@ -159,10 +159,11 @@ pub fn collect_with(
             lw.finish_lhs().map_err(|e| format!("rule {what}: {e}"))?;
             lw.cond(req).map_err(|e| format!("rule {what}: {e}"))?;
             let lhs_len = lw.steps.len();
-            let rhs_l = lw
+            let mut rhs_l = lw
                 .expr(rhs, &top)
                 .map_err(|e| format!("rule {what}: {e}"))?;
-            let steps = lw.steps.clone();
+            let mut steps = lw.steps.clone();
+            render::inline_top(&mut steps, &mut rhs_l, "c");
             let app = render::relation(&steps[..lhs_len], "c", &lw.ty, &[]);
             let step = render::relation(&steps, "c", &lw.ty, &[]);
             let base0 = rule_names
