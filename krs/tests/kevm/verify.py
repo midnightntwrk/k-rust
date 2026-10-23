@@ -99,6 +99,7 @@ HASKELL_BACKEND_GAPS: Mapping[str, str] = {
             "ecpairing-precompile-generator-is-not-identity",
             "ecpairing-precompile-invalid-g1",
             "ecpairing-precompile-invalid-g2",
+            "ecpairing-precompile-malformed-length",
             "ecpairing-precompile-out-of-gas",
         )
     },
