@@ -175,12 +175,12 @@ krust fuzz --replay witness.json
 ```
 
 A rule target (`--reach-rule RULE`, the file's `rule`) names one rule of the definition's catalog, read by the shape of `RULE`:
-`FILE:LINE`, where `LINE` is a decimal number, is a source position, any line from the rule's first to its last, as kink lists uncovered rules (`imp.k:47`).
+`FILE:LINE`, where `LINE` is a decimal number, is a source position, any line from the rule's first to its last, as kink lists uncovered rules (`imp.k:47`). `FILE:FIRST-LAST`, the range the summary prints for a rule written on several lines (`calc.k:28-30`), names the rule that spans `FIRST`, as `FILE:FIRST` does; the summary's `target rule:` line shows the rule chosen.
 `FILE` must name exactly one file of the definition: a whole catalog path names its file; otherwise the paths it is a suffix of after a `/`, or, for an absolute `FILE`, the relative paths it ends with; a leading `./` is dropped, and a `FILE` that names several files is refused, whatever the line, with the files listed.
 Exactly 64 hexadecimal digits are a unique id, as the report names rules and the summary's `krun` line prints them; any other text is a label, `IMP.neg` or, when no label is that, `neg`.
 Every rule has a source position and a unique id, so a label of either shape is still named by those, and unlabelled rules (most of SIMPLE's, IMP's expression rules) need no labelled copy of the definition.
 A reference that names no rule is refused with what can be named instead: the nearest labels and the number of unlabelled rules, the rules written nearest the line, or the files that hold rules; one that names several rules lists them with their unique ids.
-The report's `identity.target-rule` names the rule a rule target resolved to, and its `totals.coverage.names` gives every reached id its kind, label and source locations; each location's `reference` is the shortest path suffix that names its file alone, so `reference:line` as printed is a valid `RULE`.
+The report's `identity.target-rule` names the rule a rule target resolved to, and its `totals.coverage.names` gives every reached id its kind, label and source locations; each location's `reference` is the shortest path suffix that names its file alone, so `reference:line` (or `reference:first-last`) as printed is a valid `RULE`.
 The summary names the target rule, then lists the rewrite rules the cases applied, and those whose condition was entered but which never applied, by source position, label and unique id.
 
 A compiled directory is loaded as `krust krun --definition` loads it (`k_rust::native::load_runnable_artifact`, plus the directory's `syntaxDefinition.kore` and `macros.kore`, which printing and reading back data values need), and every backend is built on krun's route, with the compiler's rewrite order.

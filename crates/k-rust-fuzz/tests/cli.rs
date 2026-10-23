@@ -1115,7 +1115,9 @@ fn a_line_inside_a_multi_line_rule_names_that_rule() {
             ("walk.toml", campaign),
         ],
     );
-    for line in ["37", "39", "40"] {
+    // `37-40` is the range the summary prints for `enter` (FZ-RULEREF review I1): fed back, it
+    // names the same rule.
+    for line in ["37", "39", "40", "37-40"] {
         let rule = format!("maze.k:{line}");
         let output = krust_fuzz(
             &directory,
@@ -1126,6 +1128,11 @@ fn a_line_inside_a_multi_line_rule_names_that_rule() {
             Some(0),
             "{rule}: {}",
             text(&output.stderr)
+        );
+        assert!(
+            text(&output.stdout).contains("target rule: maze.k:37-40"),
+            "{rule}: {}",
+            text(&output.stdout)
         );
     }
 }

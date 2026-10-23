@@ -573,28 +573,50 @@ impl LoadedCampaign {
 
 /// A rule reference written as text, read by its shape: `FILE:LINE`, where `LINE` is a decimal
 /// number, names the rule whose source location in `FILE` spans that line (a leading `./` of
-/// `FILE` is dropped); 64 hexadecimal digits are a unique id; any other text is a label. Every
-/// rule has a source location and a unique id, so a label of either shape is still named by
-/// those.
+/// `FILE` is dropped); `FILE:FIRST-LAST`, the form the summary and the refusals print for a rule
+/// written on several lines, names the rule that spans `FIRST`, as `FILE:FIRST` does (rules do not
+/// overlap, so the rule printed with that range is the one spanning its first line; the
+/// summary's `target rule:` line shows the rule chosen); 64 hexadecimal digits are a unique id;
+/// any other text is a label. Every rule has a source location and a unique id, so a label of
+/// any of these shapes is still named by those.
 ///
 /// # Errors
 ///
-/// A `FILE:LINE` whose line is 0 or does not fit 32 bits.
+/// A `FILE:LINE` whose line is 0 or does not fit 32 bits, or a `FILE:FIRST-LAST` whose last line
+/// precedes its first.
 pub fn rule_ref(text: &str) -> Result<RuleRef, String> {
-    if let Some((file, line)) = text.rsplit_once(':')
+    let decimal = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    if let Some((file, lines)) = text.rsplit_once(':')
         && !file.is_empty()
-        && !line.is_empty()
-        && line.bytes().all(|byte| byte.is_ascii_digit())
+        && (decimal(lines)
+            || lines
+                .split_once('-')
+                .is_some_and(|(first, last)| decimal(first) && decimal(last)))
     {
-        let line = line
-            .parse::<u32>()
-            .ok()
-            .filter(|line| *line > 0)
-            .ok_or_else(|| {
-                format!(
-                    "the rule `{text}`: a source line is a number from 1, the file's first line"
-                )
-            })?;
+        let number = |part: &str| {
+            part.parse::<u32>()
+                .ok()
+                .filter(|line| *line > 0)
+                .ok_or_else(|| {
+                    format!(
+                        "the rule `{text}`: a source line is a number from 1, the file's first \
+                         line"
+                    )
+                })
+        };
+        let line = match lines.split_once('-') {
+            None => number(lines)?,
+            Some((first, last)) => {
+                let (first, last) = (number(first)?, number(last)?);
+                if last < first {
+                    return Err(format!(
+                        "the rule `{text}`: a line range runs from its first line to its last, \
+                         which cannot precede it"
+                    ));
+                }
+                first
+            }
+        };
         let mut source = file;
         while let Some(rest) = source.strip_prefix("./") {
             source = rest;

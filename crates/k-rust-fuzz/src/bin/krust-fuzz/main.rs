@@ -89,7 +89,7 @@ struct Args {
         value_name = "RULE",
         conflicts_with_all = ["pattern", "differential"],
         help = "Target: this rule fires (or see --rule-mode). RULE is FILE:LINE (any line of the \
-                rule, as kink lists rules), the rule's unique id (64 hexadecimal digits, as the \
+                rule, as kink lists rules) or FILE:FIRST-LAST (as the summary prints it), the rule's unique id (64 hexadecimal digits, as the \
                 report names rules), or its label (IMP.overflow, or overflow when no label is that)"
     )]
     reach_rule: Option<String>,
@@ -760,12 +760,19 @@ mod tests {
         assert_eq!(rule_ref("/abs/imp.k:52"), Ok(source("/abs/imp.k", 52)));
         assert!(rule_ref("imp.k:0").is_err());
         assert!(rule_ref("imp.k:99999999999").is_err());
+        // The range a multi-line rule is printed with names that rule (FZ-RULEREF review I1).
+        assert_eq!(rule_ref("calc.k:28-30"), Ok(source("calc.k", 28)));
+        assert_eq!(rule_ref("./calc.k:28-28"), Ok(source("calc.k", 28)));
+        assert!(rule_ref("calc.k:30-28").is_err());
+        assert!(rule_ref("calc.k:0-3").is_err());
         let id = "5AC0F147".repeat(8);
         assert_eq!(
             rule_ref(&id),
             Ok(RuleRef::UniqueId(id.to_ascii_lowercase()))
         );
-        for label in ["IMP.neg", "neg", "5ac0f147", "imp.k:", ":12", "a:b"] {
+        for label in [
+            "IMP.neg", "neg", "5ac0f147", "imp.k:", ":12", "a:b", "imp.k:3-", "imp.k:-3", "a:1-2-3",
+        ] {
             assert_eq!(
                 rule_ref(label),
                 Ok(RuleRef::Label(label.to_owned())),
