@@ -4692,7 +4692,7 @@ k::rules! {
     } => {
         k: [Run(), FinishStaticCall { return_start, return_width }, ..],
         call_stack: list::concat(
-            list::item(k::fragment![CallState {
+            list::item(CallState {
                 word_stack: rest,
                 local_mem: PrepareCopyMemory {
                     memory: PrepareCopyMemory {
@@ -4716,7 +4716,7 @@ k::rules! {
                 },
                 call_gas: StaticCallGas { requested: gas_cap, available: remaining },
                 ..caller_frame
-            }]),
+            }),
             call_stack,
         ),
         interim_states: list::concat(
@@ -4764,17 +4764,17 @@ k::rules! {
 
     finish_static_call_success: {
         k: [FinishStaticCall { return_start, return_width }, ..],
-        call_stack: k::term![list::concat(
+        call_stack: list::concat(
             list::item(
-                caller_frame @ k::fragment![CallState {
+                caller_frame @ CallState {
                     word_stack: caller_stack,
                     local_mem: caller_memory,
                     gas: caller_gas,
                     ..
-                }],
+                },
             ),
             remaining_call_stack,
-        )],
+        ),
         interim_states: list::concat(list::item(saved_world_state), remaining_interim_states),
         output: child_output,
         status_code: Status::Success(),
@@ -4801,17 +4801,17 @@ k::rules! {
 
     finish_static_call_revert: {
         k: [FinishStaticCall { return_start, return_width }, ..],
-        call_stack: k::term![list::concat(
+        call_stack: list::concat(
             list::item(
-                caller_frame @ k::fragment![CallState {
+                caller_frame @ CallState {
                     word_stack: caller_stack,
                     local_mem: caller_memory,
                     gas: caller_gas,
                     ..
-                }],
+                },
             ),
             remaining_call_stack,
-        )],
+        ),
         interim_states: list::concat(
             list::item(SavedWorldState::Snapshot {
                 account_id,
@@ -4887,10 +4887,10 @@ k::rules! {
 
     finish_static_call_exception: {
         k: [FinishStaticCallExceptional { return_start, return_width }, ..],
-        call_stack: k::term![list::concat(
-            list::item(caller_frame @ k::fragment![CallState { word_stack: caller_stack, .. }]),
+        call_stack: list::concat(
+            list::item(caller_frame @ CallState { word_stack: caller_stack, .. }),
             remaining_call_stack,
-        )],
+        ),
         interim_states: list::concat(
             list::item(SavedWorldState::Snapshot {
                 account_id,

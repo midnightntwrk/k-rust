@@ -691,17 +691,17 @@ pub fn LookupMaybeTy(types: k::Term<Map>, ty: k::Term<MaybeTy>) -> k::Term<TypeI
 fn lookup_maybe_ty_known(
     types: k::Term<Map>,
     ty: k::Term<Ty>,
-    k::term![LookupMaybeTy { types, ty }]: k::Term<TypeInfo>,
+    LookupMaybeTy { types, ty }: k::Term<TypeInfo>,
 ) -> k::Term<TypeInfo> {
     map::get(types, ty)
 }
 
 #[k::equation]
 fn lookup_maybe_ty_unknown(
-    k::term![LookupMaybeTy {
+    LookupMaybeTy {
         ty: MirMaybeTy::TyUnknown(),
         ..
-    }]: k::Term<TypeInfo>,
+    }: k::Term<TypeInfo>,
 ) -> k::Term<TypeInfo> {
     MirTypeInfo::VoidType()
 }
