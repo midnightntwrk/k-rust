@@ -20,10 +20,14 @@ use k_rust_fuzz::{
 use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
-    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIAMOND, DIAMOND_PLUS, Fixture, IMP_ADD_COMMUTED,
-    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL, RERUN,
-    RERUN_DROP,
+    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
+    IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
+    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
+    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
+    R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
 };
+#[cfg(feature = "z3")]
+use support::{R2_PARAM, R2_PARAM_M};
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
     spec_on(&COIN, mutant, "coin/flip.pgm", None)
@@ -66,6 +70,7 @@ fn spec_on(
             kind: TargetKind::Differential(DifferentialTarget::default()),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         options: CaseOptions::default(),
         proposers: ProposerConfig {
@@ -607,4 +612,242 @@ fn a_re_run_case_is_judged_and_explained_by_the_re_run() {
             "{paths:?}"
         );
     }
+}
+
+// ---- ends that hold overload applications (FZ-DATAEND; FZ-OVERLIST, TRIAL2 S-T1)
+
+/// `h(N)` on `baseline` and `mutant`, the anchor and 16 cases.
+fn ov_report(baseline: &'static Fixture, mutant: &'static Fixture) -> k_rust_fuzz::FuzzReport {
+    let report = Campaign::new(spec_on(baseline, mutant, "ov/three.pgm", None))
+        .expect("valid")
+        .run(Budget::Cases(16), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    report
+}
+
+/// Every case that ran is `unsupported` (a negative value does not parse as `h`'s argument and is
+/// `rejected`), and some case ran.
+fn assert_only_unsupported(report: &k_rust_fuzz::FuzzReport) {
+    let classes = &report.totals.classes;
+    assert!(
+        classes.contains_key(&OutcomeClass::Unsupported),
+        "{classes:?}"
+    );
+    assert!(
+        classes
+            .keys()
+            .all(|class| matches!(class, OutcomeClass::Unsupported | OutcomeClass::Rejected)),
+        "{classes:?}"
+    );
+}
+
+/// The baseline ends with `_,_Exps(3, .Ids)`, the mutant with `_,_Exps(0, _,_Exps(3, .Ids))`:
+/// irreducible applications of the overload head `_,_Exps`, which both definitions give the same
+/// overload equations. Both ends are data, so the anchor kills; before FZ-DATAEND condition 4
+/// read only free constructors and every case was `unsupported`.
+#[test]
+fn an_end_holding_an_irreducible_overload_application_is_compared() {
+    let report = ov_report(&OV, &OV_PREPEND);
+    let witness = report.witness().expect("a kill");
+    assert_eq!(witness.first.kill, Some(KillKind::AddedEnd));
+    assert_eq!(witness.first.holes[0].value, Value::Int(BigInt::from(3)));
+    assert!(
+        witness
+            .clean_leaf_facts
+            .contains(&"mutant-end-data".to_owned()),
+        "{:?}",
+        witness.clean_leaf_facts
+    );
+}
+
+/// The mutant adds a list to the family, so `_,_Exps` has an overload equation the baseline
+/// lacks: an application of it that is a normal form of the baseline is reducible in the mutant,
+/// and the two definitions do not name the same values with it. The baseline's end holds one, so
+/// no end is compared: never a kill.
+#[test]
+fn a_mutant_whose_overload_equations_differ_is_never_killed_through_them() {
+    let report = ov_report(&OV, &OV_INTS);
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// An end that holds an unevaluated total function application is not data, on either side:
+/// its value is whatever a model makes of the function, which may be the other side's end.
+#[test]
+fn an_end_holding_a_function_application_is_never_compared() {
+    for (baseline, mutant, reason) in [
+        (&OV, &OV_SIZE, UnjudgedReason::MutantEndNotData),
+        (&OV_SIZE, &OV, UnjudgedReason::BaselineEndNotData),
+    ] {
+        let report = ov_report(baseline, mutant);
+        assert!(report.witness().is_none(), "{:?}", report.outcome);
+        assert_only_unsupported(&report);
+        // Both definitions are confluent: the side whose end is not data is named (INT7).
+        assert_eq!(
+            report.totals.unsupported_reasons.keys().collect::<Vec<_>>(),
+            vec![&reason],
+            "{}",
+            baseline.file
+        );
+    }
+}
+
+/// FZ-DATAEND review B2: in a broken overload family (`.Exps` lowers to both `.Ids` and `.Vals`,
+/// a pair that does not join) the overload axioms equate the constructor terms `.Ids` and
+/// `.Vals`. The baseline stores one and the mutant the other: one value, so never a kill, though
+/// both ends are constructor terms. Main and fz26/diffend kill it.
+#[test]
+fn constructor_ends_a_broken_overload_family_equates_are_never_compared() {
+    let report = Campaign::new(spec_on(&DIA, &DIA_M, "dia/go.pgm", None))
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// FZ-DATAEND review B1: `f_K(kseq(inj(X), dotk)) = f_Exp(X)` is an overload equation of another
+/// shape than the argument covers. The baseline's end `f_K(bar ~> .K)` is irreducible there, and
+/// the mutant, which adds `Exp ::= Bar`, ends with its lowering `f_Exp(bar)`: one value of the
+/// mutant. `f_K` is no data head, so never a kill (the first FZ-DATAEND head killed it).
+#[test]
+fn an_overload_of_another_shape_is_never_compared_through() {
+    let report = Campaign::new(spec_on(&KPLACE, &KPLACE_M, "kplace/go.pgm", None))
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+// ---- each end judged by both definitions (FZ-DATAEND review round 2)
+
+/// 8 cases of `go(N)` on `baseline` and `mutant`, without engine defects.
+fn r2_report(
+    baseline: &'static Fixture,
+    mutant: &'static Fixture,
+    program: &str,
+) -> k_rust_fuzz::FuzzReport {
+    let report = Campaign::new(spec_on(baseline, mutant, program, None))
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    report
+}
+
+/// R2-B1: the mutant adds `Nm ::= MInt{8}`, so the baseline's normal form
+/// `f_Exp(inj{MInt{8},Exp}(2p8))` lowers in the mutant to the mutant's end. Data in the baseline,
+/// not in the mutant: never a kill (the round-1 head killed it). Parametric sorts need Z3 sort
+/// inference to compile.
+#[cfg(feature = "z3")]
+#[test]
+fn an_end_a_parametric_subsort_makes_reducible_in_the_mutant_is_never_compared() {
+    let report = r2_report(&R2_PARAM, &R2_PARAM_M, "r2-param/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// R2-B2: the mutant adds the overload member `Bot ::= f(Bot)`, so the baseline's free
+/// constructor `f_Nm` is an overload head of the mutant, and `f_Nm(inj(b))` its lowering's
+/// source. Never a kill (main and fz26/diffend kill it).
+#[test]
+fn an_end_an_added_overload_member_lowers_is_never_compared() {
+    let report = r2_report(&R2_ADDMEMBER, &R2_ADDMEMBER_M, "r2-addmember/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// R2-B2 without overloads: the mutant adds `rule c(1) => d [anywhere]`, so the baseline's end
+/// `c(1)` is the mutant's end `d` in the mutant's theory. Never a kill (main kills it).
+#[test]
+fn an_end_an_added_anywhere_rule_rewrites_is_never_compared() {
+    let report = r2_report(&R2_ANYW, &R2_ANYW_M, "r2-anyw/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+}
+
+/// R2-S1, revised by round 3: an unused overload placed across `K` is a premise violation the
+/// load reports, so the definition's equations are not shown confluent and none of its ends is
+/// data, `kseq` and `dotk` included: the ends `1` and `2` are not compared, and the report says
+/// why.
+#[test]
+fn an_unused_k_placed_overload_leaves_the_definition_without_data() {
+    let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// The report names, for each of `sides`, why its definition has no data, and counts every
+/// `unsupported` case under `definition-not-confluent`, not under a side's not-data reason
+/// (INT7).
+fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
+    assert_eq!(
+        report.totals.unsupported_reasons,
+        BTreeMap::from([(
+            UnjudgedReason::DefinitionNotConfluent,
+            report.totals.classes[&OutcomeClass::Unsupported]
+        )])
+    );
+    for side in sides {
+        let prefix = format!("definition-not-confluent ({side}): ");
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with(&prefix)),
+            "{prefix} missing in {:?}",
+            report.warnings
+        );
+    }
+}
+
+// ---- definitions whose equations are not confluent (FZ-DATAEND review round 3)
+
+/// R3-B1: `p(_:Id, _:Ids) => a` and `p(_:Exp, _:Exps) => bb` overlap modulo the overload axiom,
+/// so the theory equates `a` with `bb` and through every equation that tells them apart. The
+/// definitions' checks report the pair: no end is data, never a kill (main and fz26/diffend kill
+/// it), and the report carries the finding.
+#[test]
+fn a_definition_whose_check_reports_a_pair_has_no_data() {
+    let report = r2_report(&R3_MODOV, &R3_MODOV_M, "r3-modov/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// R3-B1: the broken diamond's identification of `.Ids` with `.Vals` reaches `a` and `bb`
+/// through `pick`. Never a kill (main and fz26/diffend kill it).
+#[test]
+fn an_identification_reached_through_a_function_is_never_a_kill() {
+    let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// R3-S1: `q(_) => a` and `q(_) => bb` equate `a` with `bb`; the load's check does not pair them
+/// (they withdraw no value claim), the full check the campaign runs at setup does. Never a kill.
+#[test]
+fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
+    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
 }

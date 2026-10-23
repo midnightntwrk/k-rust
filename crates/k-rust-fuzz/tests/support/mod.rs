@@ -649,6 +649,79 @@ fixture!(
     DIAMOND_PROGRAMS
 );
 
+/// The overloaded list family (FZ-OVERLIST, FZ-DATAEND): a baseline whose end holds an
+/// irreducible application of the overload head `_,_Exps`, a mutant with the same overload
+/// equations whose end differs, one whose overload equations differ, and one whose end holds an
+/// unevaluated total function.
+pub const OV_PROGRAMS: &[Program] = &[program!("ov/three.pgm")];
+fixture!(OV, "ov/ov.k", "OV", OV_PROGRAMS);
+fixture!(OV_PREPEND, "ov/ov-prepend.k", "OV", OV_PROGRAMS);
+fixture!(OV_INTS, "ov/ov-ints.k", "OV", OV_PROGRAMS);
+fixture!(OV_SIZE, "ov/ov-size.k", "OV", OV_PROGRAMS);
+
+/// FZ-DATAEND review B2: a broken overload family whose axioms equate the constructor terms
+/// `.Ids` and `.Vals`, stored by the baseline and the mutant.
+pub const DIA_PROGRAMS: &[Program] = &[program!("dia/go.pgm")];
+fixture!(DIA, "dia/dia.k", "DIA", DIA_PROGRAMS);
+fixture!(DIA_M, "dia/dia-m.k", "DIA", DIA_PROGRAMS);
+
+/// FZ-DATAEND review B1: an overload placed across `K`, and a mutant that adds a subsort below
+/// the overload's argument sort.
+pub const KPLACE_PROGRAMS: &[Program] = &[program!("kplace/go.pgm")];
+fixture!(KPLACE, "kplace/kp.k", "KP", KPLACE_PROGRAMS);
+fixture!(KPLACE_M, "kplace/kp-m.k", "KP", KPLACE_PROGRAMS);
+
+/// FZ-DATAEND review round 2: each a baseline and a mutant whose theories read one end
+/// differently (a parametric subsort, an added overload member, an added `anywhere` rule), and
+/// a broken family that must not refuse unrelated symbols.
+/// The parametric pair needs Z3 sort inference to compile, so it is not in [`ALL`], which the
+/// portable build judges too; its campaign test is `z3`-gated.
+pub const R2_PARAM_PROGRAMS: &[Program] = &[program!("r2-param/go.pgm")];
+fixture!(R2_PARAM, "r2-param/b.k", "PM", R2_PARAM_PROGRAMS);
+fixture!(R2_PARAM_M, "r2-param/m.k", "PM", R2_PARAM_PROGRAMS);
+pub const R2_ADDMEMBER_PROGRAMS: &[Program] = &[program!("r2-addmember/go.pgm")];
+fixture!(
+    R2_ADDMEMBER,
+    "r2-addmember/b.k",
+    "AM",
+    R2_ADDMEMBER_PROGRAMS
+);
+fixture!(
+    R2_ADDMEMBER_M,
+    "r2-addmember/m.k",
+    "AM",
+    R2_ADDMEMBER_PROGRAMS
+);
+pub const R2_ANYW_PROGRAMS: &[Program] = &[program!("r2-anyw/go.pgm")];
+fixture!(R2_ANYW, "r2-anyw/b.k", "AW", R2_ANYW_PROGRAMS);
+fixture!(R2_ANYW_M, "r2-anyw/m.k", "AW", R2_ANYW_PROGRAMS);
+pub const R2_OVER_PROGRAMS: &[Program] = &[program!("r2-over/go.pgm")];
+fixture!(R2_OVER, "r2-over/b.k", "KP", R2_OVER_PROGRAMS);
+fixture!(R2_OVER_M, "r2-over/m.k", "KP", R2_OVER_PROGRAMS);
+
+/// FZ-DATAEND review round 3: definitions whose equations are not confluent (an overlap modulo
+/// an overload axiom, a broken family reached through a function, two function equations with
+/// different results); each baseline stores `a` and its mutant `bb`, which its theory equates.
+pub const R3_MODOV_PROGRAMS: &[Program] = &[program!("r3-modov/go.pgm")];
+fixture!(R3_MODOV, "r3-modov/b.k", "MO", R3_MODOV_PROGRAMS);
+fixture!(R3_MODOV_M, "r3-modov/m.k", "MO", R3_MODOV_PROGRAMS);
+pub const R3_PROPAGATE_PROGRAMS: &[Program] = &[program!("r3-propagate/go.pgm")];
+fixture!(
+    R3_PROPAGATE,
+    "r3-propagate/b.k",
+    "PR",
+    R3_PROPAGATE_PROGRAMS
+);
+fixture!(
+    R3_PROPAGATE_M,
+    "r3-propagate/m.k",
+    "PR",
+    R3_PROPAGATE_PROGRAMS
+);
+pub const R3_PLAINQ_PROGRAMS: &[Program] = &[program!("r3-plainq/go.pgm")];
+fixture!(R3_PLAINQ, "r3-plainq/b.k", "PQ", R3_PLAINQ_PROGRAMS);
+fixture!(R3_PLAINQ_M, "r3-plainq/m.k", "PQ", R3_PLAINQ_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -876,7 +949,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 54] = [
+pub static ALL: [&Fixture; 74] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -931,4 +1004,24 @@ pub static ALL: [&Fixture; 54] = [
     &QOPT,
     &RERUN,
     &RERUN_DROP,
+    &OV,
+    &OV_PREPEND,
+    &OV_INTS,
+    &OV_SIZE,
+    &DIA,
+    &DIA_M,
+    &KPLACE,
+    &KPLACE_M,
+    &R2_ADDMEMBER,
+    &R2_ADDMEMBER_M,
+    &R2_ANYW,
+    &R2_ANYW_M,
+    &R2_OVER,
+    &R2_OVER_M,
+    &R3_MODOV,
+    &R3_MODOV_M,
+    &R3_PROPAGATE,
+    &R3_PROPAGATE_M,
+    &R3_PLAINQ,
+    &R3_PLAINQ_M,
 ];

@@ -146,6 +146,14 @@ impl BackendDefinition {
     }
 }
 
+/// Run `body` with one memo of instance normality open across all the
+/// [`BackendDefinition::instance_normal`] calls it makes, so that a walk asking about nested
+/// applications decides each subterm once (`data_term`).
+pub(crate) fn with_scan_memo<R>(body: impl FnOnce() -> R) -> R {
+    let _scope = ScanScope::enter();
+    body()
+}
+
 thread_local! {
     /// The instance normality of the terms decided during the outermost
     /// [`BackendDefinition::instance_normal`] call on this thread, if one is open. Equation

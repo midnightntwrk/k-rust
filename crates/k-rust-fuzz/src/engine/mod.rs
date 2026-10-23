@@ -119,6 +119,7 @@ impl Campaign {
         let spec = Arc::new(spec);
         let mut cases = LiveCases::build(Arc::clone(&spec))?;
         let rules = cases.rule_index()?;
+        let definition_findings = cases.definition_findings();
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
@@ -180,7 +181,7 @@ impl Campaign {
         let mut identity = identity(&spec, &initial)?;
         identity.effective_constraints = effective_constraints(holes);
         identity.target_rule = rules.target;
-        let warnings = campaign_warnings(holes, graph.as_deref());
+        let warnings = campaign_warnings(holes, graph.as_deref(), definition_findings);
         let settings = LoopSettings {
             identity,
             rejection_cap: spec.rejection_cap,
@@ -715,8 +716,13 @@ fn effective_constraints(holes: &[ResolvedHole]) -> Vec<EffectiveConstraints> {
 }
 
 /// The warnings every report of the campaign starts with: one per narrowed hole, then the rule
-/// graph's (ARCHITECTURE 6.3).
-fn campaign_warnings(holes: &[ResolvedHole], graph: Option<&GraphCheck>) -> Vec<String> {
+/// graph's (ARCHITECTURE 6.3), then each definition's `definition-not-confluent` findings
+/// ([`LiveCases::definition_findings`]).
+fn campaign_warnings(
+    holes: &[ResolvedHole],
+    graph: Option<&GraphCheck>,
+    definition_findings: Vec<String>,
+) -> Vec<String> {
     holes
         .iter()
         .filter_map(|hole| Some(hole.narrowing.as_ref()?.warning(hole)))
@@ -725,6 +731,7 @@ fn campaign_warnings(holes: &[ResolvedHole], graph: Option<&GraphCheck>) -> Vec<
                 .map(|graph| graph.warnings().to_vec())
                 .unwrap_or_default(),
         )
+        .chain(definition_findings)
         .collect()
 }
 
@@ -829,7 +836,9 @@ fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
 /// - a target that matches a pattern on the leaf (a pattern target, or any target with
 ///   `run-to-completion`, which matches the normal-termination pattern): a decided match;
 /// - a target whose hit rests on run-level facts (the coverage modes, D18) or on a set of ends
-///   (differential): no run-level fact off every leaf (D16).
+///   (differential): no run-level fact off every leaf (D16);
+/// - a rule or pattern target with `run-to-completion` and `data-end`: the end is data
+///   ([`crate::Target::data_end`]).
 fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
     let mut facts: Vec<&str> = vec![
         "halt-stuck-or-target-terminal",
@@ -870,6 +879,9 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
             facts.push("decided-match");
         }
         facts.push("natural-end");
+    }
+    if spec.target.requires_data_end() {
+        facts.push("end-data");
     }
     facts.into_iter().map(str::to_owned).collect()
 }

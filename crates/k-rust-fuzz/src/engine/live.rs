@@ -10,7 +10,7 @@ use std::{
 
 use k_rust::{
     backend::{Backend, CancellationToken, HaltReasonOutput, StopCause},
-    k_rust_backend::definition::BackendDefinition,
+    k_rust_backend::{data_term::DataHeads, definition::BackendDefinition},
     kore::ast::Pattern as KorePattern,
 };
 
@@ -64,6 +64,9 @@ pub(crate) struct Side {
 #[derive(Clone, Copy, Default)]
 struct Seed<'a> {
     internalized: Option<&'a Arc<BackendDefinition>>,
+    /// The definition's data heads, when the campaign's own side computed them (they run the
+    /// full critical-pair check).
+    data_heads: Option<&'a DataHeads>,
     normal_end: Option<&'a NormalEnd>,
     resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
 }
@@ -100,7 +103,7 @@ impl Side {
             };
             (backend, internalized)
         };
-        let (mut executor, normal_end) = if let Some(normal_end) = seed.normal_end {
+        let (executor, normal_end) = if let Some(normal_end) = seed.normal_end {
             (
                 Executor::with_normal_end(backend, normal_end, &spec.options)?,
                 normal_end.clone(),
@@ -112,6 +115,7 @@ impl Side {
                 .with_compiler(compiler);
             (executor, normal_end)
         };
+        let mut executor = executor.with_data_heads(seed.data_heads.cloned());
         if let Some((holes, round_trip)) = seed.resolved {
             return Ok(Self {
                 definition: Arc::clone(definition),
@@ -499,6 +503,35 @@ impl LiveCases {
             .collect()
     }
 
+    /// The report's warnings about each definition whose full critical-pair check is not clean
+    /// (`k_rust_backend::data_term`): none of its ends is data, so a differential case whose
+    /// ends it reads, or a hit that needs a data end, is `unsupported`. One line per finding,
+    /// prefixed `definition-not-confluent` and the side. Computed only when the campaign reads
+    /// data ends (a differential target, or `requires_data_end`); otherwise empty.
+    pub(crate) fn definition_findings(&mut self) -> Vec<String> {
+        let mut sides = vec![("baseline", &mut self.baseline)];
+        match &mut self.judge {
+            Judge::Differential(mutant) => sides.push(("mutant", mutant)),
+            Judge::Target(_) if self.spec.target.requires_data_end() => {}
+            Judge::Target(_) => return Vec::new(),
+        }
+        let mut warnings = Vec::new();
+        for (role, side) in sides {
+            match side.executor.data_heads() {
+                Ok(heads) => warnings.extend(heads.findings().iter().map(|finding| {
+                    format!(
+                        "definition-not-confluent ({role}): no end of this definition is data, \
+                         since its full critical-pair check reports: {finding}"
+                    )
+                })),
+                Err(error) => warnings.push(format!(
+                    "definition-not-confluent ({role}): the main module does not load: {error}"
+                )),
+            }
+        }
+        warnings
+    }
+
     /// The baseline's internalized definition on the `source-execution` route, the campaign's
     /// only internalization of it ([`Side::internalized`]); `None` on the `from-definition`
     /// route.
@@ -716,7 +749,7 @@ impl LiveCases {
         match judged {
             Ok(judgement) => {
                 run.class = judgement.class;
-                run.unjudged = judgement.reason;
+                run.unjudged = data_reason(judgement.reason, &self.baseline, None);
                 run.blocked = judgement.blocked;
                 if judgement.class == OutcomeClass::Hit {
                     // A leaf hit names its leaf; a hit of the whole run (D16) names none, and
@@ -801,17 +834,12 @@ impl LiveCases {
             Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
         };
         let side = &mut self.baseline;
-        let baseline = side
-            .executor
-            .run(&baseline_case.assembled, &side.shape, &[], cancel)?;
-        let one_path = mutant
-            .executor
-            .run(&mutant_case.assembled, &mutant.shape, &[], cancel)?;
         let run_to_completion = self.spec.target.run_to_completion;
-        let rerun = mutant.rerun_on_all_paths(
+        let (baseline, one_path, rerun) = run_sides(
+            side,
+            mutant,
+            &baseline_case.assembled,
             &mutant_case.assembled,
-            &baseline,
-            &one_path,
             run_to_completion,
             cancel,
         )?;
@@ -834,7 +862,7 @@ impl LiveCases {
         match differential::judge_pair_explained(&baseline, mutated, paths, run_to_completion) {
             Ok((judgement, reason)) => {
                 run.class = judgement.class;
-                run.unjudged = reason;
+                run.unjudged = data_reason(reason, &self.baseline, Some(mutant));
                 let judged = match judgement.class {
                     OutcomeClass::BaselineIncomplete => &baseline,
                     _ => mutated,
@@ -888,6 +916,33 @@ impl LiveCases {
             run.rejection = Some(RejectionReason::BackendRefused);
         }
         Ok(run)
+    }
+}
+
+/// `reason`, with [`UnjudgedReason::DefinitionNotConfluent`] in place of a reason that an end
+/// is not data ([`UnjudgedReason::ReachedEndNotData`], [`UnjudgedReason::MutantEndNotData`],
+/// [`UnjudgedReason::BaselineEndNotData`]) when a definition of the case has no data: its full
+/// critical-pair check reported findings, so none of its ends is data, and the side's own reason
+/// would send the reader to the end instead of the definition.
+fn data_reason(
+    reason: Option<UnjudgedReason>,
+    baseline: &Side,
+    mutant: Option<&Side>,
+) -> Option<UnjudgedReason> {
+    let without_data = |side: &Side| {
+        side.executor
+            .computed_data_heads()
+            .is_some_and(|heads| !heads.confluent())
+    };
+    match reason {
+        Some(
+            UnjudgedReason::ReachedEndNotData
+            | UnjudgedReason::MutantEndNotData
+            | UnjudgedReason::BaselineEndNotData,
+        ) if without_data(baseline) || mutant.is_some_and(without_data) => {
+            Some(UnjudgedReason::DefinitionNotConfluent)
+        }
+        reason => reason,
     }
 }
 
@@ -1008,6 +1063,52 @@ fn index_u64(index: usize) -> u64 {
     u64::try_from(index).expect("a leaf index fits in u64")
 }
 
+/// Run both sides of a differential case on their initial configurations, the mutant also on
+/// all paths where [`Side::rerun_on_all_paths`] asks for it, each leaf's data judgement checked
+/// by the other definition too ([`judge_data_in`]): the baseline's result, the mutant's one-path
+/// result and its all-paths re-run.
+fn run_sides(
+    baseline_side: &mut Side,
+    mutant: &mut Side,
+    baseline_state: &KorePattern,
+    mutant_state: &KorePattern,
+    run_to_completion: bool,
+    cancel: Option<&CancellationToken>,
+) -> Result<(CaseResult, CaseResult, Option<CaseResult>), Abort> {
+    let mut baseline =
+        baseline_side
+            .executor
+            .run(baseline_state, &baseline_side.shape, &[], cancel)?;
+    let mut one_path = mutant
+        .executor
+        .run(mutant_state, &mutant.shape, &[], cancel)?;
+    judge_data_in(&mut mutant.executor, &mut baseline);
+    judge_data_in(&mut baseline_side.executor, &mut one_path);
+    let mut rerun = mutant.rerun_on_all_paths(
+        mutant_state,
+        &baseline,
+        &one_path,
+        run_to_completion,
+        cancel,
+    )?;
+    if let Some(all_paths) = &mut rerun {
+        judge_data_in(&mut baseline_side.executor, all_paths);
+    }
+    Ok((baseline, one_path, rerun))
+}
+
+/// Keep a leaf of `result` judged data only where `other`, the executor of the pair's other
+/// definition, judges its state data too ([`Executor::is_data_here`]). Condition 4 compares ends
+/// across the two definitions, so each compared end must be data in both, each judged by its own
+/// definition (`k_rust_backend::data_term`, "Two definitions").
+fn judge_data_in(other: &mut Executor, result: &mut CaseResult) {
+    for leaf in &mut result.leaves {
+        if leaf.data_end == Some(true) && !other.is_data_here(&leaf.state) {
+            leaf.data_end = Some(false);
+        }
+    }
+}
+
 fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> WitnessSide {
     WitnessSide {
         role,
@@ -1075,6 +1176,7 @@ pub(crate) struct DefinitionCache {
 /// One side's part of a [`DefinitionCache`].
 struct SideCache {
     internalized: Option<Arc<BackendDefinition>>,
+    data_heads: Option<DataHeads>,
     normal_end: NormalEnd,
     holes: ResolvedHoles,
     round_trip: Arc<RoundTripCheck>,
@@ -1084,6 +1186,7 @@ impl SideCache {
     fn seed(&self) -> Seed<'_> {
         Seed {
             internalized: self.internalized.as_ref(),
+            data_heads: self.data_heads.as_ref(),
             normal_end: Some(&self.normal_end),
             resolved: Some((&self.holes, &self.round_trip)),
         }
@@ -1092,6 +1195,7 @@ impl SideCache {
     fn of(side: Side) -> Self {
         Self {
             internalized: side.internalized,
+            data_heads: side.executor.computed_data_heads().cloned(),
             normal_end: side.normal_end,
             holes: side.holes,
             round_trip: side.round_trip,
@@ -1112,18 +1216,30 @@ impl DefinitionCache {
         spec: &Arc<CampaignSpec>,
         cases: &LiveCases,
     ) -> Result<Self, CampaignError> {
-        let baseline = cases.baseline.internalized.clone();
-        let mutant = match &cases.judge {
-            Judge::Differential(mutant) => mutant.internalized.clone(),
-            Judge::Target(_) => None,
+        let of = |side: &Side| {
+            (
+                side.internalized.clone(),
+                side.executor.computed_data_heads().cloned(),
+            )
         };
-        let side = |definition, role, internalized: &Option<Arc<BackendDefinition>>| {
+        let baseline = of(&cases.baseline);
+        let mutant = match &cases.judge {
+            Judge::Differential(mutant) => of(mutant),
+            Judge::Target(_) => (None, None),
+        };
+        let side = |definition,
+                    role,
+                    (internalized, data_heads): &(
+            Option<Arc<BackendDefinition>>,
+            Option<DataHeads>,
+        )| {
             Side::build(
                 spec,
                 definition,
                 role,
                 Seed {
                     internalized: internalized.as_ref(),
+                    data_heads: data_heads.as_ref(),
                     ..Seed::default()
                 },
             )
@@ -1432,6 +1548,7 @@ mod tests {
                 }),
                 run_to_completion: false,
                 negated_property: true,
+                data_end: true,
             },
             options: CaseOptions::default(),
             proposers: ProposerConfig {
@@ -1552,6 +1669,7 @@ mod tests {
                 )),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -1637,6 +1755,7 @@ mod tests {
                 )),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -1715,6 +1834,7 @@ mod tests {
                 }),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -1777,6 +1897,7 @@ mod tests {
                 }),
                 run_to_completion: false,
                 negated_property: false,
+                data_end: true,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),

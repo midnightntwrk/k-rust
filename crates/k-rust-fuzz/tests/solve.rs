@@ -341,6 +341,7 @@ fn the_solver_needs_another_generating_proposer_and_a_rule_target() {
         }),
         run_to_completion: false,
         negated_property: false,
+        data_end: true,
     };
     let refusal = Campaign::new(pattern).err().expect("refused").to_string();
     assert!(refusal.contains("needs a rule target"), "{refusal}");

@@ -567,6 +567,7 @@ fn spec_on(
             }),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         options: CaseOptions {
             // The metric is cases to the first confirmed hit, which shrinking does not change;

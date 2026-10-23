@@ -1227,6 +1227,12 @@ export interface FuzzTarget {
   kind: FuzzTargetKind
   'run-to-completion': boolean
   'negated-property': boolean
+  /**
+   * With `run-to-completion`, a rule or pattern hit's end must also be data (constructors,
+   * injections, domain values, well-formed collections and irreducible overload applications);
+   * `true` when absent.
+   */
+  'data-end'?: boolean
 }
 
 export type FuzzPathMode = 'one-path' | 'all-paths'
@@ -1539,9 +1545,11 @@ export type FuzzUnjudgedReason =
   | 'run-fact-off-leaves'
   | 'reached-undefined-step'
   | 'reached-cut-path'
+  | 'reached-end-not-data'
   | 'natural-end-undecided'
   | 'unobservable'
   | 'kill-without-evidence'
+  | 'definition-not-confluent'
   | 'mutant-end-not-data'
   | 'baseline-end-not-data'
   | 'unconfirmed'

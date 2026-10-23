@@ -328,12 +328,24 @@ fn leaf(halt: HaltReasonOutput, unclean: Vec<UncleanReason>, natural_end: bool) 
         natural_end,
         matches: Vec::new(),
         rewrites: Vec::new(),
-        constructor_only: None,
+        data_end: None,
     }
 }
 
+/// A clean natural end whose configuration is data.
 fn natural_end() -> LeafReport {
-    leaf(HaltReasonOutput::Stuck, Vec::new(), true)
+    LeafReport {
+        data_end: Some(true),
+        ..leaf(HaltReasonOutput::Stuck, Vec::new(), true)
+    }
+}
+
+/// A clean natural end whose configuration is not data (an unevaluated total function, say).
+fn natural_end_not_data() -> LeafReport {
+    LeafReport {
+        data_end: Some(false),
+        ..natural_end()
+    }
 }
 
 fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResult {
@@ -529,6 +541,7 @@ fn rule_target(id: &str, mode: RuleMode, run_to_completion: bool) -> ResolvedTar
             }),
             run_to_completion,
             negated_property: false,
+            data_end: true,
         },
         resolved: Resolved::Rule {
             id: id.to_owned(),
@@ -552,9 +565,63 @@ fn needs_follow_the_resolved_rule() {
         rule_target("id-div", RuleMode::Fired, false).needs(PathMode::OnePath),
         rule_needs("id-div", RuleMode::Fired, false)
     );
+    // Run-to-completion asks for the data judgement of each end (`Target::data_end`).
     assert_eq!(
         rule_target("id-div", RuleMode::Covered, true).needs(PathMode::OnePath),
-        TargetNeeds::default()
+        TargetNeeds {
+            data_end: true,
+            ..TargetNeeds::default()
+        }
+    );
+    let mut reach_only = rule_target("id-div", RuleMode::Covered, true);
+    reach_only.target.data_end = false;
+    assert_eq!(reach_only.needs(PathMode::OnePath), TargetNeeds::default());
+}
+
+/// FZ-DATAEND (TRIAL2 S-T2): under run-to-completion a rule hit's natural end must be data, as
+/// the differential judge's ends must; a reaching natural end that is not data is `unsupported`,
+/// and is a hit again when the target does not ask for a data end.
+#[test]
+fn a_run_to_completion_hit_needs_a_data_end_unless_the_target_waives_it() {
+    let mut end = natural_end_not_data();
+    end.rewrites = vec!["id-div".to_owned()];
+    let one = case(vec![end.clone()], &["id-div"], &["id-div"]);
+    for mode in [
+        RuleMode::Fired,
+        RuleMode::Covered,
+        RuleMode::ConditionReached,
+    ] {
+        let judgement = judge(&rule_target("id-div", mode, true), &one);
+        assert_eq!(judgement.class, OutcomeClass::Unsupported, "{mode:?}");
+        assert_eq!(judgement.hit_site, None, "{mode:?}");
+        // The demotion has its own reason (INT7): the leaf is clean and its natural end
+        // decided, so the leaf's reason would wrongly be `natural-end-undecided`.
+        assert_eq!(
+            judgement.reason,
+            Some(crate::exec::UnjudgedReason::ReachedEndNotData),
+            "{mode:?}"
+        );
+        let mut waived = rule_target("id-div", mode, true);
+        waived.target.data_end = false;
+        let judgement = judge(&waived, &one);
+        assert_eq!(judgement.class, OutcomeClass::Hit, "{mode:?}");
+        // Without run-to-completion the end is not the witness's point: no data needed.
+        let judgement = judge(&rule_target("id-div", mode, false), &one);
+        assert_eq!(judgement.class, OutcomeClass::Hit, "{mode:?}");
+    }
+    // A data end beside a non-data one: `fired` names the data leaf; run coverage over the
+    // two cannot be attributed to the data leaf, so it is no hit.
+    let mut data = natural_end();
+    data.rewrites = vec!["id-div".to_owned()];
+    let two = case(vec![end, data], &["id-div"], &["id-div"]);
+    let fired = judge(&rule_target("id-div", RuleMode::Fired, true), &two);
+    assert_eq!(fired.class, OutcomeClass::Hit);
+    assert_eq!(fired.hit_site, Some(HitSite::Leaf(1)));
+    let covered = judge(&rule_target("id-div", RuleMode::Covered, true), &two);
+    assert_eq!(covered.class, OutcomeClass::Unsupported);
+    assert_eq!(
+        covered.reason,
+        Some(crate::exec::UnjudgedReason::ReachedEndNotData)
     );
 }
 
@@ -666,6 +733,7 @@ fn pattern_target(run_to_completion: bool) -> ResolvedTarget {
             }),
             run_to_completion,
             negated_property: false,
+            data_end: true,
         },
         resolved: Resolved::PatternFinal,
         matchers: Vec::new(),
@@ -710,6 +778,7 @@ fn a_differential_target_is_not_judged_here() {
             kind: TargetKind::Differential(super::DifferentialTarget {}),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         resolved: Resolved::Differential,
         matchers: Vec::new(),

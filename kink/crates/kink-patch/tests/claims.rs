@@ -550,6 +550,12 @@ fn trusted_claims_are_pinned() {
 /// Re-pin of smt.rs's second passage (`smt_lemmas`): byte-identical, moved down 78 lines by the
 /// translation of `bitRangeInt`, `>>Int` and low-bit masks of `&Int` by literal amounts, which
 /// precedes it in the file. Only its lines are re-pinned.
+///
+/// Re-pin FZ-DATAEND (fz26/dataend): compatibility.md's passages after "Anywhere rules"' value
+/// claims are byte-identical and moved down 6 lines, by the data-term paragraph
+/// (`k_rust_backend::data_term`) inserted before "When a definition is loaded the backend checks
+/// its critical pairs once". Only their lines, and `TRUSTED_CLAIMS`' citations of them, are
+/// re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     (
         "docs/compatibility.md",
@@ -559,56 +565,56 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 17] = [
     ),
     (
         "docs/compatibility.md",
-        1136,
-        1136,
+        1142,
+        1142,
         "44081fecb849b7cb88f057e47b16a7f46ad8e253196be4b9656aa55232470102",
     ),
     (
         "docs/compatibility.md",
-        1163,
-        1168,
+        1169,
+        1174,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1181,
-        1181,
+        1187,
+        1187,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1387,
-        1387,
+        1393,
+        1393,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1541,
-        1541,
+        1547,
+        1547,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1566,
-        1566,
+        1572,
+        1572,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1629,
-        1639,
+        1635,
+        1645,
         "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2267,
-        2267,
+        2273,
+        2273,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2819,
-        2820,
+        2825,
+        2826,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (

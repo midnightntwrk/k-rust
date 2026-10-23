@@ -96,6 +96,9 @@ pub struct TargetFile {
     pub run_to_completion: Option<bool>,
     /// The target is the violation of a property; a hit is reported as a property failure.
     pub negated_property: Option<bool>,
+    /// Under `run-to-completion`, a rule or pattern hit's end must also be data; `true` by
+    /// default.
+    pub data_end: Option<bool>,
 }
 
 /// The `[options]` table (library `CaseOptions`).
@@ -233,6 +236,7 @@ pub struct Overrides {
     pub differential: bool,
     pub run_to_completion: Option<bool>,
     pub negated_property: Option<bool>,
+    pub data_end: Option<bool>,
     pub all_paths: Option<bool>,
     pub max_depth: Option<u64>,
     pub max_work: Option<u64>,
@@ -682,6 +686,14 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
     if at.is_some() && !matches!(kind, TargetKind::Pattern(_)) {
         return Err("the file's `at` applies only to a pattern target".into());
     }
+    let data_end = flags.data_end.or(file.data_end);
+    if data_end.is_some() && !matches!(kind, TargetKind::Rule(_) | TargetKind::Pattern(_)) {
+        return Err(
+            "--data-end, --no-data-end (or the file's `data-end`) apply only to a rule or a \
+             pattern target"
+                .into(),
+        );
+    }
     match (&kind, has_mutant) {
         (TargetKind::Differential(_), false) => {
             return Err("the differential target needs a mutant: pass --mutant DIR".into());
@@ -705,6 +717,7 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
             .negated_property
             .or(file.negated_property)
             .unwrap_or(false),
+        data_end: data_end.unwrap_or(true),
     })
 }
 

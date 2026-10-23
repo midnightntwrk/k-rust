@@ -58,6 +58,7 @@ fn spec(
             }),
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         options: CaseOptions::default(),
         proposers,

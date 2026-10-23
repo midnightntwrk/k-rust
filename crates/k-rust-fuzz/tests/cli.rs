@@ -383,6 +383,7 @@ fn the_command_line_runs_the_library_campaign() {
             }),
             run_to_completion: false,
             negated_property: true,
+            data_end: true,
         },
         options: CaseOptions {
             safety_limit_ms: Some(60_000),

@@ -448,16 +448,16 @@ fn witness_facts(base: &[String], kind: Option<KillKind>) -> Vec<String> {
         None => &[],
         Some(KillKind::AddedEnd) => &[
             "baseline-complete",
-            "every-baseline-end-constructor-only",
+            "every-baseline-end-data",
             "mutant-end-final",
-            "mutant-end-constructor-only",
+            "mutant-end-data",
             "mutant-end-not-in-baseline-ends",
         ],
         Some(KillKind::RemovedEnd) => &[
             "mutant-complete",
-            "every-mutant-end-constructor-only",
+            "every-mutant-end-data",
             "baseline-end-final",
-            "baseline-end-constructor-only",
+            "baseline-end-data",
             "baseline-end-not-in-mutant-ends",
         ],
     };

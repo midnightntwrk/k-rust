@@ -1383,7 +1383,7 @@ fn shrinking_keeps_the_kind_of_kill_and_the_facts_follow_it() {
     assert!(
         !witness
             .clean_leaf_facts
-            .contains(&"every-baseline-end-constructor-only".to_owned())
+            .contains(&"every-baseline-end-data".to_owned())
     );
 }
 

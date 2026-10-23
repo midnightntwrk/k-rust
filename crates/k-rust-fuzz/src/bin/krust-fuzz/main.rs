@@ -122,6 +122,15 @@ struct Args {
     #[arg(long, overrides_with = "negated_property")]
     no_negated_property: bool,
 
+    /// With --run-to-completion, a rule or pattern hit's end must also be data, so that the
+    /// witness's end can be compared with another definition's (the default).
+    #[arg(long, overrides_with = "no_data_end")]
+    data_end: bool,
+
+    /// With --run-to-completion, accept a rule or pattern hit whose end is not data.
+    #[arg(long, overrides_with = "data_end")]
+    no_data_end: bool,
+
     /// Explore every path of each input instead of k-rust's first-applicable path.
     #[arg(long, overrides_with = "one_path")]
     all_paths: bool,
@@ -204,7 +213,8 @@ struct Args {
         conflicts_with_all = [
             "campaign", "sort", "config_vars", "reach_rule", "rule_mode", "pattern",
             "differential", "run_to_completion", "no_run_to_completion", "negated_property",
-            "no_negated_property", "all_paths", "one_path", "max_depth", "max_work",
+            "no_negated_property", "data_end", "no_data_end", "all_paths", "one_path",
+            "max_depth", "max_work",
             "normal_end", "cases", "work", "seed", "rejection_cap", "safety_limit",
             "no_safety_limit", "no_shrink", "shrink", "smt_timeout", "smt_retry_limit", "json",
             "report", "witness",
@@ -307,6 +317,7 @@ fn run(args: Args) -> Result<u8, String> {
         differential: args.differential,
         run_to_completion: switch(args.run_to_completion, args.no_run_to_completion),
         negated_property: switch(args.negated_property, args.no_negated_property),
+        data_end: switch(args.data_end, args.no_data_end),
         all_paths: switch(args.all_paths, args.one_path),
         max_depth: args.max_depth,
         max_work: args.max_work,

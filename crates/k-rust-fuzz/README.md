@@ -23,7 +23,7 @@ Every case receives exactly one `OutcomeClass` (ARCHITECTURE 5.3).
 | `work-bound` | a `work-bound` halt; deterministic, distinct from timeouts |
 | `timeout` | a `timeout` or `cancelled` halt, a cancellation or step deadline that ended the run as an `Err`, or the per-case safety limit |
 | `undefined` | a `trivial` halt: an undefined step |
-| `unsupported` | `unsupported-hook`, `simplification-error`, `indeterminate`, `vacuous` after depth 0, an `Err` result other than a clock stop or a refused state, a leaf unclean for a reason other than its halt, or a target-reaching leaf that is not clean (and not `reached-unfinished`) |
+| `unsupported` | `unsupported-hook`, `simplification-error`, `indeterminate`, `vacuous` after depth 0, an `Err` result other than a clock stop or a refused state, a leaf unclean for a reason other than its halt, a target-reaching leaf that is not clean (and not `reached-unfinished`), or, for a rule or pattern target with `run-to-completion` and `data-end`, a reaching natural end that is not data |
 | `rejected` | a hole value violates its sort or constraints, does not round-trip through the program's syntax, or the backend refuses the initial state (`vacuous` at depth 0, or an invalid state) |
 | `baseline-incomplete` | differential only: the baseline's set of ends is incomplete (ARCHITECTURE 4.3) |
 
@@ -33,6 +33,8 @@ When a result has several leaves, the case takes the first of these that some le
 A leaf that is unclean for a reason other than its halt (an implementation-chosen value, a contradicted claim, remaining constraints, a term that is not ceil-free, a stack stop, an undecided solver answer, and so on) is `unsupported` whether or not it reaches the target, because it may hide a reaching state, so `miss` or `stuck` would be unsound.
 `rejected` is decided before execution, and `baseline-incomplete` by the differential judge before the mutant's leaves are looked at; neither is chosen by precedence.
 A stuck, truncated, timed-out, undefined or unsupported run is never reported as a pass.
+
+A rule or pattern target with `run-to-completion` asks for a witness that becomes a test: by default (`data-end`, on unless the campaign file says `data-end = false` or the command line `--no-data-end`, `Target::data_end` in the library) its hit also needs the reaching natural end to be data, as every end the differential target compares is (below), so that the test's end can be compared with a mutant's. A reaching natural end that is not data, such as one holding an unevaluated function application, is `unsupported`, and the witness's `clean-leaf-facts` name `end-data`. A negated property is exempt: its counterexample is decided by its match, whatever the end's function applications denote. The command line refuses `data-end` on a differential target.
 
 ### Natural ends
 
@@ -48,7 +50,8 @@ The default reads only the `<k>` cells, so a semantics that removes a thread on 
 ### Why a case is unsupported
 
 Every `unsupported` and `baseline-incomplete` case has a reason, counted in `totals.unsupported-reasons` and `totals.baseline-incomplete-reasons` (each sums to its class's count).
-A case is counted once, under the first of its reasons in the order of `exec::UnjudgedReason`, which runs from facts of the run (an `Err`, a bound, a halt) through facts of a leaf (`not-ceil-free`, `undecided-state`, `implementation-chosen-value`, …) to facts of a judgement (`natural-end-undecided`, `reached-undefined-step`, `mutant-end-not-data`, …).
+A case is counted once, under the first of its reasons in the order of `exec::UnjudgedReason`, which runs from facts of the run (an `Err`, a bound, a halt) through facts of a leaf (`not-ceil-free`, `undecided-state`, `implementation-chosen-value`, …) to facts of a judgement (`natural-end-undecided`, `reached-undefined-step`, `reached-end-not-data`, `definition-not-confluent`, `mutant-end-not-data`, …).
+A case whose compared or reaching end is not data because a definition's full critical-pair check reports findings (so no end of that definition is data, below) is counted as `definition-not-confluent`, not under the side's not-data reason; the findings are in the report's warnings.
 The no-witness statement, and the summary of a report with a witness, list the reasons, largest first, with the largest one's remedy (`UnjudgedReason::remedy`); a remedy only suggests actions that keep verdicts sound (a bound, a pattern, another program or hole range), never a change to the definition's claims, and names options by campaign key and command-line flag; a `not-ceil-free` case also adds a warning naming the partial function whose application a leaf holds.
 
 ## Hole declarations
@@ -97,7 +100,10 @@ A differential campaign (a mutant beside the definition) looks for an input on w
 A side's ends on an input are its final configurations: each clean, decided `stuck` leaf, whether the program finished there (a natural end) or stopped mid-way (an abnormal stop); in both, no rule applies.
 An undefined step (a `trivial` leaf) is no end: its configuration is reached but is not stuck, since a rule applies to it, and it has no successor, so the run's outcome there is undefinedness, which is no configuration (`krun` prints `\bottom`; `docs/compatibility.md`, "Undefined steps in proofs", "Trivial rule results"). A side whose every path takes one has no end at all.
 A case kills the mutant by an *added end*, a mutant end that the baseline's complete set lacks, or a *removed end*, a baseline end that the mutant's complete set lacks: a baseline that stops where the mutant's step is undefined (a dropped guard on a division) is one.
-Every compared end must be data (constructors, injections, domain values, well-formed collections), on both sides.
+Every compared end must be data, on both sides: built from constructors, injections, domain values, well-formed collections, and irreducible applications of overload heads (`k_rust_backend::data_term`).
+An overload head is an `anywhere` production whose only equations are overload equations of the shape `g(p1, ..., pn) = inj(h(x1, ..., xn))`, each `pi` the variable `xi` or `inj(xi)` (SIMPLE's `_,_Exps` and `_,_Vals`), and roots no other equation; an application of it that no overload equation lowers (`_,_Exps(x = 1, inj{Bottoms,Exps}(.Bottoms))`) is a normal form, distinct from every other one.
+A definition has data only when its full critical-pair check (run once per definition at campaign setup, about 0.03 s on SIMPLE and 0.2 s on WASM) reports nothing: an identification anywhere reaches other terms through every equation that tells them apart, so a definition with an unjoined pair or an overload premise violation has no data at all, its cases are `unsupported`, and the report's warnings name each finding (`definition-not-confluent (baseline|mutant): ...`). WASM's `test.md` is such a definition today (48 pairs of `list-int.k` equations the check does not join, most with a condition it leaves open), so its differential ends are not compared.
+Each definition reads the ends with its own theory, so every compared end must be data in both definitions, each judged by its own (its own overload families, `anywhere` and function equations, and subsort order): a mutant that adds an overload member, an `anywhere` rule or a subsort below an overload argument is never killed through an end the change makes reducible.
 A side that carries an implementation-chosen value or a contradicted claim (`total` or `preserves-definedness`), on a leaf or on its result's lists, is no evidence: the baseline is then `baseline-incomplete`, and a would-be kill of the mutant `unsupported`.
 Under `run-to-completion` only natural ends kill.
 
@@ -188,7 +194,7 @@ The program's path as written names it, as `krust krun` names a program: span ho
 The start sort defaults to the sort of `$PGM`.
 
 The campaign file holds the `[[hole]]` declarations of [Hole declarations](#hole-declarations) and, optionally, everything else; paths in the file are relative to its directory.
-Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
+Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--data-end`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
 `--rule-mode` and `mode` are refused unless the target is a rule, `at` unless it is a pattern, and `--mutant` selects the differential target only when no other target is named (a mutant with a rule or pattern target is refused).
 
 ```toml
@@ -200,6 +206,7 @@ seed = "0x5eed"               # --seed; `cases` (--cases) or `work` (--work) is 
 rule = "IMP.overflow"         # --reach-rule: FILE:LINE, a unique id or a label; `mode` (--rule-mode) is fired, covered or condition-reached
 # pattern = '<k> .K </k> ...' # --pattern, in krun's --pattern syntax with `requires`; `at` is final
 # run-to-completion = true    # --run-to-completion; negated-property (--negated-property)
+# data-end = false            # --no-data-end: accept a run-to-completion hit whose end is not data
 
 [options]                     # paths = "all-paths" (--all-paths), max-depth, max-work, normal-end-pattern,
 safety-limit-seconds = 60     # shrink, smt-timeout-ms, smt-retry-limit; no-safety-limit = true (--no-safety-limit)

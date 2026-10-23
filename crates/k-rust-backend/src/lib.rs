@@ -14,6 +14,7 @@ pub mod claim;
 pub mod condition;
 pub mod confluence;
 pub mod coverage;
+pub mod data_term;
 pub mod deferred;
 pub mod definedness;
 pub mod definition;

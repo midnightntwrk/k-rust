@@ -116,6 +116,7 @@ fn rule(label: &str, mode: RuleMode, run_to_completion: bool) -> Target {
         }),
         run_to_completion,
         negated_property: false,
+        data_end: true,
     }
 }
 
@@ -127,6 +128,7 @@ fn pattern(pattern: &str, run_to_completion: bool) -> Target {
         }),
         run_to_completion,
         negated_property: false,
+        data_end: true,
     }
 }
 
@@ -277,6 +279,7 @@ fn the_real_catalog_refuses_shared_non_executable_and_equation_entries() {
         }),
         run_to_completion: false,
         negated_property: false,
+        data_end: true,
     });
     let source = source.expect("the source position resolves");
     assert!(

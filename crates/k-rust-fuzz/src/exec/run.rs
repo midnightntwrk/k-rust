@@ -9,6 +9,7 @@ use k_rust::{
     },
     definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
     k_rust_backend::{
+        data_term::DataHeads,
         definition::BackendDefinition,
         evaluation::{EvaluationMode, with_evaluation},
         rewrite::Pattern,
@@ -360,6 +361,11 @@ pub(crate) struct Executor {
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
+    /// The definition's overload data heads and refused symbols
+    /// ([`BackendDefinition::data_heads`]), which [`LeafReport::data_end`] reads; computed on
+    /// first need ([`Self::data_heads`]), since it runs the definition's full critical-pair
+    /// check, or given by the campaign's cache ([`Self::with_data_heads`]).
+    data_heads: Option<DataHeads>,
     /// The per-case safety limit, in milliseconds; wasm32 refuses it, so there it is never set.
     #[cfg(not(target_arch = "wasm32"))]
     safety_limit_ms: Option<u64>,
@@ -477,6 +483,7 @@ impl Executor {
             compiler: None,
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
+            data_heads: None,
             #[cfg(not(target_arch = "wasm32"))]
             safety_limit_ms: options.safety_limit_ms,
             #[cfg(not(target_arch = "wasm32"))]
@@ -484,6 +491,63 @@ impl Executor {
                 .safety_limit_ms
                 .map(|_| super::watchdog::Watchdog::new()),
         })
+    }
+
+    /// Whether `state`, an end of the other definition of a differential pair, is data in this
+    /// executor's definition as well (`k_rust_backend::data_term`, "Two definitions"): it
+    /// internalizes here, is decided, and [`BackendDefinition::is_data`] holds with this
+    /// definition's own heads. Any failure reads as not data.
+    pub(crate) fn is_data_here(&mut self, state: &KorePattern) -> bool {
+        if self.data_heads().is_err() {
+            return false;
+        }
+        let heads = self.data_heads.as_ref().expect("computed just above");
+        self.backend
+            .with_solver_over(None, &[state], |definition, _| {
+                Ok::<_, BackendError>(
+                    definition
+                        .admit_unverified(state, &[])
+                        .internalize_pattern()
+                        .is_ok_and(|pattern| {
+                            pattern.constraints.is_empty()
+                                && pattern.term.attributes().variables.is_empty()
+                                && definition.is_data(&pattern.term, heads)
+                        }),
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    /// The definition's data heads and the findings of its full critical-pair check
+    /// ([`BackendDefinition::data_heads`]), computed once.
+    ///
+    /// # Errors
+    ///
+    /// When the main module does not load.
+    pub(crate) fn data_heads(&mut self) -> Result<&DataHeads, String> {
+        if self.data_heads.is_none() {
+            let loaded = self
+                .backend
+                .select_definition(None)
+                .map_err(|error| error.to_string())?;
+            self.data_heads = Some(loaded.data_heads());
+        }
+        Ok(self.data_heads.as_ref().expect("computed just above"))
+    }
+
+    /// The data heads, when already computed.
+    pub(crate) fn computed_data_heads(&self) -> Option<&DataHeads> {
+        self.data_heads.as_ref()
+    }
+
+    /// This executor, with `heads` (computed for its definition) as its data heads, so that
+    /// the full critical-pair check does not run again.
+    #[must_use]
+    pub(crate) fn with_data_heads(mut self, heads: Option<DataHeads>) -> Self {
+        if heads.is_some() {
+            self.data_heads = heads;
+        }
+        self
     }
 
     /// The backend, for target resolution (`rule_catalog`) and pattern compilation.
@@ -546,6 +610,10 @@ impl Executor {
         execution: Execution,
     ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
         let request = shape.request(initial.clone());
+        if shape.data_end {
+            // A main module that does not load fails the run itself.
+            let _ = self.data_heads();
+        }
         let judge = Judge {
             normal_end: &self.normal_end,
             normal_end_kind: self.normal_end_kind,
@@ -555,7 +623,11 @@ impl Executor {
                 max_iterations: self.max_simplification_iterations,
                 ..SimplificationOptions::default()
             },
-            constructor_only: shape.constructor_only,
+            data_heads: if shape.data_end {
+                self.data_heads.as_ref()
+            } else {
+                None
+            },
             terminal_allowed: shape.has_terminal_rules(),
             load_stack_stops: self.load_stack_stops,
             forward: None,
@@ -608,7 +680,7 @@ impl Executor {
             natural_end: false,
             matches: Vec::new(),
             rewrites: Vec::new(),
-            constructor_only: None,
+            data_end: None,
         };
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -616,7 +688,7 @@ impl Executor {
             initial_has_k: &self.initial_has_k,
             matchers: &[],
             options: SimplificationOptions::default(),
-            constructor_only: false,
+            data_heads: None,
             terminal_allowed: false,
             load_stack_stops: 0,
             forward: None,
@@ -651,7 +723,9 @@ struct Judge<'a> {
     initial_has_k: &'a std::cell::Cell<Option<bool>>,
     matchers: &'a [&'a LeafMatcher],
     options: SimplificationOptions,
-    constructor_only: bool,
+    /// When the request asks for [`LeafReport::data_end`], the overload heads a data end may
+    /// hold.
+    data_heads: Option<&'a DataHeads>,
     terminal_allowed: bool,
     load_stack_stops: usize,
     /// Under the safety limit, the caller's token and the case's own: the caller's cancellation
@@ -678,7 +752,7 @@ struct Internal {
     /// the initial configuration held a `<k>` cell ([`Judge::judge`]).
     vacuous: bool,
     matches: Vec<bool>,
-    constructor_only: Option<bool>,
+    data_end: Option<bool>,
     /// Solver `unknown`s the leaf's matching met, in either evaluation mode (review 2, NI-2).
     smt_unknowns: usize,
 }
@@ -788,7 +862,7 @@ impl Judge<'_> {
                 natural_end: false,
                 matches: vec![false; self.matchers.len()],
                 rewrites: established_rewrites(leaf),
-                constructor_only: None,
+                data_end: None,
             });
         }
         let mut internal = match self.judge_internally(backend, &leaves) {
@@ -824,7 +898,7 @@ impl Judge<'_> {
             leaf.unclean.dedup();
             leaf.natural_end = leaf.is_clean() && internal.normal_end;
             leaf.matches = internal.matches;
-            leaf.constructor_only = internal.constructor_only;
+            leaf.data_end = internal.data_end;
         }
         let run_facts_off_leaves = run_facts_off_leaves(result);
         let mut load_records = load_records(result);
@@ -906,7 +980,7 @@ impl Judge<'_> {
     }
 
     /// Internalize every leaf in its definition and judge it: decided, ceil-free, natural end,
-    /// each matcher, constructor-only. One operation over every leaf state and every matcher.
+    /// each matcher, data. One operation over every leaf state and every matcher.
     fn judge_internally(
         &self,
         backend: &mut Backend,
@@ -980,8 +1054,8 @@ impl Judge<'_> {
         if !decided || !end_like {
             return Ok(internal);
         }
-        if self.constructor_only {
-            internal.constructor_only = Some(attributes.constructor_like);
+        if let Some(heads) = self.data_heads {
+            internal.data_end = Some(definition.is_data(&pattern.term, heads));
         }
         if leaf.halt == HaltReasonOutput::Stuck {
             let verdict = match self.normal_end_kind {

@@ -96,6 +96,10 @@ pub enum UnjudgedReason {
     /// The target was reached on a path a bound or a clock cut, which is no end; without
     /// `run-to-completion` that is no hit.
     ReachedCutPath,
+    /// The target was reached on a natural end that is not data (a rule or pattern target with
+    /// `run-to-completion` and `data-end`, `crate::Target::data_end`): the witness would become
+    /// a test whose end no differential can compare, so it is no hit.
+    ReachedEndNotData,
     /// Whether a `stuck` leaf is a natural end (the program finished) or an abnormal stop could
     /// not be decided: the normal-end pattern's match was undecided, or no default applies.
     NaturalEndUndecided,
@@ -109,10 +113,19 @@ pub enum UnjudgedReason {
     /// contradicted claim makes the definition inconsistent on this input, so none of its ends
     /// is a fact of the definition.
     KillWithoutEvidence,
+    /// A compared or reaching end is not data because a definition of the case (the baseline,
+    /// or the mutant) has no data: its full critical-pair check reports a pair it does not join,
+    /// an equation the evaluator does not apply to every subject it describes, or a violated
+    /// precondition (`k_rust_backend::data_term`), so no end of it is data. The report's
+    /// warnings name each finding (`definition-not-confluent (baseline|mutant): …`). Chosen in
+    /// place of the not-data reasons below whenever a side's definition has no data.
+    DefinitionNotConfluent,
     /// Differential: an end of the mutant that the baseline does not reach, or the mutant's set
-    /// against which a baseline end would be removed, holds an end that is not data (an
-    /// unevaluated function application, or an overloaded production's application k-rust does
-    /// not count as data; condition 4), so the ends cannot be compared.
+    /// against which a baseline end would be removed, holds an end that is not data in both
+    /// definitions (condition 4): an unevaluated function application, an overload application
+    /// an overload equation could still lower, one whose overload family is broken, or one the
+    /// other definition's equations, overload members or subsorts would rewrite. So the ends
+    /// cannot be compared.
     MutantEndNotData,
     /// Differential: the baseline's set, against which a mutant end would be added, or a
     /// baseline end the mutant does not reach, holds an end that is not data (condition 4).
@@ -125,7 +138,7 @@ pub enum UnjudgedReason {
 
 impl UnjudgedReason {
     /// Every reason, in declaration order.
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 35] = [
         Self::BackendError,
         Self::StackExhausted,
         Self::Clock,
@@ -152,9 +165,11 @@ impl UnjudgedReason {
         Self::RunFactOffLeaves,
         Self::ReachedUndefinedStep,
         Self::ReachedCutPath,
+        Self::ReachedEndNotData,
         Self::NaturalEndUndecided,
         Self::Unobservable,
         Self::KillWithoutEvidence,
+        Self::DefinitionNotConfluent,
         Self::MutantEndNotData,
         Self::BaselineEndNotData,
         Self::Unconfirmed,
@@ -195,11 +210,30 @@ impl UnjudgedReason {
                  program or hole range whose runs do not reach that application"
             }
             Self::MutantEndNotData | Self::BaselineEndNotData => {
-                "the end is not data: it holds an application of a function that no equation \
-                 evaluates, or of an overloaded production (as SIMPLE's argument lists \
-                 `_,_Exps`) that k-rust does not count as data, so the two ends cannot be \
-                 compared and this case cannot be judged; a program or hole range whose ends \
-                 hold only constructors and builtin values can be"
+                "the end is not data in both definitions: it holds an application of a function \
+                 that no equation evaluates, an overload application that an overload equation \
+                 could still lower, an application of a symbol of a broken overload family, or \
+                 one the other definition's equations, overload members or subsorts would \
+                 rewrite, so the two ends cannot be compared and this case cannot be judged; a \
+                 program or hole range whose ends hold only constructors, builtin values and \
+                 irreducible overload applications can be"
+            }
+            Self::DefinitionNotConfluent => {
+                "a definition of the case has no data: its full critical-pair check reports a \
+                 pair it does not join, an equation the evaluator does not apply to every \
+                 subject it describes, or a violated precondition (the report's warnings name \
+                 each one, `definition-not-confluent`), so no end of it can be compared and no \
+                 case of this definition pair can be judged, whatever the budget, bounds or \
+                 values; a pair the check reports may also be one it cannot decide, so read \
+                 each finding before changing an equation"
+            }
+            Self::ReachedEndNotData => {
+                "the target was reached on a natural end that is not data, so the witness's end \
+                 could not be compared with a mutant's; choose a program or hole range whose \
+                 ends hold only constructors, builtin values and irreducible overload \
+                 applications, or accept such ends (campaign key `data-end = false`, command \
+                 line `--no-data-end`, library `Target::data_end`); a negated property is \
+                 exempt"
             }
             Self::Clock => {
                 "raise or remove the per-case safety limit (campaign key \
@@ -440,7 +474,7 @@ mod tests {
             natural_end: false,
             matches: Vec::new(),
             rewrites: Vec::new(),
-            constructor_only: None,
+            data_end: None,
         };
         let result = |halt, safety_limit_hit| CaseResult {
             leaves: vec![leaf(halt)],
@@ -498,7 +532,7 @@ mod tests {
             natural_end: false,
             matches: Vec::new(),
             rewrites: Vec::new(),
-            constructor_only: None,
+            data_end: None,
         };
         assert_eq!(beyond_halt(&leaf), Some(UnjudgedReason::NotCeilFree));
     }

@@ -49,6 +49,46 @@ pub struct Target {
     /// The target states the violation of a universal property: its hit is reported as a
     /// property failure (ARCHITECTURE 4).
     pub negated_property: bool,
+    /// For a rule or pattern target with `run-to-completion`: a hit also requires the reaching
+    /// natural end to be data (`k_rust_backend::data_term`), the fact the differential judge's
+    /// condition 4 rests on, so that the witness's end can be compared with another
+    /// definition's (ARCHITECTURE 4.3). A reaching natural end that is not data is
+    /// `unsupported`. `true` by default (absent from a serialized target when `true`): the
+    /// witness of a run-to-completion target is meant to become a test whose end is compared.
+    /// Ignored without `run-to-completion`, for a negated property (whose counterexample is
+    /// decided by its match) and by the differential and observer targets.
+    #[serde(
+        default = "data_end_default",
+        skip_serializing_if = "is_data_end_default"
+    )]
+    pub data_end: bool,
+}
+
+/// [`Target::data_end`]'s default.
+const fn data_end_default() -> bool {
+    true
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+const fn is_data_end_default(data_end: &bool) -> bool {
+    *data_end
+}
+
+impl Target {
+    /// Whether a hit needs a data end: a rule or pattern target with `run-to-completion` and
+    /// [`Self::data_end`], that states no property's violation. A property counterexample is
+    /// decided by its match, whatever the end's function applications denote, and is not a test
+    /// compared by its end, so it needs none (FZ-DATAEND review S1).
+    #[must_use]
+    pub(crate) fn requires_data_end(&self) -> bool {
+        self.run_to_completion
+            && self.data_end
+            && !self.negated_property
+            && matches!(self.kind, TargetKind::Rule(_) | TargetKind::Pattern(_))
+    }
 }
 
 /// The kinds of target (ARCHITECTURE 4.1).
@@ -432,13 +472,17 @@ impl ResolvedTarget {
     ///
     /// The differential target's needs per side come from [`differential::plan`].
     pub(crate) fn needs(&self, _paths: PathMode) -> TargetNeeds {
-        match &self.resolved {
+        let needs = match &self.resolved {
             Resolved::Rule { id, mode } => {
                 rule::rule_needs(id, *mode, self.target.run_to_completion)
             }
             Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => {
                 TargetNeeds::default()
             }
+        };
+        TargetNeeds {
+            data_end: self.target.requires_data_end(),
+            ..needs
         }
     }
 
@@ -492,9 +536,10 @@ impl ResolvedTarget {
         all_paths: bool,
     ) -> Result<Judgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
+        let data_end = self.target.requires_data_end();
         let (reached, blocked) = match &self.resolved {
             Resolved::Rule { id, mode } => (
-                rule::rule_reached(id, *mode, run_to_completion, result),
+                rule::rule_reached_ends(id, *mode, run_to_completion, data_end, result),
                 rule::blocked(id, result.coverage.as_ref()),
             ),
             Resolved::PatternFinal => (pattern_reached(result)?, false),
@@ -519,7 +564,7 @@ impl ResolvedTarget {
             }
         );
         let (mut class, mut reason) =
-            exec::classify_explained(result, &reached, run_to_completion)?;
+            exec::classify_ends_explained(result, &reached, run_to_completion, data_end)?;
         if class == OutcomeClass::Hit && coverage_mode && result.run_facts_off_leaves {
             // A candidate that vanished from every leaf (its successor was no state, and a
             // sibling took its instances) left its applications in coverage and its facts on no
@@ -533,7 +578,10 @@ impl ResolvedTarget {
                 .iter()
                 .zip(&reached)
                 .position(|(leaf, reached)| {
-                    *reached && leaf.is_clean() && (!run_to_completion || leaf.natural_end)
+                    *reached
+                        && leaf.is_clean()
+                        && (!run_to_completion || leaf.natural_end)
+                        && (!data_end || leaf.data_end == Some(true))
                 });
             let Some(leaf) = leaf else {
                 return Err(EngineDefect {

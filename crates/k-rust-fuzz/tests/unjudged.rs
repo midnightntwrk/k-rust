@@ -63,6 +63,7 @@ fn spec(
             kind: target,
             run_to_completion: false,
             negated_property: false,
+            data_end: true,
         },
         options,
         proposers: ProposerConfig::default(),
