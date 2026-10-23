@@ -383,9 +383,25 @@ bug — report it, don't guess.
   ..] => [..]` is the front instance of a List collection `job` and the
   head of the computation cell `k`, and the cell's declared type, which
   the collector knows, picks the reading; a value that reads only one way
-  (`[.., Job { .. }]`, `[Push(), ..]`) is read that way, and a rule has
-  one computation cell. This replaces a syntactic rule that read a front
-  record naming every child as the computation cell's head.
+  (`[.., Job { payload, .. }]`, `[Push(), ..]`) is read that way, and a
+  rule has one computation cell. This replaces a syntactic rule that read
+  a front record naming every child as the computation cell's head.
+  *E7 note: builtin `List` brackets (2026-10, T2).* At a position whose
+  sort is K's builtin `List`, brackets are the list of their elements,
+  `[a, ..mid, z]` the term `list::concat(list::item(a), list::concat(mid,
+  list::item(z)))`, so list items need no longer be written with
+  `list::item`. A bracket holds at most one rest, anywhere, in patterns
+  and results: `_List_` is associative with unit `.List`, so the term has
+  one meaning however it nests, and a pattern with one rest matches a
+  list in at most one way while one with two (`Left ListItem(V) Right`,
+  also rejected when written explicitly) matches some lists in several.
+  A closed list is its items, without a trailing `.List`. A bracketed
+  value now has four readings, the computation cell's head, a List
+  collection's instances, and a cons list's or a `List`'s elements; a
+  value that reads as elements and as instances is read as elements and
+  carries its instances reading for the collector, which picks it on a
+  `*` cell. A cons list keeps its front-only rule, checked by analysis
+  once the position's sort is known.
   *E7 note: the cell shorthand (2026-10, F4).* An entry that is a lone
   cell name, `{ pc, gas }`, is Rust's field-init shorthand for `{ pc: pc,
   gas: gas }` on either side; the binder is the name's own token. It is a

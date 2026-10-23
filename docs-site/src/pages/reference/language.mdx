@@ -56,7 +56,7 @@ Without a chain the variants belong to no production group; a family that needs 
 A variant's `group` comes from the chain, so it is rejected without one; a reference family names a `group` on every variant or on none.
 Declaration order never supplies precedence.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
-Enum helper `#[k::cons_list]`, written after `#[k::constructors(..)]`, declares the family's sort a [cons list](#cons-lists), which bracket notation then builds.
+Enum helper `#[k::cons_list]`, written after `#[k::constructors(..)]`, declares the family's sort a [cons list](#list-notation), which bracket notation then builds.
 
 Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` and `prefer` syntax flags.
 `avoid` and `prefer` are one pair of parse-forest filters: where a program has several parses, K drops those whose top production is `avoid` or keeps those whose top production is `prefer`; an unambiguous program is unaffected, and they are not first-match ordering.
@@ -118,10 +118,11 @@ Discarding the rest of the computation, or capturing it as a value, needs the `c
 A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`, and so does a result that restates the matched items unchanged, `k: [Boundary(), ..]`.
 `krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
 
-### Cons lists
+### List notation
 
+Brackets build lists: K's builtin `List` and *cons lists*, object-language lists declared as a constructor pair.
 An object-language stack or list is often a right-recursive constructor pair, an empty list and a cons whose second field is the list itself, and every access to it nests the cons: KEVM's word stack is `Stack::StackCons(a, Stack::StackCons(b, rest))`.
-Such a sort is a *cons list* when it is declared one: every `#[k::syntax_list]` sort is, and so is the sort of a constructors enum marked `#[k::cons_list]`:
+Such a sort is a cons list when it is declared one: every `#[k::syntax_list]` sort is, and so is the sort of a constructors enum marked `#[k::cons_list]`:
 
 ```rust
 #[k::constructors(sort = WordStack, result = KResult)]
@@ -138,39 +139,58 @@ pub enum Stack {
 The enum has exactly one constructor with no field, the empty list, and one with two fields, the head and the tail, whose sort is the enum's own sort (`krs::syntax::invalid-cons-list` for the shape, `krs::analysis::invalid-cons-list` for the tail's sort); no other sort may be built by a second cons list.
 The marker is opt-in, not inferred from the shape: a binary tree with a leaf, or a pair with a tail, has the same two constructors and should not read as a list.
 
-For a cons-list sort, brackets are list notation, read like Rust's slice pattern from the front:
+Brackets read like Rust's slice pattern: the elements, and at most one rest `..`, anywhere; the elements before the rest are the list's front and those after it its back.
+In a pattern the rest is `..` or `name @ ..`, and in a result `..term`, the list `term` spliced in:
 
-| Position | Form | Meaning |
-| --- | --- | --- |
-| pattern | `[]` | the empty constructor |
-| pattern | `[p1, p2]` | `Cons(p1, Cons(p2, Empty()))` |
-| pattern | `[p1, p2, rest @ ..]` | `Cons(p1, Cons(p2, rest))` |
-| pattern | `[p1, ..]` | `Cons(p1, _)` |
-| result | `[e1, e2]` | `Cons(e1, Cons(e2, Empty()))` |
-| result | `[e1, e2, ..rest]` | `Cons(e1, Cons(e2, rest))` |
+| Position | Form | Cons list | Builtin `List` |
+| --- | --- | --- | --- |
+| both | `[]` | `Empty()` | `.List` |
+| both | `[a, b]` | `Cons(a, Cons(b, Empty()))` | `ListItem(a) ListItem(b)` |
+| pattern | `[a, b, rest @ ..]` | `Cons(a, Cons(b, rest))` | `ListItem(a) ListItem(b) rest` |
+| pattern | `[a, ..]` | `Cons(a, _)` | `ListItem(a) _` |
+| pattern | `[.., z]`, `[rest @ .., z]` | rejected | `_ ListItem(z)`, `rest ListItem(z)` |
+| pattern | `[a, .., z]`, `[a, mid @ .., z]` | rejected | `ListItem(a) _ ListItem(z)`, `ListItem(a) mid ListItem(z)` |
+| result | `[a, b, ..rest]` | `Cons(a, Cons(b, rest))` | `ListItem(a) ListItem(b) rest` |
+| result | `[..rest, z]`, `[a, ..mid, z]` | rejected | `rest ListItem(z)`, `ListItem(a) mid ListItem(z)` |
 
-The brackets are notation for those constructor terms and nothing more: inference, the overlap and coverage checks, and the emitted K see the constructors, so `[]` and `[_, ..]` cover the sort and a rule matching `[a, ..]` overlaps one matching `Stack::StackCons(a, _)`.
-The brackets do not name the list; the position's sort does, so they stand wherever a constructor field, a cell, a function parameter, or a result declares a cons-list sort: in a function body's `match` (`[a, b, rest @ ..] => ..`), a `k::equations!` row, an equation result, a `k::term!`, a constructor field (`Store { at: [Deref(), ..] }`), and a claim.
-A position whose sort is not a cons list, or is not known, such as a `KItem` or an operator's operand, has no constructor for them to denote (`krs::analysis::invalid-list-notation`).
-The one exception is K's builtin `List`, which is no cons list but has an empty list: `[]` at a `List` position is `.List`, `list::empty()`, so `[]` is the empty list of whichever list sort the position declares; brackets holding elements stay cons-list notation, and a `List` is built with `list::item(..)` and `list::concat(..)`.
+The brackets are notation for those terms and nothing more: inference, the overlap and coverage checks, and the emitted K see the constructors, or `list::item(..)` and `list::concat(..)`, so for a cons list `[]` and `[_, ..]` cover the sort, a rule matching `[a, ..]` overlaps one matching `Stack::StackCons(a, _)`, and `[v, ..s]` at a `List` is `list::concat(list::item(v), s)`.
+K's `List` concatenation is associative, with `.List` as its unit, so elements and one list term in a row have one meaning however they nest: a closed list is its items, `[a, b]` is `ListItem(a) ListItem(b)` with no trailing `.List`, and its elements are [typed](#typed-collections) by a `List<T>` cell they are written into.
+The brackets do not name the list; the position's sort does, so they stand wherever a constructor field, a cell, a function parameter, or a result declares the builtin `List` or a cons-list sort: in a function body and its `match` (`[a, b, rest @ ..] => ..`), a `k::equations!` row, an equation result, a function argument, a `k::term!`, a `cells!` entry, a constructor field (`Store { at: [Deref(), ..] }`), and a claim.
+A position whose sort is no list, or is not known, such as a `KItem` or an operator's operand, has nothing for them to denote (`krs::analysis::invalid-list-notation`).
 Elements are ordinary terms: an element may be a [constant](#named-constants) (`[WORD, ..]`), use [operators](#operator-and-method-notation) (`[a + b, ..rest]`), or [update a matched record](#updating-a-matched-record) (`[Field { index: i + 1, ..f }, ..rest]`).
 Rust has no spread in an array expression, so `[e1, ..rest]` in a result, where `..rest` would be a range, is KRS notation chosen for symmetry with the pattern; a range is no term anywhere else.
-A cons list is matched and built from its front, so `..` may only end the brackets: `[.., x]` and `[x, .., y]` are rejected (`krs::syntax::invalid-list-notation`), since matching a list's back is no constructor pattern, as are `[..]`, which matches any list (write `_`), and `[..rest]`, which is `rest`.
 
-In a readable `for Machine` record, a cell whose sort is a cons list reads a bracketed value as the computation cell does, so the common stack step names no rest:
+A bracket holds one rest, in patterns and results (`krs::syntax::invalid-list-notation` for a second): a pattern with fixed elements at both ends and one rest matches a list in at most one way, since the list's length fixes the rest's, but with two rests the elements between them could sit at several places, so the pattern would match some lists in several ways without saying which.
+The same holds for an explicit pattern: `list::concat(left, list::concat(list::item(v), right))`, K's `Left ListItem(V) Right`, is rejected in a rule, equation, or simplification (`krs::analysis::ambiguous-list-pattern`).
+Results keep the same rule for symmetry; join two lists with `list::concat(xs, ys)`, which says so.
+`[..]`, which matches any list, is rejected (write `_`), and so are `[rest @ ..]` and `[..rest]`, which are `rest`.
+A cons list is matched and built from its front, so its back is no constructor pattern: `[.., x]`, `[x, .., y]`, and a result `[..rest, x]` at a cons-list sort are `krs::analysis::invalid-list-notation`.
+The builtin `List` has no such constructor, and its front and back are symmetric under concatenation, so a suffix is as primitive as a prefix.
+
+In a readable `for Machine` record, a cell whose sort is a list reads a bracketed value as the computation cell does, so the common stack step names no rest:
 
 ```rust
 add: { k: [Add(), ..], word_stack: [a, b, ..] } => { k: [..], word_stack: [Chop(a + b), ..] };
 ```
 
 emits `<wordStack> A:Int : B:Int : Krs_RestWordStack:WordStack => chop ( A:Int +Int B:Int ) : Krs_RestWordStack:WordStack </wordStack>`.
-`..` is one rest on both sides, exactly as for `k`: the pattern ends in `..` exactly when the result does, and the result's `..` keeps what the pattern's matched.
+`..` is one rest on both sides, as for `k`: the pattern holds `..` exactly when the result does, and the result's `..` keeps what the pattern's matched.
+On a `List` cell it may stand anywhere on either side, so `queue: [a, ..] => queue: [.., a]` moves the front element to the back, and the computation cell keeps its front-only rule:
+
+```rust
+pop:  { k: [Pop(), ..], queue: [v, ..] }     => { k: [..], queue: [..], acc: v };
+last: { k: [Last(), ..], queue: [.., v] }    => { k: [..], queue: [..], acc: v };
+swap: { k: [Swap(), ..], queue: [a, .., z] } => { k: [..], queue: [z, .., a] };
+log:  { k: [Log(e), ..], logs }              => { k: [..], logs: [..logs, e] };
+```
+
+`swap` emits `<queue> ListItem(A:Int) Krs_RestQueue:List ListItem(Z:Int) => ListItem(Z:Int) Krs_RestQueue:List ListItem(A:Int) </queue>`.
 A named rest, `[a, b, rest @ ..] => [b, a, ..rest]`, may be used elsewhere, and a result may also be one term, `[_, rest @ ..] => rest` or `s => [v, ..s]`.
-A bracketed value reads by the cell's declared type: the computation cell reads items, a List collection instances, and a cons-list cell elements.
+A bracketed value reads by the cell's declared type: the computation cell reads items, a List collection instances, and a list cell elements.
 The macro cannot see declared types, so it reads one bracketed value of a record as the computation cell's, a cell named `k` if there is one, and the collector moves that reading to the configuration's computation cell; a record may therefore name the stack first, `{ word_stack: [a, ..], k: [Pop(), ..] }`, and a configuration may call its computation cell anything.
 `[]` alone on an ordinary leaf cell is that cell's empty list, a cons list's empty constructor or the builtin `List`'s `.List`, and on a List collection no instances.
-A bracketed value on a cell that is none of the three is `krs::analysis::invalid-list-notation`, and a named rest on the computation cell, whose rest is always anonymous, is rejected where the collector finds it.
-`krs expand` writes a readable rule's lists as the constructor terms they denote, `word_stack: k::configuration::Cell(crate::Stack::StackCons(a, crate::Stack::StackCons(b, rest)))`, with a parameter `rest` for an anonymous `..`; the reference layer accepts the notation too, so a fn body keeps it as written.
+A bracketed value on a cell that is none of the three is `krs::analysis::invalid-list-notation`, and a named rest or an element after the rest on the computation cell, whose rest is always anonymous and last, is rejected where the collector finds it.
+`krs expand` writes a readable rule's lists as the terms they denote, `word_stack: k::configuration::Cell(crate::Stack::StackCons(a, crate::Stack::StackCons(b, rest)))` or `queue: k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(a), rest))`, with a parameter `rest` for an anonymous `..`, and a rule or equation subject's brackets the same way; the reference layer accepts the notation too, so a fn body keeps it as written.
 
 ### Cells a rule only reads
 
@@ -208,9 +228,9 @@ Braces on a leaf cell are no empty map: `{ .. }` names a Set or Map collection's
 ### Whole nested-cell variables
 
 A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.
-In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: list::concat(list::item(f), s) }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
+In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: [f, ..s] }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
 The group clause is written bare, never inside `<frame>...</frame>`, and a group the rule names covers every cell inside it.
-As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: list::concat(list::item(Held { saved: f }), s)` emits `ListItem(held ( F:FrameCell ))`.
+As in K, every generated cell sort is a subsort of `KItem`, so the binder may also fill a `KItem` field of a user production: with `Held { saved: k::KItem }`, `stack: [Held { saved: f }, ..s]` emits `ListItem(held ( F:FrameCell ))`.
 A nested entry is a group binder, `_` (patterns only), or a complete group term; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
 A readable record writes the group term as a record of the nested struct: `jump: { k: [Jump(), ..], frame: Frame { pc: p, gas: g } } => { k: [..], frame: Frame { pc: int::add(p, 10), gas: g } }` emits `(<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => <frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)`, and `krs expand` writes the entry as `k::fragment![crate::Frame { pc: p, gas: g }]`, the spelling `cells!` entries and terms such as `list::item(..)` use.
 rustc resolves the record's path with the block's `use Cmd::*` in scope, as it resolves every unqualified path in the block, and the record is the whole cell when the path names a `#[k::cell]` struct, so a `Cmd` variant of the same name wins, as in Rust, and `crate::Frame { .. }` names the struct; `Some(Mark { seen: s })` names an optional group the same way.
@@ -255,7 +275,8 @@ An entry without `..`, such as `obj: { o @ Obj { oid: n, .. } }`, names every in
 A List is positional: `job: [Job { payload: p, .. }, ..]` matches the front instance, `[.., Job { payload: p, .. }]` the back one, and `[.., Job { payload: v, .. }]` in a result appends at the back, which KRS emits after a leading `_Instances1:Bag` because K closes a cell on the right.
 A List rule changes either the front or the back, not both, and does not reorder matched instances (`krs::analysis::collection-entry`).
 A bracketed value reads by the cell's declared type, so `[Job { payload: p }, ..]` is the front instance of the List collection `job` and `[Enqueue { value: v }, ..]` the head of the computation cell `k`: `retire: { job: [Job { payload: 0 }, ..] } => { job: [..] }` removes a front job whose payload is 0 and emits `(<job> <payload> 0 </payload> </job> => .Bag) ...` inside `<queue>`.
-A value that reads only one way is read that way: `[.., Job { .. }]` and a labelled front record `[first @ Job { .. }, ..]` are instances, and `[Push(), ..]` or `[x, ..]` is a head; a rule has one computation cell, so when one cell's value reads only as a head, every other bracketed value is a collection.
+A bracketed value thus has up to four readings, the computation cell's head, a List collection's instances, a cons list's elements, and a builtin `List`'s elements, and the cell's declared type picks one: `[.., Job { payload: p }]` is the back instance of the collection `job` and, on a `List` cell, the list whose last element is the constructor `Job { payload: p }`.
+A value that reads only one way is read that way: a record with a shorthand field, `[.., Job { payload, .. }]`, reads only as elements, and `[Push(), ..]` or `[x, ..]` reads as a head or as elements; a rule has one computation cell, so when one cell's value reads only as a head, every other bracketed value is a collection or a list.
 The reference spelling `krs expand` prints writes the entry with the collection path, `Threads::thread: { me @ k::fragment![crate::Thread { .. }], instances0 @ .. }`, and the result `..instances0`.
 A `?` or `*` template that reads a configuration variable without `initial` warns (`krs::analysis::collection-config-var-without-initial`), because K then starts the cell present.
 Optional and collection entries are not allowed in a context alias or an equation's function context, which read fixed cells only (`krs::expand::cell-collection-placement`).
@@ -288,7 +309,7 @@ So a pattern gives types and a written term is checked:
 
 - A binder matched at a typed position takes its type: `env: e` gives `e` the type `Map<Id, Value>`, as do the rest of a typed `map![..]` pattern, a typed child of a group or collection instance, and a value read from a typed map (`nested: { name -> s, .. }` gives `s` the type `Set<Int>`).
   The binder's declared sort, `k::Term<Map>` in a `cells!` rule, names only the sort, which is why `krs expand`'s reference rules check exactly as the readable ones do.
-- A key, value, or element written into a typed collection (the `k` and `v` of `map::update(m, k, v)`, the `x` of `list::item(x)` or `set::item(x)`, an entry of `map![..]` or `k::map![..]`) is inferred at the element sort, like any other occurrence: a binder used there and nowhere narrower gets that sort, and one whose other occurrences share no sort with it is an error.
+- A key, value, or element written into a typed collection (the `k` and `v` of `map::update(m, k, v)`, the `x` of `list::item(x)` or `set::item(x)`, an element of [list brackets](#list-notation) `[x, ..rest]`, an entry of `map![..]` or `k::map![..]`) is inferred at the element sort, like any other occurrence: a binder used there and nowhere narrower gets that sort, and one whose other occurrences share no sort with it is an error.
 - A collection written into a typed position must fit it. Collections are values, so every argument is covariant: a `Map<Id, Int>` fits `Map<Id, Value>` because `Int` is a `Value`, `.Map`, `.List`, and `.Set` fit every type, and a `Map<Id, Value>` does not fit `Map<Id, Int>`.
 - A read has the element sort: `map::get(e, name)` is a `Value`, projected to the sort its position expects, or a `Value` where no position expects a sort, so `map::get(locals, name) + 1` over a `Map<Id, Int>` is `Int` addition. A read that asks for a sort the collection never holds is an error: `map::get(e, name)` where a `Stmt` is expected, `where v: Stmt` on a value read from `env`, or `map::in_keys(n, e)` with an `Int` key.
 
@@ -303,7 +324,7 @@ The operations type as their K meaning says:
 | `map::get(m, k)`, `map::get_or_default(m, k, d)` | `k` read at `K`, `d` at `V` | `V` |
 | `map::in_keys(k, m)` | `k` read at `K` | `Bool` |
 | `map::keys`, `keys_list`, `values` | | `Set<K>`, `List<K>`, `List<V>` |
-| `list::item(x)`, `list::make(n, x)`, `list::update(l, i, x)` | `x` at `T`, `l` at the position's type | the position's type |
+| `list::item(x)`, `list::make(n, x)`, `list::update(l, i, x)`, brackets `[x, ..l]` | `x` at `T`, `l` at the position's type | the position's type |
 | `list::concat`, `list::range`, `list::update_all` | the lists at the position's type | the position's type |
 | `list::get(l, i)`, `list::contains(x, l)` | `x` read at `T` | `T`, `Bool` |
 | `set::item(x)`, `set::concat`, `set::union` | `x` at `T`, the sets at the position's type | the position's type |
@@ -987,7 +1008,7 @@ A listed name must occur in the result and must not be bound by the clause's pat
 ### Console I/O and the exit cell
 
 `#[k::cell(stream = "stdin")]` and `#[k::cell(stream = "stdout")]` connect a `List` cell to standard input or output, and the bare flag `#[k::cell(exit)]` makes an `Int` cell's final value the process exit status, like `std::process::exit`.
-I/O in K is configuration state: a rule reads by consuming the front of the input cell, `input: list::concat(list::item(x), rest) => rest` with `where x: Int`, and prints by appending to the output cell, `output: list::concat(out, list::item(x))`; K adds the rules that connect the cells to the process.
+I/O in K is configuration state: a rule reads by consuming the front of the input cell, `input: [x, ..] => input: [..]` (or `input: [x, rest @ ..] => input: rest`) with `where x: Int`, and prints by appending to the output cell, `output: out => output: [..out, x]`; K adds the rules that connect the cells to the process.
 K feeds input only to that read, so KRS emits it as K's `<input> ListItem(X:Int) => .List ... </input>` and rejects any other rule over a stdin cell.
 A stream cell starts as `list::empty()`, because K replaces its content with the stream; at most one cell connects to each stream, at most one cell is the exit cell and it is outside every repeated cell, and the computation cell is neither (`krs::analysis::console-cell`).
 Configuration initializers accept such ground terms directly: `input: list::empty()`, `status: 1`.
