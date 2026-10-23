@@ -172,20 +172,20 @@ fn an_unjoined_critical_pair_withdraws_the_head() {
     let heads = definition.data_heads();
     assert!(!heads.names().any(|name| name.as_ref() == "exps"));
     assert!(!data(&definition, &heads, FUN_EXPS));
-    // The members of the overload equations rooted at the tainted indexes are refused: the
-    // family may equate their applications (FZ-DATAEND review B2), so no term holding one is
-    // data, constructor-like or not. Symbols the family does not relate stay data.
-    let refused: Vec<String> = heads.refused().map(ToString::to_string).collect();
-    for symbol in ["bottoms", "vals", "exps"] {
-        assert!(refused.iter().any(|name| name == symbol), "{refused:?}");
-    }
-    assert!(!data(
-        &definition,
-        &heads,
-        "inj{SortBottoms{}, SortExps{}}(bottoms{}(bottom{}(), dotBottoms{}()))"
-    ));
-    assert!(data(&definition, &heads, "fun{}()"));
-    assert!(data(&definition, &heads, "state{}(matchFailure{}())"));
+    // The definition is not shown confluent, so no term is data (FZ-DATAEND review round 3: an
+    // identification reaches other terms through every equation that tells them apart), not
+    // even a constructor term the pair does not mention; the finding names the pair.
+    assert!(!heads.confluent());
+    assert!(
+        heads
+            .findings()
+            .iter()
+            .any(|finding| finding.contains("pick-exps") && finding.contains("pick-vals")),
+        "{:?}",
+        heads.findings()
+    );
+    assert!(!data(&definition, &heads, "fun{}()"));
+    assert!(!data(&definition, &heads, "state{}(matchFailure{}())"));
 }
 
 /// An overload equation whose argument is not a variable or an injection of one (here the
@@ -206,8 +206,7 @@ fn a_head_with_an_overload_equation_of_another_shape_is_not_a_data_head() {
     assert!(!heads.names().any(|name| name.as_ref() == "exps"));
     assert!(!data(&definition, &heads, FUN_EXPS));
     // The load only reports the shape (`ViolationKind::OverloadShape`); the family's lowering is
-    // then outside the check's premises, so no member of the family, and nothing its overload
-    // equations lower to, is data.
+    // then outside the check's premises, so the definition has no data.
     assert!(
         definition
             .value_claims()
@@ -215,12 +214,33 @@ fn a_head_with_an_overload_equation_of_another_shape_is_not_a_data_head() {
             .iter()
             .any(|violation| !violation.kind.withdraws())
     );
-    assert!(heads.refused().any(|name| name.as_ref() == "vals"));
-    assert!(!data(
-        &definition,
-        &heads,
-        &format!("vals{{}}(one{{}}(), {EMPTY_VALS})")
-    ));
+    assert!(!heads.confluent());
+    assert!(!data(&definition, &heads, "fun{}()"));
+}
+
+/// Two total-function equations at one root with different results (`q(X) = one`, `q(X) =
+/// inj(bottom)`) equate `one` with `inj{Bottom,Val}(bottom)`: no injection axiom keeps them
+/// apart. The full check finds the pair (the load's check pairs it only where it can withdraw a
+/// value claim; `r3-plainq` in the fuzz tests is a definition where it does not), so the
+/// definition has no data (FZ-DATAEND review round 3, R3-S1).
+#[test]
+fn a_pair_of_function_equations_with_different_results_withdraws_all_data() {
+    let definition = with_sentences(
+        r#"
+    symbol q{}(SortVal{}) : SortVal{} [function{}(), total{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, V:SortVal{}), \top{R}())),
+        \equals{SortVal{}, R}(q{}(X0:SortVal{}), \and{SortVal{}}(one{}(), \top{SortVal{}}())))
+        [label{}("q-one")]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, V:SortVal{}), \top{R}())),
+        \equals{SortVal{}, R}(q{}(X0:SortVal{}), \and{SortVal{}}(inj{SortBottom{}, SortVal{}}(bottom{}()), \top{SortVal{}}())))
+        [label{}("q-bottom")]
+"#,
+    );
+    let heads = definition.data_heads();
+    assert!(!heads.confluent(), "{:?}", heads.findings());
+    assert!(!data(&definition, &heads, "one{}()"));
 }
 
 #[test]

@@ -5,14 +5,15 @@
 //!
 //! # The class
 //!
-//! An overload family is *broken* when the load-time critical-pair check taints one of the
-//! indexes its overload equations are rooted at, or when it violates a premise of that check,
-//! which the load only reports (an overload equation of another shape than the canonical one
-//! below, as an overload placed across `K` has, or two members without a unique least common
-//! overload; `confluence::ViolationKind::{OverloadShape, NoLeastCommonOverload}`). Its *members*
-//! are *refused*: for a tainted index, the two symbols of each overload equation rooted there;
-//! for a premise violation, every member of the family, closed over its overload pairs. A ground
-//! term is *data* in a definition when it holds no refused symbol and is built only from
+//! A definition *has data* when its full critical-pair check
+//! ([`CheckScope::All`](crate::confluence::CheckScope::All), which classifies every pair of
+//! executable equations) reports nothing: every pair joins or is separated or refuted, no
+//! equation is one the evaluator does not apply to every subject it describes, and no
+//! precondition row is violated (no equation rooted at a free constructor, an injection, a
+//! collection or a bare variable; every overload equation of the canonical shape below; a unique
+//! least common overload for any two members of a family). A definition whose check reports
+//! something has no data: its findings ([`DataHeads::findings`]) say why. In a definition that
+//! has data, a ground term is *data* when it is built only from
 //!
 //! - domain values, sort injections and free-constructor applications ([`HeadRole::FreeConstructor`]);
 //! - map, list and set terms without an opaque rest, whose keys, values or elements are data and
@@ -21,56 +22,47 @@
 //!   (`BackendDefinition::instance_normal`: no equation offered the application, from the
 //!   definition's own equations, with its own subsort order, can apply to it), whose arguments
 //!   are data. An overload data head `g` is an `anywhere` production that is not a declared
-//!   function, has no hook, roots no `simplification` lemma, is not refused, and roots at least
-//!   one executable equation, every one of which is a *canonical* overload equation of `g`:
+//!   function, has no hook, roots no `simplification` lemma, and roots at least one executable
+//!   equation, every one of which is a *canonical* overload equation of `g`:
 //!   `g(p1, ..., pn) = inj{R,T}(h(x1, ..., xn))` (or `h(x1, ..., xn)`) with each `pi` the
 //!   variable `xi` or `inj{Si,Ti}(xi)`, the variables distinct, `h` its overload partner
-//!   (`RuleAttributes::overload`), and no `requires` or `ensures`; and the check leaves `g`'s
-//!   index untainted (`confluence::ValueClaims::admit`).
+//!   (`RuleAttributes::overload`), and no `requires` or `ensures`.
 //!
 //! # What a data term denotes, and why two of them differ
 //!
 //! A term denotes a value of the initial model of the definition: two ground terms denote one
 //! value exactly when every model of the definition equates them. Differing in *every* model is
 //! not attainable for an overload application, since outside the instances of its equations a
-//! model may interpret an equation head as it likes. The argument assumes:
+//! model may interpret an equation head as it likes.
+//!
+//! The backend reads a definition by its normal-form model `M_NF` (`docs/compatibility.md`,
+//! "Anywhere rules"): each sort is interpreted by the normal forms of innermost evaluation and
+//! each symbol by normalizing its application. `M_NF` is a model of the definition when
+//! evaluation terminates and the critical pairs of the executable equations join. The argument
+//! assumes:
 //!
 //! - **A1 (termination).** Evaluation terminates, as every evaluation assumes.
-//! - **A2 (consistency).** The definition has a model in which the declarations the backend
-//!   reads as true hold (`docs/compatibility.md`, "Anywhere rules", and the verdict contract of
-//!   `confluence::CheckScope::All`): free constructors have no confusion and are injective; sort
-//!   injections compose, are injective and differ from the constructors of their target sort.
-//! - **A3 (no stray identification).** No equation outside an overload family equates two
-//!   different ground terms of the constructor fragment (free constructors, domain values,
-//!   injections, collections). An equation that did would be a definition error: a pair the
-//!   check classifies is then reported as not joined, and one it does not classify (function
-//!   equations whose closure reaches no equation head or overloaded symbol) is reported by
-//!   `CheckScope::All`, which the load does not run.
+//! - **A2 (lemmas).** The axioms no check pairs, `simplification` lemmas and `[symbolic]`
+//!   function equations, are theorems of the executable equations, as every use of them assumes
+//!   (compat, "Anywhere rules"), and the declarations the check reads as true hold (the verdict
+//!   contract of `CheckScope::All`).
 //!
-//! Then two different data terms of one definition differ in its initial model:
+//! A local check cannot replace the global one. An identification anywhere reaches other terms
+//! through congruence: if two terms are equal, every equation that tells them apart equates its
+//! results. Two equations `p(_:Id, _:Ids) => a` and `p(_:Exp, _:Exps) => bb`, overlapping only
+//! modulo an overload axiom, equate `a` with `bb`, and a broken overload family's
+//! `inj{Ids,Exps}(.Ids) = .Exps = inj{Vals,Exps}(.Vals)` reaches `a` and `bb` through
+//! `pick(.Ids) => a` and `pick(.Vals) => bb`. KORE has no axiom keeping injections from different
+//! source sorts apart, so such a theory stays consistent and equates terms that are syntactically
+//! different and free of every symbol involved. Hence the whole definition must be shown
+//! confluent.
 //!
-//! 1. *The constructor fragment.* An overload family is the one place where K means equations
-//!    between different productions' values: its axioms say its members are one operation. An
-//!    unbroken family lowers every application to one normal form (stage 1 of the check: its
-//!    canonical equations' pairs join, which is a complete test for that shape, and lowering
-//!    terminates because each step replaces a production by a strictly lesser one of a finite
-//!    family), so it equates no two different terms of the fragment. A broken family may: in the
-//!    diamond `Bot < Id, Val`, `Ids` and `Vals` both `overload(Exps)` over the common `Bots`,
-//!    the axioms give `inj{Ids,Exps}(.Ids) = .Exps = inj{Vals,Exps}(.Vals)`. An overload axiom's
-//!    two sides differ only at their roots, which are members, so no term free of the refused
-//!    members is an instance of either side. With A2 and A3, two different terms of the fragment
-//!    are then kept apart by some model.
-//! 2. *Overload applications.* With its closure of the pairs that do not join, the check
-//!    guarantees that, whenever the definition has a model, one model makes every claim on an
-//!    untainted term true at once (compat, "Anywhere rules": it keeps the values of any model,
-//!    adds the untainted equations' normal forms that hold an untainted equation-head
-//!    application as new values, distinct from every other value, and no tainted equation can
-//!    see a new value). Build it on a model of 1. An instance-normal application of an untainted
-//!    overload data head over data is such a normal form. By induction on the first position
-//!    where two different data terms differ, that model gives them different values: free
-//!    constructors and injections are injective and have no confusion on old and new values
-//!    alike, collections with distinct keys denote their finite maps and sets, and new values
-//!    are distinct from every other value.
+//! When the full check reports nothing, then under A1 and A2 `M_NF` is a model of the
+//! definition. Every data term is a normal form: no executable equation is rooted at a free
+//! constructor, an injection or a collection (no precondition row), and an instance-normal
+//! overload application over normal forms is one. Distinct normal forms are distinct elements of
+//! `M_NF`, so two different data terms are kept apart by a model, and they differ in the initial
+//! model. (Syntactic difference is read on k-rust's internal normal form, below.)
 //!
 //! # Two definitions
 //!
@@ -81,16 +73,17 @@
 //! `inj(f_Bot(b))`), an `anywhere` rule may be added (`c(1) => d`), a subsort may be added below
 //! an overload argument sort, parametric instances such as `MInt{8}` included. So the comparison
 //! is sound when every term compared is data in *both* definitions, each judged by
-//! [`BackendDefinition::is_data`] with that definition's own [`DataHeads`] (its own families,
-//! taint and equations, its own full subsort order through its matcher). Then, by the argument
-//! above under A1 to A3 for each definition, two different such terms denote different values of
+//! [`BackendDefinition::is_data`] with that definition's own [`DataHeads`] (its own full check,
+//! equations and overload families, its own full subsort order through its matcher), so each of
+//! the two definitions must have data. Then, by the argument
+//! above under A1 and A2 for each definition, two different such terms denote different values of
 //! each definition's initial model, so `tm` differs from every `tb` whichever theory reads them.
 //! Syntactic difference is read on k-rust's internal normal form, whose injections are taken
 //! from the term's own sort (nested injections compose), which does not depend on the
 //! definition. A term that does not internalize in a definition (a symbol it lacks) is not data
 //! there.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::{
     definition::BackendDefinition,
@@ -98,23 +91,20 @@ use crate::{
     term::{HeadRole, Name, Term, TermKind},
 };
 
-/// The overload data heads and the refused symbols of one definition (the
-/// [module documentation](self), "The class"), built by [`BackendDefinition::data_heads`] and
-/// read only by [`BackendDefinition::is_data`] of the same definition.
+/// The overload data heads of one definition and the findings of its full critical-pair check
+/// (the [module documentation](self), "The class"), built by [`BackendDefinition::data_heads`]
+/// and read only by [`BackendDefinition::is_data`] of the same definition.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DataHeads {
     heads: BTreeSet<Name>,
-    /// The members of the definition's broken overload families: no term that holds one is
-    /// data.
-    refused: BTreeSet<Name>,
+    /// Why the definition's equations are not shown confluent: one line per pair of executable
+    /// equations the full check does not join, per equation the evaluator does not apply to
+    /// every subject it describes, and per precondition row the definition violates. When there
+    /// is one, no term is data.
+    findings: Vec<String>,
 }
 
 impl DataHeads {
-    /// The refused symbols, sorted: no term that holds one is data.
-    pub fn refused(&self) -> impl Iterator<Item = &Name> {
-        self.refused.iter()
-    }
-
     /// The heads' symbol names, sorted.
     pub fn names(&self) -> impl Iterator<Item = &Name> {
         self.heads.iter()
@@ -131,21 +121,45 @@ impl DataHeads {
     pub fn is_empty(&self) -> bool {
         self.heads.is_empty()
     }
+
+    /// Whether the full critical-pair check shows the definition's equations confluent: no
+    /// finding. Otherwise no term is data.
+    #[must_use]
+    pub fn confluent(&self) -> bool {
+        self.findings.is_empty()
+    }
+
+    /// Why the definition's equations are not shown confluent, one line each (empty when they
+    /// are).
+    #[must_use]
+    pub fn findings(&self) -> &[String] {
+        &self.findings
+    }
 }
 
 impl BackendDefinition {
-    /// The overload data heads and the refused symbols of this definition (the
-    /// [module documentation](self), "The class"): every `anywhere` production that is not a
-    /// declared function, has no hook, roots no simplification, is not refused, roots at least
-    /// one executable equation and only canonically shaped overload equations rooted at itself,
-    /// and whose index the load-time critical-pair check leaves untainted.
+    /// The overload data heads of this definition and the findings of its full critical-pair
+    /// check (the [module documentation](self), "The class"). The check runs in
+    /// [`CheckScope::All`](crate::confluence::CheckScope::All), which classifies every pair of
+    /// executable equations, not only those that can change a value claim; it costs about as
+    /// much as the definition's load (0.03 s on SIMPLE, 0.2 s on WASM), so a client computes
+    /// this once per definition. A head is an `anywhere` production that is not a declared
+    /// function, has no hook, roots no simplification, roots at least one executable equation
+    /// and only canonically shaped overload equations rooted at itself; when the check has a
+    /// finding there is no head.
     #[must_use]
     pub fn data_heads(&self) -> DataHeads {
-        let refused = self.broken_family_members();
+        let verdict = self.value_claims_in_scope(crate::confluence::CheckScope::All);
+        let findings = confluence_findings(&verdict);
+        if !findings.is_empty() {
+            return DataHeads {
+                heads: BTreeSet::new(),
+                findings,
+            };
+        }
         let mut heads = BTreeSet::new();
         for (name, symbol) in self.symbols() {
-            if refused.contains(name)
-                || symbol.attributes.head_role() != HeadRole::EquationHead
+            if symbol.attributes.head_role() != HeadRole::EquationHead
                 || symbol.attributes.hook.is_some()
             {
                 continue;
@@ -168,69 +182,7 @@ impl BackendDefinition {
                 heads.insert(name.clone());
             }
         }
-        DataHeads { heads, refused }
-    }
-
-    /// The members of the broken overload families: the two symbols of every overload equation
-    /// rooted at an index the load-time check taints, and every member of a family whose
-    /// overload equations break a premise of the check, which the load only reports (an
-    /// equation of another shape, two members without a unique least common overload:
-    /// `ViolationKind::OverloadShape`, `NoLeastCommonOverload`). An overload axiom's two sides
-    /// differ only at their roots, both members, so these cover every pair of different terms
-    /// such a family's axioms equate.
-    fn broken_family_members(&self) -> BTreeSet<Name> {
-        use crate::confluence::ViolationKind;
-        let overload_pairs = || {
-            self.function_theory()
-                .values()
-                .flat_map(BTreeMap::values)
-                .flatten()
-                .filter_map(|rule| rule.attributes.overload.as_ref())
-        };
-        let mut family = BTreeSet::new();
-        for violation in self.value_claims().violations() {
-            match &violation.kind {
-                ViolationKind::OverloadShape(name) => {
-                    family.insert(name.clone());
-                }
-                ViolationKind::NoLeastCommonOverload(left, right) => {
-                    family.insert(left.clone());
-                    family.insert(right.clone());
-                }
-                ViolationKind::ConstructorHeaded(_)
-                | ViolationKind::InjectionHeaded
-                | ViolationKind::IndexedAt(_)
-                | ViolationKind::PinnedByInjectiveTotal(_) => {}
-            }
-        }
-        // Invariant: `family` only grows, bounded by the overloaded symbols.
-        loop {
-            let before = family.len();
-            for (greater, lesser) in overload_pairs() {
-                if family.contains(greater) || family.contains(lesser) {
-                    family.insert(greater.clone());
-                    family.insert(lesser.clone());
-                }
-            }
-            if family.len() == before {
-                break;
-            }
-        }
-        for (index, groups) in self.function_theory() {
-            if !matches!(index, TermIndex::Symbol(_)) || self.value_claims().admit(index).is_some()
-            {
-                continue;
-            }
-            for (greater, lesser) in groups
-                .values()
-                .flatten()
-                .filter_map(|rule| rule.attributes.overload.as_ref())
-            {
-                family.insert(greater.clone());
-                family.insert(lesser.clone());
-            }
-        }
-        family
+        DataHeads { heads, findings }
     }
 
     /// Whether the ground term `term` is data in this definition (the
@@ -247,19 +199,16 @@ impl BackendDefinition {
         let mut pending = vec![term];
         // Invariant: every term popped is a subterm of `term`, and each subterm is pushed once by
         // its parent, so the loop visits at most the nodes of `term`.
-        // With a tainted overload family, constructor-like terms the family identifies are not
-        // data, so every symbol is looked at.
-        let shortcut = heads.refused.is_empty();
+        if !heads.confluent() {
+            return false;
+        }
         while let Some(term) = pending.pop() {
-            if shortcut && term.attributes().constructor_like {
+            if term.attributes().constructor_like {
                 continue;
             }
             match term.kind() {
                 TermKind::DomainValue { .. } => {}
                 TermKind::Injection { term, .. } => pending.push(term),
-                TermKind::Application { symbol, .. } if heads.refused.contains(&symbol.name) => {
-                    return false;
-                }
                 TermKind::Application {
                     symbol, arguments, ..
                 } => match symbol.attributes.head_role() {
@@ -377,4 +326,36 @@ fn canonical_overload_equation(head: &Name, rule: &crate::rule::RewriteRule) -> 
             .all(|(argument, variable)| {
                 matches!(argument.kind(), TermKind::Variable(found) if found == *variable)
             })
+}
+
+/// One line per finding of a full critical-pair check: each pair it does not join (and each
+/// equation the evaluator does not apply to every subject it describes), and each precondition
+/// row the definition violates.
+fn confluence_findings(verdict: &crate::confluence::ValueClaims) -> Vec<String> {
+    let name = |rule: &crate::rule::RewriteRule| rule.attributes.diagnostic_name(str::to_owned);
+    let mut findings: Vec<String> = verdict
+        .violations()
+        .iter()
+        .map(|violation| match &violation.rule {
+            Some(rule) => format!("{} ({})", violation.kind, name(rule)),
+            None => violation.kind.to_string(),
+        })
+        .collect();
+    findings.extend(verdict.unjoined().iter().map(|pair| {
+        if pair.reason.describes_one_equation() {
+            format!(
+                "the equation {} is not applied to every subject it describes ({})",
+                name(&pair.first),
+                pair.reason
+            )
+        } else {
+            format!(
+                "the equations {} and {} are not shown to join ({})",
+                name(&pair.first),
+                name(&pair.second),
+                pair.reason
+            )
+        }
+    }));
+    findings
 }
