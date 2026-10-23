@@ -263,7 +263,7 @@ fn head_rule_typing(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
+) -> Result<CollectionTyping, DescriptorLoweringError> {
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     walker.checked_binders(
         rule.existentials
@@ -398,7 +398,7 @@ fn structured_rule_typing(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
+) -> Result<CollectionTyping, DescriptorLoweringError> {
     let walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     let mut roots = Vec::new();
     for cell in rule
@@ -487,12 +487,10 @@ pub(super) fn lower_head_rule_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let configuration = head_rule_configuration(rule, declarations)?;
     let seeds = seed_head_rule_sorts(descriptor, rule, declarations, sort_parents)?;
-    let (typing, rule_warnings) =
-        head_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
+    let typing = head_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let binding_constraints = initial_binding_constraints(&seeds.binding_sorts);
     // Existentials are declared at their authored sort and are referenced
     // only by written terms and the ensures condition.
@@ -662,7 +660,6 @@ pub(super) fn lower_head_rule_descriptor(
         .as_ref()
         .map(|claim| lower_head_rule_claim(descriptor, claim))
         .transpose()?;
-    warnings.extend(rule_warnings);
     Ok(SemanticRule::new_configuration(
         semantic_origin(descriptor, role_key(declaration, 0), "head-anchored-rule")?,
         descriptor.id().clone(),
@@ -1840,7 +1837,6 @@ pub(super) fn lower_structured_rule_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     // A function context's bindings are visible to the result and requires
     // like the subject's (KF-025); its frames have their family's sort and its
@@ -1912,9 +1908,7 @@ pub(super) fn lower_structured_rule_descriptor(
         .collect::<BTreeMap<_, _>>();
     // A function context matches cells, and a subject matches arguments;
     // their binders have the cells' and parameters' element types.
-    let (typing, rule_warnings) =
-        structured_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
-    warnings.extend(rule_warnings);
+    let typing = structured_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,

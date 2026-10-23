@@ -28,7 +28,6 @@ pub(super) fn lower_fixed_configuration_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticConfiguration, DescriptorLoweringError> {
     let configuration_id = generated_semantic_id("configuration", descriptor.id(), None)?;
     let root = match &configuration.root {
@@ -70,7 +69,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
             variable.main_key.is_some(),
         )?);
     }
-    let (typing, initializer_warnings) = initializer_typing(
+    let typing = initializer_typing(
         descriptor,
         configuration,
         declarations,
@@ -95,7 +94,6 @@ pub(super) fn lower_fixed_configuration_descriptor(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    warnings.extend(initializer_warnings);
     console.check_initializers(&initializer)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
     Ok(FixedConfiguration::new(
@@ -469,7 +467,7 @@ fn initializer_typing(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
+) -> Result<CollectionTyping, DescriptorLoweringError> {
     fn roots<'t>(
         walker: &Walker<'_>,
         cells: &'t [DescriptorInitializerCell],

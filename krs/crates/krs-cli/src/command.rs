@@ -8,7 +8,7 @@ use krs_compiler::{
     DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DescriptorLoweringError,
     EmitError, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT, SOURCES_ARTIFACT,
     SPEC_ARTIFACT, SYMBOLS_ARTIFACT, emit_k, expand_package_reference_source,
-    lower_descriptor_bundle_with_warnings, lower_semantic_theory,
+    lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
 use krs_ir::measure::Timings;
@@ -257,8 +257,7 @@ struct PreparedDefinition {
     /// Allowed quoted hooks and `raw_k!` sentences, and functions only Z3
     /// can evaluate (`smt_hook` without equations), reported on every command.
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
-    /// Untyped collections written into typed ones, `k::is!` and
-    /// `k::project!` terms that test nothing, optional or
+    /// `k::is!` and `k::project!` terms that test nothing, optional or
     /// collection cells K starts present without `initial`, and total
     /// functions with arguments no equation defines, reported on every
     /// command.
@@ -512,7 +511,7 @@ fn prepare(
                 .collect(),
         ));
     }
-    let (semantic, collection_warnings) = measurement
+    let semantic = measurement
         .timings
         .try_span("semantic.lower", |_| lower_semantic(&bundle))?;
     measurement
@@ -525,9 +524,8 @@ fn prepare(
     let coverage = krs_compiler::coverage_warnings(semantic.modules());
     Ok(PreparedDefinition {
         raw_k_warnings: raw_k.warnings,
-        sort_test_warnings: collection_warnings
+        sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
             .into_iter()
-            .chain(krs_compiler::sort_test_warnings(lowered.definition()))
             .chain(krs_compiler::cell_collection_warnings(lowered.definition()))
             .chain(coverage)
             .collect(),
@@ -540,14 +538,8 @@ fn prepare(
 
 fn lower_semantic(
     bundle: &DescriptorBundle,
-) -> Result<
-    (
-        krs_ir_levels::SemanticTheory,
-        Vec<krs_diagnostic::Diagnostic>,
-    ),
-    CommandError,
-> {
-    lower_descriptor_bundle_with_warnings(bundle).map_err(CommandError::DescriptorLowering)
+) -> Result<krs_ir_levels::SemanticTheory, CommandError> {
+    lower_descriptor_bundle(bundle).map_err(CommandError::DescriptorLowering)
 }
 
 fn lower_definition(
@@ -801,8 +793,7 @@ fn push_trusted_claim_warnings(
 }
 
 /// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
-/// the package's allowed raw K, then the `krs::analysis::untyped-collection`,
-/// `krs::analysis::trivial-sort-test`,
+/// the package's allowed raw K, then the `krs::analysis::trivial-sort-test`,
 /// `krs::analysis::collection-config-var-without-initial`,
 /// `krs::analysis::uncovered-total-function`, and
 /// `krs::analysis::stale-underspecified` warnings; every command reports them.

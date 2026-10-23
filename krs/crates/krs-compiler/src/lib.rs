@@ -39,8 +39,7 @@ pub use reference::{
 };
 pub use semantic::{
     DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OpenSortAnalysis,
-    OperatorProblem, RawKPolicy, analyze_open_sorts, lower_descriptor_bundle,
-    lower_descriptor_bundle_with_warnings, raw_k_policy,
+    OperatorProblem, RawKPolicy, analyze_open_sorts, lower_descriptor_bundle, raw_k_policy,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

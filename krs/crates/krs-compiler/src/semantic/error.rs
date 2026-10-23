@@ -265,6 +265,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending term.
         range: Option<Box<SourceRange>>,
     },
+    /// A collection whose element types nothing declares (a bare `Map`
+    /// cell, field, parameter, or result, or a binder matched in one) is
+    /// written at a typed collection position.
+    UntypedCollection {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the term, why it is untyped, and the position.
+        reason: String,
+        /// Sole exact authored range of the offending term.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `name @ pattern` (K's `#as`) reaches a position that is not a
     /// pattern, or its alias needs a sort its pattern does not have (KF-029).
     InvalidPatternAs {
@@ -731,6 +742,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::BitTemplateSort { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::CollectionElementSort { reason, .. }
+            | Self::UntypedCollection { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidRecordUpdate { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
@@ -809,6 +821,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::BitTemplateSort { .. } => codes::analysis::BIT_TEMPLATE_SORT,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
             Self::CollectionElementSort { .. } => codes::analysis::COLLECTION_ELEMENT_SORT,
+            Self::UntypedCollection { .. } => codes::analysis::UNTYPED_COLLECTION,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidRecordUpdate { .. } => codes::analysis::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
@@ -882,6 +895,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidTerm { range, .. }
             | Self::IncompatibleBinder { range, .. }
             | Self::CollectionElementSort { range, .. }
+            | Self::UntypedCollection { range, .. }
             | Self::InvalidPatternAs { range, .. }
             | Self::InvalidRecordUpdate { range, .. }
             | Self::InvalidPatternOr { range, .. }

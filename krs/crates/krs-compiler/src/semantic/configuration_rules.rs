@@ -304,7 +304,7 @@ fn configuration_rule_typing(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
+) -> Result<CollectionTyping, DescriptorLoweringError> {
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     walker.checked_binders(
         rule.claim
@@ -346,7 +346,6 @@ pub(super) fn lower_configuration_rule_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let configuration = require_fixed_configuration(
         &rule.subject_configuration.configuration,
@@ -359,8 +358,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         result_sorts,
         variables,
     } = configuration_rule_bindings(rule)?;
-    let (typing, rule_warnings) =
-        configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
+    let typing = configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let mut terms = StateRuleTerms {
         descriptor,
         declarations,
@@ -474,7 +472,6 @@ pub(super) fn lower_configuration_rule_descriptor(
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
-    warnings.extend(rule_warnings);
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,

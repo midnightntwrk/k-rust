@@ -30,9 +30,9 @@
 //!
 //! A collection whose elements nothing declares (a function result or a
 //! constructor field declared as a bare `Map`, a bare `Map` cell) is
-//! untyped. Writing one into a typed position is reported as
-//! `krs::analysis::untyped-collection`, a warning: nothing checks its
-//! elements.
+//! untyped. Writing one into a typed position is the error
+//! `krs::analysis::untyped-collection`: nothing checks its elements, so the
+//! induction step would not hold.
 //!
 //! [`CollectionTyping`] walks a sentence's typed positions before inference.
 //! Binder types come from the patterns alone, so they are known before any
@@ -43,7 +43,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 
-use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
     BuiltinSort, CollectionApplication, Descriptor, DescriptorApplicationRef, DescriptorCellField,
     DescriptorIndex, DescriptorSortArgument, DescriptorSortRef, DescriptorTerm, ListNotation,
@@ -426,7 +425,7 @@ enum Source {
 }
 
 /// The element types of one sentence: binder types from its patterns, the
-/// element and read sorts of its collection operands, and its warnings.
+/// element and read sorts of its collection operands.
 #[derive(Default)]
 pub(super) struct CollectionTyping {
     binders: BTreeMap<String, Matched>,
@@ -495,8 +494,6 @@ pub(super) struct Walker<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     parents: &'a SortParents,
     typing: CollectionTyping,
-    /// The sentence's `untyped-collection` warnings.
-    warnings: Vec<Diagnostic>,
     /// Whether this pass records binder types (the first) or checks (the
     /// second).
     binding: bool,
@@ -560,7 +557,6 @@ impl<'a> Walker<'a> {
             catalog,
             parents,
             typing: CollectionTyping::default(),
-            warnings: Vec::new(),
             binding: true,
             locals: Vec::new(),
         }
@@ -602,19 +598,18 @@ impl<'a> Walker<'a> {
         self.production_types(id)?.result
     }
 
-    /// Walks every root twice and returns the sentence's typing and its
-    /// `untyped-collection` warnings.
+    /// Walks every root twice and returns the sentence's typing.
     pub(super) fn run(
         mut self,
         roots: &[Root<'_>],
-    ) -> Result<(CollectionTyping, Vec<Diagnostic>), DescriptorLoweringError> {
+    ) -> Result<CollectionTyping, DescriptorLoweringError> {
         for binding in [true, false] {
             self.binding = binding;
             for root in roots {
                 self.root(root)?;
             }
         }
-        Ok((self.typing, self.warnings))
+        Ok(self.typing)
     }
 
     fn root(&mut self, root: &Root<'_>) -> Result<(), DescriptorLoweringError> {
@@ -1318,8 +1313,8 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Checks a term of `source` written at `at`: a typed term that does not
-    /// fit is an error, an untyped one a warning.
+    /// Checks a term of `source` written at `at`: a typed term must fit,
+    /// and an untyped one is an error, since nothing checks its elements.
     fn flow(
         &mut self,
         source: Source,
@@ -1332,22 +1327,14 @@ impl<'a> Walker<'a> {
         }
         match source {
             Source::Fits | Source::Unknown => Ok(()),
-            Source::Untyped(reason) => {
-                self.warn(position, &reason, key);
-                Ok(())
-            }
+            Source::Untyped(reason) => Err(self.untyped(position, &reason, key)),
             Source::Typed(actual, what) => match actual.fits(ty, self.parents) {
                 Fit::Yes => Ok(()),
-                Fit::Untyped => {
-                    self.warn(
-                        position,
-                        &format!(
-                            "{what} has type `{actual}`, which declares not every element type"
-                        ),
-                        key,
-                    );
-                    Ok(())
-                }
+                Fit::Untyped => Err(self.untyped(
+                    position,
+                    &format!("{what} has type `{actual}`, which declares not every element type"),
+                    key,
+                )),
                 Fit::No => {
                     let (left, right) = actual
                         .first_mismatch(ty, self.parents)
@@ -1367,18 +1354,22 @@ impl<'a> Walker<'a> {
         }
     }
 
-    fn warn(&mut self, position: &Position, reason: &str, key: &ProvenanceKey) {
-        let mut warning = Diagnostic::error(
-            codes::analysis::UNTYPED_COLLECTION,
-            format!(
+    /// The error for a term whose elements nothing declares, written at a
+    /// typed position: it would break the position's invariant unchecked.
+    fn untyped(
+        &self,
+        position: &Position,
+        reason: &str,
+        key: &ProvenanceKey,
+    ) -> DescriptorLoweringError {
+        DescriptorLoweringError::UntypedCollection {
+            item: Box::new(self.descriptor.id().clone()),
+            reason: format!(
                 "{reason}, so nothing checks the elements it writes to {}",
                 position.describe_declared()
             ),
-            authored_range(self.descriptor, key)
-                .map_or(Location::None, |range| Location::Source(*range)),
-        );
-        warning.severity = Severity::Warning;
-        self.warnings.push(warning);
+            range: authored_range(self.descriptor, key),
+        }
     }
 
     /// An element operand: inferred at the part's sort, and checked at the

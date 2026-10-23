@@ -135,9 +135,6 @@ k::rules! {
     lookup: { k: [Op(7), Put(name, _), ..], env: e } => { k: [map::get(e, name), ..] };
     keys: { k: [Op(8), ..], env: e, seen: _ } => { k: [..], seen: map::keys(e) };
     widen: { k: [Op(9), ..], env: _, frame: Frame { locals: l, .. } } => { k: [..], env: l };
-    untyped_function: { k: [Op(10), Put(name, s), ..], env: e } => { k: [..], env: Put3(e, name, s) };
-    untyped_cell: { k: [Op(11), ..], raw: r, env: _ } => { k: [..], env: r };
-    stash: { k: [Op(12), Hold(m), ..], env: _ } => { k: [..], env: m };
     typed_function: { k: [Op(13), Put(name, _), ..], env: e } => { k: [..], env: Store(e, name, 5) };
     typed_stash: { k: [Op(14), ..], env: e } => { k: [Keep(e), ..] };
     typed_restore: { k: [Op(15), Keep(m), ..], env: _ } => { k: [..], env: m };
@@ -233,11 +230,11 @@ fn rule(definition: &str, label: &str) -> String {
         .join(" ")
 }
 
-/// Typed writes that fit, reads at their element sorts, and untyped writes
-/// check; the untyped writes warn at the written term, and the K is the K of
-/// untyped cells: element types are erased.
+/// Typed writes that fit, reads at their element sorts, and typed function
+/// results and constructor fields check without a diagnostic, and the K is
+/// the K of untyped cells: element types are erased.
 #[test]
-fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
+fn typed_positions_accept_fitting_writes() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(
@@ -247,23 +244,7 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
     );
     let (success, _, check_stderr) = krs(target.path(), &manifest, "check", &[]);
     assert!(success, "{check_stderr}");
-    expect_test::expect![[r#"
-        [
-            (
-                "warning[krs::analysis::untyped-collection]: `m` is matched in the field `m` of `Hold`, declared `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
-                "m",
-            ),
-            (
-                "warning[krs::analysis::untyped-collection]: `r` is matched in the cell `raw`, declared `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
-                "r",
-            ),
-            (
-                "warning[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
-                "Put3",
-            ),
-        ]
-    "#]]
-    .assert_debug_eq(&diagnostics(&check_stderr));
+    assert_eq!(diagnostics(&check_stderr), [], "{check_stderr}");
 
     let output = manifest.with_file_name("emitted");
     let (success, _, stderr) = krs(
@@ -281,7 +262,6 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
             "<k> op 5 ~> put Name:Id _ => V:Int ... </k> <env> Name:Id |-> V:Int ... </env>",
             "<k> op 6 ~> puti Name:Id _ => puti Name:Id {M:Map [ Name:Id ]}:>Int +Int 1 ... </k> <frame> <locals> M:Map </locals> <depth> _ </depth> </frame>",
             "<k> op 7 ~> put Name:Id _ => {E:Map [ Name:Id ]}:>Value ... </k> <env> E:Map </env>",
-            "<k> op 10 ~> put Name:Id S:Stmt => .K ... </k> <env> E:Map => put3 ( E:Map , Name:Id , S:Stmt ) </env>",
             "<k> op 13 ~> put Name:Id _ => .K ... </k> <env> E:Map => store ( E:Map , Name:Id , 5 ) </env>",
             "<k> op 16 ~> put Name:Id _ => .K ... </k> <nested> N:Map => N:Map [ Name:Id <- members ( N:Map , Name:Id ) ] </nested>",
         ]
@@ -292,7 +272,6 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
         rule(&definition, "read-int"),
         rule(&definition, "increment"),
         rule(&definition, "lookup"),
-        rule(&definition, "untyped-function"),
         rule(&definition, "typed-function"),
         rule(&definition, "typed-nested"),
     ]);
@@ -317,11 +296,13 @@ fn rules(body: &str) -> String {
     format!("k::rules! {{\n    for Machine;\n    use StmtSyntax::*;\n\n    {body}\n}}\n")
 }
 
-/// Every write of an ill-sorted element, and every read that asks for a
-/// sort the collection never holds, is rejected at the term, naming the
-/// position and its declared type: through nested updates, empty bases,
-/// lists, sets, group and instance children, nested collection arguments,
-/// `cells!` rules, single-body rules, claims, and initializers.
+/// Every write of an ill-sorted element or of a collection whose element
+/// types nothing declares, and every read that asks for a sort the
+/// collection never holds, is rejected at the term, naming the position and
+/// its declared type: through nested updates, empty bases, lists, sets,
+/// group and instance children, nested collection arguments, constructor
+/// fields, function parameters and results, equations, `cells!` rules,
+/// single-body rules, claims, and initializers.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -336,6 +317,12 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
         )
     };
     let env_value = "a value of the cell `env`, declared `Map<Id, Value>`";
+    let env = "the cell `env`, declared `Map<Id, Value>`";
+    let untyped = |reason: &str, position: &str| {
+        format!(
+            "error[krs::analysis::untyped-collection]: {reason}, so nothing checks the elements it writes to {position}"
+        )
+    };
     let cases = [
         (
             "direct",
@@ -498,6 +485,29 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "k::rewrite!(_ => s)",
         ),
         (
+            "untyped-cell",
+            rules("probe: { k: [Op(11), ..], raw: r, env: _ } => { k: [..], env: r };"),
+            untyped("`r` is matched in the cell `raw`, declared `Map`", env),
+            "r",
+        ),
+        (
+            "untyped-field",
+            rules("probe: { k: [Op(12), Hold(m), ..], env: _ } => { k: [..], env: m };"),
+            untyped("`m` is matched in the field `m` of `Hold`, declared `Map`", env),
+            "m",
+        ),
+        (
+            "untyped-argument",
+            rules(
+                "probe: { k: [Put(name, _), ..], raw: r, env: _ } => { k: [..], env: Store(r, name, 1) };",
+            ),
+            untyped(
+                "`r` is matched in the cell `raw`, declared `Map`",
+                "the parameter `m` of `Store`, declared `Map<Id, Value>`",
+            ),
+            "r",
+        ),
+        (
             "typed-parameter",
             rules(
                 "probe: { k: [Put(name, s), ..], env: e } => { k: [..], env: Store(map::update(e, name, s), name, 1) };",
@@ -621,10 +631,11 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
 }
 
 /// A three-argument user function whose result is written into a map cell
-/// is a term like any other: it is no map update, and its untyped result
-/// warns rather than failing as a misread update.
+/// is a term like any other, never a misread map update: its signature
+/// decides, so an untyped result is rejected for being untyped, and a
+/// typed one of the same shape (`Store`, in the accepted rules) fits.
 #[test]
-fn a_user_function_result_is_not_read_as_a_map_update() {
+fn a_user_function_result_is_typed_by_its_signature() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(
@@ -638,11 +649,11 @@ fn a_user_function_result_is_not_read_as_a_map_update() {
         ),
     );
     let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
-    assert!(success, "{stderr}");
+    assert!(!success, "{stderr}");
     assert_eq!(
         diagnostics(&stderr),
         [(
-            "warning[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`".to_owned(),
+            "error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`".to_owned(),
             "Put3".to_owned()
         )]
     );

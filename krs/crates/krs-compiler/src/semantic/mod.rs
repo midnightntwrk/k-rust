@@ -69,27 +69,13 @@ use references::validate_all_stable_references;
 /// Returns [`DescriptorLoweringError`] for duplicate or dangling identities,
 /// wrong descriptor shapes, parser/reference disagreement, malformed terms,
 /// invalid generated identities, or a failed whole-theory invariant.
-pub fn lower_descriptor_bundle(
-    bundle: &DescriptorBundle,
-) -> Result<SemanticTheory, DescriptorLoweringError> {
-    lower_descriptor_bundle_with_warnings(bundle).map(|(theory, _)| theory)
-}
-
-/// Lowers a descriptor bundle as [`lower_descriptor_bundle`] does, and
-/// returns the `krs::analysis::untyped-collection` warnings of its
-/// sentences with it.
-///
-/// # Errors
-///
-/// Returns the first lowering error, as [`lower_descriptor_bundle`] does.
 #[expect(
     clippy::too_many_lines,
     reason = "Lowering keeps the whole-bundle checks in their fixed order."
 )]
-pub fn lower_descriptor_bundle_with_warnings(
+pub fn lower_descriptor_bundle(
     bundle: &DescriptorBundle,
-) -> Result<(SemanticTheory, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
-    let mut warnings = Vec::new();
+) -> Result<SemanticTheory, DescriptorLoweringError> {
     let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
     descriptors.sort_by(|left, right| left.id().cmp(right.id()));
     // A constant is a name for a term: every use becomes the term before
@@ -173,7 +159,6 @@ pub fn lower_descriptor_bundle_with_warnings(
                 &declaration_catalog,
                 &semantic_sort_parents,
                 &production_catalog,
-                &mut warnings,
             )?
             .with_int_literals(bundle.int_literals(&package)),
         );
@@ -205,7 +190,6 @@ pub fn lower_descriptor_bundle_with_warnings(
                 &declaration_catalog,
                 &semantic_sort_parents,
                 &production_catalog,
-                &mut warnings,
             )?);
         }
     }
@@ -307,7 +291,7 @@ pub fn lower_descriptor_bundle_with_warnings(
             second_head_range: range,
         });
     }
-    Ok((SemanticTheory::new(modules)?, warnings))
+    Ok(SemanticTheory::new(modules)?)
 }
 
 /// The exact authored range of a descriptor's first anchor of `role`.
