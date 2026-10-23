@@ -140,10 +140,12 @@ fn compile(options: NativeFuzzDefinition) -> std::result::Result<CompiledDefinit
     .map_err(|error| error.to_string())?;
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
         .map_err(|error| compile_error(error).reason.clone())?;
+    let source_table = loaded.source_table().clone();
     CompiledDefinition::from_artifacts(
         options.module_name,
         syntax_module,
         loaded.into_definition(),
+        source_table,
         artifacts,
     )
     .map_err(|error| error.to_string())

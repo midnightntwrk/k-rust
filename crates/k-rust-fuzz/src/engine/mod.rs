@@ -761,15 +761,9 @@ fn identity(
             role,
             main_module: definition.main_module.clone(),
             syntax_module: definition.syntax_module.clone(),
-            frontend_digest: debug_digest(&definition.frontend_definition),
-            execution_definition_digest: debug_digest(&definition.execution_definition),
-            syntax_definition_digest: digest_hex(
-                format!(
-                    "{}\n{}",
-                    definition.syntax_definition_kore, definition.macros_kore
-                )
-                .as_bytes(),
-            ),
+            frontend_digest: definition.frontend_digest()?,
+            execution_definition_digest: definition.execution_definition_digest()?,
+            syntax_definition_digest: definition.syntax_definition_digest(),
             initial_configuration_digest: initial.cloned().flatten(),
             execution_digest: definition.execution_digest()?.to_string(),
             route: route.into(),
@@ -819,29 +813,6 @@ fn identity(
         // Filled by `Campaign::new` from the resolved holes.
         effective_constraints: Vec::new(),
     })
-}
-
-/// [`digest_hex`] of `value`'s `Debug` rendering, streamed into the hash. The frontend
-/// definition types hold only ordered containers, so the rendering is deterministic for one
-/// k-rust revision, which the identity also records.
-fn debug_digest(value: &impl std::fmt::Debug) -> String {
-    use sha2::{Digest as _, Sha256};
-    use std::fmt::Write as _;
-    struct Hasher(Sha256);
-    impl std::fmt::Write for Hasher {
-        fn write_str(&mut self, text: &str) -> std::fmt::Result {
-            self.0.update(text.as_bytes());
-            Ok(())
-        }
-    }
-    let mut hasher = Hasher(Sha256::new());
-    write!(hasher, "{value:?}").expect("hashing does not fail");
-    let digest = hasher.0.finalize();
-    let mut text = String::with_capacity(64);
-    for byte in digest {
-        write!(text, "{byte:02x}").expect("writing to a String does not fail");
-    }
-    text
 }
 
 /// Canonical JSON of a spec part the identity digests.

@@ -71,7 +71,7 @@ fn write_compiled(fixture: &'static Fixture, directory: &Path) {
     write_compiled_source(fixture.file, fixture.source, fixture.main_module, directory);
 }
 
-/// Write the compiled directory of the definition `source`, named `file`, whose main module is
+/// Write the compiled directory of `source`, under the source name `file`, whose main module is
 /// `main_module`, to `directory`, as `krust kcompile` writes it.
 fn write_compiled_source(file: &str, source: &str, main_module: &str, directory: &Path) {
     write_compiled_with(file, source, main_module, &[], directory);
@@ -415,19 +415,150 @@ fn the_command_line_runs_the_library_campaign() {
         library.identity.target_digest
     );
     assert_eq!(report.identity.options, library.identity.options);
-    // A runnable artifact stores the frontend and execution definitions pruned to what krun
-    // reads (`native::write_runnable_artifact`), so their `Debug` digests differ from an
-    // in-process compilation's; every other definition field, the initial configuration's
-    // digest included, is equal.
-    let comparable = |identity: &k_rust_fuzz::report::ReportIdentity| {
-        let mut definitions = identity.definitions.clone();
-        for definition in &mut definitions {
-            definition.frontend_digest.clear();
-            definition.execution_definition_digest.clear();
-        }
-        definitions
-    };
-    assert_eq!(comparable(&report.identity), comparable(&library.identity));
+    // One definition gives one identity whichever route loaded it: the compiled directory and
+    // the in-process compilation of the same source (FZ-SETUP).
+    assert_eq!(report.identity.definitions, library.identity.definitions);
+}
+
+/// FZ-SETUP fix round (S1): a witness found on a definition compiled in one directory replays on
+/// the same definition compiled in another: the identity names each source relative to the
+/// main file's directory, not by the absolute path the compiled directory records.
+#[test]
+fn a_witness_replays_on_the_definition_compiled_elsewhere() {
+    let directory = le_workspace("relocated");
+    for (root, compiled) in [("A", "imp-a"), ("B/deeper", "imp-b")] {
+        let name = directory.join(root).join("src/imp.k");
+        write_compiled_source(
+            name.to_str().expect("a UTF-8 path"),
+            IMP.source,
+            IMP.main_module,
+            &directory.join(compiled),
+        );
+    }
+    let a = fs::read_to_string(directory.join("imp-a/frontend.json")).unwrap();
+    assert!(
+        a.contains("/A/src/imp.k"),
+        "the compiled directory records its path"
+    );
+    let found = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--definition",
+            "imp-a",
+            "--witness",
+            "witness.json",
+            "--no-shrink",
+        ],
+    );
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stderr));
+    let replay = krust_fuzz(
+        &directory,
+        &["--replay", "witness.json", "--definition", "imp-b"],
+    );
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+}
+
+/// INT7 (FZ-RULEREF review I2 with FZ-SETUP): a rule target's witness replays on its definition
+/// compiled elsewhere too, although the report names the target rule by the catalog's source
+/// path, which records where it was compiled; replay compares the target rule by its id.
+#[test]
+fn a_rule_witness_replays_on_the_definition_compiled_elsewhere() {
+    let directory = le_workspace("relocated-rule");
+    for (root, compiled) in [("A", "imp-a"), ("B/deeper", "imp-b")] {
+        let name = directory.join(root).join("src/imp.k");
+        write_compiled_source(
+            name.to_str().expect("a UTF-8 path"),
+            IMP.source,
+            IMP.main_module,
+            &directory.join(compiled),
+        );
+    }
+    // `if-false` (line 78): a witness needs x > y.
+    let found = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--definition",
+            "imp-a",
+            "--reach-rule",
+            "imp.k:78",
+            "--witness",
+            "witness.json",
+            "--no-shrink",
+        ],
+    );
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stderr));
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
+            .expect("the witness file is JSON");
+    let source = &recorded["report"]["identity"]["target-rule"]["name"]["locations"][0]["source"];
+    assert!(
+        source.as_str().is_some_and(|source| source.ends_with("/A/src/imp.k")),
+        "the target rule is named where it was compiled: {source}"
+    );
+    let replay = krust_fuzz(
+        &directory,
+        &["--replay", "witness.json", "--definition", "imp-b"],
+    );
+    let stdout = text(&replay.stdout);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&replay.stderr)
+    );
+    assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+}
+
+/// FZ-SETUP: a grammar change the frontend digest caught when it hashed the definition's
+/// `Debug` rendering is still caught. Making `-` right-associative changes how `a - b - c`
+/// parses, so a program can assemble into another initial configuration.
+#[test]
+fn a_replay_on_a_changed_grammar_is_refused() {
+    let directory = le_workspace("grammar");
+    let output = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--witness",
+            "witness.json",
+            "--no-shrink",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let production = r#"| AExp "-" AExp              [symbol(_-_), left,"#;
+    assert_eq!(IMP.source.matches(production).count(), 1);
+    let source = IMP.source.replace(
+        production,
+        r#"| AExp "-" AExp              [symbol(_-_), right,"#,
+    );
+    write_compiled_source(
+        IMP.file,
+        &source,
+        IMP.main_module,
+        &directory.join("imp-right"),
+    );
+    let refused = krust_fuzz(
+        &directory,
+        &["--replay", "witness.json", "--definition", "imp-right"],
+    );
+    let stderr = text(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("identity mismatch: definitions[0].frontend-digest"),
+        "{stderr}"
+    );
 }
 
 #[test]

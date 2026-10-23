@@ -332,6 +332,7 @@ pub fn load_definition(directory: &Path) -> Result<CompiledDefinition, String> {
         syntax_module: artifact.syntax_module,
         frontend_definition: artifact.frontend_definition,
         execution_definition,
+        source_table: artifact.source_table,
         configuration_variables: artifact.configuration_variables,
         kore,
         syntax_definition_kore: companions.syntax_definition_kore,

@@ -6,16 +6,19 @@ use std::{collections::BTreeMap, sync::Arc};
 use k_rust::{
     backend::{BackendOptions, ExecutionDigest},
     definition::Definition as FrontendDefinition,
+    definition::json::to_provenance_string,
     kast::Sort as KastSort,
-    kompile::CompiledKoreArtifacts,
+    kompile::{CompiledKoreArtifacts, retain_pattern_sentences, retain_runtime_frontend_sentences},
     kore::ast::Definition as KoreDefinition,
     kore::ast::Pattern as KorePattern,
+    provenance::SourceTable,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     error::CampaignError,
     holes::HoleDecl,
+    source_names::SourceNames,
     target::Target,
     values::{GenerationBounds, Value},
 };
@@ -90,9 +93,10 @@ pub struct Definitions {
 /// One compiled definition and the route its backend is built on (ARCHITECTURE 5.4, T-6).
 ///
 /// It carries what krun's front half reads: the frontend definition (for the program grammar),
-/// the execution definition (for patterns), the main and syntax modules, the configuration
-/// variable sorts, and the KORE definition the backend runs, with the route used to build the
-/// backend.
+/// the execution definition (for patterns), the source table their provenance indexes, the main
+/// and syntax modules, the configuration variable sorts, and the KORE definition the backend
+/// runs, with the route used to build the backend. A compiled directory and an in-process
+/// compilation of the same source give equal values ([`Self::from_artifacts`]).
 #[derive(Clone, Debug)]
 pub struct CompiledDefinition {
     /// The main module: the module the backend executes and patterns are compiled in.
@@ -100,11 +104,18 @@ pub struct CompiledDefinition {
     /// The module whose grammar parses the program and configuration values.
     pub syntax_module: String,
     /// The frontend definition the program grammar is resolved from
-    /// (`k_rust::kompile::ProgramGrammar::new`).
+    /// (`k_rust::kompile::ProgramGrammar::new`), as a compiled directory stores it
+    /// (`k_rust::kompile::retain_runtime_frontend_sentences`).
     pub frontend_definition: FrontendDefinition,
     /// The transformed execution definition that standalone surface patterns are compiled in
-    /// (`CompiledKoreArtifacts::execution_definition`, `k_rust::kompile::compile_search_pattern`).
+    /// (`CompiledKoreArtifacts::execution_definition`, `k_rust::kompile::compile_search_pattern`),
+    /// as a compiled directory stores it (`k_rust::kompile::retain_pattern_sentences`).
     pub execution_definition: FrontendDefinition,
+    /// The logical sources that the provenance of [`Self::frontend_definition`] and
+    /// [`Self::execution_definition`] (source ids, spans, origin links) indexes: the loaded
+    /// definition's (`k_rust::outer::LoadedDefinition::source_table`) or a compiled directory's.
+    /// Replace it together with the definitions it indexes.
+    pub source_table: SourceTable,
     /// The declared configuration variables, without `$`, and their sorts.
     pub configuration_variables: BTreeMap<String, KastSort>,
     /// The parsed KORE definition the backend executes (`definition.kore`).
@@ -124,8 +135,11 @@ impl CompiledDefinition {
     /// The definition an in-process compilation produced, on krun's route
     /// ([`BackendRoute::SourceExecution`] with the compiler's rewrite order).
     ///
-    /// `frontend_definition` is the loaded source definition the compilation started from
-    /// (`outer::load_for_compilation`, then `into_definition`), as krun keeps it.
+    /// `frontend_definition` is the loaded source definition the compilation started from and
+    /// `source_table` its sources (`outer::load_for_compilation`, then `source_table` and
+    /// `into_definition`). The frontend and execution definitions are reduced as `krust
+    /// kcompile` reduces them for a compiled directory, so that a campaign runs on, and
+    /// identifies, the same definition whichever way it was loaded.
     ///
     /// # Errors
     ///
@@ -134,7 +148,8 @@ impl CompiledDefinition {
     pub fn from_artifacts(
         main_module: impl Into<String>,
         syntax_module: impl Into<String>,
-        frontend_definition: FrontendDefinition,
+        mut frontend_definition: FrontendDefinition,
+        source_table: SourceTable,
         artifacts: CompiledKoreArtifacts,
     ) -> Result<Self, CampaignError> {
         let kore = k_rust::kore::parser::parse_definition(&artifacts.definition_kore).map_err(
@@ -142,11 +157,15 @@ impl CompiledDefinition {
                 message: format!("definition.kore does not parse: {error}"),
             },
         )?;
+        retain_runtime_frontend_sentences(&mut frontend_definition);
+        let mut execution_definition = artifacts.execution_definition;
+        retain_pattern_sentences(&mut execution_definition);
         Ok(Self {
             main_module: main_module.into(),
             syntax_module: syntax_module.into(),
             frontend_definition,
-            execution_definition: artifacts.execution_definition,
+            execution_definition,
+            source_table,
             configuration_variables: artifacts.configuration_variables,
             kore,
             syntax_definition_kore: artifacts.syntax_definition_kore,
@@ -155,6 +174,66 @@ impl CompiledDefinition {
                 execution_rewrite_order: artifacts.execution_rewrite_order,
             },
         })
+    }
+
+    /// The SHA-256, as lowercase hexadecimal, of [`Self::frontend_definition`]'s canonical
+    /// provenance JSON with [`Self::source_table`] (`k_rust::definition::json::
+    /// to_provenance_string`, the serialization a compiled directory stores as `frontend.json`),
+    /// in which every source is named independently of where it lies: the file of the main
+    /// module as `<main>`, every other path relative to that file's directory (`./expr.k`,
+    /// `./../lib/x.k`), and a `krust-builtin://` URI as it is. The document holds every
+    /// sentence, attribute, term and provenance record of the definition and reads back to an
+    /// equal definition, and the sources' content hashes stay in it, so one definition compiled
+    /// in two directories, or in process under another entry name, gives one digest, and any
+    /// change of a source's bytes (a comment included) gives another. It is computed in time
+    /// linear in the document.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::Definition`] when the definition has no provenance serialization (a
+    /// source id outside the table, or a receipt the format cannot hold).
+    pub fn frontend_digest(&self) -> Result<String, CampaignError> {
+        self.provenance_digest("frontend", &self.frontend_definition)
+    }
+
+    /// [`Self::frontend_digest`] of [`Self::execution_definition`] (a compiled directory's
+    /// `execution.json`), its sources named as the frontend's are.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::frontend_digest`].
+    pub fn execution_definition_digest(&self) -> Result<String, CampaignError> {
+        self.provenance_digest("execution", &self.execution_definition)
+    }
+
+    /// The SHA-256, as lowercase hexadecimal, of [`Self::syntax_definition_kore`] and
+    /// [`Self::macros_kore`] joined by a newline, the name in each `Source` attribute written as
+    /// [`Self::frontend_digest`] writes it and the layout normalized (the printer breaks lines
+    /// by width, so a longer path moves line breaks; KORE reads whitespace only between tokens).
+    #[must_use]
+    pub fn syntax_definition_digest(&self) -> String {
+        let names = SourceNames::of(&self.frontend_definition);
+        crate::report::digest_hex(
+            format!(
+                "{}\n{}",
+                names.kore(&self.syntax_definition_kore),
+                names.kore(&self.macros_kore)
+            )
+            .as_bytes(),
+        )
+    }
+
+    fn provenance_digest(
+        &self,
+        role: &str,
+        definition: &FrontendDefinition,
+    ) -> Result<String, CampaignError> {
+        let names = SourceNames::of(&self.frontend_definition);
+        to_provenance_string(definition, &self.source_table)
+            .map(|json| crate::report::digest_hex(names.provenance_json(&json).as_bytes()))
+            .map_err(|error| CampaignError::Definition {
+                message: format!("the {role} definition has no provenance serialization: {error}"),
+            })
     }
 
     /// The execution digest of [`Self::kore`] (`k_rust::backend::execution_digest`). It does not
@@ -575,5 +654,193 @@ mod tests {
             ..CaseOptions::default()
         };
         assert_eq!(depth_only.effective_max_work(), None);
+    }
+}
+
+/// The definition digests of the report identity (FZ-SETUP).
+#[cfg(test)]
+mod digest_tests {
+    use super::CompiledDefinition;
+    use crate::support::{self, COIN, Fixture, IMP, MAC, MAC_KILL};
+
+    /// `fixture`'s source with `from` (which occurs exactly once) replaced by `to`, compiled
+    /// under the fixture's source name.
+    fn edited(fixture: &'static Fixture, from: &str, to: &str) -> CompiledDefinition {
+        assert_eq!(fixture.source.matches(from).count(), 1, "{from}");
+        support::compile_source(
+            fixture.file,
+            &fixture.source.replace(from, to),
+            fixture.main_module,
+        )
+    }
+
+    fn digests(definition: &CompiledDefinition) -> (String, String) {
+        (
+            definition.frontend_digest().expect("a frontend digest"),
+            definition
+                .execution_definition_digest()
+                .expect("an execution-definition digest"),
+        )
+    }
+
+    /// FZ-SETUP (a): one production changed in the frontend changes the frontend digest. Making
+    /// `-` right-associative changes how `a - b - c` parses.
+    #[test]
+    fn a_one_production_change_changes_the_frontend_digest() {
+        let base = IMP.compiled().definition();
+        let right = edited(
+            &IMP,
+            r#"| AExp "-" AExp              [symbol(_-_), left,"#,
+            r#"| AExp "-" AExp              [symbol(_-_), right,"#,
+        );
+        assert_ne!(digests(&base).0, digests(&right).0);
+    }
+
+    /// FZ-SETUP (b): a macro change changes both definition digests, where the KORE that runs
+    /// is equal (`MAC_KILL` edits only the macro rule, which `definition.kore` does not hold).
+    #[test]
+    fn a_macro_change_changes_both_definition_digests() {
+        let base = MAC.compiled().definition();
+        let kill = MAC_KILL.compiled().definition();
+        assert_eq!(
+            base.execution_digest().unwrap(),
+            kill.execution_digest().unwrap(),
+            "the executed KORE is equal"
+        );
+        let (base_frontend, base_execution) = digests(&base);
+        let (kill_frontend, kill_execution) = digests(&kill);
+        assert_ne!(base_frontend, kill_frontend);
+        assert_ne!(base_execution, kill_execution);
+    }
+
+    /// FZ-SETUP (c): a change of the execution definition that patterns are compiled in changes
+    /// its digest: a production added to the semantics module.
+    #[test]
+    fn a_change_of_the_execution_definition_changes_its_digest() {
+        let base = COIN.compiled().definition();
+        let marked = edited(
+            &COIN,
+            "  configuration <k> $PGM:Pgm </k>",
+            "  syntax KItem ::= mark(Int) [symbol(mark)]\n  configuration <k> $PGM:Pgm </k>",
+        );
+        assert_ne!(digests(&base).1, digests(&marked).1);
+    }
+
+    /// The coin definition split in two files: the semantics in `sem/coin.k`, which requires the
+    /// syntax from a sibling directory, `../lib/coin-syntax.k`.
+    const SPLIT_MAIN: &str = r#"requires "../lib/coin-syntax.k"
+
+module COIN
+  imports COIN-SYNTAX
+  imports INT
+  imports BOOL
+
+  configuration <k> $PGM:Pgm </k>
+                <out> 0 </out>
+
+  rule [heads]: <k> flip(N) => .K ... </k> <out> _ => N </out>
+  rule [tails]: <k> flip(N) => .K ... </k> <out> _ => N +Int 1 </out>
+endmodule
+"#;
+    const SPLIT_SYNTAX: &str = r"module COIN-SYNTAX
+  imports INT-SYNTAX
+
+  syntax Pgm ::= flip(Int)   [symbol(flip)]
+endmodule
+";
+
+    /// The split coin definition with its entry at `root/sem/coin.k` (or at `entry`).
+    fn split(root: &str, entry: Option<&str>, syntax: &str) -> CompiledDefinition {
+        let main = entry.map_or_else(|| format!("{root}/sem/coin.k"), str::to_owned);
+        let library = match entry {
+            Some(_) => "../lib/coin-syntax.k".to_owned(),
+            None => format!("{root}/lib/coin-syntax.k"),
+        };
+        support::compile_files(&main, SPLIT_MAIN, &[(&library, syntax)], "COIN")
+    }
+
+    fn all_digests(definition: &CompiledDefinition) -> (String, String, String, String) {
+        let (frontend, execution) = digests(definition);
+        (
+            frontend,
+            execution,
+            definition.syntax_definition_digest(),
+            definition.execution_digest().unwrap().to_string(),
+        )
+    }
+
+    /// FZ-SETUP fix round (S1): one definition compiled from two directories, or in process
+    /// under the bindings' default entry name, gives one identity; the digested documents name
+    /// no directory; a change of a source's text still changes it.
+    #[test]
+    fn the_identity_does_not_depend_on_where_the_sources_lie() {
+        let at_a = split("/srv/a", None, SPLIT_SYNTAX);
+        let at_b = split("/home/someone/b/deeper", None, SPLIT_SYNTAX);
+        let bound = split("", Some("definition.k"), SPLIT_SYNTAX);
+        assert_ne!(
+            at_a.frontend_definition, at_b.frontend_definition,
+            "the definitions record different source paths"
+        );
+        assert_eq!(all_digests(&at_a), all_digests(&at_b));
+        assert_eq!(all_digests(&at_a), all_digests(&bound));
+        let names = crate::source_names::SourceNames::of(&at_a.frontend_definition);
+        let json = k_rust::definition::json::to_provenance_string(
+            &at_a.frontend_definition,
+            &at_a.source_table,
+        )
+        .unwrap();
+        assert!(json.contains("/srv/a/lib/coin-syntax.k"));
+        let renamed = names.provenance_json(&json);
+        assert!(!renamed.contains("/srv/a"), "no directory is digested");
+        assert!(renamed.contains(r#""logical":"./../lib/coin-syntax.k""#));
+        assert!(renamed.contains(r#""logical":"<main>""#));
+        assert!(!names.kore(&at_a.syntax_definition_kore).contains("/srv/a"));
+
+        // A comment appended to the required file changes no sentence, but the file's bytes.
+        let commented = split("/srv/a", None, &format!("{SPLIT_SYNTAX}// a comment\n"));
+        let (frontend, execution, syntax, kore) = all_digests(&commented);
+        assert_ne!(frontend, all_digests(&at_a).0);
+        assert_ne!(execution, all_digests(&at_a).1);
+        assert_eq!((syntax, kore), (all_digests(&at_a).2, all_digests(&at_a).3));
+        // A production added to the required file changes the definition.
+        let grown = split(
+            "/srv/b",
+            None,
+            &SPLIT_SYNTAX.replace(
+                "[symbol(flip)]",
+                "[symbol(flip)]\n               | count(Int)  [symbol(count)]",
+            ),
+        );
+        let grown = all_digests(&grown);
+        let base = all_digests(&at_a);
+        assert_ne!(grown.0, base.0);
+        assert_ne!(grown.1, base.1);
+        assert_ne!(grown.2, base.2);
+    }
+
+    /// FZ-SETUP (d): equal definitions compiled twice give equal digests, and the in-process
+    /// definition is reduced to what a compiled directory stores (the CLI half is
+    /// `tests/cli.rs`, `the_command_line_runs_the_library_campaign`).
+    #[test]
+    fn equal_definitions_give_equal_digests() {
+        let once = IMP.compiled().definition();
+        let again = support::compile_source(IMP.file, IMP.source, IMP.main_module);
+        assert_eq!(digests(&once), digests(&again));
+        assert_eq!(
+            once.frontend_definition, again.frontend_definition,
+            "the digests are of equal definitions"
+        );
+        let mut reduced = IMP.compiled().artifacts.execution_definition.clone();
+        k_rust::kompile::retain_pattern_sentences(&mut reduced);
+        assert_eq!(once.execution_definition, reduced);
+        assert!(
+            once.execution_definition.modules.iter().all(|module| {
+                module.local_sentences.iter().all(|sentence| {
+                    !matches!(&**sentence, k_rust::definition::Sentence::Rule { attributes, .. }
+                        if !attributes.has_any(&k_rust::definition::AttributeKey::MACRO_LIKE))
+                })
+            }),
+            "only macro-like rules are kept in the execution definition"
+        );
     }
 }
