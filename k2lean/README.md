@@ -28,7 +28,7 @@ k2lean/tests/gate.sh light                    # the regression gate's light tier
 ```
 
 Each generated project pins Lean v4.30.0, which elan installs on first use.
-A clean `regen.sh` or light gate builds several Lean libraries: 2,000 to 2,400 s of CPU and 6 GB of peak memory (about 800 to 1,300 s wall on a shared 32-CPU host); a rerun builds only what changed.
+A clean light gate builds several Lean libraries: about 1,000 s of CPU and 4 GB of peak memory (640 s wall on a shared 32-CPU host, 2026-10-24); a rerun builds only what changed.
 To generate a library of your own definition:
 
 ```sh

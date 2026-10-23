@@ -67,7 +67,7 @@ The family has about twenty constructors whatever the definition, its enumeratio
 It needs Lean ≥ v4.30.0, whose match compiler accepts nested patterns whose enumeration type depends on the family's index (v4.24.0 rejects them).
 
 Measured on 2026-10-24 (Lean v4.30.0, 1-minute load 25 to 53): `Terms.lean` of kimp builds in 5.5 s (per-sort 46 s), SIMPLE's in 17 s (per-sort 302 s), KEVM's in 396 s / 814 CPU-s / 5.7 GB peak, and KMIR's (338 types, 1,145 constructors) in 78 s / 3.0 GB (2026-10-23).
-The gate's arity tier (kimp and SIMPLE, built and tested) took 310 s wall and 736 s of CPU from an empty work tree, 4.6 GB peak; the light tier, which builds kimp and three variants of it in the per-sort encoding, took 884 s.
+The gate's arity tier (kimp and SIMPLE, built and tested) took 225 s wall and 623 s of CPU from an empty work tree, 4.5 GB peak, under a load of 7 to 9; in the heavy tier, SIMPLE alone took 396 s and 622 s of CPU in the per-sort encoding.
 Whether the arity universe becomes the default is open (§9).
 
 Two choices in the family follow from its match compilation (measured 2026-10-23 on KEVM, load 2 to 10):
