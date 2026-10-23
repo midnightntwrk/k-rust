@@ -225,6 +225,50 @@ impl CompiledKoreArtifacts {
     }
 }
 
+/// Reduce a loaded source definition to the frontend a runnable compiled directory stores
+/// (`krust kcompile`'s `frontend.json`), which programs and configuration values are parsed with.
+///
+/// Context aliases are removed: they have already shaped the transformed execution definition and
+/// the KORE, and parsing a program or a value does not read them. Ordinary rules are kept, because
+/// macro attributes can be propagated from their head productions when a concrete program is
+/// expanded. A host that runs from an in-process compilation applies this reduction to run on the
+/// definition a compiled directory gives.
+pub fn retain_runtime_frontend_sentences(definition: &mut Definition) {
+    for module in &mut definition.modules {
+        module
+            .local_sentences
+            .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));
+    }
+}
+
+/// Reduce a transformed execution definition ([`CompiledKoreArtifacts::execution_definition`]) to
+/// what a runnable compiled directory stores (`krust kcompile`'s `execution.json`): the sentences
+/// standalone pattern compilation reads ([`super::compile_search_pattern`]).
+///
+/// Execution consumes semantic rules from `definition.kore`; pattern compilation needs only the
+/// syntax sentences and the macro-like rules a pattern is expanded with, so every other generated
+/// sentence is removed. A host that runs from an in-process compilation applies this reduction to
+/// run on the definition a compiled directory gives.
+pub fn retain_pattern_sentences(definition: &mut Definition) {
+    for module in &mut definition.modules {
+        module.local_sentences.retain(|sentence| {
+            matches!(
+                &**sentence,
+                Sentence::SyntaxSort { .. }
+                    | Sentence::SortSynonym { .. }
+                    | Sentence::SyntaxLexical { .. }
+                    | Sentence::Production { .. }
+                    | Sentence::SyntaxAssociativity { .. }
+                    | Sentence::SyntaxPriority { .. }
+            ) || matches!(
+                &**sentence,
+                Sentence::Rule { attributes, .. }
+                    if attributes.has_any(&AttributeKey::MACRO_LIKE)
+            )
+        });
+    }
+}
+
 /// Input provenance of one emitted rule or claim identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedSentenceProvenance {

@@ -31,7 +31,8 @@ pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
     CompiledProofDefinition, EmittedSentenceProvenance, compile_loaded_definition,
     compile_loaded_definition_for_proof, compile_loaded_definition_timed,
-    compile_loaded_definition_with_timings, on_definitions_stack,
+    compile_loaded_definition_with_timings, on_definitions_stack, retain_pattern_sentences,
+    retain_runtime_frontend_sentences,
 };
 pub use fresh_names::GeneratedVariableIdentity;
 pub use initial_configuration::{
