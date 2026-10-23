@@ -388,6 +388,17 @@ The fix is to declare the element types where the collection comes from: the cel
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
 A configuration variable of `#[k::init]` is not checked here: its Rust type is the cell's, which rustc checks.
 
+The value a configuration variable is given at run time is the induction's other base case, and only execution sees it.
+`krs-exec` checks it when it assembles the initial configuration, for `krs run -c NAME=TEXT`, `krs search`, and a value given to `Semantics::configure` alike: a variable that fills a typed cell must hold a value of the cell's type, key by key, value by value, and element by element, nested collections against their own element types, each element's sort at most the declared one in the definition's sort lattice (an `Int` or a `Ptr` declared `Ptr: Value` fits `Value`).
+
+```text
+$ krs run -c 'ENV=x |-> skip' ..
+error[krs::exec::collection-element-sort]: configuration variable `$ENV`: the cell `env` is declared `Map<Id, Value>`, but the value at key `x` is `skip` of sort Stmt, which is not a subsort of Value
+```
+
+A part the configuration leaves unevaluated is checked at the sort its symbol declares, which bounds every value it can take: `x |-> noop(1)` is rejected when `noop` returns a `Stmt`, but the elements of a set that `evens(1)` would compute are not seen.
+Three inputs stay unchecked: those computed elements, configuration values Java K's `krun` reads, and `k::raw_k!` sentences, which the compiler does not check, so a raw rule can break the invariant after the first step.
+
 ### Pattern aliases
 
 `p @ Pair(a, b)` in a left-hand side is the Rust pattern you know: it matches what `Pair(a, b)` matches and also binds `p` to the whole matched term.
@@ -1362,6 +1373,6 @@ assert_eq!(regs.as_map().unwrap()[&a], 7.into());
 - A configuration value is typed as its text would be, and must have at most the variable's declared sort. A value names its constructor, so it is never ambiguous: as text, a `Map` key is parsed at `KItem`, where a terminal two sorts share (`c`) has two readings.
 - A cell path is the chain of Rust field names below the configuration, joined by `.`, so a cell renamed with `#[k::cell(name = "eiPending")]` is still `ei_pending`. `StateView::value` reads a leaf cell, `at` a group cell as a sub-view, `present` whether an optional cell exists, and `instances` the instances of a repeated cell.
 - `Semantics::views` gives one view per disjunct of a search or proof state (`View::Bottom` for `#Bottom`), each with the predicates conjoined with its configuration as `constraints()`.
-- A configuration value is checked against K's signature only: the element types of a `Map<Reg, Int>` cell are checked in the definition's rules and initializer ([Typed collections](#typed-collections)), not in the values given to `configure` or `krs run -c`, which may hold elements of any sort.
+- A configuration value is checked against K's signature and against the element types of the typed cell its variable fills: a `Map<Reg, Int>` value with a `Bool` among its values is rejected (`ExecError::CollectionElementSort`, [Typed collections](#typed-collections)), as the same text given to `krs run -c` is.
 
 For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).
