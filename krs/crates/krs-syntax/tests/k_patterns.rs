@@ -133,3 +133,50 @@ fn an_item_may_be_an_alias_or_alternatives() {
         assert_eq!(block(clause).clauses()[0].bindings(), bindings, "{clause}");
     }
 }
+
+/// The fields of a bit template in the first item name values in every
+/// result term: the computation cell's items and the other cells' values.
+#[test]
+fn a_head_item_template_s_fields_reach_every_result_term() {
+    let block = block(
+        r#"low: { k: [k::bits!("0000 01xx"), ..], acc } => { k: [x, ..], acc: int::add(acc, x) };"#,
+    );
+    let clause = &block.clauses()[0];
+    let Some(RuleHeadResult::Replace(item)) = clause.head_result() else {
+        panic!("one result item");
+    };
+    assert_eq!(
+        item.spelling(),
+        "__krs_bits_0 . bit_range :: < Int > (0 , 2)"
+    );
+    let [
+        krs_syntax::RuleExtra::RewriteCell {
+            after: Some(after), ..
+        },
+    ] = clause.extras()
+    else {
+        panic!("one rewritten cell");
+    };
+    assert_eq!(
+        after.spelling(),
+        "int :: add (acc , __krs_bits_0 . bit_range :: < Int > (0 , 2))"
+    );
+    assert_eq!(clause.bindings(), ["__krs_bits_0", "acc"]);
+}
+
+#[test]
+fn a_head_item_template_s_field_is_not_rebound_or_read_in_state() {
+    for (clause, reason) in [
+        (
+            r#"a: { k: [k::bits!("01xx"), ..], acc: x } => { k: [..] };"#,
+            "`x` is a field of the sentence's bit template and cannot be bound again here",
+        ),
+        (
+            r#"a: { k: [k::bits!("01xx"), ..], mark: None } => { k: [..], mark: Some(x) };"#,
+            "it occurs in the result of the optional or collection cell `mark`",
+        ),
+    ] {
+        let message = error(clause);
+        assert!(message.contains(reason), "{clause}: {message}");
+    }
+}

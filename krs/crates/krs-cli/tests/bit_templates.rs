@@ -333,6 +333,32 @@ fn templates_and_tests_check_run_and_prove() {
     }
 }
 
+/// A template as the first item of a readable machine clause: its fields
+/// name values in the computation cell's result items, which rustc checks
+/// as the collector reads them.
+#[test]
+fn a_head_item_template_s_fields_reach_the_machine_result() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "head",
+        "k::rules! {\n    for Machine;\n    low: { k: [k::bits!(\"0000 01xx\"), ..] } => { k: [x, x.add::<Int>(10), ..] };\n}\n",
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let outcomes = ["7", "4", "12"]
+        .map(|program| format!("{program} => {}", run(target.path(), &manifest, program)));
+    expect_test::expect![[r#"
+        [
+            "7 => 3 ~> 13",
+            "4 => 0 ~> 10",
+            "12 => 12",
+        ]
+    "#]]
+    .assert_debug_eq(&outcomes);
+}
+
 /// The `error[..]` headlines of `krs check` and the locations they point at.
 fn check_errors(target: &Path, manifest: &Path) -> Vec<String> {
     let (success, _, stderr) = krs(target, manifest, "check", &[]);

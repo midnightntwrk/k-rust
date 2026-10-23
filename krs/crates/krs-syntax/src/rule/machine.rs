@@ -1378,6 +1378,26 @@ fn assemble_machine_clause(
         narrowings,
         source_range,
     } = *clause;
+    // The fields of a template in the computation cell's first item, the
+    // clause item's one parameter, name values every result term reads.
+    let fields = subject_cells
+        .iter()
+        .find_map(|(_, cell)| match cell {
+            MachinePatternCell::KItems(pattern) => pattern.items.first().map(|(first, _)| first),
+            _ => None,
+        })
+        .map(super::bits::ClauseFields::of)
+        .transpose()?
+        .flatten();
+    let authored_cells = result_cells;
+    let substituted;
+    let result_cells = match &fields {
+        Some(fields) => {
+            substituted = substitute_fields(fields, result_cells)?;
+            substituted.as_slice()
+        }
+        None => result_cells,
+    };
     let mut subject_k = None;
     let mut extras = Vec::new();
     let mut extra_bindings = Vec::new();
@@ -1574,6 +1594,12 @@ fn assemble_machine_clause(
     {
         let (head_result, placeholder) =
             computation_result(&computation_cell, &pattern, result_cells, name)?;
+        // The item writes the fields into its own placeholder result.
+        let placeholder = if fields.is_some() {
+            computation_result(&computation_cell, &pattern, authored_cells, name)?.1
+        } else {
+            placeholder
+        };
         let placeholder =
             placeholder.unwrap_or_else(|| quote_spanned!(result_record.span()=> true));
         let has_first = !pattern.items.is_empty();
@@ -1681,6 +1707,9 @@ fn assemble_machine_clause(
             .into());
         }
     }
+    if let Some(fields) = &fields {
+        fields.reject_rebound(&bindings)?;
+    }
     let clause = RuleClause {
         rule,
         attribute,
@@ -1697,6 +1726,42 @@ fn assemble_machine_clause(
     };
     clause.check_existentials()?;
     Ok(clause)
+}
+
+/// The result cells with each bit-template field written as its value, as
+/// the clause item's placeholder result is; an optional or collection
+/// cell's result is state syntax, where a field is rejected.
+fn substitute_fields(
+    fields: &super::bits::ClauseFields,
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<Vec<(Ident, MachineResultCell)>, ParseError> {
+    let mut output = result_cells.to_vec();
+    for (cell, result) in &mut output {
+        match result {
+            MachineResultCell::KItems(items, _) => {
+                for item in items {
+                    fields.substitute(item)?;
+                }
+            }
+            MachineResultCell::Term(term) => fields.substitute(term)?,
+            MachineResultCell::List(list) => {
+                for item in &mut list.items {
+                    fields.substitute(item)?;
+                }
+            }
+            MachineResultCell::State(state) => {
+                for term in state.terms() {
+                    if let Some(expression) = term.expression().as_expression() {
+                        fields.reject_in_state(&expression.to_token_stream(), cell)?;
+                    }
+                }
+            }
+            MachineResultCell::Bracket(group) => {
+                fields.reject_in_state(&group.stream(), cell)?;
+            }
+        }
+    }
+    Ok(output)
 }
 
 /// The rule item of a clause whose subject is not one computation item: a

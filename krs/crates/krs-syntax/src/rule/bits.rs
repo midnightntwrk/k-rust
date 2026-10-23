@@ -715,18 +715,96 @@ pub(crate) fn substitute_clause_result(
     result: &mut Expr,
 ) -> Result<(), SyntaxError> {
     reject_hidden_spellings(&result.to_token_stream())?;
-    if !pattern_contains_template(pattern) {
-        return Ok(());
+    match ClauseFields::of(pattern)? {
+        Some(fields) => fields.substitute(result),
+        None => Ok(()),
     }
-    let mut occurrences = Vec::new();
-    rewrite_pattern(&mut pattern.clone(), &mut occurrences)?;
-    let fields = field_terms(&occurrences);
-    let mut substitution = Substitution {
-        fields: &fields,
-        error: None,
-    };
-    substitution.visit_expr_mut(result);
-    substitution.error.map_or(Ok(()), Err)
+}
+
+/// The fields of the templates in a readable clause's subject `pattern`,
+/// which every term of the clause's result reads as [`desugar`] writes them
+/// into an item's result: a readable machine clause has more result terms
+/// than its item's one placeholder (the computation cell's items and the
+/// other cells' values).
+pub(crate) struct ClauseFields {
+    fields: BTreeMap<String, FieldTerm>,
+}
+
+impl ClauseFields {
+    /// The fields of `pattern`'s templates, with the binders [`desugar`]
+    /// gives an item whose one parameter is `pattern`; `None` without a
+    /// template.
+    ///
+    /// # Errors
+    ///
+    /// A malformed template.
+    pub(crate) fn of(pattern: &Pat) -> Result<Option<Self>, SyntaxError> {
+        if !pattern_contains_template(pattern) {
+            return Ok(None);
+        }
+        let mut occurrences = Vec::new();
+        rewrite_pattern(&mut pattern.clone(), &mut occurrences)?;
+        Ok(Some(Self {
+            fields: field_terms(&occurrences),
+        }))
+    }
+
+    /// Writes every field occurrence in `term` as the field's value.
+    ///
+    /// # Errors
+    ///
+    /// An authored identifier spelled like a hidden binder, a field bound
+    /// again, and a field in a macro body that is no list of terms.
+    pub(crate) fn substitute(&self, term: &mut Expr) -> Result<(), SyntaxError> {
+        reject_hidden_spellings(&term.to_token_stream())?;
+        let mut substitution = Substitution {
+            fields: &self.fields,
+            error: None,
+        };
+        substitution.visit_expr_mut(term);
+        substitution.error.map_or(Ok(()), Err)
+    }
+
+    /// Rejects a binder of another part of the clause's subject that spells
+    /// a field: the field already names a value there.
+    ///
+    /// # Errors
+    ///
+    /// The first such binder.
+    pub(crate) fn reject_rebound<'b>(
+        &self,
+        binders: impl IntoIterator<Item = &'b Ident>,
+    ) -> Result<(), SyntaxError> {
+        let mut substitution = Substitution {
+            fields: &self.fields,
+            error: None,
+        };
+        for binder in binders {
+            substitution.rebound(binder);
+        }
+        substitution.error.map_or(Ok(()), Err)
+    }
+
+    /// Rejects a field in `tokens`, the terms of an optional or collection
+    /// cell's result, which are read as state syntax and not substituted.
+    ///
+    /// # Errors
+    ///
+    /// The first field in `tokens`.
+    pub(crate) fn reject_in_state(
+        &self,
+        tokens: &TokenStream,
+        cell: &Ident,
+    ) -> Result<(), SyntaxError> {
+        first_field(tokens, &self.fields).map_or(Ok(()), |field| {
+            Err(position_error(
+                &format!(
+                    "`{field}` is a field of the sentence's bit template, but it occurs in the result of the optional or collection cell `{cell}`, where it cannot be replaced by its bit range; name the template's value (`op @ k::bits!(..)`) and write `op.bit_range::<Int>(offset, length)`"
+                ),
+                field.span(),
+            ))
+        })
+    }
 }
 
 /// Rewrites every `k::bits!(value, "..")` test in `expression`, including
