@@ -938,6 +938,7 @@
       "error[krs::semantic::raw-k]: `raw_k!` rule: raw K is an error under the strict profile (unchecked K text, opaque to KRS; K parses it with this package's grammar)"
     ],
     "raw-parse-error": [
+      "warning[krs::semantic::raw-k]: `raw_k!` rule: unchecked K text, opaque to KRS; K parses it with this package's grammar",
       "error[krs::native::raw-k-parse]: K cannot parse this `raw_k!` rule with the grammar of module \"KRS-RAW-PARSE-ERROR\": Parse error: unexpected token '...' following token '+Int'."
     ],
     "sort-test-matched": [

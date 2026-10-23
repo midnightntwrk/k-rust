@@ -382,6 +382,7 @@ fn execute_with_sources(
     }
     let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
     let prepared = prepare(stdout, request.profile, measurement)?;
+    let warnings = definition_warnings(&prepared);
 
     let mut outcome = match &request.command {
         Command::Check { backend, partition } => {
@@ -425,10 +426,14 @@ fn execute_with_sources(
             &measurement.counters,
         );
     }
-    outcome.map(|value| value.outcome)
+    // A failure after lowering reports the definition's warnings too, as a
+    // success does; the agreement check above compares the bare verdicts.
+    outcome
+        .map(|value| value.outcome)
+        .map_err(|error| error.warned(warnings))
 }
 
-/// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings ([`definition_warnings`]), the trusted claims `prove` assumes, and the stage-cache warning.
+/// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings ([`definition_warnings`]), the trusted claims `prove` assumes, and the stage-cache warning to its outcome or its failure.
 fn exec_command(
     prepared: &PreparedDefinition,
     request: &CommandRequest,
@@ -437,29 +442,21 @@ fn exec_command(
     reuse: bool,
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
+    // The warnings hold whatever the run's verdict: a failure reports them too.
+    let mut warnings = definition_warnings(prepared);
+    if matches!(request.command, Command::Prove(_)) {
+        push_trusted_claim_warnings(prepared, &mut warnings);
+    }
     // krs-exec compiles the definition natively in the symbolic dialect.
-    require_route(prepared.lowered.definition(), Route::NativeRust)?;
+    require_route(prepared.lowered.definition(), Route::NativeRust)
+        .map_err(|error| error.warned(warnings.clone()))?;
     let (stage_cache, refused_store) =
         match StageCache::new(prepared.lowered.definition(), workspace_root) {
             Ok(cache) => (cache, None),
             Err(refused) => (None, Some(refused)),
         };
-    let mut outcome = exec::execute(
-        prepared,
-        &request.command,
-        sources,
-        exec::StageReuse {
-            cache: stage_cache.as_ref(),
-            restore: reuse,
-        },
-        measurement,
-    )?;
-    outcome.warnings = definition_warnings(prepared);
-    if matches!(request.command, Command::Prove(_)) {
-        push_trusted_claim_warnings(prepared, &mut outcome.warnings);
-    }
     if let Some(refused) = refused_store {
-        outcome.warnings.unlocated.push(crate::UnlocatedDiagnostic {
+        warnings.unlocated.push(crate::UnlocatedDiagnostic {
             code: krs_diagnostic::codes::exec::STAGE_CACHE.to_string(),
             severity: crate::DiagnosticSeverity::Warning,
             message: refused.message(),
@@ -468,7 +465,22 @@ fn exec_command(
             notes: Vec::new(),
         });
     }
-    Ok(CommandExecution::without_artifacts(outcome))
+    match exec::execute(
+        prepared,
+        &request.command,
+        sources,
+        exec::StageReuse {
+            cache: stage_cache.as_ref(),
+            restore: reuse,
+        },
+        measurement,
+    ) {
+        Ok(mut outcome) => {
+            outcome.warnings = warnings;
+            Ok(CommandExecution::without_artifacts(outcome))
+        }
+        Err(error) => Err(error.warned(warnings)),
+    }
 }
 
 fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
@@ -501,8 +513,10 @@ fn prepare(
         })?;
     let raw_k =
         krs_compiler::raw_k_policy(&bundle, profile).map_err(CommandError::DescriptorLowering)?;
+    // A failure from here on reports the raw-K warnings already established.
+    let warned = |error: CommandError| error.warned(analysis_warnings(&raw_k.warnings));
     if !raw_k.errors.is_empty() {
-        return Err(CommandError::Diagnostics(
+        return Err(warned(CommandError::Diagnostics(
             raw_k
                 .errors
                 .into_iter()
@@ -510,17 +524,19 @@ fn prepare(
                     crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
                 })
                 .collect(),
-        ));
+        )));
     }
     let semantic = measurement
         .timings
-        .try_span("semantic.lower", |_| lower_semantic(&bundle))?;
+        .try_span("semantic.lower", |_| lower_semantic(&bundle))
+        .map_err(warned)?;
     measurement
         .counters
         .set("semantic.modules", semantic.modules().len());
     let lowered = measurement
         .timings
-        .try_span("definition.lower", |_| lower_definition(&semantic))?;
+        .try_span("definition.lower", |_| lower_definition(&semantic))
+        .map_err(warned)?;
     count_definition(&mut measurement.counters, &lowered);
     let coverage = krs_compiler::coverage_warnings(semantic.modules());
     Ok(PreparedDefinition {
@@ -609,7 +625,8 @@ fn check(
 }
 
 /// Judges each of `backends`' native routes and returns their warnings, or
-/// the first refusal in `backends` order.
+/// the first refusal in `backends` order with the warnings of the routes that
+/// accepted the definition.
 ///
 /// The routes' compiles are independent, so they run concurrently, each on its
 /// own thread (`check.<route>` spans, recorded below `check.routes` once every
@@ -666,21 +683,29 @@ fn judge_routes(
     }
     let every = compiled.iter().all(|(compiled, _)| compiled.is_err());
     let mut warnings = crate::DiagnosticReports::default();
+    let mut refusal = None;
+    // Every route is judged before the verdict, so a refusal reports the
+    // warnings of the routes that accepted the definition.
     for (&backend, (compiled, route_timings)) in backends.iter().zip(compiled) {
         if let Some(failed) = route_timings.failed_span() {
             timings.mark_failed(failed);
         }
-        let route_warnings =
-            judge_route(prepared, backend, compiled, timings).map_err(|error| {
-                if several && every {
+        match judge_route(prepared, backend, compiled, timings) {
+            Ok(route_warnings) => extend_unique(&mut warnings, route_warnings),
+            Err(error) if refusal.is_none() => {
+                refusal = Some(if several && every {
                     every_route_refuses(error)
                 } else {
                     route_attributed(error, backend, several)
-                }
-            })?;
-        extend_unique(&mut warnings, route_warnings);
+                });
+            }
+            Err(_) => {}
+        }
     }
-    Ok(warnings)
+    match refusal {
+        None => Ok(warnings),
+        Some(refusal) => Err(refusal.warned(warnings)),
+    }
 }
 
 /// `build`'s verdict on `backend`'s route from its compile; on the
@@ -807,27 +832,12 @@ fn push_trusted_claim_warnings(
 /// execution, trusted claims) are not among them: only the commands that
 /// judge that route report those.
 fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
-    let mut reports = crate::DiagnosticReports::default();
-    for diagnostic in prepared
-        .raw_k_warnings
-        .iter()
-        .chain(&prepared.sort_test_warnings)
-    {
-        if let Some(envelope) =
-            crate::diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None)
-        {
-            reports.envelopes.push(envelope);
-        } else {
-            reports.unlocated.push(crate::UnlocatedDiagnostic {
-                code: diagnostic.code.to_string(),
-                severity: crate::DiagnosticSeverity::Warning,
-                message: diagnostic.message.clone(),
-                source: None,
-                generated_range: None,
-                notes: Vec::new(),
-            });
-        }
-    }
+    let mut reports = analysis_warnings(
+        prepared
+            .raw_k_warnings
+            .iter()
+            .chain(&prepared.sort_test_warnings),
+    );
     for warning in prepared.lowered.partition().warnings() {
         let diagnostic = warning.to_diagnostic();
         if let Some(envelope) =
@@ -839,6 +849,31 @@ fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReport
                 code: krs_diagnostic::codes::partition::NOT_PROGRAM_SYNTAX.to_string(),
                 severity: crate::DiagnosticSeverity::Warning,
                 message: warning.message().to_owned(),
+                source: None,
+                generated_range: None,
+                notes: Vec::new(),
+            });
+        }
+    }
+    reports
+}
+
+/// The reports of analysis warnings: located ones as envelopes, the others
+/// unlocated.
+fn analysis_warnings<'a>(
+    diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
+) -> crate::DiagnosticReports {
+    let mut reports = crate::DiagnosticReports::default();
+    for diagnostic in diagnostics {
+        if let Some(envelope) =
+            crate::diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None)
+        {
+            reports.envelopes.push(envelope);
+        } else {
+            reports.unlocated.push(crate::UnlocatedDiagnostic {
+                code: diagnostic.code.to_string(),
+                severity: crate::DiagnosticSeverity::Warning,
+                message: diagnostic.message.clone(),
                 source: None,
                 generated_range: None,
                 notes: Vec::new(),
@@ -1266,6 +1301,15 @@ pub enum CommandError {
     /// `KRS_CHECK_AGREEMENT=1`: the verdict of `krs check` differs from the
     /// verdicts of the commands it judges.
     CheckDisagreement(String),
+    /// A failure after stages that completed and reported warnings about the
+    /// definition; the warnings are reported before the failure.
+    Warned {
+        /// The warnings of the completed stages that the failure does not
+        /// already report.
+        warnings: crate::DiagnosticReports,
+        /// The failure.
+        source: Box<CommandError>,
+    },
 }
 
 impl fmt::Display for CommandError {
@@ -1345,6 +1389,7 @@ impl fmt::Display for CommandError {
             Self::Exec(error) => error.fmt(formatter),
             Self::Usage(message) | Self::CheckDisagreement(message) => formatter.write_str(message),
             Self::Attributed { note, source } => write!(formatter, "{source} ({note})"),
+            Self::Warned { source, .. } => source.fmt(formatter),
         }
     }
 }
@@ -1366,7 +1411,7 @@ impl Error for CommandError {
             Self::ReferenceExpansion(error) => Some(error),
             Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => Some(error),
             Self::Exec(error) => Some(error),
-            Self::Attributed { source, .. } => Some(source.as_ref()),
+            Self::Attributed { source, .. } | Self::Warned { source, .. } => Some(source.as_ref()),
             Self::Usage(_)
             | Self::CheckDisagreement(_)
             | Self::InvalidRequest(_)
@@ -1385,7 +1430,7 @@ impl CommandError {
     #[must_use]
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::Attributed { source, .. } => source.exit_code(),
+            Self::Attributed { source, .. } | Self::Warned { source, .. } => source.exit_code(),
             Self::Usage(_)
             | Self::Exec(krs_exec::ExecError::StrayProgram | krs_exec::ExecError::MissingProgram) => {
                 2
@@ -1438,6 +1483,9 @@ impl CommandError {
     /// Returns diagnostics that have no exact authored range.
     #[must_use]
     pub fn unlocated_diagnostics(&self) -> Cow<'_, [crate::UnlocatedDiagnostic]> {
+        if let Self::Warned { source, .. } = self {
+            return source.unlocated_diagnostics();
+        }
         if let Self::Attributed { note, source } = self {
             let mut diagnostics = source.unlocated_diagnostics().into_owned();
             for diagnostic in &mut diagnostics {
@@ -1468,6 +1516,7 @@ impl CommandError {
     #[must_use]
     pub fn diagnostics(&self) -> Option<Cow<'_, [DiagnosticEnvelope]>> {
         match self {
+            Self::Warned { source, .. } => return source.diagnostics(),
             Self::Attributed { note, source } => {
                 let mut diagnostics = source.diagnostics()?.into_owned();
                 for diagnostic in &mut diagnostics {
@@ -1491,11 +1540,62 @@ impl CommandError {
 }
 
 impl CommandError {
+    /// The warnings of the stages that completed before this failure, which
+    /// are reported before it; `None` when those stages reported none.
+    #[must_use]
+    pub const fn warnings(&self) -> Option<&crate::DiagnosticReports> {
+        match self {
+            Self::Warned { warnings, .. } => Some(warnings),
+            _ => None,
+        }
+    }
+
     /// This refusal with `note`, which names the command that refuses.
     fn attributed(self, note: String) -> Self {
-        Self::Attributed {
-            note,
-            source: Box::new(self),
+        match self {
+            Self::Warned { warnings, source } => Self::Warned {
+                warnings,
+                source: Box::new(source.attributed(note)),
+            },
+            error => Self::Attributed {
+                note,
+                source: Box::new(error),
+            },
+        }
+    }
+
+    /// This failure after stages that reported `warnings`.
+    ///
+    /// A warning states a fact about the definition that the stage computing it
+    /// established; a later failure of the same command neither refutes it nor
+    /// makes it irrelevant, and is often its consequence. `warnings` come from
+    /// earlier stages than any already attached, so they come first. A warning
+    /// the failure itself already reports, or one already attached, is left
+    /// out; with none left, the failure is returned unchanged.
+    fn warned(self, warnings: crate::DiagnosticReports) -> Self {
+        let (mut all, source) = match self {
+            Self::Warned {
+                warnings: attached,
+                source,
+            } => {
+                let mut all = warnings;
+                extend_unique(&mut all, attached);
+                (all, *source)
+            }
+            error => (warnings, error),
+        };
+        let reported = source.diagnostics().unwrap_or_default();
+        let unlocated = source.unlocated_diagnostics();
+        all.envelopes
+            .retain(|envelope| !reported.contains(envelope));
+        all.unlocated
+            .retain(|diagnostic| !unlocated.contains(diagnostic));
+        if all.envelopes.is_empty() && all.unlocated.is_empty() {
+            return source;
+        }
+        Self::Warned {
+            warnings: all,
+            source: Box::new(source),
         }
     }
 }
@@ -1695,6 +1795,64 @@ mod tests {
         assert_eq!(diagnostics[0].message, message);
         assert_eq!(diagnostics[0].authored_range, range);
         assert!(routed.unlocated_diagnostics().is_empty());
+    }
+
+    fn unlocated_warning(message: &str) -> crate::UnlocatedDiagnostic {
+        crate::UnlocatedDiagnostic {
+            code: codes::analysis::RAW_K.to_string(),
+            severity: crate::DiagnosticSeverity::Warning,
+            message: message.to_owned(),
+            source: None,
+            generated_range: None,
+            notes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_warned_failure_reports_only_warnings_the_failure_does_not() {
+        let failure = || CommandError::Lowering(LoweringError::InvalidSidecar("detail".to_owned()));
+        let reported = failure().unlocated_diagnostics().into_owned();
+        // Nothing left to add: the bare failure.
+        let bare = failure().warned(crate::DiagnosticReports {
+            envelopes: Vec::new(),
+            unlocated: reported.clone(),
+        });
+        assert!(matches!(bare, CommandError::Lowering(_)));
+        assert!(bare.warnings().is_none());
+        let bare = failure().warned(crate::DiagnosticReports::default());
+        assert!(bare.warnings().is_none());
+
+        let earlier = unlocated_warning("earlier");
+        let later = unlocated_warning("later");
+        let warned = failure()
+            .warned(crate::DiagnosticReports {
+                envelopes: Vec::new(),
+                unlocated: vec![later.clone(), reported[0].clone()],
+            })
+            .warned(crate::DiagnosticReports {
+                envelopes: Vec::new(),
+                unlocated: vec![earlier.clone(), later.clone()],
+            });
+        // The outer stage's warnings first, each once; the failure's own
+        // diagnostic is not among them, and the failure is reported as before.
+        assert_eq!(
+            warned.warnings().unwrap().unlocated,
+            vec![earlier.clone(), later]
+        );
+        assert_eq!(warned.unlocated_diagnostics().into_owned(), reported);
+        assert_eq!(warned.to_string(), failure().to_string());
+        assert_eq!(warned.exit_code(), 1);
+
+        let usage =
+            CommandError::Usage("do not pass FILE".to_owned()).warned(crate::DiagnosticReports {
+                envelopes: Vec::new(),
+                unlocated: vec![earlier.clone()],
+            });
+        assert_eq!(usage.exit_code(), 2);
+        // A note attaches to the failure, below the warnings.
+        let attributed = usage.attributed("note".to_owned());
+        assert_eq!(attributed.warnings().unwrap().unlocated, vec![earlier]);
+        assert!(attributed.to_string().ends_with("(note)"));
     }
 
     #[test]

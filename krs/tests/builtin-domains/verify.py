@@ -87,7 +87,8 @@ operation, and a corpus of programs that apply them to concrete values:
   warning, which `krs expand` reports too (without `check`'s route warnings). `raw-denied` (no opt-in) and `raw-strict` (`profile = "strict"`)
   each fail with both errors, `krs check --profile strict` fails on `raw-k`,
   and `raw-parse-error`, a `raw_k!` rule K cannot parse, fails `krs build`
-  closed with `krs::native::raw-k-parse` at the `raw_k!` text.
+  closed with `krs::native::raw-k-parse` at the `raw_k!` text, after the
+  `krs::semantic::raw-k` warning that names it.
 
 `known_divergences` in `pins.json` pins the two failing projections of
 `sort-tests` (upstream k-rust/undefined-projection-stuck-leaf, reviewed, not a

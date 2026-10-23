@@ -178,6 +178,11 @@ fn report_outcome(
             outcome.exit_code()
         }
         Err(error) => {
+            // The warnings of the stages that completed come first, as on
+            // success; the error is the verdict and comes last.
+            if let Some(warnings) = error.warnings() {
+                report_diagnostics(&warnings.envelopes, &warnings.unlocated, format, sources);
+            }
             if let Some(diagnostics) = error.diagnostics() {
                 report_diagnostics(
                     &diagnostics,

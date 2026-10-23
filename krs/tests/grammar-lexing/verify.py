@@ -24,7 +24,8 @@ partition end to end on both routes:
   `krs check --partition` text is pinned and programs cannot contain them;
 - `program-warning`: the same production marked `program` gives the pinned
   `krs::partition::not-program-syntax` warning, which `krs expand` and
-  `krs run` report as `krs check` does;
+  `krs run` report as `krs check` does, and which a failing `krs parse` of
+  `logEntry(1, .List, .Bytes)` reports before its parse error;
 - `prefer`: `prefer` on `IfThen` resolves the dangling else, so
   `if true then if false then first else second` parses as
   `stmtSyntaxIfThen(true, stmtSyntaxIfThenElse(false, first, second))` on both routes and runs to
@@ -713,7 +714,26 @@ def main() -> int:
             reported = diagnostic_lines(harness._krs(PROGRAM_WARNING, command).stderr)
             if reported != warnings:
                 raise GateError(f"program-warning: krs {command} reports {reported}, krs check {warnings}")
-        print("PASS program-warning: pinned krs::partition::not-program-syntax warning, also reported by expand and run")
+        # A failing command reports the warning too, before its error: here the
+        # warning is what explains the parse failure.
+        program = harness.workspace / "program-warning.log"
+        program.write_text("logEntry(1, .List, .Bytes)\n", encoding="utf-8")
+        parsed = harness._krs(PROGRAM_WARNING, "parse", "--sort", "LogEntry", program, check=False)
+        reported = diagnostic_lines(parsed.stderr)
+        if (
+            parsed.returncode != 1
+            or not reported
+            or reported[:-1] != warnings
+            or not reported[-1].startswith("error[krs::exec::parse]: ")
+        ):
+            raise GateError(
+                f"program-warning: krs parse exited {parsed.returncode} reporting {reported}, "
+                f"expected krs check's {warnings} before a krs::exec::parse error"
+            )
+        print(
+            "PASS program-warning: pinned krs::partition::not-program-syntax warning, also reported by expand and run, "
+            "and before the error of a parse it explains"
+        )
 
         for name, directory, package, dependencies in NEGATIVE:
             manifest = materialize(directory, workspace)
