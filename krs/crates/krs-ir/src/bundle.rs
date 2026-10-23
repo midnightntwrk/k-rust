@@ -1117,6 +1117,11 @@ stage_shape! {
         /// order (KF-027); empty for every other constructor.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub parameters: Vec<S::Sort> => [vec sort],
+        /// The element types of a function's typed collection result
+        /// (`Int` of `-> k::Term<Set<Int>>`), which semantic analysis checks
+        /// the function's equations and uses against; empty otherwise.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ConstructorSortArgument<S>> => [vec nested],
     }
 }
 
@@ -1129,8 +1134,8 @@ stage_shape! {
     #[serde(
         rename = "ConstructorFieldDescriptor",
         bound(
-            serialize = "S::ConstructorFieldSort: Serialize",
-            deserialize = "S::ConstructorFieldSort: Deserialize<'de>"
+            serialize = "S::ConstructorFieldSort: Serialize, S::Sort: Serialize",
+            deserialize = "S::ConstructorFieldSort: Deserialize<'de>, S::Sort: Deserialize<'de>"
         )
     )]
     pub struct ConstructorField<S: Stage> {
@@ -1139,8 +1144,34 @@ stage_shape! {
         /// Declared or builtin field sort when known at descriptor collection time.
         #[serde(skip_serializing_if = "S::skip_constructor_field_sort")]
         pub sort: S::ConstructorFieldSort => [constructor_field_sort],
+        /// The element types of a typed collection field (`Int` of
+        /// `Set<Int>`), which semantic analysis checks every argument at the
+        /// field against; empty for every other field.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ConstructorSortArgument<S>> => [vec nested],
     }
 }
+
+stage_shape! {
+    /// One element type of a constructor field's or a function result's
+    /// typed collection sort: a sort, or a collection type with its own
+    /// element types (`Set<Int>` of `Map<Int, Set<Int>>`).
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "ConstructorSortArgument",
+        bound(serialize = "S::Sort: Serialize", deserialize = "S::Sort: Deserialize<'de>")
+    )]
+    pub struct ConstructorSortArgument<S: Stage> {
+        /// The element type's sort.
+        pub sort: S::Sort => [sort],
+        /// The element types of a collection element type, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ConstructorSortArgument<S>> => [vec nested],
+    }
+}
+
+/// Stable descriptor-stage form of [`ConstructorSortArgument`].
+pub type ConstructorSortArgumentDescriptor = ConstructorSortArgument<DescriptorStage>;
 
 /// Stable descriptor-stage form of [`ConstructorField`].
 pub type ConstructorFieldDescriptor = ConstructorField<DescriptorStage>;

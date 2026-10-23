@@ -409,7 +409,9 @@ mod tests {
                     slot: TypeSlot(0),
                     authored_path: "u64".to_owned(),
                 },
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         });
         let actual = decode(&wire, type_slots());
         let expected = HostDescriptorPayload::Constructor(HostConstructorDescriptor {
@@ -421,7 +423,9 @@ mod tests {
                     key: HostTypeKey(type_id),
                     authored_path: "u64".to_owned(),
                 },
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         });
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -1235,6 +1239,7 @@ mod tests {
             parameters: Vec::new(),
             sort: wire_sort(),
             fields: vec![],
+            arguments: Vec::new(),
         });
         let _ = decode(&wire, __KrsSlots::default());
     }

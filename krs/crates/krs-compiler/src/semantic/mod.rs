@@ -118,6 +118,7 @@ pub fn lower_descriptor_bundle_with_warnings(
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
     cons_lists::check_cons_lists(&descriptors, &production_catalog)?;
+    collection_types::check_production_types(&descriptors, &production_catalog)?;
     constants::check_constants(
         &inlined.constants,
         &declarations,

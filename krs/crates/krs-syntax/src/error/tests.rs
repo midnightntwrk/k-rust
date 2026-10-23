@@ -71,6 +71,7 @@ fn syntax_categories_have_distinct_registered_codes() {
             bare: example(),
             narrowing: true,
         },
+        SyntaxErrorKind::InvalidCollectionArgument,
         SyntaxErrorKind::UnsupportedRuleBody { reason: "example" },
         SyntaxErrorKind::UnexpectedMacro {
             path: String::from("example"),

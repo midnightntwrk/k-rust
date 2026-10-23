@@ -346,7 +346,9 @@ mod tests {
                         "Sort",
                         ItemKind::Sort,
                     ))),
+                    arguments: Vec::new(),
                 }],
+                arguments: Vec::new(),
             }),
         )
     }

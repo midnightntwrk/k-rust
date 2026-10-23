@@ -13,7 +13,7 @@ use crate::attribute::{
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
 use crate::parse::{KrsSyntax, checked_ordinal};
-use crate::term_sort::{parse_readable_sort, parse_term_sort};
+use crate::term_sort::{parse_typed_readable_sort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One tier in an exhaustive enum-level readable-family precedence chain.
@@ -86,6 +86,21 @@ pub struct EnumConstructorVariant {
 }
 
 impl EnumConstructorVariant {
+    /// Returns one anchor per element type of a typed collection field sort,
+    /// which only the variant's constructor descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a parsed node emits no leaves.
+    pub fn argument_provenance(&self) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
+        crate::SortArgument::anchors(
+            self.fields
+                .iter()
+                .map(|field| field.term_sort().arguments()),
+            crate::ProvenanceRole::ConstructorFieldSortArgument,
+        )
+    }
+
     /// Returns the variant's `#[k::symbol("path::Name")]` override: a pinned
     /// public identity whose final component names the emitted symbol in
     /// place of the default `lowerCamel(Enum)` + `Variant`.
@@ -1288,9 +1303,9 @@ fn parse_variant_fields(
                     ));
                 };
                 let term_sort = if reference_family {
-                    parse_term_sort(field.ty.clone())?
+                    parse_typed_term_sort(field.ty.clone())?
                 } else {
-                    parse_readable_sort(field.ty.clone())?
+                    parse_typed_readable_sort(field.ty.clone())?
                 };
                 parsed.push(ConstructorField {
                     field: field.clone(),

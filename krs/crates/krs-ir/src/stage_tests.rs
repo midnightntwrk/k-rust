@@ -751,12 +751,15 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
                 sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
                 sort: None,
+                arguments: Vec::new(),
             },
         ],
+        arguments: Vec::new(),
     };
     assert_mapping!(
         constructor.fields[0].clone(),
@@ -791,12 +794,15 @@ fn declaration_payload_traversal_maps_references_and_propagates_errors() {
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
                 sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
                 sort: None,
+                arguments: Vec::new(),
             },
         ],
+        arguments: Vec::new(),
     };
     assert_mapping!(
         DescriptorPayload::Sort(sorts),

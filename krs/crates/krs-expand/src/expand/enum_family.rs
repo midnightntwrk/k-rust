@@ -356,7 +356,10 @@ fn expand_enum_variant(
         ));
     }
     let fallback = TokenRange::for_tokens(variant.variant())?;
-    let provenance = host_provenance(env, facade, fallback, &anchors);
+    // Element types reach only the constructor descriptor, not the grammar.
+    let mut constructor_anchors = anchors.clone();
+    constructor_anchors.extend(variant.argument_provenance()?);
+    let provenance = host_provenance(env, facade, fallback, &constructor_anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
 
     let mut slots = WireSlots::new(facade);
@@ -386,7 +389,24 @@ fn expand_enum_variant(
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                 authored_path: spelling,
             },
+            arguments: Vec::new(),
         });
+    }
+    // Each field's element types, numbered in preorder across the fields.
+    let mut sink = super::terms::SortArgumentSink {
+        facade,
+        prefix: format!("__krs_enum_field_argument_{nonce:016x}_{index}"),
+        cfg,
+        helpers: &mut field_key_functions,
+        slots: &mut slots,
+        ordinal: 0,
+    };
+    for (wire, field) in fields.iter_mut().zip(variant.fields()) {
+        wire.arguments = super::terms::production_sort_arguments(
+            field.term_sort().arguments(),
+            ProvenanceRole::ConstructorFieldSortArgument,
+            &mut sink,
+        )?;
     }
 
     let grammar_nonce = expansion_nonce(env, "enum_strictness", variant.name(), fallback);
@@ -515,6 +535,7 @@ fn expand_enum_variant(
             },
         },
         fields,
+        arguments: Vec::new(),
     });
     let constructor_wire =
         serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");

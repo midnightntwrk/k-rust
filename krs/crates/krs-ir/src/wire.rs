@@ -184,12 +184,37 @@ stage_shape! {
         pub name: String => [keep],
         /// Declared sort reference.
         pub sort: S::Nominal => [nominal],
+        /// Element types of a typed collection field sort.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
     }
     host_shape: crate::HostConstructorFieldDescriptor;
 }
 
 /// Static wire-stage constructor transport.
 pub type WireConstructorFieldDescriptor = StaticConstructorField<WireStage>;
+
+stage_shape! {
+    /// Static element type of a constructor field's or result's typed
+    /// collection sort.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "WireConstructorSortArgument",
+        deny_unknown_fields,
+        bound(serialize = "S::Sort: Serialize", deserialize = "S::Sort: Deserialize<'de>")
+    )]
+    pub struct StaticConstructorSortArgument<S: Stage> {
+        /// The element type's sort reference.
+        pub sort: S::Sort => [sort],
+        /// The element types of a collection element type.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
+    }
+    host_shape: crate::HostConstructorSortArgument;
+}
+
+/// Static wire-stage element type transport.
+pub type WireConstructorSortArgument = StaticConstructorSortArgument<WireStage>;
 
 stage_shape! {
     /// Static indexed constructor transport.
@@ -210,6 +235,9 @@ stage_shape! {
         /// Sort parameters of a parametric production struct (KF-027).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub parameters: Vec<S::Sort> => [vec sort],
+        /// Element types of a function's typed collection result sort.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
     }
     host_shape: crate::HostConstructorDescriptor;
 }
@@ -357,6 +385,7 @@ mod tests {
                 slot: super::TypeSlot(1),
                 authored_path: "Int".to_owned(),
             },
+            arguments: Vec::new(),
         };
         let mut map = crate::stage::tests::CountingMap::default();
         let mapped = field.clone().try_map_refs(&mut map).unwrap();
@@ -369,6 +398,7 @@ mod tests {
             parameters: Vec::new(),
             sort: sort(),
             fields: vec![field],
+            arguments: Vec::new(),
         };
         let mut map = crate::stage::tests::CountingMap::default();
         let mapped = constructor.clone().try_map_refs(&mut map).unwrap();
@@ -415,6 +445,7 @@ mod tests {
                 parameters: Vec::new(),
                 sort: sort(),
                 fields: vec![],
+                arguments: Vec::new(),
             },
             "sort",
             1,

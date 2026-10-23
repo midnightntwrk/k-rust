@@ -136,6 +136,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "IrEvaluationResult",
     "ConstructorDescriptor",
     "ConstructorFieldDescriptor",
+    "ConstructorSortArgumentDescriptor",
     "ContextAliasSentence",
     "DefinitionClaim",
     "DefinitionFunctionContext",
@@ -791,6 +792,7 @@ fn registry() -> Registry {
     trace!(WireSortDescriptor: WireSortDescriptor);
     trace!(WireConstructorDescriptor: WireConstructorDescriptor);
     trace!(WireConstructorFieldDescriptor: WireConstructorFieldDescriptor);
+    trace!(WireConstructorSortArgument: WireConstructorSortArgument);
     trace!(WireContextAliasReference: WireContextAliasReference);
     trace!(WireHeadRuleCellReference: WireHeadRuleCellReference);
     trace!(WireSortReference: WireSortReference);
@@ -870,6 +872,7 @@ fn registry() -> Registry {
     unsupported!(ConfigurationRoot: ConfigurationRoot);
     unsupported!(ConstructorDescriptor: ConstructorDescriptor);
     unsupported!(ConstructorFieldDescriptor: ConstructorFieldDescriptor);
+    unsupported!(ConstructorSortArgumentDescriptor: ConstructorSortArgumentDescriptor);
     unsupported!(ContextAliasSentence: ContextAliasSentence);
     unsupported!(DefinitionClaim: DefinitionClaim);
     unsupported!(DefinitionScopedBinder: DefinitionScopedBinder);

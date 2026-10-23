@@ -261,9 +261,10 @@ fn head_rule_typing(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
     declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
-    let mut walker = Walker::new(descriptor, Some(declarations), sort_parents);
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     walker.checked_binders(
         rule.existentials
             .iter()
@@ -387,14 +388,18 @@ fn head_rule_typing(
 }
 
 /// The element types of an equation or term rule: its function context's
-/// cells at their types, and its other terms at no type.
+/// cells at their types; its subject as a pattern, whose arguments bind at
+/// their parameters' types; its result at the type of the subject's head,
+/// which a typed function's equations must produce; and its other terms at
+/// no type.
 fn structured_rule_typing(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
     declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
-    let walker = Walker::new(descriptor, Some(declarations), sort_parents);
+    let walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     let mut roots = Vec::new();
     for cell in rule
         .function_context
@@ -410,7 +415,12 @@ fn structured_rule_typing(
         subject,
     };
     roots.push(untyped(&rule.subject, true));
-    roots.extend(rule.result.iter().map(|result| untyped(result, false)));
+    let result_type = walker.result_type(&rule.subject);
+    roots.extend(rule.result.iter().map(|result| Root::Term {
+        term: result,
+        ty: result_type.clone(),
+        subject: false,
+    }));
     roots.extend(
         rule.requires
             .iter()
@@ -481,7 +491,8 @@ pub(super) fn lower_head_rule_descriptor(
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let configuration = head_rule_configuration(rule, declarations)?;
     let seeds = seed_head_rule_sorts(descriptor, rule, declarations, sort_parents)?;
-    let (typing, rule_warnings) = head_rule_typing(descriptor, rule, declarations, sort_parents)?;
+    let (typing, rule_warnings) =
+        head_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let binding_constraints = initial_binding_constraints(&seeds.binding_sorts);
     // Existentials are declared at their authored sort and are referenced
     // only by written terms and the ensures condition.
@@ -1829,6 +1840,7 @@ pub(super) fn lower_structured_rule_descriptor(
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    warnings: &mut Vec<krs_diagnostic::Diagnostic>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     // A function context's bindings are visible to the result and requires
     // like the subject's (KF-025); its frames have their family's sort and its
@@ -1898,9 +1910,11 @@ pub(super) fn lower_structured_rule_descriptor(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    // A function context matches cells; its binders have their cells'
-    // element types, which reads in the equation use.
-    let (typing, _) = structured_rule_typing(descriptor, rule, declarations, sort_parents)?;
+    // A function context matches cells, and a subject matches arguments;
+    // their binders have the cells' and parameters' element types.
+    let (typing, rule_warnings) =
+        structured_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
+    warnings.extend(rule_warnings);
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,

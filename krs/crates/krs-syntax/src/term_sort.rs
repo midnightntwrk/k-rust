@@ -2,7 +2,10 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::{GenericArgument, Path, PathArguments, TraitBoundModifier, Type, TypeParamBound};
 
-use crate::path::{is_plain_path, parametric_collection_error};
+use crate::configuration::{SortArgument, collection_arguments};
+use crate::path::{
+    is_plain_path, parametric_collection, parametric_collection_error, without_last_arguments,
+};
 use crate::{SyntaxError, SyntaxErrorKind};
 
 /// A validated `Term<SortPath>` or `Term<dyn SortPath>` type reference, or
@@ -17,6 +20,10 @@ pub struct TermSort {
     /// Whether this is the result sort of the function named by [`Self::sort`],
     /// which a `k::equations!` header names instead of a sort.
     function_result: bool,
+    /// The element types of a typed collection sort (`Int` of
+    /// `k::Term<Set<Int>>`), which only a constructor field or a function
+    /// signature may declare; empty for every other sort.
+    arguments: Vec<SortArgument>,
 }
 
 impl TermSort {
@@ -53,6 +60,14 @@ impl TermSort {
         self.function_result
     }
 
+    /// Returns the element types of a typed collection sort, such as `Int`
+    /// and `Set<Int>` of `k::Term<Map<Int, Set<Int>>>`; empty for every
+    /// other sort.
+    #[must_use]
+    pub fn arguments(&self) -> &[SortArgument] {
+        &self.arguments
+    }
+
     /// Returns the token-stream text of the sort path, such as `model :: Expr`,
     /// which descriptors carry as the sort's `authored_path`.
     #[must_use]
@@ -62,6 +77,18 @@ impl TermSort {
 }
 
 pub(crate) fn parse_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    parse_term_sort_with(ty, false)
+}
+
+/// Parses the `Term<..>` type of a constructor field or a function
+/// parameter or result, whose sort may be a typed collection
+/// (`k::Term<Map<Int, Set<Int>>>`): the sort is the collection, and its
+/// element types are [`TermSort::arguments`].
+pub(crate) fn parse_typed_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    parse_term_sort_with(ty, true)
+}
+
+fn parse_term_sort_with(ty: Type, typed: bool) -> Result<TermSort, SyntaxError> {
     let Type::Path(term_path) = &ty else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidTermType,
@@ -111,9 +138,13 @@ pub(crate) fn parse_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
 
     if let Type::Path(sort) = sort_type
         && sort.qself.is_none()
-        && let Some(error) = parametric_collection_error(&sort.path, false)
     {
-        return Err(error);
+        if typed && parametric_collection(&sort.path).is_some() {
+            return typed_collection(ty.clone(), sort_type);
+        }
+        if let Some(error) = parametric_collection_error(&sort.path, false) {
+            return Err(error);
+        }
     }
     let (sort, dynamic) = match sort_type {
         Type::Path(sort) if sort.qself.is_none() && is_plain_path(&sort.path) => {
@@ -151,7 +182,63 @@ pub(crate) fn parse_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         dynamic,
         predicate: false,
         function_result: false,
+        arguments: Vec::new(),
     })
+}
+
+/// A typed collection sort `Map<K, V>`, `List<T>`, or `Set<T>` written as
+/// `sort_type`, whose authored type is `ty`.
+fn typed_collection(ty: Type, sort_type: &Type) -> Result<TermSort, SyntaxError> {
+    let Type::Path(path) = sort_type else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidTermType,
+            sort_type.span(),
+        ));
+    };
+    Ok(TermSort {
+        ty,
+        sort: without_last_arguments(&path.path),
+        dynamic: false,
+        predicate: false,
+        function_result: false,
+        arguments: collection_arguments(sort_type, invalid_collection_argument)?,
+    })
+}
+
+/// The sort type inside `Term<..>`: `Set<Int>` of `k::Term<Set<Int>>`.
+pub(crate) fn term_sort_type(ty: &Type) -> Option<&Type> {
+    let Type::Path(term) = ty else {
+        return None;
+    };
+    match &term.path.segments.last()?.arguments {
+        PathArguments::AngleBracketed(arguments) if arguments.args.len() == 1 => {
+            match arguments.args.first()? {
+                GenericArgument::Type(sort) => Some(sort),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `ty` with the element types of a typed collection sort removed:
+/// `k::Term<Set>` for `k::Term<Set<Int>>`; every other type unchanged.
+pub(crate) fn without_collection_arguments(ty: &Type) -> Type {
+    let mut ty = ty.clone();
+    if let Type::Path(term) = &mut ty
+        && let Some(last) = term.path.segments.last_mut()
+        && let PathArguments::AngleBracketed(arguments) = &mut last.arguments
+        && let Some(GenericArgument::Type(Type::Path(sort))) = arguments.args.first_mut()
+        && sort.qself.is_none()
+        && parametric_collection(&sort.path).is_some()
+    {
+        sort.path = without_last_arguments(&sort.path);
+    }
+    ty
+}
+
+fn invalid_collection_argument(span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidCollectionArgument, span)
 }
 
 /// Parses the subject or result type of a term-shaped rule fn: a `Term<..>`
@@ -173,6 +260,7 @@ pub(crate) fn parse_rule_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
             dynamic: false,
             predicate: true,
             function_result: false,
+            arguments: Vec::new(),
         });
     }
     parse_term_sort(ty)
@@ -189,16 +277,30 @@ pub(crate) fn parse_term_or_readable_sort(ty: Type) -> Result<TermSort, SyntaxEr
 }
 
 pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    parse_readable_sort_with(ty, false)
+}
+
+/// Parses the readable sort of a constructor field, which may be a typed
+/// collection (`Set<Int>`), as [`parse_typed_term_sort`] does inside
+/// `Term<..>`.
+pub(crate) fn parse_typed_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    parse_readable_sort_with(ty, true)
+}
+
+fn parse_readable_sort_with(ty: Type, typed: bool) -> Result<TermSort, SyntaxError> {
     let Type::Path(path) = &ty else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidTermType,
             ty.span(),
         ));
     };
-    if path.qself.is_none()
-        && let Some(error) = parametric_collection_error(&path.path, false)
-    {
-        return Err(error);
+    if path.qself.is_none() {
+        if typed && parametric_collection(&path.path).is_some() {
+            return typed_collection(ty.clone(), &ty);
+        }
+        if let Some(error) = parametric_collection_error(&path.path, false) {
+            return Err(error);
+        }
     }
     if path.qself.is_some() || !is_plain_path(&path.path) {
         return Err(SyntaxError::new(
@@ -212,6 +314,7 @@ pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         dynamic: false,
         predicate: false,
         function_result: false,
+        arguments: Vec::new(),
     })
 }
 
@@ -227,6 +330,7 @@ pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
             dynamic: false,
             predicate: false,
             function_result: false,
+            arguments: Vec::new(),
         }),
         Type::TraitObject(object) if object.dyn_token.is_some() && object.bounds.len() == 1 => {
             let Some(TypeParamBound::Trait(bound)) = object.bounds.first() else {
@@ -242,6 +346,7 @@ pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
                 dynamic: true,
                 predicate: false,
                 function_result: false,
+                arguments: Vec::new(),
             })
         }
         Type::Group(group) => parse_instance_sort(&group.elem),
@@ -259,6 +364,7 @@ pub(crate) fn parse_function_result_sort(ty: Type) -> Result<TermSort, SyntaxErr
             dynamic: false,
             predicate: false,
             function_result: true,
+            arguments: Vec::new(),
         }),
         _ => Err(SyntaxError::new(
             SyntaxErrorKind::InvalidTermType,

@@ -302,9 +302,10 @@ fn configuration_rule_typing(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
     declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
-    let mut walker = Walker::new(descriptor, Some(declarations), sort_parents);
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     walker.checked_binders(
         rule.claim
             .iter()
@@ -359,7 +360,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         variables,
     } = configuration_rule_bindings(rule)?;
     let (typing, rule_warnings) =
-        configuration_rule_typing(descriptor, rule, declarations, sort_parents)?;
+        configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let mut terms = StateRuleTerms {
         descriptor,
         declarations,

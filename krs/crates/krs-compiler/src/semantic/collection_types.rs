@@ -1,5 +1,6 @@
 //! Typed collections: the element types of `Map<K, V>`, `List<T>`, and
-//! `Set<T>` cells, and the check that every term written into one fits them.
+//! `Set<T>` cells, constructor fields, and function parameters and results,
+//! and the check that every term written into one fits them.
 //!
 //! A cell declared `env: Map<Id, Value>` states an invariant of every
 //! reachable configuration: each key of the cell is an `Id` and each value a
@@ -11,7 +12,9 @@
 //! type. This module is that induction step:
 //!
 //! - a binder matched at a typed position (`env: e`, the rest of a typed
-//!   map pattern, a typed child of a group record) takes the position's type;
+//!   map pattern, a typed child of a group record, a typed field of a
+//!   constructor pattern, a typed parameter in an equation's subject) takes
+//!   the position's type;
 //! - every other term at a typed position is checked: a binder's type must
 //!   fit, a collection operation's operands are checked at the types the
 //!   operation's catalog row gives them, and an element operand (the `v` of
@@ -20,10 +23,16 @@
 //! - a read (`map::get(e, k)`) has the element sort, and a read that asks
 //!   for a sort the collection never holds is an error.
 //!
-//! A collection whose elements nothing declares (a function result, a
-//! constructor field, a bare `Map` cell) is untyped. Writing one into a typed
-//! position is reported as `krs::analysis::untyped-collection`, a warning:
-//! nothing checks its elements.
+//! A typed function moves the obligation to its equations: an argument is
+//! checked at its parameter's type, an application has its result's type,
+//! and each equation's result is checked at that type, with its subject's
+//! binders at the parameters' types.
+//!
+//! A collection whose elements nothing declares (a function result or a
+//! constructor field declared as a bare `Map`, a bare `Map` cell) is
+//! untyped. Writing one into a typed position is reported as
+//! `krs::analysis::untyped-collection`, a warning: nothing checks its
+//! elements.
 //!
 //! [`CollectionTyping`] walks a sentence's typed positions before inference.
 //! Binder types come from the patterns alone, so they are known before any
@@ -37,13 +46,13 @@ use std::fmt::{self, Write as _};
 use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
     BuiltinSort, CollectionApplication, Descriptor, DescriptorApplicationRef, DescriptorCellField,
-    DescriptorIndex, DescriptorSortArgument, DescriptorTerm, ListNotation, ListOperation,
-    OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, TermMapOperation,
+    DescriptorIndex, DescriptorSortArgument, DescriptorSortRef, DescriptorTerm, ListNotation,
+    ListOperation, OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
 };
 use krs_ir_levels::SemanticSortRef;
 
-use super::catalog::{semantic_is_subsort, semantic_sort_ref};
+use super::catalog::{ProductionSignature, semantic_is_subsort, semantic_sort_ref};
 use super::error::DescriptorLoweringError;
 use super::infer::most_specific_common_descendants;
 use super::references::require_cell_field;
@@ -83,8 +92,27 @@ impl SortType {
             sort: semantic_sort_ref(&sort.sort),
             arguments: arguments.iter().map(Self::of_argument).collect(),
         };
-        ty.check_arity(&field.rust_field, descriptor, &sort.key)?;
+        ty.check_arity(
+            &format!("the cell `{}`", field.rust_field),
+            descriptor,
+            &sort.key,
+        )?;
         Ok(Some(ty))
+    }
+
+    /// The type of a production's field or result: its sort and the element
+    /// types its declaration states.
+    fn of_production(
+        sort: &DescriptorSortRef,
+        arguments: &[krs_ir::ConstructorSortArgumentDescriptor],
+    ) -> Self {
+        Self {
+            sort: semantic_sort_ref(sort),
+            arguments: arguments
+                .iter()
+                .map(|argument| Self::of_production(&argument.sort.sort, &argument.arguments))
+                .collect(),
+        }
     }
 
     fn of_argument(argument: &DescriptorSortArgument) -> Self {
@@ -95,10 +123,11 @@ impl SortType {
     }
 
     /// Rejects `Map<Id>`, `List<A, B>`, and arguments of a sort that is not
-    /// a collection, here and in every argument.
+    /// a collection, here and in every argument; `owner` names the position,
+    /// as in "the cell `raw`".
     fn check_arity(
         &self,
-        cell: &str,
+        owner: &str,
         descriptor: &Descriptor,
         key: &ProvenanceKey,
     ) -> Result<(), DescriptorLoweringError> {
@@ -110,14 +139,14 @@ impl SortType {
         if !self.arguments.is_empty() && self.arguments.len() != expected {
             let reason = match self.kind() {
                 Some(BuiltinSort::Map) => format!(
-                    "the cell `{cell}` is declared `{self}`: a `Map` takes a key and a value type, `Map<K, V>`, or none, `Map`"
+                    "{owner} is declared `{self}`: a `Map` takes a key and a value type, `Map<K, V>`, or none, `Map`"
                 ),
                 Some(kind) => format!(
-                    "the cell `{cell}` is declared `{self}`: a `{name}` takes one element type, `{name}<T>`, or none, `{name}`",
+                    "{owner} is declared `{self}`: a `{name}` takes one element type, `{name}<T>`, or none, `{name}`",
                     name = kind.k_name()
                 ),
                 None => format!(
-                    "the cell `{cell}` is declared `{self}`, but only `Map`, `List`, and `Set` take element types"
+                    "{owner} is declared `{self}`, but only `Map`, `List`, and `Set` take element types"
                 ),
             };
             return Err(DescriptorLoweringError::CollectionElementSort {
@@ -127,7 +156,7 @@ impl SortType {
             });
         }
         for argument in &self.arguments {
-            argument.check_arity(cell, descriptor, key)?;
+            argument.check_arity(owner, descriptor, key)?;
         }
         Ok(())
     }
@@ -284,22 +313,40 @@ impl Step {
     }
 }
 
-/// A typed position: a cell (or one of its parts) and the cell's declared
-/// type, for diagnostics.
+/// What declares a typed position's type.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Owner {
+    /// A cell, by its Rust field name.
+    Cell(String),
+    /// A constructor's field or a function's parameter.
+    Field {
+        production: String,
+        field: String,
+        parameter: bool,
+    },
+    /// A function's result.
+    Result(String),
+}
+
+/// A typed position: a cell, a constructor field, a function parameter or
+/// result (or one of its parts), and its declared type, for diagnostics.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct Position {
-    /// The Rust field name of the cell.
-    cell: String,
-    /// The cell's declared content type.
+    owner: Owner,
+    /// The owner's declared type.
     declared: SortType,
-    /// The steps from the cell's content to this position, outermost first.
+    /// The steps from the owner's type to this position, outermost first.
     path: Vec<Step>,
 }
 
 impl Position {
     fn cell(cell: &str, declared: SortType) -> Self {
+        Self::of(Owner::Cell(cell.to_owned()), declared)
+    }
+
+    const fn of(owner: Owner, declared: SortType) -> Self {
         Self {
-            cell: cell.to_owned(),
+            owner,
             declared,
             path: Vec::new(),
         }
@@ -311,19 +358,31 @@ impl Position {
         child
     }
 
-    /// The position, as in "a value of the cell `env`" or "an element of
-    /// a value of the cell `raw`".
+    /// The position, as in "a value of the cell `env`", "an element of a
+    /// value of the cell `raw`", or "the parameter `accessed` of `Mark`".
     fn describe(&self) -> String {
         let mut text = String::new();
         for step in self.path.iter().rev() {
             text.push_str(step.noun());
             text.push_str(" of ");
         }
-        let _ = write!(text, "the cell `{}`", self.cell);
+        let _ = match &self.owner {
+            Owner::Cell(cell) => write!(text, "the cell `{cell}`"),
+            Owner::Field {
+                production,
+                field,
+                parameter,
+            } => write!(
+                text,
+                "the {} `{field}` of `{production}`",
+                if *parameter { "parameter" } else { "field" }
+            ),
+            Owner::Result(function) => write!(text, "the result of `{function}`"),
+        };
         text
     }
 
-    /// The position and the cell's declared type, as in "the cell `env`,
+    /// The position and its owner's declared type, as in "the cell `env`,
     /// declared `Map<Id, Value>`".
     fn describe_declared(&self) -> String {
         format!("{}, declared `{}`", self.describe(), self.declared)
@@ -431,6 +490,9 @@ impl CollectionTyping {
 pub(super) struct Walker<'a> {
     descriptor: &'a Descriptor,
     declarations: Option<&'a DescriptorIndex<'a>>,
+    /// The productions, for the field order of positional arguments and
+    /// whether a production is a function.
+    catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     parents: &'a SortParents,
     typing: CollectionTyping,
     /// The sentence's `untyped-collection` warnings.
@@ -489,11 +551,13 @@ impl<'a> Walker<'a> {
     pub(super) fn new(
         descriptor: &'a Descriptor,
         declarations: Option<&'a DescriptorIndex<'a>>,
+        catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
         parents: &'a SortParents,
     ) -> Self {
         Self {
             descriptor,
             declarations,
+            catalog,
             parents,
             typing: CollectionTyping::default(),
             warnings: Vec::new(),
@@ -523,6 +587,19 @@ impl<'a> Walker<'a> {
                 let position = Position::cell(&field.rust_field, ty.clone());
                 (ty, position)
             }))
+    }
+
+    /// The type and position of a term's result when its head is a
+    /// production whose result is a collection: an equation's result
+    /// stands there.
+    pub(super) fn result_type(&self, term: &DescriptorTerm) -> Option<(SortType, Position)> {
+        let DescriptorTerm::Application { reference, .. } = term else {
+            return None;
+        };
+        let DescriptorApplicationRef::Declared(id) = &reference.application else {
+            return None;
+        };
+        self.production_types(id)?.result
     }
 
     /// Walks every root twice and returns the sentence's typing and its
@@ -903,7 +980,10 @@ impl<'a> Walker<'a> {
                 }
                 Ok(())
             }
-            DescriptorApplicationRef::Declared(_) | DescriptorApplicationRef::Builtin(_) => {
+            DescriptorApplicationRef::Declared(id) => {
+                self.declared_application(term, id, arguments, at, subject)
+            }
+            DescriptorApplicationRef::Builtin(_) => {
                 if let Some(at) = at
                     && !subject
                 {
@@ -949,6 +1029,57 @@ impl<'a> Walker<'a> {
                 Ok(())
             }
         }
+    }
+
+    /// A production's application: its result checked at the position when
+    /// it is written there, and each argument at its field's or parameter's
+    /// type.
+    fn declared_application(
+        &mut self,
+        term: &DescriptorTerm,
+        id: &StableItemId,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        at: Option<&(SortType, Position)>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let types = self.production_types(id);
+        if let Some(at) = at
+            && !subject
+        {
+            let source = match types.as_ref().and_then(|types| types.result.as_ref()) {
+                Some((ty, _)) if ty.is_typed() => {
+                    Source::Typed(Box::new(ty.clone()), format!("`{}`", spelling(term)))
+                }
+                _ => Source::Untyped(format!(
+                    "`{}` returns an untyped `{}`",
+                    spelling(term),
+                    super::overload::sort_name(&at.0.sort)
+                )),
+            };
+            self.flow(source, at, term_key(term))?;
+        }
+        // Each argument stands at its field's or parameter's type: a
+        // pattern's binder takes it, a written term is checked.
+        for (index, argument) in arguments.iter().enumerate() {
+            let (field, value) = match argument {
+                krs_ir::TermArgumentRef::Positional { value } => (
+                    self.catalog
+                        .get(id)
+                        .and_then(|signature| signature.fields.get(index))
+                        .map(|(field, _)| field.as_str()),
+                    value,
+                ),
+                krs_ir::TermArgumentRef::Named { field, value, .. } => {
+                    (Some(field.as_str()), value)
+                }
+            };
+            let ty = types
+                .as_ref()
+                .zip(field)
+                .and_then(|(types, field)| types.field(field));
+            self.walk(value, ty.as_ref(), subject)?;
+        }
+        Ok(())
     }
 
     /// A collection operation: its operands at the types its catalog row
@@ -1074,6 +1205,10 @@ impl<'a> Walker<'a> {
                     DescriptorApplicationRef::Set(operation) => {
                         self.operation_type(*operation, &operands)
                     }
+                    DescriptorApplicationRef::Declared(id) => self
+                        .production_types(id)?
+                        .result
+                        .filter(|(ty, _)| ty.is_typed()),
                     _ => None,
                 }
             }
@@ -1129,6 +1264,44 @@ impl<'a> Walker<'a> {
             },
             _ => Source::Unknown,
         }
+    }
+
+    /// The collection types of a production's fields and result, as its
+    /// constructor descriptor declares them.
+    fn production_types(&self, id: &StableItemId) -> Option<ProductionTypes> {
+        let constructor = self.declarations?.constructor(id).ok()?;
+        let production = id.item_name().to_owned();
+        let parameter = self
+            .catalog
+            .get(id)
+            .is_some_and(|signature| signature.function);
+        let result = Some(SortType::of_production(
+            &constructor.sort,
+            &constructor.arguments,
+        ))
+        .filter(|ty| ty.kind().is_some())
+        .map(|ty| {
+            let position = Position::of(Owner::Result(production.clone()), ty.clone());
+            (ty, position)
+        });
+        let fields = constructor
+            .fields
+            .iter()
+            .filter_map(|field| {
+                let ty = SortType::of_production(field.sort.as_ref()?, &field.arguments);
+                ty.kind()?;
+                let position = Position::of(
+                    Owner::Field {
+                        production: production.clone(),
+                        field: field.name.clone(),
+                        parameter,
+                    },
+                    ty.clone(),
+                );
+                Some((field.name.clone(), (ty, position)))
+            })
+            .collect();
+        Some(ProductionTypes { result, fields })
     }
 
     fn binder_source(&self, name: &str) -> Source {
@@ -1253,6 +1426,58 @@ impl<'a> Walker<'a> {
         let nested = part.filter(|(part, _)| part.kind().is_some());
         self.walk(operand, nested.as_ref(), subject)
     }
+}
+
+/// The collection-typed fields (or parameters) and result of a production.
+struct ProductionTypes {
+    result: Option<(SortType, Position)>,
+    fields: BTreeMap<String, (SortType, Position)>,
+}
+
+impl ProductionTypes {
+    fn field(&self, name: &str) -> Option<(SortType, Position)> {
+        self.fields.get(name).cloned()
+    }
+}
+
+/// Checks the collection types every constructor and function declares for
+/// its fields, parameters, and result: `Map<Id>` and `Foo<Int>` are errors
+/// wherever the production is used, or if it never is.
+pub(super) fn check_production_types(
+    descriptors: &[&Descriptor],
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<(), DescriptorLoweringError> {
+    for descriptor in descriptors {
+        let krs_ir::DescriptorPayload::Constructor(constructor) = descriptor.payload() else {
+            continue;
+        };
+        let production = descriptor.id().item_name();
+        let noun = if catalog
+            .get(descriptor.id())
+            .is_some_and(|signature| signature.function)
+        {
+            "parameter"
+        } else {
+            "field"
+        };
+        if let Some(first) = constructor.arguments.first() {
+            SortType::of_production(&constructor.sort, &constructor.arguments).check_arity(
+                &format!("the result of `{production}`"),
+                descriptor,
+                &first.sort.key,
+            )?;
+        }
+        for field in &constructor.fields {
+            if let (Some(sort), Some(first)) = (&field.sort, field.arguments.first()) {
+                SortType::of_production(sort, &field.arguments).check_arity(
+                    &format!("the {noun} `{}` of `{production}`", field.name),
+                    descriptor,
+                    &first.sort.key,
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The part of a collection an operand stands for.
@@ -1757,6 +1982,41 @@ mod tests {
         assert_eq!(
             position.describe_declared(),
             "an element of a value of the cell `accessed_storage`, declared `Map<Int, Set<Int>>`"
+        );
+    }
+
+    #[test]
+    fn fields_parameters_and_results_are_named_as_declared() {
+        let int = builtin(BuiltinSort::Int);
+        let accessed = map(int.clone(), set(int));
+        let parameter = Position::of(
+            Owner::Field {
+                production: "MarkStorageAccess".to_owned(),
+                field: "accessed".to_owned(),
+                parameter: true,
+            },
+            accessed.clone(),
+        )
+        .child(Step::Value);
+        assert_eq!(
+            parameter.describe_declared(),
+            "a value of the parameter `accessed` of `MarkStorageAccess`, declared `Map<Int, Set<Int>>`"
+        );
+        let field = Position::of(
+            Owner::Field {
+                production: "Snapshot".to_owned(),
+                field: "storage".to_owned(),
+                parameter: false,
+            },
+            accessed.clone(),
+        );
+        assert_eq!(field.describe(), "the field `storage` of `Snapshot`");
+        let result = Position::of(Owner::Result("MarkStorageAccess".to_owned()), accessed)
+            .child(Step::Value)
+            .child(Step::Element);
+        assert_eq!(
+            result.describe(),
+            "an element of a value of the result of `MarkStorageAccess`"
         );
     }
 

@@ -29,7 +29,7 @@ use syn::{Attribute, Block, FnArg, Ident, ItemFn, ItemStruct, Pat, ReturnType, S
 
 use crate::rule::NegativeLiteralSpans;
 use crate::surface::{AttributeMacro, helper_entry};
-use crate::term_sort::parse_term_sort;
+use crate::term_sort::parse_typed_term_sort;
 use crate::{ConstructorDeclaration, FunctionAttribute, RuleItem, SyntaxError, SyntaxErrorKind};
 
 /// A `fn` item that may end with `;` instead of a body: syn reads such an
@@ -147,6 +147,8 @@ pub struct FunctionShorthand {
     attribute: FunctionAttribute,
     structure: ItemStruct,
     equations: Vec<ShorthandEquation>,
+    /// The authored result sort inside `k::Term<..>`, such as `Set<Int>`.
+    sort_type: syn::Type,
 }
 
 impl FunctionShorthand {
@@ -174,15 +176,22 @@ impl FunctionShorthand {
                 sig.ident.span(),
             ));
         };
-        let result_sort = parse_term_sort((**result_type).clone())?;
+        let result_sort = parse_typed_term_sort((**result_type).clone())?;
         if result_sort.is_dynamic() || result_sort.is_predicate() {
             return Err(shorthand_error(
                 "a function declared by a `fn` returns `k::Term<Sort>` with a sort alias or builtin sort, such as `k::Term<Exp>` or `k::Term<Int>`",
                 result_type.span(),
             ));
         }
-        let mut attribute =
-            FunctionAttribute::parse_shorthand_tokens(attribute, result_sort.sort())?;
+        let mut attribute = FunctionAttribute::parse_shorthand_tokens(
+            attribute,
+            result_sort.sort(),
+            result_sort.arguments(),
+        )?;
+        // An equation's subject and result are applications of the function,
+        // whose element types its declaration states: the equations name
+        // only the sort.
+        let equation_type = crate::term_sort::without_collection_arguments(result_type);
         if let Some(hook) = attribute.hook()
             && body.is_some()
         {
@@ -229,7 +238,7 @@ impl FunctionShorthand {
                     function: name,
                     parameters: &arguments,
                     parentheses: sig.paren_token.span.join(),
-                    result_type,
+                    result_type: &equation_type,
                     cfg: &cfg,
                     requires: &requires,
                 };
@@ -250,7 +259,18 @@ impl FunctionShorthand {
             attribute,
             structure,
             equations,
+            sort_type: crate::term_sort::term_sort_type(result_type)
+                .cloned()
+                .unwrap_or_else(|| (**result_type).clone()),
         })
+    }
+
+    /// The result sort as the long form's `sort = ..` states it: the sort
+    /// inside the return type's `k::Term<..>`, with the element types of a
+    /// typed collection (`Set<Int>`).
+    #[must_use]
+    pub const fn sort_type(&self) -> &syn::Type {
+        &self.sort_type
     }
 
     /// The completed function attribute: the sort from the return type, and
@@ -488,7 +508,7 @@ fn parameter(input: &FnArg) -> Result<(Ident, Box<syn::Type>), SyntaxError> {
             typed.pat.span(),
         ));
     }
-    let term_sort = parse_term_sort((*typed.ty).clone())?;
+    let term_sort = parse_typed_term_sort((*typed.ty).clone())?;
     if term_sort.is_predicate() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidTermType,
@@ -510,6 +530,7 @@ fn shorthand_error(reason: &str, span: proc_macro2::Span) -> SyntaxError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse::KrsSyntax as _;
 
     #[test]
     fn equation_names_split_words_and_keep_digits() {
@@ -531,6 +552,74 @@ mod tests {
             attribute.parse().expect("attribute tokens"),
             syn::parse_str(item).expect("a shorthand item"),
         )
+    }
+
+    #[test]
+    fn a_typed_signature_keeps_its_element_types_and_its_equations_name_the_sort() {
+        let shorthand = lower(
+            "total, internal",
+            "pub fn Mark(accessed: k::Term<Set<Int>>, n: k::Term<Int>) -> k::Term<Set<Int>> { set::union(accessed, set::item(n)) }",
+        )
+        .expect("valid shorthand");
+        let production = shorthand.attribute().production();
+        assert_eq!(crate::path::path_text(&production.sort), "Set");
+        assert_eq!(production.sort_arguments.len(), 1);
+        assert_eq!(
+            shorthand.sort_type().to_token_stream().to_string(),
+            "Set < Int >"
+        );
+        assert_eq!(
+            production
+                .sort_argument_provenance()
+                .unwrap()
+                .iter()
+                .map(|anchor| (anchor.role(), anchor.ordinal()))
+                .collect::<Vec<_>>(),
+            [(crate::ProvenanceRole::ConstructorSortArgument, 0)]
+        );
+        // The struct's field keeps its type; the equation states the sort.
+        assert_eq!(
+            shorthand
+                .structure()
+                .fields
+                .iter()
+                .next()
+                .map(|field| field.ty.to_token_stream().to_string()),
+            Some("k :: Term < Set < Int > >".to_owned())
+        );
+        let [equation] = shorthand.equations() else {
+            panic!("a body defines one equation");
+        };
+        assert_eq!(
+            equation.item().sig.output.to_token_stream().to_string(),
+            "-> k :: Term < Set >"
+        );
+    }
+
+    #[test]
+    fn the_long_form_states_a_typed_result_in_its_sort() {
+        let attribute = FunctionAttribute::parse_tokens(
+            "total, sort = Map<Int, Set<Int>>, syntax = \"m({x})\""
+                .parse()
+                .unwrap(),
+        )
+        .expect("a typed result sort");
+        let production = attribute.production();
+        assert_eq!(crate::path::path_text(&production.sort), "Map");
+        assert_eq!(
+            crate::SortArgument::preorder(&production.sort_arguments).len(),
+            3
+        );
+        let error = FunctionAttribute::parse_tokens(
+            "total, sort = Map<Int, &Int>, syntax = \"m({x})\""
+                .parse()
+                .unwrap(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            SyntaxErrorKind::InvalidCollectionArgument
+        ));
     }
 
     #[test]

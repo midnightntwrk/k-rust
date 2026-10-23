@@ -61,6 +61,12 @@ provenance_roles! {
     ConstructorDeclaration => "constructor_declaration",
     /// Object-language sort path of a constructor record field, in field order.
     ConstructorFieldSort => "constructor_field_sort",
+    /// One element type of a typed collection field sort (`Int` and `Set<Int>`
+    /// of `Map<Int, Set<Int>>`), in preorder over the fields in field order.
+    ConstructorFieldSortArgument => "constructor_field_sort_argument",
+    /// One element type of a function's typed collection result sort, in
+    /// preorder.
+    ConstructorSortArgument => "constructor_sort_argument",
     /// Name of a constructor field, in declaration order.
     ConstructorFieldDeclaration => "constructor_field_declaration",
     /// One ordered item in a checked constructor syntax template.

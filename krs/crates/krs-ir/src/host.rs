@@ -1001,6 +1001,9 @@ pub type HostConstructorDescriptor = crate::bundle::Constructor<crate::HostStage
 /// Build-local host-stage form of [`crate::bundle::ConstructorField`].
 pub type HostConstructorFieldDescriptor = crate::bundle::ConstructorField<crate::HostStage>;
 
+/// Build-local host-stage form of [`crate::bundle::ConstructorSortArgument`].
+pub type HostConstructorSortArgument = crate::bundle::ConstructorSortArgument<crate::HostStage>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1111,7 +1114,9 @@ mod tests {
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".into(),
                 sort: type_reference("model::Value"),
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         };
         assert_eq!(constructor.fields[0].name, "value");
         assert_eq!(constructor.fields[0].sort.key.resolve(), TypeId::of::<u8>());

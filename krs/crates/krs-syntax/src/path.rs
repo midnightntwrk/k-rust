@@ -74,7 +74,7 @@ pub(crate) fn parametric_collection(path: &Path) -> Option<&'static str> {
 
 /// The error for a path that gives a builtin collection sort generic
 /// arguments where only a sort makes sense: a rule narrowing when
-/// `narrowing`, otherwise a field or term sort.
+/// `narrowing`, otherwise a binder's or term's sort.
 pub(crate) fn parametric_collection_error(path: &Path, narrowing: bool) -> Option<SyntaxError> {
     let collection = parametric_collection(path)?;
     Some(SyntaxError::new(
@@ -155,8 +155,8 @@ mod tests {
         let error = parametric_collection_error(&path("k::builtin::List<Int>"), true).unwrap();
         assert_eq!(
             error.to_string(),
-            "K's `List` sort is not parametric, so a `where` narrowing tests the sort `List` and \
-             cannot constrain its elements; write `k::builtin::List` without generic arguments"
+            "a `where` narrowing tests only the sort `List` and cannot constrain its elements; \
+             write `k::builtin::List` without generic arguments"
         );
     }
 }

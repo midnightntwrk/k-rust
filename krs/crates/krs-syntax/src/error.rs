@@ -241,16 +241,21 @@ pub enum SyntaxErrorKind {
     },
     /// A symbolic constructor field or rule type was not a supported `Term` sort.
     InvalidTermType,
-    /// A rule narrowing or a field or term sort gave one of K's unparameterized
-    /// collection sorts (`List`, `Map`, `Set`) generic arguments.
+    /// A rule narrowing, or a rule binder's, equation's, or constant's sort,
+    /// gave one of K's collection sorts (`List`, `Map`, `Set`) element types,
+    /// which only a cell, a constructor field, or a function signature
+    /// declares.
     ParametricCollectionSort {
         /// The collection sort: `List`, `Map`, or `Set`.
         collection: &'static str,
         /// The authored path without its generic arguments.
         bare: String,
-        /// Whether the path is a `where` narrowing rather than a field or term sort.
+        /// Whether the path is a `where` narrowing rather than a term sort.
         narrowing: bool,
     },
+    /// An element type of a typed collection in a constructor field or a
+    /// function signature was neither a sort nor a collection type.
+    InvalidCollectionArgument,
     /// A rule body was not exactly one unterminated term expression.
     UnsupportedRuleBody {
         /// Specific body restriction.
@@ -509,6 +514,7 @@ impl SyntaxErrorKind {
             Self::UnsupportedRulePattern { .. } => codes::syntax::UNSUPPORTED_RULE_PATTERN,
             Self::InvalidTermType => codes::syntax::INVALID_TERM_TYPE,
             Self::ParametricCollectionSort { .. } => codes::syntax::PARAMETRIC_COLLECTION_SORT,
+            Self::InvalidCollectionArgument => codes::syntax::INVALID_COLLECTION_ARGUMENT,
             Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
@@ -757,22 +763,31 @@ impl fmt::Display for SyntaxError {
                 bare,
                 narrowing,
             } => {
-                let test = if *narrowing {
-                    "a `where` narrowing tests the sort"
-                } else {
-                    "a field or term sort is the sort"
-                };
                 let contents = if *collection == "Map" {
                     "its keys or values"
                 } else {
                     "its elements"
                 };
-                write!(
-                    formatter,
-                    "K's `{collection}` sort is not parametric, so {test} `{collection}` and \
-                     cannot constrain {contents}; write `{bare}` without generic arguments"
-                )
+                if *narrowing {
+                    write!(
+                        formatter,
+                        "a `where` narrowing tests only the sort `{collection}` and cannot \
+                         constrain {contents}; write `{bare}` without generic arguments"
+                    )
+                } else {
+                    write!(
+                        formatter,
+                        "a binder's or term's sort names only the sort `{collection}`: a binder \
+                         takes the types of {contents} from the position that matches it, and a \
+                         cell, a constructor field, or a function signature declares them; write \
+                         `{bare}` without generic arguments"
+                    )
+                }
             }
+            SyntaxErrorKind::InvalidCollectionArgument => formatter.write_str(
+                "an element type of a collection is a sort (`Int`, `k::Term<dyn Value>`) or a \
+                 collection type (`Set<Int>`)",
+            ),
             SyntaxErrorKind::UnsupportedRuleBody { reason } => {
                 write!(formatter, "unsupported rule body: {reason}")
             }

@@ -797,6 +797,7 @@ impl Sample for WireConstructorDescriptor {
             parameters: Vec::new(),
             sort: sample::<WireSortReference>(),
             fields: sample::<Vec<WireConstructorFieldDescriptor>>(),
+            arguments: sample::<Vec<WireConstructorSortArgument>>(),
         }]
     }
 }
@@ -805,6 +806,7 @@ impl Sample for WireConstructorFieldDescriptor {
         vec![Self {
             name: sample::<String>(),
             sort: sample::<WireTypeReference>(),
+            arguments: sample::<Vec<WireConstructorSortArgument>>(),
         }]
     }
 }
@@ -2085,6 +2087,31 @@ impl<
         )
     }
 }
+/// A constructor field's element type with a nested one, as in
+/// `Map<Int, Set<Int>>`.
+impl Sample for WireConstructorSortArgument {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<WireSortReference>(),
+            arguments: vec![Self {
+                sort: sample::<WireSortReference>(),
+                arguments: Vec::new(),
+            }],
+        }]
+    }
+}
+/// A descriptor element type with a nested one, as in `Map<Int, Set<Int>>`.
+impl Sample for ConstructorSortArgumentDescriptor {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<DescriptorSortReference>(),
+            arguments: vec![Self {
+                sort: sample::<DescriptorSortReference>(),
+                arguments: Vec::new(),
+            }],
+        }]
+    }
+}
 /// A collection argument with a nested argument, as in `Map<Int, Set<Int>>`.
 impl<S: Sample> Sample for ProtocolSortArgument<S> {
     fn samples() -> Vec<Self> {
@@ -3110,6 +3137,7 @@ impl Sample for ConstructorDescriptor {
             parameters: Vec::new(),
             sort: sample::<DescriptorSortRef>(),
             fields: sample::<Vec<ConstructorFieldDescriptor>>(),
+            arguments: sample::<Vec<ConstructorSortArgumentDescriptor>>(),
         }]
     }
 }
@@ -3118,6 +3146,7 @@ impl Sample for ConstructorFieldDescriptor {
         vec![Self {
             name: sample::<String>(),
             sort: sample::<Option<crate::DescriptorSortRef>>(),
+            arguments: sample::<Vec<ConstructorSortArgumentDescriptor>>(),
         }]
     }
 }
@@ -4318,6 +4347,7 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
 fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<ConstructorDescriptor>(corpus, "ConstructorDescriptor");
     insert::<ConstructorFieldDescriptor>(corpus, "ConstructorFieldDescriptor");
+    insert::<ConstructorSortArgumentDescriptor>(corpus, "ConstructorSortArgumentDescriptor");
     insert::<ContextAliasSentence>(corpus, "ContextAliasSentence");
     insert::<DefinitionClaim>(corpus, "DefinitionClaim");
     insert::<DefinitionScopedBinder>(corpus, "DefinitionScopedBinder");

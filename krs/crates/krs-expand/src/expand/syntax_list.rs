@@ -337,6 +337,7 @@ impl ListContext<'_> {
                             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                             authored_path: spelling.clone(),
                         },
+                        arguments: Vec::new(),
                     });
                     let ordinal = u32::try_from(ordinal).expect("a list has two fields");
                     let field_key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
@@ -447,6 +448,7 @@ impl ListContext<'_> {
                 },
             },
             fields,
+            arguments: Vec::new(),
         });
         let constructor_wire = serde_json::to_string(&constructor_wire)
             .expect("list-constructor wire is serializable");

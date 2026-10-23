@@ -21,7 +21,9 @@ use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::productions::strictness_key_function;
-use super::terms::{WireSlots, wire_key, wire_sort_reference};
+use super::terms::{
+    SortArgumentSink, WireSlots, production_sort_arguments, wire_key, wire_sort_reference,
+};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
     spelling,
@@ -445,6 +447,9 @@ fn constructor_like(
     let facade = env.facade_path()?;
     let mut declaration_anchors = attribute.provenance()?;
     declaration_anchors.extend(declaration.provenance()?);
+    // Element types reach only the constructor descriptor, not the grammar.
+    declaration_anchors.extend(attribute.sort_argument_provenance()?);
+    declaration_anchors.extend(declaration.argument_provenance()?);
     if let Some(symbol) = &explicit_symbol {
         declaration_anchors.extend(symbol.provenance()?);
     }
@@ -558,6 +563,7 @@ fn constructor_like(
     let mut field_key_functions = Vec::new();
     let mut field_types = Vec::new();
     let mut fields = Vec::new();
+    let mut field_arguments = Vec::new();
     for (index, field) in declaration.fields().iter().enumerate() {
         let key = format_ident!(
             "__krs_constructor_field_{nonce:016x}_{index}",
@@ -586,8 +592,34 @@ fn constructor_like(
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                 authored_path: spelling,
             },
+            arguments: Vec::new(),
         });
+        field_arguments.push(field.term_sort().arguments());
     }
+    // Each field's element types, numbered in preorder across the fields,
+    // and the result's, numbered on their own.
+    let mut sink = SortArgumentSink {
+        facade: &facade,
+        prefix: format!("__krs_constructor_field_argument_{nonce:016x}"),
+        cfg: &cfg,
+        helpers: &mut field_key_functions,
+        slots: &mut slots,
+        ordinal: 0,
+    };
+    for (field, arguments) in fields.iter_mut().zip(field_arguments) {
+        field.arguments = production_sort_arguments(
+            arguments,
+            ProvenanceRole::ConstructorFieldSortArgument,
+            &mut sink,
+        )?;
+    }
+    sink.prefix = format!("__krs_constructor_sort_argument_{nonce:016x}");
+    sink.ordinal = 0;
+    let result_arguments = production_sort_arguments(
+        &attribute.sort_arguments,
+        ProvenanceRole::ConstructorSortArgument,
+        &mut sink,
+    )?;
     let parameters = parameter_wire_references(
         &facade,
         declaration.sort_parameters(),
@@ -598,6 +630,7 @@ fn constructor_like(
         sort: sort_reference,
         fields,
         parameters,
+        arguments: result_arguments,
     });
     let wire = serde_json::to_string(&wire).expect("constructor wire is serializable");
     let slot_tokens = slots.tokens();

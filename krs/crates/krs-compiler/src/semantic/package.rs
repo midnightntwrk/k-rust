@@ -232,6 +232,7 @@ fn lower_module_descriptor(
                 declarations.descriptors,
                 semantic_sort_parents,
                 production_catalog,
+                warnings,
             )?);
         }
         DescriptorPayload::FixedConfiguration(value) => {

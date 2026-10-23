@@ -7,8 +7,8 @@ use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
 use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::{
-    ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
-    TokenRange,
+    ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SortArgument, SyntaxError,
+    SyntaxErrorKind, TokenRange,
 };
 
 use super::value::{
@@ -21,6 +21,10 @@ use super::value::{
 pub struct ConstructorAttribute {
     /// Required Rust-resolved sort trait path.
     pub sort: Path,
+    /// The element types of a function's typed collection result
+    /// (`sort = Set<Int>`, or `-> k::Term<Set<Int>>` on a `fn`); empty for
+    /// every other production.
+    pub sort_arguments: Vec<SortArgument>,
     /// Optional checked concrete-syntax template literal.
     pub syntax: Option<LitStr>,
     /// Optional stable production-group name.
@@ -418,10 +422,16 @@ impl FunctionAttribute {
     ///
     /// The errors of [`KrsSyntax::parse_tokens`] except a missing `sort`, and
     /// an authored `sort` key.
-    pub fn parse_shorthand_tokens(tokens: TokenStream, sort: &Path) -> Result<Self, SyntaxError> {
-        structured(tokens, |input| {
+    pub fn parse_shorthand_tokens(
+        tokens: TokenStream,
+        sort: &Path,
+        sort_arguments: &[SortArgument],
+    ) -> Result<Self, SyntaxError> {
+        let mut attribute = structured(tokens, |input| {
             parse_function_keys(input, Some(sort.clone()))
-        })
+        })?;
+        attribute.constructor.sort_arguments = sort_arguments.to_vec();
+        Ok(attribute)
     }
 
     /// Whether the function's `syntax` key was written.
@@ -958,6 +968,19 @@ impl ConstructorAttribute {
         Ok(anchors)
     }
 
+    /// Returns one anchor per element type of a function's typed collection
+    /// result, which only the constructor descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a parsed Rust node emits no tokens.
+    pub fn sort_argument_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        SortArgument::anchors(
+            [self.sort_arguments.as_slice()],
+            ProvenanceRole::ConstructorSortArgument,
+        )
+    }
+
     /// Returns the complete anchor catalog, including syntax-template, group,
     /// and avoid anchors; [`Self::provenance`] keeps the compact protocol-v5 catalog.
     ///
@@ -1272,6 +1295,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         .map_err(ParseError::Structured)?;
     Ok(ConstructorAttribute {
         sort,
+        sort_arguments: Vec::new(),
         syntax,
         group,
         avoid: avoid.as_ref().is_some_and(LitBool::value),
@@ -1326,6 +1350,7 @@ fn parse_function_keys(
     let mut memo = None;
     let mut fresh_generator = None;
     let mut sort = None;
+    let mut sort_arguments = Vec::new();
     let mut syntax = None;
     let mut hook = None;
     let mut smt = None;
@@ -1434,12 +1459,16 @@ fn parse_function_keys(
                 .into());
             }
             "underspecified" => underspecified = Some(parse_underspecified(&key, input)?),
-            "sort" | "syntax" | "hook" => {
+            "sort" => {
+                input.parse::<Token![=]>()?;
+                let (path, arguments) = parse_function_sort_value(input.parse()?)?;
+                sort = Some(path);
+                sort_arguments = arguments;
+            }
+            "syntax" | "hook" => {
                 input.parse::<Token![=]>()?;
                 let value: Expr = input.parse()?;
-                if key_name == "sort" {
-                    sort = Some(parse_sort_value(value)?);
-                } else if key_name == "syntax" {
+                if key_name == "syntax" {
                     syntax = Some(parse_syntax_value(value)?);
                 } else if let Expr::Lit(syn::ExprLit {
                     lit: syn::Lit::Str(literal),
@@ -1500,6 +1529,7 @@ fn parse_function_keys(
     Ok(FunctionAttribute {
         constructor: ConstructorAttribute {
             sort,
+            sort_arguments,
             syntax,
             group: None,
             avoid: false,
@@ -1520,6 +1550,39 @@ fn parse_function_keys(
         smt,
         underspecified,
     })
+}
+
+/// Parses the `sort` of `#[k::function]`: a plain path, or a typed
+/// collection `Set<Int>` whose element types are the function's result
+/// types.
+fn parse_function_sort_value(ty: syn::Type) -> Result<(Path, Vec<SortArgument>), ParseError> {
+    if let syn::Type::Path(path) = &ty
+        && path.qself.is_none()
+        && crate::path::parametric_collection(&path.path).is_some()
+    {
+        let arguments = crate::configuration::collection_arguments(&ty, |span| {
+            SyntaxError::new(SyntaxErrorKind::InvalidCollectionArgument, span)
+        })?;
+        return Ok((crate::path::without_last_arguments(&path.path), arguments));
+    }
+    let value = match ty {
+        syn::Type::Path(path) if path.qself.is_none() => Expr::Path(syn::ExprPath {
+            attrs: Vec::new(),
+            qself: None,
+            path: path.path,
+        }),
+        other => {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidArgumentValue {
+                    name: "sort",
+                    expected: "a Rust trait path",
+                },
+                other.span(),
+            )
+            .into());
+        }
+    };
+    Ok((parse_sort_value(value)?, Vec::new()))
 }
 
 /// Parses `underspecified = "reason"`: a nonempty string literal.

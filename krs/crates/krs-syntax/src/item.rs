@@ -7,7 +7,7 @@ use syn::{
 
 use crate::parse::{KrsSyntax, checked_ordinal};
 use crate::path::is_plain_path;
-use crate::term_sort::{TermSort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One validated named field of a record constructor.
@@ -117,7 +117,7 @@ impl ConstructorDeclaration {
                             field.span(),
                         ));
                     };
-                    let term_sort = parse_term_sort(field.ty.clone())?;
+                    let term_sort = parse_typed_term_sort(field.ty.clone())?;
                     let parameter = term_sort_parameter(&term_sort, &parameters);
                     parsed.push(ConstructorField {
                         field: field.clone(),
@@ -230,6 +230,19 @@ impl ConstructorDeclaration {
             ));
         }
         Ok(anchors)
+    }
+
+    /// Returns one anchor per element type of a typed collection field sort,
+    /// which only the constructor descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a parsed node emits no leaves.
+    pub fn argument_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        crate::SortArgument::anchors(
+            self.fields.iter().map(|field| field.term_sort.arguments()),
+            ProvenanceRole::ConstructorFieldSortArgument,
+        )
     }
 
     /// Returns the compact anchors plus each constructor field declaration name.

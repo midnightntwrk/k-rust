@@ -70,8 +70,13 @@ pub(super) fn lower_fixed_configuration_descriptor(
             variable.main_key.is_some(),
         )?);
     }
-    let (typing, initializer_warnings) =
-        initializer_typing(descriptor, configuration, declarations, sort_parents)?;
+    let (typing, initializer_warnings) = initializer_typing(
+        descriptor,
+        configuration,
+        declarations,
+        catalog,
+        sort_parents,
+    )?;
     let initializer = configuration
         .initializer
         .cells
@@ -462,6 +467,7 @@ fn initializer_typing(
     descriptor: &Descriptor,
     configuration: &DescriptorFixedConfiguration,
     declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(CollectionTyping, Vec<krs_diagnostic::Diagnostic>), DescriptorLoweringError> {
     fn roots<'t>(
@@ -500,7 +506,7 @@ fn initializer_typing(
         }
         Ok(())
     }
-    let mut walker = Walker::new(descriptor, Some(declarations), sort_parents);
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     walker.checked_binders(
         configuration
             .initializer

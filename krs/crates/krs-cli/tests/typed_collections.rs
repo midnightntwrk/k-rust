@@ -1,6 +1,7 @@
 //! Typed collections end to end: a cell declared `Map<Id, Value>`,
-//! `List<Value>`, `Set<Id>`, or `Map<Id, Set<Int>>` checks every term a rule,
-//! claim, or initializer writes into it, through every write path, and the
+//! `List<Value>`, `Set<Id>`, or `Map<Id, Set<Int>>`, a constructor field, and
+//! a function parameter or result check every term a rule, claim, equation,
+//! or initializer writes into them, through every write path, and the
 //! emitted K, which erases element types, is the K of the same rules over
 //! untyped cells.
 
@@ -20,7 +21,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence((Skip, Put, PutI, Op, Hold))]
+#[k::precedence((Skip, Put, PutI, Op, Hold, Keep))]
 pub enum StmtSyntax {
     #[k::syntax("skip")]
     Skip(),
@@ -32,6 +33,8 @@ pub enum StmtSyntax {
     Op { code: Int },
     #[k::syntax("hold {m}")]
     Hold { m: Map },
+    #[k::syntax("keep {m}")]
+    Keep { m: Map<Id, Value> },
 }
 
 #[k::cell]
@@ -97,6 +100,24 @@ impl Machine {
 pub fn Put3(m: Term<Map>, key: Term<Id>, value: Term<Stmt>) -> Term<Map> {
     map::update(m, key, value)
 }
+
+/// Stores an integer in a map of values: its signature states the types.
+#[k::function(total, internal)]
+pub fn Store(m: Term<Map<Id, Value>>, key: Term<Id>, value: Term<Int>) -> Term<Map<Id, Value>> {
+    map::update(m, key, value)
+}
+
+/// The keys of a map of sets of integers, read through a typed lookup.
+#[k::function(total, internal, sort = Set<Int>, syntax = "members({sets}, {key})")]
+pub struct Members {
+    pub sets: Term<Map<Id, Set<Int>>>,
+    pub key: Term<Id>,
+}
+
+#[k::equation]
+fn members(k::term![Members(sets, key)]: Term<Set>) -> Term<Set> {
+    set::union(map::get(sets, key), set::item(0))
+}
 "#;
 
 /// Every accepted way of writing into and reading from typed cells.
@@ -117,6 +138,10 @@ k::rules! {
     untyped_function: { k: [Op(10), Put(name, s), ..], env: e } => { k: [..], env: Put3(e, name, s) };
     untyped_cell: { k: [Op(11), ..], raw: r, env: _ } => { k: [..], env: r };
     stash: { k: [Op(12), Hold(m), ..], env: _ } => { k: [..], env: m };
+    typed_function: { k: [Op(13), Put(name, _), ..], env: e } => { k: [..], env: Store(e, name, 5) };
+    typed_stash: { k: [Op(14), ..], env: e } => { k: [Keep(e), ..] };
+    typed_restore: { k: [Op(15), Keep(m), ..], env: _ } => { k: [..], env: m };
+    typed_nested: { k: [Op(16), Put(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, Members(n, name)) };
 }
 ";
 
@@ -225,7 +250,7 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
     expect_test::expect![[r#"
         [
             (
-                "warning[krs::analysis::untyped-collection]: `m` is matched where no element types are declared, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
+                "warning[krs::analysis::untyped-collection]: `m` is matched in the field `m` of `Hold`, declared `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`",
                 "m",
             ),
             (
@@ -257,6 +282,8 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
             "<k> op 6 ~> puti Name:Id _ => puti Name:Id {M:Map [ Name:Id ]}:>Int +Int 1 ... </k> <frame> <locals> M:Map </locals> <depth> _ </depth> </frame>",
             "<k> op 7 ~> put Name:Id _ => {E:Map [ Name:Id ]}:>Value ... </k> <env> E:Map </env>",
             "<k> op 10 ~> put Name:Id S:Stmt => .K ... </k> <env> E:Map => put3 ( E:Map , Name:Id , S:Stmt ) </env>",
+            "<k> op 13 ~> put Name:Id _ => .K ... </k> <env> E:Map => store ( E:Map , Name:Id , 5 ) </env>",
+            "<k> op 16 ~> put Name:Id _ => .K ... </k> <nested> N:Map => N:Map [ Name:Id <- members ( N:Map , Name:Id ) ] </nested>",
         ]
     "#]]
     .assert_debug_eq(&[
@@ -266,6 +293,8 @@ fn typed_cells_accept_fitting_writes_and_warn_on_untyped_ones() {
         rule(&definition, "increment"),
         rule(&definition, "lookup"),
         rule(&definition, "untyped-function"),
+        rule(&definition, "typed-function"),
+        rule(&definition, "typed-nested"),
     ]);
 
     // The expanded reference rules check the same: they declare every
@@ -469,6 +498,40 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "k::rewrite!(_ => s)",
         ),
         (
+            "typed-parameter",
+            rules(
+                "probe: { k: [Put(name, s), ..], env: e } => { k: [..], env: Store(map::update(e, name, s), name, 1) };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "a value of the parameter `m` of `Store`, declared `Map<Id, Value>`",
+                "a Value",
+            ),
+            "s",
+        ),
+        (
+            "typed-field",
+            rules(
+                "probe: { k: [Put(name, s), ..], env: e } => { k: [Keep(map::update(e, name, s)), ..] };",
+            ),
+            stored(
+                "s",
+                "Stmt",
+                "a value of the field `m` of `Keep`, declared `Map<Id, Value>`",
+                "a Value",
+            ),
+            "s",
+        ),
+        (
+            "typed-result",
+            rules(
+                "probe: { k: [Put(name, _), ..], seen: _, nested: n } => { k: [..], seen: Members(n, name) };",
+            ),
+            "error[krs::analysis::collection-element-sort]: `Members(..)` has type `Set<Int>`, which does not fit the cell `seen`, declared `Set<Id>`: Int is not an Id".to_owned(),
+            "Members",
+        ),
+        (
             "claim-left",
             "k::claims! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::claim(all_paths)]\n    probe: { k: [Put(name, s)], env: map::update(map::empty(), name, s) } => { k: [] };\n}\n".to_owned(),
             stored("s", "Stmt", env_value, "a Value"),
@@ -517,6 +580,32 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "pub raw: Map<Id>,",
             "error[krs::analysis::collection-element-sort]: the cell `raw` is declared `Map<Id>`: a `Map` takes a key and a value type, `Map<K, V>`, or none, `Map`".to_owned(),
             "Map<Id>",
+        ),
+        (
+            "function-equation",
+            "key: Term<Id>, value: Term<Int>)",
+            "key: Term<Id>, value: Term<Stmt>)",
+            stored(
+                "value",
+                "Stmt",
+                "a value of the result of `Store`, declared `Map<Id, Value>`",
+                "a Value",
+            ),
+            "value",
+        ),
+        (
+            "parameter-arity",
+            "pub sets: Term<Map<Id, Set<Int>>>,",
+            "pub sets: Term<Map<Id>>,",
+            "error[krs::analysis::collection-element-sort]: the parameter `sets` of `Members` is declared `Map<Id>`: a `Map` takes a key and a value type, `Map<K, V>`, or none, `Map`".to_owned(),
+            "Id",
+        ),
+        (
+            "binder-declaration",
+            "#[k::equation]\nfn members(k::term![Members(sets, key)]: Term<Set>) -> Term<Set> {",
+            "#[k::equation]\nfn members(k::term![Members(sets, key)]: Term<Set<Int>>) -> Term<Set> {",
+            "error[krs::syntax::parametric-collection-sort]: a binder's or term's sort names only the sort `Set`: a binder takes the types of its elements from the position that matches it, and a cell, a constructor field, or a function signature declares them; write `Set` without generic arguments".to_owned(),
+            "Set",
         ),
     ] {
         assert!(PREAMBLE.contains(from), "{name}");

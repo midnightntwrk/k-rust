@@ -72,6 +72,31 @@ impl SortArgument {
         }
         output
     }
+
+    /// One `role` anchor per argument of every list in `lists`, in preorder
+    /// within a list and in list order across them, numbered from 0: the
+    /// anchors of a constructor's typed field or result sorts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if an argument path emits no tokens.
+    pub fn anchors<'a>(
+        lists: impl IntoIterator<Item = &'a [Self]>,
+        role: ProvenanceRole,
+    ) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
+        let mut anchors = Vec::new();
+        for arguments in lists {
+            for argument in Self::preorder(arguments) {
+                let range = TokenRange::for_tokens(&argument.path)?;
+                anchors.push(crate::ProvenanceAnchor::new(
+                    role,
+                    crate::parse::checked_ordinal(anchors.len(), role, range.first())?,
+                    range,
+                ));
+            }
+        }
+        Ok(anchors)
+    }
 }
 
 /// One ordered fixed-cell field in a configuration or nested cell struct.
@@ -663,6 +688,16 @@ fn parse_inferred_leaf(
 /// type with arguments of the same kinds; any other argument is an error, so
 /// no argument is dropped.
 fn content_sort_arguments(ty: &Type) -> Result<Vec<SortArgument>, SyntaxError> {
+    collection_arguments(ty, invalid_sort_argument)
+}
+
+/// The collection arguments of `ty`'s last path segment, as
+/// [`content_sort_arguments`] reads them; `invalid` builds the error at an
+/// argument that is neither a sort nor a collection type.
+pub(crate) fn collection_arguments(
+    ty: &Type,
+    invalid: fn(proc_macro2::Span) -> SyntaxError,
+) -> Result<Vec<SortArgument>, SyntaxError> {
     let Type::Path(type_path) = ty else {
         return Ok(Vec::new());
     };
@@ -676,39 +711,45 @@ fn content_sort_arguments(ty: &Type) -> Result<Vec<SortArgument>, SyntaxError> {
         .args
         .iter()
         .map(|argument| match argument {
-            GenericArgument::Type(argument) => sort_argument(argument),
-            other => Err(invalid_sort_argument(other.span())),
+            GenericArgument::Type(argument) => sort_argument(argument, invalid),
+            other => Err(invalid(other.span())),
         })
         .collect()
 }
 
-fn sort_argument(ty: &Type) -> Result<SortArgument, SyntaxError> {
+fn sort_argument(
+    ty: &Type,
+    invalid: fn(proc_macro2::Span) -> SyntaxError,
+) -> Result<SortArgument, SyntaxError> {
     let Type::Path(path) = ty else {
-        return Err(invalid_sort_argument(ty.span()));
+        return Err(invalid(ty.span()));
     };
     if path.qself.is_some() {
-        return Err(invalid_sort_argument(ty.span()));
+        return Err(invalid(ty.span()));
     }
     let Some(last) = path.path.segments.last() else {
-        return Err(invalid_sort_argument(ty.span()));
+        return Err(invalid(ty.span()));
     };
     if last.ident == "Term" {
-        return term_sort_argument(ty);
+        return term_sort_argument(ty, invalid);
     }
     let sort = without_last_arguments(&path.path);
     if !is_plain_path(&sort) {
-        return Err(invalid_sort_argument(ty.span()));
+        return Err(invalid(ty.span()));
     }
     Ok(SortArgument {
         path: sort,
         dynamic: false,
-        arguments: content_sort_arguments(ty)?,
+        arguments: collection_arguments(ty, invalid)?,
     })
 }
 
 /// `k::Term<S>` or `k::Term<dyn S>` as a collection argument: the sort `S`,
 /// itself possibly a collection type.
-fn term_sort_argument(ty: &Type) -> Result<SortArgument, SyntaxError> {
+fn term_sort_argument(
+    ty: &Type,
+    invalid: fn(proc_macro2::Span) -> SyntaxError,
+) -> Result<SortArgument, SyntaxError> {
     let inner = match ty {
         Type::Path(path) => path
             .path
@@ -727,16 +768,16 @@ fn term_sort_argument(ty: &Type) -> Result<SortArgument, SyntaxError> {
     };
     match inner {
         Some(Type::TraitObject(_)) => {
-            let term = crate::term_sort::parse_term_sort(ty.clone())
-                .map_err(|_| invalid_sort_argument(ty.span()))?;
+            let term =
+                crate::term_sort::parse_term_sort(ty.clone()).map_err(|_| invalid(ty.span()))?;
             Ok(SortArgument {
                 path: term.sort().clone(),
                 dynamic: true,
                 arguments: Vec::new(),
             })
         }
-        Some(inner) => sort_argument(inner),
-        None => Err(invalid_sort_argument(ty.span())),
+        Some(inner) => sort_argument(inner, invalid),
+        None => Err(invalid(ty.span())),
     }
 }
 

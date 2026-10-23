@@ -792,7 +792,7 @@ fn materialize_function_shorthand(
     let lowered = krs_syntax::FunctionShorthand::lower(tokens.clone(), shorthand)
         .map_err(ReferenceExpansionError::KrsSyntax)?;
     let production = lowered.attribute().production();
-    let sort = &production.sort;
+    let sort = lowered.sort_type();
     let mut keys = tokens;
     keys.extend(quote!(, sort = #sort));
     if !lowered.attribute().has_authored_syntax() {
@@ -988,13 +988,19 @@ fn materialize_reference_variant_fields(
                         field: name.to_string(),
                     }
                 })?;
-                field.ty = syn::parse2(render_reference_term_type(
-                    sort,
-                    package,
-                    module_path,
-                    bundle,
-                )?)
-                .map_err(ReferenceExpansionError::GeneratedRust)?;
+                let ty = if descriptor_field.arguments.is_empty() {
+                    render_reference_term_type(sort, package, module_path, bundle)?
+                } else {
+                    let sort = render_reference_collection(
+                        sort,
+                        &descriptor_field.arguments,
+                        package,
+                        module_path,
+                        bundle,
+                    )?;
+                    quote!(k::Term<#sort>)
+                };
+                field.ty = syn::parse2(ty).map_err(ReferenceExpansionError::GeneratedRust)?;
             }
         }
         syn::Fields::Unnamed(fields) if fields.unnamed.is_empty() => {
@@ -1027,6 +1033,38 @@ fn materialize_reference_variant_fields(
         }
     }
     Ok(())
+}
+
+/// A typed collection sort with its element types, `k::builtin::Set<..>`:
+/// a builtin argument by its marker, a nested collection likewise, and any
+/// other sort as the `k::Term<..>` a field of that sort has.
+fn render_reference_collection(
+    sort: &krs_ir::DescriptorSortRef,
+    arguments: &[krs_ir::ConstructorSortArgumentDescriptor],
+    package: &PackageId,
+    module_path: &[String],
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let krs_ir::DescriptorSortRef::Builtin(builtin) = sort else {
+        return render_reference_term_type(sort, package, module_path, bundle);
+    };
+    let marker = render_builtin_sort(*builtin);
+    if arguments.is_empty() {
+        return Ok(marker);
+    }
+    let arguments = arguments
+        .iter()
+        .map(|argument| {
+            render_reference_collection(
+                &argument.sort.sort,
+                &argument.arguments,
+                package,
+                module_path,
+                bundle,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(quote!(#marker<#(#arguments),*>))
 }
 
 fn render_reference_term_type(

@@ -381,6 +381,13 @@ fn push_function_invocations(
         .map_err(source_syntax)?;
     let mut anchors = parsed.production().provenance().map_err(source_syntax)?;
     anchors.extend(declaration.provenance().map_err(source_syntax)?);
+    anchors.extend(
+        parsed
+            .production()
+            .sort_argument_provenance()
+            .map_err(source_syntax)?,
+    );
+    anchors.extend(declaration.argument_provenance().map_err(source_syntax)?);
     let mut grammar_anchors = parsed.provenance().map_err(source_syntax)?;
     grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
     if parsed.is_total() {
@@ -429,6 +436,8 @@ fn collect_struct_constructors(
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         let mut anchors = parsed.provenance().map_err(source_syntax)?;
         anchors.extend(declaration.provenance().map_err(source_syntax)?);
+        anchors.extend(parsed.sort_argument_provenance().map_err(source_syntax)?);
+        anchors.extend(declaration.argument_provenance().map_err(source_syntax)?);
         let mut grammar_anchors = parsed.full_provenance().map_err(source_syntax)?;
         grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
         if let Some(symbol) = &constructor_symbol {
@@ -677,11 +686,13 @@ fn collect_enum_invocations(
         let anchors = declaration
             .variant_provenance(variant)
             .map_err(source_syntax)?;
+        let mut constructor_anchors = anchors.clone();
+        constructor_anchors.extend(variant.argument_provenance().map_err(source_syntax)?);
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,
                 variant.name().to_string(),
-                anchors.clone(),
+                constructor_anchors,
                 ParsedInvocationPayload::Declaration,
             )?,
             variant_visibility.clone(),

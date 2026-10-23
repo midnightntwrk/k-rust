@@ -1610,3 +1610,60 @@ pub(super) fn binder_spelling(path: &Path) -> String {
         None => spelling(path),
     }
 }
+
+/// Where [`production_sort_arguments`] emits each element type's `TypeId`
+/// helper and wire reference.
+pub(super) struct SortArgumentSink<'a> {
+    pub(super) facade: &'a syn::Path,
+    /// The helper names' prefix; each helper is `{prefix}_{ordinal}`.
+    pub(super) prefix: String,
+    pub(super) cfg: &'a [syn::Attribute],
+    pub(super) helpers: &'a mut Vec<TokenStream>,
+    pub(super) slots: &'a mut WireSlots,
+    /// The next ordinal of `role`.
+    pub(super) ordinal: u32,
+}
+
+/// The wire tree of a production's typed collection element types (a
+/// field's or a function result's): one `TypeId` helper and one `role`
+/// reference per element type, numbered in preorder.
+pub(super) fn production_sort_arguments(
+    arguments: &[krs_syntax::SortArgument],
+    role: krs_syntax::ProvenanceRole,
+    sink: &mut SortArgumentSink<'_>,
+) -> crate::Result<Vec<krs_ir::wire::WireConstructorSortArgument>> {
+    let mut output = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let facade = sink.facade;
+        let cfg = sink.cfg;
+        let generated = super::tokens::call_site_path(&argument.path)?;
+        let ty = super::tokens::sort_type_tokens(facade, &generated, argument.dynamic);
+        let key = quote::format_ident!("{}_{}", sink.prefix, sink.ordinal);
+        sink.helpers.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#ty>()
+            }
+        });
+        let sort = krs_ir::wire::WireSortReference {
+            key: wire_key(role, sink.ordinal),
+            target: krs_ir::wire::WireTypeReference {
+                slot: sink.slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                authored_path: super::tokens::spelling(&argument.path),
+            },
+        };
+        sink.ordinal = sink.ordinal.checked_add(1).ok_or_else(|| {
+            crate::ExpandError::new(
+                krs_diagnostic::codes::expand::DESCRIPTOR_CAPACITY,
+                syn::spanned::Spanned::span(&argument.path),
+                "too many collection element types",
+            )
+        })?;
+        output.push(krs_ir::wire::WireConstructorSortArgument {
+            sort,
+            arguments: production_sort_arguments(&argument.arguments, role, sink)?,
+        });
+    }
+    Ok(output)
+}

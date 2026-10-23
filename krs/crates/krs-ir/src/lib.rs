@@ -53,10 +53,10 @@ pub mod wire;
 
 pub use bundle::{
     ConfigurationSentenceKind, Constructor, ConstructorDescriptor, ConstructorField,
-    ConstructorFieldDescriptor, Descriptor, DescriptorBundle, DescriptorDeclaration,
-    DescriptorDeclarationError, DescriptorError, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, PackageSettings, Payload, SentenceKind,
-    SortDescriptor, SortPayload,
+    ConstructorFieldDescriptor, ConstructorSortArgument, ConstructorSortArgumentDescriptor,
+    Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError,
+    DescriptorError, DescriptorNodeOrigin, DescriptorPayload, DescriptorProvenance,
+    DescriptorProvenanceError, PackageSettings, Payload, SentenceKind, SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
@@ -87,10 +87,10 @@ pub use grammar::{
 };
 pub use host::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
-    HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId, HostPackageKey,
-    HostProvenance, HostProvenanceError, HostProvenanceShapeError, HostRawAnchor,
-    HostRawProvenance, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey,
-    HostTypeReference, ProvenanceKey,
+    HostConstructorSortArgument, HostDescriptor, HostDescriptorPayload, HostIdentityError,
+    HostItemId, HostPackageKey, HostProvenance, HostProvenanceError, HostProvenanceShapeError,
+    HostRawAnchor, HostRawProvenance, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    HostTypeKey, HostTypeReference, ProvenanceKey,
 };
 pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
@@ -206,7 +206,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(65);
+    pub const CURRENT: Self = Self(66);
 }
 
 impl Default for SchemaVersion {
