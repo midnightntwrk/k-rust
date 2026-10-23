@@ -302,18 +302,19 @@ KRS has no strict cast `::S` or `{T}<:S`: rule bodies are resolved Rust paths, n
 A cell declared `env: Map<Id, Value>` says what every reachable configuration holds there: each key of the map is an `Id` and each value a `Value`.
 K's collections hold `KItem`s, so K neither states nor checks that; KRS checks it, and the element types are erased from the emitted K.
 A collection type is `Map<K, V>`, `List<T>`, or `Set<T>`; each argument is a sort, `k::Term<S>` or `k::Term<dyn S>` (read as `S`), or a collection type itself, as in KEVM's `accessed_storage: Map<Int, Set<Int>>`.
-A bare `Map`, `List`, or `Set` is untyped and accepts every write; `Map<Id>`, one argument where a map takes two, is an error.
+A cell, a constructor field, and a function parameter or result take a collection type: `Body { blocks: List<BasicBlock> }`, `fn MarkAccountAccess(accessed: k::Term<Set<Int>>, account: k::Term<Int>) -> k::Term<Set<Int>>`, and in the long form `#[k::function(sort = Set<Int>, ..)]`.
+A bare `Map`, `List`, or `Set` is untyped and accepts every write; `Map<Id>`, one argument where a map takes two, is an error, as is an element type that is neither a sort nor a collection type (`krs::syntax::invalid-collection-argument`).
 
-The check is an induction over transitions: if the initializer fits the declared types and every rule writes only fitting terms, assuming every binder matched in a typed cell has that cell's type, then every reachable configuration fits.
+The check is an induction over transitions: if the initializer fits the declared types and every rule writes only fitting terms, assuming every binder matched at a typed position has that position's type, then every reachable configuration fits.
 So a pattern gives types and a written term is checked:
 
-- A binder matched at a typed position takes its type: `env: e` gives `e` the type `Map<Id, Value>`, as do the rest of a typed `map![..]` pattern, a typed child of a group or collection instance, and a value read from a typed map (`nested: { name -> s, .. }` gives `s` the type `Set<Int>`).
+- A binder matched at a typed position takes its type: `env: e` gives `e` the type `Map<Id, Value>`, as do the rest of a typed `map![..]` pattern, a typed child of a group or collection instance, a typed field of a constructor pattern (`StackFrame { locals, .. }`), a typed parameter in an equation's subject, and a value read from a typed map (`nested: { name -> s, .. }` gives `s` the type `Set<Int>`).
   The binder's declared sort, `k::Term<Map>` in a `cells!` rule, names only the sort, which is why `krs expand`'s reference rules check exactly as the readable ones do.
 - A key, value, or element written into a typed collection (the `k` and `v` of `map::update(m, k, v)`, the `x` of `list::item(x)` or `set::item(x)`, an element of [list brackets](#list-notation) `[x, ..rest]`, an entry of `map![..]` or `k::map![..]`) is inferred at the element sort, like any other occurrence: a binder used there and nowhere narrower gets that sort, and one whose other occurrences share no sort with it is an error.
 - A collection written into a typed position must fit it. Collections are values, so every argument is covariant: a `Map<Id, Int>` fits `Map<Id, Value>` because `Int` is a `Value`, `.Map`, `.List`, and `.Set` fit every type, and a `Map<Id, Value>` does not fit `Map<Id, Int>`.
 - A read has the element sort: `map::get(e, name)` is a `Value`, projected to the sort its position expects, or a `Value` where no position expects a sort, so `map::get(locals, name) + 1` over a `Map<Id, Int>` is `Int` addition. A read that asks for a sort the collection never holds is an error: `map::get(e, name)` where a `Stmt` is expected, `where v: Stmt` on a value read from `env`, or `map::in_keys(n, e)` with an `Int` key.
 
-Every write path is checked: readable rule and claim results, claim left-hand sides, `cells!` rules, single-body rewrites, group and collection-instance records, `k::fragment!` terms, and initializer values.
+Every write path is checked: readable rule and claim results, claim left-hand sides, `cells!` rules, single-body rewrites, group and collection-instance records, `k::fragment!` terms, initializer values, the arguments of typed constructor fields and function parameters, and a typed function's equation results.
 The operations type as their K meaning says:
 
 | Operation | Operands | Result |
@@ -334,7 +335,7 @@ The operations type as their K meaning says:
 | `kequal::ite(c, t, e)` | both branches at the position's type | the position's type |
 
 "At" a sort means inferred and checked there; "read at" means the operand must share a sort with the element sort, since a probe for an element of another sort is merely never found.
-A rule fn's binder declaration and a `where` narrowing still name only the sort (`where log: List` rather than `List<BusCycle>`, `krs::syntax::parametric-collection-sort`): a narrowing is a runtime sort test, and K cannot test the elements of a collection.
+A rule fn's binder declaration, an equation fn's subject and result sort, and a `where` narrowing still name only the sort (`where log: List` rather than `List<BusCycle>`, `krs::syntax::parametric-collection-sort`): a narrowing is a runtime sort test, and K cannot test the elements of a collection, while a binder takes its type from the position that matches it and an equation from its function's signature.
 
 The rule this check exists for stores a statement in a `Map<Id, Value>` store through a nested update:
 
@@ -355,9 +356,35 @@ error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a v
 
 K would accept the rule; the `Stmt` it stores makes a later read `Name |-> V:Value` of `env` fail to match, so the program gets stuck far from the cause.
 
-A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell or in a constructor field, a function's result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)`.
-Constructor fields and function signatures do not take element types yet, so writing an untyped collection into a typed cell is reported as `warning[krs::analysis::untyped-collection]` rather than rejected: `MarkAccountAccess(..)` returns an untyped `Set`, so nothing checks the elements it writes to the cell `accessed_accounts`, declared `Set<Int>`.
-KEVM's and KMIR's ports carry such writes (KEVM 42 in 30 rules, KMIR 6 in 6 rules), each of them from a function result or a constructor field.
+A typed signature is an interface the check reads instead of the function's body: an argument is checked at its parameter's type, an application has the declared result type, and each of the function's equations is checked against that result type, with the binders of its subject at the parameters' types.
+KEVM's storage-access marker is typed this way, and its body checks against the signature: `map::get(accessed, account)` reads a `Set<Int>`, and `set::item(index)` stores an `Int` in it.
+
+```rust
+#[k::function(total, syntax = "#kevmMarkStorageAccess({accessed}, {account}, {index})")]
+pub fn MarkStorageAccess(
+    accessed: k::Term<Map<Int, Set<Int>>>,
+    account: k::Term<Int>,
+    index: k::Term<Int>,
+) -> k::Term<Map<Int, Set<Int>>> {
+    if map::in_keys(account, accessed) {
+        map::update(accessed, account, set::union(map::get(accessed, account), set::item(index)))
+    } else {
+        map::update(accessed, account, set::item(index))
+    }
+}
+```
+
+A rule then writes `accessed_storage: MarkStorageAccess { accessed, account, index }` into a `Map<Int, Set<Int>>` cell with nothing left unchecked, and an equation that stored a `Stmt` there would be rejected at the stored term.
+`krs expand` writes the types into the long form, `#[k::function(sort = Map<Int, Set<Int>>, ..)]`, and its equations as `k::Term<Map>`.
+
+A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell, field, or parameter, a function's untyped result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)`.
+Writing one into a typed position is an error, since nothing would check its elements:
+
+```text
+error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, so nothing checks the elements it writes to the cell `env`, declared `Map<Id, Value>`
+```
+
+The fix is to declare the element types where the collection comes from: the cell, the constructor field, or the function's signature.
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
 A configuration variable of `#[k::init]` is not checked here: its Rust type is the cell's, which rustc checks.
 
@@ -1160,7 +1187,7 @@ The Rust item a constant expands to is a unit struct of the same name, which giv
 `KResult` marks terms that count as evaluated results for strictness.
 `KSequence` is the symbolic computation sequence sort.
 The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
-The arguments of a collection cell's type are its element types, which every term written into the cell is checked against ([Typed collections](#typed-collections)); K's collection sorts themselves are not parametric.
+The arguments of a collection type on a cell, a constructor field, or a function signature are its element types, which every term written there is checked against ([Typed collections](#typed-collections)); K's collection sorts themselves are not parametric.
 K's `String` sort is `string::String`: write `use k::builtin::string;` and `string::String`, so Rust's own `String` stays in scope (`k::builtin::String` remains as a root spelling).
 
 ## Builtin operation catalog
