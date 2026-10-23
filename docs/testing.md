@@ -62,6 +62,22 @@ Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare
 The gates read Z3 4.12.5 through `KRS_Z3_LIB` (or the Nix store) and replay Java K results from a per-user cache; a cold cache runs K 7.1.337 through `KRS_K_BIN` or `PATH` (`krs/README.md`, "Prerequisites").
 When a change alters an output a gate pins on purpose, rerun that gate with `--record` and review the pin diff with the change; `--record` never rewrites an input pin.
 
+### k2lean
+
+[k2lean](../k2lean/README.md) generates Lean 4 libraries from krust's KORE; its generator (`k2lean/crates/k2lean`) is a workspace member, so the loop above builds, lints and tests it: unit tests, and snapshot tests that generate the Lean projects of small krust-compiled fixtures (`k2lean/tests/fixtures`) and compare them byte for byte.
+After an intended change of the generated Lean, `k2lean/tests/fixtures/regen.sh --bless` rewrites the snapshots; without `--bless` it first recompiles the fixtures with krust.
+Its gate (`k2lean/tests/gate.sh`) regenerates every library and demonstration from the K sources in a work tree of its own (`target/k2lean-gate/` by default), builds them with Lean, and compares the open-obligation sets, the axiom guards, the `k2l_preserve` counts, kimp's golden cases and step traces, the recorded outputs and the hash of every generated file with `k2lean/tests/baseline.toml`; `scripts/gates.toml` names its tiers:
+
+- `k2lean-light` (certification, owed by a change to krust's sources or to `k2lean/`): kimp, KRS IMP, a kimp mutant and kimp's type checker as libraries, the four IMP demonstrations, two kind 1 invariants, the negative check and the kind 2 template.
+  It needs krust, the pinned K release's `kompile` with its LLVM backend (kimp's interpreter for the step traces), the K and kimp sources at their pins, and Lean through elan.
+  On 2026-10-24, on a 32-core host under a load of 11 to 78 from other work, a run from an empty work tree took 1,330 s (2,400 s of CPU, 5.9 GB peak) and one with nothing changed 26 s;
+- `k2lean-heavy` (heavy): light, then SIMPLE (its acceptance against krust and the K tests' `.out` files), SIMPLE's two invariants, and the kimp claims (`krust kprove` verdicts and the Lean claims).
+  A run from an empty work tree took 1,830 s (3,350 s of CPU) on the same host, under a load of 6 to 59, and one with nothing changed 86 s.
+
+A tier fails on any regression and passes when an open set shrinks, printing what to lower; after a deliberate change, read the `FAIL` and `NOTE` lines and record the new baseline with `k2lean/tests/gate.sh accept`, which refuses a run with a failed step.
+The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again.
+`k2lean/tests/gate.sh` with no argument lists its environment variables, and `k2lean/docs/invariants.md` (section 10) shows how to put a new invariant under the gate.
+
 ### In CI
 
 | When | Workflow | Checks |
@@ -70,6 +86,7 @@ When a change alters an output a gate pins on purpose, rerun that gate with `--r
 | A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
 | Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend, and the value-contract oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000 random definitions with a date-derived seed printed in hexadecimal |
 | Every week, or on demand | `differential.yml` | the reference differential gates and `scripts/lean-check.sh`, the `weekly` entries of `scripts/gates.toml` |
+| Every week, or on demand | `k2lean.yml` | `k2lean/tests/gate.sh light`, the `k2lean-light` entry of `scripts/gates.toml`, with the pinned K release and Lean |
 | A push to `main`, or a pull request that changes the workspace manifests, `crates/`, or `krs/` | `krs.yml` | KRS's tour verifiers, gate support tests, repository hygiene, documentation, feature and `wasm32` lint variants, the standalone test packages' Clippy and MSRV checks, the `semantics/` workspace, and the browser worker |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
