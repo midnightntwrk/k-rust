@@ -140,7 +140,6 @@ details! {
         InvalidNondetGroup => "nondet group outside a transition or with an invalid identifier",
         HeadRuleRequiresProvenanceKey => "head-rule requires provenance key",
         HeadRuleStructuralProvenanceKey => "head-rule structural provenance key",
-        InitializerRecordFieldProvenance => "initializer syntax has no exact record-field provenance",
         NonCanonicalIntegerLiteral => "integer literal is not a canonical signed decimal",
         InvalidAnonymousSort => "invalid anonymous sort",
         InvalidLexemeSort => "invalid lexeme sort",

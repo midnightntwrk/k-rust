@@ -392,6 +392,22 @@ impl InitializerFunction {
         for term in &terms {
             crate::term::push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexeme_ordinal)?;
         }
+        // Record field names, numbered in preorder across the terms.
+        let mut fields = Vec::new();
+        for term in &terms {
+            term.tree().record_field_names_preorder(&mut fields);
+        }
+        for (ordinal, field) in fields.iter().enumerate() {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::InitializerRecordFieldName,
+                checked_ordinal(
+                    ordinal,
+                    ProvenanceRole::InitializerRecordFieldName,
+                    field.span(),
+                )?,
+                TokenRange::for_tokens(field)?,
+            ));
+        }
         Ok(anchors)
     }
 

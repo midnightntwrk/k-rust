@@ -570,6 +570,9 @@ provenance_roles! {
     /// One node of a constant's value substituted at a use of the constant.
     /// The compiler numbers these per descriptor; their origin is the use.
     InlinedConstant => "inlined_constant",
+    /// Field name of one record argument (`Tag { b: .. }`) in an initializer's
+    /// terms, in expansion order.
+    InitializerRecordFieldName => "initializer_record_field_name",
 }
 
 impl Serialize for ProvenanceRole {

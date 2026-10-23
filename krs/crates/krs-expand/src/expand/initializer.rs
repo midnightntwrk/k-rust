@@ -10,9 +10,9 @@ use krs_ir::wire::{
 };
 use krs_ir::{
     BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
-    ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
-    ProvenanceKey,
+    ProductionFieldId, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
+    ProtocolMapBody, ProtocolMapItem, ProvenanceKey,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
@@ -369,6 +369,7 @@ struct InitializerCounters {
     map_update_base: u32,
     id_token: u32,
     bytes_token: u32,
+    record_field: u32,
 }
 
 struct InitializerBuilder<'a> {
@@ -625,20 +626,45 @@ impl<'a> InitializerBuilder<'a> {
                 // An initializer admits no turbofish (KF-027); this rejects one.
                 self.terms
                     .application_instance_wire(application, &mut self.slots)?;
-                let TermArguments::Positional(values) = application.arguments() else {
+                if application.update().is_some() || application.is_open() {
                     return Err(ExpandError::new(
-                        expand::INITIALIZER_RECORD_ARGUMENTS,
+                        expand::INITIALIZER_RECORD_UPDATE,
                         application.head().span(),
-                        "initializer terms cannot use named record arguments",
+                        "an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing",
                     ));
+                }
+                let arguments = match application.arguments() {
+                    TermArguments::Positional(values) => krs_ir::Arguments::Positional(
+                        values
+                            .iter()
+                            .map(|value| {
+                                self.expand_term_tree(value, structural_key.clone())
+                                    .map(Box::new)
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?,
+                    ),
+                    // A record constructor denotes the same application as
+                    // its positional form, with each field named.
+                    TermArguments::Named(values) => {
+                        let mut arguments = Vec::with_capacity(values.len());
+                        for argument in values {
+                            let ordinal = take_counter(&mut self.counters.record_field)?;
+                            let field = ProductionFieldId::new(argument.name().to_string())
+                                .expect("Rust field identifiers are valid production fields");
+                            arguments.push(krs_ir::NamedTermArgument {
+                                key: wire_key(ProvenanceRole::InitializerRecordFieldName, ordinal),
+                                field,
+                                value: Box::new(
+                                    self.expand_term_tree(
+                                        argument.value(),
+                                        structural_key.clone(),
+                                    )?,
+                                ),
+                            });
+                        }
+                        krs_ir::Arguments::named(arguments)
+                    }
                 };
-                let arguments = values
-                    .iter()
-                    .map(|value| {
-                        self.expand_term_tree(value, structural_key.clone())
-                            .map(Box::new)
-                    })
-                    .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::Application {
                     instance: Vec::new(),
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -648,7 +674,7 @@ impl<'a> InitializerBuilder<'a> {
                         authored_path,
                     },
                     path_key: key,
-                    arguments: krs_ir::Arguments::Positional(arguments),
+                    arguments,
                     update: None,
                     open: false,
                 })

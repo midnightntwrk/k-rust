@@ -1544,6 +1544,7 @@ struct InitializerCounters {
     id_token: u32,
     bytes_token: u32,
     lexeme: u32,
+    record_field: u32,
 }
 
 fn validate_initializer_cells<S: ConfigurationValidationStage>(
@@ -2148,16 +2149,29 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    /// A record argument names its field; each name has its own provenance.
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
-        _: &mut BTreeSet<ProductionFieldId>,
+        fields: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         match argument {
             crate::TermArgumentRef::Positional { .. } => Ok(()),
-            crate::TermArgumentRef::Named { .. } => Err(StateTransportError::InvalidTerm(
-                StateTermReason::InitializerRecordFieldProvenance,
-            )),
+            crate::TermArgumentRef::Named { key, field, .. } => {
+                if !fields.insert(field.clone()) {
+                    return Err(StateTransportError::DuplicateValue(
+                        TransportField::RuleApplicationRecordFields,
+                    ));
+                }
+                insert_exact(
+                    self.keys,
+                    key,
+                    ProvenanceRole::InitializerRecordFieldName,
+                    self.counters.record_field,
+                )?;
+                self.counters.record_field = increment(self.counters.record_field)?;
+                Ok(())
+            }
         }
     }
 

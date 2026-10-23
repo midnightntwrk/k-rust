@@ -638,8 +638,35 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
     };
     assert_eq!(
         initializer_term::<S>(application(vec![named()])),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerRecordFieldProvenance
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: key(ProvenanceRole::InitializerRecordFieldName),
+            actual: key(ProvenanceRole::InitializerTermPath),
+        })
+    );
+    // A record argument names its field with its own provenance ordinal.
+    let field = |ordinal, name| TermArgument::Named {
+        key: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, ordinal),
+        field: ProductionFieldId::new(name).unwrap(),
+        value: Box::new(Term::Literal {
+            key: key(ProvenanceRole::InitializerTerm),
+            literal: DescriptorLiteral::Int("1".into()),
+        }),
+    };
+    assert_eq!(
+        initializer_term::<S>(application(vec![field(0, "value"), field(1, "other")])),
+        Ok(())
+    );
+    assert_eq!(
+        initializer_term::<S>(application(vec![field(1, "value")])),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: key(ProvenanceRole::InitializerRecordFieldName),
+            actual: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, 1),
+        })
+    );
+    assert_eq!(
+        initializer_term::<S>(application(vec![field(0, "value"), field(1, "value")])),
+        Err(StateTransportError::DuplicateValue(
+            TransportField::RuleApplicationRecordFields
         ))
     );
     assert!(matches!(

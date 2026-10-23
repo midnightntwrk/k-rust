@@ -242,3 +242,105 @@ fn initializer_terms_are_resolved_by_rustc_and_sorted_by_krs() {
         }
     }
 }
+
+/// Record constructors in initializer terms, as in rule results.
+const RECORDS: &str = r#"
+#[k::constructors(sort = Value, result = KResult)]
+pub enum ValueSyntax {
+    #[k::syntax("boxed {v}")]
+    Boxed { v: Int },
+}
+
+k::rules! {
+    for Stmt;
+    use StmtSyntax::*;
+
+    retag: Seq(s) => k::k![s, Tag { b: bytes::empty() }];
+}
+"#;
+
+/// An initializer whose terms are `k`, `env`, and `stack`.
+fn record_initializer(k: &str, env: &str, stack: &str) -> String {
+    format!(
+        "{PREAMBLE}{RECORDS}impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt, n: Id, y: Stmt, x: Value) -> Self {{\n        Self {{\n            k: {k},\n            env: {env},\n            stack: {stack},\n            acc: x,\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// `Tag { b: v }` is the term `Tag(v)` is: a record constructor is an
+/// initializer term below a cell root, in a `k::map!` value, and as a
+/// `k::k!` item, where a rule result may now write one too. Every field is
+/// named; a record update or an open record is rejected.
+#[test]
+fn initializer_terms_take_record_syntax() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let records = package(
+        temporary.path(),
+        "records",
+        &record_initializer(
+            "k::k![pgm, StmtSyntax::Tag { b: bytes::empty() }, StmtSyntax::Seq { first: pgm }]",
+            "k::map![n -> ValueSyntax::Boxed { v: 1 }]",
+            "list::concat(list::item(y), list::item(StmtSyntax::Tag { b: bytes::empty() }))",
+        ),
+    );
+    let positional = package(
+        temporary.path(),
+        "positional",
+        &record_initializer(
+            "k::k![pgm, StmtSyntax::Tag(bytes::empty()), StmtSyntax::Seq(pgm)]",
+            "k::map![n -> ValueSyntax::Boxed(1)]",
+            "list::concat(list::item(y), list::item(StmtSyntax::Tag(bytes::empty())))",
+        ),
+    );
+    let definition = emit(target.path(), &records);
+    expect_test::expect![[r"
+        <k> $PGM:Stmt ~> tag .Bytes ~> seq $PGM:Stmt ; </k>
+        <env> $N:Id |-> boxed 1 </env>
+        <stack> ListItem($Y:Stmt) ListItem(tag .Bytes) </stack>
+        <acc> $X:Value </acc>"]]
+    .assert_eq(&configuration(&definition));
+    assert_eq!(
+        configuration(&emit(target.path(), &positional)),
+        configuration(&definition)
+    );
+    assert!(
+        definition.contains("<k> seq S:Stmt ; => S:Stmt ~> tag .Bytes ... </k>"),
+        "{definition}"
+    );
+
+    let cases = [
+        (
+            "missing-field",
+            "k::map![n -> ValueSyntax::Boxed { }]",
+            "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-INIT-TERMS::Machine (configuration): application expects 1 arguments but received 0",
+        ),
+        (
+            "wrong-field",
+            "k::map![n -> ValueSyntax::Boxed { w: 1 }]",
+            "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-INIT-TERMS::Machine (configuration): named application lacks field \"v\"",
+        ),
+        (
+            "update",
+            "k::map![n -> ValueSyntax::Boxed { v: 1, ..x }]",
+            "error[krs::expand::initializer-record-update]: an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing",
+        ),
+    ];
+    for (name, env, headline) in cases {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &record_initializer(
+                "k::k![pgm, StmtSyntax::Tag { b: bytes::empty() }]",
+                env,
+                "list::item(y)",
+            ),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: {stderr}");
+        let first = stderr
+            .lines()
+            .find(|line| line.starts_with("error"))
+            .unwrap_or_else(|| panic!("{name}: {stderr}"));
+        assert_eq!(first, headline, "{name}: {stderr}");
+    }
+}
