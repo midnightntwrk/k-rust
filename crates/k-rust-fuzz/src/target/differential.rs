@@ -359,9 +359,10 @@ fn strip_positions(value: &mut serde_json::Value) {
 /// With `paths` all-paths a case is also a hit by a *removed end* if conditions 1 and 3 hold, the
 /// mutant's run is complete in the sense of condition 1 (its set of ends may be empty, when every
 /// path takes an undefined step) with every end data, and some baseline end (a
-/// clean `stuck` leaf, a natural end under `run_to_completion`) whose configuration is data is not in the mutant's set. The mutant's ends must be data too: a mutant end
-/// such as an unevaluated application of a total function may denote the baseline's end, so its
-/// syntactic difference proves nothing.
+/// clean `stuck` leaf, a natural end under `run_to_completion`) whose configuration is data is not
+/// in the mutant's set. The mutant's ends must be data too: a mutant end such as an unevaluated
+/// application of a total function may denote the baseline's end, so its syntactic difference
+/// proves nothing.
 ///
 /// A baseline that refuses the initial state (an `Err` with a refused state, or only `vacuous`
 /// leaves at depth 0) makes the case `rejected`, as [`exec::classify`] classes it: the input is
@@ -495,7 +496,9 @@ fn no_evidence(result: &CaseResult) -> bool {
 /// in which a removed end may still kill. That is when the baseline is complete, the mutant's one
 /// path is complete in the same sense (a clean end or a clean undefined step, no mark, no claim:
 /// otherwise its all-paths run, which contains that path, cannot be complete either) and adds no
-/// end, and some baseline end that could be a removed end (data, and a natural end under
+/// end that could kill (under `run_to_completion`, no natural end: an abnormal stop cannot kill
+/// there, so it does not stand in for the re-run), and some baseline end that could be a removed
+/// end (data, and a natural end under
 /// `run_to_completion`) is not among the ends the one path reached. The case of TRIAL2's B-T1 is
 /// one: the baseline stops where the mutant's one path takes an undefined step, whose outcome is
 /// no end. A deterministic definition reaches its one end on its one path, so the re-run happens
@@ -509,10 +512,13 @@ pub(crate) fn needs_all_paths(
     else {
         return false;
     };
-    let adds_none = one_path
-        .leaves
-        .iter()
-        .all(|leaf| leaf.halt != HaltReasonOutput::Stuck || baseline_set.contains(&leaf.state));
+    // Under `run_to_completion` only a natural end can be an added end (`Verdicts::outside`), so
+    // an abnormal stop outside the baseline's set does not stand in for the re-run.
+    let adds_none = one_path.leaves.iter().all(|leaf| {
+        leaf.halt != HaltReasonOutput::Stuck
+            || (run_to_completion && !leaf.natural_end)
+            || baseline_set.contains(&leaf.state)
+    });
     adds_none
         && baseline.leaves.iter().any(|leaf| {
             leaf.halt == HaltReasonOutput::Stuck
@@ -1761,6 +1767,26 @@ mod tests {
         let stop = result(vec![abnormal(config(3, 0), Some(true))]);
         assert!(needs_all_paths(&stop, &undefined_only(), false));
         assert!(!needs_all_paths(&stop, &undefined_only(), true));
+    }
+
+    #[test]
+    fn under_run_to_completion_a_one_path_abnormal_stop_does_not_skip_the_re_run() {
+        // INT7 review S4: the one path stops abnormally at 5, outside COIN's set {3, 4}. Without
+        // run-to-completion that stop is an added end and kills, so no re-run is needed; under
+        // run-to-completion it cannot kill, and only the all-paths run can show a removed end.
+        let stop = result(vec![abnormal(config(5, 0), Some(true))]);
+        assert!(!needs_all_paths(&coin_baseline(), &stop, false));
+        assert!(needs_all_paths(&coin_baseline(), &stop, true));
+        // The re-run's set {5, 3} lacks the baseline's natural end 4: a removed end.
+        let all_paths = result(vec![
+            abnormal(config(5, 0), Some(true)),
+            natural(config(3, 0), Some(true)),
+        ]);
+        assert_eq!(
+            judge_pair(&coin_baseline(), &all_paths, PathMode::AllPaths, true)
+                .expect("no engine defect"),
+            hit(None, Some(1))
+        );
     }
 
     fn undefined_only() -> CaseResult {
