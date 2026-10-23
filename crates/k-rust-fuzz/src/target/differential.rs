@@ -1281,7 +1281,10 @@ mod tests {
         let verdicts =
             Verdicts::outside(&mutant, &baseline, &ends, "mutant", true).expect("no engine defect");
         assert_eq!(verdicts.kills, vec![false]);
-        assert_eq!(verdicts.undecided, None, "a decided abnormal stop has no reason");
+        assert_eq!(
+            verdicts.undecided, None,
+            "a decided abnormal stop has no reason"
+        );
         assert_eq!(
             judge_pair(&coin_baseline(), &mutant, PathMode::OnePath, true)
                 .expect("no engine defect"),

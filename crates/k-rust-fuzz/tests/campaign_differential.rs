@@ -10,10 +10,10 @@ use k_rust_fuzz::{
     BackendRoute, Budget, CallerIdentity, Campaign, CampaignSpec, CaseOptions, Definitions,
     HoleDecl, HoleLocation, OutcomeClass, ProgramInput, ProposerConfig, SpanAddress, Target,
     TargetKind,
+    exec::UnjudgedReason,
     report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
     spec::DEFAULT_REJECTION_CAP,
     spec::PathMode,
-    exec::UnjudgedReason,
     target::DifferentialTarget,
     values::{Constraints, GenerationBounds, IntRange, Value},
 };
@@ -21,7 +21,8 @@ use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIAMOND, DIAMOND_PLUS, Fixture, IMP_ADD_COMMUTED,
-    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL, RERUN, RERUN_DROP,
+    IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, MAC, MAC_KILL, RERUN,
+    RERUN_DROP,
 };
 
 fn spec(mutant: &'static Fixture) -> CampaignSpec {
@@ -590,7 +591,11 @@ fn a_re_run_case_is_judged_and_explained_by_the_re_run() {
             "{paths:?}: {:?}",
             report.engine_defects
         );
-        assert!(report.no_witness().is_some(), "{paths:?}: {:?}", report.outcome);
+        assert!(
+            report.no_witness().is_some(),
+            "{paths:?}: {:?}",
+            report.outcome
+        );
         assert_eq!(
             report.totals.classes,
             BTreeMap::from([(OutcomeClass::Unsupported, 4)]),
