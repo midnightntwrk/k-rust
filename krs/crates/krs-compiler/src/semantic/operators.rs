@@ -117,7 +117,12 @@ impl StructuredTermBuilder<'_> {
                         ));
                     }
                     if let Some(result) = operator.uniform_result() {
-                        self.check_operator_result(result, expected_sort)?;
+                        self.check_operator_result(
+                            &reference.key,
+                            operator,
+                            result,
+                            expected_sort,
+                        )?;
                     }
                     for operand in operands {
                         self.infer(operand, None, subject)?;
@@ -138,7 +143,11 @@ impl StructuredTermBuilder<'_> {
                 }
             }
         };
-        match self.operator_reading(&reference.key, operator, domain)? {
+        let reading = self.operator_reading(&reference.key, operator, domain)?;
+        if let Some(result) = reading.operation().result_sort().builtin() {
+            self.check_operator_result(&reference.key, operator, result, expected_sort)?;
+        }
+        match reading {
             OperatorReading::Operation(operation) => self.infer_application(
                 &builtin_reference(reference, operation),
                 arguments,
@@ -146,14 +155,11 @@ impl StructuredTermBuilder<'_> {
                 expected_sort,
                 super::infer::Partial::new(subject, None, false),
             ),
-            OperatorReading::IntNegation => {
-                self.check_operator_result(BuiltinSort::Int, expected_sort)?;
-                self.infer(
-                    operands[0],
-                    Some(&SemanticSortRef::Builtin(BuiltinSort::Int)),
-                    subject,
-                )
-            }
+            OperatorReading::IntNegation => self.infer(
+                operands[0],
+                Some(&SemanticSortRef::Builtin(BuiltinSort::Int)),
+                subject,
+            ),
         }
     }
 
@@ -248,20 +254,25 @@ impl StructuredTermBuilder<'_> {
             .ok_or_else(|| self.undefined_operator(key, operator, domain))
     }
 
+    /// Checks the operator's result sort at its position, naming the
+    /// operator as written.
     fn check_operator_result(
         &self,
+        key: &ProvenanceKey,
+        operator: BuiltinOperator,
         result: BuiltinSort,
         expected_sort: Option<&SemanticSortRef>,
     ) -> Result<(), DescriptorLoweringError> {
         let result = SemanticSortRef::Builtin(result);
-        if let Some(expected) = expected_sort
-            && !semantic_is_subsort(&result, expected, self.sort_parents)
-        {
-            return Err(self.invalid_term(format!(
-                "application result sort {result} is not admissible at sort {expected}"
-            )));
-        }
-        Ok(())
+        self.admit(
+            key,
+            || super::collection_types::operator_spelling(operator),
+            &result,
+            expected_sort,
+            |expected| {
+                format!("application result sort {result} is not admissible at sort {expected}")
+            },
+        )
     }
 
     /// The domain an operator's operands choose from the sorts known so far.

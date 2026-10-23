@@ -508,6 +508,11 @@ impl CollectionTyping {
         self.elements.get(term_key(term))
     }
 
+    /// The typed element position of the term at `key`, if it stands at one.
+    pub(super) fn element_at(&self, key: &ProvenanceKey) -> Option<&ElementSite> {
+        self.elements.get(key)
+    }
+
     /// The sort an element operand is inferred and lowered at: the element
     /// sort of its typed collection, or [`Self::untyped_element`] for an
     /// element of a collection whose element types nothing declares. Only
@@ -1547,14 +1552,20 @@ impl<'a> Walker<'a> {
                 operand => vec![operand],
             };
             for side in sides {
-                if let DescriptorTerm::Variable { name, .. } = side
-                    && !self.is_local(name)
-                {
-                    self.typing
-                        .element_binders
-                        .entry(name.clone())
-                        .or_default()
-                        .push((key.clone(), site.clone()));
+                match side {
+                    DescriptorTerm::Variable { name, .. } if !self.is_local(name) => {
+                        self.typing
+                            .element_binders
+                            .entry(name.clone())
+                            .or_default()
+                            .push((key.clone(), site.clone()));
+                    }
+                    stored if !std::ptr::eq(stored, operand) => {
+                        self.typing
+                            .elements
+                            .insert(term_key(stored).clone(), site.clone());
+                    }
+                    _ => {}
                 }
             }
             self.typing.elements.insert(key, site);
@@ -1870,18 +1881,16 @@ pub(super) fn spelling(term: &DescriptorTerm) -> String {
             krs_ir::DescriptorLiteral::String(value) => format!("{value:?}"),
         },
         DescriptorTerm::Application { reference, .. } => {
-            let head = match &reference.application {
-                DescriptorApplicationRef::Declared(id) => id.item_name().to_owned(),
-                DescriptorApplicationRef::Map(operation) => marker(operation.facade_marker()),
-                DescriptorApplicationRef::List(operation) => marker(operation.facade_marker()),
-                DescriptorApplicationRef::Set(operation) => marker(operation.facade_marker()),
-                DescriptorApplicationRef::Builtin(operation) => operation.to_string(),
-                DescriptorApplicationRef::Ml(_)
-                | DescriptorApplicationRef::Operator(_)
-                | DescriptorApplicationRef::ListNotation(_) => return "this term".to_owned(),
-            };
-            format!("{head}(..)")
+            application_spelling(&reference.application)
         }
+        DescriptorTerm::BuiltinToken { sort, .. } => match sort {
+            BuiltinSort::Id => "k::id!(..)".to_owned(),
+            BuiltinSort::Bytes => "k::bytes!(..)".to_owned(),
+            _ => "this token".to_owned(),
+        },
+        DescriptorTerm::Anonymous { .. } => "k::anonymous!(..)".to_owned(),
+        DescriptorTerm::Lexeme { text, .. } => format!("k::lexeme!(.., {text:?})"),
+        DescriptorTerm::OrBool { .. } => "k::or_bool!(..)".to_owned(),
         DescriptorTerm::SortTest { kind, sort, .. } => format!(
             "{}({}, ..)",
             match kind {
@@ -1891,6 +1900,32 @@ pub(super) fn spelling(term: &DescriptorTerm) -> String {
             super::overload::sort_name(&semantic_sort_ref(&sort.sort))
         ),
         _ => "this term".to_owned(),
+    }
+}
+
+/// A short spelling of an application for messages: `Skip(..)`,
+/// `map::update(..)`, an operator as written.
+pub(super) fn application_spelling(application: &DescriptorApplicationRef) -> String {
+    let head = match application {
+        DescriptorApplicationRef::Declared(id) => id.item_name().to_owned(),
+        DescriptorApplicationRef::Map(operation) => marker(operation.facade_marker()),
+        DescriptorApplicationRef::List(operation) => marker(operation.facade_marker()),
+        DescriptorApplicationRef::Set(operation) => marker(operation.facade_marker()),
+        DescriptorApplicationRef::Builtin(operation) => operation.to_string(),
+        DescriptorApplicationRef::Operator(operator) => return operator_spelling(*operator),
+        DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::ListNotation(_) => {
+            return "this term".to_owned();
+        }
+    };
+    format!("{head}(..)")
+}
+
+/// An operator as written, its operands elided: `.. + ..`, `!..`.
+pub(super) fn operator_spelling(operator: krs_ir::BuiltinOperator) -> String {
+    if operator.arity() == 1 {
+        format!("{}..", operator.symbol())
+    } else {
+        format!(".. {} ..", operator.symbol())
     }
 }
 

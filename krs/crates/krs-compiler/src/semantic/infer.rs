@@ -202,36 +202,73 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        self.check_element(term)?;
         self.infer_term(term, expected_sort, subject)
             .map_err(|error| self.locate(error, term))
     }
 
-    /// Rejects a term stored in a typed collection whose stated sort is not
-    /// the element sort. A binder's sort is inferred with its other
-    /// occurrences instead, and [`Self::resolve_binding_sorts`] names the
-    /// element position when they disagree.
-    fn check_element(&self, term: &DescriptorTerm) -> Result<(), DescriptorLoweringError> {
-        let Some(site) = self.collections.typing.element(term) else {
+    /// Checks that `term`, of sort `actual`, is admissible at the expected
+    /// sort ([`Self::admit`]).
+    fn admit_term(
+        &self,
+        term: &DescriptorTerm,
+        actual: &SemanticSortRef,
+        expected: Option<&SemanticSortRef>,
+        detail: impl FnOnce(&SemanticSortRef) -> String,
+    ) -> Result<(), DescriptorLoweringError> {
+        self.admit(
+            Self::term_key(term),
+            || super::collection_types::spelling(term),
+            actual,
+            expected,
+            detail,
+        )
+    }
+
+    /// Checks that a term of sort `actual` at `key` is admissible at the
+    /// expected sort. Every admissibility test of inference goes through
+    /// here, so the error names why the term is rejected: at a typed element
+    /// position whose element sort `actual` is not below, the declared
+    /// element type (`collection-element-sort`, naming `what` and the
+    /// position), and anywhere else the two sorts (`invalid-term`, `detail`
+    /// of the expected sort).
+    pub(super) fn admit(
+        &self,
+        key: &ProvenanceKey,
+        what: impl FnOnce() -> String,
+        actual: &SemanticSortRef,
+        expected: Option<&SemanticSortRef>,
+        detail: impl FnOnce(&SemanticSortRef) -> String,
+    ) -> Result<(), DescriptorLoweringError> {
+        let Some(expected) = expected else {
             return Ok(());
         };
-        if matches!(term, DescriptorTerm::Variable { .. })
-            || matches!(term, DescriptorTerm::Rewrite { .. })
-        {
+        if semantic_is_subsort(actual, expected, self.sort_parents) {
             return Ok(());
         }
-        match self.stated_sort(term) {
-            Some(stated) if !semantic_is_subsort(&stated, &site.sort, self.sort_parents) => {
-                Err(super::collection_types::element_mismatch(
-                    self.descriptor,
-                    site,
-                    &super::collection_types::spelling(term),
-                    &super::overload::sort_name(&stated),
-                    Self::term_key(term),
-                ))
-            }
-            _ => Ok(()),
+        Err(self.inadmissible(key, what, actual, detail(expected)))
+    }
+
+    /// The error for a term of sort `actual` at `key` that is not
+    /// admissible where it stands ([`Self::admit`]).
+    fn inadmissible(
+        &self,
+        key: &ProvenanceKey,
+        what: impl FnOnce() -> String,
+        actual: &SemanticSortRef,
+        detail: String,
+    ) -> DescriptorLoweringError {
+        if let Some(site) = self.collections.typing.element_at(key)
+            && !semantic_is_subsort(actual, &site.sort, self.sort_parents)
+        {
+            return super::collection_types::element_mismatch(
+                self.descriptor,
+                site,
+                &what(),
+                &super::overload::sort_name(actual),
+                key,
+            );
         }
+        self.invalid_term(detail)
     }
 
     #[expect(
@@ -286,13 +323,11 @@ impl StructuredTermBuilder<'_> {
                     krs_ir::DescriptorLiteral::Float(token) => (BuiltinSort::Float, token.clone()),
                 };
                 let sort = SemanticSortRef::Builtin(sort);
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&sort, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term(format!(
+                self.admit_term(term, &sort, expected_sort, |expected| {
+                    format!(
                         "literal `{spelling}` of sort {sort} is not admissible at sort {expected}"
-                    )));
-                }
+                    )
+                })?;
             }
             DescriptorTerm::Application {
                 reference,
@@ -308,45 +343,41 @@ impl StructuredTermBuilder<'_> {
                 expected_sort,
                 Partial::new(subject, update.as_deref(), *open),
             )?,
-            DescriptorTerm::BuiltinToken { sort, .. } => {
+            DescriptorTerm::BuiltinToken { sort, value, .. } => {
                 let sort = SemanticSortRef::Builtin(*sort);
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&sort, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term("builtin token has an incompatible sort"));
-                }
+                self.admit_term(term, &sort, expected_sort, |expected| {
+                    format!(
+                        "builtin token `{value}` of sort {sort} is not admissible at sort {expected}"
+                    )
+                })?;
             }
             DescriptorTerm::Anonymous { sort, .. } => {
                 if !subject {
                     return Err(self.invalid_term("anonymous occurrence outside claim subject"));
                 }
                 let sort = semantic_sort_ref(&sort.sort);
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&sort, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term("anonymous occurrence has an incompatible sort"));
-                }
+                self.admit_term(term, &sort, expected_sort, |expected| {
+                    format!(
+                        "`k::anonymous!` occurrence of sort {sort} is not admissible at sort {expected}"
+                    )
+                })?;
             }
             DescriptorTerm::Lexeme { key, sort, text } => {
                 let sort = self.lexeme_sort(key, sort, text)?;
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&sort, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term(format!(
+                self.admit_term(term, &sort, expected_sort, |expected| {
+                    format!(
                         "`k::lexeme!` token {text:?} has sort {sort}, which is not admissible at sort {expected}"
-                    )));
-                }
+                    )
+                })?;
             }
             DescriptorTerm::OrBool { arguments, .. } => {
                 if arguments.len() < 2 {
                     return Err(self.invalid_term("or_bool requires at least two operands"));
                 }
                 let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&bool_sort, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term("or_bool is not admissible at the expected sort"));
-                }
+                self.admit_term(term, &bool_sort, expected_sort, |expected| {
+                    format!("`k::or_bool!` of sort Bool is not admissible at sort {expected}")
+                })?;
                 for argument in arguments {
                     self.infer(argument, Some(&bool_sort), subject)?;
                 }
@@ -382,14 +413,12 @@ impl StructuredTermBuilder<'_> {
                 operand,
             } => {
                 let result = self.sort_test_result(key, *kind, sort, subject)?;
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&result, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term(format!(
+                self.admit_term(term, &result, expected_sort, |expected| {
+                    format!(
                         "{} has sort {result}, which is not admissible at sort {expected}",
                         sort_test_macro(*kind)
-                    )));
-                }
+                    )
+                })?;
                 let operand_sort = self.sort_test_operand_sort(operand);
                 self.infer(operand, operand_sort.as_ref(), subject)?;
             }
@@ -1163,7 +1192,13 @@ impl StructuredTermBuilder<'_> {
                 })?
             }
             DescriptorApplicationRef::Builtin(operation) if operation.is_sort_generic() => {
-                return self.infer_generic_builtin(*operation, arguments, expected_sort, subject);
+                return self.infer_generic_builtin(
+                    reference,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
             }
             DescriptorApplicationRef::Builtin(operation) => {
                 builtin_production_signature(*operation)
@@ -1225,14 +1260,18 @@ impl StructuredTermBuilder<'_> {
                 );
             }
         };
-        if let Some(expected) = expected_sort
-            && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
-        {
-            return Err(self.invalid_term(format!(
-                "application result sort {} is not admissible at sort {expected}",
-                signature.result_sort
-            )));
-        }
+        self.admit(
+            &reference.key,
+            || super::collection_types::application_spelling(&reference.application),
+            &signature.result_sort,
+            expected_sort,
+            |expected| {
+                format!(
+                    "application result sort {} is not admissible at sort {expected}",
+                    signature.result_sort
+                )
+            },
+        )?;
         let ordered = partial
             .ordered(arguments, &signature.fields)
             .map_err(|detail| self.invalid_term(detail))?;
@@ -1277,23 +1316,23 @@ impl StructuredTermBuilder<'_> {
 
     fn infer_generic_builtin(
         &mut self,
+        reference: &DescriptorApplicationReference,
         operation: BuiltinOperation,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        if let OperationSort::Builtin(result) = operation.result_sort()
-            && let Some(expected) = expected_sort
-            && !semantic_is_subsort(
-                &SemanticSortRef::Builtin(result),
-                expected,
-                self.sort_parents,
-            )
-        {
-            return Err(self.invalid_term(format!(
-                "application result sort {} is not admissible at sort {expected}",
-                SemanticSortRef::Builtin(result)
-            )));
+        if let OperationSort::Builtin(result) = operation.result_sort() {
+            let result = SemanticSortRef::Builtin(result);
+            self.admit(
+                &reference.key,
+                || super::collection_types::application_spelling(&reference.application),
+                &result,
+                expected_sort,
+                |expected| {
+                    format!("application result sort {result} is not admissible at sort {expected}")
+                },
+            )?;
         }
         let sorts = self.generic_argument_sorts(operation, arguments, expected_sort)?;
         for (argument, sort) in arguments.iter().zip(&sorts) {
@@ -1353,14 +1392,21 @@ impl StructuredTermBuilder<'_> {
         let operands = collection_positional_operands(operation, arguments)
             .map_err(|detail| self.invalid_term(detail))?;
         let result_sort = self.collection_result_sort(key, operation, expected_sort)?;
-        if let Some(expected) = expected_sort
-            && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
-        {
-            return Err(self.invalid_term(format!(
-                "{} operation result sort {result_sort} is not admissible at sort {expected}",
-                O::SORT.k_name()
-            )));
-        }
+        self.admit(
+            key,
+            || {
+                let marker = operation.facade_marker();
+                format!("{}::{}(..)", marker.module, marker.name)
+            },
+            &result_sort,
+            expected_sort,
+            |expected| {
+                format!(
+                    "{} operation result sort {result_sort} is not admissible at sort {expected}",
+                    O::SORT.k_name()
+                )
+            },
+        )?;
         // A read of a typed collection at a position whose sort its
         // elements never have can never succeed.
         if let (Some(expected), Some(site)) =
@@ -1377,7 +1423,7 @@ impl StructuredTermBuilder<'_> {
             ));
         }
         for (operand, sort) in operands.into_iter().zip(operation.spec().operand_sorts) {
-            let expected = self.collection_operand_expected(operand, *sort)?;
+            let expected = self.collection_operand_expected(operand, *sort);
             self.infer(operand, expected.as_ref(), subject)?;
         }
         Ok(())
@@ -1397,37 +1443,22 @@ impl StructuredTermBuilder<'_> {
         &mut self,
         operand: &DescriptorTerm,
         sort: CollectionOperandSort,
-    ) -> Result<Option<SemanticSortRef>, DescriptorLoweringError> {
+    ) -> Option<SemanticSortRef> {
         if let Some(sort) = collection_operand_sort(sort) {
-            return Ok(Some(sort));
+            return Some(sort);
         }
         let typing = self.collections.typing;
-        if let Some(read) = typing.read(operand) {
-            match operand {
-                DescriptorTerm::Variable { name, key, .. } if !self.is_let_local_name(name) => {
-                    self.collections.reads.push((name.clone(), key.clone()));
-                }
-                _ => {
-                    if let Some(stated) = self.stated_sort(operand)
-                        && !share_a_sort(&stated, &read.sort, self.sort_parents)
-                    {
-                        return Err(super::collection_types::disjoint_read(
-                            self.descriptor,
-                            read,
-                            &format!(
-                                "`{}` of sort {}",
-                                super::collection_types::spelling(operand),
-                                super::overload::sort_name(&stated)
-                            ),
-                            &stated,
-                            Self::term_key(operand),
-                        ));
-                    }
-                }
+        if typing.read(operand).is_some() {
+            // A binder probe is checked once its sort is resolved; any other
+            // probe once it is lowered, at its final sort.
+            if let DescriptorTerm::Variable { name, key, .. } = operand
+                && !self.is_let_local_name(name)
+            {
+                self.collections.reads.push((name.clone(), key.clone()));
             }
-            return Ok(None);
+            return None;
         }
-        Ok(typing.element_sort(operand))
+        typing.element_sort(operand)
     }
 
     /// Lowers a collection application's operands, in wire order, with its result sort.
@@ -1447,14 +1478,32 @@ impl StructuredTermBuilder<'_> {
             .into_iter()
             .zip(operation.spec().operand_sorts)
             .map(|(operand, sort)| {
+                let read = typing.read(operand);
                 let expected = collection_operand_sort(*sort).or_else(|| {
-                    typing
-                        .read(operand)
-                        .is_none()
+                    read.is_none()
                         .then(|| typing.element_sort(operand))
                         .flatten()
                 });
-                self.lower(operand, expected.as_ref(), subject)
+                let lowered = self.lower(operand, expected.as_ref(), subject)?;
+                // A probe that is not a sentence binder must share a sort
+                // with the elements it looks for, or it is never found.
+                if let Some(read) = read
+                    && !matches!(operand, DescriptorTerm::Variable { name, .. } if !self.is_let_local_name(name))
+                    && !share_a_sort(lowered.sort(), &read.sort, self.sort_parents)
+                {
+                    return Err(super::collection_types::disjoint_read(
+                        self.descriptor,
+                        read,
+                        &format!(
+                            "`{}` of sort {}",
+                            super::collection_types::spelling(operand),
+                            super::overload::sort_name(lowered.sort())
+                        ),
+                        lowered.sort(),
+                        Self::term_key(operand),
+                    ));
+                }
+                Ok(lowered)
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok((result_sort, lowered))
@@ -2939,9 +2988,14 @@ impl StructuredTermBuilder<'_> {
                             super::overload::sort_name(expected),
                         ),
                     ),
-                    None => self.invalid_term(format!(
-                        "application result sort {result} is not admissible at sort {expected}"
-                    )),
+                    None => self.inadmissible(
+                        &reference.key,
+                        || super::collection_types::application_spelling(&reference.application),
+                        &result,
+                        format!(
+                            "application result sort {result} is not admissible at sort {expected}"
+                        ),
+                    ),
                 });
             }
         }
