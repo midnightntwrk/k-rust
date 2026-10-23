@@ -409,6 +409,7 @@ A rule's `#[k::exists(m: Map)]` is an untyped source too: the step may put any m
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
 A configuration variable of `#[k::init]` is a binder of its parameter's type, as a typed function's parameter is: placed as a cell's whole content, rustc checks that its type is the cell's; placed anywhere else, KRS checks the flow, so `xs: List<Stmt>` in `stack: list::concat(xs, list::item(1))` is `collection-element-sort` and a bare `xs: List` there is `untyped-collection`.
 A variable of any other sort is checked by sort inference, as any occurrence is.
+Reading an element out of a bare-collection variable is not a write of the collection: `list::item(list::get(xs, 0))` in a `List<Value>` cell reads a `KItem` and emits the projection `{$XS:List [ 0 ]}:>Value`.
 
 ```text
 error[krs::analysis::collection-element-sort]: `xs`, the configuration variable `$XS`, has type `List<Stmt>`, which does not fit the cell `stack`, declared `List<Value>`: Stmt is not a Value

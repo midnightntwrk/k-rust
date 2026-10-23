@@ -1280,3 +1280,124 @@ pub fn probe(
         assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
     }
 }
+
+/// How configuration variables and rule existentials meet element
+/// positions: a typed part of a nested collection checks a typed variable
+/// by its type and rejects a bare variable or a collection existential as
+/// untyped; a scalar existential and a collection existential stored as an
+/// element are checked at the element sort, as any binder is; and reading
+/// an element out of a bare-collection variable is a `KItem` that the
+/// position projects, never a write of the untyped collection itself.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of sentences, each with its expected outcome."
+)]
+fn untyped_sources_meet_typed_element_positions() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let nested = |parameters: &str| {
+        initializer_with(parameters, "k::k![pgm]", "map::empty()", "list::empty()").replace(
+            "            nested: map::empty(),",
+            "            nested: map::update(map::empty(), k::id!(\"$x\"), s),",
+        )
+    };
+    let nested_value = "a value of the cell `nested`, declared `Map<Id, Set<Int>>`";
+    let accepted = [
+        ("typed-part", nested("s: Set<Int>")),
+        (
+            "bare-read",
+            initializer_with(
+                "xs: List",
+                "k::k![pgm]",
+                "map::empty()",
+                "list::item(list::get(xs, 0))",
+            ),
+        ),
+    ];
+    for (name, source) in accepted {
+        let manifest = package(temporary.path(), name, &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}:\n{stderr}");
+        assert_eq!(diagnostics(&stderr), [], "{name}:\n{stderr}");
+    }
+    // The read is projected to the element sort, so no non-Value reaches the cell.
+    let manifest = temporary.path().join("bare-read/Cargo.toml");
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    assert!(
+        fs::read_to_string(output.join("definition.k"))
+            .unwrap()
+            .contains("<stack> ListItem({$XS:List [ 0 ]}:>Value) </stack>")
+    );
+    let rejected = [
+        (
+            "ill-typed-part",
+            nested("s: Set<Stmt>"),
+            format!(
+                "error[krs::analysis::collection-element-sort]: `s`, the configuration variable `$S`, has type `Set<Stmt>`, which does not fit {nested_value}: Stmt is not an Int"
+            ),
+            "s",
+        ),
+        (
+            "bare-part",
+            nested("s: Set"),
+            format!(
+                "error[krs::analysis::untyped-collection]: `s`, the configuration variable `$S`, is declared `Set`, so nothing checks the elements it writes to {nested_value}"
+            ),
+            "s",
+        ),
+        (
+            "existential-part",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "#[k::exists(s: Set)]\n    probe: { k: [Op(1), PutI(name, _), ..], nested: n } => { k: [..], nested: map::update(n, name, s) };"
+                )
+            ),
+            format!(
+                "error[krs::analysis::untyped-collection]: `s` is an existential `Set`, an unknown set whose elements nothing constrains, so nothing checks the elements it writes to {nested_value}"
+            ),
+            "s",
+        ),
+        (
+            "existential-scalar",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "#[k::exists(v: Stmt)]\n    probe: { k: [Put(name, _), ..], env: e } => { k: [..], env: map::update(e, name, v) };"
+                )
+            ),
+            "error[krs::analysis::collection-element-sort]: `v` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value".to_owned(),
+            "v",
+        ),
+        (
+            "existential-element",
+            format!(
+                "{PREAMBLE}{}",
+                rules(
+                    "#[k::exists(m: Map)]\n    probe: { k: [Op(1), ..], stack: l } => { k: [..], stack: [m, ..l] };"
+                )
+            ),
+            "error[krs::analysis::collection-element-sort]: `m` of sort Map is stored as an element of the cell `stack`, declared `List<Value>`, and Map is not a Value".to_owned(),
+            "m",
+        ),
+    ];
+    for (name, source, headline, marked) in rejected {
+        let manifest = package(temporary.path(), name, &source);
+        let (success, _, stderr) =
+            krs(target.path(), &manifest, "check", &["--backend", "haskell"]);
+        assert!(!success, "{name}: krs check unexpectedly passed:\n{stderr}");
+        assert_eq!(
+            diagnostics(&stderr).first(),
+            Some(&(headline, marked.to_owned())),
+            "{name}:\n{stderr}"
+        );
+    }
+}
