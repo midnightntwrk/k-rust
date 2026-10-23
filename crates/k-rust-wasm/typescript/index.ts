@@ -1444,6 +1444,8 @@ export interface FuzzWitnessCase {
     role: FuzzDefinitionRole
     'initial-configuration': string
     'final-configurations': string[]
+    /** The halt of each final configuration, in order (`trivial`: an undefined step, no end). */
+    halts?: string[]
   }[]
   /** `step`: for an observer target, the step of the leaf's path at which the observer hit. */
   reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }

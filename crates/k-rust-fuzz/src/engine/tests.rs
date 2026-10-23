@@ -83,6 +83,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
             role: DefinitionRole::Baseline,
             initial_configuration: format!("init{values:?}"),
             final_configurations: vec![state.to_owned()],
+            halts: Vec::new(),
         }],
         reaching: Reaching {
             role: DefinitionRole::Baseline,

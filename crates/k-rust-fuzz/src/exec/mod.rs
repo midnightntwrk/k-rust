@@ -469,10 +469,15 @@ pub(crate) struct TargetNeeds {
     pub(crate) constructor_only: bool,
     /// Override of the path mode (the differential baseline runs all paths).
     pub(crate) paths: Option<PathMode>,
+    /// Ask for `result_modality: state-set` instead of `path-set` (both differential sides,
+    /// ARCHITECTURE 4.3 as amended by FZ-DIFFEND): the set of final configurations is the same
+    /// (`docs/compatibility.md`, "Search results"), without exploring the paths that converge.
+    pub(crate) state_set: bool,
 }
 
 /// The execute request every case of one definition uses, without its state
-/// (ARCHITECTURE 5.1): `strategy` from the path mode, `result_modality: path-set`, the bounds,
+/// (ARCHITECTURE 5.1): `strategy` from the path mode, `result_modality: path-set` (`state-set`
+/// when the target asks for it, [`TargetNeeds::state_set`]), the bounds,
 /// `collect_coverage: true`, `trace` and `terminal_rules` only as the target needs, no step
 /// timeouts, `cancelledResult: partial`.
 #[derive(Clone, Debug)]
@@ -502,7 +507,11 @@ impl CaseRequestShape {
             step_timeout_ms: None,
             moving_average_timeout: false,
             assume_state_defined: false,
-            result_modality: ResultModalityOutput::PathSet,
+            result_modality: if needs.state_set {
+                ResultModalityOutput::StateSet
+            } else {
+                ResultModalityOutput::PathSet
+            },
             collect_coverage: true,
             collect_offered: false,
             trace: needs.trace,

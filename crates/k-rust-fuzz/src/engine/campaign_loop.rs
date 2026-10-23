@@ -430,21 +430,22 @@ fn finish_witness(
 
 /// The facts a witness rests on: the clean-leaf facts of its target, and for a differential
 /// witness the conditions of ARCHITECTURE 4.3 for its kind of kill (with D15's requirement that
-/// every end of the complete side be data).
+/// every end of the complete side be data). An end is a clean, decided `stuck` leaf, natural or
+/// not (`final`); an undefined step is no end (FZ-DIFFEND).
 fn witness_facts(base: &[String], kind: Option<KillKind>) -> Vec<String> {
     let extra: &[&str] = match kind {
         None => &[],
         Some(KillKind::AddedEnd) => &[
             "baseline-complete",
             "every-baseline-end-constructor-only",
-            "mutant-end-natural",
+            "mutant-end-final",
             "mutant-end-constructor-only",
             "mutant-end-not-in-baseline-ends",
         ],
         Some(KillKind::RemovedEnd) => &[
             "mutant-complete",
             "every-mutant-end-constructor-only",
-            "baseline-end-natural",
+            "baseline-end-final",
             "baseline-end-constructor-only",
             "baseline-end-not-in-mutant-ends",
         ],
