@@ -777,6 +777,10 @@ pub(super) fn parse_machine_clause(
                 break;
             }
             input.parse::<Token![,]>()?;
+            // A trailing comma before the `;` ends the list.
+            if input.peek(Token![;]) {
+                break;
+            }
         }
     }
     let semicolon = input.parse::<Token![;]>()?;

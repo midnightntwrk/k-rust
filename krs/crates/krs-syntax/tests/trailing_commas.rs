@@ -217,6 +217,11 @@ fn lists_ended_by_a_semicolon_accept_a_trailing_comma() {
         "for Expr; eq: Eq { lhs, rhs } => int::eq(lhs, rhs) where lhs: Int, rhs: Int,;",
     );
     same(
+        krs_syntax::RuleBlock::parse_source,
+        "for Machine; step: { k: [Run(n), ..], acc: a } => { k: [..], acc: n } where n: Int, a: Int;",
+        "for Machine; step: { k: [Run(n), ..], acc: a, } => { k: [..,], acc: n, } where n: Int, a: Int,;",
+    );
+    same(
         krs_syntax::SortsDeclaration::parse_source,
         "impl Value for Int, Bool;",
         "impl Value for Int, Bool,;",
