@@ -99,7 +99,7 @@ def verify_authored_trap() -> None:
         "semantics/kwasm/src/lib.rs",
         '#[k::syntax("trap")]\n    Trap(),',
         "div_u_zero:",
-        "=> Value::Undefined();",
+        "=> Undefined();",
         "undefined_traps:",
         "instrs: [Trap(), ..]",
     )
