@@ -429,6 +429,21 @@ pub fn Open(item: Term<Item>, flag: Term<Int>) -> Term<Int> {
     }
 }
 
+/// Two of the three kinds: its range is `Kinds::A` and `Kinds::B`.
+#[k::function(total, internal)]
+pub fn Halve(value: Term<Int>) -> Term<Kind> {
+    if value < 0 { Kinds::A() } else { Kinds::B() }
+}
+
+/// Covered: `Halve(value)` is never `Kinds::C`.
+#[k::function(total, internal)]
+pub fn UsesHalve(value: Term<Int>) -> Term<Int> {
+    match Halve(value) {
+        Kinds::A() => 1,
+        Kinds::B() => 2,
+    }
+}
+
 /// A range from a callee's range.
 #[k::function(total, internal)]
 pub fn Again(value: Term<Int>) -> Term<Int> {
