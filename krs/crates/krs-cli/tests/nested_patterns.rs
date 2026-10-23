@@ -83,9 +83,14 @@ fn krs_path() -> String {
 /// `source`. Every package shares one K namespace, so two spellings of one
 /// definition emit the same K.
 fn package(root: &Path, name: &str, source: &str) -> PathBuf {
+    library_package(root, name, &format!("{PREAMBLE}{source}"))
+}
+
+/// Writes a one-package workspace whose library is `library`.
+fn library_package(root: &Path, name: &str, library: &str) -> PathBuf {
     let directory = root.join(name);
     fs::create_dir_all(directory.join("src")).unwrap();
-    fs::write(directory.join("src/lib.rs"), format!("{PREAMBLE}{source}")).unwrap();
+    fs::write(directory.join("src/lib.rs"), library).unwrap();
     fs::write(
         directory.join("Cargo.toml"),
         format!(
@@ -272,8 +277,10 @@ fn a_pattern_needs_no_wrapper_and_a_group_record_is_its_cell_term() {
 }
 
 /// A group record as a value is a complete cell term: a pattern leaves a
-/// child unconstrained only with `..`, while the configuration cell's own
-/// record (`frame: Frame { gas: g }` above) may omit children silently.
+/// child unconstrained only with `..`, while a record at a configuration
+/// cell's own position (`frame: Frame { gas: g }` above, or a group nested
+/// in one, see [`a_group_record_may_omit_children_where_it_matches_a_configuration_cell`])
+/// may omit children silently.
 #[test]
 fn a_nested_group_record_names_every_child_or_ends_in_rest() {
     let target = shared_fixture_target();
@@ -421,4 +428,177 @@ fn fn_subjects_read_record_rest_and_rewrites_without_the_wrapper() {
         k.contains("rule pair ( (marked ( V:Exp ) => V:Exp) , done )"),
         "{k}"
     );
+}
+
+/// A configuration whose `outer` group nests the `frame` group, beside a
+/// `KItem` leaf cell `slot`.
+const TWO_LEVEL: &str = r#"
+use k::builtin::{Int, KSequence, List, int, list};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Seq, Push, Pop, Bump, Look, Report))]
+pub enum Cmd {
+    #[k::syntax("seq({a}, {b})")]
+    Seq { a: Stmt, b: Stmt },
+    #[k::syntax("push")]
+    Push(),
+    #[k::syntax("pop")]
+    Pop(),
+    #[k::syntax("bump")]
+    Bump(),
+    #[k::syntax("look")]
+    Look(),
+    #[k::syntax("report")]
+    Report(),
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub gas: Int,
+}
+
+#[k::cell]
+pub struct Outer {
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell]
+    pub flag: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell(nested)]
+    pub outer: Outer,
+    #[k::cell]
+    pub slot: k::KItem,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt, item: k::KItem) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            outer: Outer { frame: Frame { pc: 0, gas: 100 }, flag: 0 },
+            slot: item,
+        }
+    }
+}
+"#;
+
+/// Rules and a claim that read `outer`'s nested `frame` through `outer`,
+/// naming only `pc`; with `rest`, the inner record ends in `..`.
+fn omitting(rest: bool) -> String {
+    let frame = if rest {
+        "Frame { pc: p, .. }"
+    } else {
+        "Frame { pc: p }"
+    };
+    format!(
+        r"
+k::rules! {{
+    for Machine;
+    use Cmd::*;
+
+    look: {{ k: [Look(), ..], outer: Outer {{ frame: {frame}, flag: f }} }} => {{ k: [int::add(p, f), ..] }};
+    report: {{ k: [Report(), ..], stack: s, outer: o @ Outer {{ frame: {frame} }} }} => {{ k: [p, ..], stack: [o, ..s] }};
+}}
+
+k::claims! {{
+    for Machine;
+    use Cmd::*;
+
+    #[k::claim(all_paths)]
+    looks: {{ k: [Look()], outer: Outer {{ frame: {frame}, flag: f }} }} => {{ k: [int::add(p, f)] }};
+}}
+"
+    )
+}
+
+/// Where a group record matches a cell of the running configuration, it
+/// may omit children: the value of the entry that names the group, and
+/// each fixed group child of a record there (`frame` inside `outer`), which
+/// is the configuration's `<frame>` reached through `outer`. Everywhere
+/// else (a `KItem` leaf cell's content, a list element, a group nested in
+/// a value) the record is a value and complete, and `k::fragment!` is
+/// exact at every position (U5).
+#[test]
+fn a_group_record_may_omit_children_where_it_matches_a_configuration_cell() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = |name: &str, rest: bool| {
+        let manifest = library_package(
+            temporary.path(),
+            name,
+            &format!("{TWO_LEVEL}{}", omitting(rest)),
+        );
+        let output = manifest.with_file_name("emitted");
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{stderr}");
+        ["definition.k", "spec.k"].map(|file| fs::read_to_string(output.join(file)).unwrap())
+    };
+    let lenient = emitted("omitting", false);
+    assert_eq!(lenient, emitted("rest", true));
+    expect_test::expect![[r"
+        rule [look]:
+            <k> look => P:Int +Int F:Int ... </k>
+            <outer> <frame> <pc> P:Int </pc> <gas> _ </gas> </frame> <flag> F:Int </flag> </outer>
+        rule [report]:
+            <k> report => P:Int ... </k>
+            <stack> S:List => ListItem(<outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>) S:List </stack>
+            <outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>"]]
+    .assert_eq(&format!("{}\n{}", rule(&lenient[0], "look"), rule(&lenient[0], "report")));
+
+    let errors = [
+        "slot: { k: [Look(), ..], slot: Frame { pc: p } } => { k: [p, ..] };",
+        "value: { k: [Look(), ..], stack: [Outer { frame: Frame { pc: p }, .. }, ..] } => { k: [p, ..] };",
+        "fragment: { k: [Look(), ..], frame: k::fragment![Frame { pc: p }] } => { k: [p, ..] };",
+    ]
+    .map(|clause| {
+        let label = &clause[..clause.find(':').unwrap()];
+        let manifest = library_package(
+            temporary.path(),
+            &format!("strict-{label}"),
+            &format!("{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    {clause}\n}}\n"),
+        );
+        check_errors(target.path(), &manifest)
+    });
+    for error in &errors {
+        assert!(
+            error.contains("krs::analysis::invalid-term")
+                && error.contains("must name every child field exactly once"),
+            "{error}"
+        );
+    }
+    let manifest = library_package(
+        temporary.path(),
+        "slot-rest",
+        &format!(
+            "{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    slot: {{ k: [Look(), ..], slot: Frame {{ pc: p, .. }} }} => {{ k: [p, ..] }};\n}}\n"
+        ),
+    );
+    expect_test::expect![[r"
+        rule [slot]:
+            <k> look => P:Int ... </k>
+            <slot> <frame> <pc> P:Int </pc> <gas> _ </gas> </frame> </slot>"]]
+    .assert_eq(rule(&emitted_k(target.path(), &manifest), "slot"));
 }
