@@ -102,6 +102,7 @@ KEVM has 79 overlapping pairs: 78 in `driver.md` and `state-utils.md`, and `evm.
 The gate's light tier builds kimp with `--det2` and one exclusive pair listed as overlapping (`kimp-d2`), so the conditional statements are built too.
 
 The gate (`tests/gate.sh`, `docs/testing.md` of the repository) regenerates every library and demonstration and fails when an open set grows, a guard loses a theorem, a `k2l_preserve` call closes fewer rules, a recorded output changes, a generated file changes without an accepted baseline, or any Lean source contains `sorry`, `admit` or an `axiom`.
+The inputs a person writes (the open lists and the kind 1 hand modules) are not generated files: the gate does not hash them, and the builds that use them check them.
 
 ## 4. Commands
 

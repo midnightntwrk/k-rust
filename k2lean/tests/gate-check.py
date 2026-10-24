@@ -32,7 +32,9 @@ recorded outputs with the default encoding's, which they must equal):
             equal to expected/, after the normalization each one names (search times, replay
             seconds and the order of logged lines are not compared)
   sources   the sha256 of every regenerated source equals the baseline's (the last accepted
-            generation); a difference fails until accepted
+            generation); a difference fails until accepted. The hand inputs of a library (its
+            open lists and kind 1 hand module `InvariantsHand.lean`) are not hashed: the build
+            that uses them checks them
   banned    no `sorry` or `admit` token, and no `axiom` declaration outside the baseline's allowed
             set, in any Lean source of the work tree, and no "declaration uses 'sorry'" in a log
 """
@@ -66,6 +68,10 @@ OUTPUTS = {  # recorded output → (tier, normalization)
 }
 # the recorded outputs an arity run produces, compared with the default encoding's
 ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "simple-acceptance.md"}
+# the tracked inputs of a generated library, which a person writes and the generator only reads
+# (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
+# hashed, so an edit to them is checked by the build that uses them, not by the sources check
+HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean")
 # generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
 NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
                    "generated/kimp-ar/KImpBench/Programs.lean"}
@@ -206,7 +212,7 @@ def sources(tree, tier):
             for f in sorted((tree / d).rglob("*")):
                 rel = f.relative_to(tree).as_posix()
                 if (f.is_dir() or ".lake" in f.parts
-                        or f.name in ("open-obligations.txt", "open-invariant-cases.txt", "lake-manifest.json", ".gitignore")
+                        or f.name in HAND_INPUTS or f.name in ("lake-manifest.json", ".gitignore")
                         or rel in NOT_REGENERATED):
                     continue
                 out[rel] = (t, sha(f))
