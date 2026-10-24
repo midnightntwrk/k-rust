@@ -35,11 +35,14 @@
 //! not attainable for an overload application, since outside the instances of its equations a
 //! model may interpret an equation head as it likes.
 //!
-//! The backend reads a definition by its normal-form model `M_NF` (`docs/compatibility.md`,
-//! "Anywhere rules"): each sort is interpreted by the normal forms of innermost evaluation and
-//! each symbol by normalizing its application. `M_NF` is a model of the definition when
-//! evaluation terminates and the critical pairs of the executable equations join. The argument
-//! assumes:
+//! The backend reads a definition in the model `M+` (`docs/compatibility.md`, "Anywhere rules";
+//! `confluence.rs`): each sort is interpreted by the normal forms of innermost evaluation by the
+//! executable equations and the full check's witness equations over the signature with one fresh
+//! constant in each sort that is not surely inhabited, and each symbol by normalizing its
+//! application, so every carrier is nonempty, as in every model. On the terms free of the
+//! constants it is the normal-form model `M_NF` of evaluation. `M+` is a model of the definition
+//! when that evaluation terminates and the critical pairs of the executable and witness equations
+//! join. The argument assumes:
 //!
 //! - **A1 (termination).** Evaluation terminates, as every evaluation assumes.
 //! - **A1+ (termination with witnesses).** Innermost evaluation by the executable equations and

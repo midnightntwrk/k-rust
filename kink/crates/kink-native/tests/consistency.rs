@@ -192,6 +192,15 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
 /// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
 ///
+/// fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 1100-1107 and 1123-1136 change, by digest; no line moves.
+/// Line 1104: a pair over a sort with no normal form withdraws claims and is named at load like
+/// any other pair (it withdrew nothing and was not named, the claims being read in `M_NF`); the
+/// reason naming the sort is a label. Line 1130: the warnings both scopes give alike include
+/// those of such pairs. Line 1120 (outside these passages) reads the claims' models with
+/// nonempty carriers. For kink: the full check lists exactly the pairs it listed, so no verdict
+/// moves through the listing; an adoption of witnesses can now flip, since adoption condition 4
+/// reads a closure that such pairs now seed (`CONFLUENCE_RS`).
+///
 /// fz26 phase-8 FZ-MAPKEY: line 1102 (how a pair is unified) gains, on the same line, that two
 /// maps are unified at every key written alike on both sides, value with value and rest with
 /// rest, and clash when one has no rest and fewer entries than the other: a map binds a key
@@ -218,12 +227,13 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// defined, and a conjunction is refuted when it is refuted with or without them. Only more
 /// overlaps are refuted; the other passages are unmoved.
 ///
-/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP, S2B-T2 and FZ-EMPTYJOIN-WITNESS merged): line 1102 carries
-/// FZ-MAPKEY's map sentence; line 1103 FZ-MEMBERSHIP's and S2B-T2's clauses and, at its end,
-/// FZ-EMPTYJOIN-WITNESS's sentence reading "joined" in `M+`; line 1104 the witness proposal; each
-/// as its branch wrote it. Re-pinned by digest of the merged texts: 1069-1071 -> `a350602f`,
-/// 1100-1107 -> `40e53091`, 1123-1136 -> `55c5f5ca`, `definition.rs` 2926-2956 -> `3b520509` (the
-/// last three as the witness branch pinned them except 1100-1107).
+/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP, S2B-T2, FZ-EMPTYJOIN-WITNESS and FZ-EMPTYJOIN-CLAIMS
+/// merged): line 1102 carries FZ-MAPKEY's map sentence; line 1103 FZ-MEMBERSHIP's and S2B-T2's
+/// clauses and, at its end, FZ-EMPTYJOIN-WITNESS's sentence reading "joined" in `M+`; line 1104 the
+/// witness proposal with FZ-EMPTYJOIN-CLAIMS's withdrawal; 1130 FZ-EMPTYJOIN-CLAIMS's warnings;
+/// each as its branch wrote it, no line moved. Re-pinned by digest of the merged texts: 1100-1107
+/// -> `2f92e7ff`; 1069-1071 (`a350602f`), 1123-1136 (`64b22da3`) and `definition.rs` 2926-2956
+/// (`3b520509`) are as the branches pinned them.
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -239,13 +249,13 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "40e53091bcdde8f4d37e003fc23f1390a4bbd2116c818f0907daf8399fdec969",
+        "2f92e7ff61269ea251f5e67989acd6cda25408b582aaf8f48ee6a1ee4d8e0e01",
     ),
     (
         "docs/compatibility.md",
         1123,
         1136,
-        "55c5f5caa7619a70ced6638c5e7d3b26abca9f9f05a238653a86f7686128e1a6",
+        "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
@@ -346,13 +356,24 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// `witness_without_empty_variable`), which outside test builds are the constant `false`
 /// (`switches::active`): no verdict kink reads changes.
 ///
-/// fz26 int9 (FZ-MEMBERSHIP merged with FZ-JUNK-ORACLE, FZ-EMPTYJOIN-WITNESS with its review fixes
-/// and FZ-EMPTYJOIN-ORACLE): the membership table, the `separate_uninhabited` reader, the witness
-/// passes and the oracle's witness switch readers side by side (the load's own condition 4 check is
-/// kept beside `witnesses_only_at_their_pair`), and the contract's `refuted` and `joined` points
-/// stated together (models of the axioms read as true; steps of `R ∪ W` in `M+`); re-pinned by
-/// digest of the merged file: -> `d4e5c7b7`.
-const CONFLUENCE_RS: &str = "d4e5c7b7a9798c315a1ecc6bf08d8d41982b6d430c82ba9e080a1d8b960970de";
+/// fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 895e7fe4 -> ddb29c1a. A pair over a sort with no normal form
+/// (`UnjoinedReason::UninhabitedSort`) seeds the closure and is reported like any other pair, in
+/// both scopes and in argument position; the documentation reads the claims with nonempty
+/// carriers. The stages, the early return and the counts kink reads are unchanged, and the full
+/// check lists the same pairs. Its witness adoption can change: condition 4 (no witness head
+/// tainted in the second pass's closure) now sees the seeds of such pairs, so a pair over an empty
+/// sort that stays unjoined and reaches a witness head keeps the first pass (fewer witnesses, so
+/// more pairs listed: kink can only refuse more). WASM keeps its witness.
+///
+/// fz26 int9 (FZ-MEMBERSHIP merged with FZ-JUNK-ORACLE, FZ-EMPTYJOIN-WITNESS with its review fixes,
+/// FZ-EMPTYJOIN-ORACLE and FZ-EMPTYJOIN-CLAIMS): the membership table, the `separate_uninhabited`
+/// reader, the witness passes, the oracle's witness switch readers and the seeding of pairs over
+/// sorts with no normal form side by side (the load's own condition 4 check is kept beside
+/// `witnesses_only_at_their_pair`, and `adopt_with_tainted_witness_head` drops both readings of
+/// condition 4), and the contract's `refuted` and `joined` points stated together (models of the
+/// axioms read as true; steps of `R ∪ W` in `M+`); re-pinned by digest of the merged file: ->
+/// `a5db9cbd`.
+const CONFLUENCE_RS: &str = "a5db9cbd5703c819b5b1148130e2a9a72e24690ff19256e23a2743a24134da6a";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
@@ -360,8 +381,10 @@ const CONFLUENCE_RS: &str = "d4e5c7b7a9798c315a1ecc6bf08d8d41982b6d430c82ba9e080
 /// change of its sort patterns as `CONFLUENCE_RS`. fz26 phase-8 FZ-EMPTYJOIN-WITNESS: 37bed07e ->
 /// 13672570: the closure's equations include the witness equations of a pass that has them, which add
 /// `SortReach` edges, and the documentation reads the claims' model with `R ∪ W`; `taintable` is
-/// unchanged.
-const CLOSURE_RS: &str = "13672570f6038fe59ff83c59abc34f34f6c14111236ec118e26ac93e2e16aec9";
+/// unchanged. fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 13672570 -> f436f6fa, documentation only: the
+/// claims' model starts from a model with nonempty carriers, so a pair over a sort with no normal
+/// form seeds like any other.
+const CLOSURE_RS: &str = "f436f6fa0939bbd9153888df29cc03849ed9659d842d97351e58946d3c3d2fb1";
 
 /// A re-pin that changes the premise text or the check's driver needs the consistency check
 /// (and its probe head) read again against it.

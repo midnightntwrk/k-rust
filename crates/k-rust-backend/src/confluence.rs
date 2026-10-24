@@ -75,8 +75,9 @@
 //!    it has no instance whose arguments are normal forms, but every model has an element of
 //!    that sort, where both equations hold (`Context::uninhabited_sort`). It is classified like
 //!    any other; a pair all of whose non-joined overlaps are over such sorts names the sort
-//!    ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, since the
-//!    claims are read in `M_NF`, where it has no instance. Where such an overlap does not join,
+//!    ([`UnjoinedReason::UninhabitedSort`], a label only) and withdraws claims and is reported
+//!    like any other pair, since the claims too are read in models with nonempty carriers
+//!    (`closure.rs`, the model `M'`). Where such an overlap does not join,
 //!    in a pair the load's scope classifies, the first pass proposes witness equations from a
 //!    join that reads a stuck partial application at such an element as an open atom, and a
 //!    second pass checks every pair again on `R ∪ W`; the full check adopts it only when it
@@ -251,9 +252,9 @@ pub enum CheckScope {
     ///
     /// Among the pairs it classifies, this scope reads an overlap over a sort with no normal form
     /// as [`Self::All`] does: a pair all of whose non-joined overlaps are over such sorts is
-    /// listed ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, in
-    /// both scopes, so the two admit the same claims and warn alike (`Context::uninhabited_sort`
-    /// gives the reading and its limit).
+    /// listed ([`UnjoinedReason::UninhabitedSort`]) and withdraws claims and is reported like any
+    /// other pair, in both scopes, at the root and in argument position, so the two admit the
+    /// same claims and warn alike (`Context::uninhabited_sort` gives the reading).
     ///
     /// Witness equations are decided once, by [`Self::All`] (`witness.rs`): when this scope's
     /// first pass proposes one, the check runs the full check's two passes, takes from them only
@@ -303,8 +304,8 @@ pub enum CheckScope {
     ///   carriers are nonempty, so every model has an element of that sort, where both
     ///   equations hold. Such an overlap is counted in
     ///   [`CheckCounts::uninhabited`] and classified like any other, and when it does not join
-    ///   it is listed with a reason that names the sort ([`UnjoinedReason::UninhabitedSort`]);
-    ///   it withdraws no value claim ([`UnjoinedPair::over_uninhabited_sort`]). The witnesses
+    ///   it is listed with a reason that names the sort ([`UnjoinedReason::UninhabitedSort`])
+    ///   and withdraws value claims like any other pair. The witnesses
     ///   are adopted only when their pass loses no pair the first pass joined or refuted. When
     ///   no pair is reported, `M+` is a model of the definition's equations, read with the
     ///   priority antecedent, provided `R ∪ W` terminates innermost over that signature (A1+, a
@@ -748,7 +749,7 @@ pub struct CheckCounts {
     /// over one): they have no instance whose arguments are normal forms, but they are not set
     /// aside, since every model has an element of that sort; each is also counted as refuted,
     /// joined or not joined, and a pair whose only non-joined overlaps are over such sorts names
-    /// the sort ([`UnjoinedReason::UninhabitedSort`]) and withdraws no claim.
+    /// the sort ([`UnjoinedReason::UninhabitedSort`]) and withdraws claims like any other.
     pub uninhabited: usize,
     /// Overlaps refuted by their conditions.
     pub refuted: usize,
@@ -1031,21 +1032,20 @@ impl UnjoinedPair {
     /// Whether the backend reports the pair: it withdraws a value claim, it is a report on one
     /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
     /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
-    /// hold whether or not the definition makes claims. A hook pair ([`Self::hook`]) is reported
-    /// at load only when it withdraws a claim: the load classifies the hook pairs of relevant
-    /// equations only, by the owner's gate decision on FZ-CONFLUENCE (2026-10-24: "hook
-    /// disagreements are not named at load; `UnmodelledHook` always is"); the full check lists
-    /// every one in [`ValueClaims::unjoined`].
+    /// hold whether or not the definition makes claims. A pair over a sort with no normal form
+    /// ([`Self::over_uninhabited_sort`]) is reported by the same rule. A hook pair
+    /// ([`Self::hook`]) is reported at load only when it withdraws a claim: the load classifies
+    /// the hook pairs of relevant equations only, by the owner's gate decision on FZ-CONFLUENCE
+    /// (2026-10-24: "hook disagreements are not named at load; `UnmodelledHook` always is"); the
+    /// full check lists every one in [`ValueClaims::unjoined`].
     #[must_use]
     pub fn reported(&self) -> bool {
-        self.relevant()
-            || self.reason.describes_one_equation()
-            || (self.in_argument() && !self.over_uninhabited_sort())
+        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
     }
 
     /// Whether the pair's overlap ranges over a sort with no normal form
-    /// ([`UnjoinedReason::UninhabitedSort`]): a finding about every model of the definition that
-    /// withdraws no value claim (`Context::uninhabited_sort`).
+    /// ([`UnjoinedReason::UninhabitedSort`]): a label on a pair that withdraws and is reported
+    /// like any other, since every model has an element of that sort (`Context::uninhabited_sort`).
     #[must_use]
     pub fn over_uninhabited_sort(&self) -> bool {
         matches!(self.reason, UnjoinedReason::UninhabitedSort { .. })
@@ -1192,8 +1192,8 @@ pub enum UnjoinedReason {
     /// Such an overlap has no instance whose arguments are normal forms, yet every model of the
     /// definition has an element of `sort` (matching-logic carriers are nonempty), at which both
     /// equations hold: a pair whose reducts differ there identifies them in every model. Such a
-    /// pair withdraws no value claim and is not reported at load
-    /// ([`UnjoinedPair::over_uninhabited_sort`]).
+    /// pair withdraws value claims and is reported at load like any other; the reason only names
+    /// the sort ([`UnjoinedPair::over_uninhabited_sort`]).
     UninhabitedSort {
         /// The sort, by its KORE name: the least by name when several apply.
         sort: Name,
@@ -2487,42 +2487,19 @@ impl Context<'_> {
     /// join there is listed (its reason names the sort), so a client that reads the equations in
     /// every model ([`CheckScope::All`]: `data_term`, kink's mutant consistency) sees it.
     ///
-    /// Such a pair withdraws no value claim, in either scope. The claims are statements about
-    /// `M_NF`, where the sort is empty and the pair has no instance, and the closure's model `M'`
-    /// is built from a model in which that sort may be empty (`docs/compatibility.md`, "Anywhere
-    /// rules"). Every use of a claim on evaluation is sound under that reading, by what the two
-    /// certificates a claim rests on check. The instance-normal scan (`instance_normal.rs`)
-    /// claims an application whose arguments are instance-normal; a ground instance-normal term
-    /// is a normal form, and no ground term of the sort is one. The simplifier's
-    /// [`crate::term::head::NormalFormCertificate`] (`simplify::cacheable_equation_head`) marks
-    /// a ground application of an equation head or an overloaded symbol `evaluated` when equation
-    /// selection is complete, every function and simplification equation it offers fails to
-    /// match it, and every argument carries the mark; free-constructor applications, domain
-    /// values, injections and collections of marked terms carry it by construction. The mark
-    /// alone is the simplifier's cache (no equation matches, on every path). It is read as a
-    /// value only by `certified_ground_normal_form`, which needs a term concrete after
-    /// normalization (`term.rs`, `synthesize_attributes`: at every position a constructor root
-    /// or an `anywhere` root that is no declared function), and by `NormalEvidence::certified`,
-    /// which needs such an `anywhere` root and reads the root alone. Each symbol at any position
-    /// of the first, and the root of the second, has a stuck application that is not `\bottom`
-    /// (`symbols.rs`, `Class::stuck_is_bottom`): the symbols a sort's normal forms are read from,
-    /// so no ground term of the sort is such a term. The second's arguments are marked terms, and
-    /// the one marked term whose symbol's stuck application is `\bottom` is an application of an
-    /// overloaded declared partial function, which the certificate also marks (`g(a)`, `g`
-    /// overloaded and partial with no equation, in a sort only `g` produces). It is never read
-    /// as a value itself, and it keeps its parent from being ceil-free: a step that decides from
-    /// the parent states the argument's definedness (`ceil_term`), so `h(g(a)) ==K d`, `h` an
-    /// `anywhere` head, gives `false` only under `\ceil(g(a))`, which `M_NF`, where the stuck
-    /// partial application is `\bottom`, makes vacuous. The prover also uses claims (it
-    /// decomposes and refutes equation-head applications by their instance-normal tokens when it
-    /// unifies a claim or a rule with a symbolic state, `unification.rs`, `proof.rs`,
-    /// `rewrite/recover.rs`), and its results rest on that reading too: from a model with an
-    /// element of the sort, a pair whose reducts differ there may leave no model of the claims.
-    /// Withdrawing the pair's closure instead costs evaluation where the pair is consistent in
-    /// every model but the join does not show it: on WASM, `#t2aStmt`'s `Defn` and `Instr`
-    /// equations overlap over the empty `EmptyStmt`, the join reads the stuck partial
-    /// `#t2aInstr` application as `\bottom`, and withdrawing the pair's 6 symbols (91 by the
-    /// closure) halts `krun` at depth 3 (FZ-EMPTYSORT).
+    /// Such a pair withdraws value claims and is reported like any other pair, in both scopes and
+    /// in argument position: the claims are read in the closure's model `M'` (`closure.rs`),
+    /// which starts from any model of the definition, so from one with an element of the sort,
+    /// at which a pair whose reducts differ may leave no model of the claims. The prover's
+    /// symbolic uses of claims (it decomposes and refutes equation-head applications by their
+    /// instance-normal tokens when it unifies a claim or a rule with a symbolic state,
+    /// `unification.rs`, `proof.rs`, `rewrite/recover.rs`, and discharges `\ceil` of an
+    /// irreducible application, `definedness.rs`) range over such models. Withdrawing costs
+    /// evaluation where the pair holds in every model but the join does not show it: on WASM,
+    /// `#t2aStmt`'s `Defn` and `Instr` equations overlap over the empty `EmptyStmt`, and only the
+    /// witness equation `#t2aInstr<C>(inj X) => inj X` (`witness.rs`) joins them; without it the
+    /// pair withdraws 91 symbols at load (95 under the full check) and halts `krun` at depth 3.
+    /// The reason that names the sort is a label: it changes no claim and no report.
     fn uninhabited_sort(
         &self,
         first: &RewriteRule,
@@ -3273,31 +3250,24 @@ fn check_pass(
             vec![&pair.first, &pair.second]
         }
     }
-    // A pair over a sort with no normal form withdraws no claim: the claims are read in the
-    // normal-form model, where such a pair has no instance (`Context::uninhabited_sort`).
+    // A pair over a sort with no normal form seeds like any other: every model has an element
+    // of that sort, at which both equations hold (`Context::uninhabited_sort`).
     for pair in &mut unjoined {
         pair.spell_canonically();
-        if !pair.over_uninhabited_sort() {
-            pair.withdrawn = closure
-                .taint(seeds(pair), [])
-                .into_iter()
-                .filter(|symbol| gate_symbol(definition, symbol))
-                .collect();
-        }
+        pair.withdrawn = closure
+            .taint(seeds(pair), [])
+            .into_iter()
+            .filter(|symbol| gate_symbol(definition, symbol))
+            .collect();
     }
     let divergent = scope == CheckScope::Gate && switches::active().gate_taints_witnesses;
     let tainted = closure.taint(
-        unjoined
-            .iter()
-            .filter(|pair| !pair.over_uninhabited_sort())
-            .flat_map(seeds)
-            .chain(&row_seeds)
-            .chain(
-                equations
-                    .iter()
-                    .filter(|equation| divergent && equation.witness)
-                    .map(|equation| &equation.rule),
-            ),
+        unjoined.iter().flat_map(seeds).chain(&row_seeds).chain(
+            equations
+                .iter()
+                .filter(|equation| divergent && equation.witness)
+                .map(|equation| &equation.rule),
+        ),
         pinned_heads,
     );
     debug_assert!(

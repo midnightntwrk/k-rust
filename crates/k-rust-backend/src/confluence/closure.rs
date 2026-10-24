@@ -32,8 +32,8 @@
 //! The operator is monotone on a finite lattice, so a worklist that visits each equation once
 //! and pushes each symbol once reaches its least fixpoint (Kleene iteration). With this closure,
 //! one model of the definition makes every claim on an untainted term true at once, whenever the
-//! definition has a model at all (sorts may be empty, and an axiom's variables range over
-//! elements): from any model `M`, keep its elements as *old* ones, add as *new* elements the formal
+//! definition has a model at all (carriers are nonempty, and an axiom's variables range over
+//! elements, so a pair over a sort with no normal form seeds like any other): from any model `M`, keep its elements as *old* ones, add as *new* elements the formal
 //! normal forms that hold an untainted equation-head application, interpret untainted symbols by
 //! the untainted equations of `R ∪ W`, on every argument, and each application holding a new
 //! element that no untainted equation rewrites as `symbols.rs` states for its class (formally,
