@@ -60,6 +60,17 @@ pub enum SortRefusal {
         /// Why it is refused.
         reason: Box<SortRefusal>,
     },
+    /// A value of the hole's sort may contain `sort`, which is refused for `reason`: reached
+    /// from the hole's sort through the sorts `through` (none when the hole's sort's own
+    /// constructors take it), each of them data that holds the next.
+    Contains {
+        /// The refused sort a value may contain.
+        sort: String,
+        /// The data sorts between the hole's sort and it, outermost first.
+        through: Vec<String>,
+        /// Why it is refused.
+        reason: Box<SortRefusal>,
+    },
     /// A collection hole declares an element sort that its sort's element production does not
     /// take (`Int` for a list of `Stmt`), so its values would hold ill-sorted elements; no
     /// override admits it.
@@ -109,6 +120,22 @@ impl fmt::Display for SortRefusal {
             ),
             Self::ElementRefused { element, reason } => {
                 write!(f, "its element sort `{element}` is refused: {reason}")
+            }
+            Self::Contains {
+                sort,
+                through,
+                reason,
+            } => {
+                write!(f, "its values may contain `{sort}`")?;
+                if !through.is_empty() {
+                    let through = through
+                        .iter()
+                        .map(|sort| format!("`{sort}`"))
+                        .collect::<Vec<_>>()
+                        .join(", then ");
+                    write!(f, " (through {through})")?;
+                }
+                write!(f, ", which is refused: {reason}")
             }
             Self::ElementNotHeld { declared, element } => write!(
                 f,
@@ -485,6 +512,11 @@ mod tests {
                 element: "Stmt".into(),
             },
             SortRefusal::MissingOnSide { side: "mutant" },
+            SortRefusal::Contains {
+                sort: "Stmt".into(),
+                through: vec!["Job".into()],
+                reason: Box::new(SortRefusal::ProgramSyntax),
+            },
         ];
         let identifiers = [
             "Unknown",
@@ -496,6 +528,7 @@ mod tests {
             "ElementRefused",
             "ElementNotHeld",
             "MissingOnSide",
+            "Contains",
             "Box(",
         ];
         for refusal in refusals {

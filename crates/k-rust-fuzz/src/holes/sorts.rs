@@ -66,6 +66,11 @@ pub(super) struct SortVerdict {
     /// Each refused sort a value of the hole's sort may contain, with its refusal, ordered by
     /// sort name. The walk does not continue past a refused sort.
     pub(super) contained: Vec<(String, SortRefusal)>,
+    /// For each sort of [`Self::contained`], the data sorts the walk went through to reach it,
+    /// outermost first (none when the hole's sort takes it directly).
+    pub(super) through: BTreeMap<String, Vec<String>>,
+    /// The hole's sort is a collection: the sorts it takes directly are its element sorts.
+    pub(super) collection: bool,
 }
 
 impl SortVerdict {
@@ -76,6 +81,34 @@ impl SortVerdict {
             .map(|reason| (own_sort.to_owned(), reason.clone()))
             .chain(self.contained.iter().cloned())
             .collect()
+    }
+
+    /// The refusal of a hole whose first refusal is `reason` for `refused`, worded for the hole
+    /// (`own_sort`): the reason itself for the hole's own sort, and for a contained sort the
+    /// sort and how a value of the hole's sort reaches it, so that the refusal does not state
+    /// the contained sort's reason about the hole's sort.
+    pub(super) fn explain(
+        &self,
+        own_sort: &str,
+        refused: &str,
+        reason: &SortRefusal,
+    ) -> SortRefusal {
+        if self.own.is_some() && refused == own_sort {
+            return reason.clone();
+        }
+        let through = self.through.get(refused).cloned().unwrap_or_default();
+        if self.collection && through.is_empty() {
+            SortRefusal::ElementRefused {
+                element: refused.to_owned(),
+                reason: Box::new(reason.clone()),
+            }
+        } else {
+            SortRefusal::Contains {
+                sort: refused.to_owned(),
+                through,
+                reason: Box::new(reason.clone()),
+            }
+        }
     }
 }
 
@@ -141,7 +174,7 @@ impl SortRule {
         let subsorts = frontend
             .subsorts(main)
             .map_err(|cycle| CampaignError::Definition {
-                message: format!("the subsort order has a cycle: {cycle:?}"),
+                message: format!("the subsort order has a cycle: {cycle}"),
             })?;
 
         // Cell sorts exist only once the configuration is compiled, so they are read from the
@@ -296,10 +329,15 @@ impl SortRule {
                 reason: SortRefusal::ElementNotHeld { declared, element },
             });
         }
+        let kind_was = if matches!(kind, Kind::Collection) {
+            KindWas::Collection
+        } else {
+            KindWas::Other
+        };
         let (own, contained) = match kind {
             Kind::Unknown => return Err(unknown()),
-            Kind::Refused(reason) => (Some(reason), Ok(Vec::new())),
-            Kind::Builtin => (None, Ok(Vec::new())),
+            Kind::Refused(reason) => (Some(reason), Ok(Walked::default())),
+            Kind::Builtin => (None, Ok(Walked::default())),
             // A collection without declared element sorts is refused by the value resolution.
             Kind::Collection => (None, self.contained(&declared)),
             Kind::Data => (
@@ -313,9 +351,12 @@ impl SortRule {
                 ),
             ),
         };
+        let (contained, through) = contained.map_err(|Undeclared| unknown())?;
         Ok(SortVerdict {
             own,
-            contained: contained.map_err(|Undeclared| unknown())?,
+            contained,
+            through,
+            collection: matches!(kind_was, KindWas::Collection),
         })
     }
 
@@ -325,9 +366,10 @@ impl SortRule {
     #[cfg(test)]
     pub(super) fn check(&self, decl: &HoleDecl) -> Result<Option<SortRefusal>, CampaignError> {
         let verdict = self.verdict(decl)?;
-        let Some((_, reason)) = verdict.all(&decl.sort).into_iter().next() else {
+        let Some((refused, reason)) = verdict.all(&decl.sort).into_iter().next() else {
             return Ok(None);
         };
+        let reason = verdict.explain(&decl.sort, &refused, &reason);
         if decl.allow_refused_sort {
             Ok(Some(reason))
         } else {
@@ -343,10 +385,7 @@ impl SortRule {
     /// ordered by sort name: a refused sort is recorded and not walked into, a builtin ends the
     /// walk, a collection reached here has no declared element sorts and so holds `KItem`s (a
     /// computation), and a data sort continues with what its constructors take.
-    fn contained<S: AsRef<str>>(
-        &self,
-        sorts: &[S],
-    ) -> Result<Vec<(String, SortRefusal)>, Undeclared> {
+    fn contained<S: AsRef<str>>(&self, sorts: &[S]) -> Result<Walked, Undeclared> {
         let mut seen = BTreeSet::new();
         let mut pending = sorts
             .iter()
@@ -357,6 +396,8 @@ impl SortRule {
             })
             .collect::<Result<BTreeSet<_>, _>>()?;
         let mut refused = BTreeMap::new();
+        // The sort each walked sort was first reached from; the starting sorts have none.
+        let mut parent: BTreeMap<String, String> = BTreeMap::new();
         while let Some(head) = pending.pop_first() {
             if !seen.insert(head.clone()) {
                 continue;
@@ -372,13 +413,41 @@ impl SortRule {
                 Kind::Builtin => {}
                 Kind::Data => {
                     if let Some(sorts) = self.contents.get(&head) {
-                        pending.extend(sorts.iter().filter(|sort| !seen.contains(*sort)).cloned());
+                        for sort in sorts.iter().filter(|sort| !seen.contains(*sort)) {
+                            if !pending.contains(sort) {
+                                parent.entry(sort.clone()).or_insert_with(|| head.clone());
+                            }
+                            pending.insert(sort.clone());
+                        }
                     }
                 }
             }
         }
-        Ok(refused.into_iter().collect())
+        let through = refused
+            .keys()
+            .map(|sort| {
+                let mut path = Vec::new();
+                let mut at = sort;
+                while let Some(up) = parent.get(at) {
+                    path.push(up.clone());
+                    at = up;
+                }
+                path.reverse();
+                (sort.clone(), path)
+            })
+            .collect();
+        Ok((refused.into_iter().collect(), through))
     }
+}
+
+/// What [`SortRule::contained`] found: each refused sort with its refusal, and the data sorts
+/// the walk went through to reach each.
+type Walked = (Vec<(String, SortRefusal)>, BTreeMap<String, Vec<String>>);
+
+/// Whether the hole's sort was a collection, for [`SortVerdict::collection`].
+enum KindWas {
+    Collection,
+    Other,
 }
 
 /// The sorts the program-syntax closure starts from, grouped by the grammar module whose

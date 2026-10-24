@@ -1071,6 +1071,40 @@ fn refused(sort: &str, reason: SortRefusal) -> Result<Option<SortRefusal>, Campa
     })
 }
 
+/// The refusal of a collection hole of `sort` whose element sort `element` is refused for
+/// `reason` (FZ-POLISH S6, review round 1: the reason is the element's, not the hole's sort's).
+fn element_refused(
+    sort: &str,
+    element: &str,
+    reason: SortRefusal,
+) -> Result<Option<SortRefusal>, CampaignError> {
+    refused(
+        sort,
+        SortRefusal::ElementRefused {
+            element: element.to_owned(),
+            reason: Box::new(reason),
+        },
+    )
+}
+
+/// The refusal of a hole of `sort` whose values may contain `contained`, reached through
+/// `through`, refused for `reason`.
+fn contains_refused(
+    sort: &str,
+    contained: &str,
+    through: &[&str],
+    reason: SortRefusal,
+) -> Result<Option<SortRefusal>, CampaignError> {
+    refused(
+        sort,
+        SortRefusal::Contains {
+            sort: contained.to_owned(),
+            through: through.iter().map(|sort| (*sort).to_owned()).collect(),
+            reason: Box::new(reason),
+        },
+    )
+}
+
 #[test]
 fn the_sorts_a_value_may_contain_are_data_too() {
     let definition = imp();
@@ -1087,16 +1121,19 @@ fn the_sorts_a_value_may_contain_are_data_too() {
     assert_eq!(check(&list("Int")), Ok(None));
     assert_eq!(
         check(&list("Stmt")),
-        refused("List", SortRefusal::ProgramSyntax)
+        element_refused("List", "Stmt", SortRefusal::ProgramSyntax)
     );
-    assert_eq!(check(&list("K")), refused("List", SortRefusal::Computation));
+    assert_eq!(
+        check(&list("K")),
+        element_refused("List", "K", SortRefusal::Computation)
+    );
     assert_eq!(
         check(&list("KItem")),
-        refused("List", SortRefusal::Computation)
+        element_refused("List", "KItem", SortRefusal::Computation)
     );
     assert_eq!(
         check(&list("List")),
-        refused("List", SortRefusal::Computation)
+        element_refused("List", "List", SortRefusal::Computation)
     );
     assert_eq!(check(&list("Nope")), refused("List", SortRefusal::Unknown));
     let map = with_elements(
@@ -1106,13 +1143,22 @@ fn the_sorts_a_value_may_contain_are_data_too() {
             value: "Int".to_owned(),
         },
     );
-    assert_eq!(check(&map), refused("Map", SortRefusal::Token));
+    assert_eq!(
+        check(&map),
+        element_refused("Map", "Id", SortRefusal::Token)
+    );
     // The override admits an element sort as it admits the hole's own sort.
     let overridden = HoleDecl {
         allow_refused_sort: true,
         ..list("AExp")
     };
-    assert_eq!(check(&overridden), Ok(Some(SortRefusal::ProgramSyntax)));
+    assert_eq!(
+        check(&overridden),
+        Ok(Some(SortRefusal::ElementRefused {
+            element: "AExp".to_owned(),
+            reason: Box::new(SortRefusal::ProgramSyntax),
+        }))
+    );
     assert_eq!(
         check(&span(
             "H",
@@ -1136,12 +1182,18 @@ fn the_sorts_a_value_may_contain_are_data_too() {
         )
     };
     assert_eq!(check("Pair"), Ok(None));
-    assert_eq!(check("Job"), refused("Job", SortRefusal::ProgramSyntax));
+    assert_eq!(
+        check("Job"),
+        contains_refused("Job", "Stmt", &[], SortRefusal::ProgramSyntax)
+    );
     assert_eq!(
         check("Nested"),
-        refused("Nested", SortRefusal::ProgramSyntax)
+        contains_refused("Nested", "Stmt", &["Job"], SortRefusal::ProgramSyntax)
     );
-    assert_eq!(check("Sack"), refused("Sack", SortRefusal::Computation));
+    assert_eq!(
+        check("Sack"),
+        contains_refused("Sack", "List", &[], SortRefusal::Computation)
+    );
     assert_eq!(check("Stmt"), refused("Stmt", SortRefusal::ProgramSyntax));
 }
 
@@ -1163,14 +1215,21 @@ fn constructors_decide_what_a_value_contains() {
     let decl = |sort: &str| span("H", sort, "wraps/one.pgm", None, "1", "1");
     let check = |sort: &str| check_hole_sort(&decl(sort), &program, definition);
     // A parametric constructor's argument may hold any sort.
-    assert_eq!(check("Box"), refused("Box", SortRefusal::Computation));
+    assert_eq!(
+        check("Box"),
+        contains_refused("Box", "KItem", &[], SortRefusal::Computation)
+    );
     let overridden = HoleDecl {
         allow_refused_sort: true,
         ..decl("Box")
     };
     assert_eq!(
         check_hole_sort(&overridden, &program, definition),
-        Ok(Some(SortRefusal::Computation))
+        Ok(Some(SortRefusal::Contains {
+            sort: "KItem".to_owned(),
+            through: Vec::new(),
+            reason: Box::new(SortRefusal::Computation),
+        }))
     );
     // A helper function over a map builds no `Ledger` value.
     assert_eq!(check("Ledger"), Ok(None));
@@ -1488,7 +1547,7 @@ fn a_collection_hole_declares_only_elements_its_element_production_takes() {
     // The elements it does hold are statements, which are program syntax.
     assert_eq!(
         check(&list("Stmts", "Stmt")),
-        refused("Stmts", SortRefusal::ProgramSyntax)
+        element_refused("Stmts", "Stmt", SortRefusal::ProgramSyntax)
     );
     // Resolution refuses the same way, before any value is generated.
     assert_eq!(
@@ -1833,4 +1892,32 @@ fn a_position_that_reads_negative_literals_is_not_narrowed() {
     let program = self::program("streams/go.pgm", GO_PGM, &[("LIMIT", "3")]);
     let found = narrowings(&[config_var("L", "Int", "LIMIT")], &program, definition);
     assert_eq!(found, vec![None]);
+}
+
+/// FZ-POLISH S6, review round 1: an anchor that does not read back is refused in words: no
+/// Rust Debug output (`ProgramParseError { .. }`, `Sort { .. }`, `Application { .. }`).
+#[test]
+fn an_anchor_refusal_prints_no_rust_debug_output() {
+    let definition = values();
+    for text in ["1 |-> 5 2 |->", "1 |-> true"] {
+        let program = program("values/run.pgm", "run", &values_bindings(&[("MAP", text)]));
+        let decl = with_elements(
+            config_var("M", "Map", "MAP"),
+            ElementSorts::Entries {
+                key: "Int".to_owned(),
+                value: "Int".to_owned(),
+            },
+        );
+        let message = resolve_err(&[decl], &program, definition).to_string();
+        for debug in [
+            "ProgramParseError {",
+            "Sort {",
+            "Application {",
+            "NoParse {",
+            "SortMismatch",
+            "Unsupported(",
+        ] {
+            assert!(!message.contains(debug), "{text}: {message}");
+        }
+    }
 }

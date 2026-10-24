@@ -45,6 +45,15 @@ pub(crate) enum PrintError {
     Unsupported(String),
 }
 
+impl std::fmt::Display for PrintError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SortMismatch => f.write_str("the value is not of the hole's sort"),
+            Self::Unsupported(message) => f.write_str(message),
+        }
+    }
+}
+
 /// The refusal for a collection or data value whose sort carries no K-text syntax.
 fn no_syntax(sort: &str) -> PrintError {
     PrintError::Unsupported(format!(

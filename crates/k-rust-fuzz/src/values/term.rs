@@ -475,7 +475,9 @@ fn domain_value(
         return Err("the pattern is not a domain value".to_owned());
     };
     if found != expected {
-        return Err(format!("a domain value of {found:?}, not of {expected:?}"));
+        return Err(format!(
+            "a domain value of sort {found}, not of sort {expected}"
+        ));
     }
     let text = || {
         value

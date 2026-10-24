@@ -350,10 +350,10 @@ pub(crate) fn resolve(
         }
         let verdict = rule.verdict(decl)?;
         let mut refusals = verdict.all(&decl.sort);
-        if let Some((_, reason)) = refusals.first()
+        if let Some((refused, reason)) = refusals.first()
             && !decl.allow_refused_sort
         {
-            return Err(refuse(reason.clone()));
+            return Err(refuse(verdict.explain(&decl.sort, refused, reason)));
         }
         // Only the hole's own token sort makes it a token hole; an override of a token sort its
         // values contain (`Map<Id, Int>`, `rec(Id, Int)`) leaves the hole a value of its sort.
