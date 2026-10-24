@@ -129,19 +129,7 @@ impl Campaign {
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
-        for (index, assignment) in spec.proposers.explicit.iter().enumerate() {
-            for hole in holes {
-                if let Some(value) = assignment.get(&hole.decl.name) {
-                    values::check_constraints(value, &hole.sort, &hole.decl.constraints).map_err(
-                        |message| CampaignError::ExplicitAssignment {
-                            index,
-                            hole: hole.decl.name.clone(),
-                            message,
-                        },
-                    )?;
-                }
-            }
-        }
+        check_explicit(holes, &spec.proposers)?;
         let explicit = explicit_proposals(&names, &anchors, &spec.proposers)?;
         generators(&cases, &spec)?;
         // Each side's initial configuration at the anchors, or at the first explicit
@@ -632,6 +620,25 @@ fn check_definitions(spec: &CampaignSpec) -> Result<(), CampaignError> {
     } else {
         Err(CampaignError::DefinitionsMismatch)
     }
+}
+
+/// Refuse an explicit assignment whose value for some hole violates that hole's sort or
+/// constraints, naming the assignment and the hole.
+fn check_explicit(holes: &[ResolvedHole], proposers: &ProposerConfig) -> Result<(), CampaignError> {
+    for (index, assignment) in proposers.explicit.iter().enumerate() {
+        for hole in holes {
+            if let Some(value) = assignment.get(&hole.decl.name) {
+                values::check_constraints(value, &hole.sort, &hole.decl.constraints).map_err(
+                    |message| CampaignError::ExplicitAssignment {
+                        index,
+                        hole: hole.decl.name.clone(),
+                        message,
+                    },
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Every proposer with a positive weight is one this build provides: blind sampling, the
