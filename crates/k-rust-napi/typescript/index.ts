@@ -1252,9 +1252,11 @@ export interface FuzzCaseOptions {
   backend: { 'smt-timeout-ms': number; 'smt-retry-limit': number }
   shrink: boolean
   /**
-   * Unjoined pairs of the definitions' critical-pair checks the data judgement reads as joined,
-   * each named as the report's `definition-findings` name it (`FIRST,SECOND@POSITION`). Every
-   * verdict then holds only under them. Absent: none.
+   * Findings of the definitions' critical-pair checks the data judgement reads as resolved (a
+   * pair as joined, an equation as agreeing with its hook), each named as the report's
+   * `definition-findings` name it (`FIRST,SECOND@POSITION`, `hook:EQUATION`,
+   * `equation:EQUATION`, `precondition:...`). Every verdict then holds only under them. Absent:
+   * none.
    */
   'assume-joined'?: string[]
 }
@@ -1686,7 +1688,7 @@ export interface FuzzDefinitionFinding {
   side: 'baseline' | 'mutant'
   verdict: 'genuine' | 'undecided'
   kind: 'pair' | 'equation' | 'precondition'
-  /** For a pair, the name `assume-joined` takes. */
+  /** The name `assume-joined` takes for this finding. */
   name?: string
   equations: string[]
   position?: string

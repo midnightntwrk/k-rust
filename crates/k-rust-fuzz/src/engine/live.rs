@@ -556,7 +556,7 @@ impl LiveCases {
             }
         }
         let mut stated = DefinitionFindings::default();
-        // The pair each name matches on each definition, by its equations' identities.
+        // The finding each name matches on each definition, by its equations' identities.
         let mut matched: Vec<Vec<(DefinitionRole, Vec<String>, String)>> =
             vec![Vec::new(); assume_joined.len()];
         for (role, side) in sides {
@@ -581,7 +581,7 @@ impl LiveCases {
                 if prefix.is_some_and(|prefix| prefix != role) {
                     continue;
                 }
-                let pairs = crate::findings::named_pairs(rest, heads);
+                let pairs = crate::findings::named_findings(rest, heads);
                 if pairs.len() > 1 {
                     let candidates = pairs
                         .iter()
@@ -590,8 +590,8 @@ impl LiveCases {
                         .join("; ");
                     return Err(CampaignError::InvalidOptions {
                         message: format!(
-                            "assume-joined names `{given}`, which matches more than one equation \
-                             pair of the {side_name} ({candidates}); give more of each file's path"
+                            "assume-joined names `{given}`, which matches more than one finding \
+                             of the {side_name} ({candidates}); give more of each file's path"
                         ),
                     });
                 }
@@ -1098,10 +1098,11 @@ fn check_assumed(
         if found.is_empty() {
             return Err(CampaignError::InvalidOptions {
                 message: format!(
-                    "assume-joined names `{given}`, which matches no unjoined pair of the \
-                     definitions' critical-pair checks; name a pair as the report's \
-                     definition-findings name it: FIRST,SECOND@POSITION, optionally after \
-                     `baseline:` or `mutant:`"
+                    "assume-joined names `{given}`, which matches no unjoined pair, nor any other \
+                     finding, of the definitions' critical-pair checks; name a finding as the \
+                     report's definition-findings name it (FIRST,SECOND@POSITION for a pair, \
+                     hook:EQUATION, equation:EQUATION or precondition:... for the others), \
+                     optionally after `baseline:` or `mutant:`"
                 ),
             });
         }
@@ -1110,9 +1111,9 @@ fn check_assumed(
         {
             return Err(CampaignError::InvalidOptions {
                 message: format!(
-                    "assume-joined names `{given}`, which matches different equation pairs on \
-                     the two definitions (baseline {written_first}, mutant {written_second}); \
-                     name each with `baseline:` or `mutant:` before it"
+                    "assume-joined names `{given}`, which matches different equation pairs or \
+                     findings on the two definitions (baseline {written_first}, mutant {written_second}); name each \
+                     with `baseline:` or `mutant:` before it"
                 ),
             });
         }
@@ -1120,7 +1121,9 @@ fn check_assumed(
     Ok((!assume_joined.is_empty()).then(|| {
         format!(
             "assume-joined: the verdicts of this campaign hold for the definitions read as if \
-             the pairs {} joined, not for the definitions as written",
+             the findings {} did not hold (each pair joined, each equation agreeing with its \
+             hook or applied as written, each precondition met), not for the definitions as \
+             written",
             assume_joined
                 .iter()
                 .map(|name| format!("`{name}`"))

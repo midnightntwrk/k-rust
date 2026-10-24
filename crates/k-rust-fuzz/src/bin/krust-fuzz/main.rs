@@ -136,9 +136,11 @@ struct Args {
     #[arg(long, overrides_with = "data_end")]
     no_data_end: bool,
 
-    /// Read the unjoined pair NAME of a definition's critical-pair check as joined, as the
-    /// report's definition-findings name it (`FIRST,SECOND@POSITION`); repeatable, added to the
-    /// campaign file's `assume-joined`. Every verdict then holds only under the assumption.
+    /// Read the finding NAME of a definition's critical-pair check as resolved (a pair as joined,
+    /// an equation as agreeing with its hook), as the report's definition-findings name it
+    /// (`FIRST,SECOND@POSITION`, `hook:EQUATION`, `equation:EQUATION`, `precondition:...`);
+    /// repeatable, added to the campaign file's `assume-joined`. Every verdict then holds only
+    /// under the assumption.
     #[arg(long, value_name = "NAME")]
     assume_joined: Vec<String>,
 

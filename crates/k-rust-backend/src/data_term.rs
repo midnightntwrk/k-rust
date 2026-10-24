@@ -101,8 +101,11 @@
 //!
 //! # Assumed pairs
 //!
-//! A client may name pairs the definition is to be read as joining
-//! ([`BackendDefinition::data_heads_assuming`]). The data judgement is then about that reading
+//! A client may name findings the definition is to be read without
+//! ([`BackendDefinition::data_heads_assuming`]): a pair as joining, an equation at an evaluated
+//! hook as agreeing with the hook, another per-equation report as applying as written, a
+//! precondition row as met. Any finding keeps the definition without data, so each can be
+//! assumed. The data judgement is then about that reading
 //! of the definition, not about the definition as written: a premise the client states wherever
 //! the judgement is reported. Which inputs reach the pair does not enter: the judgement reads the
 //! definition by `M_NF`, which a genuine pair makes no model whatever the inputs. The assumed
@@ -260,7 +263,7 @@ impl DataHeads {
         &self.findings
     }
 
-    /// The pair findings assumed joined ([`BackendDefinition::data_heads_assuming`]).
+    /// The findings assumed resolved ([`BackendDefinition::data_heads_assuming`]).
     #[must_use]
     pub fn assumed(&self) -> &[Finding] {
         &self.assumed
@@ -299,11 +302,11 @@ impl BackendDefinition {
         }
     }
 
-    /// `heads` (from [`Self::data_heads`] of this definition), with every pair finding for which
-    /// `assumed` holds read as a pair that joins (the [module documentation](self), "Assumed
-    /// pairs"): such findings move to [`DataHeads::assumed`], and when no other finding is left
-    /// the definition has data, with its overload data heads. Only pairs can be assumed: a
-    /// precondition row or a per-equation report stays a finding whatever `assumed` says.
+    /// `heads` (from [`Self::data_heads`] of this definition), with every finding for which
+    /// `assumed` holds read as resolved (the [module documentation](self), "Assumed pairs"): a
+    /// pair as joining, an equation as agreeing with its hook or applied to every subject it
+    /// describes, a precondition row as met. Such findings move to [`DataHeads::assumed`], and
+    /// when no other finding is left the definition has data, with its overload data heads.
     #[must_use]
     pub fn data_heads_assuming(
         &self,
@@ -313,7 +316,7 @@ impl BackendDefinition {
         let mut kept = Vec::new();
         let mut moved = heads.assumed.clone();
         for finding in &heads.findings {
-            if finding.pair().is_some() && assumed(finding) {
+            if assumed(finding) {
                 moved.push(finding.clone());
             } else {
                 kept.push(finding.clone());

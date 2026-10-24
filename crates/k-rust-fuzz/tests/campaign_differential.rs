@@ -1427,6 +1427,128 @@ fn an_equation_that_disagrees_with_its_hook_leaves_the_definition_without_data()
     }
 }
 
+/// Every finding that keeps a definition without data can be assumed, a hook finding too
+/// (INT8). r4-hookite's finding is named `hook:b.k:18:3` on the baseline and `hook:m.k:18:3` on
+/// the mutant: the equation `sel(_, _, Y) => Y` by its written position, as `definition-findings`
+/// prints it. Assumed on the baseline alone, the mutant still has no data. Assumed on both, the
+/// cases run and the anchor kills (`a` against `bb`), but only for the definitions read as if
+/// `sel`'s equation agreed with `KEQUAL.ite`: the premise is in the identity and in a warning,
+/// and the findings are kept, marked assumed. (The premise is false here, as for the assumed
+/// pairs above: the kill holds only relative to it.)
+#[test]
+fn an_assumed_hook_finding_lets_the_cases_run_under_the_stated_premise() {
+    let report = r2_report(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm");
+    let printed = report
+        .definition_findings
+        .iter()
+        .map(|finding| finding.name.clone().expect("every finding is named"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        printed.into_iter().collect::<Vec<_>>(),
+        vec!["hook:b.k:18:3".to_owned(), "hook:m.k:18:3".to_owned()]
+    );
+    let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
+    spec.options.assume_joined = vec!["hook:b.k:18:3".into()];
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
+    let names = vec![
+        "hook:b.k:18:3".to_owned(),
+        "mutant:hook:m.k:18:3".to_owned(),
+    ];
+    let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
+    spec.options.assume_joined.clone_from(&names);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+    assert_eq!(report.identity.options.assume_joined, names);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("assume-joined: ")
+                && warning.contains("`hook:b.k:18:3`")
+                && warning.contains("not for the definitions as written")),
+        "{:?}",
+        report.warnings
+    );
+    assert!(
+        !report.definition_findings.is_empty()
+            && report
+                .definition_findings
+                .iter()
+                .all(|finding| finding.assumed && finding.kind == FindingKind::Equation),
+        "{:?}",
+        report.definition_findings
+    );
+    // A `hook:` name for an equation without a hook finding names nothing, and is refused.
+    let mut spec = spec_on(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm", None);
+    spec.options.assume_joined = vec!["hook:b.k:20:3".into()];
+    let error = Campaign::new(spec).err().expect("refused").to_string();
+    assert!(
+        error.contains("matches no unjoined pair, nor any other finding"),
+        "{error}"
+    );
+}
+
+/// R2-S1's premise violation (an unused overload placed across `K`) is a precondition row, the
+/// other kind of finding that keeps a definition without data: it is named `precondition:...`
+/// in `definition-findings`, and those names, assumed, let the cases run (INT8).
+#[test]
+fn an_assumed_precondition_row_lets_the_cases_run() {
+    let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
+    let preconditions = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.kind == FindingKind::Precondition)
+        .collect::<Vec<_>>();
+    assert!(
+        !preconditions.is_empty(),
+        "{:?}",
+        report.definition_findings
+    );
+    let mut names = report
+        .definition_findings
+        .iter()
+        .map(|finding| {
+            let name = finding.name.clone().expect("every finding is named");
+            let side = match finding.side {
+                DefinitionRole::Baseline => "baseline",
+                DefinitionRole::Mutant => "mutant",
+            };
+            format!("{side}:{name}")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        preconditions.iter().all(|finding| finding
+            .name
+            .as_deref()
+            .is_some_and(|name| name.starts_with("precondition:"))),
+        "{preconditions:?}"
+    );
+    names.sort();
+    names.dedup();
+    let mut spec = spec_on(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm", None);
+    spec.options.assume_joined = names;
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(2), None);
+    assert!(
+        !matches!(report.outcome, CampaignOutcome::NotComparable { .. }),
+        "{:?}",
+        report.outcome
+    );
+    assert!(report.totals.cases > 0);
+    assert!(
+        report
+            .definition_findings
+            .iter()
+            .all(|finding| finding.assumed)
+    );
+}
+
 /// FZ-CONFLUENCE review A (B1): with `rule replace(S, _, _, _) => S [priority(10)]`, domains.md's
 /// `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))` gives
 /// `replaceAll("ab", "a", "c") = "ab"` while the builtin gives `"cb"`. `replaceAll`'s written

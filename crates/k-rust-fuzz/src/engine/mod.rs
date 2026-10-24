@@ -806,10 +806,11 @@ fn not_comparable(
              one comes with a ground instance at which both equations apply and the input has \
              two normal forms, so k-rust's result for it depends on the order it tries the \
              equations; an undecided one may be a limit of \
-             the check). Fix a genuine pair in the definition. Naming a pair with \
-             `assume-joined` makes the campaign judge the definition read as if that pair \
-             joined: its verdicts then hold for that reading, not for the definition as \
-             written, whatever inputs reach the pair. No case was run."
+             the check). Fix a genuine pair in the definition. Naming a finding with \
+             `assume-joined` (by its name in definition-findings) makes the campaign judge the \
+             definition read as if that finding did not hold (a pair joined, an equation agreed \
+             with its hook): its verdicts then hold for that reading, not for the definition as \
+             written, whatever inputs reach it. No case was run."
         ),
     })
 }

@@ -766,7 +766,9 @@ pub struct DefinitionFinding {
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,
-    /// For a pair, the name `assume-joined` takes: `FIRST,SECOND@POSITION`.
+    /// The name `assume-joined` takes: `FIRST,SECOND@POSITION` for a pair, `hook:EQUATION` or
+    /// `equation:EQUATION` for a finding about one equation, `precondition:EQUATION` (or
+    /// `precondition:KIND:LABELS`) for a precondition row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The equations, each by its written position `FILE:LINE:COLUMN` (else its label, its
@@ -793,7 +795,7 @@ pub struct DefinitionFinding {
     /// For a genuine finding, the ground instance that shows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<FindingInstance>,
-    /// Whether the campaign assumed this pair joined (`assume-joined`).
+    /// Whether the campaign assumed this finding resolved (`assume-joined`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub assumed: bool,
 }

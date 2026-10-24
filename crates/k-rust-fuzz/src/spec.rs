@@ -358,15 +358,20 @@ pub struct CaseOptions {
     /// case's execution, but it lives here so that the report's identity records it with the
     /// other options.
     pub shrink: bool,
-    /// Unjoined pairs of either definition's full critical-pair check that the data judgement
-    /// reads as joined (`k_rust_backend::data_term`, "Assumed pairs"; ARCHITECTURE 4.3), each
-    /// named as the report's `definition-findings` name it: `FIRST,SECOND@POSITION`, each rule
+    /// Findings of either definition's full critical-pair check that the data judgement reads as
+    /// resolved (`k_rust_backend::data_term`, "Assumed pairs"; ARCHITECTURE 4.3): a pair as
+    /// joining, an equation as agreeing with its hook or applied as written, a precondition row as
+    /// met. Each is named as the report's `definition-findings` name it: a pair
+    /// `FIRST,SECOND@POSITION`, each rule
     /// by its written position `FILE:LINE:COLUMN` (the file may be shortened to any trailing
     /// part of its path), `overload:GREATER:LESSER` for a compiler-generated overload axiom, its
     /// unique id or its label, and the position `root` or the argument indexes joined by `.`;
+    /// an equation at an evaluated hook not shown to agree with it `hook:EQUATION`, another
+    /// per-equation report `equation:EQUATION`, a precondition row `precondition:EQUATION` (or
+    /// `precondition:KIND:LABELS` when it names no equation), each `EQUATION` a rule as above;
     /// `baseline:` or `mutant:` before a name applies it on that definition only. A campaign
-    /// whose target reads no data end, or a name that matches no pair finding, pairs of more
-    /// than one equation pair of one definition, or different pairs on the two, is refused at
+    /// whose target reads no data end, or a name that matches no finding, more than one finding
+    /// of one definition, or different findings on the two, is refused at
     /// [`crate::Campaign::new`]. Every verdict of the campaign then holds only under these
     /// premises: the report's identity records them here (sorted), and a warning states it. Empty (and
     /// absent from the JSON) by default. Not an option of a case's execution; it lives here for

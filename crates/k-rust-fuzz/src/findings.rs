@@ -13,12 +13,22 @@
 //! A name may start with `baseline:` or `mutant:` to apply on that definition only; otherwise it
 //! applies on each definition where it matches, and must match the same equations (by unique
 //! id) on both.
+//!
+//! Every other finding that keeps a definition without data has a name too, so that every one
+//! can be assumed: an equation at an evaluated hook that is not shown to agree with the hook
+//! (a hook pair, or an equation at a hook with no written meaning) is `hook:EQUATION`, another
+//! equation the evaluator does not apply to every subject it describes is `equation:EQUATION`,
+//! and a precondition row is `precondition:EQUATION` for the equation it names, else
+//! `precondition:KIND` followed by the K labels it names (`precondition:no-least-common-overload:A:B`).
+//! `EQUATION` is a rule part as above. One `hook:` name covers every hook pair of its equation
+//! (one per equation of the hook's written meaning): assuming it reads the equation as agreeing
+//! with the hook.
 
 use std::collections::BTreeSet;
 
 use k_rust::{
     k_rust_backend::{
-        confluence::UnjoinedPair,
+        confluence::{UnjoinedPair, UnjoinedReason, ViolationKind},
         data_term::{DataHeads, Finding},
         externalize,
         rule::{Predicate, RewriteRule, RuleOrigin},
@@ -212,11 +222,78 @@ pub(crate) fn side_of(given: &str) -> (Option<DefinitionRole>, &str) {
     }
 }
 
-/// Whether one of `assumed` (side prefixes already removed) names `finding`'s pair.
+/// The prefix of the name of a finding about one equation ([`Finding::Equation`]): `hook` for an
+/// equation at an evaluated hook not shown to agree with it, `equation` otherwise.
+fn equation_prefix(pair: &UnjoinedPair) -> &'static str {
+    if pair.hook.is_some() || matches!(pair.reason, UnjoinedReason::UnmodelledHook(_)) {
+        "hook"
+    } else {
+        "equation"
+    }
+}
+
+/// The kind of a precondition row as a name writes it, with the K labels it names.
+fn precondition_kind(kind: &ViolationKind) -> String {
+    match kind {
+        ViolationKind::ConstructorHeaded(symbol) => {
+            format!("constructor-headed:{}", quoted(&label(symbol)))
+        }
+        ViolationKind::InjectionHeaded => "injection-headed".to_owned(),
+        ViolationKind::IndexedAt(index) => format!("indexed-at:{}", quoted(&format!("{index:?}"))),
+        ViolationKind::OverloadShape(symbol) => {
+            format!("overload-shape:{}", quoted(&label(symbol)))
+        }
+        ViolationKind::NoLeastCommonOverload(first, second) => format!(
+            "no-least-common-overload:{}:{}",
+            quoted(&label(first)),
+            quoted(&label(second))
+        ),
+        ViolationKind::PinnedByInjectiveTotal(symbol) => {
+            format!("pinned-by-injective-total:{}", quoted(&label(symbol)))
+        }
+    }
+}
+
+/// The name `assume-joined` takes for `finding` (the module documentation), `None` when an
+/// equation it names has neither a written position, an overloaded pair, a label nor a unique
+/// id.
+pub(crate) fn finding_name(finding: &Finding) -> Option<String> {
+    match finding {
+        Finding::Pair { pair, .. } => name(pair),
+        Finding::Equation(pair) => Some(format!(
+            "{}:{}",
+            equation_prefix(pair),
+            rule_part(&pair.first)?
+        )),
+        Finding::Precondition(violation) => Some(match &violation.rule {
+            Some(rule) => format!("precondition:{}", rule_part(rule)?),
+            None => format!("precondition:{}", precondition_kind(&violation.kind)),
+        }),
+    }
+}
+
+/// Whether the name `given`, without a side prefix, names `finding` (the module documentation).
+pub(crate) fn names_finding(given: &str, finding: &Finding) -> bool {
+    match finding {
+        Finding::Pair { pair, .. } => names(given, pair),
+        Finding::Equation(pair) => given
+            .strip_prefix(equation_prefix(pair))
+            .and_then(|rest| rest.strip_prefix(':'))
+            .is_some_and(|rest| names_rule(rest, &pair.first)),
+        Finding::Precondition(violation) => {
+            given
+                .strip_prefix("precondition:")
+                .is_some_and(|rest| match &violation.rule {
+                    Some(rule) => names_rule(rest, rule),
+                    None => rest == precondition_kind(&violation.kind),
+                })
+        }
+    }
+}
+
+/// Whether one of `assumed` (side prefixes already removed) names `finding`.
 pub(crate) fn assumed(assumed: &[String], finding: &Finding) -> bool {
-    finding
-        .pair()
-        .is_some_and(|pair| assumed.iter().any(|given| names(given, pair)))
+    assumed.iter().any(|given| names_finding(given, finding))
 }
 
 /// How a pair's equations are identified across definitions: each by its unique id, else its
@@ -229,32 +306,51 @@ fn identity(rule: &RewriteRule) -> String {
         .unwrap_or_else(|| equation(rule))
 }
 
-/// The pairs `given` (without a side prefix) names among `heads`' findings, assumed or not:
-/// each as its equations' identities ([`identity`]) and its position, and as the report writes
-/// it.
-pub(crate) fn named_pairs(given: &str, heads: &DataHeads) -> BTreeSet<(Vec<String>, String)> {
+/// The findings `given` (without a side prefix) names among `heads`' findings, assumed or not:
+/// each as its kind and its equations' identities ([`identity`]), with a pair's position, and as
+/// the report writes it. The hook pairs of one equation are one finding: one name assumes them
+/// all.
+pub(crate) fn named_findings(given: &str, heads: &DataHeads) -> BTreeSet<(Vec<String>, String)> {
     heads
         .findings()
         .iter()
         .chain(heads.assumed())
-        .filter_map(Finding::pair)
-        .filter(|pair| names(given, pair))
-        .map(|pair| {
-            let mut identities = vec![identity(&pair.first), identity(&pair.second)];
-            if pair.position.is_empty() {
-                // A root pair is symmetric: its equations in either order are one pair.
-                identities.sort();
+        .filter(|finding| names_finding(given, finding))
+        .map(|finding| match finding {
+            Finding::Pair { pair, .. } => {
+                let mut identities = vec![identity(&pair.first), identity(&pair.second)];
+                if pair.position.is_empty() {
+                    // A root pair is symmetric: its equations in either order are one pair.
+                    identities.sort();
+                }
+                identities.push(position_text(&pair.position));
+                (
+                    identities,
+                    format!(
+                        "{},{}@{}",
+                        equation(&pair.first),
+                        equation(&pair.second),
+                        position_text(&pair.position)
+                    ),
+                )
             }
-            identities.push(position_text(&pair.position));
-            (
-                identities,
-                format!(
-                    "{},{}@{}",
-                    equation(&pair.first),
-                    equation(&pair.second),
-                    position_text(&pair.position)
-                ),
-            )
+            Finding::Equation(pair) => {
+                let prefix = equation_prefix(pair);
+                (
+                    vec![prefix.to_owned(), identity(&pair.first)],
+                    format!("{prefix}:{}", equation(&pair.first)),
+                )
+            }
+            Finding::Precondition(violation) => {
+                let named = match &violation.rule {
+                    Some(rule) => identity(rule),
+                    None => precondition_kind(&violation.kind),
+                };
+                (
+                    vec!["precondition".to_owned(), named.clone()],
+                    format!("precondition:{named}"),
+                )
+            }
         })
         .collect()
 }
@@ -295,7 +391,7 @@ fn entry(
             side,
             verdict,
             kind: FindingKind::Precondition,
-            name: None,
+            name: finding_name(finding),
             equations: violation.rule.iter().map(|rule| equation(rule)).collect(),
             position: None,
             reason: violation.kind.to_string(),
@@ -309,7 +405,7 @@ fn entry(
             side,
             verdict,
             kind: FindingKind::Equation,
-            name: None,
+            name: finding_name(finding),
             equations: vec![equation(&pair.first)],
             position: None,
             reason: match &pair.hook {
