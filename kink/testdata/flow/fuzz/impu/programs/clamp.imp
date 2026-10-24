@@ -1,0 +1,5 @@
+// Clamp: r is x when x is at least lo, else -1.
+int x, lo, r;
+x = 7;
+lo = 3;
+if (lo <= x) { r = x; } else { r = -1; }

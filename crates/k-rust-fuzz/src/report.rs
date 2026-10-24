@@ -1082,11 +1082,18 @@ pub struct WitnessCase {
     /// The hole overlay with values, in declaration order.
     pub holes: Vec<HoleValue>,
     /// The instantiated program text: the program with each span hole's K text in its span,
-    /// which re-enters the witness as a test (the configuration variables' bindings, holes
-    /// included, are in the `krun` lines' `-c`). Absent for a KORE template and a campaign
-    /// without a program text.
+    /// which re-enters the witness as a test with [`Self::config_vars`]. Absent for a KORE
+    /// template and a campaign without a program text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<String>,
+    /// The instantiated configuration-variable bindings, keyed by the name the campaign's
+    /// program gives (`ProgramSource::config_vars`): each binding's text with every span hole's
+    /// K text in its span, or a configuration-variable hole's K text as the whole binding. With
+    /// [`Self::program`] it is the whole input the witness re-enters with (the `krun` lines carry
+    /// the same texts quoted in `-c`). Empty, and absent from the JSON, for a KORE template and a
+    /// program without bindings.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub config_vars: BTreeMap<String, String>,
     /// The class confirmation gave (`hit`).
     pub class: OutcomeClass,
     /// What each definition's run started from and ended in: the baseline, then for a
@@ -1548,6 +1555,7 @@ mod tests {
         let case = WitnessCase {
             holes: vec![hole],
             program: Some("amount = -7;".into()),
+            config_vars: BTreeMap::new(),
             class: OutcomeClass::Hit,
             sides: vec![WitnessSide {
                 role: DefinitionRole::Baseline,

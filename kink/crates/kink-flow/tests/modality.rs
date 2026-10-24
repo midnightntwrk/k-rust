@@ -794,7 +794,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 23] = [
+const CORPUS: [(&str, &[&str], Minimums); 25] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -845,6 +845,12 @@ const CORPUS: [(&str, &[&str], Minimums); 23] = [
         &["FLOW.toml"],
         at_least(0, 0, 0, 0),
     ),
+    // fz26 P7-KINKFLOW T3a: TRIAL2's IMP fixtures for `kink-flow fuzz` (no minimum: they are
+    // there for `tests/fuzz.rs`). fuzz/imp is listed but not run by a differential test: it is
+    // kink/examples/imp's IMP with seven of its mutations, whose path sets over `primes` took
+    // more than 19 CPU minutes without finishing (examples/imp is not in this corpus either).
+    ("fuzz/imp", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    ("fuzz/impu", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("twin", &["FLOW.toml"], at_least(3, 2, 2, 2)),
 ];
 
@@ -1089,6 +1095,12 @@ mod kink_tier {
         ] {
             corpus_specification(name, &["FLOW.toml"]);
         }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_the_fuzz_corpus_u() {
+        corpus_specification("fuzz/impu", &["FLOW.toml"]);
     }
 
     /// The converging fixtures of `testdata/k/l1` (L1-1 review 1 minors 1-4), baseline and mutants:

@@ -155,6 +155,8 @@ pub(crate) struct HitDetail {
     /// For a rule or pattern hit, whether the program's run of every path is comparable
     /// ([`crate::report::WitnessCase::comparable`]); `None` for every other target.
     pub(crate) comparable: Option<Comparability>,
+    /// The instantiated configuration-variable bindings ([`crate::report::WitnessCase::config_vars`]).
+    pub(crate) config_vars: BTreeMap<String, String>,
 }
 
 /// Why a confirmation gave no run.

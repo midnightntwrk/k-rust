@@ -1,0 +1,39 @@
+# TRIAL2's corpus U templates (fz26, workers/TRIAL2-report.md, items 8 and 9).
+
+# clamp with X and LO: reaches imp.k:47 (`- I`) when x < lo (TRIAL2: X = 0, LO = 1).
+[[template]]
+id = "clamp-holes"
+program = "clamp"
+
+  [[template.hole]]
+  name = "X"
+  sort = "Int"
+  find = "x = 7;"
+  literal = "7"
+  range = { min = 0, max = 1000 }
+
+  [[template.hole]]
+  name = "LO"
+  sort = "Int"
+  find = "lo = 3;"
+  literal = "3"
+  range = { min = 0, max = 1000 }
+
+# guard with X and Y: reaches imp.k:52 (`false && _`) when x > 10 (TRIAL2: X = 11).
+[[template]]
+id = "guard-holes"
+program = "guard"
+
+  [[template.hole]]
+  name = "X"
+  sort = "Int"
+  find = "x = 5;"
+  literal = "5"
+  range = { min = 0, max = 1000 }
+
+  [[template.hole]]
+  name = "Y"
+  sort = "Int"
+  find = "y = 8;"
+  literal = "8"
+  range = { min = 0, max = 1000 }

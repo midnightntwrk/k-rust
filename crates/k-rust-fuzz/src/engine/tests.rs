@@ -105,6 +105,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
         mutant_krun_command: None,
         program: None,
         comparable: None,
+        config_vars: std::collections::BTreeMap::new(),
     }
 }
 

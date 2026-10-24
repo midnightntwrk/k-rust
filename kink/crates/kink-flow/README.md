@@ -14,7 +14,8 @@ Markdown sources (flow F-10),
 the outcome cache: proved outcomes kept across commands, killer hints that survive specification edits, and `run --verify` (flow F-14),
 one baseline run per program per command (flow F-12),
 report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13),
-and per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below).
+per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below),
+and the `fuzz` command: hole values of a template program that kill a mutation, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a; "Killing a survivor with `fuzz`" below).
 
 ## Building
 
@@ -663,3 +664,65 @@ What every answer trusts, besides the cache:
 Exit status: 0 when every selected (pattern, program) got its answer (`hit`, `no`, `unknown`, `invalid-pattern`; refuted claims included);
 1 when the manifest, the pattern list, the specification or a program is refused, a search failed, a record could not be written, or `--verify` found a difference;
 2 on a usage error (an `--only` id that names no pattern, an option given twice).
+
+## Killing a survivor with `fuzz`: `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] --no-confirm`
+
+When a mutation survives or is unknown because no corpus program tells the two definitions apart, write (or pick) a program that reaches the edited rule, mark its literals as holes, and let `fuzz` look for hole values that kill the mutation.
+It runs a k-rust-fuzz campaign in process on kink's own two sides and prints the killing program as a `[[program]]` fragment for `FLOW.toml`; kink's own `run` then proves the kill.
+Only the kill job exists yet; reach and pattern jobs, kink's confirmation of the candidate inside the command, and retries are planned (fz26 P7-KINKFLOW T4-T5), so `--no-confirm` is required.
+
+### `TEMPLATES.toml`
+
+```toml
+[[template]]
+id = "primes-holes"        # unique, non-empty
+program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort and variables), or:
+# file = "templates/straight.imp"   # relative to this file's directory, inside it
+# text = "int x; x = 5;"
+# start_sort = "Pgm"       # with file or text; default: kink's (the program position of $PGM's sort)
+# variables = { IN = "3" } # with file or text, as in [[program]]
+
+  [[template.hole]]        # krust fuzz's [[hole]] keys (crates/k-rust-fuzz/README.md, "Hole declarations")
+  name = "T"
+  sort = "Int"
+  find = "t = 1;"
+  literal = "1"
+  range = { min = 0, max = 3 }
+```
+
+- Decoding is strict, as for `FLOW.toml`: an unknown key, a value of the wrong type, a duplicate id, a template with not exactly one of `program`, `file` and `text`, or a path leaving the directory is an error naming the key.
+- Each `[[template.hole]]` is decoded by k-rust-fuzz's own decoder, so a hole means what it means for `krust fuzz`; its messages are prefixed with `template "ID".hole[INDEX]`. A span hole addresses the template's text (leave `program` out); a `config-var` hole makes a whole configuration variable the hole. `program = "$NAME"` puts a span hole inside the text of the template's variable `NAME` (k-rust-fuzz's witness carries each binding as instantiated, `config-vars`, and the fragment writes it). A TOML date is refused.
+- Mark every data literal: in TRIAL2 the killing value was usually one nobody would have guessed (`t = 0` in `primes`). A template is not a corpus program: it gets no record, and nothing is cached for it.
+- `testdata/flow/fuzz/imp` (TRIAL2's IMP thin corpus, its survivors and their templates) and `testdata/flow/fuzz/impu` are complete examples.
+
+### What it runs
+
+- **Sides.** The baseline is the admitted specification's compile, with its claims. The mutant is the claim-free, consistency-checked mutant kink's runner builds for every test of the mutation (kink-campaign `claim_free_mutant`, admitted with the flow's `[spec] assume_joined`). Both run on the backend route kink runs (`Backend::from_definition`). A mutation `run` would refuse (`invalid-mutation`, `equivalent`, `invalid` with its reason and `inconsistent_pairs`, unsupported claims) ends the command with that status and reason; nothing is fuzzed.
+- **Target.** The differential target on all paths (`--one-path` for one), as kink compares complete state sets: a case is a hit when the mutant reaches an end the baseline cannot or the reverse, on ends that are data.
+- **Comparability is strict.** If a definition's full critical-pair check reports a finding no name assumes, the campaign is `not-comparable` and the document lists every finding (`findings`: side, name, verdict). Such a definition may identify the two ends a kill compares, so a kill there would hold in no model of it, and `run` refuses it too (`baseline-findings`). A finding is read as resolved only when you name it: the flow's `[spec] assume_joined` names are always passed, and `--assume-joined NAME` adds one for this command. A decided finding cannot be named; a genuine one can, but it is a premise known to be false, and the fragment says so.
+- **Budgets.** `--cases N` (default 1000) or `--work W`, `--seed S` (default 0), the library's blind proposer. Every case runs with `[budget] max_depth`, a safety limit of `[budget] time_ms` per execution, and a work bound of `--max-work N` (default 100000). `run` bounds the mutant at `work_factor` times the baseline's work plus 10000, so a kill whose mutant needs more is `unknown` there. `--time-limit-ms T` cancels the campaign's run after `T` ms (not the admission and compiles before it); a cancelled campaign is outside the determinism contract (`stopped: time-limit`). Otherwise the same inputs and seed give the same document.
+- **Definition exclusions.** Before any case, kink's definition exclusions are read on both sides as kink's runner reads them (kink-native `DefinitionExclusions::of_validated`, `definition_exclusion`). One on the mutant (an edit that brings in an implementation-chosen hook, a short-circuit reading, an equals condition, or a load stack stop) makes `run` report the mutation `unknown` with that reason; one on the baseline excludes every baseline run, so `run` finds no comparable program (`error`, `no-comparable-program`, each program's cause naming the exclusion). Either refuses the job with that status and reason (`job.refusal.stage: exclusions`, `job.exclusions`); nothing is fuzzed.
+- **Assembly.** kink assembles every test's input from the baseline's grammar, for both sides. A run of no case gives each side's initial configuration at the holes' anchors (the fuzz report identity's `initial-configuration-digest`). When the mutant's differs from the baseline's (an edit of a `[macro]` rule, or of anything the program's parse reads), the job is refused before any case (`mutant-assembly-differs`: the mutant parses the template differently from kink's input); when the baseline's differs from kink's own assembly of the template, it is refused too (`template-assembly-differs`, a defect to report). Then the candidate's program is assembled by kink exactly as a `[[program]]` (start sort, variables, the concrete-state check and the input gate), and each side's `initial_configuration` in the witness, parsed as KORE, must equal it; otherwise the candidate is not offered (`stopped: assembly-mismatch`, `candidate.assembly` says which side or kink's refusal).
+- **The last run.** The last `run` document (`report.json` in `--cache DIR`, default `.kink-flow`, read as `report` reads it and only when it is of the current specification) gives the template's own program class (found by its program digest) and the mutation's status and `reaching` programs, each suggested as a template (`template.last_run`). Nothing in the cache is written.
+- **Warnings** (`warnings: [{kind, detail}]`): `unusable-template` (the template's program is not `comparable` in the last run, or kink refuses the template's own input), `template-not-reaching` (the template's program is not among the mutation's `reaching` programs), `no-reaching-program`, `already-killed`, `stale-run-document`, and `time-limit-scope` with `--time-limit-ms` (it bounds the campaign's run, not kink's admission, the mutant's preparation, the exclusions or k-rust-fuzz's `Campaign::new`, which builds both grammars and backends and runs both definitions' full critical-pair checks).
+- Nothing is written: no cache, no hint, no file under the flow's directory.
+
+### The document
+
+`{schema: "kink-flow-fuzz", version: 1, k_rust_revision, profile, kink_build, kink, spec, template, job, sides, assembly, findings, assumed, attempts: [{seed, fuzz, candidate, confirmation}], program, stopped, action, warnings}`:
+- `spec`: admitted, with the flow's `assume_joined`, whether the baseline has data under them (`has_data`) and its unnamed findings, as `run` reads them; or the refusal.
+- `template`: its id, source, the start sort used and where it came from (`template`, `program` or `default`), its variables, its hole declarations and `last_run` (`{found, current, template: {program, class, cause}, mutation: {status, reason, reaching}, suggested_templates}`, or `{found: false, detail}`).
+- `job`: `{kind: "kill", mutation, outcome: fuzzed | refused, path_mode}`, with kink's `status`, `reason`, `claims` and `inconsistent_pairs` when kink refuses the mutation, and the claims the mutant withdrew otherwise.
+- `sides`: each side's compiled KORE digest and the two provenance digests of its k-rust-fuzz definition.
+- `assembly`: `{kink_template: {sha256} | {refused}, baseline_anchor, mutant_anchor}`, the digests the up-front check compares.
+- `findings`, `assumed`: every finding of the campaign's check, and every assumed name with where it came from (`in_flow`, `from_command_line`), whether it assumed a genuine finding, and the findings it matched.
+- `attempts`: one attempt, `{seed, fuzz, candidate, confirmation}`: the k-rust-fuzz report as JSON, the candidate (the shrunk witness case, else the first, with `case`), with `assembly: {status: match | mismatch | refused, ...}`), and `confirmation: null`.
+- `program`: for a witness, `{id, fragment, file, premises, confirmed: false}`. `id` is `<template>-fz-<8 hex of kink's program digest>`. `fragment` is the `[[program]]` table as TOML: the instantiated text as `text`, the template's start sort and variables (each binding as instantiated: a `config-var` hole's value, or a span hole's value inside the binding's text). `file` suggests where to write the text instead. `premises` lists every assumed name, genuine ones flagged, and whether `FLOW.toml` names it already.
+- `stopped`: `null` for a witness; `budget` (no witness in the budget), `rejected-out`, `time-limit`, `equivalent`, `assembly-mismatch` (a witness kink's assembly does not reproduce: nothing offered), `not-comparable`, `aborted` or `refused`.
+- `action`: the next step.
+
+To use a witness, add every premise `FLOW.toml` lacks to `[spec] assume_joined`, append the fragment, and run `kink-flow run FLOW.toml MUTATIONS.toml --only MUTATION`: `run` proves the kill with its own oracle and writes the hint. A kill the fuzz reports and `run` does not confirm (kink's `work_factor`, an exclusion kink reads on the run) stays a survivor or unknown.
+
+Exit status: 0 when the job was done (a witness, none within the budget or the time limit, or a candidate refused by the assembly check);
+1 when an input, the template or the mutation is refused (the exclusions and the up-front assembly check included), the campaign is `not-comparable`, or a run failed;
+2 on a usage error (a template or mutation id that names nothing, an option given twice, a job or option not built yet, `--no-confirm` missing).

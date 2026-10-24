@@ -1,0 +1,23 @@
+# TRIAL2's IMP thin corpus (fz26, workers/TRIAL2-report.md): kink's examples/imp
+# with only the lesson's `sum` and `primes` (collatz dropped, as in the trial), so
+# that mutations survive and `kink-flow fuzz` has survivors to kill. imp.k and the
+# programs are copies of kink/examples/imp; MUTATIONS.toml keeps the seven mutations
+# TRIAL2 worked on; TEMPLATES.toml holds TRIAL2's templates.
+
+[spec]
+entry = "imp.k"
+main_module = "IMP"
+syntax_module = "IMP-SYNTAX"
+
+[budget]
+time_ms = 10000
+max_depth = 100000
+work_factor = 4
+
+[[program]]
+id = "sum"
+file = "programs/sum.imp"
+
+[[program]]
+id = "primes"
+file = "programs/primes.imp"

@@ -1,0 +1,25 @@
+# TRIAL2's IMP corpus U (fz26, workers/TRIAL2-report.md): an author's three
+# programs whose literals miss branches, leaving imp.k:47 (`- I`), :50 (`! T`)
+# and :52 (`false && _`) uncovered. imp.k is a copy of kink/examples/imp/imp.k.
+
+[spec]
+entry = "imp.k"
+main_module = "IMP"
+syntax_module = "IMP-SYNTAX"
+
+[budget]
+time_ms = 10000
+max_depth = 100000
+work_factor = 4
+
+[[program]]
+id = "count"
+file = "programs/count.imp"
+
+[[program]]
+id = "clamp"
+file = "programs/clamp.imp"
+
+[[program]]
+id = "guard"
+file = "programs/guard.imp"

@@ -1,0 +1,5 @@
+// Divide only when both operands are small.
+int x, y, r;
+x = 5;
+y = 8;
+if (x <= 10 && y <= 10) { r = x / y; } else { r = 0; }

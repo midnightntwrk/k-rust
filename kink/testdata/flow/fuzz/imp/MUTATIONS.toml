@@ -1,0 +1,67 @@
+# The IMP mutations TRIAL2 worked on (fz26, workers/TRIAL2-report.md, items 1-7), copied from
+# kink/examples/imp/MUTATIONS.toml (line numbers are imp.k's in this directory). On the thin
+# corpus (sum, primes) kink leaves each one survived or unknown; `kink-flow fuzz` looks for a
+# killing hole assignment of a template (TEMPLATES.toml).
+
+[[mutation]]
+id = "div-becomes-mul"
+note = "division multiplies"
+
+  [[mutation.edit]]
+  line = 45
+  find = "I1 /Int I2"
+  replace = "I1 *Int I2"
+
+[[mutation]]
+id = "div-guard-dropped"
+note = "division by zero is no longer stuck"
+
+  [[mutation.edit]]
+  line = 45
+  find = "  requires I2 =/=Int 0"
+  replace = ""
+
+[[mutation]]
+id = "add-becomes-sub"
+note = "addition subtracts"
+
+  [[mutation.edit]]
+  line = 46
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "add-commuted"
+note = "addition with its operands swapped: equivalent, because +Int is commutative and the rule only fires on two Int values; the run's one survivor, kept on purpose"
+
+  [[mutation.edit]]
+  line = 46
+  find = "I1 +Int I2"
+  replace = "I2 +Int I1"
+
+[[mutation]]
+id = "neg-drops-sign"
+note = "unary minus returns its operand"
+
+  [[mutation.edit]]
+  line = 47
+  find = "0 -Int I1"
+  replace = "I1"
+
+[[mutation]]
+id = "and-true-ignores-rhs"
+note = "true && B is true whatever B is"
+
+  [[mutation.edit]]
+  line = 51
+  find = "true && B => B"
+  replace = "true && _ => true"
+
+[[mutation]]
+id = "decl-allows-redeclaration"
+note = "a variable may be declared twice"
+
+  [[mutation.edit]]
+  line = 64
+  find = "requires notBool (X in keys(Rho))"
+  replace = "requires true"

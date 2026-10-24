@@ -1316,6 +1316,7 @@ name = "kink-flow"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "k-rust-fuzz",
  "kink-campaign",
  "kink-corpus",
  "kink-native",
