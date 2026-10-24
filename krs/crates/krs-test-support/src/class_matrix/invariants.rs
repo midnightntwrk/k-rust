@@ -2,18 +2,21 @@
 //!
 //! A refused case is reported
 //! 1. with at least one error whose code is registered in `krs-diagnostic`'s registry (a
-//!    refusal that only rustc or a prose message reports is red);
-//! 2. with its primary range, the first error's, inside the case's entry;
+//!    refusal that only rustc or a prose message reports is red), not counting
+//!    [`FORWARDED_RUSTC`], which only says that rustc reported and KRS did not;
+//! 2. with its primary range, the first error's, inside the case's site;
 //! 3. with exactly one error;
 //! 4. with no code that the table lists as internal;
 //! 5. without a panic, and without "internal error" in any message.
 //!
 //! None of them needs the expected-outcome table, so they hold before the table is reviewed.
 //!
-//! The site of invariant 2 is the entry, not the spelling, because the mistake a cell-entry
-//! case makes can be the pairing of the cell and the spelling (`Some(x)` is legal on an optional
-//! cell and a mistake on a plain one), so an error located at the whole entry still names the
-//! mistake; the table narrows the site to the spelling where a class says so. For a term
+//! The site of invariant 2 is the range the table's rule names (`at`) when the table covers the
+//! case, and the entry otherwise. The entry, not the spelling, is the default because the mistake
+//! a cell-entry case makes can be the pairing of the cell and the spelling (`Some(x)` is legal on
+//! an optional cell and a mistake on a plain one), so an error located at the whole entry still
+//! names the mistake; a class narrows the site to the spelling, or widens it to the item where
+//! the mistake lies outside the entry (an initializer parameter no cell reads). For a term
 //! position the entry is the spelling.
 
 use std::fmt;
@@ -76,8 +79,8 @@ pub enum Violation {
     NoRegisteredCode,
     /// Invariant 2: the primary error has no range in the source.
     Unlocated,
-    /// Invariant 2: the primary error lies outside the entry.
-    OutsideEntry {
+    /// Invariant 2: the primary error lies outside the case's site.
+    OutsideSite {
         /// The primary range.
         range: Range<usize>,
     },
@@ -96,9 +99,9 @@ impl fmt::Display for Violation {
         match self {
             Self::NoRegisteredCode => formatter.write_str("no error carries a registered code"),
             Self::Unlocated => formatter.write_str("the primary error is unlocated"),
-            Self::OutsideEntry { range } => write!(
+            Self::OutsideSite { range } => write!(
                 formatter,
-                "the primary error at {}..{} lies outside the entry",
+                "the primary error at {}..{} lies outside the case's site",
                 range.start, range.end
             ),
             Self::ErrorCount(count) => write!(formatter, "{count} errors, not one"),
@@ -111,13 +114,17 @@ impl fmt::Display for Violation {
     }
 }
 
-/// The invariants `observed` breaks; empty when the case was accepted. `entry` is the case's
-/// entry range in the rendered source, `internal` the table's internal codes, and `registered`
-/// answers whether a code is in the registry.
+/// The registered code under which a rustc error on generated code is forwarded: it is no KRS
+/// diagnosis of the mistake, so it does not satisfy invariant 1.
+pub const FORWARDED_RUSTC: &str = "krs::rust-expansion::uncoded-error";
+
+/// The invariants `observed` breaks; empty when the case was accepted. `site` is the range in
+/// the rendered source the primary error must lie inside, `internal` the table's internal codes,
+/// and `registered` answers whether a code is in the registry.
 #[must_use]
 pub fn violations(
     observed: &Observed,
-    entry: &Range<usize>,
+    site: &Range<usize>,
     internal: &[String],
     registered: impl Fn(&str) -> bool,
 ) -> Vec<Violation> {
@@ -126,15 +133,17 @@ pub fn violations(
     }
     let errors = observed.errors().collect::<Vec<_>>();
     let mut violations = Vec::new();
-    if !errors
-        .iter()
-        .any(|error| error.code.as_deref().is_some_and(&registered))
-    {
+    if !errors.iter().any(|error| {
+        error
+            .code
+            .as_deref()
+            .is_some_and(|code| code != FORWARDED_RUSTC && registered(code))
+    }) {
         violations.push(Violation::NoRegisteredCode);
     }
     match errors.first().map(|error| error.range.clone()) {
-        Some(Some(range)) if entry.start <= range.start && range.end <= entry.end => {}
-        Some(Some(range)) => violations.push(Violation::OutsideEntry { range }),
+        Some(Some(range)) if site.start <= range.start && range.end <= site.end => {}
+        Some(Some(range)) => violations.push(Violation::OutsideSite { range }),
         Some(None) | None => violations.push(Violation::Unlocated),
     }
     if errors.len() != 1 {

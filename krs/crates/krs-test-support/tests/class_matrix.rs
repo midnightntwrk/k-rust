@@ -9,7 +9,7 @@ use std::path::Path;
 use krs_diagnostic::Code;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_test_support::class_matrix::invariants::{
-    Observed, ObservedDiagnostic, Severity, Violation, signature, violations,
+    FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, signature, violations,
 };
 use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
@@ -351,7 +351,7 @@ k = "<pc> _ => X </pc>"
     assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
     let decided = |id: &str| match resolution.expected[id] {
         Expected::Refuse { class, rule } => (class.code.as_str(), Some(rule.at)),
-        Expected::Accept(accepted) => (accepted.k.as_str(), None),
+        Expected::Accept(accepted) => (accepted.k.as_deref().unwrap_or_default(), None),
     };
     assert_eq!(
         decided("readable/subject/pc/x"),
@@ -410,6 +410,16 @@ doc = "an internal code as an answer"
 code = "krs::nowhere::nothing"
 doc = "a code the registry lacks"
 
+[class.proposed-code]
+code = "krs::nowhere::proposed"
+doc = "a code its step will register"
+proposed = true
+
+[class.proposed-but-registered]
+code = "krs::analysis::invalid-term"
+doc = "a proposed code the registry already has"
+proposed = true
+
 [[refuse]]
 match = "claim/*"
 class = "wrong-shape"
@@ -425,7 +435,6 @@ k = ""
 same_k_as = ["readable/subject/pc/x", "readable/gone"]
 
 [accept."readable/gone"]
-k = ""
 
 [internal]
 codes = ["krs::analysis::invalid-semantic-theory"]
@@ -445,6 +454,10 @@ codes = ["krs::analysis::invalid-semantic-theory"]
         TableError::Unregistered {
             owner: "class \"unknown-code\"".to_owned(),
             code: "krs::nowhere::nothing".to_owned(),
+        },
+        TableError::ProposedRegistered {
+            class: "proposed-but-registered".to_owned(),
+            code: "krs::analysis::invalid-term".to_owned(),
         },
         TableError::UnusedRule {
             pattern: "claim/*".to_owned(),
@@ -474,6 +487,12 @@ codes = ["krs::analysis::invalid-semantic-theory"]
             "{expected:?} missing from {errors:#?}"
         );
     }
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, TableError::Unregistered { owner, .. } if owner.contains("proposed-code"))),
+        "a proposed code may be unregistered: {errors:#?}"
+    );
 
     let schema = Table::parse(
         "[[refuse]]\nmatch = \"a/{b\"\nclass = \"c\"\nat = \"somewhere\"\nextra = 1\n\n[other]\n",
@@ -596,6 +615,51 @@ fn error(code: Option<&str>, range: Option<Range<usize>>, message: &str) -> Obse
 }
 
 #[test]
+fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
+    let cases = class_matrix::cases();
+    let case = cases
+        .iter()
+        .find(|case| case.id == "init/k/k::k![]")
+        .expect("the case is generated");
+    let rendered = case.render();
+    let placed = &rendered.cases[0];
+    let internal = Vec::new();
+
+    // A mistake outside the entry (an unused parameter) lies in the site a class widens it to.
+    let at_parameter = Observed {
+        accepted: false,
+        diagnostics: vec![error(
+            Some("krs::analysis::optional-presence"),
+            Some(placed.item.start..placed.item.start + 4),
+            "an unused configuration variable",
+        )],
+        panic: None,
+    };
+    assert_eq!(
+        violations(&at_parameter, &placed.entry, &internal, registered),
+        vec![Violation::OutsideSite {
+            range: placed.item.start..placed.item.start + 4
+        }]
+    );
+    assert!(violations(&at_parameter, &placed.item, &internal, registered).is_empty());
+
+    // A rustc error forwarded under a registered code is still no KRS diagnosis.
+    let forwarded = Observed {
+        accepted: false,
+        diagnostics: vec![error(
+            Some(FORWARDED_RUSTC),
+            Some(placed.spelling.clone()),
+            "expected one of `!`, `)`, `,`, found `@`",
+        )],
+        panic: None,
+    };
+    assert_eq!(
+        violations(&forwarded, &placed.entry, &internal, registered),
+        vec![Violation::NoRegisteredCode]
+    );
+}
+
+#[test]
 fn the_table_free_invariants_judge_a_refusal_without_the_table() {
     let cases = class_matrix::cases();
     let case = cases
@@ -650,7 +714,7 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
         judge(&rustc),
         vec![
             Violation::NoRegisteredCode,
-            Violation::OutsideEntry {
+            Violation::OutsideSite {
                 range: placed.item.clone()
             }
         ]

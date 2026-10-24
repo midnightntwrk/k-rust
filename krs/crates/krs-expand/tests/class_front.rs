@@ -41,7 +41,7 @@ use krs_test_support::class_matrix::invariants::{
     Observed, ObservedDiagnostic, Severity, signature, violations,
 };
 use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
-use krs_test_support::class_matrix::table::{At, Expected, Table, TableError};
+use krs_test_support::class_matrix::table::{Expected, Table, TableError};
 use krs_test_support::class_matrix::{self, Base, Placed};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde_json::Value;
@@ -582,18 +582,13 @@ fn judge(
             Verdict::Deviates(Test::K1, front.keys.defects.join("; "))
         };
     }
-    let broken = !violations(&front.observed, &placed.entry, internal, registered).is_empty();
+    let site = expected.map_or(&placed.entry, |expected| expected.site(placed));
+    let broken = !violations(&front.observed, site, internal, registered).is_empty();
     let off_table = match expected {
         None => false,
         Some(Expected::Accept(_)) => true,
         Some(Expected::Refuse { rule, class }) => {
-            let site = match rule.at {
-                At::Entry => Some(&placed.entry),
-                At::Spelling => Some(&placed.spelling),
-                At::Item => Some(&placed.item),
-                // No case of this tier breaks an entry point's header.
-                At::Header => None,
-            };
+            let site = Some(rule.at.range(placed));
             let first = front.observed.errors().next();
             !(front.exact
                 && first.and_then(|error| error.code.as_deref()) == Some(class.code.as_str())

@@ -27,8 +27,8 @@ use std::fs;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use krs_cli::{
     CollectedDefinition, Command, CommandError, CommandRequest, DiagnosticEnvelope,
@@ -39,7 +39,7 @@ use krs_ir::DescriptorBundle;
 use krs_test_support::class_matrix::invariants::{
     Observed, ObservedDiagnostic, Severity, signature,
 };
-use krs_test_support::class_matrix::{Case, Packaging, Placed, render};
+use krs_test_support::class_matrix::{Base, Case, Packaging, Placed, render};
 
 use crate::closure::{Closure, additions, compare, sentences};
 
@@ -213,7 +213,20 @@ impl Worker<'_> {
             let count = rendered.cases.len();
             match self.collect(&rendered.source) {
                 Ok(collected) => {
-                    let base = base_sentences(&collected, &rendered.cases);
+                    // An initializer case is a batch of one, and its base does not emit without
+                    // the initializer it replaces: its additions are against the base's own
+                    // sentences but its configuration, which is the case's own sentence even
+                    // where it equals the base's.
+                    let base = if remaining[0].replaces_initializer() {
+                        self.preamble_sentences(remaining[0].base).map(|sentences| {
+                            sentences
+                                .into_iter()
+                                .filter(|sentence| !sentence.starts_with("configuration"))
+                                .collect()
+                        })
+                    } else {
+                        base_sentences(&collected, &rendered.cases)
+                    };
                     let mut judged = rendered
                         .cases
                         .iter()
@@ -263,6 +276,24 @@ impl Worker<'_> {
                 }
             }
         }
+    }
+
+    /// The sentences `base` emits alone, with its own initializer; collected once per run, by the
+    /// first worker that needs them.
+    fn preamble_sentences(&self, base: Base) -> Option<Vec<String>> {
+        static PREAMBLES: [OnceLock<Option<Vec<String>>>; Base::ALL.len()] =
+            [const { OnceLock::new() }; Base::ALL.len()];
+        let index = Base::ALL
+            .iter()
+            .position(|other| *other == base)
+            .expect("every base is listed");
+        PREAMBLES[index]
+            .get_or_init(|| {
+                let collected = self.collect(&base.preamble()).ok()?;
+                let emitted = collected.emit_k(collected.bundle.clone()).ok()?;
+                Some(emitted_sentences(&emitted))
+            })
+            .clone()
     }
 
     /// Write `source` as a fresh package and collect it.

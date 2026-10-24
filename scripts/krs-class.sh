@@ -10,7 +10,7 @@ all_shards=(readable cells init terms import k4 k5)
 
 usage() {
   cat <<EOF
-usage: scripts/krs-class.sh [--workers N] [--shard NAME]...
+usage: scripts/krs-class.sh [--workers N] [--shard NAME]... [--record]
 
 Run the shards of krs/crates/krs-cli/tests/class_matrix.rs (every shard by default; NAME is one of
 ${all_shards[*]}). Each worker builds the batch packages of its cases in a Cargo target of its own,
@@ -19,12 +19,15 @@ available memory over 3 GiB, at least 1 and at most the CPU count (or the cgroup
 is not consulted: it fluctuates far more than memory, and an oversubscribed CPU only slows a run. The workers' targets and packages live in one scratch
 directory, removed when the run ends, failure included. KRS_CLASS_TARGET_DIR selects the target the
 test binary is built in (default target/gates), KRS_CLASS_OUT a directory for one TSV line per case
-and the pending entries of each unrecorded deviation (see the test's documentation). Exit status 0
+and the pending entries of each unrecorded deviation (see the test's documentation). --record writes
+the K of every accepted case that no refusal rule covers into krs/tests/class-matrix/expected.toml,
+for review as a diff. Exit status 0
 when every case conforms or is pending as recorded, 1 otherwise, 2 on a usage error.
 EOF
 }
 
 workers=
+record=
 shards=()
 while (($#)); do
   case $1 in
@@ -36,6 +39,10 @@ while (($#)); do
       [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || { usage >&2; exit 2; }
       workers=$2
       shift 2
+      ;;
+    --record)
+      record=1
+      shift
       ;;
     --shard)
       [[ " ${all_shards[*]} " == *" ${2:-} "* ]] || { usage >&2; exit 2; }
@@ -79,7 +86,7 @@ report_and_remove() {
 trap report_and_remove EXIT
 
 # The tier judges emission only, which no solver feature changes, so it builds without Z3.
-KRS_CLASS_WORKERS=$workers KRS_CLASS_SCRATCH=$scratch RUSTC_WRAPPER='' \
+KRS_CLASS_WORKERS=$workers KRS_CLASS_SCRATCH=$scratch KRS_CLASS_RECORD=$record RUSTC_WRAPPER='' \
   cargo test --locked --manifest-path "$workspace/Cargo.toml" \
   --target-dir "${KRS_CLASS_TARGET_DIR:-$workspace/target/gates}" \
   -p krs-cli --no-default-features --test class_matrix -- \

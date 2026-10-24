@@ -24,7 +24,14 @@
 //!   a temporary directory removed when it ends, failure included;
 //! - `KRS_CLASS_FILTER`: a glob over case IDs (`expected.toml`'s syntax) that narrows a shard;
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
-//!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`.
+//!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`;
+//! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that no refusal rule covers gets
+//!   its K written into `expected.toml` (`[accept."ID"].k`, [`closure::case_k`]), its entry
+//!   created when the table has none; the K is reviewed as a diff, never written by hand.
+//!
+//! An accepted case that the table accepts must emit the K the table records, and the K of every
+//! case its `same_k_as` names (K3's documented equal spellings, keyed `k3/<case ID>` with the
+//! closure verdict).
 
 #[path = "class_matrix/closure.rs"]
 mod closure;
@@ -38,7 +45,7 @@ mod pipeline;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
 use krs_diagnostic::Code;
@@ -46,15 +53,19 @@ use krs_test_support::class_matrix::invariants::{signature, violations};
 use krs_test_support::class_matrix::pending::{
     CLOSURE, FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
 };
-use krs_test_support::class_matrix::table::{At, Expected, Glob, Resolution, Table, TableError};
+use krs_test_support::class_matrix::table::{Expected, Glob, Resolution, Table, TableError};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
-use closure::Closure;
+use closure::{Closure, case_k};
 use pipeline::{Judged, Settings};
 
 /// Whether a case no table entry decides fails the suite. Until the table is reviewed it is only
 /// counted; the review turns it on.
 const UNCOVERED_IS_A_TABLE_ERROR: bool = false;
+
+/// The K each accepted case was recorded with in this process, by ID: in the record mode, a
+/// `same_k_as` names a case whose K an earlier shard of the run may have just written.
+static RECORDED: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
 
 /// The generated cases and the two files that judge them.
 struct Spec {
@@ -78,10 +89,14 @@ fn spec() -> &'static Spec {
     })
 }
 
-fn read_class_matrix(file: &str) -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+fn class_matrix_path(file: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/class-matrix")
-        .join(file);
+        .join(file)
+}
+
+fn read_class_matrix(file: &str) -> String {
+    let path = class_matrix_path(file);
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
@@ -179,13 +194,23 @@ fn selected(families: &[Family]) -> Vec<&'static Case> {
         .collect()
 }
 
-/// What the table expects of a case that it covers and the case does not do, if anything.
-fn table_miss(expected: &Expected<'_>, judged: &Judged, placed: &Placed<'_>) -> Option<String> {
+/// What the table expects of a case that it covers and the case does not do, if anything. `k` is
+/// the case's K once accepted; the record mode, which rewrites the table's K, leaves it out.
+fn table_miss(
+    expected: &Expected<'_>,
+    judged: &Judged,
+    placed: &Placed<'_>,
+    k: Option<&str>,
+) -> Option<String> {
     let observed = &judged.observed;
     match expected {
-        Expected::Accept(_) => observed
-            .refused()
-            .then(|| "the table accepts the case".to_owned()),
+        Expected::Accept(_) if observed.refused() => Some("the table accepts the case".to_owned()),
+        Expected::Accept(accepted) => match (accepted.k.as_deref(), k) {
+            (Some(recorded), Some(k)) if recorded != k => {
+                Some("the case emits other K than the table records".to_owned())
+            }
+            _ => None,
+        },
         Expected::Refuse { rule, class } => {
             let Some(error) = observed.errors().next().filter(|_| observed.refused()) else {
                 return Some(format!("the table refuses the case as {}", rule.class));
@@ -193,11 +218,7 @@ fn table_miss(expected: &Expected<'_>, judged: &Judged, placed: &Placed<'_>) -> 
             if error.code.as_deref() != Some(class.code.as_str()) {
                 return Some(format!("the table expects {}", class.code));
             }
-            let site = match rule.at {
-                At::Spelling => &placed.spelling,
-                At::Entry => &placed.entry,
-                At::Item | At::Header => &placed.item,
-            };
+            let site = rule.at.range(placed);
             let inside = error
                 .range
                 .as_ref()
@@ -350,22 +371,25 @@ impl Shard {
     }
 }
 
-/// K2: the table-free invariants, and the table where it covers the case.
-fn k2(shard: &mut Shard, resolution: &Resolution<'_>, case: &Case, judged: &Judged) -> bool {
+/// K2: the table-free invariants, and the table where it covers the case. `k` is the case's K
+/// for the table's comparison, `None` in the record mode.
+fn k2(
+    shard: &mut Shard,
+    resolution: &Resolution<'_>,
+    case: &Case,
+    judged: &Judged,
+    k: Option<&str>,
+) -> bool {
     let spec = spec();
     let placed = judged.placed(case);
-    let mut misses = violations(
-        &judged.observed,
-        &placed.entry,
-        &spec.table.internal,
-        registered,
-    )
-    .iter()
-    .map(ToString::to_string)
-    .collect::<Vec<_>>();
     let covered = resolution.expected.get(&judged.id);
+    let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
+    let mut misses = violations(&judged.observed, site, &spec.table.internal, registered)
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
     if let Some(expected) = covered {
-        misses.extend(table_miss(expected, judged, &placed));
+        misses.extend(table_miss(expected, judged, &placed, k));
     }
     let messages = judged
         .observed
@@ -402,14 +426,40 @@ fn test_of(key: &str) -> &'static str {
     }
 }
 
+/// The cases of `expected`'s `same_k_as` whose K is not `k`: the K this run recorded for them,
+/// or else the table's.
+fn other_k(expected: Option<&Expected<'_>>, k: &str) -> Vec<String> {
+    let Some(Expected::Accept(accepted)) = expected else {
+        return Vec::new();
+    };
+    let recorded = RECORDED.lock().expect("the recorded K is not poisoned");
+    accepted
+        .same_k_as
+        .iter()
+        .filter(|other| {
+            let theirs = recorded
+                .get(*other)
+                .map(String::as_str)
+                .or_else(|| spec().table.accept[*other].k.as_deref());
+            theirs != Some(k)
+        })
+        .map(|other| format!("other K than {other}"))
+        .collect()
+}
+
 /// K3: the source `krs expand` prints for the accepted cases emits each case's own sentences,
-/// up to the normalization of [`closure`]; counted per form, which S6 reads.
+/// up to the normalization of [`closure`]; counted per form, which S6 reads. `pairs` are the
+/// documented equal spellings whose K the case does not emit ([`other_k`]).
 fn k3(
     shard: &mut Shard,
     judged: &Judged,
+    pairs: Vec<String>,
     forms: &mut BTreeMap<String, BTreeMap<&'static str, usize>>,
 ) {
     let Some(verdict) = &judged.closure else {
+        if !pairs.is_empty() {
+            shard.add("k3", &judged.id, pairs.join("; "), pairs);
+        }
         return;
     };
     let mut segments = judged.id.split('/');
@@ -433,12 +483,45 @@ fn k3(
         )
         .expect("writing to a String cannot fail");
     }
-    let misses = if verdict.conforms() {
+    let mut misses = if verdict.conforms() {
         Vec::new()
     } else {
         vec![verdict.column().to_owned()]
     };
-    shard.add("k3", &judged.id, verdict.signature(), misses);
+    let signature = if pairs.is_empty() {
+        verdict.signature()
+    } else if verdict.conforms() {
+        pairs.join("; ")
+    } else {
+        format!("{}; {}", verdict.signature(), pairs.join("; "))
+    };
+    misses.extend(pairs);
+    shard.add("k3", &judged.id, signature, misses);
+}
+
+/// Write `recorded`, accepted cases' K by ID, into `expected.toml`: each case's `k`, its entry
+/// created when the table has none, every other entry and key kept.
+fn record(recorded: &BTreeMap<String, String>) {
+    let path = class_matrix_path("expected.toml");
+    let text = std::fs::read_to_string(&path).expect("expected.toml is read");
+    let mut document = text
+        .parse::<toml_edit::DocumentMut>()
+        .expect("expected.toml parses");
+    let accept = document
+        .entry("accept")
+        .or_insert_with(toml_edit::table)
+        .as_table_mut()
+        .expect("[accept] is a table");
+    for (id, k) in recorded {
+        let entry = accept
+            .entry(id)
+            .or_insert_with(toml_edit::table)
+            .as_table_mut()
+            .expect("an accept entry is a table");
+        entry.insert("k", toml_edit::value(k.as_str()));
+    }
+    accept.sort_values();
+    std::fs::write(&path, document.to_string()).expect("expected.toml is written");
 }
 
 /// K1 over the collected bundle and after lowering: every anchor of the case's descriptors lies
@@ -453,6 +536,44 @@ fn k1(shard: &mut Shard, judged: &Judged) {
         };
         shard.add("k1", &judged.id, signature, keys.clone());
     }
+}
+
+/// Each judged case's K once accepted ([`case_k`]), and in the record mode the K to record: every
+/// accepted case's that no refusal rule covers, also made known to [`RECORDED`] before any
+/// `same_k_as` is compared.
+fn accepted_ks(
+    judged: &[Judged],
+    by_id: &BTreeMap<&str, &Case>,
+    resolution: &Resolution<'_>,
+    recording: bool,
+) -> (Vec<Option<String>>, BTreeMap<String, String>) {
+    let ks = judged
+        .iter()
+        .map(|judged| {
+            (!judged.observed.refused())
+                .then_some(judged.additions.as_deref())
+                .flatten()
+                .map(|additions| case_k(additions, &by_id[judged.id.as_str()].tag()))
+        })
+        .collect::<Vec<_>>();
+    let mut recorded = BTreeMap::new();
+    for (judged, k) in judged.iter().zip(&ks) {
+        let refusal = matches!(
+            resolution.expected.get(&judged.id),
+            Some(Expected::Refuse { .. })
+        );
+        if recording
+            && !refusal
+            && let Some(k) = k
+        {
+            recorded.insert(judged.id.clone(), k.clone());
+        }
+    }
+    RECORDED
+        .lock()
+        .expect("the recorded K is not poisoned")
+        .extend(recorded.clone());
+    (ks, recorded)
 }
 
 /// Run one shard: judge its cases and apply the table and the red list.
@@ -480,18 +601,44 @@ fn shard(name: &str, families: &[Family]) {
             shard.failures.push(format!("table: {error}"));
         }
     }
+    let recording = variable("KRS_CLASS_RECORD").is_some_and(|value| value != "0");
     let mut accepted = 0;
     let mut uncovered = 0;
     let mut forms = BTreeMap::new();
-    for judged in &judged {
+    let (ks, recorded) = accepted_ks(&judged, &by_id, &resolution, recording);
+    for (judged, k) in judged.iter().zip(ks) {
+        let case = by_id[judged.id.as_str()];
+        let expected = resolution.expected.get(&judged.id);
         if !judged.observed.refused() {
             accepted += 1;
+            if k.is_none() {
+                shard
+                    .failures
+                    .push(format!("{}: accepted, but its K is unknown", judged.id));
+            }
         }
-        if !k2(&mut shard, &resolution, by_id[judged.id.as_str()], judged) {
+        if let (Some(Expected::Accept(entry)), Some(_), false) = (expected, &k, recording)
+            && entry.k.is_none()
+        {
+            shard.failures.push(format!(
+                "{}: accepted, but expected.toml records no K for it; run scripts/krs-class.sh --record",
+                judged.id
+            ));
+        }
+        let compared = k.as_deref().filter(|_| !recording);
+        if !k2(&mut shard, &resolution, case, judged, compared) {
             uncovered += 1;
         }
         k1(&mut shard, judged);
-        k3(&mut shard, judged, &mut forms);
+        let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
+        k3(&mut shard, judged, pairs, &mut forms);
+    }
+    if recording {
+        record(&recorded);
+        eprintln!(
+            "[krs-class] {name}: recorded the K of {} accepted cases in expected.toml",
+            recorded.len()
+        );
     }
     let red = shard.judge(
         &spec.pending,

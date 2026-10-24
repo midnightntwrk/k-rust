@@ -5,7 +5,10 @@
 //! - alpha-renaming: variables are renamed `V0`, `V1`, ... in order of first appearance;
 //! - `<k> A => B ... </k>` ≡ `<k> A ~> T:K => B ~> T:K </k>`, and `<k> A ... </k>` ≡
 //!   `<k> A ~> T:K </k>`, when `T` occurs nowhere else in the sentence;
-//! - an anonymous frame `...` ≡ a named frame variable that occurs once, at the end of its cell.
+//! - an anonymous frame `...` ≡ a named frame variable that occurs once, at the end of its cell,
+//!   and ≡ the anonymous variable `_` there, which is such a variable;
+//! - a generated sentence label, `label(krsRule_<digest>)`, is `label(krsRule_DIGEST)`: the digest
+//!   names the sentence's source, not its meaning.
 
 use std::collections::BTreeMap;
 
@@ -131,6 +134,26 @@ pub fn compare(original: &[String], printed: &[String]) -> Closure {
     }
 }
 
+/// A case's K as `expected.toml` records it: the sentences it adds to its base, each
+/// normalized, with the case's tag (which names its command, its label, and its other items)
+/// written `TAG`, in sorted order, one sentence per paragraph.
+#[must_use]
+pub fn case_k(additions: &[String], tag: &str) -> String {
+    let upper = tag.to_uppercase();
+    let mut sentences = additions
+        .iter()
+        .map(|sentence| {
+            normalize(sentence)
+                .replace(tag, "TAG")
+                .replace(&upper, "TAG")
+        })
+        .collect::<Vec<_>>();
+    sentences.sort();
+    let mut text = sentences.join("\n\n");
+    text.push('\n');
+    text
+}
+
 /// The tokens of a sentence: runs of identifier characters, and every other character alone.
 fn tokens(text: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
@@ -156,10 +179,14 @@ fn tokens(text: &str) -> Vec<&str> {
 }
 
 /// The variables of a sentence: every name written `Name:Sort`, capitalized or starting with `_`.
+/// A configuration variable, `$PGM:Stmt`, is named by the program's input and keeps its name.
 fn variables<'a>(tokens: &[&'a str]) -> Vec<&'a str> {
     let mut found = Vec::new();
-    for window in tokens.windows(2) {
+    for (index, window) in tokens.windows(2).enumerate() {
         let (name, colon) = (window[0], window[1]);
+        if index > 0 && tokens[index - 1] == "$" {
+            continue;
+        }
         let starts = name
             .chars()
             .next()
@@ -197,6 +224,21 @@ pub fn normalize(sentence: &str) -> String {
             }
         }
     }
+    // The anonymous variable as a frame: after an item, at the end of its cell.
+    let mut framed = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(index) = rest.find(" _ </") {
+        let before = &rest[..index];
+        framed.push_str(before);
+        framed.push_str(if before.ends_with('>') {
+            " _ </"
+        } else {
+            " ... </"
+        });
+        rest = &rest[index + " _ </".len()..];
+    }
+    framed.push_str(rest);
+    let text = generated_labels(&framed);
     let all = tokens(&text);
     let renamed = variables(&all)
         .into_iter()
@@ -206,6 +248,24 @@ pub fn normalize(sentence: &str) -> String {
     all.iter()
         .map(|token| renamed.get(token).map_or(*token, String::as_str))
         .collect()
+}
+
+/// `text` with the digest of every generated sentence label, `krsRule_<hex>`, written `DIGEST`.
+fn generated_labels(text: &str) -> String {
+    const PREFIX: &str = "krsRule_";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(index) = rest.find(PREFIX) {
+        let (before, after) = rest.split_at(index + PREFIX.len());
+        out.push_str(before);
+        let digits = after
+            .find(|character: char| !character.is_ascii_hexdigit())
+            .unwrap_or(after.len());
+        out.push_str(if digits > 0 { "DIGEST" } else { "" });
+        rest = &after[digits..];
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -232,6 +292,19 @@ mod tests {
             normalize(once),
             normalize("rule [r]:\n<env> (A:Int |-> B:Int) ... </env>")
         );
+    }
+
+    #[test]
+    fn an_anonymous_frame_and_a_generated_label_are_normalized() {
+        assert_eq!(
+            normalize("rule [r]:\n<stack> ListItem(X:KItem) _ </stack>\n<pc> _ </pc>"),
+            normalize("rule [r]:\n<stack> ListItem(Y:KItem) ... </stack>\n<pc> _ </pc>")
+        );
+        assert_eq!(
+            normalize("rule f ( 1 ) => 0 [label(krsRule_0123abcd)]"),
+            normalize("rule f ( 1 ) => 0 [label(krsRule_ffff0000)]")
+        );
+        assert!(normalize("rule [r]:\n<pc> _ </pc>").contains("<pc> _ </pc>"));
     }
 
     #[test]

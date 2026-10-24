@@ -4,12 +4,16 @@
 //!
 //! 1. `[class.NAME]`: mistake classes, each with one registered `code` and a `doc`. A class
 //!    names an author mistake, not a site, so every case of the mistake answers with one code.
+//!    `proposed = true` marks a code that is not registered yet, whose step will register it;
+//!    until then every case of the class is red, and once it is registered the mark must go.
 //! 2. `[[refuse]]`: refusal rules, each a `match` glob over case IDs, the `class` of the mistake
 //!    the matched cases make, and `at`, the range the error must lie inside (`entry`,
 //!    `spelling`, `item`, or `header`).
-//! 3. `[accept."ID"]`: an accepted case, with `k`, its own sentence as normalized K, and
-//!    `same_k_as`, the IDs of other accepted cases that must emit the same normalized K. Written
-//!    by `--record` and reviewed as a diff.
+//! 3. `[accept."ID"]`: an accepted case, with `k`, the K sentences it adds to its base,
+//!    normalized, and `same_k_as`, the IDs of other accepted cases that must emit the same
+//!    normalized K. `k` is written by the full tier's record mode (`scripts/krs-class.sh
+//!    --record`) and reviewed as a diff, never by hand; an entry without `k` is a case that should
+//!    be accepted and is refused today, whose K is recorded once it is accepted.
 //! 4. `[internal]`: `codes` that never answer an author mistake.
 //!
 //! **Globs.** `*` matches any run of characters other than `/`, and `{a,b,..}` matches any one
@@ -27,8 +31,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::ops::Range;
 
 use toml_edit::{DocumentMut, Item, Table as TomlTable};
+
+use super::Placed;
 
 /// The range a refusal's error must lie inside.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,6 +51,16 @@ pub enum At {
 }
 
 impl At {
+    /// The range of `placed` this site names; a header lies in the case's item.
+    #[must_use]
+    pub const fn range<'p>(self, placed: &'p Placed<'_>) -> &'p Range<usize> {
+        match self {
+            Self::Spelling => &placed.spelling,
+            Self::Entry => &placed.entry,
+            Self::Item | Self::Header => &placed.item,
+        }
+    }
+
     fn parse(text: &str) -> Option<Self> {
         match text {
             "entry" => Some(Self::Entry),
@@ -62,6 +79,8 @@ pub struct MistakeClass {
     pub code: String,
     /// What the author wrote wrong.
     pub doc: String,
+    /// Whether the code is proposed and not registered yet.
+    pub proposed: bool,
 }
 
 /// One refusal rule.
@@ -78,8 +97,9 @@ pub struct RefuseRule {
 /// One accepted case.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Accepted {
-    /// The case's own sentence as normalized K.
-    pub k: String,
+    /// The K sentences the case adds to its base, normalized; `None` until the case is first
+    /// accepted and recorded.
+    pub k: Option<String>,
     /// Other accepted cases that must emit the same normalized K.
     pub same_k_as: Vec<String>,
 }
@@ -111,6 +131,18 @@ pub enum Expected<'t> {
     },
 }
 
+impl Expected<'_> {
+    /// The range a refusal of the case must lie inside (invariant 2): the refusal rule's site,
+    /// and the entry for an accepted case.
+    #[must_use]
+    pub fn site<'p>(&self, placed: &'p Placed<'_>) -> &'p Range<usize> {
+        match self {
+            Self::Refuse { rule, .. } => rule.at.range(placed),
+            Self::Accept(_) => &placed.entry,
+        }
+    }
+}
+
 /// A defect of the table, or of the table against the generated cases.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TableError {
@@ -134,6 +166,13 @@ pub enum TableError {
     Unregistered {
         /// Where the code is named.
         owner: String,
+        /// The code.
+        code: String,
+    },
+    /// A class marks its code proposed, but the registry has it.
+    ProposedRegistered {
+        /// The class.
+        class: String,
         /// The code.
         code: String,
     },
@@ -191,6 +230,10 @@ impl fmt::Display for TableError {
             Self::Unregistered { owner, code } => {
                 write!(formatter, "{owner} names the unregistered code {code:?}")
             }
+            Self::ProposedRegistered { class, code } => write!(
+                formatter,
+                "class {class:?} marks {code:?} proposed, but it is registered: remove `proposed`"
+            ),
             Self::InternalClassCode { class, code } => write!(
                 formatter,
                 "class {class:?} answers with {code:?}, which [internal] lists"
@@ -341,7 +384,12 @@ impl Table {
     fn check_codes(&self, registered: &impl Fn(&str) -> bool) -> Vec<TableError> {
         let mut errors = Vec::new();
         for (name, class) in &self.classes {
-            if !registered(&class.code) {
+            if class.proposed && registered(&class.code) {
+                errors.push(TableError::ProposedRegistered {
+                    class: name.clone(),
+                    code: class.code.clone(),
+                });
+            } else if !class.proposed && !registered(&class.code) {
                 errors.push(TableError::Unregistered {
                     owner: format!("class {name:?}"),
                     code: class.code.clone(),
@@ -503,12 +551,21 @@ fn parse_classes(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
         let Some(class) = table_of(item, &owner, errors) else {
             continue;
         };
-        let fields = fields(class, &owner, &["code", "doc"], &[], errors);
+        let fields = fields(class, &owner, &["code", "doc"], &["proposed"], errors);
+        let proposed = match fields.get("proposed").map(|item| item.as_bool()) {
+            None => false,
+            Some(Some(proposed)) => proposed,
+            Some(None) => {
+                errors.push(schema(format!("{owner}.proposed is not a boolean")));
+                false
+            }
+        };
         classes.insert(
             name.to_owned(),
             MistakeClass {
                 code: string(fields.get("code"), &owner, "code", errors),
                 doc: string(fields.get("doc"), &owner, "doc", errors),
+                proposed,
             },
         );
     }
@@ -553,11 +610,13 @@ fn parse_accepts(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
         let Some(accepted) = table_of(item, &owner, errors) else {
             continue;
         };
-        let fields = fields(accepted, &owner, &["k"], &["same_k_as"], errors);
+        let fields = fields(accepted, &owner, &[], &["k", "same_k_as"], errors);
         accepts.insert(
             id.to_owned(),
             Accepted {
-                k: string(fields.get("k"), &owner, "k", errors),
+                k: fields
+                    .contains_key("k")
+                    .then(|| string(fields.get("k"), &owner, "k", errors)),
                 same_k_as: strings(fields.get("same_k_as"), &owner, "same_k_as", errors),
             },
         );
