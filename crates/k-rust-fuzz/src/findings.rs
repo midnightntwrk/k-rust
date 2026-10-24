@@ -259,77 +259,7 @@ fn entry(
             assumed,
         },
         Finding::Pair { pair, instance } => {
-            let names = Readable::of(pair);
-            let show = |term: &Term| names.show(term, text);
-            // The reducts, then the overlap, written so that different terms never read alike.
-            let reducts = pair.sides.as_ref().map(|(left, right)| {
-                let bottom = || "\\bottom".to_owned();
-                match (left, right) {
-                    (Some(left), Some(right)) => names.show_apart(left, right, text),
-                    (left, right) => (
-                        left.as_ref().map_or_else(bottom, show),
-                        right.as_ref().map_or_else(bottom, show),
-                    ),
-                }
-            });
-            let overlap = pair.overlap.as_ref().map(|overlap| {
-                let written = show(overlap);
-                match (&reducts, &pair.sides) {
-                    (Some((left, right)), Some((left_term, right_term)))
-                        if written == *left || written == *right =>
-                    {
-                        let other = if written == *left {
-                            left_term
-                        } else {
-                            right_term
-                        };
-                        let other = other.as_ref().unwrap_or(overlap);
-                        names.show_apart(overlap, other, text).0
-                    }
-                    _ => written,
-                }
-            });
-            let instance = instance.as_ref().map(|instance| {
-                let (left, right) = names.show_apart(&instance.values.0, &instance.values.1, text);
-                FindingInstance {
-                    assignment: instance
-                        .assignment
-                        .iter()
-                        .map(|(variable, value)| {
-                            format!("{} = {}", readable_variable(&variable.name), show(value))
-                        })
-                        .collect(),
-                    overlap: show(&instance.overlap),
-                    values: vec![left, right],
-                }
-            });
-            DefinitionFinding {
-                side,
-                verdict,
-                kind: FindingKind::Pair,
-                name: name(pair),
-                equations: vec![equation(&pair.first), equation(&pair.second)],
-                position: Some(position_text(&pair.position)),
-                reason: match &instance {
-                    Some(instance) => format!(
-                        "at {} the two equations equate {} and {}, distinct data terms, so no \
-                         model satisfies the definition",
-                        instance.overlap, instance.values[0], instance.values[1]
-                    ),
-                    None => format!("not shown to join: {}", pair.reason),
-                },
-                overlap,
-                reducts: reducts
-                    .map(|(left, right)| vec![left, right])
-                    .unwrap_or_default(),
-                conditions: pair
-                    .conditions
-                    .as_ref()
-                    .filter(|conditions| **conditions != Predicate::True)
-                    .map(|conditions| names.show_predicate(conditions, text)),
-                instance,
-                assumed,
-            }
+            pair_entry(side, verdict, pair, instance.as_ref(), assumed, text)
         }
     }
 }
@@ -519,5 +449,87 @@ fn labelled(pattern: &KorePattern, sorts: bool) -> String {
             }
         }
         other => format!("{other:?}"),
+    }
+}
+
+/// The report entry of a pair finding (see [`entry`]).
+fn pair_entry(
+    side: DefinitionRole,
+    verdict: FindingVerdict,
+    pair: &UnjoinedPair,
+    instance: Option<&k_rust::k_rust_backend::data_term::GroundInstance>,
+    assumed: bool,
+    text: Option<&TextSyntax>,
+) -> DefinitionFinding {
+    let names = Readable::of(pair);
+    let show = |term: &Term| names.show(term, text);
+    // The reducts, then the overlap, written so that different terms never read alike.
+    let reducts = pair.sides.as_ref().map(|(left, right)| {
+        let bottom = || "\\bottom".to_owned();
+        match (left, right) {
+            (Some(left), Some(right)) => names.show_apart(left, right, text),
+            (left, right) => (
+                left.as_ref().map_or_else(bottom, show),
+                right.as_ref().map_or_else(bottom, show),
+            ),
+        }
+    });
+    let overlap = pair.overlap.as_ref().map(|overlap| {
+        let written = show(overlap);
+        match (&reducts, &pair.sides) {
+            (Some((left, right)), Some((left_term, right_term)))
+                if written == *left || written == *right =>
+            {
+                let other = if written == *left {
+                    left_term
+                } else {
+                    right_term
+                };
+                let other = other.as_ref().unwrap_or(overlap);
+                names.show_apart(overlap, other, text).0
+            }
+            _ => written,
+        }
+    });
+    let instance = instance.as_ref().map(|instance| {
+        let (left, right) = names.show_apart(&instance.values.0, &instance.values.1, text);
+        FindingInstance {
+            assignment: instance
+                .assignment
+                .iter()
+                .map(|(variable, value)| {
+                    format!("{} = {}", readable_variable(&variable.name), show(value))
+                })
+                .collect(),
+            overlap: show(&instance.overlap),
+            values: vec![left, right],
+        }
+    });
+    DefinitionFinding {
+        side,
+        verdict,
+        kind: FindingKind::Pair,
+        name: name(pair),
+        equations: vec![equation(&pair.first), equation(&pair.second)],
+        position: Some(position_text(&pair.position)),
+        reason: match &instance {
+            Some(instance) => format!(
+                "at {} the two equations equate {} and {}, distinct data terms, so no \
+                 model satisfies the definition",
+                instance.overlap, instance.values[0], instance.values[1]
+            ),
+            None => format!("not shown to join: {}", pair.reason),
+        },
+        overlap,
+        reducts: reducts
+            .map(|(left, right)| vec![left, right])
+            .unwrap_or_default(),
+        conditions: pair
+            .conditions
+            .as_ref()
+            .filter(|conditions| **conditions != Predicate::True)
+            .map(|conditions| names.show_predicate(conditions, text)),
+        instance,
+        assumed,
     }
 }

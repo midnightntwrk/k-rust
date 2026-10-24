@@ -628,39 +628,8 @@ impl LiveCases {
             }
             stated.findings.extend(entries);
         }
-        for (given, found) in assume_joined.iter().zip(&matched) {
-            if found.is_empty() {
-                return Err(CampaignError::InvalidOptions {
-                    message: format!(
-                        "assume-joined names `{given}`, which matches no unjoined pair of the \
-                         definitions' critical-pair checks; name a pair as the report's \
-                         definition-findings name it: FIRST,SECOND@POSITION, optionally after \
-                         `baseline:` or `mutant:`"
-                    ),
-                });
-            }
-            if let [(_, first, written_first), (_, second, written_second)] = &found[..]
-                && first != second
-            {
-                return Err(CampaignError::InvalidOptions {
-                    message: format!(
-                        "assume-joined names `{given}`, which matches different equation pairs on \
-                         the two definitions (baseline {written_first}, mutant {written_second}); \
-                         name each with `baseline:` or `mutant:` before it"
-                    ),
-                });
-            }
-        }
-        if !assume_joined.is_empty() {
-            stated.warnings.push(format!(
-                "assume-joined: the verdicts of this campaign hold for the definitions read as if \
-                 the pairs {} joined, not for the definitions as written",
-                assume_joined
-                    .iter()
-                    .map(|name| format!("`{name}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+        if let Some(warning) = check_assumed(&assume_joined, &matched)? {
+            stated.warnings.push(warning);
         }
         Ok(stated)
     }
@@ -1050,6 +1019,49 @@ impl LiveCases {
         }
         Ok(run)
     }
+}
+
+/// The names of `assume_joined` against the pair each matched on each definition (`matched`,
+/// in the same order): refused when one matches no pair, or different equation pairs on the two
+/// definitions; otherwise the warning stating the premise, when there is one.
+fn check_assumed(
+    assume_joined: &[String],
+    matched: &[Vec<(DefinitionRole, Vec<String>, String)>],
+) -> Result<Option<String>, CampaignError> {
+    for (given, found) in assume_joined.iter().zip(matched) {
+        if found.is_empty() {
+            return Err(CampaignError::InvalidOptions {
+                message: format!(
+                    "assume-joined names `{given}`, which matches no unjoined pair of the \
+                     definitions' critical-pair checks; name a pair as the report's \
+                     definition-findings name it: FIRST,SECOND@POSITION, optionally after \
+                     `baseline:` or `mutant:`"
+                ),
+            });
+        }
+        if let [(_, first, written_first), (_, second, written_second)] = &found[..]
+            && first != second
+        {
+            return Err(CampaignError::InvalidOptions {
+                message: format!(
+                    "assume-joined names `{given}`, which matches different equation pairs on \
+                     the two definitions (baseline {written_first}, mutant {written_second}); \
+                     name each with `baseline:` or `mutant:` before it"
+                ),
+            });
+        }
+    }
+    Ok((!assume_joined.is_empty()).then(|| {
+        format!(
+            "assume-joined: the verdicts of this campaign hold for the definitions read as if \
+             the pairs {} joined, not for the definitions as written",
+            assume_joined
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }))
 }
 
 /// `reason`, with [`UnjudgedReason::DefinitionNotConfluent`] in place of a reason that an end

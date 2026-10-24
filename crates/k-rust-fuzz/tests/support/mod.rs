@@ -728,7 +728,7 @@ fixture!(R3_PLAINQ_M, "r3-plainq/m.k", "PQ", R3_PLAINQ_PROGRAMS);
 pub const OWISE_PROGRAMS: &[Program] = &[program!("owise/go.pgm")];
 fixture!(OWISE, "owise/b.k", "OW", OWISE_PROGRAMS);
 fixture!(OWISE_M, "owise/m.k", "OW", OWISE_PROGRAMS);
-/// OWISE with the labels `ow1` and `ow2` on other equations (`g(_) => c`, `g(_) => bb`).
+// OWISE with the labels `ow1` and `ow2` on other equations (`g(_) => c`, `g(_) => bb`).
 fixture!(OWISE_X, "owise/x.k", "OW", OWISE_PROGRAMS);
 
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.

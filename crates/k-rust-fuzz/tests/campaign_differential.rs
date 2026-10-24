@@ -991,9 +991,9 @@ fn a_side_prefix_restricts_an_assumed_pair_to_one_definition() {
 }
 
 /// FZ-POLISH review S5: an unprefixed name applies on each definition where it matches and must
-/// name the same equations on both. `OW.ow1,OW.ow2@root` names OWISE's owise pair on both of
-/// OWISE and OWISE_M (the same equations): accepted, with a warning that the assumed pair is
-/// genuine. On OWISE_X the labels sit on other equations: refused as ambiguous, and accepted
+/// name the same equations on both. `OW.ow1,OW.ow2@root` names `OWISE`'s owise pair on both of
+/// `OWISE` and `OWISE_M` (the same equations): accepted, with a warning that the assumed pair is
+/// genuine. On `OWISE_X` the labels sit on other equations: refused as ambiguous, and accepted
 /// with a side prefix per definition.
 #[test]
 fn an_assumed_name_matching_different_pairs_on_the_two_sides_is_refused() {
