@@ -8169,7 +8169,15 @@ endmodule
             "{order}: {stdout}"
         );
         assert!(!stderr.contains("E1 wrote"), "{order}: {stderr}");
-        assert!(!stderr.contains("warning"), "{order}: {stderr}");
+        // The two equations are at `STRING.substr`, a hook the evaluator applies before any
+        // equation and for which the critical-pair check has no written meaning: each is named
+        // as not shown to agree with its hook (`UnmodelledHook`), and nothing else is warned.
+        let other_warnings = stderr
+            .lines()
+            .filter(|line| line.contains("warning"))
+            .filter(|line| !line.contains("is at a symbol hooked to `STRING.substr`"))
+            .collect::<Vec<_>>();
+        assert!(other_warnings.is_empty(), "{order}: {stderr}");
     }
     fs::remove_dir_all(root).unwrap();
 }
