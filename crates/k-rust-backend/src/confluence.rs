@@ -54,10 +54,11 @@
 //! 5. each overlap is refuted (the conjunction of both `requires` simplifies to `\bottom` with
 //!    every claim withheld), joined (both sides reach one term by steps valid on every instance,
 //!    `join.rs`), or not joined. An overlap over a sort with no normal form is not set aside:
-//!    no evaluation reaches it, but every model has an element of that sort, where both
-//!    equations hold (`Context::uninhabited_sort`); it is classified like any other, and a
-//!    non-joined one names the sort ([`UnjoinedReason::UninhabitedSort`]) and withdraws no
-//!    claim, since the claims are read in `M_NF`, where it has no instance;
+//!    it has no instance whose arguments are normal forms, but every model has an element of
+//!    that sort, where both equations hold (`Context::uninhabited_sort`). It is classified like
+//!    any other; a pair all of whose non-joined overlaps are over such sorts names the sort
+//!    ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, since the
+//!    claims are read in `M_NF`, where it has no instance;
 //! 6. the taint closure of the non-joined pairs (`closure.rs`) names the symbols whose
 //!    applications get no claim.
 //!
@@ -216,13 +217,14 @@ pub enum CheckScope {
     /// classifies alike, every value claim, the taint of every such symbol and every warned pair
     /// are those of [`Self::All`]; classification reads counters that earlier pairs advance (the
     /// spelling of renamed variables) and a per-condition budget of polls, so that equality is tested
-    /// (V9), not derived. What differs is the work counted and the non-joined pairs that withdraw
-    /// no claim, which are not computed. The scope of every load.
+    /// (V9), not derived. What differs is the work counted and the non-joined pairs of equations
+    /// that are not relevant, which are not computed. The scope of every load.
     ///
-    /// Like [`Self::All`], this scope classifies an overlap over a sort with no normal form, and
-    /// lists a non-joined one ([`UnjoinedReason::UninhabitedSort`]); in both scopes such a pair
-    /// withdraws no claim, so the two admit the same claims (`Context::uninhabited_sort` gives
-    /// the reading and its limit).
+    /// Among the pairs it classifies, this scope reads an overlap over a sort with no normal form
+    /// as [`Self::All`] does: a pair all of whose non-joined overlaps are over such sorts is
+    /// listed ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, in
+    /// both scopes, so the two admit the same claims and warn alike (`Context::uninhabited_sort`
+    /// gives the reading and its limit).
     Gate,
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
@@ -630,10 +632,10 @@ pub struct CheckCounts {
     /// Overlaps found (unifiers of candidate pairs).
     pub overlaps: usize,
     /// Of the overlaps, those over a sort with no normal form (a variable of the overlap ranges
-    /// over one): no evaluation reaches them, but they are not set aside, since every model has
-    /// an element of that sort; each is also counted as refuted, joined or not joined, and a
-    /// non-joined one names the sort ([`UnjoinedReason::UninhabitedSort`]) and withdraws no
-    /// claim.
+    /// over one): they have no instance whose arguments are normal forms, but they are not set
+    /// aside, since every model has an element of that sort; each is also counted as refuted,
+    /// joined or not joined, and a pair whose only non-joined overlaps are over such sorts names
+    /// the sort ([`UnjoinedReason::UninhabitedSort`]) and withdraws no claim.
     pub uninhabited: usize,
     /// Overlaps refuted by their conditions.
     pub refuted: usize,
@@ -845,7 +847,9 @@ impl UnjoinedPair {
     /// hold whether or not the definition makes claims.
     #[must_use]
     pub fn reported(&self) -> bool {
-        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
+        self.relevant()
+            || self.reason.describes_one_equation()
+            || (self.in_argument() && !self.over_uninhabited_sort())
     }
 
     /// Whether the pair's overlap ranges over a sort with no normal form
@@ -977,10 +981,12 @@ pub enum UnjoinedReason {
     /// A right-hand side the join does not read (a disjunction, `\top` or predicates).
     UnsupportedRightHandSide,
     /// The overlap ranges over `sort`, a sort with no normal form, and does not join there for
-    /// `reason`. No evaluation reaches such an overlap, yet every model of the definition has an
-    /// element of `sort` (matching-logic carriers are nonempty), at which both equations hold:
-    /// a pair whose reducts differ there identifies them in every model. Such a pair withdraws no
-    /// value claim ([`UnjoinedPair::over_uninhabited_sort`]).
+    /// `reason`; every other overlap of the pair joins, is refuted, or is over such a sort too.
+    /// Such an overlap has no instance whose arguments are normal forms, yet every model of the
+    /// definition has an element of `sort` (matching-logic carriers are nonempty), at which both
+    /// equations hold: a pair whose reducts differ there identifies them in every model. Such a
+    /// pair withdraws no value claim and is not reported at load
+    /// ([`UnjoinedPair::over_uninhabited_sort`]).
     UninhabitedSort {
         /// The sort, by its KORE name: the least by name when several apply.
         sort: Name,
@@ -1025,7 +1031,7 @@ impl std::fmt::Display for UnjoinedReason {
             }
             Self::UninhabitedSort { sort, reason } => write!(
                 formatter,
-                "{reason}, at an overlap over `{sort}`, a sort with no normal form: no evaluation reaches it, but every model has an element of `{sort}`, where both equations hold"
+                "{reason}, at an overlap over `{sort}`, a sort with no normal form: it has no instance whose arguments are normal forms (evaluation reaches it only at an argument that is not one, under that argument's definedness), but every model has an element of `{sort}`, where both equations hold"
             ),
         }
     }
@@ -1868,132 +1874,146 @@ impl Context<'_> {
                 Err(shape) => return not_joined(UnjoinedReason::Unresolved(shape)),
             }
         };
-        for unifier in unifiers {
+        // The first non-joined overlap over a sort with no normal form, kept while the later
+        // overlaps are classified: the pair is reported over that sort only when no overlap over
+        // inhabited sorts fails to join, whatever the order of the unifiers.
+        let mut over_uninhabited = None;
+        'unifiers: for unifier in unifiers {
             self.counts.overlaps += 1;
             self.group(candidate.group).overlaps += 1;
-            // An overlap over a sort with no normal form has no instance evaluation reaches, but
-            // it is not separated: every model has an element of that sort, at which both
-            // equations hold (`Self::uninhabited_sort`). It is refuted, joined or not joined like
-            // any other overlap, and a non-joined one names the sort.
+            // An overlap over a sort with no normal form has no instance whose arguments are
+            // normal forms, but it is not separated: every model has an element of that sort, at
+            // which both equations hold (`Self::uninhabited_sort`). It is refuted, joined or not
+            // joined like any other overlap.
             let uninhabited = self.uninhabited_sort(first, &second, &unifier);
             if uninhabited.is_some() {
                 self.counts.uninhabited += 1;
                 self.group(candidate.group).uninhabited += 1;
             }
-            let not_joined_here = |pair: UnjoinedPair| {
-                Classified::NotJoined(Box::new(pair.over_uninhabited(uninhabited.clone())))
-            };
-            let equalities = match self.conditions(&[first.as_ref(), second.as_ref()], &unifier) {
-                Conditions::Refuted => {
-                    self.counts.refuted += 1;
-                    self.group(candidate.group).refuted += 1;
-                    continue;
-                }
-                Conditions::Open(equalities) => equalities,
-            };
-            let instantiate = |term: &Term| substitute(&collapse_conjunctions(term), &unifier);
-            let ensures = |rule: &RewriteRule| -> BTreeSet<Predicate> {
-                let mut conjuncts = BTreeSet::new();
-                flatten(rule.ensures.instantiate(&unifier).report(), &mut conjuncts);
-                conjuncts
-            };
-            let overlap = instantiate(&first.lhs);
-            if ensures(first) != ensures(&second) && !switches::active().ignore_ensures {
-                return not_joined_here(UnjoinedPair {
-                    overlap: Some(overlap),
-                    ..unjoined_report(candidate, UnjoinedReason::EnsuresDiffer)
-                });
-            }
-            let (Ok(first_rhs), Ok(second_rhs)) =
-                (right_hand_side(first), right_hand_side(&second))
-            else {
-                return not_joined_here(UnjoinedPair {
-                    overlap: Some(overlap),
-                    ..unjoined_report(candidate, UnjoinedReason::UnsupportedRightHandSide)
-                });
-            };
-            let first_side = first_rhs.map(|rhs| instantiate(&rhs));
-            let second_side = if candidate.position.is_empty() {
-                second_rhs.map(|rhs| instantiate(&rhs))
-            } else {
-                // The step of `second` at the position, inside `first`'s left-hand side.
-                second_rhs.map(|rhs| {
-                    let marker = Variable::new(
-                        with_fresh_marker("VarOverlapStep", FreshMarker::Unify, self.fresh),
-                        inner_sort,
-                    );
-                    self.fresh += 1;
-                    let stepped = replace_at(
-                        &first.lhs,
-                        &candidate.position,
-                        Term::variable(marker.clone()),
-                    );
-                    let mut reduct = substitute(&rhs, &unifier);
-                    if injected {
-                        reduct = Term::injection(second_sort, inner_sort, reduct);
+            let unjoined: UnjoinedPair = 'classified: {
+                let equalities = match self.conditions(&[first.as_ref(), second.as_ref()], &unifier)
+                {
+                    Conditions::Refuted => {
+                        self.counts.refuted += 1;
+                        self.group(candidate.group).refuted += 1;
+                        continue 'unifiers;
                     }
-                    let mut with_step = unifier.clone();
-                    with_step.insert(marker, reduct);
-                    substitute(&collapse_conjunctions(&stepped), &with_step)
-                })
-            };
-            // The values the unifier gives the variables of either left-hand side are normal
-            // forms on every instance the pair speaks about: they are subterms of an innermost
-            // redex's normal-form arguments, or of an outer equation's valuation by elements.
-            let values = first
-                .lhs
-                .attributes()
-                .variables
-                .iter()
-                .chain(second.lhs.attributes().variables.iter())
-                .map(|variable| {
-                    unifier
-                        .get(variable)
-                        .cloned()
-                        .unwrap_or_else(|| Term::variable(variable.clone()))
-                })
-                .collect::<Vec<_>>();
-            let conditional = !first.requires.is_empty() || !second.requires.is_empty();
-            // Only the instances where both conditions hold are peaks, and each of them
-            // satisfies the conditions' equalities.
-            // The values stay as the unifier built them: they are instances of patterns, which
-            // the join reads as normal forms, while an equality may give a variable the value of
-            // any term.
-            let under =
-                |term: &Option<Term>| term.as_ref().map(|term| substitute(term, &equalities));
-            let (first_side, second_side) = (under(&first_side), under(&second_side));
-            match join::join(
-                self,
-                candidate.lifting,
-                (first_side.clone(), second_side.clone()),
-                &values,
-            ) {
-                join::Outcome::Joined => {
-                    self.counts.joined += 1;
-                    self.group(candidate.group).joined += 1;
-                }
-                join::Outcome::NotJoined {
-                    reached,
-                    refused,
-                    reason,
-                } => {
-                    let reason = match reason {
-                        UnjoinedReason::DifferentResults if conditional => {
-                            UnjoinedReason::ConditionOpen
-                        }
-                        reason => reason,
-                    };
-                    return not_joined_here(UnjoinedPair {
+                    Conditions::Open(equalities) => equalities,
+                };
+                let instantiate = |term: &Term| substitute(&collapse_conjunctions(term), &unifier);
+                let ensures = |rule: &RewriteRule| -> BTreeSet<Predicate> {
+                    let mut conjuncts = BTreeSet::new();
+                    flatten(rule.ensures.instantiate(&unifier).report(), &mut conjuncts);
+                    conjuncts
+                };
+                let overlap = instantiate(&first.lhs);
+                if ensures(first) != ensures(&second) && !switches::active().ignore_ensures {
+                    break 'classified UnjoinedPair {
                         overlap: Some(overlap),
-                        sides: Some((first_side, second_side)),
-                        reached: Some(reached),
+                        ..unjoined_report(candidate, UnjoinedReason::EnsuresDiffer)
+                    };
+                }
+                let (Ok(first_rhs), Ok(second_rhs)) =
+                    (right_hand_side(first), right_hand_side(&second))
+                else {
+                    break 'classified UnjoinedPair {
+                        overlap: Some(overlap),
+                        ..unjoined_report(candidate, UnjoinedReason::UnsupportedRightHandSide)
+                    };
+                };
+                let first_side = first_rhs.map(|rhs| instantiate(&rhs));
+                let second_side = if candidate.position.is_empty() {
+                    second_rhs.map(|rhs| instantiate(&rhs))
+                } else {
+                    // The step of `second` at the position, inside `first`'s left-hand side.
+                    second_rhs.map(|rhs| {
+                        let marker = Variable::new(
+                            with_fresh_marker("VarOverlapStep", FreshMarker::Unify, self.fresh),
+                            inner_sort,
+                        );
+                        self.fresh += 1;
+                        let stepped = replace_at(
+                            &first.lhs,
+                            &candidate.position,
+                            Term::variable(marker.clone()),
+                        );
+                        let mut reduct = substitute(&rhs, &unifier);
+                        if injected {
+                            reduct = Term::injection(second_sort, inner_sort, reduct);
+                        }
+                        let mut with_step = unifier.clone();
+                        with_step.insert(marker, reduct);
+                        substitute(&collapse_conjunctions(&stepped), &with_step)
+                    })
+                };
+                // The values the unifier gives the variables of either left-hand side are normal
+                // forms on every instance the pair speaks about: they are subterms of an innermost
+                // redex's normal-form arguments, or of an outer equation's valuation by elements.
+                let values = first
+                    .lhs
+                    .attributes()
+                    .variables
+                    .iter()
+                    .chain(second.lhs.attributes().variables.iter())
+                    .map(|variable| {
+                        unifier
+                            .get(variable)
+                            .cloned()
+                            .unwrap_or_else(|| Term::variable(variable.clone()))
+                    })
+                    .collect::<Vec<_>>();
+                let conditional = !first.requires.is_empty() || !second.requires.is_empty();
+                // Only the instances where both conditions hold are peaks, and each of them
+                // satisfies the conditions' equalities.
+                // The values stay as the unifier built them: they are instances of patterns, which
+                // the join reads as normal forms, while an equality may give a variable the value of
+                // any term.
+                let under =
+                    |term: &Option<Term>| term.as_ref().map(|term| substitute(term, &equalities));
+                let (first_side, second_side) = (under(&first_side), under(&second_side));
+                match join::join(
+                    self,
+                    candidate.lifting,
+                    (first_side.clone(), second_side.clone()),
+                    &values,
+                ) {
+                    join::Outcome::Joined => {
+                        self.counts.joined += 1;
+                        self.group(candidate.group).joined += 1;
+                        continue 'unifiers;
+                    }
+                    join::Outcome::NotJoined {
+                        reached,
                         refused,
-                        ..unjoined_report(candidate, reason)
-                    });
+                        reason,
+                    } => {
+                        let reason = match reason {
+                            UnjoinedReason::DifferentResults if conditional => {
+                                UnjoinedReason::ConditionOpen
+                            }
+                            reason => reason,
+                        };
+                        break 'classified UnjoinedPair {
+                            overlap: Some(overlap),
+                            sides: Some((first_side, second_side)),
+                            reached: Some(reached),
+                            refused,
+                            ..unjoined_report(candidate, reason)
+                        };
+                    }
+                }
+            };
+            match uninhabited {
+                None => return Classified::NotJoined(Box::new(unjoined)),
+                Some(sort) => {
+                    over_uninhabited.get_or_insert_with(|| unjoined.over_uninhabited(Some(sort)));
                 }
             }
         }
-        Classified::Fine
+        match over_uninhabited {
+            Some(pair) => Classified::NotJoined(Box::new(pair)),
+            None => Classified::Fine,
+        }
     }
 }
 
@@ -2042,8 +2062,11 @@ fn aliases(pattern: &Term, into: &mut Vec<(Term, Term)>) {
 
 impl Context<'_> {
     /// The least (by name) sort with no normal form that a variable of the overlap ranges over,
-    /// if there is one. Such an overlap has no instance whose variables are normal forms, so no
-    /// evaluation step ever meets it; it is still not separated, under either scope.
+    /// if there is one. Such an overlap has no instance whose arguments are normal forms; it is
+    /// still not separated, under either scope. Evaluation can meet an instance of it only at an
+    /// argument that is not a normal form, a stuck application of a partial function (`h(g(1))`
+    /// with `g` partial and no equation of `g`): the step then applies under that argument's
+    /// definedness, and its result holds in every model where the argument is defined.
     ///
     /// Matching-logic carriers are nonempty, so every model of the definition has an element of
     /// the sort, and both equations hold at that element: `f(_:S) = a` beside `f(_:S) = bb`
@@ -2054,8 +2077,10 @@ impl Context<'_> {
     /// Such a pair withdraws no value claim, in either scope. The claims are statements about
     /// `M_NF`, where the sort is empty and the pair has no instance, and the closure's model `M'`
     /// is built from a model in which that sort may be empty (`docs/compatibility.md`, "Anywhere
-    /// rules"). Every use of a claim on evaluation is sound under that reading: an evaluation
-    /// reaches only normal forms, and none is of the sort. The prover also uses claims (it
+    /// rules"). Every use of a claim on evaluation is sound under that reading: a claim is made
+    /// only of an application whose arguments are instance-normal (`instance_normal.rs`), a
+    /// ground instance-normal term is a normal form, and no ground term of the sort is one. The
+    /// prover also uses claims (it
     /// decomposes and refutes equation-head applications by their instance-normal tokens when it
     /// unifies a claim or a rule with a symbolic state, `unification.rs`, `proof.rs`,
     /// `rewrite/recover.rs`), and its results rest on that reading too: from a model with an

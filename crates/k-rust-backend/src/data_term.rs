@@ -7,7 +7,7 @@
 //!
 //! A definition *has data* when its full critical-pair check
 //! ([`CheckScope::All`](crate::confluence::CheckScope::All), which classifies every pair of
-//! executable equations) reports nothing: every pair joins or is separated or refuted, no
+//! executable equations) reports nothing: every pair joins or is refuted, no
 //! equation is one the evaluator does not apply to every subject it describes, and no
 //! precondition row is violated (no equation rooted at a free constructor, an injection, a
 //! collection or a bare variable; every overload equation of the canonical shape below; a unique
