@@ -132,6 +132,28 @@ fn module_files(file: &std::path::Path) -> Vec<(PathBuf, String)> {
     out
 }
 
+/// The theorem of `lines` (a generated file) that an error at line `line` (1-based) is in: the
+/// last `theorem` line at or before it, unless the error is on the lines that open a declaration
+/// before its `theorem` keyword (its doc comment, a `set_option … in`), where Lean reports an
+/// error of the whole declaration, such as a proof out of heartbeats; then the theorem they open.
+fn failed_theorem(lines: &[&str], line: usize) -> Option<String> {
+    let opens =
+        |l: &str| l.starts_with("/--") || (l.starts_with("set_option ") && l.ends_with(" in"));
+    let mut i = line.checked_sub(1)?;
+    if lines.get(i).is_some_and(|l| opens(l)) {
+        while lines.get(i).is_some_and(|l| opens(l)) {
+            i += 1;
+        }
+    }
+    let i = i.min(lines.len().checked_sub(1)?);
+    (0..=i).rev().find_map(|k| {
+        // the name ends at the first space outside `«…»` (rule names hold spaces)
+        lines[k]
+            .strip_prefix("theorem ")
+            .map(|name| invariants::case_token(name).unwrap())
+    })
+}
+
 /// `open-from-log EQUATIONS.lean BUILD.log OPEN.txt`: add the theorems whose proofs failed in a
 /// build log to the open-obligation list (they are then emitted as statements only). The errors
 /// of the parts of an `Equations.lean` written in parts count as its own.
@@ -174,12 +196,8 @@ fn open_from_log(args: &[String]) {
             {
                 continue;
             }
-            for i in (0..line.min(lines.len())).rev() {
-                if let Some(name) = lines[i].strip_prefix("theorem ") {
-                    // the name ends at the first space outside `«…»` (rule names hold spaces)
-                    open.insert(invariants::case_token(name).unwrap());
-                    break;
-                }
+            if let Some(name) = failed_theorem(&lines, line) {
+                open.insert(name);
             }
         }
     }
@@ -853,6 +871,22 @@ mod tests {
             "Eqn.a_1\nEqn.z_9\nEqn.«b_c_1»\n"
         );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// An error at the first line of a declaration (its doc comment or `set_option … in`, where
+    /// Lean reports a proof out of heartbeats) is the theorem's that the line opens, not the
+    /// theorem's before it.
+    #[test]
+    fn failed_theorem_at_declaration_start() {
+        let text = "/-- a -/\ntheorem Eqn.a_1 :\n    1 = 1 := by\n  rfl\n\nset_option maxHeartbeats 400000 in\n/-- b -/\ntheorem Eqn.b_1 :\n    1 = 1 := by\n  rfl\n";
+        let lines: Vec<&str> = text.lines().collect();
+        let at = |n| failed_theorem(&lines, n);
+        assert_eq!(at(1).as_deref(), Some("Eqn.a_1"));
+        assert_eq!(at(4).as_deref(), Some("Eqn.a_1"));
+        assert_eq!(at(5).as_deref(), Some("Eqn.a_1"));
+        assert_eq!(at(6).as_deref(), Some("Eqn.b_1"));
+        assert_eq!(at(7).as_deref(), Some("Eqn.b_1"));
+        assert_eq!(at(10).as_deref(), Some("Eqn.b_1"));
     }
 
     /// An `Equations.lean` written in parts: the errors of each part name its theorems, and an
