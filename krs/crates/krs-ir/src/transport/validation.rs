@@ -271,11 +271,42 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error>;
 }
 
+/// Validates `term` and its subterms; a failure reports the innermost node that encloses it
+/// ([`crate::failure_site`]).
+pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
+    term: &Term<S>,
+    context: &mut C,
+) -> Result<(), C::Error> {
+    validate_term_node(term, context).inspect_err(|_| crate::failure_site::report(term_key(term)))
+}
+
+/// The provenance key of a term's own node.
+fn term_key<S: ValidationStage>(term: &Term<S>) -> &ProvenanceKey {
+    match term {
+        Term::Application { reference, .. } => S::application_key(reference),
+        Term::Variable { key, .. }
+        | Term::Literal { key, .. }
+        | Term::Wildcard { key }
+        | Term::BuiltinToken { key, .. }
+        | Term::Anonymous { key, .. }
+        | Term::OrBool { key, .. }
+        | Term::Lexeme { key, .. }
+        | Term::Cell { key, .. }
+        | Term::SortTest { key, .. }
+        | Term::As { key, .. }
+        | Term::Or { key, .. }
+        | Term::Matches { key, .. }
+        | Term::Let { key, .. }
+        | Term::Closure { key, .. }
+        | Term::Rewrite { key, .. } => key,
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "One exhaustive match validates every transport term variant."
 )]
-pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
+fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
     term: &Term<S>,
     context: &mut C,
 ) -> Result<(), C::Error> {

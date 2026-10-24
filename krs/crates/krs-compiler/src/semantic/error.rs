@@ -752,9 +752,12 @@ impl fmt::Display for DescriptorLoweringError {
                 builtin.k_name(),
                 builtin.marker_name()
             ),
+            Self::ConfigurationCount { count: 0, .. } => formatter.write_str(
+                "the definition has no `#[k::configuration]`; every definition declares its state with exactly one",
+            ),
             Self::ConfigurationCount { count, .. } => write!(
                 formatter,
-                "descriptor bundle requires exactly one configuration, found {count}"
+                "the definition declares {count} configurations; a definition has exactly one"
             ),
             Self::ReferenceKindMismatch {
                 id,

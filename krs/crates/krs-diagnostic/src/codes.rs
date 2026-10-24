@@ -272,6 +272,7 @@ register_codes! {
         INVALID_HEAT_COOL: "krs::analysis::invalid-heat-cool" => "A heat or cool rule's `hole = x` binder does not occur on its left side, or occurs there more than once.",
         INVALID_CONTEXT: "krs::analysis::invalid-context" => "A context's `hole = x` binder is absent, bound twice, or outside the computation cell, or its rewrite is not `HOLE => term-containing-HOLE`; or a context alias's HERE is outside the computation cell.",
         OPTIONAL_PRESENCE: "krs::analysis::optional-presence" => "An optional (`?`) cell is written without `Some`/`None`, a `Some`/`None` entry names a cell that is not optional, or a rule tests absence other than by creating the cell (`None => Some(..)`).",
+        COMPUTATION_CELL: "krs::analysis::computation-cell" => "A rule completed at the head of the computation needs a configuration with exactly one top-level `KSequence` cell.",
         CELL_WRAPPER: "krs::analysis::cell-wrapper" => "A configuration entry's wrapper is not its cell's: `KCell(..)` or a bracketed sequence for the computation cell, `Cell(..)` for a leaf, none for a group, written on another kind of cell.",
         UNUSED_CONFIGURATION_VARIABLE: "krs::analysis::unused-configuration-variable" => "A `#[k::config_var]` initializer parameter is read by no cell's initial content, so its input would have nowhere to go.",
         UNKNOWN_INSTANCE_LABEL: "krs::analysis::unknown-instance-label" => "A result instance updates `..label` without a subject instance `label`, or two result instances update the same label.",

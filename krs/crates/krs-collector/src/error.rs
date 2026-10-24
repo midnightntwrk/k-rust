@@ -42,6 +42,12 @@ pub enum CollectionErrorKind {
     ReferenceKindMismatch,
     /// A fixed configuration, cell, or configuration rule descriptor was malformed.
     InvalidConfiguration,
+    /// A rule at the head of the computation needs exactly one configuration, and the definition
+    /// has none or several.
+    ConfigurationCount,
+    /// A rule at the head of the computation needs exactly one top-level `KSequence` cell in its
+    /// configuration.
+    ComputationCell,
     /// A display filename was not a normalized relative source hint.
     InvalidDisplayFile,
     /// A display or resolved source file escaped its Cargo package directory.
@@ -189,6 +195,8 @@ impl ToDiagnostic for CollectionError {
             }
             CollectionErrorKind::ReferenceKindMismatch => codes::collect::REFERENCE_KIND_MISMATCH,
             CollectionErrorKind::InvalidConfiguration => codes::collect::INVALID_CONFIGURATION,
+            CollectionErrorKind::ConfigurationCount => codes::analysis::CONFIGURATION_COUNT,
+            CollectionErrorKind::ComputationCell => codes::analysis::COMPUTATION_CELL,
             CollectionErrorKind::InvalidDisplayFile => codes::collect::INVALID_DISPLAY_FILE,
             CollectionErrorKind::SourceOutsidePackage => codes::collect::SOURCE_OUTSIDE_PACKAGE,
             CollectionErrorKind::AmbiguousSourcePath => codes::collect::AMBIGUOUS_SOURCE_PATH,
@@ -311,6 +319,14 @@ mod tests {
             (
                 CollectionErrorKind::InvalidConfiguration,
                 codes::collect::INVALID_CONFIGURATION,
+            ),
+            (
+                CollectionErrorKind::ConfigurationCount,
+                codes::analysis::CONFIGURATION_COUNT,
+            ),
+            (
+                CollectionErrorKind::ComputationCell,
+                codes::analysis::COMPUTATION_CELL,
             ),
             (
                 CollectionErrorKind::InvalidDisplayFile,

@@ -1006,15 +1006,16 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             missing_configuration.kind(),
-            krs_collector::CollectionErrorKind::InvalidConfiguration
+            krs_collector::CollectionErrorKind::ConfigurationCount
         );
         assert!(
             missing_configuration
                 .detail()
-                .contains("none was collected")
+                .contains("the definition has no `#[k::configuration]`")
         );
 
-        let mut ambiguous_descriptors = implicit_head_rules.clone();
+        let mut ambiguous_descriptors = vocabulary(&descriptors);
+        ambiguous_descriptors.extend(implicit_head_rules.iter().cloned());
         ambiguous_descriptors.extend(
             descriptors
                 .iter()
@@ -1040,7 +1041,7 @@ mod tests {
         assert!(
             ambiguous_configuration
                 .detail()
-                .contains("2 candidates were collected"),
+                .contains("the definition declares 2 configurations"),
             "{}",
             ambiguous_configuration.detail()
         );
@@ -1075,9 +1076,9 @@ mod tests {
             .unwrap();
         let local_is_not_ownership = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            implicit_head_rules
-                .iter()
-                .cloned()
+            vocabulary(&descriptors)
+                .into_iter()
+                .chain(implicit_head_rules.iter().cloned())
                 .chain([local_configuration.clone(), unrelated_configuration])
                 .map(Ok),
             &language_host::builtin_registry(),
@@ -1086,7 +1087,7 @@ mod tests {
         assert!(
             local_is_not_ownership
                 .detail()
-                .contains("2 candidates were collected")
+                .contains("the definition declares 2 configurations")
         );
     }
 
@@ -1155,11 +1156,7 @@ mod tests {
             unreachable!()
         };
         *value = language_host::ProtocolInitializerStateTerm::Term(sequence.items[0].value.clone());
-        let sort_descriptors = descriptors
-            .iter()
-            .filter(|descriptor| descriptor.id.item_kind() == ItemKind::Sort)
-            .cloned()
-            .collect::<Vec<_>>();
+        let sort_descriptors = vocabulary(&descriptors);
         let no_computation = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             sort_descriptors
@@ -1174,7 +1171,7 @@ mod tests {
         assert!(
             no_computation
                 .detail()
-                .contains("no matching top-level KCell<KSequence>"),
+                .contains("has no `KSequence` cell to hold the computation"),
             "{}",
             no_computation.detail()
         );
@@ -1198,7 +1195,7 @@ mod tests {
         assert!(
             two_computations
                 .detail()
-                .contains("2 matching top-level KCell<KSequence>"),
+                .contains("has 2 top-level `KSequence` cells, `first`, `second`"),
             "{}",
             two_computations.detail()
         );
@@ -2526,6 +2523,21 @@ mod tests {
         descriptors: &[language_host::HostDescriptor],
     ) -> Vec<language_host::HostDescriptor> {
         head_rules(descriptors).into_iter().filter(|descriptor| matches!(&descriptor.payload, HostDescriptorPayload::HeadRule(rule) if rule.head_sort.is_some())).collect()
+    }
+
+    /// The sorts and constructors a head rule's terms resolve against: a rule is checked against
+    /// the configuration as its payload is resolved, so its terms must resolve first.
+    fn vocabulary(descriptors: &[language_host::HostDescriptor]) -> Vec<language_host::HostDescriptor> {
+        descriptors
+            .iter()
+            .filter(|descriptor| {
+                matches!(
+                    descriptor.payload,
+                    HostDescriptorPayload::Sort(_) | HostDescriptorPayload::Constructor(_)
+                )
+            })
+            .cloned()
+            .collect()
     }
 
     fn broad_bundle(descriptors: &[language_host::HostDescriptor]) -> krs_ir::DescriptorBundle {

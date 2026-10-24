@@ -519,6 +519,17 @@ impl TryFrom<DescriptorWire> for Descriptor {
     }
 }
 
+/// A descriptor contract failure with what locates it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DescriptorFailure {
+    /// The failure.
+    pub error: DescriptorError,
+    /// The innermost node a term walk failed in, when a term walk failed.
+    pub at: Option<ProvenanceKey>,
+    /// The descriptor's provenance, which resolves `at`.
+    pub provenance: DescriptorProvenance,
+}
+
 /// A context-free descriptor contract failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorError {
@@ -568,26 +579,54 @@ impl Descriptor {
         provenance: DescriptorProvenance,
         payload: DescriptorPayload,
     ) -> Result<Self, DescriptorError> {
+        Self::new_located(id, cfg, provenance, payload).map_err(|failure| failure.error)
+    }
+
+    /// As [`Self::new`], and a failure keeps the innermost node a term walk failed in and the
+    /// provenance that locates it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn new_located(
+        id: StableItemId,
+        cfg: BTreeMap<String, Option<String>>,
+        provenance: DescriptorProvenance,
+        payload: DescriptorPayload,
+    ) -> Result<Self, Box<DescriptorFailure>> {
         let descriptor = Self {
             id,
             cfg,
             provenance,
             payload,
         };
-        descriptor
-            .validate_grammar_contract()
-            .map_err(DescriptorError::Grammar)?;
-        descriptor
-            .validate_state_contract()
-            .map_err(DescriptorError::State)?;
+        let (validated, at) = crate::failure_site::record(|| {
+            descriptor
+                .validate_grammar_contract()
+                .map_err(DescriptorError::Grammar)?;
+            descriptor
+                .validate_state_contract()
+                .map_err(DescriptorError::State)
+        });
+        if let Err(error) = validated {
+            return Err(Box::new(DescriptorFailure {
+                error,
+                at,
+                provenance: descriptor.provenance,
+            }));
+        }
         let expected = descriptor.payload.item_kind();
         let actual = descriptor.id.item_kind();
         if actual != expected {
-            return Err(DescriptorError::WrongKind {
-                id: Box::new(descriptor.id),
-                expected,
-                actual,
-            });
+            return Err(Box::new(DescriptorFailure {
+                error: DescriptorError::WrongKind {
+                    id: Box::new(descriptor.id),
+                    expected,
+                    actual,
+                },
+                at: None,
+                provenance: descriptor.provenance,
+            }));
         }
         Ok(descriptor)
     }
