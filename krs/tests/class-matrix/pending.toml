@@ -189,7 +189,8 @@ deviation = "10 pairs only overlap holds; 0 pairs only coverage holds"
 step = "S4"
 
 # Lane "full" (U3): the full tier, `krs/crates/krs-cli/tests/class_matrix.rs` (K2 through rustc,
-# the collector and lowering; K1 after lowering, keyed `k1/CASE`). Its findings:
+# the collector and lowering; K1 after lowering, keyed `k1/CASE`; K3, keyed `k3/CASE`; K4 against
+# k-rust, keyed `lattice/class-BASE/..`). Its findings:
 # - B2: an initializer value of the wrong kind of cell is rustc E0308 at the generated types of
 #   `#[k::init]`, not at the value;
 # - B3: `Some(..)`/`None` in a readable result on a cell that is not optional is rustc E0277 on a
@@ -197,6 +198,7 @@ step = "S4"
 # - B4: `k: x`, or `{ y -> x, .. }` on a cell that is not a Map, is an unlocated `unsupported-shape`;
 # - B6: a `cells!` wrapper that disagrees with the cell's kind (`KCell` on a leaf, `Cell` on the
 #   computation or a group) is an unlocated `parser-reference-disagreement` or `invalid-term`;
+# - B7: a bare entry on a `*` collection, accepted with a one-instance meaning (K3 below);
 # - N22: a module-level `use Cmd::*;` does not reach the term positions (rustc E0573);
 # - N26: two literals in one initializer term give one semantic key twice;
 # - N27: an initializer value of a strict subsort of its cell's sort is refused by the IR
@@ -1535,6 +1537,41 @@ deviation = "uncoded @ unlocated"
 ["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "unassigned"
 deviation = "uncoded @ unlocated"
+# K3: the source `krs expand` prints for the accepted cases, emitted again. B7: a bare entry on a
+# `*` collection is accepted with a one-instance meaning that the printed `cells!` refuses.
+
+["k3/claim/subject/job/x"]
+finding = "B7"
+deviation = "printed surface refused: krs::analysis::unsupported-shape @ unlocated"
+
+["k3/readable/subject/job/x"]
+finding = "B7"
+deviation = "printed surface refused: krs::analysis::unsupported-shape @ unlocated"
+
+["k3/terms/readable/result-list-element/k::matches!(x, Cmd::Hold(_))"]
+finding = "unassigned"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/result-list-element/{ let y = x; y }"]
+finding = "unassigned"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "unassigned"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/result/{ let y = x; y }"]
+finding = "unassigned"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/sort-rule/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "unassigned"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/sort-rule/result/{ let y = x; y }"]
+finding = "unassigned"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
 # K4 against k-rust's lattice of each base's emitted definition: the coverage lint's graph (G5) has no
 # `S ≤ KItem`.
 

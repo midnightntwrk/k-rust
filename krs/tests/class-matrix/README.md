@@ -25,7 +25,13 @@ the descriptors of the base and its own. A case is judged by
   located inside the case's entry, without a panic or an internal error; and the table's outcome
   where the table covers the case (until the table is reviewed, an uncovered case is only counted);
 - K1, once collected: every anchor of the case's descriptors lies inside the case's text, and no
-  semantic key is found twice during lowering.
+  semantic key is found twice during lowering;
+- K3, once accepted (initializers aside): the accepted cases of a batch are printed together by
+  `krs expand`, the printed source is collected again, and each case's own K sentences must be
+  emitted again, byte for byte or after the normalization of `class_matrix/closure.rs`
+  (alpha-renaming, `... </k>` for an explicit computation rest, `...` for a frame variable used
+  once). Each shard prints, per form, how many cases are byte-identical, equal after
+  normalization, different, or refused in the printed source. `KRS_CLASS_CLOSURE=0` skips it.
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about

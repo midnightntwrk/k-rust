@@ -5,7 +5,8 @@
 //! conform listed in `pending.toml`.
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
-//! `cells`, `init`, `terms`, and `import`; and `k4`, which compares KRS's sort judges with
+//! `cells`, `init`, `terms`, and `import`, each of which also judges its accepted cases by K3
+//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`; and `k4`, which compares KRS's sort judges with
 //! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
 //! and per step, and fails on a case that deviates and is not pending, a pending case that
 //! conforms or deviates differently, and a table error.
@@ -24,6 +25,8 @@
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`.
 
+#[path = "class_matrix/closure.rs"]
+mod closure;
 #[path = "class_matrix/lattice.rs"]
 mod lattice;
 #[path = "class_matrix/pipeline.rs"]
@@ -38,11 +41,12 @@ use krs_compiler::testing::SortJudges;
 use krs_diagnostic::Code;
 use krs_test_support::class_matrix::invariants::{signature, violations};
 use krs_test_support::class_matrix::pending::{
-    FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
+    CLOSURE, FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
 };
 use krs_test_support::class_matrix::table::{At, Expected, Glob, Resolution, Table, TableError};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
+use closure::Closure;
 use pipeline::{Judged, Settings};
 
 /// Whether a case no table entry decides fails the suite. Until the table is reviewed it is only
@@ -94,21 +98,67 @@ fn number(name: &str, default: usize) -> usize {
     })
 }
 
+/// The prefix of every scratch directory of the tier, the script's and the test's own.
+const SCRATCH_PREFIX: &str = "krs-class-";
+
+/// The file in a scratch directory that names the process that owns it.
+const OWNER: &str = "owner.pid";
+
+/// Remove the scratch directories in the temporary directory whose owner is no running process:
+/// a run that was killed (or a host that stopped) cannot remove its own, and its worker targets
+/// are gigabytes. A directory whose owner file is missing or unreadable is reported, not removed.
+fn remove_abandoned_scratch() {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let named = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(SCRATCH_PREFIX));
+        if !named || !path.is_dir() {
+            continue;
+        }
+        let owner = std::fs::read_to_string(path.join(OWNER))
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok());
+        match owner {
+            Some(pid) if Path::new(&format!("/proc/{pid}")).exists() => {}
+            Some(_) => {
+                eprintln!(
+                    "[krs-class] removing the abandoned scratch {}",
+                    path.display()
+                );
+                let _ = std::fs::remove_dir_all(&path);
+            }
+            None => eprintln!(
+                "[krs-class] {} names no owner; remove it if no run uses it",
+                path.display()
+            ),
+        }
+    }
+}
+
 /// The run's settings, and the temporary scratch directory when the caller gave none.
 fn settings() -> (Settings, Option<tempfile::TempDir>) {
+    remove_abandoned_scratch();
     let (scratch, guard) = if let Some(directory) = variable("KRS_CLASS_SCRATCH") {
         (PathBuf::from(directory), None)
     } else {
         let guard = tempfile::Builder::new()
-            .prefix("krs-class-")
+            .prefix(SCRATCH_PREFIX)
             .tempdir()
             .expect("the scratch directory is created");
+        std::fs::write(guard.path().join(OWNER), std::process::id().to_string())
+            .expect("the scratch's owner is written");
         (guard.path().to_path_buf(), Some(guard))
     };
     let settings = Settings {
         workers: number("KRS_CLASS_WORKERS", 1),
         batch: number("KRS_CLASS_BATCH", 40),
         scratch,
+        closure: variable("KRS_CLASS_CLOSURE").is_none_or(|value| value != "0"),
     };
     (settings, guard)
 }
@@ -179,6 +229,7 @@ impl Shard {
         self.verdicts.entry(test).or_default().push(Verdict {
             key: match test {
                 "k1" => format!("{KEYS}{id}"),
+                "k3" => format!("{CLOSURE}{id}"),
                 _ if spec().pending.entries.contains_key(&full) => full,
                 _ => id.to_owned(),
             },
@@ -231,10 +282,7 @@ impl Shard {
                     .filter_map(|verdict| case_of(&verdict.key))
                     .collect::<BTreeSet<_>>();
                 for key in pending.entries.keys() {
-                    let ours = match *test {
-                        "k1" => key.starts_with(KEYS),
-                        _ => !key.starts_with(KEYS),
-                    };
+                    let ours = test_of(key) == *test;
                     let Some(case) = case_of(key).filter(|_| ours) else {
                         continue;
                     };
@@ -337,6 +385,56 @@ fn k2(shard: &mut Shard, resolution: &Resolution<'_>, case: &Case, judged: &Judg
     covered.is_some()
 }
 
+/// The test a pending key belongs to.
+fn test_of(key: &str) -> &'static str {
+    if key.starts_with(KEYS) {
+        "k1"
+    } else if key.starts_with(CLOSURE) {
+        "k3"
+    } else {
+        "k2"
+    }
+}
+
+/// K3: the source `krs expand` prints for the accepted cases emits each case's own sentences,
+/// up to the normalization of [`closure`]; counted per form, which S6 reads.
+fn k3(
+    shard: &mut Shard,
+    judged: &Judged,
+    forms: &mut BTreeMap<String, BTreeMap<&'static str, usize>>,
+) {
+    let Some(verdict) = &judged.closure else {
+        return;
+    };
+    let mut segments = judged.id.split('/');
+    let family = segments.next().unwrap_or_default();
+    let form = match family {
+        "terms" | "import" => format!("{family}/{}", segments.next().unwrap_or_default()),
+        _ => family.to_owned(),
+    };
+    *forms
+        .entry(form)
+        .or_default()
+        .entry(verdict.column())
+        .or_default() += 1;
+    if let Closure::Different { original, printed } = verdict {
+        writeln!(
+            shard.lines,
+            "k3-different\t{}\t{}\t{}",
+            judged.id,
+            original.join(" | ").replace('\n', " "),
+            printed.join(" | ").replace('\n', " ")
+        )
+        .expect("writing to a String cannot fail");
+    }
+    let misses = if verdict.conforms() {
+        Vec::new()
+    } else {
+        vec![verdict.column().to_owned()]
+    };
+    shard.add("k3", &judged.id, verdict.signature(), misses);
+}
+
 /// K1 over the collected bundle and after lowering: every anchor of the case's descriptors lies
 /// inside its node, and no semantic key is found twice. A case that never reached the
 /// collector's output has no K1 verdict.
@@ -378,6 +476,7 @@ fn shard(name: &str, families: &[Family]) {
     }
     let mut accepted = 0;
     let mut uncovered = 0;
+    let mut forms = BTreeMap::new();
     for judged in &judged {
         if !judged.observed.refused() {
             accepted += 1;
@@ -386,6 +485,7 @@ fn shard(name: &str, families: &[Family]) {
             uncovered += 1;
         }
         k1(&mut shard, judged);
+        k3(&mut shard, judged, &mut forms);
     }
     let red = shard.judge(
         &spec.pending,
@@ -400,11 +500,13 @@ fn shard(name: &str, families: &[Family]) {
             .expect("the pending entries are written");
     }
 
+    for (form, counts) in &forms {
+        eprintln!("[krs-class] {name}: K3 {form}: {counts:?}");
+    }
     let tally = spec.pending.tally(red.iter().map(String::as_str));
     let mut by_test = BTreeMap::<&str, usize>::new();
     for key in &red {
-        let test = if key.starts_with(KEYS) { "k1" } else { "k2" };
-        *by_test.entry(test).or_default() += 1;
+        *by_test.entry(test_of(key)).or_default() += 1;
     }
     eprintln!(
         "[krs-class] {name}: {} cases in {:.1} s; {accepted} accepted, {} refused; red {} (by test {by_test:?}; by finding {:?}; by step {:?}); {uncovered} not covered by the table",

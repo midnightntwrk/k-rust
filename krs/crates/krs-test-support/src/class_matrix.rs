@@ -362,6 +362,13 @@ impl Case {
         &self.item
     }
 
+    /// The eight hexadecimal digits of the case ID's hash, which name the case's command
+    /// (`C` and the digits), its labels, and its other items.
+    #[must_use]
+    pub fn tag(&self) -> String {
+        format!("{:08x}", fnv1a(&self.id))
+    }
+
     /// The case's command constructor, for a shared case.
     #[must_use]
     pub const fn command(&self) -> Option<&Command> {

@@ -71,7 +71,9 @@ if [[ -z $workers ]]; then
   echo "[krs-class] $workers workers (load $load, $((available_kib / 1024 / 1024)) GiB available)" >&2
 fi
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/krs-class.XXXXXX")
+# The test removes the scratch of a run whose owner (owner.pid) is gone, an interrupted one.
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/krs-class-XXXXXX")
+echo $$ >"$scratch/owner.pid"
 report_and_remove() {
   echo "[krs-class] scratch at its end: $(du -sh "$scratch" 2>/dev/null | cut -f1)" >&2
   rm -rf "$scratch"

@@ -11,6 +11,13 @@
 //! ([`sub_bundle`]), exactly as `krs emit-k` lowers a whole definition. A case that needs a
 //! package of its own (an initializer, a computation-subject case) is a batch of one.
 //!
+//! K3 follows each collected batch ([`Worker::check_closure`]): its accepted cases that are no
+//! initializer are rendered together, `krs expand` prints that package, and the printed source is
+//! collected as a batch of its own. Each case is located in it by its tag (every top-level item
+//! naming it, and its command variant), errors are attributed and bisected as for the batches,
+//! and each case's sentences are emitted from the printed base and the case's printed items, then
+//! compared with the sentences the case added to its own base ([`crate::closure`]).
+//!
 //! Workers run batches concurrently, each with one Cargo target directory reused across its
 //! batches; every batch package is written fresh, under a name derived from its content, so no
 //! build of an earlier batch can stand in for it.
@@ -25,12 +32,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use krs_cli::{
     CollectedDefinition, Command, CommandError, CommandRequest, DiagnosticEnvelope,
-    DiagnosticSeverity, FacetSelector, MessageFormat, PackageSelector, RegistrationMode,
-    collect_descriptors,
+    DiagnosticSeverity, EmittedDefinition, FacetSelector, MessageFormat, PackageSelector,
+    RegistrationMode, collect_descriptors,
 };
 use krs_ir::DescriptorBundle;
-use krs_test_support::class_matrix::invariants::{Observed, ObservedDiagnostic, Severity};
+use krs_test_support::class_matrix::invariants::{
+    Observed, ObservedDiagnostic, Severity, signature,
+};
 use krs_test_support::class_matrix::{Case, Packaging, Placed, render};
+
+use crate::closure::{Closure, additions, compare, sentences};
 
 /// The source file every case is written in.
 pub const SOURCE_FILE: &str = "src/lib.rs";
@@ -65,6 +76,10 @@ pub struct Judged {
     pub keys: Option<Vec<String>>,
     /// How many cases shared the source that judged the case, the case included.
     pub batch: usize,
+    /// The K sentences the case adds to its base, once accepted.
+    pub additions: Option<Vec<String>>,
+    /// K3's verdict, for an accepted case that is no initializer, when the run checks closure.
+    pub closure: Option<Closure>,
 }
 
 impl Judged {
@@ -90,6 +105,8 @@ pub struct Settings {
     pub batch: usize,
     /// Where the workers keep their targets and packages.
     pub scratch: PathBuf,
+    /// Whether accepted cases are also judged by K3: printed by `krs expand` and emitted again.
+    pub closure: bool,
 }
 
 /// Judge every case of `cases` through the pipeline, in ID order.
@@ -107,6 +124,7 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
             let worker = Worker {
                 root: settings.scratch.join(format!("worker-{index}")),
                 builds: &builds,
+                closure: settings.closure,
             };
             let jobs = &jobs;
             let judged = &judged;
@@ -152,6 +170,7 @@ pub fn collect_source(
     let worker = Worker {
         root: settings.scratch.join(name),
         builds: &builds,
+        closure: false,
     };
     fs::create_dir_all(&worker.root).expect("the directory is created");
     worker.collect(source)
@@ -178,6 +197,7 @@ fn batches<'a>(cases: &[&'a Case], size: usize) -> Vec<Vec<&'a Case>> {
 struct Worker<'a> {
     root: PathBuf,
     builds: &'a AtomicUsize,
+    closure: bool,
 }
 
 impl Worker<'_> {
@@ -193,9 +213,18 @@ impl Worker<'_> {
             let count = rendered.cases.len();
             match self.collect(&rendered.source) {
                 Ok(collected) => {
-                    for placed in &rendered.cases {
-                        out.push(back_half(&collected, &rendered.cases, placed));
+                    let base = base_sentences(&collected, &rendered.cases);
+                    let mut judged = rendered
+                        .cases
+                        .iter()
+                        .map(|placed| {
+                            back_half(&collected, &rendered.cases, placed, base.as_deref())
+                        })
+                        .collect::<Vec<_>>();
+                    if self.closure {
+                        self.check_closure(&rendered.cases, &mut judged);
                     }
+                    out.extend(judged);
                     return;
                 }
                 Err(error) => {
@@ -238,6 +267,14 @@ impl Worker<'_> {
 
     /// Write `source` as a fresh package and collect it.
     fn collect(&self, source: &str) -> Result<CollectedDefinition, CommandError> {
+        let (collected, directory) = self.collect_kept(source);
+        // The package's build lives in the worker's target; its sources are not needed again.
+        let _ = fs::remove_dir_all(&directory);
+        collected
+    }
+
+    /// [`Self::collect`], keeping the package's directory, which the caller removes.
+    fn collect_kept(&self, source: &str) -> (Result<CollectedDefinition, CommandError>, PathBuf) {
         let build = self.builds.fetch_add(1, Ordering::Relaxed);
         let name = format!("krs_class_{:016x}", fnv1a64(source));
         let directory = self.root.join(format!("{build:05}-{name}"));
@@ -258,17 +295,22 @@ impl Worker<'_> {
             message_format: MessageFormat::Json,
             profile: None,
         };
-        let collected = collect_descriptors(&request, Some(&self.target()));
-        // The package's build lives in the worker's target; its sources are not needed again.
-        let _ = fs::remove_dir_all(&directory);
-        collected
+        (
+            collect_descriptors(&request, Some(&self.target())),
+            directory,
+        )
     }
 }
 
 /// Lower and emit one case of a collected batch from the base's descriptors and its own.
-fn back_half(collected: &CollectedDefinition, all: &[Placed<'_>], placed: &Placed<'_>) -> Judged {
+fn back_half(
+    collected: &CollectedDefinition,
+    all: &[Placed<'_>],
+    placed: &Placed<'_>,
+    base: Option<&[String]>,
+) -> Judged {
     let batch = all.len();
-    let bundle = sub_bundle(&collected.bundle, all, placed);
+    let bundle = sub_bundle(&collected.bundle, all, Some(placed));
     let mut keys = anchors_outside(&bundle, all, placed);
     let emitted = catch_unwind(AssertUnwindSafe(|| collected.emit_k(bundle)));
     let mut judged = match emitted {
@@ -281,7 +323,9 @@ fn back_half(collected: &CollectedDefinition, all: &[Placed<'_>], placed: &Place
                 ),
                 panic: None,
             };
-            judged(placed, observed, batch)
+            let mut judged = judged(placed, observed, batch);
+            judged.additions = base.map(|base| additions(&emitted_sentences(&emitted), base));
+            judged
         }
         Ok(Err(error)) => judged(placed, refused(observe_error(&error)), batch),
         Err(panic) => {
@@ -361,17 +405,18 @@ fn duplicate_key(message: &str) -> Option<String> {
     Some(format!("the semantic key {role} is not injective"))
 }
 
-/// The descriptors of the base and of `placed`'s case ([`owner`]).
+/// The descriptors of the base and of `placed`'s case ([`owner`]), or of the base alone.
 fn sub_bundle(
     bundle: &DescriptorBundle,
     all: &[Placed<'_>],
-    placed: &Placed<'_>,
+    placed: Option<&Placed<'_>>,
 ) -> DescriptorBundle {
     let descriptors = bundle
         .descriptors()
         .iter()
         .filter(|descriptor| {
-            owner(descriptor, all).is_none_or(|owner| owner.case.id == placed.case.id)
+            owner(descriptor, all)
+                .is_none_or(|owner| placed.is_some_and(|placed| owner.case.id == placed.case.id))
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -416,6 +461,8 @@ fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
         command: placed.command.clone(),
         keys: None,
         batch,
+        additions: None,
+        closure: None,
     }
 }
 
@@ -509,4 +556,246 @@ fn fnv1a64(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
     })
+}
+
+/// The sentences of an emission: `definition.k`'s, and `spec.k`'s when there is one.
+fn emitted_sentences(emitted: &EmittedDefinition) -> Vec<String> {
+    let mut all = sentences(&emitted.definition);
+    if let Some(spec) = &emitted.spec {
+        all.extend(sentences(spec));
+    }
+    all
+}
+
+/// The sentences the base of a collected batch emits alone; `None` when it does not emit.
+fn base_sentences(collected: &CollectedDefinition, all: &[Placed<'_>]) -> Option<Vec<String>> {
+    let bundle = sub_bundle(&collected.bundle, all, None);
+    collected
+        .emit_k(bundle)
+        .ok()
+        .map(|emitted| emitted_sentences(&emitted))
+}
+
+/// The cases `printed`, the source `krs expand` printed for them, holds, placed where their
+/// items are: each top-level item that names the case's tag (a printed form can be several items,
+/// a function and its equation), the first with the case's command variant. The IDs of the cases
+/// it holds no item for are the error.
+fn locate<'a>(printed: &str, cases: &[&'a Case]) -> Result<Vec<Placed<'a>>, Vec<String>> {
+    use syn::spanned::Spanned as _;
+    let Ok(file) = syn::parse_file(printed) else {
+        return Err(cases.iter().map(|case| case.id.clone()).collect());
+    };
+    let mut items = Vec::new();
+    let mut variants = BTreeMap::new();
+    for item in &file.items {
+        if let syn::Item::Enum(family) = item {
+            for pair in family.variants.pairs() {
+                // The variant with its comma, so that cutting it leaves a list.
+                let mut range = pair.value().span().byte_range();
+                if let Some(comma) = pair.punct() {
+                    range.end = comma.span.byte_range().end;
+                }
+                variants.insert(pair.value().ident.to_string(), range);
+            }
+        } else {
+            items.push(item.span().byte_range());
+        }
+    }
+    let mut placed = Vec::new();
+    let mut missing = Vec::new();
+    for case in cases {
+        let tag = case.tag();
+        let upper = tag.to_uppercase();
+        let mut command = case
+            .command()
+            .and_then(|command| variants.get(&command.name).cloned());
+        let before = placed.len();
+        for item in items.iter().filter(|range| {
+            let text = &printed[(*range).clone()];
+            text.contains(&tag) || text.contains(&upper)
+        }) {
+            // The printed item is all that is known of the case; an error in it is `@ item`.
+            placed.push(Placed {
+                case,
+                item: item.clone(),
+                spelling: item.start..item.start,
+                entry: item.start..item.start,
+                command: command.take(),
+            });
+        }
+        if placed.len() == before {
+            missing.push(case.id.clone());
+        }
+    }
+    if missing.is_empty() {
+        Ok(placed)
+    } else {
+        Err(missing)
+    }
+}
+
+/// `text` without `ranges`, which do not overlap.
+fn without(text: &str, mut ranges: Vec<Range<usize>>) -> String {
+    ranges.sort_by_key(|range| std::cmp::Reverse(range.start));
+    let mut text = text.to_owned();
+    for range in ranges {
+        text.replace_range(range, "");
+    }
+    text
+}
+
+impl Worker<'_> {
+    /// K3 over a collected batch: its accepted cases that are no initializer, printed together.
+    fn check_closure(&self, all: &[Placed<'_>], judged: &mut [Judged]) {
+        let original = judged
+            .iter()
+            .filter_map(|judged| {
+                let additions = judged.additions.clone()?;
+                (!judged.observed.refused()).then(|| (judged.id.clone(), additions))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let cases = all
+            .iter()
+            .map(|placed| placed.case)
+            .filter(|case| original.contains_key(&case.id) && !case.replaces_initializer())
+            .collect::<Vec<_>>();
+        let mut verdicts = BTreeMap::new();
+        self.closure(cases, &original, &mut verdicts);
+        for judged in judged {
+            judged.closure = verdicts.remove(&judged.id);
+        }
+    }
+
+    /// Print `cases` together with `krs expand`, and judge the printed source; a refusal of the
+    /// expansion is bisected down to a case alone.
+    fn closure(
+        &self,
+        cases: Vec<&Case>,
+        original: &BTreeMap<String, Vec<String>>,
+        out: &mut BTreeMap<String, Closure>,
+    ) {
+        if cases.is_empty() {
+            return;
+        }
+        let rendered = render(&cases);
+        let (collected, directory) = self.collect_kept(&rendered.source);
+        let printed = collected.map(|collected| collected.expand(collected.bundle.clone()));
+        let _ = fs::remove_dir_all(&directory);
+        let error = match printed {
+            Ok(Ok(text)) => return self.printed(&text, cases, original, out),
+            Ok(Err(error)) => ("krs expand", error),
+            Err(error) => ("the accepted cases do not collect again", error),
+        };
+        if let [placed] = rendered.cases.as_slice() {
+            let observed = refused(observe_error(&error.1));
+            let verdict = format!("{}: {}", error.0, signature(&observed, placed));
+            out.insert(placed.case.id.clone(), Closure::Refused(verdict));
+        } else {
+            let (left, right) = cases.split_at(cases.len() / 2);
+            self.closure(left.to_vec(), original, out);
+            self.closure(right.to_vec(), original, out);
+        }
+    }
+
+    /// Collect `printed`, the source printed for `cases`, attributing its errors to the cases it
+    /// prints as the batches do, and compare each case's sentences with its original ones.
+    fn printed(
+        &self,
+        printed: &str,
+        cases: Vec<&Case>,
+        original: &BTreeMap<String, Vec<String>>,
+        out: &mut BTreeMap<String, Closure>,
+    ) {
+        let mut text = printed.to_owned();
+        let mut remaining = cases;
+        while !remaining.is_empty() {
+            let located = match locate(&text, &remaining) {
+                Ok(located) => located,
+                Err(missing) => {
+                    for id in &missing {
+                        let verdict = "no item of the printed source names the case".to_owned();
+                        out.insert(id.clone(), Closure::Refused(verdict));
+                    }
+                    remaining.retain(|case| !missing.contains(&case.id));
+                    continue;
+                }
+            };
+            let error = match self.collect(&text) {
+                Ok(collected) => {
+                    let base = base_sentences(&collected, &located);
+                    let mut seen = BTreeSet::new();
+                    for placed in located.iter().filter(|placed| seen.insert(&placed.case.id)) {
+                        let bundle = sub_bundle(&collected.bundle, &located, Some(placed));
+                        let emitted = catch_unwind(AssertUnwindSafe(|| collected.emit_k(bundle)));
+                        let verdict = match (emitted, &base) {
+                            (Ok(Ok(emitted)), Some(base)) => compare(
+                                &original[&placed.case.id],
+                                &additions(&emitted_sentences(&emitted), base),
+                            ),
+                            (Ok(Ok(_)), None) => {
+                                Closure::Refused("the printed base does not emit".to_owned())
+                            }
+                            (Ok(Err(error)), _) => {
+                                Closure::Refused(signature(&refused(observe_error(&error)), placed))
+                            }
+                            (Err(_), _) => Closure::Refused("panic".to_owned()),
+                        };
+                        out.insert(placed.case.id.clone(), verdict);
+                    }
+                    return;
+                }
+                Err(error) => error,
+            };
+            let diagnostics = observe_error(&error);
+            let mut by_case = BTreeMap::<usize, Vec<ObservedDiagnostic>>::new();
+            let mut stray = false;
+            for diagnostic in diagnostics {
+                let holder = diagnostic
+                    .range
+                    .as_ref()
+                    .and_then(|range| located.iter().position(|placed| placed.owns(range)));
+                match holder {
+                    Some(index) => by_case.entry(index).or_default().push(diagnostic),
+                    None => stray |= diagnostic.severity == Severity::Error,
+                }
+            }
+            if stray || by_case.is_empty() {
+                if let [case] = remaining.as_slice()
+                    && let Some(placed) = located.iter().find(|placed| placed.case.id == case.id)
+                {
+                    let observed = refused(observe_error(&error));
+                    out.insert(
+                        placed.case.id.clone(),
+                        Closure::Refused(signature(&observed, placed)),
+                    );
+                } else {
+                    let (left, right) = remaining.split_at(remaining.len() / 2);
+                    self.closure(left.to_vec(), original, out);
+                    self.closure(right.to_vec(), original, out);
+                }
+                return;
+            }
+            let mut cut = Vec::new();
+            let mut by_id = BTreeMap::<&str, (usize, Vec<ObservedDiagnostic>)>::new();
+            for (index, diagnostics) in by_case {
+                let entry = by_id
+                    .entry(located[index].case.id.as_str())
+                    .or_insert((index, Vec::new()));
+                entry.1.extend(diagnostics);
+            }
+            for (id, (index, diagnostics)) in by_id {
+                let observed = refused(diagnostics);
+                out.insert(
+                    id.to_owned(),
+                    Closure::Refused(signature(&observed, &located[index])),
+                );
+                for placed in located.iter().filter(|placed| placed.case.id == id) {
+                    cut.push(placed.item.clone());
+                    cut.extend(placed.command.clone());
+                }
+                remaining.retain(|case| case.id != id);
+            }
+            text = without(&text, cut);
+        }
+    }
 }
