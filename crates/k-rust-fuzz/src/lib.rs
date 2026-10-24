@@ -36,6 +36,7 @@ pub(crate) mod assemble;
 mod engine;
 pub mod error;
 pub mod exec;
+mod findings;
 mod graph;
 pub mod holes;
 mod proposers;

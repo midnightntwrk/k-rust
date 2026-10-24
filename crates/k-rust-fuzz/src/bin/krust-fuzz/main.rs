@@ -132,6 +132,12 @@ struct Args {
     #[arg(long, overrides_with = "data_end")]
     no_data_end: bool,
 
+    /// Read the unjoined pair NAME of a definition's critical-pair check as joined, as the
+    /// report's definition-findings name it (`FIRST,SECOND@POSITION`); repeatable, added to the
+    /// campaign file's `assume-joined`. Every verdict then holds only under the assumption.
+    #[arg(long, value_name = "NAME")]
+    assume_joined: Vec<String>,
+
     /// Explore every path of each input instead of k-rust's first-applicable path.
     #[arg(long, overrides_with = "one_path")]
     all_paths: bool,
@@ -214,7 +220,8 @@ struct Args {
         conflicts_with_all = [
             "campaign", "sort", "config_vars", "reach_rule", "rule_mode", "pattern",
             "differential", "run_to_completion", "no_run_to_completion", "negated_property",
-            "no_negated_property", "data_end", "no_data_end", "all_paths", "one_path",
+            "no_negated_property", "data_end", "no_data_end", "assume_joined", "all_paths",
+            "one_path",
             "max_depth", "max_work",
             "normal_end", "cases", "work", "seed", "rejection_cap", "safety_limit",
             "no_safety_limit", "no_shrink", "shrink", "smt_timeout", "smt_retry_limit", "json",
@@ -319,6 +326,7 @@ fn run(args: Args) -> Result<u8, String> {
         run_to_completion: switch(args.run_to_completion, args.no_run_to_completion),
         negated_property: switch(args.negated_property, args.no_negated_property),
         data_end: switch(args.data_end, args.no_data_end),
+        assume_joined: args.assume_joined,
         all_paths: switch(args.all_paths, args.one_path),
         max_depth: args.max_depth,
         max_work: args.max_work,
@@ -536,6 +544,7 @@ fn summary(report: &FuzzReport) -> String {
         },
         CampaignOutcome::NoWitnessFound { .. } => "no witness found",
         CampaignOutcome::Equivalent => "equivalent: the definitions denote the same theory",
+        CampaignOutcome::NotComparable { .. } => "not comparable: no case can be judged",
         CampaignOutcome::RejectedOut { .. } => "no witness found: rejection cap reached",
         CampaignOutcome::Cancelled { .. } => "no witness found: cancelled",
         CampaignOutcome::Aborted { .. } => "no witness found: aborted",
@@ -565,6 +574,9 @@ fn summary(report: &FuzzReport) -> String {
     if let CampaignOutcome::Aborted { reason, .. } = &report.outcome {
         let _ = writeln!(text, "reason: {reason}");
     }
+    if let CampaignOutcome::NotComparable { statement, .. } = &report.outcome {
+        let _ = writeln!(text, "{statement}");
+    }
     if let Some(witness) = report.witness() {
         let case = witness.shrunk.as_ref().unwrap_or(&witness.first);
         let which = if witness.shrunk.is_some() {
@@ -583,6 +595,7 @@ fn summary(report: &FuzzReport) -> String {
     }
     write_unjudged(&mut text, report);
     write_coverage(&mut text, report);
+    write_findings(&mut text, report);
     for warning in &report.warnings {
         let _ = writeln!(text, "warning: {warning}");
     }
@@ -590,6 +603,106 @@ fn summary(report: &FuzzReport) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// The finding groups the summary shows per definition; the report lists every finding.
+const SHOWN_FINDING_GROUPS: usize = 5;
+
+/// The definitions' critical-pair findings (`definition-findings`): per definition, the
+/// findings grouped by equation pair, genuine groups first, at most [`SHOWN_FINDING_GROUPS`]
+/// groups with their overlap, reducts and ground instance, then a count of the rest.
+fn write_findings(text: &mut String, report: &FuzzReport) {
+    use k_rust_fuzz::report::{DefinitionFinding, DefinitionRole, FindingVerdict};
+    use std::fmt::Write as _;
+    for side in [DefinitionRole::Baseline, DefinitionRole::Mutant] {
+        let findings = report
+            .definition_findings
+            .iter()
+            .filter(|finding| finding.side == side)
+            .collect::<Vec<_>>();
+        if findings.is_empty() {
+            continue;
+        }
+        // Groups by equation pair, in the report's order, genuine groups first.
+        let mut groups: Vec<(&[String], Vec<&DefinitionFinding>)> = Vec::new();
+        for finding in &findings {
+            match groups
+                .iter_mut()
+                .find(|(equations, _)| *equations == finding.equations.as_slice())
+            {
+                Some((_, members)) => members.push(finding),
+                None => groups.push((finding.equations.as_slice(), vec![finding])),
+            }
+        }
+        let genuine = |members: &[&DefinitionFinding]| {
+            members
+                .iter()
+                .any(|finding| finding.verdict == FindingVerdict::Genuine)
+        };
+        groups.sort_by_key(|(_, members)| !genuine(members));
+        let count = |verdict| {
+            findings
+                .iter()
+                .filter(|finding| finding.verdict == verdict && !finding.assumed)
+                .count()
+        };
+        let assumed = findings.iter().filter(|finding| finding.assumed).count();
+        let _ = writeln!(
+            text,
+            "{} critical-pair findings: {} genuine, {} undecided{}",
+            serde_name(&side),
+            count(FindingVerdict::Genuine),
+            count(FindingVerdict::Undecided),
+            if assumed == 0 {
+                String::new()
+            } else {
+                format!(", {assumed} assumed joined")
+            }
+        );
+        for (equations, members) in groups.iter().take(SHOWN_FINDING_GROUPS) {
+            let verdict = if genuine(members) {
+                "genuine"
+            } else {
+                "undecided"
+            };
+            let assumed = if members.iter().all(|finding| finding.assumed) {
+                ", assumed joined"
+            } else {
+                ""
+            };
+            let _ = writeln!(text, "  [{verdict}{assumed}] {}", equations.join(" and "));
+            for finding in members {
+                if let Some(name) = &finding.name {
+                    let _ = writeln!(text, "    name: {name}");
+                }
+                let _ = writeln!(text, "    {}", finding.reason);
+                if let Some(overlap) = &finding.overlap {
+                    let _ = writeln!(text, "    overlap: {overlap}");
+                }
+                if !finding.reducts.is_empty() {
+                    let _ = writeln!(text, "    reducts: {}", finding.reducts.join("  vs  "));
+                }
+                if let Some(conditions) = &finding.conditions {
+                    let _ = writeln!(text, "    when: {conditions}");
+                }
+                if let Some(instance) = &finding.instance {
+                    let _ = writeln!(
+                        text,
+                        "    instance: {} gives {}",
+                        instance.overlap,
+                        instance.values.join(" and ")
+                    );
+                }
+            }
+        }
+        if groups.len() > SHOWN_FINDING_GROUPS {
+            let _ = writeln!(
+                text,
+                "  +{} more equation pairs, listed in the report's definition-findings (--report)",
+                groups.len() - SHOWN_FINDING_GROUPS
+            );
+        }
+    }
 }
 
 /// For a report with a witness, its `unsupported` and `baseline-incomplete` cases per reason,

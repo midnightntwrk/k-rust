@@ -79,6 +79,13 @@ pub struct FuzzReport {
     pub sort_overrides: Vec<SortOverride>,
     /// Warnings such as `statically-unreachable` (ARCHITECTURE 6.3).
     pub warnings: Vec<String>,
+    /// The findings of each definition's full critical-pair check, when the campaign's
+    /// judgement reads data ends (a differential target, or a rule or pattern target with
+    /// `run-to-completion` and `data-end`) and the check reports something: every finding, the
+    /// assumed ones marked, each with its verdict (ARCHITECTURE 4.3). Absent from the JSON when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub definition_findings: Vec<DefinitionFinding>,
     /// Engine defects: a case and its confirmation disagreeing, a halt the request never asks
     /// for, a rule applied outside the rule graph. Never reported as hits (ARCHITECTURE 7).
     pub engine_defects: Vec<EngineDefect>,
@@ -128,7 +135,9 @@ impl FuzzReport {
             | CampaignOutcome::RejectedOut { no_witness }
             | CampaignOutcome::Cancelled { no_witness }
             | CampaignOutcome::Aborted { no_witness, .. } => Some(no_witness),
-            CampaignOutcome::WitnessFound { .. } | CampaignOutcome::Equivalent => None,
+            CampaignOutcome::WitnessFound { .. }
+            | CampaignOutcome::Equivalent
+            | CampaignOutcome::NotComparable { .. } => None,
         }
     }
 
@@ -697,6 +706,17 @@ pub enum CampaignOutcome {
     /// Differential: equal execution digests (and rewrite orders) ended the campaign before any
     /// case (ARCHITECTURE 4.3).
     Equivalent,
+    /// The campaign's judgement reads data ends (a differential target, or a rule or pattern
+    /// target with `run-to-completion` and `data-end`), and the full critical-pair check of
+    /// a definition it reads reports findings that are not assumed joined: no end of that
+    /// definition is data, so no case could give a witness. Decided before any case
+    /// (ARCHITECTURE 4.3); the findings are the report's `definition-findings`.
+    NotComparable {
+        /// The definitions without data: the baseline, the mutant, or both.
+        sides: Vec<DefinitionRole>,
+        /// The sentence: why no witness can be established, and what can change that.
+        statement: String,
+    },
     /// The rejection cap was reached (ARCHITECTURE 9.2).
     RejectedOut {
         /// The bounded statement.
@@ -714,6 +734,87 @@ pub enum CampaignOutcome {
         /// The bounded statement.
         no_witness: NoWitness,
     },
+}
+
+/// One finding of a definition's full critical-pair check (`k_rust_backend::data_term`), as the
+/// campaign's data judgement read it (ARCHITECTURE 4.3). Terms are written as K text where the
+/// definition's syntax prints them, and otherwise as applications of K labels; variables by the
+/// names the equations give them, a variable the check introduced with a `'` and a number.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DefinitionFinding {
+    /// Which definition's check reports it.
+    pub side: DefinitionRole,
+    /// `genuine` when a ground instance is exhibited on which the two equations give two
+    /// different constructor values (a defect of the definition); `undecided` otherwise: not
+    /// shown to join, which may be a limit of the check as well as a defect.
+    pub verdict: FindingVerdict,
+    /// A pair of equations, one equation, or a precondition row.
+    pub kind: FindingKind,
+    /// For a pair, the name `assume-joined` takes: `FIRST,SECOND@POSITION`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The equations, each by its written position `FILE:LINE:COLUMN` (else its label, its
+    /// unique id, or the overloaded pair of a compiler-generated overload axiom): the one whose
+    /// left-hand side holds the overlap, then the one applied at the position.
+    pub equations: Vec<String>,
+    /// For a pair, the position in the first equation's left-hand side: `root`, or the argument
+    /// indexes joined by `.`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<String>,
+    /// What the check found, in words.
+    pub reason: String,
+    /// The overlapped term both equations rewrite, when the check reached one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlap: Option<String>,
+    /// The two one-step reducts of the overlap (the first equation's, then the second's), when
+    /// the check computed them; `\bottom` for an undefined one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reducts: Vec<String>,
+    /// The conjunction of both equations' `requires` at the overlap, as the check simplified
+    /// it, when it is not `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<String>,
+    /// For a genuine finding, the ground instance that shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<FindingInstance>,
+    /// Whether the campaign assumed this pair joined (`assume-joined`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assumed: bool,
+}
+
+/// [`DefinitionFinding::verdict`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingVerdict {
+    /// A ground instance shows the two equations giving two different constructor values.
+    Genuine,
+    /// Not shown to join; possibly a limit of the check.
+    Undecided,
+}
+
+/// [`DefinitionFinding::kind`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingKind {
+    /// Two equations whose overlap the check does not join.
+    Pair,
+    /// One equation the evaluator does not apply to every subject it describes.
+    Equation,
+    /// A violated precondition of the check.
+    Precondition,
+}
+
+/// The ground instance of a genuine finding.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct FindingInstance {
+    /// Each variable's value, `NAME = VALUE`.
+    pub assignment: Vec<String>,
+    /// The overlap under the assignment.
+    pub overlap: String,
+    /// What each reduct evaluates to under the assignment: two different constructor terms.
+    pub values: Vec<String>,
 }
 
 /// The rule a rule target resolved to: its unique id and its names.
@@ -1244,6 +1345,7 @@ mod tests {
                 refusal: "Token".into(),
             }],
             warnings: vec!["statically-unreachable".into()],
+            definition_findings: Vec::new(),
             engine_defects: vec![EngineDefect {
                 case: Some(7),
                 description: "confirmation disagreed".into(),

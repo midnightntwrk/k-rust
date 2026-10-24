@@ -11,7 +11,9 @@ use k_rust_fuzz::{
     HoleDecl, HoleLocation, OutcomeClass, ProgramInput, ProposerConfig, SpanAddress, Target,
     TargetKind,
     exec::UnjudgedReason,
-    report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
+    report::{
+        CampaignOutcome, DefinitionRole, FindingKind, FindingVerdict, HitLabel, KillKind, Reaching,
+    },
     spec::DEFAULT_REJECTION_CAP,
     spec::PathMode,
     target::DifferentialTarget,
@@ -671,8 +673,7 @@ fn an_end_holding_an_irreducible_overload_application_is_compared() {
 #[test]
 fn a_mutant_whose_overload_equations_differ_is_never_killed_through_them() {
     let report = ov_report(&OV, &OV_INTS);
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
 }
 
 /// An end that holds an unevaluated total function application is not data, on either side:
@@ -710,8 +711,7 @@ fn constructor_ends_a_broken_overload_family_equates_are_never_compared() {
         "{:?}",
         report.engine_defects
     );
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 /// FZ-DATAEND review B1: `f_K(kseq(inj(X), dotk)) = f_Exp(X)` is an overload equation of another
@@ -728,8 +728,7 @@ fn an_overload_of_another_shape_is_never_compared_through() {
         "{:?}",
         report.engine_defects
     );
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 // ---- each end judged by both definitions (FZ-DATAEND review round 2)
@@ -789,24 +788,32 @@ fn an_end_an_added_anywhere_rule_rewrites_is_never_compared() {
 #[test]
 fn an_unused_k_placed_overload_leaves_the_definition_without_data() {
     let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
-/// The report names, for each of `sides`, why its definition has no data, and counts every
-/// `unsupported` case under `definition-not-confluent`, not under a side's not-data reason
-/// (INT7).
-fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
-    assert_eq!(
-        report.totals.unsupported_reasons,
-        BTreeMap::from([(
-            UnjudgedReason::DefinitionNotConfluent,
-            report.totals.classes[&OutcomeClass::Unsupported]
-        )])
-    );
+/// A definition without data makes every case unjudgeable, which is known before the first
+/// case (FZ-POLISH, not comparable at setup): the campaign runs no case and ends
+/// `not-comparable`, naming the definitions `sides` without data; the report names, for each,
+/// why (one warning, and every finding in `definition-findings`).
+fn assert_not_comparable(report: &k_rust_fuzz::FuzzReport, sides: &[DefinitionRole]) {
+    match &report.outcome {
+        CampaignOutcome::NotComparable {
+            sides: named,
+            statement,
+        } => {
+            assert_eq!(named, sides);
+            assert!(statement.contains("No case was run"), "{statement}");
+        }
+        other => panic!("not comparable expected: {other:?}"),
+    }
+    assert_eq!(report.totals.cases, 0, "{:?}", report.totals);
+    assert!(report.totals.classes.is_empty(), "{:?}", report.totals);
     for side in sides {
-        let prefix = format!("definition-not-confluent ({side}): ");
+        let name = match side {
+            DefinitionRole::Baseline => "baseline",
+            DefinitionRole::Mutant => "mutant",
+        };
+        let prefix = format!("definition-not-confluent ({name}): ");
         assert!(
             report
                 .warnings
@@ -814,6 +821,14 @@ fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
                 .any(|warning| warning.starts_with(&prefix)),
             "{prefix} missing in {:?}",
             report.warnings
+        );
+        assert!(
+            report
+                .definition_findings
+                .iter()
+                .any(|finding| finding.side == *side && !finding.assumed),
+            "no finding of the {name}: {:?}",
+            report.definition_findings
         );
     }
 }
@@ -827,9 +842,7 @@ fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
 #[test]
 fn a_definition_whose_check_reports_a_pair_has_no_data() {
     let report = r2_report(&R3_MODOV, &R3_MODOV_M, "r3-modov/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 /// R3-B1: the broken diamond's identification of `.Ids` with `.Vals` reaches `a` and `bb`
@@ -837,9 +850,7 @@ fn a_definition_whose_check_reports_a_pair_has_no_data() {
 #[test]
 fn an_identification_reached_through_a_function_is_never_a_kill() {
     let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 /// R3-S1: `q(_) => a` and `q(_) => bb` equate `a` with `bb`; the load's check does not pair them
@@ -847,7 +858,139 @@ fn an_identification_reached_through_a_function_is_never_a_kill() {
 #[test]
 fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+}
+
+/// FZ-POLISH: R3-S1's pair is genuine: at `q(0)` the equations give `a` and `bb`. The finding
+/// names both equations by their written positions (no 64-hex id, no KORE name), shows the
+/// overlap, the reducts and the instance as K text, and carries the name `assume-joined` takes.
+#[test]
+fn a_pair_with_different_constructor_results_on_an_instance_is_genuine() {
+    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    let baseline = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.side == DefinitionRole::Baseline)
+        .collect::<Vec<_>>();
+    let [finding] = baseline[..] else {
+        panic!("one baseline finding: {:?}", report.definition_findings);
+    };
+    assert_eq!(finding.verdict, FindingVerdict::Genuine, "{finding:?}");
+    assert_eq!(finding.kind, FindingKind::Pair);
+    assert_eq!(finding.position.as_deref(), Some("root"));
+    for equation in &finding.equations {
+        assert!(equation.contains("r3-plainq/b.k:"), "{equation}");
+    }
+    let name = finding.name.as_deref().expect("a pair's name");
+    assert!(
+        name.starts_with("b.k:") && name.ends_with("@root"),
+        "{name}"
+    );
+    let instance = finding.instance.as_ref().expect("the instance");
+    assert_eq!(instance.overlap, "q ( 0 )", "{instance:?}");
+    let mut values = instance.values.clone();
+    values.sort();
+    assert_eq!(values, ["a", "bb"]);
+    // Readable throughout: no mangled KORE symbol and no 64-hex id.
+    let text = format!("{finding:?}");
+    assert!(!text.contains("Lbl"), "{text}");
+    assert!(
+        !text
+            .split(|character: char| !character.is_ascii_hexdigit())
+            .any(|word| word.len() == 64),
+        "{text}"
+    );
+}
+
+/// The names of R3-PLAINQ's pair in each definition, as the report's findings give them: the
+/// baseline's (in `b.k`), then the mutant's (in `m.k`).
+fn plainq_pair_names() -> Vec<String> {
+    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    [DefinitionRole::Baseline, DefinitionRole::Mutant]
+        .into_iter()
+        .map(|side| {
+            report
+                .definition_findings
+                .iter()
+                .find(|finding| finding.side == side)
+                .and_then(|finding| finding.name.clone())
+                .expect("a pair's name")
+        })
+        .collect()
+}
+
+/// FZ-POLISH, assume-joined: naming R3-PLAINQ's pair reads both definitions as if it joined, so
+/// their ends are data and the cases run; under that premise the mutant's `bb` against the
+/// baseline's `a` is a kill. The report's identity records the assumption, a warning states
+/// that the verdict holds only under it, and the findings are kept, marked assumed. (The
+/// assumption is false here: the definitions do equate `a` and `bb`. The kill is sound only
+/// relative to it, which is what the warning says.)
+#[test]
+fn an_assumed_pair_lets_the_cases_run_under_the_stated_premise() {
+    let names = plainq_pair_names();
+    // The baseline's pair alone leaves the mutant without data.
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = vec![names[0].clone()];
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined.clone_from(&names);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+    assert_eq!(report.identity.options.assume_joined, names);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("assume-joined: ")
+                && names.iter().all(|name| warning.contains(name.as_str()))),
+        "{:?}",
+        report.warnings
+    );
+    assert!(
+        report
+            .definition_findings
+            .iter()
+            .all(|finding| finding.assumed),
+        "{:?}",
+        report.definition_findings
+    );
+    // A trailing part of the path names the pair too.
+    let longer = names
+        .iter()
+        .map(|name| {
+            let (first, rest) = name.split_once(',').expect("two equations");
+            format!("r3-plainq/{first},r3-plainq/{rest}")
+        })
+        .collect::<Vec<_>>();
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = longer;
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+}
+
+/// FZ-POLISH, assume-joined: a name that matches no pair finding is refused, as is a name given
+/// to a campaign that reads no data end.
+#[test]
+fn an_assumed_pair_that_names_no_finding_is_refused() {
+    let mut plainq = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    plainq.options.assume_joined = vec!["b.k:1:1,b.k:2:1@root".into()];
+    let error = Campaign::new(plainq).err().expect("refused");
+    assert!(
+        error.to_string().contains("matches no unjoined pair"),
+        "{error}"
+    );
+    let mut plainq = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    plainq.options.assume_joined = vec!["not a name".into()];
+    assert!(Campaign::new(plainq).is_err());
+    // COIN's definitions have data and no finding.
+    let mut coin = spec(&COIN_KILL);
+    coin.options.assume_joined = plainq_pair_names();
+    assert!(Campaign::new(coin).is_err());
 }

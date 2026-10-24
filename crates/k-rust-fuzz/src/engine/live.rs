@@ -401,6 +401,18 @@ pub(crate) struct RuleIndex {
     pub(crate) target: Option<TargetRule>,
 }
 
+/// What a campaign states about its definitions' full critical-pair checks
+/// ([`LiveCases::definition_findings`]).
+#[derive(Debug, Default)]
+pub(crate) struct DefinitionFindings {
+    /// One warning per definition without data, and one stating the assumed pairs.
+    pub(crate) warnings: Vec<String>,
+    /// Every finding of every definition read, for the report.
+    pub(crate) findings: Vec<crate::report::DefinitionFinding>,
+    /// The definitions whose findings are not all assumed joined: they have no data.
+    pub(crate) without_data: Vec<DefinitionRole>,
+}
+
 /// The campaign's case execution: one baseline [`Side`] and the judge.
 pub(crate) struct LiveCases {
     spec: Arc<CampaignSpec>,
@@ -503,33 +515,120 @@ impl LiveCases {
             .collect()
     }
 
-    /// The report's warnings about each definition whose full critical-pair check is not clean
-    /// (`k_rust_backend::data_term`): none of its ends is data, so a differential case whose
-    /// ends it reads, or a hit that needs a data end, is `unsupported`. One line per finding,
-    /// prefixed `definition-not-confluent` and the side. Computed only when the campaign reads
-    /// data ends (a differential target, or `requires_data_end`); otherwise empty.
-    pub(crate) fn definition_findings(&mut self) -> Vec<String> {
-        let mut sides = vec![("baseline", &mut self.baseline)];
+    /// What the campaign states about each definition's full critical-pair check
+    /// (`k_rust_backend::data_term`): computed only when the campaign reads data ends (a
+    /// differential target, or `requires_data_end`), and empty otherwise. A definition whose
+    /// check reports findings that are not assumed joined has no data, so the campaign is not
+    /// comparable (ARCHITECTURE 4.3); each such definition gets one warning, and every finding
+    /// a report entry.
+    ///
+    /// # Errors
+    ///
+    /// [`CampaignError::InvalidOptions`] when `CaseOptions::assume_joined` names a pair while
+    /// the campaign reads no data end, or a name matches no pair finding of either definition,
+    /// or pairs of more than one equation pair of one definition.
+    pub(crate) fn definition_findings(&mut self) -> Result<DefinitionFindings, CampaignError> {
+        let assume_joined = self.spec.options.assume_joined.clone();
+        let mut sides = vec![(DefinitionRole::Baseline, &mut self.baseline)];
         match &mut self.judge {
-            Judge::Differential(mutant) => sides.push(("mutant", mutant)),
+            Judge::Differential(mutant) => sides.push((DefinitionRole::Mutant, mutant)),
             Judge::Target(_) if self.spec.target.requires_data_end() => {}
-            Judge::Target(_) => return Vec::new(),
-        }
-        let mut warnings = Vec::new();
-        for (role, side) in sides {
-            match side.executor.data_heads() {
-                Ok(heads) => warnings.extend(heads.findings().iter().map(|finding| {
-                    format!(
-                        "definition-not-confluent ({role}): no end of this definition is data, \
-                         since its full critical-pair check reports: {finding}"
-                    )
-                })),
-                Err(error) => warnings.push(format!(
-                    "definition-not-confluent ({role}): the main module does not load: {error}"
-                )),
+            Judge::Target(_) => {
+                if let Some(name) = assume_joined.first() {
+                    return Err(CampaignError::InvalidOptions {
+                        message: format!(
+                            "assume-joined names `{name}`, but this campaign reads no data end: \
+                             only a differential target, or a rule or pattern target with \
+                             run-to-completion and data-end, judges ends by the definitions' \
+                             critical-pair checks"
+                        ),
+                    });
+                }
+                return Ok(DefinitionFindings::default());
             }
         }
-        warnings
+        let mut stated = DefinitionFindings::default();
+        // How many pair findings each name matches, over the definitions.
+        let mut matched = vec![0_usize; assume_joined.len()];
+        for (role, side) in sides {
+            let side_name = match role {
+                DefinitionRole::Baseline => "baseline",
+                DefinitionRole::Mutant => "mutant",
+            };
+            let text = side.holes.text.clone();
+            let heads = match side.executor.data_heads() {
+                Ok(heads) => heads,
+                Err(error) => {
+                    stated.warnings.push(format!(
+                        "definition-not-confluent ({side_name}): the main module does not load: \
+                         {error}"
+                    ));
+                    stated.without_data.push(role);
+                    continue;
+                }
+            };
+            for (given, count) in assume_joined.iter().zip(&mut matched) {
+                let pairs = crate::findings::named_pairs(given, heads);
+                if pairs.len() > 1 {
+                    let candidates = pairs
+                        .iter()
+                        .map(|(equations, position)| format!("{}@{position}", equations.join(",")))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    return Err(CampaignError::InvalidOptions {
+                        message: format!(
+                            "assume-joined names `{given}`, which matches more than one equation \
+                             pair of the {side_name} ({candidates}); give more of each file's path"
+                        ),
+                    });
+                }
+                *count += pairs.len();
+            }
+            if !heads.confluent() {
+                stated.without_data.push(role);
+                let genuine = heads
+                    .findings()
+                    .iter()
+                    .filter(|finding| finding.is_genuine())
+                    .count();
+                let total = heads.findings().len();
+                stated.warnings.push(format!(
+                    "definition-not-confluent ({side_name}): its full critical-pair check reports \
+                     {total} finding{} not assumed joined ({genuine} genuine, {} undecided), so \
+                     no end of it is data; each is listed in the report's definition-findings",
+                    if total == 1 { "" } else { "s" },
+                    total - genuine
+                ));
+            }
+            stated
+                .findings
+                .extend(crate::findings::report(role, heads, text.as_ref()));
+        }
+        if let Some((given, _)) = assume_joined
+            .iter()
+            .zip(&matched)
+            .find(|(_, count)| **count == 0)
+        {
+            return Err(CampaignError::InvalidOptions {
+                message: format!(
+                    "assume-joined names `{given}`, which matches no unjoined pair of the \
+                     definitions' critical-pair checks; name a pair as the report's \
+                     definition-findings name it: FIRST,SECOND@POSITION"
+                ),
+            });
+        }
+        if !assume_joined.is_empty() {
+            stated.warnings.push(format!(
+                "assume-joined: every verdict of this campaign holds only if the pairs {} join, \
+                 as the campaign assumes",
+                assume_joined
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        Ok(stated)
     }
 
     /// The baseline's internalized definition on the `source-execution` route, the campaign's

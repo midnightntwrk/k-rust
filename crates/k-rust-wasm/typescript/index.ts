@@ -1259,6 +1259,12 @@ export interface FuzzCaseOptions {
   'safety-limit-ms': number | null
   backend: { 'smt-timeout-ms': number; 'smt-retry-limit': number }
   shrink: boolean
+  /**
+   * Unjoined pairs of the definitions' critical-pair checks the data judgement reads as joined,
+   * each named as the report's `definition-findings` name it (`FIRST,SECOND@POSITION`). Every
+   * verdict then holds only under them. Absent: none.
+   */
+  'assume-joined'?: string[]
 }
 
 export type FuzzProposerKind = 'blind' | 'dictionary' | 'climb' | 'corpus' | 'solve'
@@ -1511,6 +1517,7 @@ export type FuzzCampaignOutcome =
   | { status: 'witness-found'; witness: FuzzWitness }
   | { status: 'no-witness-found'; 'no-witness': FuzzNoWitness }
   | { status: 'equivalent' }
+  | { status: 'not-comparable'; sides: ('baseline' | 'mutant')[]; statement: string }
   | { status: 'rejected-out'; 'no-witness': FuzzNoWitness }
   | { status: 'cancelled'; 'no-witness': FuzzNoWitness }
   | { status: 'aborted'; reason: string; 'no-witness': FuzzNoWitness }
@@ -1620,7 +1627,33 @@ export interface FuzzReport {
   'load-records': { kind: string; detail: string }[]
   'sort-overrides': { hole: string; sort: string; refusal: string }[]
   warnings: string[]
+  /**
+   * The findings of each definition's full critical-pair check, when the judgement reads data
+   * ends and the check reports something; absent when there is none.
+   */
+  'definition-findings'?: FuzzDefinitionFinding[]
   'engine-defects': { case: number | null; description: string }[]
+}
+
+/**
+ * One finding of a definition's full critical-pair check. `genuine`: a ground instance shows the
+ * two equations giving two different constructor values; `undecided`: not shown to join, which
+ * may be a limit of the check.
+ */
+export interface FuzzDefinitionFinding {
+  side: 'baseline' | 'mutant'
+  verdict: 'genuine' | 'undecided'
+  kind: 'pair' | 'equation' | 'precondition'
+  /** For a pair, the name `assume-joined` takes. */
+  name?: string
+  equations: string[]
+  position?: string
+  reason: string
+  overlap?: string
+  reducts?: string[]
+  conditions?: string
+  instance?: { assignment: string[]; overlap: string; values: string[] }
+  assumed?: boolean
 }
 
 export interface FuzzCampaignResult {
