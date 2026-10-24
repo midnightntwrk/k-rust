@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs KRS's gates for the krs-* entries of scripts/gates.toml.
 #
-# usage: krs/tests/gates.sh light|lint|tour-pages
-#        krs/tests/gates.sh imp|kevm|kmir|kwasm [ARG...]
+# usage: krs/tests/gates.sh light|lint|tour-pages|ports-rust
+#        krs/tests/gates.sh imp|kevm|kmir|kwasm|ports-emit [ARG...]
 #
 # `light` runs every gate except the browser ones (which need a fork build, krs/README.md) and
 # the four heavy ones, KRS_LIGHT_JOBS (default 4) at a time, prints each gate's output and wall time
@@ -10,9 +10,11 @@
 # serializes their builds; afterwards `light` removes the collectors of the gates' temporary
 # packages from it (support/krs.py, prune_dead_collectors). `lint` runs Clippy and the MSRV check
 # over the standalone test packages (tests/package-lint/verify.py), which CI runs and `light` does
-# not. `tour-pages` runs tour-proof-evidence alone, the one gate that reads site pages. The heavy
-# gates take the arguments after their name (`--artifacts-only`, `--java-reference`, `--record`);
-# run them one at a time.
+# not. `tour-pages` runs tour-proof-evidence alone, the one gate that reads site pages.
+# `ports-emit` runs the four ports' emission against the heavy gates' pins (tests/ports-emit/verify.py;
+# `--record` rewrites only its own macro-output pins). The heavy gates take the arguments after their
+# name (`--artifacts-only`, `--java-reference`, `--record`); run them one at a time. `ports-rust` runs
+# the four with `--artifacts-only`, one after another, and fails when any of them fails.
 # The gates find the Z3 4.12.5 library through KRS_Z3_LIB or the Nix store, and K 7.1.337, which a
 # cold reference cache needs, through KRS_K_BIN or PATH (krs/README.md, "Prerequisites").
 set -euo pipefail
@@ -86,6 +88,22 @@ print(f"pruned {prune_dead_collectors(tool_target())} dead collectors")'
   tour-pages)
     [[ $# -eq 1 ]] || { echo "tour-pages takes no arguments" >&2; exit 2; }
     exec python3 tests/tour-proof-evidence/verify.py
+    ;;
+  ports-emit)
+    shift
+    exec python3 tests/ports-emit/verify.py "$@"
+    ;;
+  ports-rust)
+    [[ $# -eq 1 ]] || { echo "ports-rust takes no arguments" >&2; exit 2; }
+    failed=()
+    for gate in imp kevm kmir kwasm; do
+      echo "== $gate --artifacts-only"
+      python3 "tests/$gate/verify.py" --artifacts-only </dev/null || failed+=("$gate")
+    done
+    if ((${#failed[@]})); then
+      echo "failed: ${failed[*]}" >&2
+      exit 1
+    fi
     ;;
   imp | kevm | kmir | kwasm)
     gate=$1

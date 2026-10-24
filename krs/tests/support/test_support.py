@@ -411,6 +411,24 @@ class LedgerTests(unittest.TestCase):
             with self.assertRaisesRegex(GateError, "has no pin missing; --artifacts-only.*full gate"):
                 ledger.expect("missing", "value")
 
+    def test_emit_only_mode_never_records_and_directs_a_difference_to_the_port_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pins.toml"
+            path.write_text(self.TOML, encoding="utf-8")
+            with self.assertRaisesRegex(GateError, "cannot be combined with an emission-only run"):
+                pins.Ledger(path, record=True, emit_only=True)
+            ledger = pins.Ledger(path, emit_only=True)
+            ledger.expect(("artifact_sha256", "definition.k"), "old-k")
+            with self.assertRaisesRegex(GateError, "expansion_sha256 differs from its pin.*port's full gate"):
+                ledger.expect("expansion_sha256", "new")
+
+    def test_a_table_difference_names_the_entries_that_differ(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(temporary, record=False)
+            observed = {"definition.k": "old-k", "sources.json": "new-s", "spec.k": "new"}
+            with self.assertRaisesRegex(GateError, "artifact_sha256 differs from its pin at sources.json, spec.k:"):
+                ledger.expect("artifact_sha256", observed)
+
     def test_record_mode_rewrites_only_observed_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             ledger = self.ledger(temporary, record=True)

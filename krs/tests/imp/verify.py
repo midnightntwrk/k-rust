@@ -506,6 +506,17 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
 def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
     krs = rust_build.krs
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
+    paths, hashes = emitted_artifacts(context, krs)
+    return Artifacts(paths, hashes, native_artifacts(context, krs, env))
+
+
+def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]]:
+    """IMP.3 up to the native builds: check, expand, emit, the replacement crate, and the API probe.
+
+    Return the probe's emission directory and its pinned digests.
+    """
+
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     check = run(krs_invocation(krs).argv("check"), timeout=300, environment=env)
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
         raise GateError(f"KRS check summary differs: {compact(check)}")
@@ -559,8 +570,24 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
     for name, digest in probe_hashes.items():
         context.pins.expect(("artifact_sha256", name), digest)
-    native_build = native_artifacts(context, krs, env)
-    return Artifacts(probes[0], probe_hashes, native_build)
+    return probes[0], probe_hashes
+
+
+def emission(pins: Ledger, workspace: Path, krs: Path, gate: Path) -> None:
+    """The emission steps alone, against the same pins, for `tests/ports-emit`.
+
+    They are the authored packages' formatting (IMP.2's `check_packages`) and
+    `emitted_artifacts`, which read IMP's own packages and the KRS tools only:
+    no external checkout, Java K result, or native build.
+    """
+
+    context = Context(
+        pins, load_json(CORPUS_PATH), workspace, default_target().resolve(),
+        environment=z3_environment(), built_gate=gate,
+    )
+    context.target.mkdir(parents=True, exist_ok=True)
+    check_packages("imp", krs=krs, env={**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)})
+    emitted_artifacts(context, krs)
 
 
 def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
@@ -1070,6 +1097,12 @@ def run_phase(
     return result
 
 
+def default_target() -> Path:
+    """The Cargo target IMP's packages and their collectors build in: `KRS_IMP_TARGET_DIR`, else checkout scratch."""
+
+    return Path(os.environ.get("KRS_IMP_TARGET_DIR", os.fspath(checkout_scratch() / "imp-root-target")))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--audit-all", action="store_true")
@@ -1078,16 +1111,7 @@ def main() -> int:
         action="store_true",
         help="run every phase and rewrite the output pins it measured",
     )
-    parser.add_argument(
-        "--target-dir",
-        type=Path,
-        default=Path(
-            os.environ.get(
-                "KRS_IMP_TARGET_DIR",
-                os.fspath(checkout_scratch() / "imp-root-target"),
-            )
-        ),
-    )
+    parser.add_argument("--target-dir", type=Path, default=default_target())
     parser.add_argument(
         "--artifacts-only",
         action="store_true",
