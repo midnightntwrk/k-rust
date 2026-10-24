@@ -657,8 +657,8 @@ pairs = 3846
 overlaps = 102
 uninhabited = 33
 refuted = 7
-joined = 94
-unjoined = 1
+joined = 95
+unjoined = 0
 relevant = 0
 violations = 0
 heads = 6
@@ -670,7 +670,7 @@ confluent_families = 2
 relevant_equations = 1062
 skipped = 734
 full_pairs = 4580
-full_unjoined = 5
+full_unjoined = 4
 full_tainted_symbols = 8
 simplifier_calls = 76
 condition_memo_hits = 61
@@ -684,6 +684,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 1
+full_witnesses = 1
+full_tainted_witness_heads = 0
 
 # KEVM withdraws a claim (a relevant non-joined pair), so the manifest covers it; it is compiled
 # here and measured at a host UID (scripts/gates.toml, value-contract-corpus).
