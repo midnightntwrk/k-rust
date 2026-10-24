@@ -344,7 +344,7 @@ theorem succ{i}_complete {{c c' : {top}}} (h : Step0 {i} c c') : c' ∈ succ{i} 
         let prev = |j: usize| format!("rank{j}_stuck (isStuck_iff.1 s{j})");
         if i + 1 < k {
             si.push_str(&format!(
-                "{pad}by_cases s{i} : isStuck (firstDefined (bucketOf{i} c) c none) = true\n{pad}· rw [if_pos s{i}] at h\n"
+                "{pad}by_cases s{i} : isStuck (firstDefined (bucketOf{i} c) c none) = true\n{pad}· rw [ite_eq_left s{i}] at h\n"
             ));
             // the negative branch is emitted after the positive chain: use `swap`-free layout
         } else {
@@ -358,7 +358,7 @@ theorem succ{i}_complete {{c c' : {top}}} (h : Step0 {i} c c') : c' ∈ succ{i} 
         let pad = "    ".to_string() + &"  ".repeat(i);
         let prev = |j: usize| format!("rank{j}_stuck (isStuck_iff.1 s{j})");
         si.push_str(&format!(
-            "{pad}· rw [if_neg s{i}] at h\n{pad}  exact Step0.lift (succ{i}_sound h) {}\n",
+            "{pad}· rw [ite_eq_right s{i}] at h\n{pad}  exact Step0.lift (succ{i}_sound h) {}\n",
             below(i, &prev)
         ));
     }
@@ -367,12 +367,12 @@ theorem succ{i}_complete {{c c' : {top}}} (h : Step0 {i} c c') : c' ∈ succ{i} 
         let mut rws = String::new();
         for j in 0..i {
             rws.push_str(&format!(
-                "      rw [if_pos (isStuck_iff.2 (rank{j}_none (hhi {j} (by omega))))]\n"
+                "      rw [ite_eq_left (isStuck_iff.2 (rank{j}_none (hhi {j} (by omega))))]\n"
             ));
         }
         if i + 1 < k {
             rws.push_str(&format!(
-                "      have n{i} : ¬ isStuck (firstDefined (bucketOf{i} c) c none) = true := fun e => rank{i}_stuck (isStuck_iff.1 e) (Step0.app h0)\n      rw [if_neg n{i}]\n"
+                "      have n{i} : ¬ isStuck (firstDefined (bucketOf{i} c) c none) = true := fun e => rank{i}_stuck (isStuck_iff.1 e) (Step0.app h0)\n      rw [ite_eq_right n{i}]\n"
             ));
         }
         si.push_str(&format!(

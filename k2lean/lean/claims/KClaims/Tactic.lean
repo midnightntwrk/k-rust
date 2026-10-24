@@ -98,7 +98,7 @@ elab "kc_norm" : tactic => liftMetaTactic fun g => do return [← normGoal g]
 def getRules (R : Expr) : MetaM (Array Expr) := do
   let rty ← whnfR (← inferType R)
   let .forallE _ α _ _ := rty | throwError "kc: relation expected, got {R}"
-  let A ← mkFreshExprMVar (← mkArrow α (mkSort levelZero))
+  let A ← mkFreshExprMVar (← mkArrow α (mkSort Level.zero))
   let inst ← synthInstance (mkAppN (mkConst ``KClaims.RuleSet) #[α, A, R])
   let A ← instantiateMVars A
   let mut l ← whnfD (mkAppN (mkConst ``KClaims.RuleSet.rules) #[α, A, R, inst])
@@ -381,7 +381,7 @@ def tryClaim (closer : TSyntax `tactic) (g : MVarId) (ap : Expr → Expr → Tac
     let t ← instantiateMVars (← g.getType)
     let some (c, _) := configOf t | return none
     let α ← inferType c
-    let Q ← mkFreshExprMVar (← mkArrow α (mkSort levelZero))
+    let Q ← mkFreshExprMVar (← mkArrow α (mkSort Level.zero))
     let some f ← ap c Q | return none
     let fty ← whnfR (← inferType f)
     let .forallE _ instTy _ _ := fty | return none

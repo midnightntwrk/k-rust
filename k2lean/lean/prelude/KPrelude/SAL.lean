@@ -256,11 +256,11 @@ theorem concat_singleton_iff {k : α} {v : β} {r m : List (α × β)} :
       (sortedb r && (lookup k r).isNone) := by simp [sortedb]
   rw [e]
   by_cases hc : (sortedb r && (lookup k r).isNone) = true
-  · rw [if_pos hc]
+  · rw [ite_eq_left hc]
     simp only [Bool.and_eq_true, Option.isNone_iff_eq_none, sortedb_iff] at hc
     simp only [List.foldr_cons, List.foldr_nil, Option.some.injEq]
     exact ⟨fun h => ⟨hc.1, hc.2, h.symm⟩, fun h => h.2.2.symm⟩
-  · rw [if_neg hc]
+  · rw [ite_eq_right hc]
     simp only [reduceCtorEq, false_iff]
     rintro ⟨h1, h2, _⟩
     apply hc

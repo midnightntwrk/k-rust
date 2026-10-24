@@ -239,7 +239,7 @@ def substr (s : String) (i j : Int) : String :=
   let n := s.length
   let i' := (max i 0).toNat
   let j' := (min (max j 0) n).toNat
-  if i' ≤ j' then String.mk ((s.toList.drop i').take (j' - i')) else ""
+  if i' ≤ j' then String.ofList ((s.toList.drop i').take (j' - i')) else ""
 /-- The first index `≥ i` at which `needle` occurs, or `-1`; undefined for a negative `i`. -/
 def find (h n : String) (i : Int) : Option Int :=
   if i < 0 then none else
@@ -306,7 +306,7 @@ def ofInt (i : Int) : String := toString i
 def base2string (i : Int) (b : Int) : Option String :=
   if 2 ≤ b ∧ b ≤ 36 then
     let digs := Nat.toDigits b.toNat i.natAbs
-    some ((if i < 0 then "-" else "") ++ String.mk digs)
+    some ((if i < 0 then "-" else "") ++ String.ofList digs)
   else none
 def string2base (s : String) (b : Int) : Option Int :=
   if 2 ≤ b ∧ b ≤ 36 then
@@ -328,7 +328,7 @@ def replaceFirst (h n r : String) : String :=
   if n.isEmpty then h else
   match (find h n 0) with
   | some k => if k < 0 then h else
-      String.mk ((h.toList.take k.toNat) ++ r.toList ++ (h.toList.drop (k.toNat + n.length)))
+      String.ofList ((h.toList.take k.toNat) ++ r.toList ++ (h.toList.drop (k.toNat + n.length)))
   | none => h
 def countAllOccurrences (h n : String) : Int :=
   if n.isEmpty then 0 else ((h.splitOn n).length - 1 : Nat)
@@ -518,7 +518,7 @@ def dec : Nat → List Tok → Option (List UInt8 × List Tok)
 theorem byte_rt (x : UInt8) : (Char.ofNat x.toNat).toNat.toUInt8 = x := by
   have h : x.toNat < 256 := x.toNat_lt
   have hv : x.toNat.isValidChar := Or.inl (by omega)
-  simp only [Char.ofNat, dif_pos hv, Char.ofNatAux, Char.toNat]
+  simp only [Char.ofNat, dite_eq_left hv, Char.ofNatAux, Char.toNat]
   apply UInt8.toNat_inj.1
   simp [Nat.toUInt8, UInt32.toNat]
 

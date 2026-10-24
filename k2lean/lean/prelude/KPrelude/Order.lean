@@ -11,7 +11,7 @@ order by the laws of `List.compareLex` and `Tok`.
 namespace KPrelude
 
 /-- The order on `α` induced by a serialization. -/
-def ordOfSer {α : Type} (ser : α → List Tok) : Ord α := ⟨fun a b => compare (ser a) (ser b)⟩
+@[instance_reducible] def ordOfSer {α : Type} (ser : α → List Tok) : Ord α := ⟨fun a b => compare (ser a) (ser b)⟩
 
 theorem transOrdOfSer {α : Type} (ser : α → List Tok) :
     @Std.TransOrd α (ordOfSer ser) :=

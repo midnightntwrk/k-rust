@@ -44,10 +44,10 @@ theorem tdiv_eq_some {a b r : Int} : tdiv a b = some r ↔ b ≠ 0 ∧ a.tdiv b 
 unfolding (used by the generated equation proofs). -/
 
 theorem emod_of_lt {x n : Int} (h₀ : 0 ≤ x) (h₁ : x < n) : emod x n = some x := by
-  unfold emod; rw [if_neg (by omega)]; exact congrArg some (Int.emod_eq_of_lt h₀ h₁)
+  unfold emod; rw [ite_eq_right (by omega)]; exact congrArg some (Int.emod_eq_of_lt h₀ h₁)
 
 theorem tmod_of_lt {x n : Int} (h₀ : 0 ≤ x) (h₁ : x < n) : tmod x n = some x := by
-  unfold tmod; rw [if_neg (by omega)]; exact congrArg some (Int.tmod_eq_of_lt h₀ h₁)
+  unfold tmod; rw [ite_eq_right (by omega)]; exact congrArg some (Int.tmod_eq_of_lt h₀ h₁)
 
 theorem int_emod_eq_of_lt {a b : Int} (h₀ : 0 ≤ a) (h₁ : a < b) : a.emod b = a := Int.emod_eq_of_lt h₀ h₁
 
@@ -62,7 +62,7 @@ theorem int_ediv_eq_tdiv_sub_emod (a b : Int) (h : b ≠ 0) : a.ediv b = (a - a.
 theorem ediv_eq_tdiv_sub_emod (a b : Int) (h : b ≠ 0) :
     ediv a b = (emod a b).bind fun r => tdiv (a - r) b := by
   unfold ediv emod tdiv
-  simp only [if_neg h, Option.bind_some, Option.some.injEq]
+  simp only [ite_eq_right h, Option.bind_some, Option.some.injEq]
   have e : a - a.emod b = b * a.ediv b := by
     have := Int.emod_add_mul_ediv a b
     change a.emod b + b * a.ediv b = a at this
