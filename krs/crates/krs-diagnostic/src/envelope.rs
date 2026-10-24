@@ -101,7 +101,9 @@ pub struct DiagnosticEnvelope {
     pub severity: DiagnosticSeverity,
     /// Human-readable detail; consumers must classify by `code`.
     pub message: String,
-    /// Exact parser-owned authored byte range, `null` when no authored text is the subject.
+    /// Exact parser-owned authored byte range, `null` when no authored text is the subject. The
+    /// key is required: the schema makes the range nullable, not optional.
+    #[serde(deserialize_with = "nullable")]
     pub authored_range: Option<SourceRange>,
     /// The stable identity of the subject item when it has no exact range.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -193,6 +195,16 @@ impl DiagnosticEnvelope {
         value.push('\n');
         Ok(value)
     }
+}
+
+/// A value that is present and may be `null`: deserializing through a function makes serde
+/// require the key, which it would otherwise default for an `Option`.
+fn nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::deserialize(deserializer)
 }
 
 /// The envelope kind of a code: the registry's kind for a KRS code, and `author` for a code

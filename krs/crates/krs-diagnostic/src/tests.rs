@@ -315,6 +315,17 @@ mod envelope_schema {
     }
 
     #[test]
+    fn the_authored_range_key_is_required_and_nullable() {
+        let line = DiagnosticEnvelope::unlocated(DiagnosticStage::Analysis, "E0308", "mismatch")
+            .to_json_line()
+            .unwrap();
+        assert!(DiagnosticEnvelope::from_json_lines(&line).is_ok());
+        let missing = line.replace(",\"authored_range\":null", "");
+        assert_ne!(missing, line);
+        assert!(DiagnosticEnvelope::from_json_lines(&missing).is_err());
+    }
+
+    #[test]
     fn a_version_one_line_is_rejected_by_its_version() {
         let line = DiagnosticEnvelope::unlocated(DiagnosticStage::Analysis, "E0308", "mismatch")
             .to_json_line()
