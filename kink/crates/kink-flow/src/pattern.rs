@@ -828,9 +828,9 @@ fn defined_state_with(
         .map_err(|e| format!("its KORE does not decode ({e}), so its definedness is not known"))?;
     if holds_conjunction(&pattern) {
         return Err(format!(
-            "it holds a term-level \\and ({UNDEFINED_STATE}): k-rust's ceil_free reads a \
-             conjunction by its conjuncts only, which does not show that they denote one \
-             configuration, so the state may denote none"
+            "it holds a term-level \\and ({UNDEFINED_STATE}): a conjunction of different sides \
+             denotes a configuration only where its sides are equal, which kink does not decide, \
+             so the state may denote none"
         ));
     }
     let unknown = |why: String| format!("{why}, so its definedness is not known");
