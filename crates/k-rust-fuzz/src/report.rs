@@ -52,7 +52,16 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// differential classes; the campaign specification's `Target`, versioned with the report, gains
 /// `data-end` (`docs/compatibility.md`, "Format
 /// versions").
-pub const REPORT_VERSION: u32 = 5;
+///
+/// Version 6 (phase 6) adds the top-level `incidental` (FZ-INCIDENTAL: the first `stuck` and
+/// the first `undefined` case, each with `baseline-run` for a differential baseline's run), the
+/// outcome `not-comparable` and the top-level `definition-findings` (FZ-POLISH),
+/// `identity.options.assume-joined`, `totals.pattern-body-matches`, a witness case's `program`
+/// and the witness's `mutant-krun-command`, and a span hole's `column`; `totals.best-score` gets
+/// its shape (`scored-cases`, `best`), and a differential witness now has a `krun-command`
+/// (`docs/compatibility.md`, "Format versions"). A version-5 reader refuses the new outcome and
+/// fields.
+pub const REPORT_VERSION: u32 = 6;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1710,7 +1719,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":5,"identity":{"engine-version":4,"#,
+            r#"{"schema":"krust-fuzz-report","version":6,"identity":{"engine-version":5,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,

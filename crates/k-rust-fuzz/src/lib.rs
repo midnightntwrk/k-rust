@@ -93,7 +93,15 @@ pub use values::{Constraints, Value};
 /// ends as sets of final configurations under state sets with the one-path re-run (FZ-DIFFEND),
 /// the every-`<k>` natural end of threaded configurations (FZ-UNSUPPORTED), and ends judged as
 /// data (FZ-DATAEND).
-pub const ENGINE_VERSION: u32 = 4;
+///
+/// Version 5 (phase 6): a campaign whose holes' domains are all finite runs each assignment
+/// once, replacing a repeat by the next untried assignment of a seeded permutation, and ends
+/// when all have run (FZ-POLISH N-T1); shrinking tries each hole's least value first and revisits
+/// every hole, value trees included (N-T2); a campaign that reads data ends on a definition
+/// whose full critical-pair check reports a finding not assumed joined runs no case
+/// (not comparable at setup); and the data judgement's check reads an overlap over a sort with
+/// no normal form like any other (FZ-EMPTYSORT), which moves the classes the proposers read.
+pub const ENGINE_VERSION: u32 = 5;
 
 #[cfg(test)]
 mod release_tests {

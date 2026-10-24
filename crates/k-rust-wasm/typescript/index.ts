@@ -1662,7 +1662,7 @@ export interface FuzzIncidentalCase {
   'baseline-run'?: boolean
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 5 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 6 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number
