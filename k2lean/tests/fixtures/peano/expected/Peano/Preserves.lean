@@ -38,5 +38,27 @@ theorem Step.preserves_of {P : SortGeneratedTopCell → Prop}
   cases h with
   | start x1 x2 x3 x4 x5 x6 => exact start x1 x2 x3 x4 x5 x6 hc
   | «done(s(s(N)))» x1 x2 => exact «done(s(s(N)))» x1 x2 hc
+/-! ## The per-rule principle for a relation between the two sides of a step -/
+
+/-- Rule `start` (peano.k:29:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.start (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (N : SortNat) (DotVar0 : SortGeneratedCounterCell) (r : SortB) (r_2 : SortNat) (hr : K.«even(_)_PEANO_B_Nat» N = some r) (hr_3 : K.«pick(_,_)_PEANO_Nat_B_Nat» r N = some r_2),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.«run(_)» N)) SortK.dotk)) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.«done(_)» r_2)) SortK.dotk)) DotVar0)
+
+/-- Rule `done(s(s(N)))` (peano.k:30:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.«done(s(s(N)))» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (N : SortNat) (DotVar0 : SortGeneratedCounterCell),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.«done(_)» (SortNat.«s(_)» (SortNat.«s(_)» N)))) SortK.dotk)) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.«done(_)» N)) SortK.dotk)) DotVar0)
+
+/-- Every step relates its source and target by `Q`, from one hypothesis per rule (2 rules). -/
+theorem Step.rel_of {Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop}
+    (start : Step.Rel.start Q)
+    («done(s(s(N)))» : Step.Rel.«done(s(s(N)))» Q)
+    {c c' : SortGeneratedTopCell} (h : Step c c') : Q c c' := by
+  cases h with
+  | start x1 x2 x3 x4 x5 x6 => exact start x1 x2 x3 x4 x5 x6
+  | «done(s(s(N)))» x1 x2 => exact «done(s(s(N)))» x1 x2
 
 end Peano

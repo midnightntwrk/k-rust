@@ -30,5 +30,19 @@ theorem Step.preserves_of {P : SortGeneratedTopCell → Prop}
   intro c c' hc h
   cases h with
   | «run(N)» x1 x2 x3 x4 x5 x6 x7 x8 => exact «run(N)» x1 x2 x3 x4 x5 x6 x7 x8 hc
+/-! ## The per-rule principle for a relation between the two sides of a step -/
+
+/-- Rule `run(N)` (measure.k:34:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.«run(N)» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (N : SortInt) (DotVar0 : SortGeneratedCounterCell) (r : SortInt) (r_2 : SortInt) (r_4 : SortInt) (hr : K.sumTo N = some r) (hr_3 : K.fee SortFork.C = some r_2) (hr_5 : K.norm N = some r_4),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.«run(_)» N)) SortK.dotk))) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Int (KPrelude.IntHook.add (KPrelude.IntHook.add r r_2) r_4)) SortK.dotk))) DotVar0)
+
+/-- Every step relates its source and target by `Q`, from one hypothesis per rule (1 rules). -/
+theorem Step.rel_of {Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop}
+    («run(N)» : Step.Rel.«run(N)» Q)
+    {c c' : SortGeneratedTopCell} (h : Step c c') : Q c c' := by
+  cases h with
+  | «run(N)» x1 x2 x3 x4 x5 x6 x7 x8 => exact «run(N)» x1 x2 x3 x4 x5 x6 x7 x8
 
 end Measure

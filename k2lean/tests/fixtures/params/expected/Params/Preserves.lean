@@ -40,5 +40,27 @@ theorem Step.preserves_of {P : SortGeneratedTopCell → Prop}
   cases h with
   | «hash B» x1 x2 x3 x4 x5 x6 x7 => exact «hash B» x1 x2 x3 x4 x5 x6 x7 hc
   | «roundtrip I» x1 x2 x3 => exact «roundtrip I» x1 x2 x3 hc
+/-! ## The per-rule principle for a relation between the two sides of a step -/
+
+/-- Rule `hash B` (params.k:21:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.«hash B» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (B : SortBytes) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell) (r : SortString) (r_2 : SortInt) (hr : Hooks.«BYTES.bytes2hex» B = some r) (hr_3 : Hooks.«fn.oracle(_)_PARAMS_Int_Int» (KPrelude.BytesHook.length B) = some r_2),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.hash_ B)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» SortK.dotk) (SortOutCell.«<out>» (KPrelude.IntHook.add (KPrelude.StringHook.length r) r_2))) DotVar0)
+
+/-- Rule `roundtrip I` (params.k:22:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.«roundtrip I» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (I : SortInt) (Gen0 : SortInt) (DotVar0 : SortGeneratedCounterCell),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.roundtrip_ I)) SortK.dotk)) (SortOutCell.«<out>» Gen0)) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» SortK.dotk) (SortOutCell.«<out>» (K.hook_bytes2int (K.hook_int2bytes (4 : Int) I SortEndianness.bigEndianBytes) SortEndianness.bigEndianBytes SortSignedness.signedBytes))) DotVar0)
+
+/-- Every step relates its source and target by `Q`, from one hypothesis per rule (2 rules). -/
+theorem Step.rel_of {Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop}
+    («hash B» : Step.Rel.«hash B» Q)
+    («roundtrip I» : Step.Rel.«roundtrip I» Q)
+    {c c' : SortGeneratedTopCell} (h : Step c c') : Q c c' := by
+  cases h with
+  | «hash B» x1 x2 x3 x4 x5 x6 x7 => exact «hash B» x1 x2 x3 x4 x5 x6 x7
+  | «roundtrip I» x1 x2 x3 => exact «roundtrip I» x1 x2 x3
 
 end Params
