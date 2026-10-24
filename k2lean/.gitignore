@@ -21,3 +21,4 @@ lake-manifest.json
 /demos/ImpRel/ImpRel/Bisim.lean
 /demos/ImpTypes/ImpTypes/Tr.lean
 /demos/ImpMut/ImpMut/Tr.lean
+/demos/SimpleRel/SimpleRel/Bisim.lean

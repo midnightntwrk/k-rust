@@ -58,6 +58,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | demo | shows |
 |---|---|
 | `demos/ImpRel` | the KRS IMP port (`demos/k/krs-imp`) and kimp are bisimilar: `k2lean relate` pairs their rules and generates the proof |
+| `demos/SimpleRel` | SIMPLE and a variant of it (`tests/simple-variant.py`: constructors with other symbols, rules in another order) should be bisimilar (priorities, free-key matches on the thread cell map, typed cell maps); human-run (`pipelines/simple-rel.sh`), since the relation does not build yet within a gate tier's cost (`docs/design.md`, §9) |
 | `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): preservation as a kind 2 invariant, and progress |
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
@@ -90,7 +91,7 @@ A claim proved on one definition holds on another that `k2lean relate` proves bi
 
 The default term universe is one Lean type per sort, in one `mutual` block.
 For definitions of KEVM's size, `gen --arity-terms` writes one inductive family indexed by the sorts instead, and `gen --det2` proves determinism along the rule index rather than over all pairs of rules (`--arity-terms` implies it); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
-`pipelines/kevm.sh` and `pipelines/kmir.sh` run KEVM and KMIR through the generator and Lean, step by step; `docs/design.md`, §9, lists what is open.
+`pipelines/kevm.sh` and `pipelines/kmir.sh` run KEVM and KMIR through the generator and Lean, step by step, and `pipelines/simple-rel.sh` relates SIMPLE to its variant (`demos/SimpleRel`); `docs/design.md`, §9, lists what is open.
 
 ## Testing
 

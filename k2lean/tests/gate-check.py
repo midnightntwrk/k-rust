@@ -89,9 +89,11 @@ SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsim
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
                          "generated/kimpinv-claims"],
                "arity": ["generated/kimp-ar", "generated/simple-ar"]}
-DEMO_SOURCES = ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
-                "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
-                "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"]
+DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
+                          "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
+                          "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"],
+                "heavy": [],
+                "arity": []}
 
 
 def tiers(tier):
@@ -227,10 +229,9 @@ def sources(tree, tier):
                         or rel in NOT_REGENERATED):
                     continue
                 out[rel] = (t, sha(f))
-        if t == "light":
-            for rel in DEMO_SOURCES:
-                if (tree / rel).exists():
-                    out[rel] = (t, sha(tree / rel))
+        for rel in DEMO_SOURCES[t]:
+            if (tree / rel).exists():
+                out[rel] = (t, sha(tree / rel))
     return out
 
 

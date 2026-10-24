@@ -148,6 +148,27 @@ Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each mo
 kimpinv's invariant now also conjoins `storeNoIds` (no store value is an `Id`), so the two claims assume both parts, though their truth needs only `envOk`.
 On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both generically in the same 10 and 47 configurations.
 
+### 3.2 Relating two definitions (`relate`)
+
+`k2lean relate` reads the compiled KORE of two definitions `A` and `B` of one language, each generated into its own library, and pairs them:
+
+- a constructor of `A` with the constructor of `B` of the same KORE symbol, else of the same result and argument sorts and the same concrete syntax (the `format` attribute of `syntaxDefinition.kore`), a strictness freezer with the freezer of its symbol's counterpart; this gives the translation `tr : A → B` on every sort of `A`'s term universe;
+- a rule of `A` with the rule of `B` whose KORE axiom is the same after renaming symbols and variables, or of which `B`'s is an instance at a subsort of some variables (a refinement); a KORE axiom is one rule per overload variant, in the same order on both sides, and the variants correspond one to one.
+
+When every rule of `A` pairs, it states and proves `bisim : Bisimulation A.Step B.Step R` with `R c d := Inv c ∧ d = tr c`, and `app_iff` (a rule applies in one exactly when its counterpart applies in the other), `stepsN_iff`, `terminal_iff` and `run_agree`; each simulation is one case per rule, by generic tactics.
+
+- **Priorities.** A step of rank `i` holds only where no rule of a higher rank applies (`hpri : ∀ j < i, ¬ App j c`, §2).
+  A pair of rules must be of the same rank (otherwise the bisimulation is not stated); then `hpri` of one side follows from the other's through `app_bwd` and `app_fwd`, rank by rank, so the statement respects priorities exactly.
+- **The order of map keys.** A map value is canonical: its bindings sorted by its library's order on keys, which compares serializations whose tags are constructor positions, and positions come from symbol names.
+  A pointwise translation of a sorted map is sorted again exactly when it preserves the order of the keys involved, so this is what decides how maps are related.
+  - *Every position kept* (the two libraries order each sort's constructors alike, as for two versions of a definition whose renamed symbols keep their place): `ser (tr a) = ser a` for every term (`ser_tr_*`, by structural induction), so `tr` preserves the order of every key (`SAL.Pres`) and commutes with every collection operation without a hypothesis (`MapHook.concat_pointwise` and the rest, `KPrelude.Relate`); `Inv` is `True`.
+    Map patterns with a free key (a rule matching any binding: the thread cell map of SIMPLE) are inverted through the translated map's bindings (`concat_element_pointwise_inv_free`), and typed cell maps are collection sorts like any other.
+  - *A constructor moves* (the KRS IMP port numbers constructors its own way): `Inv` restricts the keys of the configuration's map cells, at depth one, to injections of builtin and token sorts, on which the translation preserves the order; free-key map patterns, priority ranks, typed cell maps and keys of other sorts are refused in this case, since a key invariant would have to hold of every map anywhere in the configuration (inside computations and stacks too), which is not generated.
+- **Functions.** Each function the rules call commutes with `tr` (`comm_fn_*`, in the `k2l_rel` simp set): a non-recursive one by unfolding both definitions; a recursive one by the same well-founded recursion as its definition: the lemma unfolds both definitions once, splits the two cascades in step (its parameters generalized first, so that each split leaves the equation `x = pattern` its termination proof reads), and rewrites `B`'s recursive calls by itself, with `A`'s termination measure or Lean's search; a mutual group together.
+  A function with a free-key equation (`MapHook.chooseFirst`, §2) gets no lemma, and `relate` refuses the bisimulation.
+
+SIMPLE against a variant of it (`tests/simple-variant.py`: three constructors under other symbols, the rules in another order; `demos/SimpleRel`, `pipelines/simple-rel.sh`) is generated, 226 symbols and 169 rule pairs in 0.2 s, but does not build within a gate tier's cost; §9 has the measurements.
+
 ## 4. Commands
 
 | command | does |
@@ -235,6 +256,11 @@ Open, in the order they block a KEVM library with kimp's guarantees:
 - **Termination**: all 21 recursive groups of KEVM that Lean's own search does not prove are proved, 15 by the generator's measures and 5 by `kevm-termination.toml`; a mutual group gets no synthesized measure, and the termination file's lemmas name generated definitions and the arity universe's constructors, so a change to either breaks them at build time.
 - **A KEVM run**: the test drivers need an instance of `Hooks` (real hashes, outside the semantics) and krust-produced initial configurations; none is generated yet.
 - **KMIR**: `ensures` rules, and per-program instances of its three equation-less `lookup*Kore` functions, now parameters.
+- **`relate` on SIMPLE** (`demos/SimpleRel`, human-run by `pipelines/simple-rel.sh`, positions kept, `Inv` = True), measured on 2026-10-24 on the shared 32-CPU host under a load of 10 to 17, each simulation in a module of its own with the others stated without proof:
+  the 15 commutation lemmas prove (the module up to them: 249 s wall, 10.6 GB peak); `app_fwd` about 150 s (113 s of it the kernel); `forward` 121 s of kernel check and 4.1 GB, with 6 goals open in 4 rules: the string literals a rule's right-hand side introduces (`var X[N1, N2, Vs]`: `tr` of a token literal is not folded back into a translation), one map pattern of `execute`, and the IO hooks without an implementation (`IOHook.undef1`, `undef2` are `none`, which the closers do not unfold).
+  `app_bwd` and `backward` were each killed at a 25-minute cap, after about 24 CPU-minutes at 13.6 GB, without finishing (the whole module had been killed after 35 CPU-minutes at 16.3 GB).
+  Each simulation is one declaration of 169 cases, and each backward case inverts `tr c = pattern` through the translated configuration's sorts (`KItem` has about a hundred constructors); per-rule lemmas (smaller declarations, which Lean elaborates in parallel) and per-constructor inversion lemmas are the next experiments.
+  On KEVM (its KORE against itself, and against a mutant whose `ADD` subtracts), `relate` generates the relation in 0.5 to 0.6 s and 164 MiB: 626 rule pairs, a 2.9 MB file, the mutant's changed rule unmatched on both sides; its Lean side is not built, since KEVM builds only in the arity universe and `relate` emits the per-sort one.
 - **The arity universe as the default**: kimp's and SIMPLE's results are equal on both encodings and the arity universe builds them several times faster (§2.1); not checked on it are the invariant tooling (kinds 1 and 2), `relate`, the claims, and the typed collections of the KRS sidecar. A delaborator from `Term.cK` back to the K constructors' names would make its goals readable.
 - **`--det2` as the default** for the per-sort encoding: kimp's `Determinism.lean` takes 9.8 s with it and 107 s without (§3.1).
 - **`Terms` cost**: about 280 of KEVM's 665 CPU-s are the decoder's round trip by `simp` and 128 leaf-inclusion lemmas by `decide` (estimate from a profile, 2026-10-23).

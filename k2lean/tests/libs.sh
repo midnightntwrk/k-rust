@@ -15,7 +15,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv, simple-variant), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -30,6 +30,11 @@ libs_kcompile() {
     kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     simple-inv) f=$DEMOS/k/simple-inv/simple-inv.k m=SIMPLE-INV s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
+    # SIMPLE written differently (tests/simple-variant.py: constructors with other symbols, rules
+    # in another order), the other side of the relation demos/SimpleRel
+    simple-variant) mkdir -p "$out.src" &&
+      python3 -I "$(dirname "${BASH_SOURCE[0]}")/simple-variant.py" "$SD/simple-untyped.md" "$out.src/simple-variant.md" || return 1
+      f=$out.src/simple-variant.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     *) echo "libs_kcompile: unknown definition $1" >&2; return 2 ;;
   esac
   "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
@@ -40,7 +45,7 @@ libs_kcompile() {
 libs_name() {
   case $1 in
     kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;;
-    simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;;
+    simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -105,6 +110,10 @@ libs_gen() {
             --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
             --open-obligations "$o/open-obligations.txt" \
             --invariant "$([ "$1" = simplet ] && echo tStoreOk@T || echo storeOk@store)" ;;
+    # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
+    simplev) "$G" gen --kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json" \
+            --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms \
+            --open-obligations "$o/open-obligations.txt" ;;
     *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -149,17 +158,19 @@ libs_cases() {
     --sort Stmt --lean-out "$1" "${LIBS_SIMPLE_CASES[@]}"
 }
 
-# libs_relate NS: the relation of demo NS to kimp (ImpRel: `Bisim.lean`; ImpTypes, ImpMut:
-# `Tr.lean`) and its correspondence report.
+# libs_relate NS: the relation of demo NS (ImpRel: `Bisim.lean`; ImpTypes, ImpMut: `Tr.lean`, all
+# from kimp; SimpleRel: `Bisim.lean`, SIMPLE to its variant) and its correspondence report.
 libs_relate() {
-  local ns=$1 nb kd f=Tr extra=()
+  local ns=$1 na=KImp ka nb kd f=Tr extra=()
+  ka=$(kore_dir kimp)
   case $ns in
     ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
+    SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
     *) echo "libs_relate: unknown demo $ns" >&2; return 2 ;;
   esac
-  "$G" relate --kore-a "$(kore_dir kimp)/definition.kore" --syntax-a "$(kore_dir kimp)/syntaxDefinition.kore" --name-a KImp \
+  "$G" relate --kore-a "$ka/definition.kore" --syntax-a "$ka/syntaxDefinition.kore" --name-a "$na" \
     --kore-b "$kd/definition.kore" --syntax-b "$kd/syntaxDefinition.kore" --name-b "$nb" \
     --ns "$ns" "${extra[@]}" --out "$DEMOS/$ns/$ns/$f.lean" --report "$DEMOS/$ns/correspondence.toml"
 }
