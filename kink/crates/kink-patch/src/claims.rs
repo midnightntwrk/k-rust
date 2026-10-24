@@ -178,7 +178,7 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "hooked-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1144 (a hooked symbol's equations agree with its hook, which the check shows)",
+        citation: "compatibility.md 1144 (a hooked symbol's equations are paired with the builtin it denotes)",
     },
 ];
 

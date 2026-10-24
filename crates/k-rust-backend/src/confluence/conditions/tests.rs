@@ -30,6 +30,8 @@ const DEFINITION: &str = r#"
     hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.sub")]
     hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.tdiv")]
     hooked-symbol absInt{}(SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.abs")]
+    hooked-symbol minInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.min")]
+    hooked-symbol maxInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.max")]
     hooked-symbol ltString{}(SortString{}, SortString{}) : SortBool{} [function{}(), total{}(), hook{}("STRING.lt")]
     hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
     sort Sort8{} []
@@ -83,6 +85,10 @@ enum Operand {
     Quotient(usize, usize),
     /// `absInt(X)`: an atom with the range facts of `INT.abs`.
     Abs(usize),
+    /// `minInt(X, Y +Int k)` and `maxInt(X, Y +Int k)`: atoms with the range facts of `INT.min`
+    /// and `INT.max`.
+    Min(usize, usize, i64),
+    Max(usize, usize, i64),
 }
 
 const NAMES: [&str; 3] = ["X", "Y", "Z"];
@@ -108,6 +114,16 @@ impl Operand {
                 Self::Variable(right).kore()
             ),
             Self::Abs(index) => format!("absInt{{}}({})", Self::Variable(index).kore()),
+            Self::Min(left, right, offset) => format!(
+                "minInt{{}}({}, {})",
+                Self::Variable(left).kore(),
+                Self::Shifted(right, offset).kore()
+            ),
+            Self::Max(left, right, offset) => format!(
+                "maxInt{{}}({}, {})",
+                Self::Variable(left).kore(),
+                Self::Shifted(right, offset).kore()
+            ),
         }
     }
 
@@ -121,6 +137,12 @@ impl Operand {
                 (assignment[right] != 0).then(|| assignment[left] / assignment[right])
             }
             Self::Abs(index) => Some(assignment[index].abs()),
+            Self::Min(left, right, offset) => {
+                Some(assignment[left].min(assignment[right] + offset))
+            }
+            Self::Max(left, right, offset) => {
+                Some(assignment[left].max(assignment[right] + offset))
+            }
         }
     }
 }
@@ -302,6 +324,8 @@ fn evaluate(term: &Term, assignment: [i64; 3]) -> Option<i64> {
             }
             let right = evaluate(arguments.get(1)?, assignment)?;
             match symbol.name.as_ref() {
+                "minInt" => Some(left.min(right)),
+                "maxInt" => Some(left.max(right)),
                 "addInt" => Some(left + right),
                 "subInt" => Some(left - right),
                 "divInt" => (right != 0).then(|| left / right),
@@ -540,12 +564,16 @@ pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) ->
     };
     let mut failures = Vec::new();
     for _ in 0..cases {
-        let operand = |next: &mut dyn FnMut(usize) -> usize| match next(8) {
+        let operand = |next: &mut dyn FnMut(usize) -> usize| match next(9) {
             0 => Operand::Literal(i64::try_from(next(5)).unwrap() - 2),
             1 | 2 => Operand::Shifted(next(3), i64::try_from(next(5)).unwrap() - 2),
             // One quotient, `X /Int Y`, so that conjuncts meet on it.
             3 | 4 => Operand::Quotient(0, 1),
             5 => Operand::Abs(next(3)),
+            6 => match next(2) {
+                0 => Operand::Min(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
+                _ => Operand::Max(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
+            },
             _ => Operand::Variable(next(3)),
         };
         let count = 2 + next(3);
@@ -608,6 +636,21 @@ fn a_dropped_difference_definedness_guard_is_caught_by_the_property_test() {
 fn a_misread_disjunction_is_caught_by_the_property_test() {
     let switches = crate::confluence::switches::Switches {
         misread_disjunction: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: reading `minInt` as at least its operands (and `maxInt` as at most them) refutes
+/// satisfiable conjunctions (`minInt(X, Y) <Int X` beside `Y <Int X`), which the property test
+/// sees.
+#[test]
+fn a_misread_min_max_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_min_max: true,
         ..Default::default()
     };
     let failures = crate::confluence::switches::with(switches, || {

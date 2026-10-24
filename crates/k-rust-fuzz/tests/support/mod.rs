@@ -729,6 +729,23 @@ pub const R4_HOOKITE_PROGRAMS: &[Program] = &[program!("r4-hookite/go.pgm")];
 fixture!(R4_HOOKITE, "r4-hookite/b.k", "HI", R4_HOOKITE_PROGRAMS);
 fixture!(R4_HOOKITE_M, "r4-hookite/m.k", "HI", R4_HOOKITE_PROGRAMS);
 
+/// FZ-CONFLUENCE review A (B1): `replace` (no builtin step) given a higher-priority equation, so
+/// that `replaceAll`'s domains.md equation, through `replace`, disagrees with the builtin; each
+/// baseline stores `"cb"` and its mutant `"ab"`, which its theory equates.
+pub const REPLACE_PRIORITY_PROGRAMS: &[Program] = &[program!("replace-priority/go.pgm")];
+fixture!(
+    REPLACE_PRIORITY,
+    "replace-priority/b.k",
+    "RP",
+    REPLACE_PRIORITY_PROGRAMS
+);
+fixture!(
+    REPLACE_PRIORITY_M,
+    "replace-priority/m.k",
+    "RP",
+    REPLACE_PRIORITY_PROGRAMS
+);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -956,7 +973,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 76] = [
+pub static ALL: [&Fixture; 78] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1033,4 +1050,6 @@ pub static ALL: [&Fixture; 76] = [
     &R3_PLAINQ_M,
     &R4_HOOKITE,
     &R4_HOOKITE_M,
+    &REPLACE_PRIORITY,
+    &REPLACE_PRIORITY_M,
 ];

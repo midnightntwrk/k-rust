@@ -220,7 +220,12 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// equation into the closure; `UnmodelledHook` per-equation reports; the condition reader's
 /// literal substitution and the unifier's deferral in `classify`. The stages, the early return and
 /// the equation and skipped counts kink reads are unchanged.
-const CONFLUENCE_RS: &str = "b00877b8afa5bb17b284dd8130cba96c828b0e52fa972b3eb834b7cfa0275dec";
+///
+/// Re-pin FZ-CONFLUENCE review fixes: b00877b8 -> 502e6d91. A hook pair is reported at load only
+/// when it withdraws a claim (as the load classifies only relevant equations' hook pairs), and the
+/// literal substitution moved into `conditions.rs` (`refuted_by_literals`). No stage, count or
+/// early return kink reads changes.
+const CONFLUENCE_RS: &str = "502e6d919e721ed174c252597fed2641436f640b4df7a2a0f97043a723b5da6a";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

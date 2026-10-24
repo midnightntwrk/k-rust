@@ -400,10 +400,13 @@ fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals()
 }
 
 /// Every executable equation `domains.md` writes at a hooked symbol, in a module importing every
-/// domains module: each one at a hook the evaluator applies joins every equation of its hook's
-/// written meaning, none is at an evaluated hook without one, and the nine at `STRING.findChar`,
-/// `rfindChar`, `replaceFirst`, `replace` and `LIST.push`, hooks no builtin implements, are read
-/// as their hooks' meaning and paired with nothing.
+/// domains module: none is at an evaluated hook without a written meaning, the nine at
+/// `STRING.findChar`, `rfindChar`, `replaceFirst`, `replace` and `LIST.push`, hooks no builtin
+/// implements, are read as their hooks' meaning and paired with nothing, and each one at a hook
+/// the evaluator applies joins every equation of its hook's written meaning but one:
+/// `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))`. Whether it agrees with
+/// the builtin depends on what `replace`'s equations make `replace` (an inductive fact about them
+/// that no join shows), so it is named against both equations of `replaceAll`'s meaning.
 #[test]
 fn the_domains_equations_at_hooked_symbols_agree_with_their_hooks() {
     let source = r#"module ALL-DOMAINS
@@ -429,14 +432,36 @@ endmodule
     let definition = backend.select_definition(None).unwrap();
     let all = definition.value_claims_in_scope(CheckScope::All);
     let counts = all.counts();
-    assert!(all.unjoined().is_empty(), "{:#?}", all.unjoined());
+    let named = all
+        .unjoined()
+        .iter()
+        .map(|pair| {
+            (
+                pair.hook.as_ref().map(ToString::to_string),
+                pair.second.attributes.label.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let replace_all = Some("STRING.replaceAll".to_owned());
+    assert_eq!(
+        named,
+        [
+            (
+                replace_all.clone(),
+                Some("STRING.replaceAll meaning 1".to_owned())
+            ),
+            (replace_all, Some("STRING.replaceAll meaning 2".to_owned())),
+        ],
+        "{:#?}",
+        all.unjoined()
+    );
     assert_eq!(
         (
             counts.hook.unevaluated,
             counts.hook.unmodelled,
             counts.hook.not_joined
         ),
-        (9, 0, 0),
+        (9, 0, 2),
         "{:?}",
         counts.hook
     );
@@ -576,5 +601,122 @@ fn a_disjunction_is_refuted_when_each_of_its_cases_is() {
   rule [b]: gr(S, E) => 2 requires 0 <=Int S"
         )),
         [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// The hook pairs of the full check whose first equation is labelled `label` in module `PAIRS`,
+/// with their reasons, and the per-equation `UnmodelledHook` reports of it.
+fn hook_findings(claims: &ValueClaims, label: &str) -> Vec<String> {
+    let label = format!("PAIRS.{label}");
+    claims
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.first.attributes.label.as_deref() == Some(label.as_str()))
+        .filter(|pair| {
+            pair.hook.is_some() || matches!(pair.reason, UnjoinedReason::UnmodelledHook(_))
+        })
+        .map(|pair| format!("{:?} {}", pair.hook, pair.reason))
+        .collect()
+}
+
+/// Review A, B1: a written meaning may name only builtins the evaluator applies. `replaceAll`'s
+/// meaning used to read `replace`, whose meaning is whatever the definition's equations say, so a
+/// second symbol hooked to `STRING.replace` with a false equation made a false `replaceAll`
+/// equation join its hook. The meaning is now written over `findString`, `substrString`,
+/// `lengthString` and `+String`, and the false equation is named against it.
+#[test]
+fn a_written_meaning_reads_no_equation_of_the_definition() {
+    let definition = definition(
+        r##"  syntax String ::= "#aReplace" "(" String "," String "," String "," Int ")" [function, hook(STRING.replace)]
+                  | myReplaceAll(String, String, String) [function, hook(STRING.replaceAll)]
+  rule [twin]: #aReplace(S, _, _, _) => S
+  rule [mine]: myReplaceAll(S, T, R) => #aReplace(S, T, R, countAllOccurrences(S, T))"##,
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let findings = hook_findings(&all, "mine");
+    assert!(!findings.is_empty(), "{:#?}", all.unjoined());
+    assert!(
+        findings
+            .iter()
+            .all(|finding| finding.starts_with("Some(\"STRING.replaceAll\")")),
+        "{findings:?}"
+    );
+}
+
+/// Review A, S1: helpers are found by hook, arity and argument and result sorts among every
+/// candidate. A symbol hooked to `INT.lt` at another Bool-domain sort (whose values the builtin
+/// never gives) is passed over for `_<Int_`, so `INT.min`'s meaning is built and a correct
+/// `minInt`-style equation joins it.
+#[test]
+fn a_helper_of_another_result_sort_is_passed_over() {
+    let definition = definition(
+        r##"  syntax MyBool [hook(BOOL.Bool)]
+  syntax MyBool ::= "#lt" "(" Int "," Int ")" [function, hook(INT.lt)]
+  syntax Int ::= myMin(Int, Int) [function, hook(INT.min)]
+  rule [mine]: myMin(X, Y) => Y requires X >=Int Y"##,
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(hook_findings(&all, "mine"), Vec::<String>::new());
+    assert!(
+        !all.unjoined()
+            .iter()
+            .any(|pair| matches!(&pair.reason, UnjoinedReason::UnmodelledHook(hook) if hook.as_ref() == "INT.min")),
+        "{:#?}",
+        all.unjoined()
+    );
+}
+
+/// Review A, N1: a symbol hooked at another arity than its hook's is no application of the
+/// builtin, and gets no written meaning: its equation is reported as at an unmodelled hook.
+#[test]
+fn a_symbol_hooked_at_another_arity_gets_no_written_meaning() {
+    let definition = definition(
+        r#"  syntax Bool ::= myAnd(Bool, Bool, Bool) [function, hook(BOOL.and)]
+  rule [mine]: myAnd(B, _, _) => B"#,
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(
+        hook_findings(&all, "mine"),
+        vec![format!(
+            "None {}",
+            UnjoinedReason::UnmodelledHook("BOOL.and".into())
+        )]
+    );
+}
+
+/// Review B, item 1: the range facts of `minInt` and `maxInt` bound them by their operands in the
+/// right direction. `minInt(X, Y) <Int X` beside `Y <Int X` holds at `X = 1, Y = 0`, a genuine
+/// overlap with different results, and so does `maxInt(X, Y) >Int X` beside `Y >Int X`.
+#[test]
+fn min_and_max_bound_their_operands_in_the_right_direction() {
+    let declaration = "  syntax Int ::= mm(Int, Int) [function, symbol(mm)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: mm(X, Y) => 1 requires minInt(X, Y) <Int X
+  rule [b]: mm(X, Y) => 2 requires Y <Int X"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: mm(X, Y) => 1 requires maxInt(X, Y) >Int X
+  rule [b]: mm(X, Y) => 2 requires Y >Int X"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+    // With the operand outside the bound, the pair is refuted: `minInt(X, Y) >Int X` holds on no
+    // instance.
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: mm(X, Y) => 1 requires minInt(X, Y) >Int X
+  rule [b]: mm(X, Y) => 2"
+        )),
+        []
     );
 }

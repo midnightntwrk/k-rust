@@ -78,7 +78,8 @@ fn an_equation_that_disagrees_with_its_hook_is_named_against_the_hooks_meaning()
         pair.second.attributes.label.as_deref(),
         Some("KEQUAL.ite meaning 1")
     );
-    assert!(pair.reported());
+    // `sel` is hooked, so not taintable: the pair withdraws no claim and is not named at load.
+    assert!(!pair.reported());
     let counts = claims.counts();
     assert_eq!((counts.hook.equations, counts.hook.pairs), (1, 2));
     assert_eq!((counts.hook.not_joined, counts.hook.refuted), (1, 0));
@@ -158,13 +159,13 @@ fn the_load_pairs_only_relevant_equations_with_their_hooks() {
 }
 
 /// FUN's prelude holds every equation of `domains.md` at a hooked symbol: each one at an
-/// evaluated hook joins every equation of its hook's meaning.
+/// evaluated hook joins every equation of its hook's meaning, but `replaceAll(S, T, R) =>
+/// replace(S, T, R, countAllOccurrences(S, T))`, which agrees with the builtin only through what
+/// `replace`'s equations make `replace` (no fixed identity of the builtin), and is named against
+/// both equations of `replaceAll`'s meaning.
 #[test]
 fn the_preludes_hooked_equations_join_their_hooks_meanings() {
-    let source = include_str!("../../../tests/fixtures/fun-prelude-hooked-equations.kore");
-    let definition =
-        BackendDefinition::internalize(&parse_definition(source).expect("parses"), "FUN-UNTYPED")
-            .expect("internalizes");
+    let definition = prelude();
     let claims = all(&definition);
     let named = claims
         .unjoined()
@@ -172,10 +173,98 @@ fn the_preludes_hooked_equations_join_their_hooks_meanings() {
         .filter(|pair| {
             pair.hook.is_some() || matches!(pair.reason, UnjoinedReason::UnmodelledHook(_))
         })
+        .map(|pair| {
+            (
+                pair.hook.as_deref().map(str::to_owned),
+                pair.second.attributes.label.clone(),
+            )
+        })
         .collect::<Vec<_>>();
-    assert!(named.is_empty(), "{named:#?}");
+    let replace_all = Some("STRING.replaceAll".to_owned());
+    assert_eq!(
+        named,
+        [
+            (
+                replace_all.clone(),
+                Some("STRING.replaceAll meaning 1".to_owned())
+            ),
+            (replace_all, Some("STRING.replaceAll meaning 2".to_owned())),
+        ]
+    );
     let counts = claims.counts();
     assert!(counts.hook.pairs > 0, "{counts:?}");
-    assert_eq!(counts.hook.not_joined, 0);
+    assert_eq!(counts.hook.not_joined, 2);
     assert_eq!(counts.hook.unmodelled, 0);
+}
+
+fn prelude() -> BackendDefinition {
+    let source = include_str!("../../../tests/fixtures/fun-prelude-hooked-equations.kore");
+    BackendDefinition::internalize(&parse_definition(source).expect("parses"), "FUN-UNTYPED")
+        .expect("internalizes")
+}
+
+/// Review A, B1: a written meaning is a fixed identity of a builtin, so besides the hooked symbol
+/// itself it names only constructors, literals and symbols whose hook the evaluator applies,
+/// never a symbol whose meaning the definition's equations supply (`STRING.replace`).
+#[test]
+fn every_written_meaning_names_only_evaluated_builtins() {
+    use crate::{
+        confluence::hooks::{HookSymbols, Meaning, WRITTEN, meaning},
+        term::{HeadRole, Term, TermKind, Variable},
+    };
+    let definition = prelude();
+    let symbols = HookSymbols::of(&definition);
+    for hook in WRITTEN {
+        let symbol = definition
+            .symbols()
+            .values()
+            .find(|symbol| symbol.attributes.hook.as_deref() == Some(hook))
+            .expect("the prelude declares the hook");
+        let sort_arguments = if symbol.sort_variables.is_empty() {
+            Vec::new()
+        } else {
+            vec![crate::term::Sort::simple("SortK")]
+        };
+        let arguments = symbol
+            .argument_sorts
+            .iter()
+            .enumerate()
+            .map(|(index, sort)| {
+                let sort = if matches!(sort.node(), crate::term::SortNode::Variable(_)) {
+                    crate::term::Sort::simple("SortK")
+                } else {
+                    *sort
+                };
+                Term::variable(Variable::new(format!("Z{index}"), sort))
+            })
+            .collect();
+        let lhs = Term::application(std::sync::Arc::clone(symbol), sort_arguments, arguments);
+        let Meaning::Built(rules) = meaning(&symbols, hook, &lhs) else {
+            panic!("{hook} has no written meaning in the prelude");
+        };
+        for rule in rules {
+            let mut terms = vec![rule.lhs.clone()];
+            if let crate::rule::RuleRhs::Term(rhs) = &rule.rhs {
+                terms.push(rhs.clone());
+            }
+            for predicate in rule.requires.iter() {
+                if let crate::rule::Predicate::Equals(left, right) = predicate {
+                    terms.extend([left.clone(), right.clone()]);
+                }
+            }
+            for term in terms {
+                term.visit_symbols(&mut |used| {
+                    let fixed = used.name == symbol.name
+                        || used.attributes.head_role() == HeadRole::FreeConstructor
+                        || matches!(term.kind(), TermKind::DomainValue { .. })
+                        || used
+                            .attributes
+                            .hook
+                            .as_deref()
+                            .is_some_and(crate::builtin::evaluates);
+                    assert!(fixed, "{hook}'s meaning names `{}`", used.name);
+                });
+            }
+        }
+    }
 }

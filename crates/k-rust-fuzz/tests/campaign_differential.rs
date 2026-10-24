@@ -24,7 +24,8 @@ use support::{
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
     KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
     R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, R4_HOOKITE, R4_HOOKITE_M, RERUN, RERUN_DROP,
+    R3_PROPAGATE, R3_PROPAGATE_M, R4_HOOKITE, R4_HOOKITE_M, REPLACE_PRIORITY, REPLACE_PRIORITY_M,
+    RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -859,6 +860,23 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
 #[test]
 fn an_equation_that_disagrees_with_its_hook_leaves_the_definition_without_data() {
     let report = r2_report(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// FZ-CONFLUENCE review A (B1): with `rule replace(S, _, _, _) => S [priority(10)]`, domains.md's
+/// `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))` gives
+/// `replaceAll("ab", "a", "c") = "ab"` while the builtin gives `"cb"`. `replaceAll`'s written
+/// meaning names only builtins, so the equation is not shown to agree with its hook: no end is
+/// data, never a kill (the first written meaning, through `replace`, killed it).
+#[test]
+fn an_equation_agreeing_with_its_hook_only_through_the_definition_has_no_data() {
+    let report = r2_report(
+        &REPLACE_PRIORITY,
+        &REPLACE_PRIORITY_M,
+        "replace-priority/go.pgm",
+    );
     assert!(report.witness().is_none(), "{:?}", report.outcome);
     assert_only_unsupported(&report);
     assert_not_confluent(&report, &["baseline", "mutant"]);

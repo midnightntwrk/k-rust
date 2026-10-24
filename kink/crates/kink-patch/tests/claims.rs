@@ -558,8 +558,10 @@ fn trusted_claims_are_pinned() {
 /// re-pinned.
 ///
 /// Re-pin FZ-CONFLUENCE (fz26/confluence): compatibility.md 1142 no longer lists "a hooked
-/// symbol's equations agree with its hook" among the unchecked premises; the check now shows it
-/// (1144, pinned here, which `hooked-equation` cites, and the three lines after it). Those five
+/// symbol's equations agree with its hook" among the unchecked premises; the check now pairs
+/// each such equation with the builtin's written meaning, which names only builtins the
+/// evaluator applies (1144, pinned here, which `hooked-equation` cites, and the three lines after
+/// it, which also state that domains.md's `replaceAll` equation is reported). Those five
 /// inserted lines move every later passage down 5, byte-identical: only their lines, and
 /// `TRUSTED_CLAIMS`' citations of them, are re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
@@ -579,7 +581,7 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
         "docs/compatibility.md",
         1144,
         1144,
-        "848f6e8bbb62ab6c2d7e59692d0bd0667a8a20a96dc927ed496899031048273a",
+        "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
     ),
     (
         "docs/compatibility.md",

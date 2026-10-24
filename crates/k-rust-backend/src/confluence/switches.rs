@@ -113,6 +113,10 @@ pub(crate) struct Switches {
     /// Conditions: refute a conjunction when one case of its disjunctions is contradictory,
     /// instead of every case.
     pub(crate) misread_disjunction: bool,
+    /// Conditions: read `INT.min` as at least its operands and `INT.max` as at most them.
+    pub(crate) misread_min_max: bool,
+    /// Conditions: give each member of an equality class the literal of another class.
+    pub(crate) misplace_class_literal: bool,
 }
 
 #[cfg(test)]
@@ -160,6 +164,8 @@ thread_local! {
             misread_range_fact: false,
             defer_without_refutation: false,
             misread_disjunction: false,
+            misread_min_max: false,
+            misplace_class_literal: false,
         })
     };
 }

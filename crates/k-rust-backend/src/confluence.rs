@@ -875,14 +875,13 @@ impl UnjoinedPair {
 
     /// Whether the backend reports the pair: it withdraws a value claim, it is a report on one
     /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
-    /// it is an inner pair at an argument of `first` ([`Self::in_argument`]), or it is a hook
-    /// pair ([`Self::hook`]); the last three hold whether or not the definition makes claims.
+    /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
+    /// hold whether or not the definition makes claims. A hook pair ([`Self::hook`]) is reported
+    /// at load only when it withdraws a claim (the load classifies the hook pairs of relevant
+    /// equations only); the full check lists every one in [`ValueClaims::unjoined`].
     #[must_use]
     pub fn reported(&self) -> bool {
-        self.relevant()
-            || self.reason.describes_one_equation()
-            || self.in_argument()
-            || self.hook.is_some()
+        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
     }
 
     /// Whether the pair is an inner pair at an argument of `first`'s left-hand side whose
@@ -1578,18 +1577,11 @@ impl<'d> Context<'d> {
         // they hold, so each conjunct with the term replaced by the literal holds there too
         // (congruence); simplified again, the conjunction may be refuted (`conditions.rs`,
         // "equality classes").
-        let values = conditions::literal_values(self.definition, &conjuncts);
-        if let Some(rewritten) = conditions::substituted(&values, &conjuncts)
-            && let Some(simplified) = self.simplify(Predicate::And(rewritten.into()))
-        {
-            let mut again = BTreeSet::new();
-            flatten(simplified, &mut again);
-            let again = again.into_iter().collect::<Vec<_>>();
-            if again.contains(&Predicate::False)
-                || conditions::contradictory(self.definition, &again)
-            {
-                return Conditions::Refuted;
-            }
+        let definition = self.definition;
+        if conditions::refuted_by_literals(definition, &conjuncts, &mut |predicate| {
+            self.simplify(predicate)
+        }) {
+            return Conditions::Refuted;
         }
         Conditions::Open(conditions::equalities_with_bounds(
             self.definition,

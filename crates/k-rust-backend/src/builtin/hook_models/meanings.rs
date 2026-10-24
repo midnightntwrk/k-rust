@@ -1,14 +1,14 @@
-//! The written meanings of the hooks (`confluence/hooks.rs`) against models of the hooks.
+//! The written meanings of the hooks (`confluence/hooks.rs`) against the builtins themselves.
 //!
 //! Each written meaning is a set of equations at a hooked symbol that the critical-pair check
 //! reads as true, so each must be an identity of the builtin: on every tuple of argument values
-//! where the hook is defined, each entry whose left-hand side matches and whose `requires` holds
-//! has a right-hand side that evaluates to the hook's value (`\bottom` where the hook is
-//! undefined), and some entry applies (coverage). The models below are written from the hooks'
-//! meanings (`crates/k-rust/builtin/domains.md`): Boolean connectives, integer arithmetic, the
-//! code-point order and occurrences of strings, and set union. The right-hand sides are evaluated
-//! by the backend in FUN's prelude (`tests/fixtures/fun-prelude-hooked-equations.kore`), which
-//! declares every hook the table names.
+//! where the builtin takes a step, each entry whose left-hand side matches and whose `requires`
+//! holds has a right-hand side that evaluates to the builtin's result (`\bottom` included), and
+//! some entry applies (coverage). The left-hand side is evaluated by the builtin
+//! (`evaluate_in_definition`) and the right-hand side by the backend, in FUN's prelude
+//! (`tests/fixtures/fun-prelude-hooked-equations.kore`), which declares every hook the table
+//! names. The argument values reach the builtins' edges (empty and multibyte strings, integers
+//! beyond 64 bits, zero divisors, negative and huge indices and lengths).
 //!
 //! Coverage is also checked on applications that are not ground: wherever the builtin takes a
 //! step on them (`BOOL.and(X, false)`, `KEQUAL.ite(true, X, Y)`, `INT.ne(X, X)`), some entry applies
@@ -42,150 +42,106 @@ fn term(definition: &BackendDefinition, source: &str) -> Term {
         .unwrap_or_else(|error| panic!("{source}: {error}"))
 }
 
-/// A value of the models.
+/// An argument value of the tests.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Val {
     Bool(bool),
-    Int(i64),
+    Int(i128),
     Str(String),
     /// A `K` sequence: one injected integer item, or the empty sequence (`None`).
     K(Option<i64>),
     Set(BTreeSet<i64>),
 }
 
+/// The KORE string literal of `text`: printable ASCII as written (with `"` and `\\` escaped),
+/// every other code point as a `\\u`/`\\U` escape.
+fn string_literal(text: &str) -> String {
+    let mut literal = String::new();
+    for character in text.chars() {
+        match character {
+            '"' => literal.push_str("\\\""),
+            '\\' => literal.push_str("\\\\"),
+            ' '..='~' => literal.push(character),
+            _ if u32::from(character) <= 0xffff => {
+                literal.push_str(&format!("\\u{:04x}", u32::from(character)));
+            }
+            _ => literal.push_str(&format!("\\U{:08x}", u32::from(character))),
+        }
+    }
+    literal
+}
+
 impl Val {
     fn kore(&self) -> String {
-        let int = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        let int = |value: i128| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
         match self {
             Self::Bool(value) => format!(r#"\dv{{SortBool{{}}}}("{value}")"#),
             Self::Int(value) => int(*value),
-            Self::Str(value) => format!(r#"\dv{{SortString{{}}}}("{value}")"#),
+            Self::Str(value) => format!(r#"\dv{{SortString{{}}}}("{}")"#, string_literal(value)),
             Self::K(None) => "dotk{}()".into(),
             Self::K(Some(value)) => format!(
                 "kseq{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}), dotk{{}}())",
-                int(*value)
+                int(i128::from(*value))
             ),
-            Self::Set(elements) => elements.iter().fold("Lbl'Stop'Set{}()".into(), |set, value| {
-                format!(
-                    "Lbl'Unds'Set'Unds'{{}}({set}, LblSetItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({})))",
-                    int(*value)
-                )
-            }),
+            Self::Set(elements) => elements
+                .iter()
+                .fold("Lbl'Stop'Set{}()".into(), |set, value| {
+                    format!(
+                        "Lbl'Unds'Set'Unds'{{}}({set}, LblSetItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({})))",
+                        int(i128::from(*value))
+                    )
+                }),
         }
     }
 }
 
-/// What the hook gives on concrete arguments.
-enum Model {
-    Value(Val),
-    Bottom,
-    /// The meaning leaves the value open (`countAllOccurrences(S, "")`): no builtin step, nothing
-    /// to compare.
-    Open,
-}
-
-/// The non-overlapping occurrences of the nonempty `target` in `source`, from the left, as the
-/// code-point offsets where each begins.
-fn occurrences(source: &[char], target: &[char]) -> Vec<usize> {
-    let mut found = Vec::new();
-    let mut start = 0;
-    while start + target.len() <= source.len() {
-        if source[start..start + target.len()] == *target {
-            found.push(start);
-            start += target.len();
-        } else {
-            start += 1;
-        }
-    }
-    found
-}
-
-/// The models, from the hooks' meanings.
-fn model(hook: &str, arguments: &[Val]) -> Model {
-    use Val::{Bool, Int, Set, Str};
-    let value = Model::Value;
-    match (hook, arguments) {
-        ("BOOL.not", [Bool(b)]) => value(Bool(!b)),
-        ("BOOL.and" | "BOOL.andThen", [Bool(a), Bool(b)]) => value(Bool(*a && *b)),
-        ("BOOL.or" | "BOOL.orElse", [Bool(a), Bool(b)]) => value(Bool(*a || *b)),
-        ("BOOL.xor" | "BOOL.ne", [Bool(a), Bool(b)]) => value(Bool(a != b)),
-        ("BOOL.implies", [Bool(a), Bool(b)]) => value(Bool(!*a || *b)),
-        ("KEQUAL.ite", [Bool(c), then, otherwise]) => {
-            value(if *c { then.clone() } else { otherwise.clone() })
-        }
-        ("KEQUAL.ne", [left, right]) | ("INT.ne", [left, right]) | ("STRING.ne", [left, right]) => {
-            value(Bool(left != right))
-        }
-        ("INT.min", [Int(a), Int(b)]) => value(Int(*a.min(b))),
-        ("INT.ediv", [Int(a), Int(b)]) => {
-            if *b == 0 {
-                Model::Bottom
-            } else {
-                value(Int((a - a.rem_euclid(*b)) / b))
-            }
-        }
-        ("INT.bitRange", [Int(i), Int(index), Int(length)]) => {
-            if *index < 0 || *length < 0 {
-                Model::Bottom
-            } else {
-                value(Int((i >> index).rem_euclid(1 << length)))
-            }
-        }
-        ("INT.signExtendBitRange", [Int(i), Int(index), Int(length)]) => {
-            if *index < 0 || *length < 1 {
-                Model::Bottom
-            } else {
-                let bits = (i >> index).rem_euclid(1 << length);
-                value(Int(if bits >= 1 << (length - 1) {
-                    bits - (1 << length)
-                } else {
-                    bits
-                }))
-            }
-        }
-        // The code-point order of strings (here ASCII).
-        ("STRING.le", [Str(a), Str(b)]) => value(Bool(a <= b)),
-        ("STRING.gt", [Str(a), Str(b)]) => value(Bool(a > b)),
-        ("STRING.ge", [Str(a), Str(b)]) => value(Bool(a >= b)),
-        ("STRING.countAllOccurrences", [Str(source), Str(target)]) => {
-            if target.is_empty() {
-                return Model::Open;
-            }
-            let (source, target) = (
-                source.chars().collect::<Vec<_>>(),
-                target.chars().collect::<Vec<_>>(),
-            );
-            value(Int(occurrences(&source, &target).len() as i64))
-        }
-        ("STRING.replaceAll", [Str(source), Str(target), Str(replacement)]) => {
-            if target.is_empty() {
-                return Model::Open;
-            }
-            let (characters, pattern) = (
-                source.chars().collect::<Vec<_>>(),
-                target.chars().collect::<Vec<_>>(),
-            );
-            let mut result = String::new();
-            let mut position = 0;
-            for start in occurrences(&characters, &pattern) {
-                result.extend(&characters[position..start]);
-                result.push_str(replacement);
-                position = start + pattern.len();
-            }
-            result.extend(&characters[position..]);
-            value(Str(result))
-        }
-        ("SET.union", [Set(a), Set(b)]) => value(Set(a.union(b).cloned().collect())),
-        _ => panic!("no model of {hook} on {arguments:?}"),
-    }
-}
-
-/// The argument values a hook's tests draw from, each a list of choices per argument.
+/// The argument values a hook's tests draw from, each a list of choices per argument, reaching
+/// the builtins' edges: empty and multibyte strings (code-point indices), patterns that overlap
+/// themselves, integers beyond 64 bits, zero divisors, negative and huge indices and lengths.
 fn domains(hook: &str) -> Vec<Vec<Val>> {
     let bools = || vec![Val::Bool(false), Val::Bool(true)];
-    let ints = |range: std::ops::RangeInclusive<i64>| range.map(Val::Int).collect::<Vec<_>>();
+    let ints = |values: &[i128]| values.iter().copied().map(Val::Int).collect::<Vec<_>>();
+    let wide = || {
+        ints(&[
+            0,
+            1,
+            -1,
+            2,
+            -3,
+            7,
+            -8,
+            i128::from(i64::MAX),
+            i128::from(i64::MIN),
+            1 << 70,
+            -(1 << 70) - 1,
+        ])
+    };
     let strings = || {
-        ["", "a", "b", "aa", "ab", "ba", "aaa", "aba", "abab", "baa"]
+        [
+            "",
+            "a",
+            "b",
+            "aa",
+            "aaa",
+            "ab",
+            "aba",
+            "abab",
+            "é",
+            "aé",
+            "éa",
+            "éé",
+            "日本",
+            "a日a",
+            "日a日",
+            "\u{1F600}a",
+            "a\u{1F600}",
+        ]
+        .iter()
+        .map(|text| Val::Str((*text).into()))
+        .collect::<Vec<_>>()
+    };
+    let patterns = || {
+        ["", "a", "aa", "é", "日", "\u{1F600}", "ab"]
             .iter()
             .map(|text| Val::Str((*text).into()))
             .collect::<Vec<_>>()
@@ -207,21 +163,30 @@ fn domains(hook: &str) -> Vec<Vec<Val>> {
         "BOOL.not" => vec![bools()],
         "KEQUAL.ite" => vec![bools(), ks(), ks()],
         "KEQUAL.ne" => vec![ks(), ks()],
-        "INT.ne" | "INT.min" => vec![ints(-3..=3), ints(-3..=3)],
-        "INT.ediv" => vec![ints(-7..=7), ints(-3..=3)],
-        "INT.bitRange" | "INT.signExtendBitRange" => {
-            vec![ints(-9..=9), ints(-1..=3), ints(-1..=4)]
-        }
-        "STRING.ne" | "STRING.le" | "STRING.gt" | "STRING.ge" | "STRING.countAllOccurrences" => {
-            vec![strings(), strings()]
-        }
+        "INT.ne" | "INT.min" | "INT.ediv" => vec![wide(), wide()],
+        "INT.bitRange" | "INT.signExtendBitRange" => vec![
+            ints(&[
+                0,
+                5,
+                -5,
+                255,
+                -256,
+                i128::from(i64::MIN),
+                (1 << 70) + 3,
+                -(1 << 70),
+            ]),
+            ints(&[0, 1, 3, -1, 64, 80]),
+            ints(&[0, 1, 4, 8, -1, 65, 1 << 40]),
+        ],
+        "STRING.ne" | "STRING.le" | "STRING.gt" | "STRING.ge" => vec![strings(), strings()],
+        "STRING.countAllOccurrences" => vec![strings(), patterns()],
         "STRING.replaceAll" => vec![
             strings(),
-            strings(),
+            patterns(),
             vec![
                 Val::Str(String::new()),
                 Val::Str("c".into()),
-                Val::Str("cb".into()),
+                Val::Str("é日".into()),
             ],
         ],
         "SET.union" => vec![sets(), sets()],
@@ -364,9 +329,12 @@ fn evaluated(definition: &BackendDefinition, term: &Term) -> Result<Option<Term>
     }
 }
 
-/// The failures of `hook`'s written meaning on every tuple of its domains: an entry that applies
-/// and gives another result than the model, a `requires` the simplifier does not decide, or a
-/// tuple where the hook is defined and no entry applies.
+/// The failures of `hook`'s written meaning on every tuple of its domains, judged by the
+/// builtin itself: on a tuple where the builtin takes a step (a value, or `\\bottom`), each entry
+/// whose left-hand side matches and whose `requires` holds must evaluate to that result, and some
+/// entry must apply; a `requires` the simplifier does not decide on ground arguments is a failure.
+/// A tuple where the builtin takes no step (`Unspecified`, a result beyond a size bound) has no
+/// peak to cover.
 fn failures(definition: &BackendDefinition, hook: &str) -> (usize, Vec<String>) {
     let rules = written(definition, hook);
     let mut tuples = vec![Vec::<Val>::new()];
@@ -384,20 +352,21 @@ fn failures(definition: &BackendDefinition, hook: &str) -> (usize, Vec<String>) 
     }
     let (mut checked, mut failures) = (0, Vec::new());
     for tuple in tuples {
-        let expected = match model(hook, &tuple) {
-            Model::Open => continue,
-            Model::Bottom => None,
-            Model::Value(value) => {
-                let expected = term(definition, &value.kore());
-                Some(
-                    evaluated(definition, &expected)
-                        .expect("a value evaluates")
-                        .expect("a value"),
-                )
-            }
-        };
         let kore = tuple.iter().map(Val::kore).collect::<Vec<_>>();
         let subject = term(definition, &application(definition, hook, &kore));
+        let expected = match evaluate_in_definition(&subject, definition) {
+            Ok(Ok(BuiltinResult::Value(value))) => Some(
+                evaluated(definition, &value)
+                    .expect("a builtin value evaluates")
+                    .expect("a builtin value is defined"),
+            ),
+            Ok(Ok(BuiltinResult::Bottom)) => None,
+            Ok(_) => continue,
+            Err(stop) => {
+                stop.into_cause();
+                continue;
+            }
+        };
         let mut applied = false;
         for rule in &rules {
             let Some(valuation) = matched(&rule.lhs, &subject) else {
@@ -421,8 +390,12 @@ fn failures(definition: &BackendDefinition, hook: &str) -> (usize, Vec<String>) 
             };
             match evaluated(definition, &substitute(rhs, &valuation)) {
                 Ok(found) if found == expected => {}
+                // A right-hand side the backend leaves with an unevaluated hooked application (a
+                // result beyond a size bound: `1 <<Int 2^40`) decides nothing here; such a pair
+                // only fails to join.
+                Ok(Some(found)) if unevaluated(&found) => {}
                 Ok(found) => failures.push(format!(
-                    "{hook} {tuple:?}: {} gives {found:?}, the model {expected:?}",
+                    "{hook} {tuple:?}: {} gives {found:?}, the builtin {expected:?}",
                     label(rule)
                 )),
                 Err(error) => failures.push(format!("{hook} {tuple:?}: {} {error}", label(rule))),
@@ -433,6 +406,15 @@ fn failures(definition: &BackendDefinition, hook: &str) -> (usize, Vec<String>) 
         }
     }
     (checked, failures)
+}
+
+/// Whether `term` holds an application of a hooked function the backend left unevaluated.
+fn unevaluated(term: &Term) -> bool {
+    let mut found = false;
+    term.visit_symbols(&mut |symbol| {
+        found |= symbol.attributes.hook.is_some() && symbol.attributes.collection.is_none();
+    });
+    found
 }
 
 fn label(rule: &RewriteRule) -> String {

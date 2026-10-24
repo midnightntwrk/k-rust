@@ -29,6 +29,8 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use k_rust_kore::names::BuiltinSort;
+
 use crate::{
     definition::BackendDefinition,
     rule::{Concreteness, Predicate, RewriteRule, RuleAttributes, RuleOrigin, RuleRhs, make_rule},
@@ -59,14 +61,19 @@ impl<'d> HookSymbols<'d> {
         }
     }
 
-    /// The first symbol by name carrying `hook` with exactly the argument sorts `arguments`, and
-    /// the result sort `result` when it is given. Every such symbol denotes the builtin of
-    /// `hook` at that signature, so any of them states the same identity.
-    fn find(&self, hook: &str, arguments: &[Sort], result: Option<Sort>) -> Option<Arc<Symbol>> {
+    /// A symbol carrying `hook` with exactly the argument sorts `arguments` and the result sort
+    /// `result`, the first by name among every such candidate, when the evaluator applies `hook`
+    /// (`builtin::evaluates`). A helper of a written meaning must denote the builtin itself: a
+    /// symbol whose hook takes no builtin step means whatever the definition's equations make it,
+    /// which no fixed identity of a builtin may read. Every candidate with the signature denotes
+    /// the builtin at it, so any of them states the same identity.
+    fn find(&self, hook: &str, arguments: &[Sort], result: Sort) -> Option<Arc<Symbol>> {
+        if !crate::builtin::evaluates(hook) {
+            return None;
+        }
         self.by_hook.get(hook)?.iter().find_map(|symbol| {
-            (symbol.argument_sorts == arguments
-                && result.is_none_or(|result| symbol.result_sort == result))
-            .then(|| Arc::clone(symbol))
+            (symbol.argument_sorts == arguments && symbol.result_sort == result)
+                .then(|| Arc::clone(symbol))
         })
     }
 }
@@ -173,9 +180,9 @@ impl Builder<'_, '_> {
         )
     }
 
-    /// `hook` applied to `arguments`, through a symbol of the definition with their sorts (and
-    /// result sort `result`, when given).
-    fn call(&self, hook: &str, arguments: Vec<Term>, result: Option<Sort>) -> Option<Term> {
+    /// `hook` applied to `arguments`, through a symbol of the definition with their sorts and the
+    /// result sort `result` whose hook the evaluator applies ([`HookSymbols::find`]).
+    fn call(&self, hook: &str, arguments: Vec<Term>, result: Sort) -> Option<Term> {
         let sorts = arguments.iter().map(Term::sort).collect::<Vec<_>>();
         let symbol = self.symbols.find(hook, &sorts, result)?;
         Some(Term::application(symbol, Vec::<Sort>::new(), arguments))
@@ -186,6 +193,12 @@ impl Builder<'_, '_> {
         (self.definition().domain_kind(&sort) == Some(kind))
             .then(|| self.definition().domain_value(sort, text).ok())
             .flatten()
+    }
+
+    /// The sort of the Booleans the comparison builtins give their values in.
+    fn booleans(&self) -> Option<Sort> {
+        let sort = Sort::builtin(BuiltinSort::Bool);
+        (self.definition().domain_kind(&sort) == Some(DomainKind::Bool)).then_some(sort)
     }
 
     fn boolean(&self, sort: Sort, value: bool) -> Option<Term> {
@@ -234,6 +247,16 @@ impl Builder<'_, '_> {
 
     /// The table. `None` when an entry cannot be built in this definition.
     fn build(&mut self) -> Option<()> {
+        // A symbol hooked at another arity than the hook's is no application of the builtin
+        // (it raises an arity error and takes no step), and gets no written meaning.
+        let arity = match self.hook {
+            "BOOL.not" => 1,
+            "KEQUAL.ite" | "INT.bitRange" | "INT.signExtendBitRange" | "STRING.replaceAll" => 3,
+            _ => 2,
+        };
+        if self.arguments.len() != arity {
+            return None;
+        }
         match self.hook {
             "BOOL.not" => {
                 let sort = *self.arguments.first()?;
@@ -283,8 +306,9 @@ impl Builder<'_, '_> {
             "INT.min" => {
                 // min(X, Y) = X requires X <Int Y; min(X, Y) = Y requires X >=Int Y.
                 let (x, y) = (self.variable("X", 0)?, self.variable("Y", 1)?);
-                let less = self.call("INT.lt", vec![x.clone(), y.clone()], None)?;
-                let at_least = self.call("INT.ge", vec![x.clone(), y.clone()], None)?;
+                let booleans = self.booleans()?;
+                let less = self.call("INT.lt", vec![x.clone(), y.clone()], booleans)?;
+                let at_least = self.call("INT.ge", vec![x.clone(), y.clone()], booleans)?;
                 let lhs = self.own(vec![x.clone(), y.clone()]);
                 let (less, at_least) = (self.holds(less)?, self.holds(at_least)?);
                 self.equation(lhs.clone(), x, vec![less]);
@@ -295,7 +319,7 @@ impl Builder<'_, '_> {
                 // truncating division is exact and gives the Euclidean quotient; for Y = 0 both
                 // sides are `\bottom` (emod and tdiv by 0).
                 let (x, y) = (self.variable("X", 0)?, self.variable("Y", 1)?);
-                let int = Some(self.result);
+                let int = self.result;
                 let modulus = self.call("INT.emod", vec![x.clone(), y.clone()], int)?;
                 let difference = self.call("INT.sub", vec![x.clone(), modulus], int)?;
                 let rhs = self.call("INT.tdiv", vec![difference, y.clone()], int)?;
@@ -320,7 +344,7 @@ impl Builder<'_, '_> {
                 // (1 <<Int LEN) -Int H, H = 1 <<Int (LEN -Int 1): the same bits read as a
                 // LEN-bit two's-complement number; `\bottom` on both sides for a negative IDX or
                 // a LEN below 1.
-                let int = Some(self.result);
+                let int = self.result;
                 let (value, index, length) = (
                     self.variable("I", 0)?,
                     self.variable("IDX", 1)?,
@@ -347,34 +371,11 @@ impl Builder<'_, '_> {
             "STRING.gt" => self.ordered(true, false)?,
             "STRING.ge" => self.ordered(false, true)?,
             "STRING.countAllOccurrences" => self.count()?,
-            "STRING.replaceAll" => {
-                // replaceAll(S, T, R) = replace(S, T, R, count(S, T)) requires T =/=String "":
-                // replacing each of the non-overlapping occurrences counted from the left;
-                // `replace(S, T, R, N)` replaces the first N of them (its documented meaning,
-                // read by its own equations: its builtin takes no step).
-                let (source, target, replacement) = (
-                    self.variable("S", 0)?,
-                    self.variable("T", 1)?,
-                    self.variable("R", 2)?,
-                );
-                let count = self.call(
-                    "STRING.countAllOccurrences",
-                    vec![source.clone(), target.clone()],
-                    None,
-                )?;
-                let rhs = self.call(
-                    "STRING.replace",
-                    vec![source.clone(), target.clone(), replacement.clone(), count],
-                    Some(self.result),
-                )?;
-                let nonempty = self.nonempty(&target)?;
-                let lhs = self.own(vec![source, target, replacement]);
-                self.equation(lhs, rhs, vec![nonempty]);
-            }
+            "STRING.replaceAll" => self.replace_all()?,
             "SET.union" => {
                 // union(X, Y) = X (Y -Set X): X ∪ Y is the disjoint union of X and Y \ X.
                 let (left, right) = (self.variable("X", 0)?, self.variable("Y", 1)?);
-                let set = Some(self.result);
+                let set = self.result;
                 let rest = self.call("SET.difference", vec![right.clone(), left.clone()], set)?;
                 let rhs = self.call("SET.concat", vec![left.clone(), rest], set)?;
                 let lhs = self.own(vec![left, right]);
@@ -425,8 +426,8 @@ impl Builder<'_, '_> {
     /// `ne(X, Y) = notBool eq(X, Y)`, `eq` the hook `equal` at the same argument sorts.
     fn complement(&mut self, equal: &str) -> Option<()> {
         let (x, y) = (self.variable("X", 0)?, self.variable("Y", 1)?);
-        let equal = self.call(equal, vec![x.clone(), y.clone()], Some(self.result))?;
-        let rhs = self.call("BOOL.not", vec![equal], Some(self.result))?;
+        let equal = self.call(equal, vec![x.clone(), y.clone()], self.result)?;
+        let rhs = self.call("BOOL.not", vec![equal], self.result)?;
         let lhs = self.own(vec![x, y]);
         self.equation(lhs, rhs, Vec::new());
         Some(())
@@ -440,9 +441,9 @@ impl Builder<'_, '_> {
         } else {
             vec![x.clone(), y.clone()]
         };
-        let mut rhs = self.call("STRING.lt", operands, Some(self.result))?;
+        let mut rhs = self.call("STRING.lt", operands, self.result)?;
         if negated {
-            rhs = self.call("BOOL.not", vec![rhs], Some(self.result))?;
+            rhs = self.call("BOOL.not", vec![rhs], self.result)?;
         }
         let lhs = self.own(vec![x, y]);
         self.equation(lhs, rhs, Vec::new());
@@ -451,7 +452,7 @@ impl Builder<'_, '_> {
 
     /// `(I >>Int IDX) emod (1 <<Int LEN)` at the result sort.
     fn bit_range(&self, value: &Term, index: &Term, length: &Term) -> Option<Term> {
-        let int = Some(self.result);
+        let int = self.result;
         let shifted = self.call("INT.shr", vec![value.clone(), index.clone()], int)?;
         let one = self.integer(self.result, 1)?;
         let modulus = self.call("INT.shl", vec![one, length.clone()], int)?;
@@ -461,8 +462,53 @@ impl Builder<'_, '_> {
     /// The condition `T =/=String ""`.
     fn nonempty(&self, target: &Term) -> Option<Predicate> {
         let empty = self.literal(target.sort(), DomainKind::String, "")?;
-        let differs = self.call("STRING.ne", vec![target.clone(), empty], None)?;
+        let differs = self.call("STRING.ne", vec![target.clone(), empty], self.booleans()?)?;
         self.holds(differs)
+    }
+
+    /// `replaceAll(S, T, R)`, `S` with each non-overlapping occurrence of a nonempty `T` found
+    /// from the left replaced by `R` (where `T` is `""` the builtin gives no value, and no
+    /// equation is written): `replaceAll(S, T, R) = S requires find(S, T, 0) <Int 0 andBool T
+    /// =/=String ""`, and `replaceAll(S, T, R) = substr(S, 0, find(S, T, 0)) +String R +String
+    /// replaceAll(substr(S, find(S, T, 0) +Int length(T), length(S)), T, R) requires
+    /// find(S, T, 0) >=Int 0 andBool T =/=String ""`: the first occurrence is replaced and the search goes on
+    /// after it (non-overlapping), with valid `substr` indices. Only evaluated builtins and the
+    /// hooked symbol itself occur.
+    fn replace_all(&mut self) -> Option<()> {
+        let (source, target, replacement) = (
+            self.variable("S", 0)?,
+            self.variable("T", 1)?,
+            self.variable("R", 2)?,
+        );
+        let int = Sort::builtin(BuiltinSort::Int);
+        let string = self.result;
+        let zero = self.integer(int, 0)?;
+        let found = self.call(
+            "STRING.find",
+            vec![source.clone(), target.clone(), zero.clone()],
+            int,
+        )?;
+        let booleans = self.booleans()?;
+        let absent = self.call("INT.lt", vec![found.clone(), zero.clone()], booleans)?;
+        let present = self.call("INT.ge", vec![found.clone(), zero.clone()], booleans)?;
+        let nonempty = self.nonempty(&target)?;
+        let lhs = self.own(vec![source.clone(), target.clone(), replacement.clone()]);
+        let (absent, present) = (self.holds(absent)?, self.holds(present)?);
+        self.equation(lhs.clone(), source.clone(), vec![absent, nonempty.clone()]);
+        let before = self.call(
+            "STRING.substr",
+            vec![source.clone(), zero, found.clone()],
+            string,
+        )?;
+        let target_length = self.call("STRING.length", vec![target.clone()], int)?;
+        let source_length = self.call("STRING.length", vec![source.clone()], int)?;
+        let after = self.call("INT.add", vec![found, target_length], int)?;
+        let rest = self.call("STRING.substr", vec![source, after, source_length], string)?;
+        let replaced = self.own(vec![rest, target, replacement.clone()]);
+        let head = self.call("STRING.concat", vec![before, replacement], string)?;
+        let rhs = self.call("STRING.concat", vec![head, replaced], string)?;
+        self.equation(lhs, rhs, vec![present, nonempty]);
+        Some(())
     }
 
     /// `count(S, T)`, the non-overlapping occurrences of a nonempty `T` in `S` found from the
@@ -479,24 +525,25 @@ impl Builder<'_, '_> {
         let found = self.call(
             "STRING.find",
             vec![source.clone(), target.clone(), zero.clone()],
-            Some(int),
+            int,
         )?;
-        let absent = self.call("INT.lt", vec![found.clone(), zero.clone()], None)?;
-        let present = self.call("INT.ge", vec![found.clone(), zero.clone()], None)?;
+        let booleans = self.booleans()?;
+        let absent = self.call("INT.lt", vec![found.clone(), zero.clone()], booleans)?;
+        let present = self.call("INT.ge", vec![found.clone(), zero.clone()], booleans)?;
         let nonempty = self.nonempty(&target)?;
         let lhs = self.own(vec![source.clone(), target.clone()]);
         let (absent, present) = (self.holds(absent)?, self.holds(present)?);
         self.equation(lhs.clone(), zero, vec![absent, nonempty.clone()]);
-        let target_length = self.call("STRING.length", vec![target.clone()], Some(int))?;
-        let source_length = self.call("STRING.length", vec![source.clone()], Some(int))?;
-        let after = self.call("INT.add", vec![found, target_length], Some(int))?;
+        let target_length = self.call("STRING.length", vec![target.clone()], int)?;
+        let source_length = self.call("STRING.length", vec![source.clone()], int)?;
+        let after = self.call("INT.add", vec![found, target_length], int)?;
         let rest = self.call(
             "STRING.substr",
             vec![source.clone(), after, source_length],
-            Some(source.sort()),
+            source.sort(),
         )?;
         let counted = self.own(vec![rest, target]);
-        let rhs = self.call("INT.add", vec![one, counted], Some(int))?;
+        let rhs = self.call("INT.add", vec![one, counted], int)?;
         self.equation(lhs, rhs, vec![present, nonempty]);
         Some(())
     }

@@ -277,10 +277,12 @@ impl Definedness {
             {
                 if zero(right) {
                     facts.nonzero.insert(left.clone());
-                } else if zero(left) {
-                    facts.nonzero.insert(right.clone());
+                    continue;
                 }
-                continue;
+                if zero(left) {
+                    facts.nonzero.insert(right.clone());
+                    continue;
+                }
             }
             let Some((term, polarity)) = literal(definition, conjunct) else {
                 continue;
@@ -530,10 +532,46 @@ pub(super) fn literal_values(
         }
     }
     values.sort_by(|left, right| left.0.cmp(&right.0));
+    if super::switches::active().misplace_class_literal {
+        let literals = values
+            .iter()
+            .map(|(_, literal)| literal.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        for (_, literal) in &mut values {
+            let position = literals
+                .iter()
+                .position(|known| known == literal)
+                .unwrap_or(0);
+            *literal = literals[(position + 1) % literals.len()].clone();
+        }
+    }
     values
 }
 
-/// `conjuncts` with every maximal occurrence of a term of `values` replaced by its value, outside
+/// Whether the conjuncts are refuted once each member of an equality class with one literal is
+/// replaced by that literal and the rewritten conjunction is simplified again by `simplify`
+/// (module documentation, "equality classes").
+pub(super) fn refuted_by_literals(
+    definition: &BackendDefinition,
+    conjuncts: &[Predicate],
+    simplify: &mut dyn FnMut(Predicate) -> Option<Predicate>,
+) -> bool {
+    let values = literal_values(definition, conjuncts);
+    let Some(rewritten) = substituted(&values, conjuncts) else {
+        return false;
+    };
+    let Some(simplified) = simplify(Predicate::And(rewritten.into())) else {
+        return false;
+    };
+    let mut again = BTreeSet::new();
+    super::flatten(simplified, &mut again);
+    let again = again.into_iter().collect::<Vec<_>>();
+    again.contains(&Predicate::False) || contradictory(definition, &again)
+}
+
+/// `conjuncts` with every innermost occurrence of a term of `values` replaced by its value, outside
 /// quantifiers; `None` when nothing is replaced.
 pub(super) fn substituted(
     values: &[(Term, Term)],
@@ -551,21 +589,26 @@ pub(super) fn substituted(
     changed.then_some(rewritten)
 }
 
+/// `term` with the innermost occurrences of the terms of `map` replaced by their values: a member
+/// that holds another member keeps its own structure with the inner one replaced, which says
+/// more (`lengthString(S +String T)` with `S +String T = "ab"` becomes `lengthString("ab")`, not
+/// the literal its own class gives it). Each replaced occurrence has its value wherever the
+/// conjuncts hold, so either choice is sound.
 fn replace_in_term(term: &Term, map: &FxHashMap<Term, Term>, changed: &mut bool) -> Term {
-    if let Some(value) = map.get(term) {
-        *changed = true;
-        return value.clone();
-    }
     let mut local = false;
     let replaced = super::children(term)
         .iter()
         .map(|child| replace_in_term(child, map, &mut local))
         .collect();
-    if !local {
-        return term.clone();
+    if local {
+        *changed = true;
+        return super::with_children(term, replaced);
     }
-    *changed = true;
-    super::with_children(term, replaced)
+    if let Some(value) = map.get(term) {
+        *changed = true;
+        return value.clone();
+    }
+    term.clone()
 }
 
 fn replace_in_predicate(
@@ -1138,6 +1181,7 @@ impl Differences {
     fn range_facts(&mut self, definition: &BackendDefinition) {
         let misread = super::switches::active().misread_range_fact;
         let lowest = BigInt::from(if misread { 1 } else { 0 });
+        let flipped = super::switches::active().misread_min_max;
         let mut index = 0;
         while index < self.atoms.len() {
             let atom = self.atoms[index].clone();
@@ -1152,11 +1196,16 @@ impl Differences {
                     self.edge(0, node, -lowest.clone());
                     self.below(definition, node, operand);
                 }
-                Some(("INT.max", [left, right])) => {
+                // `misread_min_max` swaps the two directions (a defect switch).
+                Some(("INT.max", [left, right])) if !flipped => {
                     self.below(definition, node, left);
                     self.below(definition, node, right);
                 }
-                Some(("INT.min", [left, right])) => {
+                Some(("INT.min", [left, right])) if flipped => {
+                    self.below(definition, node, left);
+                    self.below(definition, node, right);
+                }
+                Some(("INT.min" | "INT.max", [left, right])) => {
                     self.above(definition, node, left);
                     self.above(definition, node, right);
                 }
@@ -1360,5 +1409,7 @@ fn has_key(map: &Term, key: &Term) -> bool {
     matches!(map.kind(), TermKind::Map { entries, .. } if entries.iter().any(|(entry, _)| entry == key))
 }
 
+#[cfg(test)]
+mod string_tests;
 #[cfg(test)]
 mod tests;
