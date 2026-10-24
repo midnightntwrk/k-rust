@@ -2518,14 +2518,14 @@ fn emit_ordered(
     writeln!(o, "/-- No restriction: the translation preserves the order of every term, so it commutes with every map operation on every configuration. -/\ndef Inv (_ : {na}.{top}) : Prop := True\n").unwrap();
     writeln!(o, "theorem inv_step {{c c' : {na}.{top}}} (_ : Inv c) (_ : {na}.Step c c') : Inv c' := trivial\n").unwrap();
     writeln!(o, "set_option hygiene false in\n/-- Push `tr` into a configuration (`tr`'s equations, injections, collection operations, total functions). -/\nlocal macro \"push_tr\" : tactic => `(tactic| simp only [{push}])\n").unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- Close `d = tr c'` after a backward step. -/\nlocal macro \"fin_bwd\" : tactic => `(tactic| first | rfl | (simp only [k2l_rel]; done) | (simp only [k2l_rel] at * <;> simp_all))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- Close `d = tr c'` after a backward step. -/\nlocal macro \"fin_bwd\" : tactic => `(tactic| first | rfl | (simp only [k2l_rel]; done) | (simp only [k2l_rel] at * <;> simp_all <;> done))\n").unwrap();
     writeln!(
         o,
         "/-- Hypotheses of `{nb}`'s rules from those of `{na}`'s, and back. -/"
     )
     .unwrap();
-    writeln!(o, "local macro \"hyp_fwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel, *]; done)\n  | (simp only [k2l_rel] <;> assumption)\n  | (simp only [k2l_rel, *] <;> rfl)\n  | (simp only [k2l_rel] at * <;> simp_all))\n").unwrap();
-    writeln!(o, "local macro \"hyp_bwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel] at * <;> assumption)\n  | (simp only [k2l_rel] at * <;> simp_all))\n").unwrap();
+    writeln!(o, "local macro \"hyp_fwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel, *]; done)\n  | (simp only [k2l_rel] <;> assumption)\n  | (simp only [k2l_rel, *] <;> rfl)\n  | (simp only [k2l_rel] at * <;> simp_all <;> done))\n").unwrap();
+    writeln!(o, "local macro \"hyp_bwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel] at * <;> assumption)\n  | (simp only [k2l_rel] at * <;> simp_all <;> done))\n").unwrap();
     let alts = |names: &[String], pat: &str| -> String {
         if names.is_empty() {
             return "fail".to_string();
@@ -2620,7 +2620,7 @@ fn emit_ordered(
         let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
         writeln!(
             o,
-            "  | {} {}{} =>\n    push_tr\n    {}\n    all_goals first | hyp_fwd | hpri_fwd",
+            "  | {} {}{} =>\n    push_tr\n    {}\n    all_goals first | hpri_fwd | hyp_fwd",
             ra.lean,
             rules::ctor_args(&ra.step).join(" "),
             hpri_arg(a, ra),
@@ -2651,7 +2651,7 @@ fn emit_ordered(
             continue;
         };
         bwd_hyps(&mut o, rb, &rb.step);
-        writeln!(o, "    all_goals exact ⟨_, by apply {na}.Step.{} <;> first | hyp_bwd | hpri_bwd, by fin_bwd⟩", a.rules[*i].lean).unwrap();
+        writeln!(o, "    all_goals exact ⟨_, by apply {na}.Step.{} <;> first | hpri_bwd | hyp_bwd, by fin_bwd⟩", a.rules[*i].lean).unwrap();
     }
     writeln!(o).unwrap();
     // the bisimulation and its corollaries: the statements of the other regime
