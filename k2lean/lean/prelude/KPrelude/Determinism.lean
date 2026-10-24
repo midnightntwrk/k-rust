@@ -180,6 +180,25 @@ every comparison hook as the proposition it decides (`=/=` as the negation of `=
 connectives, substitutes the variables a pattern equates to a value, and closes the goal by
 linear arithmetic or by simplification with every hypothesis. -/
 
+/-- `decide p = true` is `p`, with the `Decidable` instance the term carries. `decide_eq_true_eq`
+synthesizes its instance and applies only when that instance equals the term's at reducible
+transparency; after `simp` has rewritten the arguments of a decided hook (`IntHook.le x c` unfolds
+to `decide (x ≤ c)` before its argument `x = IntHook.add a b` becomes `a + b`), the term's instance
+still mentions the old arguments, equal to the synthesized one only by unfolding the hook. -/
+simproc_decl k2lDecideEqTrue (decide _ = true) := fun e => do
+  let some (_, lhs, rhs) := e.eq? | return .continue
+  unless rhs.isConstOf ``Bool.true && lhs.isAppOfArity ``Decidable.decide 2 do return .continue
+  let p := lhs.appFn!.appArg!
+  return .visit { expr := p, proof? := some (mkApp2 (mkConst ``decide_eq_true_eq) p lhs.appArg!) }
+
+/-- `decide p = false` is `¬p`, with the instance the term carries (as `k2lDecideEqTrue`). -/
+simproc_decl k2lDecideEqFalse (decide _ = false) := fun e => do
+  let some (_, lhs, rhs) := e.eq? | return .continue
+  unless rhs.isConstOf ``Bool.false && lhs.isAppOfArity ``Decidable.decide 2 do return .continue
+  let p := lhs.appFn!.appArg!
+  let pf := mkApp2 (mkConst ``decide_eq_false_iff_not) p lhs.appArg!
+  return .visit { expr := mkNot p, proof? := some (mkApp3 (mkConst ``propext) e (mkNot p) pf) }
+
 theorem BytesHook.length_eq_zero_iff (b : List UInt8) : BytesHook.length b = 0 ↔ b = BytesHook.empty := by
   simp [BytesHook.length, BytesHook.empty]
 theorem StringHook.length_eq_zero_iff (s : String) : StringHook.length s = 0 ↔ s = "" := by
@@ -244,8 +263,8 @@ elab "k2l_prop_norm" : tactic => withMainContext do
     KPrelude.IntHook.mul, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.not,
     KPrelude.BoolHook.eq, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.KEqHook.eq,
     KPrelude.StringHook.eq, Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true',
-    Bool.not_eq_false', Bool.and_eq_false_iff, Bool.or_eq_false_iff, decide_eq_true_eq,
-    decide_eq_false_iff_not, beq_iff_eq, Bool.not_not, Bool.true_and, Bool.and_true,
+    Bool.not_eq_false', Bool.and_eq_false_iff, Bool.or_eq_false_iff, k2lDecideEqTrue,
+    k2lDecideEqFalse, beq_iff_eq, Bool.not_not, Bool.true_and, Bool.and_true,
     Bool.false_and, Bool.and_false, Bool.true_or, Bool.or_true, Bool.false_or, Bool.or_false,
     Bool.not_true, Bool.not_false, KPrelude.BytesHook.length_eq_zero_iff,
     KPrelude.StringHook.length_eq_zero_iff] at $locs*))
@@ -486,7 +505,7 @@ macro_rules
       KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.IntHook.add, KPrelude.IntHook.sub,
       KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.not, Bool.and_eq_true,
       Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_false_iff, Bool.or_eq_false_iff,
-      Bool.not_eq_false', decide_eq_true_eq, decide_eq_false_iff_not, $xs,*] at *
+      Bool.not_eq_false', k2lDecideEqTrue, k2lDecideEqFalse, $xs,*] at *
     omega))
 
 section
@@ -912,7 +931,7 @@ def k2lLeafSplitAt (g : MVarId) (x : FVarId)
         seen.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)
       -- `==K` unfolds to `decide (a = b)`: read it as the equation, which `injections` takes apart
       let lemmas := lemmas ++ extra ++
-        #[← `(Lean.Parser.Tactic.simpLemma| decide_eq_true_eq), ← `(Lean.Parser.Tactic.simpLemma| decide_eq_false_iff_not)]
+        #[← `(Lean.Parser.Tactic.simpLemma| k2lDecideEqTrue), ← `(Lean.Parser.Tactic.simpLemma| k2lDecideEqFalse)]
       try evalTactic (← `(tactic| simp only [$lemmas,*] at $locs*)) catch _ => pure ()
     let gs' ← getUnsolvedGoals
     if gs'.isEmpty then continue
@@ -1108,9 +1127,11 @@ macro_rules
     | k2l_guard k2l_bool_cases
     | k2l_guard (k2l_det_fundep; k2l_bool_cases)
     | k2l_guard (simp_all [KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.IntHook.eq, KPrelude.IntHook.ne,
-        KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, $xs,*]; done)
+        KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, k2lDecideEqTrue,
+        k2lDecideEqFalse, $xs,*]; done)
     | k2l_guard (simp_all [KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.IntHook.eq, KPrelude.IntHook.ne,
-        KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, $xs,*]; omega))
+        KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, k2lDecideEqTrue,
+        k2lDecideEqFalse, $xs,*]; omega))
 
 
 /-! ## Splitting a left-hand side by the sort of its first `<k>` item
