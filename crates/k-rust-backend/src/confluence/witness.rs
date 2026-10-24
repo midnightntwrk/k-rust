@@ -290,7 +290,7 @@ pub(super) fn settle(context: &mut Context<'_>, proposals: Vec<Proposal>) -> Wit
                     .any(|unifier| substitute(left_rhs, unifier) != substitute(right_rhs, unifier)),
                 Err(_) => true,
             };
-            if conflict {
+            if conflict && !super::switches::active().adopt_unvalidated_witnesses {
                 dropped[first] = true;
                 dropped[second] = true;
             }
@@ -401,12 +401,50 @@ pub(super) fn adopted(first: &Checked, second: &Checked, witnesses: &Witnesses) 
     // (3) Fewer pairs do not join.
     let fewer = second.unjoined.len() < first.unjoined.len();
     // (4) No witness head is tainted in the unfiltered closure.
-    let heads_untainted = witnesses
-        .rules
-        .iter()
-        .filter_map(|rule| head(rule))
-        .all(|head| !second.tainted_symbols.contains(&head));
+    let heads_untainted = super::switches::active().adopt_with_tainted_witness_head
+        || witnesses
+            .rules
+            .iter()
+            .filter_map(|rule| head(rule))
+            .all(|head| !second.tainted_symbols.contains(&head));
     proposing_join && witness_pairs_join && nothing_lost && fewer && heads_untainted
+}
+
+/// Test switch `adopt_unvalidated_witnesses`: `first`, pass 1's verdict, with every pair that
+/// proposed one of `witnesses` read as joined by its own proposal and `witnesses` adopted, no
+/// pass 2 run.
+pub(super) fn adopted_unvalidated(mut first: Checked, witnesses: &Witnesses) -> Checked {
+    first
+        .unjoined
+        .retain(|pair| !witnesses.proposing.contains(&pair_key(pair)));
+    first.counts.unjoined = first.unjoined.len();
+    first.counts.witnesses = witnesses.rules.len();
+    first.witnesses.clone_from(&witnesses.rules);
+    first
+}
+
+/// Test switch `witnesses_only_at_their_pair`: `second`, a pass 2 verdict, with the witnesses
+/// validated only at their proposing pairs: every other pair it lists is replaced by what `first`,
+/// the same scope's pass 1, lists.
+pub(super) fn only_at_their_pairs(
+    second: &mut Checked,
+    first: &Checked,
+    proposing: &BTreeSet<PairKey>,
+) {
+    if !super::switches::active().witnesses_only_at_their_pair {
+        return;
+    }
+    second
+        .unjoined
+        .retain(|pair| proposing.contains(&pair_key(pair)));
+    second.unjoined.extend(
+        first
+            .unjoined
+            .iter()
+            .filter(|pair| !proposing.contains(&pair_key(pair)))
+            .cloned(),
+    );
+    second.counts.unjoined = second.unjoined.len();
 }
 
 /// Test builds: the canonical text of a witness, `lhs => rhs`.

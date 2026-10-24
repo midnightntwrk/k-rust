@@ -2301,7 +2301,9 @@ impl Context<'_> {
                         reason,
                         ..
                     } => {
-                        if uninhabited.is_some() {
+                        if uninhabited.is_some()
+                            || switches::active().witness_without_empty_variable
+                        {
                             self.propose(candidate, (&first_side, &second_side), &values);
                         }
                         // Different results under conditions the check neither refuted nor showed
@@ -2557,10 +2559,9 @@ impl Context<'_> {
 
     /// Whether `term` holds a variable of a sort with no normal form ([`Self::empty_sort`]).
     pub(super) fn holds_empty_variable(&self, term: &Term) -> bool {
-        term.attributes()
-            .variables
-            .iter()
-            .any(|variable| self.empty_sort(variable).is_some())
+        term.attributes().variables.iter().any(|variable| {
+            switches::active().witness_without_empty_variable || self.empty_sort(variable).is_some()
+        })
     }
 }
 
@@ -2695,6 +2696,21 @@ fn check_detached(
     // conditions 2 and 3 could adopt a pass the full check refuses, and two scopes would read
     // two models. The load's scope then runs its own pass 2 with that `W`: its closure is
     // contained in the full check's, so no witness head is tainted in it either.
+    // Test switches `adopt_unvalidated_witnesses` (each proposing pair joined by its own
+    // proposal, no pass 2) and `witnesses_only_at_their_pair` (`witness::only_at_their_pairs`).
+    if switches::active().adopt_unvalidated_witnesses && !switches::active().adopt_pass_1 {
+        let full_first = (scope == CheckScope::Gate).then(|| pass(CheckScope::All, &[], true));
+        let witnesses = full_first
+            .as_ref()
+            .map_or(&proposed, |(_, witnesses)| witnesses);
+        let mut chosen = witness::adopted_unvalidated(first, witnesses);
+        chosen.counts.witness_pass = if witnesses.rules.is_empty() {
+            WitnessPass::Kept
+        } else {
+            WitnessPass::Adopted
+        };
+        return verdict(chosen);
+    }
     let adopted = (!switches::active().adopt_pass_1)
         .then(|| {
             let full_first = (scope == CheckScope::Gate).then(|| pass(CheckScope::All, &[], true));
@@ -2706,12 +2722,18 @@ fn check_detached(
             if witnesses.rules.is_empty() {
                 return None;
             }
-            let (full_second, _) = pass(CheckScope::All, &witnesses.rules, false);
-            witness::adopted(decision, &full_second, witnesses)
-                .then(|| (witnesses.rules.clone(), full_second))
+            let (mut full_second, _) = pass(CheckScope::All, &witnesses.rules, false);
+            witness::only_at_their_pairs(&mut full_second, decision, &witnesses.proposing);
+            witness::adopted(decision, &full_second, witnesses).then(|| {
+                (
+                    witnesses.rules.clone(),
+                    witnesses.proposing.clone(),
+                    full_second,
+                )
+            })
         })
         .flatten();
-    let Some((witnesses, full_second)) = adopted else {
+    let Some((witnesses, proposing, full_second)) = adopted else {
         let mut kept = first;
         kept.counts.witness_pass = WitnessPass::Kept;
         return verdict(kept);
@@ -2719,7 +2741,9 @@ fn check_detached(
     let mut second = if scope == CheckScope::All {
         full_second
     } else {
-        pass(scope, &witnesses, false).0
+        let mut second = pass(scope, &witnesses, false).0;
+        witness::only_at_their_pairs(&mut second, &first, &proposing);
+        second
     };
     second.counts.witness_pass = WitnessPass::Adopted;
     second.witnesses = witnesses;
