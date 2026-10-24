@@ -520,8 +520,10 @@ impl ResolvedTarget {
     /// own matcher when the pattern has no `requires`), whatever the `requires` gave there:
     /// true, false or undecided. A leaf counts when it is clean apart from the target
     /// matcher's own undecided verdict ([`UncleanReason::UndecidedMatch`]); a leaf unclean for
-    /// another reason has no decided configuration to match. `None` for every other target
-    /// kind (FZ-POLISH S2).
+    /// any other reason (an undecided or not ceil-free state, an implementation-chosen value, a
+    /// contradicted claim, ...) is left out even when its configuration matched, as every
+    /// verdict of this campaign leaves it out, so a semantics whose every end is unclean gets a
+    /// count of 0. `None` for every other target kind (FZ-POLISH S2).
     pub(crate) fn pattern_body_matches(&self, result: &CaseResult) -> Option<u64> {
         if self.resolved != Resolved::PatternFinal {
             return None;

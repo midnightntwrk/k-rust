@@ -1916,6 +1916,8 @@ fn an_anchor_refusal_prints_no_rust_debug_output() {
             "NoParse {",
             "SortMismatch",
             "Unsupported(",
+            "SortBool",
+            "SortInt",
         ] {
             assert!(!message.contains(debug), "{text}: {message}");
         }

@@ -28,6 +28,24 @@ use super::{
     print::{PrintError, parse_int, parse_mint, to_kore},
 };
 
+/// `sort` by its K name (`Bool` for `SortBool{}`, `MInt{8}` for `SortMInt{Sort8{}}`), for
+/// messages; a name without the KORE `Sort` prefix is kept as it is.
+fn k_sort_name(sort: &KoreSort) -> String {
+    match sort {
+        KoreSort::Variable(name) => name.clone(),
+        KoreSort::Application { name, arguments } => {
+            let head =
+                k_rust::kast::identifier::decode_sort_name(name).unwrap_or_else(|_| name.clone());
+            if arguments.is_empty() {
+                head
+            } else {
+                let arguments: Vec<String> = arguments.iter().map(k_sort_name).collect();
+                format!("{head}{{{}}}", arguments.join(", "))
+            }
+        }
+    }
+}
+
 /// The KORE sort without arguments named `name`.
 pub(super) fn simple_sort(name: &str) -> KoreSort {
     KoreSort::Application {
@@ -476,7 +494,9 @@ fn domain_value(
     };
     if found != expected {
         return Err(format!(
-            "a domain value of sort {found}, not of sort {expected}"
+            "a domain value of sort {}, not of sort {}",
+            k_sort_name(found),
+            k_sort_name(expected)
         ));
     }
     let text = || {
@@ -705,4 +725,20 @@ fn second_builtin(value: &Value) -> Option<Value> {
         }
         Value::List(_) | Value::Set(_) | Value::Map(_) | Value::Apply { .. } => return None,
     })
+}
+
+#[cfg(test)]
+mod sort_name_tests {
+    use super::*;
+
+    /// Refusals name sorts by their K names (review round 2).
+    #[test]
+    fn kore_sorts_print_by_their_k_names() {
+        assert_eq!(k_sort_name(&simple_sort("SortBool")), "Bool");
+        let mint = KoreSort::Application {
+            name: "SortMInt".into(),
+            arguments: vec![simple_sort("Sort8")],
+        };
+        assert_eq!(k_sort_name(&mint), "MInt{8}");
+    }
 }

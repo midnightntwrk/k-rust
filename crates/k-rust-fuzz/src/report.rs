@@ -759,7 +759,8 @@ pub struct Totals {
     /// `trivial` or `terminal`) of the cases inside the determinism contract matched the
     /// pattern's configuration without its `requires`, whatever the `requires` gave there
     /// (true, false or undecided); a leaf counts when it is clean apart from the target's own
-    /// undecided verdict. 0 means no end's configuration matched the pattern's (a misspelled
+    /// undecided verdict, so a leaf unclean for another reason (a chosen value, a contradicted
+    /// claim, a state that is not ceil-free) is left out even when its configuration matched. 0 means no end's configuration matched the pattern's (a misspelled
     /// key, a cell no end holds), so a negated property held vacuously, and a warning says so. Information, not a class: each leaf is matched on its own. Absent for
     /// every other target, and when no case inside the determinism contract was executed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
