@@ -585,6 +585,13 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending entry.
         range: Option<Box<SourceRange>>,
     },
+    /// A configuration variable no cell's initial content reads.
+    UnusedConfigurationVariable {
+        /// Stable reason naming the variable.
+        reason: String,
+        /// The exact authored range of the parameter.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity {
         /// Stable diagnostic detail.
@@ -690,6 +697,7 @@ macro_rules! by_location_slot {
             | DescriptorLoweringError::DuplicateSmtlib { range: $range, .. }
             | DescriptorLoweringError::InvalidConsoleCell { range: $range, .. }
             | DescriptorLoweringError::CellCollection { range: $range, .. }
+            | DescriptorLoweringError::UnusedConfigurationVariable { range: $range, .. }
             | DescriptorLoweringError::InvalidGeneratedIdentity { range: $range, .. }
             | DescriptorLoweringError::InvalidSemanticTheory { range: $range, .. } => $located,
             DescriptorLoweringError::OverlappingMatchArms { .. } => $arms,
@@ -910,7 +918,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::AmbiguousListPattern { reason, .. }
             | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
-            | Self::CellCollection { reason, .. } => formatter.write_str(reason),
+            | Self::CellCollection { reason, .. }
+            | Self::UnusedConfigurationVariable { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity { detail, .. } => formatter.write_str(detail),
             Self::InvalidSemanticTheory { error, .. } => error.fmt(formatter),
         }
@@ -1003,6 +1012,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
             Self::InvalidStaticClause { .. } => codes::analysis::INVALID_STATIC_CLAUSE,
             Self::InvalidConstant { .. } => codes::analysis::INVALID_CONSTANT,
+            Self::UnusedConfigurationVariable { .. } => {
+                codes::analysis::UNUSED_CONFIGURATION_VARIABLE
+            }
             Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
             // The validators state two language rules a front stage has not checked yet; their
             // failures are the author's mistakes, and only the rest are KRS's.

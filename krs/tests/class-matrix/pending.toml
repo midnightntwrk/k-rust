@@ -2979,17 +2979,17 @@ step = "S2"
 
 ["init/typed/any/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+deviation = "krs::analysis::unused-configuration-variable @ item"
 step = "S4"
 
 ["init/typed/any/Cmd::Go()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+deviation = "krs::analysis::unused-configuration-variable @ item"
 step = "S4"
 
 ["init/typed/any/Val::Unit()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+deviation = "krs::analysis::unused-configuration-variable @ item"
 step = "S4"
 
 ["init/typed/boxed/1"]
@@ -3038,15 +3038,3 @@ step = "S2"
 finding = "X1"
 deviation = "krs::collect::invalid-configuration @ item"
 step = "S2"
-
-# X2: an initializer that leaves a configuration variable unused is an unlocated IR validation error
-
-["init/k/k::k![0]"]
-finding = "X2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"
-
-["init/k/k::k![]"]
-finding = "X2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"

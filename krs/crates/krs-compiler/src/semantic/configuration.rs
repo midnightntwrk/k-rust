@@ -99,6 +99,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
         })
         .collect::<Result<Vec<_>, _>>()?;
     console.check_initializers(&initializer)?;
+    check_configuration_variables_read(descriptor, configuration, &initializer)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
     Ok(FixedConfiguration::new(
         semantic_origin(
@@ -522,6 +523,55 @@ fn initializer_typing(
         &mut output,
     )?;
     walker.run(&output)
+}
+
+/// Checks that some cell's initial content reads each configuration variable: one that none
+/// reads gives its input nowhere to go, and the parameter is what the author removes or places.
+fn check_configuration_variables_read(
+    descriptor: &Descriptor,
+    configuration: &krs_ir::DescriptorFixedConfiguration,
+    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
+) -> Result<(), DescriptorLoweringError> {
+    fn read_variables<'t>(term: &'t SemanticTerm, read: &mut BTreeSet<&'t str>) {
+        if let IrTermKind::Variable { variable } = term.kind() {
+            read.insert(variable.as_str());
+        }
+        for child in term.children() {
+            read_variables(child, read);
+        }
+    }
+    fn read_cell<'t>(
+        cell: &'t FixedInitializerCell<SemanticId, SemanticTerm>,
+        read: &mut BTreeSet<&'t str>,
+    ) {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => read_variables(term, read),
+            FixedInitializerContent::Children { children } => {
+                for child in children {
+                    read_cell(child, read);
+                }
+            }
+        }
+    }
+    let mut read = BTreeSet::new();
+    for cell in initializer {
+        read_cell(cell, &mut read);
+    }
+    let Some(unused) = configuration
+        .initializer
+        .variables
+        .iter()
+        .find(|variable| !read.contains(variable.binding.as_str()))
+    else {
+        return Ok(());
+    };
+    Err(DescriptorLoweringError::UnusedConfigurationVariable {
+        reason: format!(
+            "the configuration variable `{}` (`${}`) is read by no cell's initial content, so its input would have nowhere to go: place it in a cell, or remove the parameter",
+            unused.binding, unused.external_name
+        ),
+        range: key_range(descriptor, &unused.binding_key).map(Box::new),
+    })
 }
 
 /// Lowers one initializer cell; an error that names no narrower node is located at the cell.
