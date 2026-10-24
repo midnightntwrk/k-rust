@@ -54,6 +54,16 @@ A case is counted once, under the first of its reasons in the order of `exec::Un
 A case whose compared or reaching end is not data because a definition's full critical-pair check reports findings (so no end of that definition is data, below) is counted as `definition-not-confluent`, not under the side's not-data reason; the findings are in the report's warnings.
 The no-witness statement, and the summary of a report with a witness, list the reasons, largest first, with the largest one's remedy (`UnjudgedReason::remedy`); a remedy only suggests actions that keep verdicts sound (a bound, a pattern, another program or hole range), never a change to the definition's claims, and names options by campaign key and command-line flag; a `not-ceil-free` case also adds a warning naming the partial function whose application a leaf holds.
 
+### Incidental findings
+
+A rule missing from the semantics, or a partiality its author did not intend, is invisible to every target: no mutant of an absent rule exists, a baseline and its mutant get stuck alike, and coverage lists the rules that exist.
+So the report keeps the first case of each of the classes `stuck` and `undefined` as information, `incidental.stuck` and `incidental.undefined` (`report::Incidentals`), whatever the target; the key, and each class's entry, is absent when no case had the class.
+The classes are the case classes above, under the normal end the report's `normal-end` names: `stuck` is a clean, decided `stuck` leaf that is not a natural end (under `every-k`, some `<k>` cell still holds a computation), `undefined` a clean undefined step (a rule applied whose result is undefined there; its leaf is the configuration before the step, and it is no end), each with no leaf of higher precedence.
+In a differential campaign a case has them when the pair gave no kill (an undefined step or a stop that tells the mutant apart is a kill, below), and the finding names the baseline's leaf of that kind when the baseline has one, else the mutant's.
+Each finding holds the case's number (counted from 0), its hole values, the side (`role`), the leaf's index and depth, the item at the head of its first non-empty `<k>` cell as K text (`k-head`: where the program stopped, or the item before the undefined step), the leaf's configuration as KORE, and the `krun` line that re-runs the case on that side (on all paths for a differential baseline).
+Only cases inside the determinism contract are kept, so a finding reproduces; keeping one changes no class, case or budget, and nothing is re-run or shrunk.
+The summary prints one line per finding, worded as information: a K semantics often leaves a program stuck on purpose (an ill-typed program, a division by zero the language leaves without meaning).
+
 ## Hole declarations
 
 A hole replaces a span of the unmodified program, addressed by `program`, an optional `line`, `find` (a text that occurs exactly once in the addressed line or program) and `literal` (the hole's literal, which occurs exactly once in `find`).

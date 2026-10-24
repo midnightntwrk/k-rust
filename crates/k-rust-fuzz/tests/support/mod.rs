@@ -586,6 +586,7 @@ fixture!(COIN_FUNC, "coin/coin-func.k", "COIN", COIN_PROGRAMS);
 pub const IMP_DIFF_PROGRAMS: &[Program] = &[
     program!("imp-diff/primes.imp"),
     program!("imp-diff/sum.imp"),
+    program!("imp-diff/div.imp"),
 ];
 fixture!(IMP_DIFF, "imp-diff/imp.k", "IMP", IMP_DIFF_PROGRAMS);
 fixture!(

@@ -1608,6 +1608,25 @@ export interface FuzzTotals {
   solve?: FuzzSolveTotals
 }
 
+/**
+ * The first case of the class `stuck` or `undefined` of a campaign, kept as information about
+ * the semantics, not as a failure (k-rust-fuzz README, "Incidental findings").
+ */
+export interface FuzzIncidentalCase {
+  /** The case's number, counted from 0. */
+  case: number
+  holes: FuzzHoleValue[]
+  /** The side whose leaf shows the class (the baseline unless only the mutant has one). */
+  role: FuzzDefinitionRole
+  leaf: number
+  steps: number
+  /** The item at the head of the leaf's first non-empty `<k>` cell, as K text. */
+  'k-head'?: string
+  /** The leaf's configuration, as KORE text. */
+  configuration: string
+  'krun-command': string | null
+}
+
 /** A campaign's report: schema `krust-fuzz-report`, version 5 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
@@ -1617,6 +1636,8 @@ export interface FuzzReport {
   totals: FuzzTotals
   /** Which normal end each definition's classes rest on; absent when no case ran. */
   'normal-end'?: { baseline: FuzzNormalEndKind; mutant?: FuzzNormalEndKind }
+  /** The first `stuck` and the first `undefined` case; absent when no case had either class. */
+  incidental?: { stuck?: FuzzIncidentalCase; undefined?: FuzzIncidentalCase }
   'load-records': { kind: string; detail: string }[]
   'sort-overrides': { hole: string; sort: string; refusal: string }[]
   warnings: string[]

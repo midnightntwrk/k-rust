@@ -72,6 +72,11 @@ pub struct FuzzReport {
     /// report that ran no case.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normal_end: Option<NormalEnds>,
+    /// The first `stuck` and the first `undefined` case of the campaign, kept as information
+    /// about the semantics, not as a failure ([`Incidentals`]); absent when no case had either
+    /// class.
+    #[serde(default, skip_serializing_if = "Incidentals::is_empty")]
+    pub incidental: Incidentals,
     /// Records the definitions' loads observed, reported once per campaign; they taint no leaf
     /// (T-5).
     pub load_records: Vec<LoadRecord>,
@@ -1009,6 +1014,149 @@ pub struct EngineDefect {
     pub description: String,
 }
 
+/// The first case of each of the classes `stuck` and `undefined` (FZ-INCIDENTAL).
+///
+/// A rule missing from the semantics, or a partiality its author did not intend, is invisible to
+/// every target: no mutant of an absent rule exists, a baseline and its mutant get stuck alike,
+/// and coverage lists the rules that exist. The cases a campaign runs anyway show it, so the
+/// first case of each class is kept. It is information, not a failure: a K semantics often
+/// leaves a program stuck on purpose (an ill-typed program, a division by zero that the
+/// language leaves without meaning).
+///
+/// The classes are the case classes ([`OutcomeClass`]), with the meaning they have under the
+/// normal end the report's [`NormalEnds`] names:
+///
+/// - `stuck`: some leaf is a clean, decided `stuck` leaf that is not a natural end (an abnormal
+///   stop: no rule applies, and the configuration is not finished under the campaign's pattern,
+///   the one `<k>` cell holding `.K`, or every `<k>` cell holding `.K`), and no leaf has a class
+///   of higher precedence (an undefined step, a bound, a clock stop, an unsupported leaf).
+/// - `undefined`: some leaf is a clean undefined step (halt `trivial`: a rule applied whose
+///   result is undefined there, so the path ends in no configuration), and no leaf has a class
+///   of higher precedence. An undefined step is not an end: its leaf is the configuration
+///   before the step.
+///
+/// In a differential campaign a case has these classes when the pair gave no kill and the
+/// mutant's run has the class (the baseline and the mutant agree on the ends compared); the
+/// finding names the baseline's leaf of that kind when the baseline has one, else the
+/// mutant's ([`IncidentalCase::role`]). Only cases inside the determinism contract are kept, so
+/// a finding reproduces. Keeping one changes no class, no case and no budget: the case already
+/// ran, and nothing is re-run or shrunk.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct Incidentals {
+    /// The first `stuck` case; absent when no case was `stuck`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck: Option<IncidentalCase>,
+    /// The first `undefined` case; absent when no case was `undefined`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undefined: Option<IncidentalCase>,
+}
+
+impl Incidentals {
+    /// Whether neither class had a case.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.stuck.is_none() && self.undefined.is_none()
+    }
+
+    /// One line per finding, `stuck` first, worded as information for a reader (the summary of
+    /// `krust fuzz` prints them).
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(case) = &self.stuck {
+            lines.push(case.line(
+                "got stuck before a natural end",
+                "no rule applies there: a missing rule, or a stop the semantics intends",
+                "stuck",
+            ));
+        }
+        if let Some(case) = &self.undefined {
+            lines.push(case.line(
+                "took an undefined step",
+                "a rule applied whose result is undefined there: a partiality the semantics may \
+                 or may not intend",
+                "undefined",
+            ));
+        }
+        lines
+    }
+}
+
+/// One incidental finding: a case whose class was `stuck` or `undefined` ([`Incidentals`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct IncidentalCase {
+    /// The case's number, counted from 0 in the order the cases ran, as engine defects and
+    /// warnings number cases.
+    pub case: u64,
+    /// The hole overlay with values, in declaration order.
+    pub holes: Vec<HoleValue>,
+    /// The side whose leaf shows the class: the baseline in a rule or pattern campaign; in a
+    /// differential campaign the baseline when it has a leaf of that kind, else the mutant.
+    pub role: DefinitionRole,
+    /// The index of that leaf among the side's leaves, in the backend's order.
+    pub leaf: u64,
+    /// The leaf's depth (rewrite steps on its path).
+    pub steps: u64,
+    /// The first item of the leaf's first `<k>` cell that is not empty, as K text when the
+    /// definition's unparser prints it, else as its head's K label: where the program stopped
+    /// (an abnormal stop) or the item at the head of `<k>` when a rule's result was undefined
+    /// (the leaf of an undefined step is the configuration before the step). Absent when the
+    /// configuration has no `<k>` cell holding an item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k_head: Option<String>,
+    /// The leaf's configuration, as KORE text.
+    pub configuration: String,
+    /// The `krun` command line that re-runs the case on the side [`Self::role`] names, written as
+    /// [`Witness::krun_command`] is; `None` when no `krun` run is equivalent (a KORE-template
+    /// program, the `from-definition` route, a program without `$PGM`).
+    pub krun_command: Option<String>,
+}
+
+impl IncidentalCase {
+    /// The summary line: the case, its holes, what happened (`what`), where, why it may matter
+    /// (`meaning`), and the report key (`key`) that holds the rest.
+    fn line(&self, what: &str, meaning: &str, key: &str) -> String {
+        /// The longest hole value or `<k>` item a line prints in full, in characters.
+        const SHOWN: usize = 80;
+        let cut = |text: &str| {
+            if text.chars().count() <= SHOWN {
+                text.to_owned()
+            } else {
+                format!("{}…", text.chars().take(SHOWN).collect::<String>())
+            }
+        };
+        let holes = self
+            .holes
+            .iter()
+            .map(|hole| {
+                format!(
+                    "{} = {}",
+                    hole.name,
+                    cut(hole.k_text.as_deref().unwrap_or(&hole.kore))
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let side = match self.role {
+            DefinitionRole::Baseline => "",
+            DefinitionRole::Mutant => " on the mutant",
+        };
+        let at = self
+            .k_head
+            .as_deref()
+            .map(|head| format!(" at `{}`", cut(head)))
+            .unwrap_or_default();
+        format!(
+            "incidental (information, not a failure): case {} ({holes}){side} {what} after {} \
+             steps{at}; {meaning}. The report's `incidental.{key}` holds its configuration and \
+             krun line.",
+            self.case, self.steps
+        )
+    }
+}
+
 /// Serialize a `u64` as a decimal string, which JavaScript reads exactly at any size.
 pub(crate) mod decimal_u64 {
     use serde::{Deserialize, Deserializer, Serializer, de::Error};
@@ -1234,6 +1382,7 @@ mod tests {
                 baseline: NormalEndKind::EveryK,
                 mutant: None,
             }),
+            incidental: Incidentals::default(),
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),
                 detail: "total".into(),
@@ -1278,6 +1427,33 @@ mod tests {
         assert_eq!(FuzzReport::from_json(&text).expect("reads back"), cancelled);
         assert_eq!(cancelled.witness(), None);
         assert!(cancelled.no_witness().is_some());
+    }
+
+    #[test]
+    fn an_incidental_finding_serializes_after_the_normal_end_and_reads_back() {
+        let mut report = fixed_report();
+        report.incidental.undefined = Some(IncidentalCase {
+            case: 3,
+            holes: Vec::new(),
+            role: DefinitionRole::Baseline,
+            leaf: 0,
+            steps: 9,
+            k_head: Some("100 / 0".into()),
+            configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
+            krun_command: None,
+        });
+        let text = report.to_canonical_json();
+        assert!(
+            text.contains(concat!(
+                r#""normal-end":{"baseline":"every-k"},"incidental":{"undefined":{"case":3,"#,
+                r#""holes":[],"role":"baseline","leaf":0,"steps":9,"k-head":"100 / 0","#,
+                r#""configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","krun-command":null}},"#,
+                r#""load-records":"#
+            )),
+            "{text}"
+        );
+        assert_eq!(FuzzReport::from_json(&text).expect("reads back"), report);
+        assert_eq!(report.incidental.lines().len(), 1);
     }
 
     #[test]

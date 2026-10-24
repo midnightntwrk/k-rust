@@ -1,0 +1,6 @@
+// A division by d, which SIMPLE leaves stuck when d is 0 (its division rule requires a nonzero
+// divisor).
+function main() {
+  var d = 4;
+  print(10 / d, "\n");
+}

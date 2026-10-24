@@ -11,7 +11,9 @@ use k_rust::backend::CancellationToken;
 
 use crate::{
     exec::{Abort, OutcomeClass, UnjudgedReason},
-    report::{HoleValue, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide},
+    report::{
+        HoleValue, IncidentalCase, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide,
+    },
     score::{Guards, records::Compared},
     values::Value,
 };
@@ -58,6 +60,10 @@ pub(crate) struct CaseRun {
     pub(crate) warnings: Vec<String>,
     /// For a (candidate) hit, what a witness reports of it.
     pub(crate) hit: Option<HitDetail>,
+    /// For a `stuck` or `undefined` case inside the determinism contract, what the report's
+    /// incidental finding holds of it ([`crate::report::Incidentals`]), with `case` 0: the loop
+    /// numbers it. `None` for every other case.
+    pub(crate) incidental: Option<Box<IncidentalCase>>,
     /// What stopped paths of the result the class rests on, which the no-witness statement
     /// reads for `reached-unfinished` and `baseline-incomplete` cases.
     pub(crate) cut: Cut,
@@ -99,6 +105,7 @@ impl CaseRun {
             defects: Vec::new(),
             warnings: Vec::new(),
             hit: None,
+            incidental: None,
             cut: Cut::default(),
         }
     }

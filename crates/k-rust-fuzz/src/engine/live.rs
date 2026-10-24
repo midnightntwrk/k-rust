@@ -14,7 +14,10 @@ use k_rust::{
     kore::ast::Pattern as KorePattern,
 };
 
-use super::runner::{CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail};
+use super::{
+    incidental,
+    runner::{CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail},
+};
 use crate::{
     assemble::{CaseAssembler, ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
@@ -25,11 +28,11 @@ use crate::{
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{
-        DefinitionRole, HoleValue, KillKind, NormalEnds, Reaching, RejectionReason, TargetRule,
-        WitnessSide,
+        DefinitionRole, HoleValue, IncidentalCase, KillKind, NormalEnds, Reaching, RejectionReason,
+        TargetRule, WitnessSide,
     },
     score,
-    spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
+    spec::{BackendRoute, CampaignSpec, CaseOptions, CompiledDefinition, PathMode, ProgramInput},
     target::{self, HitSite, ResolvedTarget, RuleName, TargetKind, differential},
     values::{self, Value, print},
 };
@@ -662,57 +665,15 @@ impl LiveCases {
         let Judge::Target(target) = &self.judge else {
             return None;
         };
-        let definition = &self.spec.definitions.baseline;
-        if definition.route == BackendRoute::FromDefinition {
-            return None;
-        }
-        let InstantiatedProgram::Source {
-            program: Some(program),
-            config_vars,
-        } = instantiated
-        else {
-            return None;
-        };
         let options = &self.spec.options;
-        let mut line = format!(
-            "krust krun --definition <definition-dir> -m {} --syntax-module {}",
-            quote(&definition.main_module),
-            quote(&definition.syntax_module)
-        );
-        write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
-        line.push_str(" --io off --strategy ");
-        line.push_str(match options.paths {
-            PathMode::OnePath => "any",
-            PathMode::AllPaths => "all",
-        });
-        if let Some(depth) = options.max_depth {
-            write!(line, " --depth {depth}").expect("writing to a String");
-        }
         // A `fired` target under one path stops at its rule (FZ-05, D16); so must krun.
-        for rule in target.needs(options.paths).terminal_rules {
-            write!(line, " --terminal-rule {}", quote(&rule)).expect("writing to a String");
-        }
-        write!(
-            line,
-            " --max-simplification-iterations {} --smt-timeout {} --smt-retry-limit {}",
-            options.max_simplification_iterations,
-            options.backend.smt_timeout_ms,
-            options.backend.smt_retry_limit
+        krun_line(
+            &self.spec.definitions.baseline,
+            options,
+            options.paths,
+            &target.needs(options.paths).terminal_rules,
+            instantiated,
         )
-        .expect("writing to a String");
-        for (name, value) in config_vars {
-            write!(line, " -c {}", quote(&format!("{name}={value}"))).expect("writing to a String");
-        }
-        // `--io off` buffers standard input into `$STDIN`; the campaign binds it empty.
-        write!(line, " -e {} < /dev/null", quote(&program.text)).expect("writing to a String");
-        if let Some(work) = options.effective_max_work() {
-            write!(
-                line,
-                "  # the campaign also bounds max-work {work}, which krun cannot"
-            )
-            .expect("writing to a String");
-        }
-        Some(line)
     }
 
     fn run_target(
@@ -800,6 +761,22 @@ impl LiveCases {
                 run.unjudged = Some(UnjudgedReason::EngineDefect);
                 run.defects.push(defect.description);
             }
+        }
+        if wants_incidental(&run) {
+            let options = &self.spec.options;
+            run.incidental = incidental_case(
+                run.class,
+                &self.hole_values(values, &prepared.printed),
+                options,
+                &[SideRun {
+                    role: DefinitionRole::Baseline,
+                    side: &self.baseline,
+                    prepared: &prepared,
+                    result: &result,
+                    paths: options.paths,
+                    terminal_rules: &target.needs(options.paths).terminal_rules,
+                }],
+            );
         }
         run.warnings.extend(partial_warnings(&result, run.unjudged));
         if run.class == OutcomeClass::Rejected {
@@ -905,6 +882,8 @@ impl LiveCases {
                             .push("a kill names no leaf of either result".to_owned());
                     }
                 }
+                let sides = ((&baseline_case, &baseline), (&mutant_case, mutated, paths));
+                run.incidental = self.differential_incidental(&run, values, sides);
             }
             Err(defect) => {
                 run.class = OutcomeClass::Unsupported;
@@ -944,6 +923,103 @@ fn data_reason(
         }
         reason => reason,
     }
+}
+
+impl LiveCases {
+    /// The incidental finding of a differential case `run` with `values`, from the baseline's
+    /// prepared case and result and the mutant's prepared case, judged result and its path mode:
+    /// the baseline's leaf when it has one of the case's class, else the mutant's; `None` unless
+    /// the case wants one ([`wants_incidental`]). Each side's krun line runs it as the case did:
+    /// the baseline on all paths, the mutant in its judged result's mode.
+    fn differential_incidental(
+        &self,
+        run: &CaseRun,
+        values: &[Value],
+        ((baseline_case, baseline), (mutant_case, mutated, paths)): (
+            (&Prepared, &CaseResult),
+            (&Prepared, &CaseResult, PathMode),
+        ),
+    ) -> Option<Box<IncidentalCase>> {
+        let Judge::Differential(mutant) = &self.judge else {
+            return None;
+        };
+        if !wants_incidental(run) {
+            return None;
+        }
+        incidental_case(
+            run.class,
+            &self.hole_values(values, &baseline_case.printed),
+            &self.spec.options,
+            &[
+                SideRun {
+                    role: DefinitionRole::Baseline,
+                    side: &self.baseline,
+                    prepared: baseline_case,
+                    result: baseline,
+                    paths: PathMode::AllPaths,
+                    terminal_rules: &[],
+                },
+                SideRun {
+                    role: DefinitionRole::Mutant,
+                    side: mutant,
+                    prepared: mutant_case,
+                    result: mutated,
+                    paths,
+                    terminal_rules: &[],
+                },
+            ],
+        )
+    }
+}
+
+/// Whether a case gets an incidental finding ([`crate::report::Incidentals`]): it is `stuck` or
+/// `undefined` and inside the determinism contract, so that the finding reproduces.
+fn wants_incidental(run: &CaseRun) -> bool {
+    matches!(run.class, OutcomeClass::Stuck | OutcomeClass::Undefined) && !run.outside_determinism
+}
+
+/// One side's judged run of a case, as an incidental finding names it.
+struct SideRun<'a> {
+    role: DefinitionRole,
+    /// The side, whose definition the krun line names and whose K-text syntax prints the `<k>`
+    /// item.
+    side: &'a Side,
+    prepared: &'a Prepared,
+    result: &'a CaseResult,
+    /// The path mode `result` was run in, and its terminal rules, for the krun line.
+    paths: PathMode,
+    terminal_rules: &'a [String],
+}
+
+/// The incidental finding of a case of `class` with `holes`, in a campaign with `options`: the
+/// first leaf that shows the class ([`incidental::shows`]) on the first of `runs` that has one,
+/// with `case` 0 (the loop numbers it); `None` when no run has such a leaf.
+fn incidental_case(
+    class: OutcomeClass,
+    holes: &[HoleValue],
+    options: &CaseOptions,
+    runs: &[SideRun<'_>],
+) -> Option<Box<IncidentalCase>> {
+    runs.iter().find_map(|run| {
+        let index = incidental::leaf_of(run.result, class)?;
+        let leaf = run.result.leaves.get(index)?;
+        Some(Box::new(IncidentalCase {
+            case: 0,
+            holes: holes.to_vec(),
+            role: run.role,
+            leaf: index_u64(index),
+            steps: leaf.depth,
+            k_head: incidental::k_head(&leaf.state, run.side.holes.text.as_ref()),
+            configuration: leaf.state.to_string(),
+            krun_command: krun_line(
+                &run.side.definition,
+                options,
+                run.paths,
+                run.terminal_rules,
+                &run.prepared.instantiated,
+            ),
+        }))
+    })
 }
 
 /// The run-level parts of a [`CaseRun`]: coverage from `covered`, work and determinism and load
@@ -996,6 +1072,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         defects: Vec::new(),
         warnings: Vec::new(),
         hit: None,
+        incidental: None,
         cut: Cut::default(),
     }
 }
@@ -1120,6 +1197,67 @@ fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> Wi
             .collect(),
         halts: result.leaves.iter().map(|leaf| leaf.halt).collect(),
     }
+}
+
+/// The `krun` command line that runs `instantiated` on `definition` as a case of a campaign with
+/// `options` does, in `paths` with `terminal_rules`, or `None` when no `krun` run is: the
+/// `from-definition` route, a KORE template, or a program without `$PGM` (krun would read `$PGM`
+/// from its standard input).
+fn krun_line(
+    definition: &CompiledDefinition,
+    options: &CaseOptions,
+    paths: PathMode,
+    terminal_rules: &[String],
+    instantiated: &InstantiatedProgram,
+) -> Option<String> {
+    if definition.route == BackendRoute::FromDefinition {
+        return None;
+    }
+    let InstantiatedProgram::Source {
+        program: Some(program),
+        config_vars,
+    } = instantiated
+    else {
+        return None;
+    };
+    let mut line = format!(
+        "krust krun --definition <definition-dir> -m {} --syntax-module {}",
+        quote(&definition.main_module),
+        quote(&definition.syntax_module)
+    );
+    write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
+    line.push_str(" --io off --strategy ");
+    line.push_str(match paths {
+        PathMode::OnePath => "any",
+        PathMode::AllPaths => "all",
+    });
+    if let Some(depth) = options.max_depth {
+        write!(line, " --depth {depth}").expect("writing to a String");
+    }
+    for rule in terminal_rules {
+        write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
+    }
+    write!(
+        line,
+        " --max-simplification-iterations {} --smt-timeout {} --smt-retry-limit {}",
+        options.max_simplification_iterations,
+        options.backend.smt_timeout_ms,
+        options.backend.smt_retry_limit
+    )
+    .expect("writing to a String");
+    for (name, value) in config_vars {
+        write!(line, " -c {}", quote(&format!("{name}={value}"))).expect("writing to a String");
+    }
+    // `--io off` buffers standard input into `$STDIN`; the campaign binds it empty.
+    write!(line, " -e {} < /dev/null", quote(&program.text)).expect("writing to a String");
+    if let Some(work) = options.effective_max_work() {
+        write!(
+            line,
+            "  # the campaign also bounds max-work {work}, which krun cannot"
+        )
+        .expect("writing to a String");
+    }
+    Some(line)
 }
 
 /// `text` quoted for a POSIX shell.

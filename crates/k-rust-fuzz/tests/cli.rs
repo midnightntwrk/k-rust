@@ -1517,6 +1517,65 @@ fn a_file_that_names_two_files_is_refused_at_every_line() {
     );
 }
 
+/// FZ-INCIDENTAL: a SIMPLE division by zero is stuck under the every-`<k>` default (SIMPLE's
+/// `<k>` lies under the multiplicity cell `<thread>`), and the first such case is reported as
+/// information: one summary line, and `incidental.stuck` in the report with the hole values, the
+/// `<k>` item and a krun line.
+#[test]
+fn a_simple_division_by_zero_is_reported_as_an_incidental_stuck_case() {
+    let campaign = "definition = \"simple-kompiled\"\nprogram = \"div.simple\"\nsort = \"Stmt\"\n\
+                    seed = 1\ncases = 3\n[target]\nrule = \"simple.md:910\"\nmode = \"covered\"\n\
+                    [options]\nmax-work = 50000\n\
+                    [proposers]\nexplicit = [{ D = 0 }]\n\
+                    [[hole]]\nname = \"D\"\nsort = \"Int\"\nfind = \"var d = 4;\"\nliteral = \"4\"\n\
+                    range = { min = 0, max = 8 }\n";
+    let directory = workspace(
+        "incidental-simple",
+        &[],
+        &[
+            ("div.simple", include_str!("data/simple/div.simple")),
+            ("div.toml", campaign),
+        ],
+    );
+    write_compiled_source(
+        "simple/simple.md",
+        include_str!("data/simple/simple.md"),
+        "SIMPLE-UNTYPED",
+        &directory.join("simple-kompiled"),
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "div.toml"]);
+    let stdout = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{stdout}{}",
+        text(&output.stderr)
+    );
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.starts_with("incidental"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{stdout}");
+    assert!(
+        lines[0].starts_with(
+            "incidental (information, not a failure): case 1 (D = 0) got stuck before a natural \
+             end"
+        ) && lines[0].contains("at `10 / 0`"),
+        "{stdout}"
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "div.toml", "--json"]);
+    let report = json_value(&output);
+    assert_eq!(report["normal-end"]["baseline"], "every-k", "{report}");
+    assert_eq!(report["totals"]["classes"]["stuck"], 1, "{report}");
+    let stuck = &report["incidental"]["stuck"];
+    assert_eq!(stuck["case"], 1, "{report}");
+    assert_eq!(stuck["holes"][0]["value"]["int"], "0");
+    assert_eq!(stuck["k-head"], "10 / 0");
+    let krun = stuck["krun-command"].as_str().expect("a krun line");
+    assert!(krun.contains("var d = 0;"), "{krun}");
+    assert_eq!(report["incidental"].get("undefined"), None);
+}
+
 /// FZ-RULEREF review S3: SIMPLE untyped (the pl-tutorial definition, without its `stream`
 /// attributes), whose rules carry no label: TRIAL2 item 15's `popx`, which spans lines 915-916,
 /// and the `try` rule, which spans 908-913, are reached by any of their lines.
