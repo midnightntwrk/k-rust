@@ -4,7 +4,10 @@
 use k_rust_kore::kore::parser::parse_definition;
 
 use crate::{
-    confluence::switches::{self, Switches},
+    confluence::{
+        UnjoinedReason,
+        switches::{self, Switches},
+    },
     definition::BackendDefinition,
 };
 
@@ -109,17 +112,37 @@ fn the_f1_probes_withdraw_v_and_see_the_revision_two_collapse() {
     }
 }
 
+/// `A` gets its normal forms only from its subsort `B`. Without the supersort closure (the
+/// switch) `A` reads as a sort with no normal form: the pair is still listed, naming `SortA`
+/// (FZ-EMPTYSORT), but it withdraws no claim, so `v` keeps claims it must not.
 #[test]
 fn the_subsort_probe_withdraws_v_and_sees_a_missing_supersort_closure() {
-    assert!(tainted(&n1(None), "v"));
-    let vacuous = switches::with(
+    let reasons = |definition: &BackendDefinition| {
+        definition
+            .value_claims()
+            .unjoined()
+            .iter()
+            .map(|pair| pair.reason.clone())
+            .collect::<Vec<_>>()
+    };
+    let closed = n1(None);
+    assert!(tainted(&closed, "v"));
+    assert_eq!(reasons(&closed), [UnjoinedReason::DifferentResults]);
+    let open = switches::with(
         Switches {
             drop_supersort_inhabitation: true,
             ..Switches::default()
         },
         || n1(None),
     );
-    assert!(!tainted(&vacuous, "v"));
+    assert!(!tainted(&open, "v"));
+    assert_eq!(
+        reasons(&open),
+        [UnjoinedReason::UninhabitedSort {
+            sort: "SortA".into(),
+            reason: Box::new(UnjoinedReason::DifferentResults),
+        }]
+    );
 }
 
 #[test]

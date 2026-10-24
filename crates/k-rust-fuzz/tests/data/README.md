@@ -96,6 +96,10 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | | `r3-propagate/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` |
 | R3_PLAINQ | `r3-plainq/b.k`, `r3-plainq/go.pgm` | `PQ` (`PQ-SYNTAX`) | `q(_) => a`, `q(_) => bb` (total), a pair only the full check classifies. Stores `a`. | FZ-DATAEND review R3-S1 |
 | | `r3-plainq/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (the full check runs at campaign setup) |
+| R4_EMPTY | `r4-empty/b.k`, `r4-empty/go.pgm` | `RE` (`RE-SYNTAX`) | `f(_:S) => a`, `f(_:S) => bb` (total) with `syntax S` and no production: an overlap over a sort with no normal form, which every model inhabits. Stores `a`. | FZ-DATAEND review round 4 (main kills it) |
+| | `r4-empty/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (the full check names `SortS`, FZ-EMPTYSORT) |
+| R4_PARTNORULE | `r4-partnorule/b.k`, `r4-partnorule/go.pgm` | `RP` (`RP-SYNTAX`) | The same with `syntax S ::= g(Int) [function]` and no rule for `g`. Stores `a`. | FZ-DATAEND review round 4 (main kills it) |
+| | `r4-partnorule/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (FZ-EMPTYSORT) |
 
 ## Not covered here
 

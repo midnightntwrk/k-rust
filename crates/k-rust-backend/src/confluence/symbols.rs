@@ -14,7 +14,8 @@
 //!   a new element of `S` that contains its arguments), as `\bottom`, as one fixed *old* element
 //!   of `S`, by its hook, or not at all (a *pin*).
 //!
-//! Everything else is derived from those two: which sorts have a normal form (vacuous overlaps),
+//! Everything else is derived from those two: which sorts have a normal form (the overlaps over a
+//! sort without one, which are still classified and name it when they do not join),
 //! which sorts have an element in every model (where `M'` may collapse), which applications are
 //! never normal forms (vacuous join cases), and which sorts' elements can hold which equation
 //! heads (the closure's T-obs).

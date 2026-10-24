@@ -155,7 +155,7 @@ fn assert_withdrawn(
     }
 }
 
-/// The check names no pair at all: every critical pair is separated, refuted or joined.
+/// The check names no pair at all: every critical pair is refuted or joined.
 fn assert_confluent(definition: &BackendDefinition) {
     let claims = definition.value_claims();
     assert!(claims.unjoined().is_empty(), "{:?}", claims.unjoined());

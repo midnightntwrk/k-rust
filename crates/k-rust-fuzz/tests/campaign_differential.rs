@@ -24,7 +24,8 @@ use support::{
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
     KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
     R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
+    R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M, R4_PARTNORULE, R4_PARTNORULE_M, RERUN,
+    RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -850,4 +851,36 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     assert!(report.witness().is_none(), "{:?}", report.outcome);
     assert_only_unsupported(&report);
     assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+// ---- pairs over a sort with no normal form (FZ-DATAEND review round 4, FZ-EMPTYSORT)
+
+/// R4: `f(_:S) => a` and `f(_:S) => bb` overlap only over a sort with no normal form: `S` has no
+/// production (`r4-empty`), or only the partial function `g`, which no rule rewrites
+/// (`r4-partnorule`). Every model has an element `s` of `S`, so `a = f(s) = bb` there; the full
+/// check reports the pair, naming `S`, and no end is data. Never a kill (main killed both).
+#[test]
+fn a_pair_over_a_sort_with_no_normal_form_leaves_the_definition_without_data() {
+    for (baseline, mutant, program) in [
+        (&R4_EMPTY, &R4_EMPTY_M, "r4-empty/go.pgm"),
+        (&R4_PARTNORULE, &R4_PARTNORULE_M, "r4-partnorule/go.pgm"),
+    ] {
+        let report = r2_report(baseline, mutant, program);
+        assert!(
+            report.witness().is_none(),
+            "{program}: {:?}",
+            report.outcome
+        );
+        assert_only_unsupported(&report);
+        assert_not_confluent(&report, &["baseline", "mutant"]);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("a sort with no normal form")
+                    && warning.contains("SortS")),
+            "{program}: {:?}",
+            report.warnings
+        );
+    }
 }
