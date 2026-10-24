@@ -1109,6 +1109,7 @@ mod tests {
         let case = WitnessCase {
             holes: Vec::new(),
             program: None,
+            config_vars: std::collections::BTreeMap::new(),
             class: k_rust_fuzz::OutcomeClass::Hit,
             sides: vec![
                 side(DefinitionRole::Baseline, 1),

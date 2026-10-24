@@ -911,6 +911,7 @@ impl LiveCases {
                             ),
                             mutant_krun_command: None,
                             program: program_text(&prepared.instantiated),
+                            config_vars: binding_texts(&prepared.instantiated),
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -941,6 +942,10 @@ impl LiveCases {
         Ok(run)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one differential case: both sides' runs, their judgement and the witness detail"
+    )]
     fn run_differential(
         &mut self,
         assemblers: &mut RunAssemblers<'_>,
@@ -1034,6 +1039,7 @@ impl LiveCases {
                             krun_command,
                             mutant_krun_command,
                             program,
+                            config_vars: binding_texts(&baseline_case.instantiated),
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -1514,6 +1520,15 @@ fn program_text(instantiated: &InstantiatedProgram) -> Option<String> {
             ..
         } => Some(program.text.clone()),
         _ => None,
+    }
+}
+
+/// The instantiated configuration-variable bindings of a case, by name; empty for a KORE
+/// template.
+fn binding_texts(instantiated: &InstantiatedProgram) -> BTreeMap<String, String> {
+    match instantiated {
+        InstantiatedProgram::Source { config_vars, .. } => config_vars.iter().cloned().collect(),
+        InstantiatedProgram::Kore(_) => BTreeMap::new(),
     }
 }
 

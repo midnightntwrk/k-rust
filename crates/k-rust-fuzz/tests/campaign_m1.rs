@@ -19,7 +19,7 @@ use k_rust_fuzz::{
     values::{Constraints, GenerationBounds},
 };
 use num_bigint::BigInt;
-use support::{CHOSEN, Fixture, GRAPH, IMP, OV, OV_SIZE, R3_PLAINQ, RULES, SHAPE, VALUE};
+use support::{CHOSEN, Fixture, GRAPH, IMP, LEDGER, OV, OV_SIZE, R3_PLAINQ, RULES, SHAPE, VALUE};
 
 /// An `Int` hole at `literal` inside the unique text `find` of `program`.
 fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
@@ -792,4 +792,34 @@ fn a_property_counterexample_needs_no_data_end() {
     let witness = report.witness().expect("a property failure");
     assert_eq!(witness.label, HitLabel::PropertyFailure);
     assert!(!witness.clean_leaf_facts.contains(&"end-data".to_owned()));
+}
+
+/// A witness case carries its instantiated configuration-variable bindings beside the
+/// instantiated program (fz26 KF-T3b): a span hole inside a binding's text (`$TX`) is replaced
+/// in that binding, so a client can re-enter the witness without the crate's instantiator.
+#[test]
+fn a_witness_carries_its_instantiated_bindings() {
+    // LEDGER: `settle` with `$TX = transfer(30, 1)` on an account of 100; an amount above 99
+    // makes the `refuse` rule fire.
+    let mut setup = Setup::new(&LEDGER, "ledger/settle.pgm", fired("refuse"));
+    setup.holes = vec![int_hole("A", "$TX", "transfer(30, 1)", "30")];
+    setup.proposers = explicit(&[&[("A", 250)]]);
+    setup.options.shrink = false;
+    let report = setup.run(Budget::Cases(1));
+    let witness = report.witness().expect("a witness");
+    let case = &witness.first;
+    assert_eq!(case.program.as_deref(), Some("settle\n"));
+    assert_eq!(
+        case.config_vars,
+        BTreeMap::from([("TX".to_owned(), "transfer(250, 1)".to_owned())])
+    );
+    // The field is in the report's JSON, and reads back.
+    let json = serde_json::to_value(case).expect("encodes");
+    assert_eq!(json["config-vars"]["TX"], "transfer(250, 1)");
+    // A program without bindings has none, and the JSON omits the field.
+    let report = le().run(Budget::Cases(200));
+    let case = &report.witness().expect("a witness").first;
+    assert!(case.config_vars.is_empty());
+    let json = serde_json::to_value(case).expect("encodes");
+    assert!(json.get("config-vars").is_none(), "{json}");
 }

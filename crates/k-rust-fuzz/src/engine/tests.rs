@@ -104,6 +104,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
         krun_command: Some(format!("krust krun {values:?}")),
         mutant_krun_command: None,
         program: None,
+        config_vars: std::collections::BTreeMap::new(),
     }
 }
 

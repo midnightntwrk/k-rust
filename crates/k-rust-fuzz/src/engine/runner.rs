@@ -151,6 +151,8 @@ pub(crate) struct HitDetail {
     pub(crate) mutant_krun_command: Option<String>,
     /// The instantiated program text, for a campaign with a program text.
     pub(crate) program: Option<String>,
+    /// The instantiated configuration-variable bindings ([`crate::report::WitnessCase::config_vars`]).
+    pub(crate) config_vars: BTreeMap<String, String>,
 }
 
 /// Why a confirmation gave no run.

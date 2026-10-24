@@ -658,6 +658,7 @@ fn witness_case(detail: HitDetail) -> WitnessCase {
     WitnessCase {
         holes: detail.holes,
         program: detail.program,
+        config_vars: detail.config_vars,
         class: OutcomeClass::Hit,
         sides: detail.sides,
         reaching: detail.reaching,
