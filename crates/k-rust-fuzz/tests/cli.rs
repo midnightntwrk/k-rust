@@ -615,6 +615,43 @@ literal = "3"
         text(&replay.stderr)
     );
 
+    // The summary of a differential witness (FZ-POLISH S10, S-T7): the kind of kill, the
+    // instantiated program, both sides' ends as K text with the killing one marked, and a krun
+    // line per side.
+    let summary = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "flip.toml",
+            "--definition",
+            "coin",
+            "--program",
+            "flip.pgm",
+            "--mutant",
+            "coin-kill",
+        ],
+    );
+    let stdout = text(&summary.stdout);
+    assert_eq!(summary.status.code(), Some(0), "{stdout}");
+    for needle in [
+        "kill: added end",
+        "program:\n  flip(",
+        "baseline ends: 2\n",
+        "mutant ends: 1\n",
+        "  end 0 (the killing end):\n",
+        "<out>",
+        "krun (baseline): krust krun --definition <definition-dir> ",
+        " --strategy all ",
+        "krun (mutant): krust krun --definition <mutant-dir> ",
+        " -e 'flip(",
+    ] {
+        assert!(stdout.contains(needle), "{needle}: {stdout}");
+    }
+    assert!(
+        !stdout.contains("\\dv{"),
+        "the ends print as K text: {stdout}"
+    );
+
     let (status, report) = json_run(&directory, &args("coin-layout"));
     assert_eq!(status, Some(1), "no witness exits 1");
     assert_eq!(report.outcome, CampaignOutcome::Equivalent);

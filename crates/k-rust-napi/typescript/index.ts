@@ -1471,6 +1471,8 @@ export interface FuzzHoleValue {
 
 export interface FuzzWitnessCase {
   holes: FuzzHoleValue[]
+  /** The instantiated program text; absent for a KORE template or without a program. */
+  program?: string
   class: FuzzOutcomeClass
   sides: {
     role: FuzzDefinitionRole
@@ -1491,6 +1493,8 @@ export interface FuzzWitness {
   shrunk: FuzzWitnessCase | null
   'clean-leaf-facts': string[]
   'krun-command': string | null
+  /** Differential witnesses: the krun line on the mutant (`<mutant-dir>`). */
+  'mutant-krun-command'?: string
 }
 
 /** The bounded statement of a campaign without a witness; never a claim that none exists. */

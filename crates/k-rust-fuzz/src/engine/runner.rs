@@ -135,8 +135,12 @@ pub(crate) struct HitDetail {
     /// for a hit of the whole run every leaf's configuration in the backend's order, one per
     /// line, as KORE text: the case and its confirmation agree only when these are equal.
     pub(crate) reaching_state: String,
-    /// The `krun` command line that re-runs the case, when one is equivalent.
+    /// The `krun` command line that re-runs the case on the baseline, when one is equivalent.
     pub(crate) krun_command: Option<String>,
+    /// For a differential case, the `krun` command line on the mutant, when one is equivalent.
+    pub(crate) mutant_krun_command: Option<String>,
+    /// The instantiated program text, for a campaign with a program text.
+    pub(crate) program: Option<String>,
 }
 
 /// Why a confirmation gave no run.

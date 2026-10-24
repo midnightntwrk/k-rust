@@ -896,13 +896,20 @@ pub struct Witness {
     /// the conditions of ARCHITECTURE 4.3.
     pub clean_leaf_facts: Vec<String>,
     /// The `krun` command line that re-runs the shrunk witness when there is one, otherwise the
-    /// first: the instantiated program passed with `-e`, the configuration variables with `-c`,
-    /// `--io off`, the strategy of the path mode, the depth bound and the solver options, with
-    /// the compiled definition's directory left as `<definition-dir>`. `krun` has no work
-    /// bound, so a campaign bounded by `max-work` says so in a trailing comment. `None` when no
-    /// `krun` run is equivalent: a KORE-template program, a backend on the `from-definition`
-    /// route (krun orders rules by the compiler's rewrite order), or a differential pair.
+    /// first, on the baseline: the instantiated program passed with `-e`, the configuration
+    /// variables with `-c`, `--io off`, the strategy of the path mode (`all` for a differential
+    /// baseline, which runs all paths), the depth bound and the solver options, with the
+    /// compiled definition's directory left as `<definition-dir>`. `krun` has no work bound, so
+    /// a campaign bounded by `max-work` says so in a trailing comment. `None` when no `krun` run
+    /// is equivalent: a KORE-template program, a program without `$PGM`, or a backend on the
+    /// `from-definition` route (krun orders rules by the compiler's rewrite order).
     pub krun_command: Option<String>,
+    /// For a differential witness, the same command line on the mutant, whose compiled
+    /// directory is left as `<mutant-dir>`: strategy `all` for a removed end (judged against
+    /// the mutant's every path) or the all-paths mode, `any` for an added end in the one-path
+    /// mode. Absent for every other target, and when no `krun` run is equivalent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutant_krun_command: Option<String>,
 }
 
 /// One confirmed witness case (ARCHITECTURE 2.6).
@@ -911,6 +918,12 @@ pub struct Witness {
 pub struct WitnessCase {
     /// The hole overlay with values, in declaration order.
     pub holes: Vec<HoleValue>,
+    /// The instantiated program text: the program with each span hole's K text in its span,
+    /// which re-enters the witness as a test (the configuration variables' bindings, holes
+    /// included, are in the `krun` lines' `-c`). Absent for a KORE template and a campaign
+    /// without a program text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
     /// The class confirmation gave (`hit`).
     pub class: OutcomeClass,
     /// What each definition's run started from and ended in: the baseline, then for a
@@ -1152,6 +1165,7 @@ mod tests {
         };
         let case = WitnessCase {
             holes: vec![hole],
+            program: Some("amount = -7;".into()),
             class: OutcomeClass::Hit,
             sides: vec![WitnessSide {
                 role: DefinitionRole::Baseline,
@@ -1233,6 +1247,7 @@ mod tests {
                     shrunk: Some(case),
                     clean_leaf_facts: vec!["ceil-free".into()],
                     krun_command: Some("krust krun transfer.imp".into()),
+                    mutant_krun_command: Some("krust krun --definition <mutant-dir>".into()),
                 },
             },
             totals: Totals {
@@ -1361,7 +1376,8 @@ mod tests {
             r#""thread-stack-size":"67108864","solver":"none"},"#,
             r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
             r#""first":CASE,"shrunk":CASE,"clean-leaf-facts":["ceil-free"],"#,
-            r#""krun-command":"krust krun transfer.imp"}},"#,
+            r#""krun-command":"krust krun transfer.imp","#,
+            r#""mutant-krun-command":"krust krun --definition <mutant-dir>"}},"#,
             r#""totals":{"cases":40,"work":1234,"#,
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
@@ -1384,7 +1400,7 @@ mod tests {
             r#""program":"transfer.imp","line":4,"column":10,"find":"amount = 250;","#,
             r#""literal":"250"},"#,
             r#""k-text":"-7","kore":"\\dv{SortInt{}}(\"-7\")","#,
-            r#""value":{"int":"-7"}}],"class":"hit","#,
+            r#""value":{"int":"-7"}}],"program":"amount = -7;","class":"hit","#,
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
             r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"],"#,

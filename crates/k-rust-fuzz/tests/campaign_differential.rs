@@ -104,9 +104,33 @@ fn a_mutant_that_adds_an_end_is_killed_by_a_confirmed_witness() {
     );
     let witness = report.witness().expect("a kill");
     assert_eq!(witness.label, HitLabel::Hit);
-    assert_eq!(
-        witness.krun_command, None,
-        "no single krun run is a differential pair"
+    // A krun line per side (FZ-POLISH S10, S-T7): the baseline on all paths, the mutant's added
+    // end on its one path, each on its own compiled directory, with the instantiated program.
+    let case = witness.shrunk.as_ref().unwrap_or(&witness.first);
+    let program = case.program.as_deref().expect("the instantiated program");
+    let Value::Int(n) = &case.holes[0].value else {
+        panic!("an Int")
+    };
+    assert_eq!(program.trim_end(), format!("flip({n})"));
+    let baseline = witness
+        .krun_command
+        .as_deref()
+        .expect("a baseline krun line");
+    assert!(
+        baseline.starts_with("krust krun --definition <definition-dir> ")
+            && baseline.contains(" --strategy all ")
+            && baseline.contains(&format!("-e 'flip({n})")),
+        "{baseline}"
+    );
+    let mutant = witness
+        .mutant_krun_command
+        .as_deref()
+        .expect("a mutant krun line");
+    assert!(
+        mutant.starts_with("krust krun --definition <mutant-dir> ")
+            && mutant.contains(" --strategy any ")
+            && mutant.contains(&format!("-e 'flip({n})")),
+        "{mutant}"
     );
     for case in [Some(&witness.first), witness.shrunk.as_ref()]
         .into_iter()

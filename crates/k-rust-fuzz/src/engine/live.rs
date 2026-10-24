@@ -29,7 +29,7 @@ use crate::{
         WitnessSide,
     },
     score,
-    spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
+    spec::{BackendRoute, CampaignSpec, CaseOptions, CompiledDefinition, PathMode, ProgramInput},
     target::{self, HitSite, ResolvedTarget, RuleName, TargetKind, differential},
     values::{self, Value, print},
 };
@@ -655,14 +655,19 @@ impl LiveCases {
             .collect()
     }
 
-    /// The `krun` command line equivalent to a case of this campaign, or `None` when no `krun`
-    /// run is: a differential pair, the `from-definition` route, a KORE template, or a program
-    /// without `$PGM` (krun would read `$PGM` from its standard input).
-    fn krun_command(&self, instantiated: &InstantiatedProgram) -> Option<String> {
-        let Judge::Target(target) = &self.judge else {
-            return None;
-        };
-        let definition = &self.spec.definitions.baseline;
+    /// The `krun` command line equivalent to a run of `instantiated` on `definition`, whose
+    /// compiled directory is left as `directory` (`<definition-dir>`, `<mutant-dir>`), under
+    /// strategy `paths` and with `terminal_rules` as krun's terminal rules; `None` when no `krun`
+    /// run is: the `from-definition` route, a KORE template, or a program without `$PGM` (krun
+    /// would read `$PGM` from its standard input).
+    fn krun_command(
+        definition: &CompiledDefinition,
+        directory: &str,
+        options: &CaseOptions,
+        paths: PathMode,
+        terminal_rules: Vec<String>,
+        instantiated: &InstantiatedProgram,
+    ) -> Option<String> {
         if definition.route == BackendRoute::FromDefinition {
             return None;
         }
@@ -673,15 +678,14 @@ impl LiveCases {
         else {
             return None;
         };
-        let options = &self.spec.options;
         let mut line = format!(
-            "krust krun --definition <definition-dir> -m {} --syntax-module {}",
+            "krust krun --definition {directory} -m {} --syntax-module {}",
             quote(&definition.main_module),
             quote(&definition.syntax_module)
         );
         write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
         line.push_str(" --io off --strategy ");
-        line.push_str(match options.paths {
+        line.push_str(match paths {
             PathMode::OnePath => "any",
             PathMode::AllPaths => "all",
         });
@@ -689,7 +693,7 @@ impl LiveCases {
             write!(line, " --depth {depth}").expect("writing to a String");
         }
         // A `fired` target under one path stops at its rule (FZ-05, D16); so must krun.
-        for rule in target.needs(options.paths).terminal_rules {
+        for rule in terminal_rules {
             write!(line, " --terminal-rule {}", quote(&rule)).expect("writing to a String");
         }
         write!(
@@ -786,7 +790,16 @@ impl LiveCases {
                             kill: None,
                             steps,
                             reaching_state,
-                            krun_command: self.krun_command(&prepared.instantiated),
+                            krun_command: Self::krun_command(
+                                &self.spec.definitions.baseline,
+                                "<definition-dir>",
+                                &self.spec.options,
+                                self.spec.options.paths,
+                                target.needs(self.spec.options.paths).terminal_rules,
+                                &prepared.instantiated,
+                            ),
+                            mutant_krun_command: None,
+                            program: program_text(&prepared.instantiated),
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -901,7 +914,29 @@ impl LiveCases {
                             kill: Some(kind),
                             steps: Some(leaf.depth),
                             reaching_state: leaf.state.to_string(),
-                            krun_command: None,
+                            // The baseline runs all paths; the mutant in the mode its judged
+                            // result ran in.
+                            krun_command: Self::krun_command(
+                                &self.spec.definitions.baseline,
+                                "<definition-dir>",
+                                &self.spec.options,
+                                PathMode::AllPaths,
+                                Vec::new(),
+                                &baseline_case.instantiated,
+                            ),
+                            mutant_krun_command: self.spec.definitions.mutant.as_ref().and_then(
+                                |definition| {
+                                    Self::krun_command(
+                                        definition,
+                                        "<mutant-dir>",
+                                        &self.spec.options,
+                                        paths,
+                                        Vec::new(),
+                                        &mutant_case.instantiated,
+                                    )
+                                },
+                            ),
+                            program: program_text(&baseline_case.instantiated),
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -1126,6 +1161,17 @@ fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> Wi
             .map(|leaf| leaf.state.to_string())
             .collect(),
         halts: result.leaves.iter().map(|leaf| leaf.halt).collect(),
+    }
+}
+
+/// The instantiated program text of a case, for a campaign with a program text.
+fn program_text(instantiated: &InstantiatedProgram) -> Option<String> {
+    match instantiated {
+        InstantiatedProgram::Source {
+            program: Some(program),
+            ..
+        } => Some(program.text.clone()),
+        _ => None,
     }
 }
 

@@ -516,9 +516,11 @@ fn finish_witness(
         return Witness {
             label: settings.label,
             krun_command: first.krun_command.clone(),
+            mutant_krun_command: first.mutant_krun_command.clone(),
             clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
             first: WitnessCase {
                 holes: first.holes,
+                program: first.program,
                 class: OutcomeClass::Hit,
                 sides: first.sides,
                 reaching: first.reaching,
@@ -588,18 +590,26 @@ fn finish_witness(
     };
     let to_case = |detail: HitDetail| WitnessCase {
         holes: detail.holes,
+        program: detail.program,
         class: OutcomeClass::Hit,
         sides: detail.sides,
         reaching: detail.reaching,
         kill: detail.kill,
         steps: detail.steps,
     };
-    let (shrunk, krun_command) = match last {
+    let (shrunk, krun_command, mutant_krun_command) = match last {
         Some(detail) if shrunk != values => {
-            let command = detail.krun_command.clone();
-            (Some(to_case(detail)), command)
+            let commands = (
+                detail.krun_command.clone(),
+                detail.mutant_krun_command.clone(),
+            );
+            (Some(to_case(detail)), commands.0, commands.1)
         }
-        _ => (None, first.krun_command.clone()),
+        _ => (
+            None,
+            first.krun_command.clone(),
+            first.mutant_krun_command.clone(),
+        ),
     };
     Witness {
         label: settings.label,
@@ -607,6 +617,7 @@ fn finish_witness(
         shrunk,
         clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
         krun_command,
+        mutant_krun_command,
     }
 }
 

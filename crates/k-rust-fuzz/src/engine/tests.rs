@@ -101,6 +101,8 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
         steps: Some(3),
         reaching_state: state.to_owned(),
         krun_command: Some(format!("krust krun {values:?}")),
+        mutant_krun_command: None,
+        program: None,
     }
 }
 

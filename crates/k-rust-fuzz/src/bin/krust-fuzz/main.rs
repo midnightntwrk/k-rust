@@ -17,12 +17,15 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
-use k_rust::backend::CompiledRuleKind;
+use k_rust::backend::{CompiledRuleKind, HaltReasonOutput};
 use k_rust_fuzz::{
     Campaign, CampaignError,
     error::TargetProblem,
     exec::UnjudgedReason,
-    report::{BestScore, CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
+    report::{
+        BestScore, CampaignOutcome, DefinitionRole, FuzzReport, HitLabel, KillKind, WitnessCase,
+    },
+    spec::CompiledDefinition,
     target::RuleMode,
 };
 
@@ -375,7 +378,8 @@ fn run(args: Args) -> Result<u8, String> {
     if args.json {
         println!("{json}");
     } else {
-        print!("{}", summary(&report));
+        let printers = EndPrinters::of(&loaded.baseline, loaded.mutant.as_deref());
+        print!("{}", summary(&report, Some(&printers)));
     }
     if let Some(path) = &args.report {
         std::fs::write(path, format!("{json}\n"))
@@ -587,8 +591,9 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     Ok(if reproduced { FOUND } else { NOT_FOUND })
 }
 
-/// A human-readable summary of `report`.
-fn summary(report: &FuzzReport) -> String {
+/// A human-readable summary of `report`; a differential witness's ends are printed as K text
+/// with `printers`, as KORE without them.
+fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
     use std::fmt::Write as _;
     let mut text = String::new();
     let status = match &report.outcome {
@@ -647,7 +652,17 @@ fn summary(report: &FuzzReport) -> String {
         };
         let _ = writeln!(text, "{which}:");
         write_case(&mut text, case);
-        if let Some(command) = &witness.krun_command {
+        if let Some(kind) = case.kill {
+            write_differential(&mut text, case, kind, printers);
+            for (side, command) in [
+                ("baseline", &witness.krun_command),
+                ("mutant", &witness.mutant_krun_command),
+            ] {
+                if let Some(command) = command {
+                    let _ = writeln!(text, "krun ({side}): {command}");
+                }
+            }
+        } else if let Some(command) = &witness.krun_command {
             let _ = writeln!(text, "krun: {command}");
         }
     }
@@ -791,6 +806,120 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
 
 /// How many rules each list of [`write_coverage`] names.
 const LISTED_RULES: usize = 30;
+
+/// How many ends of each side [`write_differential`] prints.
+const LISTED_ENDS: usize = 4;
+
+/// The K-text printers of a campaign's definitions (krs-unparse, as `krust krun` prints),
+/// for a differential witness's ends.
+struct EndPrinters {
+    baseline: Option<krs_unparse::Unparser>,
+    mutant: Option<krs_unparse::Unparser>,
+}
+
+impl EndPrinters {
+    fn of(baseline: &CompiledDefinition, mutant: Option<&CompiledDefinition>) -> Self {
+        let printer = |definition: &CompiledDefinition| {
+            krs_unparse::Unparser::from_kore(
+                &definition.syntax_definition_kore,
+                &definition.macros_kore,
+            )
+            .ok()
+            .map(|printer| printer.with_program_grammar(&definition.frontend_definition))
+        };
+        Self {
+            baseline: printer(baseline),
+            mutant: mutant.and_then(printer),
+        }
+    }
+
+    /// `kore`, a configuration of `role`'s definition, as K text when it prints without a
+    /// warning, else as it is.
+    fn show(printers: Option<&Self>, role: DefinitionRole, kore: &str) -> String {
+        let printer = printers.and_then(|printers| match role {
+            DefinitionRole::Baseline => printers.baseline.as_ref(),
+            DefinitionRole::Mutant => printers.mutant.as_ref(),
+        });
+        printer
+            .and_then(|printer| {
+                let pattern = k_rust::kore::parser::parse_pattern(kore).ok()?;
+                let printed = printer.print_kore(&pattern, &krs_unparse::Options::default());
+                printed.warnings.is_empty().then_some(printed.text)
+            })
+            .unwrap_or_else(|| kore.to_owned())
+    }
+}
+
+/// A differential witness case beyond its hole values (FZ-POLISH S10, S-T7): the kind of kill,
+/// the instantiated program, and each side's ends (its `stuck` leaves), the killing one marked,
+/// with the count of leaves at an undefined step, which are no ends.
+fn write_differential(
+    text: &mut String,
+    case: &WitnessCase,
+    kind: KillKind,
+    printers: Option<&EndPrinters>,
+) {
+    use std::fmt::Write as _;
+    let _ = writeln!(
+        text,
+        "kill: {}",
+        match kind {
+            KillKind::AddedEnd => "added end (the mutant reaches an end the baseline cannot)",
+            KillKind::RemovedEnd => "removed end (the baseline reaches an end the mutant cannot)",
+        }
+    );
+    if let Some(program) = &case.program {
+        let _ = writeln!(text, "program:");
+        for line in program.lines() {
+            let _ = writeln!(text, "  {line}");
+        }
+    }
+    for side in &case.sides {
+        let ends: Vec<(usize, &String)> = side
+            .final_configurations
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| side.halts.get(*index) == Some(&HaltReasonOutput::Stuck))
+            .collect();
+        let undefined = side
+            .halts
+            .iter()
+            .filter(|halt| **halt == HaltReasonOutput::Trivial)
+            .count();
+        let role = serde_name(&side.role);
+        let _ = writeln!(
+            text,
+            "{role} ends: {}{}",
+            ends.len(),
+            match undefined {
+                0 => String::new(),
+                1 => " (and 1 leaf at an undefined step, which is no end)".to_owned(),
+                _ => format!(" (and {undefined} leaves at an undefined step, which are no ends)"),
+            }
+        );
+        let killing = (case.reaching.role == side.role)
+            .then_some(case.reaching.leaf)
+            .flatten();
+        for (index, end) in ends.iter().take(LISTED_ENDS) {
+            let mark = if killing == u64::try_from(*index).ok() {
+                " (the killing end)"
+            } else {
+                ""
+            };
+            let _ = writeln!(text, "  end {index}{mark}:");
+            for line in EndPrinters::show(printers, side.role, end).lines() {
+                let _ = writeln!(text, "    {line}");
+            }
+        }
+        if ends.len() > LISTED_ENDS {
+            let _ = writeln!(
+                text,
+                "  ... and {} more in the witness's sides (--json, --report)",
+                ends.len() - LISTED_ENDS
+            );
+        }
+    }
+}
 
 fn write_case(text: &mut String, case: &WitnessCase) {
     use std::fmt::Write as _;
