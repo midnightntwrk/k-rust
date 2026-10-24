@@ -131,7 +131,7 @@ $G gen --kore $W/kore/kimp/definition.kore --runtime $W/kore/kimp/runtime.json \
 
 - `--name` is the Lean namespace; `--prelude` is the prelude's path relative to `--out`.
 - `--open-obligations FILE` lists the K equations whose generated proofs fail; they are emitted as statements only.
-  A library generated with an empty list whose `Equations.lean` then fails to build is fixed by `$G open-from-log NS/Equations.lean BUILD.log open-obligations.txt` and a second `gen`; starting from an existing library's list (kimp has 5) avoids the round.
+  A library generated with an empty list whose `Equations.lean` then fails to build is fixed by `$G open-from-log NS/Equations.lean BUILD.log open-obligations.txt` and a second `gen`; starting from an existing library's list (kimp has 1) avoids the round.
 - The files an invariant uses are `NS/Rules.lean` (`Step`), `NS/Preserves.lean` (one `Step.Case.r P` per rule and `Step.preserves_of`) and `NS/Init.lean` (`init`, one parameter per configuration variable).
 
 ## 3. Kind 1: an invariant written in K
