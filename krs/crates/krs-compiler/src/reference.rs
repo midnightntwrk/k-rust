@@ -1132,6 +1132,30 @@ fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, bundle: &krs_ir::Descrip
     })
 }
 
+/// Whether `cell` is a fixed optional (`?`) cell, whose `cells!` entry is `Some(..)` or `None`.
+fn is_optional_cell(
+    cell: &krs_ir::DescriptorCellIdentity,
+    bundle: &krs_ir::DescriptorBundle,
+) -> bool {
+    bundle.descriptors().iter().any(|descriptor| {
+        if descriptor.id() != &cell.owner {
+            return false;
+        }
+        let declaration = match descriptor.payload() {
+            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
+            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
+            _ => return false,
+        };
+        declaration.fields.iter().any(|field| {
+            field.rust_field == cell.field
+                && field
+                    .multiplicity
+                    .as_ref()
+                    .is_some_and(|multiplicity| multiplicity.value == "?")
+        })
+    })
+}
+
 /// The constructors of the cons list a list cell holds (F6).
 struct CellConsList {
     sort: StableItemId,
@@ -2063,27 +2087,35 @@ fn render_rule(
                 ..
             } => {
                 let group = is_group_cell(&cell.cell, bundle);
+                let optional = is_optional_cell(&cell.cell, bundle);
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
                 let after = after
                     .as_ref()
                     .map(|after| render_term(after, false, package, bundle))
                     .transpose()?;
+                // A nested field's entry has no wrapper (KF-016); a leaf's is `Cell(..)`. A
+                // value written on an optional cell matches or writes the cell present, which
+                // `cells!` spells `Some(..)` (KF-023).
+                let entry = |term: TokenStream| {
+                    let entry = if group {
+                        term
+                    } else {
+                        quote!(k::configuration::Cell(#term))
+                    };
+                    if optional {
+                        quote!(Some(#entry))
+                    } else {
+                        entry
+                    }
+                };
                 // A read-only cell is a subject entry without a result entry.
-                if group {
-                    // A nested field's entry has no wrapper (KF-016).
-                    left_cells.push(quote!(#cell: #before));
-                    right_cells.extend(after.map(|after| quote!(#cell: #after)));
-                } else {
-                    left_cells.push(quote! {
-                        #cell: k::configuration::Cell(#before)
-                    });
-                    right_cells.extend(after.map(|after| {
-                        quote! {
-                            #cell: k::configuration::Cell(#after)
-                        }
-                    }));
-                }
+                let before = entry(before);
+                left_cells.push(quote!(#cell: #before));
+                right_cells.extend(after.map(|after| {
+                    let after = entry(after);
+                    quote!(#cell: #after)
+                }));
             }
         }
     }
