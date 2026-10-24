@@ -9,6 +9,7 @@
 #            library requires the prelude as ../../lean/prelude)
 #   DEMOS    the demos root (a `demos/` directory): relations write `DEMOS/NS/...`
 #   KRS      the directory of the KRS IMP KORE (`demos/k/krs-imp`)
+#   FIXTURES the generator's fixtures (`tests/fixtures`): the `nested` library reads its compiled KORE
 #   KRUST    krust; BUILTIN, K's builtin include directory
 #   KIMP     kimp's K sources (imp-semantics)
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
@@ -38,7 +39,8 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple|simple-ar) echo KSimple ;; simpleinv) echo KSimpleInv ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;;
+    simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -67,6 +69,18 @@ libs_gen() {
     kimpkeys|kimpkeys-hand) "$G" gen --kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json" \
             --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
             --invariant envKeysOk@env ;;
+    # the same definition with the invariant as a fold with a parameter (`allIs(L, B)`), and as a
+    # function of the whole configuration (the top-cell form, `topEnvOk`)
+    kimpfold) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
+            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
+            --invariant envAll@env ;;
+    kimptop) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
+            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
+            --invariant topEnvOk ;;
+    # a cell inside two nested cell maps (tests/fixtures/nested, whose compiled KORE is committed)
+    nested) "$G" gen --kore "$FIXTURES/nested/definition.kore" --runtime "$FIXTURES/nested/runtime.json" \
+            --out "$o" --name KNested --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
+            --invariant even@v ;;
     krsimp) "$G" gen --kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude \
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json" ;;
     kmut) "$G" gen --kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json" \
@@ -85,6 +99,12 @@ libs_gen() {
     simpleinv) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
             --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
             --open-obligations "$o/open-obligations.txt" --invariant holdsOk@holds ;;
+    # the same definition with "every store value is a Val", as a function of the `<store>` cell's
+    # content and as a function of SIMPLE's top cell `<T>`
+    simplestore|simplet) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
+            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
+            --open-obligations "$o/open-obligations.txt" \
+            --invariant "$([ "$1" = simplet ] && echo tStoreOk@T || echo storeOk@store)" ;;
     *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
   esac
 }

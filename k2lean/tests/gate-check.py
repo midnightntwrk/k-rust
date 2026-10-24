@@ -48,11 +48,15 @@ from pathlib import Path
 LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
         "imptypes": ("KImpTypes", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
         "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity"),
-        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light")}
+        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
+        "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
+        "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
-NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand"}
+NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand", "kimpfold", "kimptop", "nested", "simplestore", "simplet"}
 INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy"),
-        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light")}
+        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
+        "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
+        "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
 DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
          "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light"}
 OUTPUTS = {  # recorded output → (tier, normalization)
@@ -78,8 +82,9 @@ HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHa
 NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
                    "generated/kimp-ar/KImpBench/Programs.lean"}
 SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv",
-                         "generated/kimpkeys", "generated/kimpkeys-hand"],
-               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv"],
+                         "generated/kimpkeys", "generated/kimpkeys-hand",
+                         "generated/kimpfold", "generated/kimptop", "generated/nested"],
+               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet"],
                "arity": ["generated/kimp-ar", "generated/simple-ar"]}
 DEMO_SOURCES = ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                 "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",

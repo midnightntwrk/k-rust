@@ -1,12 +1,17 @@
-// A kind 1 invariant of SIMPLE: every thread's lock counts are non-negative integers.
-// `<holds>` maps each lock a thread has acquired to the number of times it re-acquired it; the
-// invariant says that every value in every thread's `<holds>` is an `Int` that is at least 0.
-// k2lean lifts `holdsOk@holds` over SIMPLE's `<thread>` cell map: for every thread, `holdsOk` of
-// its `<holds>` is `true`.
+// Kind 1 invariants of SIMPLE (k2lean/docs/invariants.md):
+// - holdsOk@holds: every thread's lock counts are non-negative integers. `<holds>` maps each
+//   lock a thread has acquired to the number of times it re-acquired it; the invariant says that
+//   every value in every thread's `<holds>` is an `Int` that is at least 0. k2lean lifts
+//   `holdsOk@holds` over SIMPLE's `<thread>` cell map: for every thread, `holdsOk` of its
+//   `<holds>` is `true`.
+// - storeOk@store and tStoreOk@T: every value of the store is a `Val`, as a function of the
+//   `<store>` cell's content and as a function of SIMPLE's top cell `<T>`, whose one equation
+//   matches `<store>` among `<T>`'s cells.
 requires "simple-untyped.md"
 
 module SIMPLE-INV
   imports SIMPLE-UNTYPED
+  syntax TCell
 
   syntax Bool ::= holdsOk(Map)    [function, total]
                 | allCounts(List) [function, total]
@@ -19,4 +24,14 @@ module SIMPLE-INV
 
   rule isCount(I:Int) => I >=Int 0
   rule isCount(_) => false [owise]
+
+  syntax Bool ::= storeOk(Map)    [function, total]
+                | tStoreOk(TCell) [function, total]
+                | allVals(List)   [function, total]
+
+  rule storeOk(S) => allVals(values(S))
+  rule tStoreOk(<T> <store> S </store> ... </T>) => allVals(values(S))
+
+  rule allVals(.List) => true
+  rule allVals(ListItem(V) L) => isVal(V) andBool allVals(L)
 endmodule

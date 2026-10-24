@@ -8,18 +8,23 @@
 #                                 along the rule index, `--det2`), krsimp, kmut, imptypes; the
 #                                 demos ImpRel, ImpTypes, ImpMut, KrsImpTyping, ImpWrites (a kind 2
 #                                 invariant that walks <k>); the kind 1 invariants of kimpinv (two K
-#                                 functions, demos/k/kimp-inv), kimpkeys (the walkthrough of
-#                                 docs/invariants.md, demos/k/kimp-keys), kimpkeys-hand (the same
-#                                 with one case taken from its hand module) and krsimp (the KRS
-#                                 sidecar), and the negative check: on KRS IMP with an
+#                                 functions of demos/k/kimp-inv), kimpfold and kimptop (the same
+#                                 definition: a fold with a parameter, the top-cell form), kimpkeys
+#                                 (the walkthrough of docs/invariants.md, demos/k/kimp-keys),
+#                                 kimpkeys-hand (the same with one case taken from its hand
+#                                 module), nested (a cell inside two nested cell maps,
+#                                 tests/fixtures/nested) and krsimp (the KRS sidecar), and the
+#                                 negative check: on KRS IMP with an
 #                                 ill-typed `assign`, the generated proof of the declared cell type
 #                                 must fail at that rule; the kind 2 template (`k2lean new-invariant`
 #                                 for kimp, built), and `k2lean diff` of every library against the
 #                                 tree's last generation, when it has one
 #   k2lean/tests/gate.sh heavy    light, then SIMPLE (acceptance against krust), the SIMPLE
 #                                 invariants (the kind 1 `holdsOk@holds`, lifted over the <thread>
-#                                 cell map, of simpleinv, demos/k/simple-inv; the kind 2 demo
-#                                 SimpleEnv) and kimp-claims (claims.toml, krust kprove, kc_auto
+#                                 cell map, of simpleinv, demos/k/simple-inv, and "every store value
+#                                 is a Val" as a cell function, simplestore, and as a function of
+#                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv) and
+#                                 kimp-claims (claims.toml, krust kprove, kc_auto
 #                                 statistics, three replays)
 #   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp and SIMPLE in the
 #                                 arity-indexed term universe (`gen --arity-terms`, libraries kimp-ar
@@ -143,7 +148,7 @@ MEAS=$W/measured       # what this run measured (gate-check.py reads it)
 LIBS=$ROOT/tests/libs.sh; [ -f "$LIBS" ] || LIBS=$SELF/tests/libs.sh
 # shellcheck source=libs.sh
 . "$LIBS"
-DEMOS=$D KRS=$D/k/krs-imp
+DEMOS=$D KRS=$D/k/krs-imp FIXTURES=$ROOT/tests/fixtures
 kore_dir() { echo "$KO/$1"; }
 rm -rf "$L" "$MEAS"
 mkdir -p "$L" "$MEAS" "$KO"
@@ -339,6 +344,28 @@ for d in kimpkeys kimpkeys-hand; do
     eqns "$d" KImpKeys && invcases "$d" KImpKeys
   else bad "gen $d" "$L/gen-$d.log"; fi
 done
+# the other shapes of kind 1 invariant over kimpinv's definition: a fold with a parameter
+# (kimpfold) and the top-cell form (kimptop); their Terms … Equations are kimpinv's, so each starts
+# from its build
+for d in kimpfold kimptop; do
+  phase "lib $d"
+  [ -f "$KO/kimp-inv/definition.kore" ] || continue
+  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
+  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$d/open-obligations.txt"
+  [ -d "$GEN/$d/.lake" ] || { [ -d "$GEN/kimpinv/.lake" ] && cp -a "$GEN/kimpinv/.lake" "$GEN/$d/.lake"; }
+  inv_reset "$d"
+  if genlib "$d"; then
+    eqns "$d" KImpInv && invcases "$d" KImpInv
+  else bad "gen $d" "$L/gen-$d.log"; fi
+done
+# a cell inside two nested cell maps (tests/fixtures/nested): only what Invariants.lean needs
+phase "lib nested"
+mkdir -p "$GEN/nested"; touch "$GEN/nested/open-obligations.txt"
+[ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/nested/open-obligations.txt"
+inv_reset nested
+if genlib nested; then
+  eqns nested KNested && invcases nested KNested
+else bad "gen nested" "$L/gen-nested.log"; fi
 phase "negative"
 # KRS IMP with an ill-typed `assign` (tests/krs-imp-ill-typed.py): the sidecar's `Preserved` proof
 # must fail, and name the rule (as the open case and in the build error); measured/negative.toml
@@ -394,7 +421,7 @@ diffs() { # DIR...
   done
 }
 phase diff
-diffs kimp krsimp kmut imptypes kimpinv kimpkeys
+diffs kimp krsimp kmut imptypes kimpinv kimpkeys kimpfold kimptop nested
 
 # 5. the relations (generated files of ImpRel, ImpTypes, ImpMut) and the five demo projects; their
 #    axiom guards are `#k2l_assert_axioms` commands inside them
@@ -482,6 +509,19 @@ if [ "$TIER" = heavy ]; then
       eqns simpleinv KSimpleInv && invcases simpleinv KSimpleInv
     else bad "gen simpleinv" "$L/gen-simpleinv.log"; fi
     diffs simpleinv
+    # "every store value is a Val" as a cell function (simplestore) and as a function of SIMPLE's
+    # top cell `<T>` (simplet), over the same definition: they start from simpleinv's build
+    for d in simplestore simplet; do
+      phase "lib $d"
+      mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
+      [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$d/open-obligations.txt"
+      [ -d "$GEN/$d/.lake" ] || { [ -d "$GEN/simpleinv/.lake" ] && cp -a "$GEN/simpleinv/.lake" "$GEN/$d/.lake"; }
+      inv_reset "$d"
+      if genlib "$d"; then
+        eqns "$d" KSimpleInv && invcases "$d" KSimpleInv
+      else bad "gen $d" "$L/gen-$d.log"; fi
+      diffs "$d"
+    done
   else bad "kcompile simple-inv" "$L/kcompile-simple-inv.log"; fi
   # Kind 2: a Lean invariant over KSimple's configuration (demos/SimpleEnv), built like a demo
   phase "demo SimpleEnv"
