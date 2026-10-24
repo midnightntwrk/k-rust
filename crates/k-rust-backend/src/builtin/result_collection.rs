@@ -99,6 +99,31 @@ impl<'a> ResultCollection<'a> {
         })
     }
 
+    /// The element sort of a list result and `elements`, of sort `from`, as its elements: what a
+    /// hook that lists them builds (`MAP.values` lists a map's values this way). `None` where
+    /// that hook builds no list.
+    pub(crate) fn list_elements(
+        self,
+        elements: Vec<Term>,
+        from: &Sort,
+    ) -> Option<(Sort, Vec<Term>)> {
+        let result = self.list(None)?;
+        let sort = result.elements.definition.element_sort;
+        Some((sort, result.owned_elements(elements, from)?))
+    }
+
+    /// [`list_elements`](Self::list_elements) for a set result (`MAP.keys` builds the set of a
+    /// map's keys this way).
+    pub(crate) fn set_elements(
+        self,
+        elements: Vec<Term>,
+        from: &Sort,
+    ) -> Option<(Sort, Vec<Term>)> {
+        let result = self.set(None)?;
+        let sort = result.elements.definition.element_sort;
+        Some((sort, result.owned_elements(elements, from)?))
+    }
+
     /// A map result; `source` is the collection argument the hook transforms, if it does.
     pub(super) fn map(self, source: Option<&Arc<MapDefinition>>) -> Option<MapResult<'a>> {
         let definition = match self.declared {

@@ -28,6 +28,7 @@ mod substitution;
 pub use crate::collection_role::{
     CollectionKind, CollectionRole, RoleDeclaration, misfit as collection_role_misfit,
 };
+pub(crate) use collection_item::{Operand as CollectionOperand, read as read_collection_item};
 pub use declaration_facts::DeclarationFacts;
 pub(crate) use evaluated::evaluates;
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};

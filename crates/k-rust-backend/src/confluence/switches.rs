@@ -132,6 +132,9 @@ pub(crate) struct Switches {
     /// result is `true` at a sequence starting with an injection from `S`, whatever its other
     /// equations, conditions, priorities and argument shape.
     pub(crate) loose_membership_recognition: bool,
+    /// Conditions: read a collection membership also in a list with a middle or a collection with
+    /// a rest, against its known members.
+    pub(crate) collection_membership_reads_open: bool,
 }
 
 #[cfg(test)]
@@ -185,6 +188,7 @@ thread_local! {
             disjoint_incomparable_memberships: false,
             membership_not_without_definedness: false,
             loose_membership_recognition: false,
+            collection_membership_reads_open: false,
         })
     };
 }

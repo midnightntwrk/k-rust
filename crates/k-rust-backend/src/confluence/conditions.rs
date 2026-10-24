@@ -127,17 +127,43 @@
 //!   model that follows from the pairs when evaluation terminates (the premise kink reads)
 //!   satisfies composition (`Term::injection` composes chains), no confusion and the overload
 //!   axioms (lowest forms are unique).
+//! - **collection memberships**: a conjunct requiring `LIST.in(e, l)`, `SET.in(e, s)` or
+//!   `MAP.in_keys(e, m)` true or false (not under `\not`, through `notBool`) is read against the
+//!   collection's *members* when the collection is a list term without middle, a set or map term
+//!   without rest, or `MAP.values(m)` (for `LIST.in`) or `MAP.keys(m)` (for `SET.in`) of a map
+//!   term `m` without rest. The members are built as the hooks build them: a list's or set's
+//!   elements as held, a map's keys (`in_keys`), and `m`'s values or keys converted to the element
+//!   sort of the list or set the applied `values` or `keys` symbol declares, as those hooks
+//!   convert them. `e` is read at the element sort as the membership hooks read it
+//!   (`collection_item::read`), and only an item read as an element is used. Required true, the
+//!   conjunct adds `\equals(e, x)` for its one member `x`, the disjunction of the `\equals(e, x_i)`
+//!   for several members, and is refuted for none; required false, it adds
+//!   `\not(\equals(e, x_i))` for each member. Two injections from one sort into one sort are
+//!   compared by their operands (`inj` is injective). The conjunct holds only where `e` and the
+//!   collection are defined, hence their members, and then the hook is true exactly when `e`
+//!   equals a member: a defined list is the sequence of its elements, a defined set or map (its
+//!   elements or keys pairwise distinct, none in its rest) the finite set or map of its elements
+//!   or bindings, and `values` and `keys` list each binding's value or key once, in an order not
+//!   read here (only the multiset is). So every added conjunct holds wherever the conjunction
+//!   does. Not read: a list with a middle or a collection with a rest, which may hold `e`, and a
+//!   `\not` of a membership, which also holds where an operand is undefined. The conjunction is
+//!   refuted when it is contradictory as it is or with the added conjuncts: an added disjunction
+//!   may push the cases past 16, and the conjunction as it is keeps every refutation it has. The
+//!   added conjuncts serve only this decision; the equalities the join may apply and the
+//!   literals of the equality classes are read from the conjuncts as they are.
 //!
 //! Every remaining conjunct `X = t` (a variable equal to a term without `X`) is an equality every
 //! instance satisfying the conditions has, which the join may apply (`confluence.rs`).
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use num_bigint::BigInt;
 use rustc_hash::FxHashMap;
 
 use crate::{
+    builtin::{CollectionOperand, ResultCollection, read_collection_item},
     definition::BackendDefinition,
+    matching::SortGraph,
     rule::{Concreteness, Predicate, RewriteRule, RuleRhs, TermIndex},
     substitution::{Substitution, substitute},
     term::{DomainKind, Name, Sort, Term, TermKind},
@@ -161,13 +187,198 @@ pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predica
 }
 
 /// [`contradictory`] with the definition's membership predicates already read ([`memberships`]).
+/// The conjuncts are tried as they are and, when their collection memberships add conjuncts
+/// ([`collection_memberships`]), with those too: an added disjunction may push the cases past
+/// [`DISJUNCT_CASES`], so the conjuncts as they are keep every refutation they have.
 pub(super) fn contradictory_in(
     definition: &BackendDefinition,
     memberships: &Memberships,
     conjuncts: &[Predicate],
 ) -> bool {
-    contradictory_without_cases(definition, memberships, conjuncts)
-        || cases_contradictory(definition, memberships, conjuncts)
+    let contradictory = |conjuncts: &[Predicate]| {
+        contradictory_without_cases(definition, memberships, conjuncts)
+            || cases_contradictory(definition, memberships, conjuncts)
+    };
+    match collection_memberships(definition, conjuncts) {
+        Expansion::Refuted => true,
+        Expansion::Unchanged => contradictory(conjuncts),
+        Expansion::Added(expanded) => contradictory(conjuncts) || contradictory(&expanded),
+    }
+}
+
+/// What the collection memberships among the conjuncts add (module documentation, "collection
+/// memberships").
+enum Expansion {
+    /// No membership is read.
+    Unchanged,
+    /// A membership is required true in a collection without members.
+    Refuted,
+    /// The conjuncts, then the conjuncts the memberships imply.
+    Added(Vec<Predicate>),
+}
+
+/// The conjuncts each collection membership implies about its item and the collection's members
+/// (module documentation, "collection memberships").
+fn collection_memberships(definition: &BackendDefinition, conjuncts: &[Predicate]) -> Expansion {
+    let open = super::switches::active().collection_membership_reads_open;
+    let sorts = Some(definition.sort_graph());
+    let mut added = Vec::new();
+    for conjunct in conjuncts {
+        if matches!(conjunct, Predicate::Not(_)) {
+            continue;
+        }
+        let Some((term, polarity)) = literal(definition, conjunct) else {
+            continue;
+        };
+        let (Atom::Other(term), polarity) = atom(&term, polarity) else {
+            continue;
+        };
+        let Some((hook, [item, collection])) = hooked(&term) else {
+            continue;
+        };
+        let Some((element_sort, members)) = collection_members(sorts, hook, collection, open)
+        else {
+            continue;
+        };
+        let item = match read_collection_item(sorts, item, &element_sort) {
+            CollectionOperand::Element(item) => item.into_owned(),
+            CollectionOperand::Wider { .. } | CollectionOperand::Unrelated => continue,
+        };
+        let equal = |member: &Term| {
+            let (left, right) = peel_injections(&item, member);
+            Predicate::Equals(left, right)
+        };
+        if polarity {
+            match members.as_slice() {
+                [] => return Expansion::Refuted,
+                [member] => added.push(equal(member)),
+                _ => added.push(Predicate::Or(members.iter().map(equal).collect())),
+            }
+        } else {
+            added.extend(
+                members
+                    .iter()
+                    .map(|member| Predicate::Not(Arc::new(equal(member)))),
+            );
+        }
+    }
+    if added.is_empty() {
+        return Expansion::Unchanged;
+    }
+    let mut expanded = conjuncts.to_vec();
+    expanded.extend(added);
+    Expansion::Added(expanded)
+}
+
+/// The element sort of the collection a membership hook (`LIST.in`, `SET.in`, `MAP.in_keys`)
+/// reads, and its members as the hooks hold them: the elements of a list term without middle or
+/// of a set term without rest, the keys of a map term without rest, and the values (`LIST.in` of
+/// `MAP.values`) or keys (`SET.in` of `MAP.keys`) of a map term without rest, converted to the
+/// element sort of the list or set the applied symbol declares, as `MAP.values` and `MAP.keys`
+/// build them. `open` (a defect switch) also takes the known members of a list with a middle or
+/// of a collection with a rest.
+fn collection_members(
+    sorts: Option<&SortGraph>,
+    hook: &str,
+    collection: &Term,
+    open: bool,
+) -> Option<(Sort, Vec<Term>)> {
+    match (hook, collection.kind()) {
+        (
+            "LIST.in",
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            },
+        ) => {
+            let mut members = heads.iter().cloned().collect::<Vec<_>>();
+            match rest {
+                None => {}
+                Some((_, tails)) if open => members.extend(tails.iter().cloned()),
+                Some(_) => return None,
+            }
+            Some((definition.element_sort, members))
+        }
+        (
+            "SET.in",
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            },
+        ) if rest.is_none() || open => {
+            Some((definition.element_sort, elements.iter().cloned().collect()))
+        }
+        (
+            "MAP.in_keys",
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            },
+        ) if rest.is_none() || open => Some((
+            definition.key_sort,
+            entries.iter().map(|(key, _)| key.clone()).collect(),
+        )),
+        (
+            "LIST.in" | "SET.in",
+            TermKind::Application {
+                symbol, arguments, ..
+            },
+        ) => {
+            let [map] = arguments.as_slice() else {
+                return None;
+            };
+            let TermKind::Map {
+                definition,
+                entries,
+                rest,
+            } = map.kind()
+            else {
+                return None;
+            };
+            if rest.is_some() && !open {
+                return None;
+            }
+            let result =
+                ResultCollection::declared(symbol.attributes.result_collection.as_ref(), sorts);
+            match (hook, symbol.attributes.hook.as_deref()) {
+                ("LIST.in", Some("MAP.values")) => result.list_elements(
+                    entries.iter().map(|(_, value)| value.clone()).collect(),
+                    &definition.value_sort,
+                ),
+                ("SET.in", Some("MAP.keys")) => result.set_elements(
+                    entries.iter().map(|(key, _)| key.clone()).collect(),
+                    &definition.key_sort,
+                ),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Two injections from one sort into one sort, compared by their operands (`inj` is injective);
+/// any other two terms as they are.
+fn peel_injections(left: &Term, right: &Term) -> (Term, Term) {
+    match (left.kind(), right.kind()) {
+        (
+            TermKind::Injection {
+                source: left_source,
+                target: left_target,
+                term: left_term,
+            },
+            TermKind::Injection {
+                source: right_source,
+                target: right_target,
+                term: right_term,
+            },
+        ) if left_source == right_source && left_target == right_target => {
+            (left_term.clone(), right_term.clone())
+        }
+        _ => (left.clone(), right.clone()),
+    }
 }
 
 /// The most disjunctive conjuncts, and the most combinations of their disjuncts, that
@@ -1797,6 +2008,8 @@ fn has_key(map: &Term, key: &Term) -> bool {
     matches!(map.kind(), TermKind::Map { entries, .. } if entries.iter().any(|(entry, _)| entry == key))
 }
 
+#[cfg(test)]
+mod collection_membership_tests;
 #[cfg(test)]
 mod membership_tests;
 #[cfg(test)]
