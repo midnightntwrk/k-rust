@@ -40,7 +40,7 @@ struct Side {
     /// The generated functions by call-graph component, callees first, and the termination
     /// measures of the recursive ones (`funcs::Generated`).
     groups: Vec<Vec<String>>,
-    measures: BTreeMap<String, (Option<String>, Vec<String>)>,
+    measures: BTreeMap<String, crate::funcs::Measure>,
     choose_fns: BTreeSet<String>,
     rules: Vec<Rule>,
     /// The priority ranks of the rules, and whether `App` and `Step` are stratified by them
@@ -60,6 +60,16 @@ impl Side {
 }
 
 /// Stop with a message (exit status 2): a definition or a correspondence `relate` does not support.
+/// Write `text` to `path`, creating its directory; a failure is reported, not a panic.
+fn write_file(path: &str, text: &str) {
+    let p = std::path::Path::new(path);
+    if let Some(d) = p.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(d)
+            .unwrap_or_else(|e| fail(&format!("cannot create {}: {e}", d.display())));
+    }
+    std::fs::write(p, text).unwrap_or_else(|e| fail(&format!("cannot write {path}: {e}")));
+}
+
 fn fail(msg: &str) -> ! {
     eprintln!("relate: {msg}");
     std::process::exit(2)
@@ -851,7 +861,7 @@ pub fn main(args: &[String]) {
         }
     }
     if let Some(r) = opt.get("report") {
-        std::fs::write(r, &rep).unwrap();
+        write_file(r, &rep);
     }
     let lean = emit(
         &a,
@@ -866,7 +876,7 @@ pub fn main(args: &[String]) {
         &refined,
     )
     .unwrap_or_else(|e| fail(&e));
-    std::fs::write(get("out"), lean).unwrap();
+    write_file(&get("out"), &lean);
     eprintln!(
         "relate: {} symbols matched ({} unmatched in {}, {} in {}); {} rule pairs, {} + {} unmatched rules",
         sm.map.len(),
@@ -1232,23 +1242,43 @@ fn emit(
                     .iter()
                     .map(|x| format!("\n  generalize h{x} : {x} = {x}'"))
                     .collect();
-                let (by, ranks) = a.measures.get(sym).cloned().unwrap_or((None, vec![]));
+                let ms = a.measures.get(sym).cloned().unwrap_or_default();
                 let qualify = |t: &str| t.replace("K.", &format!("{na}.K."));
-                // the measure of `A.f`; without one, Lean's own search, with its own tactic
-                let term = match by {
+                // what `A.f`'s own fallback unfolds (its injections, qualified, and the integer
+                // hooks), for the calls of the lemma, whose arguments are `A.f`'s
+                let unfold: Vec<String> = ms
+                    .unfold
+                    .iter()
+                    .map(|u| {
+                        if u.contains('.') {
+                            u.clone()
+                        } else {
+                            format!("{na}.{u}")
+                        }
+                    })
+                    .collect();
+                // on the goal alone first (the lemma's context holds the induction hypothesis
+                // and both cascades, which `simp_all` would rewrite too), and only by these
+                // definitions: the full simp set can exceed the recursion depth on the goals of
+                // the measures Lean's search tries, an error `first` does not catch
+                let fallback = format!(
+                    "(simp_wf; (try subst_vars); simp only [{u}]; decreasing_tactic)\n  | (simp_wf; (try subst_vars); (try simp_all [{u}]); omega)",
+                    u = unfold.join(", ")
+                );
+                // the measure of `A.f`; without one, Lean's own search, with `A.f`'s tactics
+                let term = match ms.by {
                     Some(t) => format!(
-                        "termination_by {}\ndecreasing_by all_goals first\n  | k2l_decreasing [{}]\n  | (simp_wf; (try subst_vars); (try simp_all); omega)\n",
+                        "termination_by {}\ndecreasing_by all_goals first\n  | k2l_decreasing [{}]\n  | {fallback}\n",
                         qualify(&t),
-                        ranks
+                        ms.ranks
                             .iter()
                             .map(|r| qualify(r))
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
-                    None => {
-                        "decreasing_by all_goals (simp_wf; (try subst_vars); decreasing_tactic)\n"
-                            .to_string()
-                    }
+                    None => format!(
+                        "decreasing_by all_goals first\n  | (simp_wf; (try subst_vars); decreasing_tactic)\n  | {fallback}\n"
+                    ),
                 };
                 writeln!(
                 o,
@@ -2381,7 +2411,7 @@ fn emit_ordered_terms(
         .map(|n| format!("← {n}"))
         .collect();
     writeln!(o, "set_option hygiene false in\n/-- Push `tr` into constructors, injections and collection operations, in the goal and the hypotheses. -/\nlocal macro \"push_ctor\" : tactic => `(tactic| simp only [{}] at *)\n", push.join(", ")).unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- `B.f (tr x…) = (A.f x…).map tr` for a recursive `f`, after unfolding both once: case the parameters generalized (so that a split keeps `x = pattern`, which the termination proof reads), split `A`'s cascade and `B`'s (inverting `tr x = pattern`, pushing `tr` in, so that both reduce), rewrite `B`'s calls by the group's lemmas (`ls`, the induction; `rw`, not under binders), then identify the values. -/\nlocal macro \"comm_rec\" \"[\" ls:ident,* \"]\" : tactic => do\n  let rw ← ls.getElems.foldlM (fun acc l => `(tactic| first | rw [$l:ident] at * | $acc:tactic)) (← `(tactic| fail))\n  `(tactic| (\n  symm\n  repeat' (first | (split <;> (try k2l_inv) <;> (try push_ctor)) | (k2l_split_hyps <;> (try k2l_inv) <;> (try push_ctor)))\n  all_goals (try simp only [k2l_rel] at *)\n  all_goals (repeat ($rw:tactic))\n  all_goals (iterate 4 ((try subst_vars); (try simp only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq] at *)))\n  all_goals (first | (simp_all [k2l_rel]; done) | (simp_all; subst_vars; simp_all [k2l_rel]))))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- `B.f (tr x…) = (A.f x…).map tr` for a recursive `f`, after unfolding both once: case the parameters generalized (so that a split keeps `x = pattern`, which the termination proof reads), split `A`'s cascade and `B`'s (inverting `tr x = pattern`, pushing `tr` in, so that both reduce), rewrite `B`'s calls by the group's lemmas (`ls`, the induction; `rw`, not under binders), in rounds, since a call on the result of another (`f (f x y) z`) is a translation only once the inner call's value is identified; then identify the values, or refute a case where one cascade falls through a pattern that the other's translated scrutinee matches. -/\nlocal macro \"comm_rec\" \"[\" ls:ident,* \"]\" : tactic => do\n  let rw ← ls.getElems.foldlM (fun acc l => `(tactic| first | rw [$l:ident] at * | $acc:tactic)) (← `(tactic| fail))\n  `(tactic| (\n  symm\n  repeat' (first | (split <;> (try k2l_inv) <;> (try push_ctor)) | (k2l_split_hyps <;> (try k2l_inv) <;> (try push_ctor)))\n  all_goals (try simp only [k2l_rel] at *)\n  all_goals (repeat ($rw:tactic))\n  all_goals (iterate 4 ((try subst_vars); (try simp only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq] at *)))\n  all_goals (first\n    | (simp_all [k2l_rel]; done)\n    | (exfalso; solve_by_elim; done)\n    | (iterate 2 ((try simp only [@eq_comm _ none] at *); (try simp_all only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq]); (repeat ($rw:tactic)); (try subst_vars))\n       first | (simp_all [k2l_rel]; done) | (exfalso; solve_by_elim; done) | (simp_all; subst_vars; simp_all [k2l_rel]))\n    | (simp_all; subst_vars; simp_all [k2l_rel]))))\n").unwrap();
     (push_ops, map_bwd, list_bwd)
 }
 

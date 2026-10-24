@@ -242,6 +242,17 @@ pub fn applied_ctors(p: &P, anywhere: &BTreeSet<String>, out: &mut BTreeSet<Stri
     }
 }
 
+/// How a recursive function's termination is proved: its `termination_by` clause (`None`: Lean's
+/// own search), the rank functions the measure unfolds, and the definitions the fallback
+/// `decreasing_by` unfolds (`simp_all [...]`, unqualified), so that a lemma defined by the same
+/// recursion (`relate`'s commutation lemmas) can prove its calls decrease the same way.
+#[derive(Clone, Debug, Default)]
+pub struct Measure {
+    pub by: Option<String>,
+    pub ranks: Vec<String>,
+    pub unfold: Vec<String>,
+}
+
 pub struct Generated {
     pub fns: Fns,
     /// The hooks without an implementation in the hook library, and the functions with neither
@@ -260,9 +271,8 @@ pub struct Generated {
     /// The generated functions in definition order (callees first), one group per strongly
     /// connected component of the call graph (a `mutual` block when it has several).
     pub groups: Vec<Vec<String>>,
-    /// The termination measure of each recursive function (by symbol), as its `termination_by`
-    /// clause gives it (`None`: Lean's own search), and the rank functions it unfolds.
-    pub measures: BTreeMap<String, (Option<String>, Vec<String>)>,
+    /// The termination measure of each recursive function (by symbol).
+    pub measures: BTreeMap<String, Measure>,
     /// The functions with an equation whose map pattern has a free key (`MapHook.chooseFirst`).
     pub choose_fns: BTreeSet<String>,
     pub notes: Vec<String>,
@@ -602,7 +612,7 @@ fn gen_recursive(
     scc: &[String],
     side: &Sidecar,
     list_rec_out: &mut BTreeSet<String>,
-    measures: &mut BTreeMap<String, (Option<String>, Vec<String>)>,
+    measures: &mut BTreeMap<String, Measure>,
 ) -> Result<String, String> {
     let mut o = String::new();
     // declarations before the group: the file's `before` texts, rank functions of the measures
@@ -783,12 +793,14 @@ fn gen_recursive(
         }
         measures.insert(
             f.clone(),
-            (
+            Measure {
                 by,
-                plan.as_ref()
+                ranks: plan
+                    .as_ref()
                     .map(|p| p.rank_names.clone())
                     .unwrap_or_default(),
-            ),
+                unfold: simp.clone(),
+            },
         );
         if let Some(d) = entry.and_then(|e| e.decreasing_by.as_ref()) {
             // a tactic block, indented under `decreasing_by`
