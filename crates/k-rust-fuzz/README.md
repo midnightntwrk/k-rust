@@ -91,6 +91,9 @@ range = { min = 0, max = 1000000 }
 ```
 
 In the library, the same hole is a `HoleDecl` with a `HoleLocation::Span(SpanAddress { .. })` and its `Constraints`.
+The flat form above is itself a library type, `holes::HoleFile`, which `HoleFile::into_decl` makes a `HoleDecl` with the refusals `krust fuzz` gives, each naming the hole; `krust fuzz` decodes its campaign file through it, so a front end that reads the same keys means the same hole.
+`HoleFile` is a serde type and the library holds no TOML: a client deserializes it from whatever self-describing data it has, such as JSON (`serde_json::from_str::<HoleFile>`) or a `toml::Value` it decoded by hand (`value.try_into::<HoleFile>()`), and an unknown key is refused with serde's message.
+A `choices` entry is a `holes::HoleChoice`, untagged: a 64-bit signed integer, a boolean, a string, or a table in the value form, each a value at the hole's sort (an integer is the unsigned value of an `MInt{N}` hole); a float, an array or a table that is no value is refused as it is decoded.
 
 A span hole can take only the values whose printed text the grammar reads back, at the hole's position, as that value: every case is round-trip-checked, and a value that reads as something else is `rejected`.
 For an `Int` hole the difference is the sign. Digits read back wherever the anchor's did, but whether `-` followed by digits reads back as a negative integer depends on the grammar there: a signed literal token (`INT-SYNTAX`) reads it as the value, while a grammar of unsigned literals (`UNSIGNED-INT-SYNTAX`, as in IMP and SIMPLE) reads a unary minus applied to the magnitude, or does not parse it.

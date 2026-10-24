@@ -20,6 +20,9 @@
 //! range = { min = 0, max = 1000000 }
 //! ```
 //!
+//! [`HoleFile`] is that flat form, which [`HoleFile::into_decl`] makes a [`HoleDecl`]; a
+//! `choices` entry is a [`HoleChoice`], whatever format the file is in.
+//!
 //! The span is replaced by each case's value printed as K text, and the anchor is the first
 //! value tried. A configuration-variable hole replaces a whole binding (`name`, without `$`),
 //! and a template hole a free variable of a KORE initial pattern.
@@ -32,6 +35,7 @@
 //! hole's sort must be its variable's sort, and a configuration-variable hole's sort the
 //! variable's declared sort or a subsort of it.
 
+mod file;
 mod narrow;
 mod position;
 pub(crate) use narrow::{Narrowing, probe as probe_negatives};
@@ -39,6 +43,8 @@ pub(crate) use narrow::{Narrowing, probe as probe_negatives};
 pub(crate) use position::replace_at;
 mod sorts;
 mod span;
+
+pub use file::{ElementsFile, HoleChoice, HoleFile, IntText, IntoHoleChoice, RangeFile};
 
 use std::collections::{BTreeMap, BTreeSet};
 
