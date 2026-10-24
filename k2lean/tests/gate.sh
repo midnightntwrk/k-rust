@@ -430,7 +430,8 @@ diffs() { # DIR...
 phase diff
 diffs kimp krsimp kmut imptypes kimpinv kimpkeys kimpfold kimptop nested
 
-# 5. the relations (generated files of ImpRel, ImpTypes, ImpMut) and the five demo projects; their
+# 5. the relations (generated files of ImpRel, ImpTypes, ImpMut), the generated soundness modules of
+#    ImpTypes, and the five demo projects; their
 #    axiom guards are `#k2l_assert_axioms` commands inside them
 phase demos
 rel() { # NS (tests/libs.sh)
@@ -439,6 +440,9 @@ rel() { # NS (tests/libs.sh)
 rel ImpRel
 rel ImpTypes
 rel ImpMut
+# the generated modules of the type-soundness proof of ImpTypes (`k2lean soundness`)
+libs_soundness ImpTypes > "$L/soundness-ImpTypes.log" 2>&1 && ok "soundness ImpTypes" "$L/soundness-ImpTypes.log" \
+  || bad "soundness ImpTypes" "$L/soundness-ImpTypes.log"
 for p in ImpRel ImpTypes ImpMut KrsImpTyping ImpWrites; do
   if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
 done

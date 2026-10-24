@@ -94,6 +94,7 @@ SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsim
                "arity": ["generated/kimp-ar", "generated/simple-ar"]}
 DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                           "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
+                          "demos/ImpTypes/ImpTypes/Typing.lean", "demos/ImpTypes/ImpTypes/Soundness.lean",
                           "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml",
                           "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml",
                           "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml"],

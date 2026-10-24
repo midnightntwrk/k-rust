@@ -20,6 +20,9 @@ lake-manifest.json
 /demos/*/correspondence.toml
 /demos/ImpRel/ImpRel/Bisim.lean
 /demos/ImpTypes/ImpTypes/Tr.lean
+# What `k2lean soundness` writes into the demo ImpTypes, around its hand module Store.lean.
+/demos/ImpTypes/ImpTypes/Typing.lean
+/demos/ImpTypes/ImpTypes/Soundness.lean
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean

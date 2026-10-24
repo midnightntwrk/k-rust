@@ -95,6 +95,7 @@ Two choices in the family follow from its match compilation (measured 2026-10-23
 - Test data from krust runs compares the model with krust's executions: `k2lean goldens` (initial configurations by `krust krun --depth 0`, expected finals recorded from kimp, and step traces against krust and K's LLVM backend), `k2lean cases` (SIMPLE's tests, krust's final configurations, with search) and `k2lean configs` (benchmark programs).
 - `k2lean claims` states K reachability claims (`claim` sentences of a `--for-proving` definition) as Lean propositions over `Step` (`KClaims`, `lean/claims`), proves those its tactic can, and lists the others for hand proofs; `k2lean claims replay` turns a proof that `krust kore-rpc` explores into a Lean script of named steps.
 - `k2lean relate` pairs the rules and symbols of two definitions of one language and generates the translation and, when every rule pairs, a bisimulation proof (`demos/ImpRel`).
+- `k2lean soundness` generates the type soundness of a semantics for a type checker written in K, but for the store typing and the rules that read or write the store (§3.3, `demos/ImpTypes`).
 
 ### 3.1 Determinism along the rule index (`--det2`)
 
@@ -171,6 +172,47 @@ When every rule of `A` pairs, it states and proves `bisim : Bisimulation A.Step 
 The light gate builds two self-relations of the generator's fixtures under two namespaces: `demos/PeanoRel` (an `owise` priority, recursive and mutual functions) and `demos/CellMapRel` (a free-key rule over a typed cell map), 5 s each once their libraries' `Rules` are built (2026-10-24, Lean v4.30.0).
 SIMPLE against a variant of it (`tests/simple-variant.py`: three constructors under other symbols, the rules in another order; `demos/SimpleRel`, `pipelines/simple-rel.sh`) is generated, 226 symbols and 169 rule pairs in 0.2 s, but does not build within a gate tier's cost; §9 has the measurements.
 
+### 3.3 Type soundness (`soundness`)
+
+`k2lean soundness` generates the part of a type-soundness proof that follows from two K definitions: a semantics `A`, and a type checker `B` written as a second K definition over `A`'s syntax (`demos/k/imp-typing.k`), each generated into its own library, with the translation of programs `tr : A → B` that `relate --roots` writes.
+The checker's typing functions (`--typing typeOf,wt`) each take a term of a syntax sort and a typing environment `G`; those that return a type return one of an enumeration sort, and exactly one returns a `Bool` and accepts programs.
+The cells whose typing is specific to the language (`--store-cell env`) are typed by hand, by a predicate on their content (`--store-typing envTy`).
+The theorem, for kimp (`demos/ImpTypes`):
+
+```lean
+theorem soundness {G : TEnv} {P : KImp.SortStmt} {E : KImp.SortMap} {g : KImp.SortGeneratedCounterCell}
+    (hP : KImpTypes.K.«wt(_,_)_IMP-TYPING_Bool_Stmt_Map» (tr_SortStmt P) G = some true) (hE : envTy G E)
+    {n : Nat} {c : KImp.SortGeneratedTopCell} (h : StepsN KImp.Step n (init P E g) c) :
+    Final c ∨ KImp.App c
+```
+
+`App c` says that some rule applies at `c` with a true side condition: a step, or a step whose result is undefined (`x / 0`); so the theorem excludes stuck configurations, not undefined results.
+`Final c` says that `<k>` is empty, and `init P E g` is the configuration whose `<k>` holds `P`, whose store cell holds `E` and whose other cells are parameters.
+
+The generator writes two modules around one hand-written module:
+
+- `Typing.lean`, before the hand module:
+  - the typing functions at `A`'s terms, `typeOf G e := B.typeOf (tr e) G`;
+  - one inversion lemma per equation of a typing function whose first argument is a constructor applied to variables (or an injected variable) and whose environment is a variable, such as `typeOf G (e₁ + e₂) = match typeOf G e₁, typeOf G e₂ with | some r, some r_1 => if r = int ∧ r_1 = int then some int else none | _, _ => none`.
+    The right-hand side is the equation read in the model: a call in the `requires` clause that is undefined makes the equation inapplicable, so the function takes its `owise` value, or is undefined when it has none; a call in the right-hand side that is undefined makes the result undefined; `==K` of two values of one sort is their equality (`KEqHook.eq` is `decide (a = b)`).
+    Each lemma is proved by unfolding the generated definition once and casing on the calls' values, so a lemma that does not hold fails the build.
+    An equation that another non-`owise` equation could also match, or whose environment is a pattern (`typeOf(X, X |-> T _)`), gets no lemma, and the function stays opaque at that constructor (the store typing speaks of it);
+  - `plug f e`, from each cooling rule `HOLE ~> f(args) => item` (a rule whose `<k>` is the hole followed by the freezer on the left and an item on the right, every other cell unchanged): the item with `e` for the hole and the freezer's arguments projected to their sorts;
+  - the stack typing: `item0 G it` is what an item leaves for the next one (the type of a term, or nothing for an accepted statement), `item G (some t) (inj_KItem f)` types the freezer `f` as the item that cooling makes of it and a value of type `t` (`dflt t`, built from the checker's equation at a value sort, `typeOf(_:Int, _) => int`), and `kty` threads these along `<k>`, with nothing left at the end.
+    It is a definition, so it cannot be unsound; that it is the right typing is what preservation checks rule by rule: heating and cooling keep it by computation, because the checker's equations look only at the types of subterms, so a value and the placeholder of its type are typed alike;
+  - `WTc St G c`: `kty G none (kOf c) = true`, and `St G` of the content of each store cell, where the store typing `St` is a parameter (the hand cases are stated against `WTc`, so it cannot name a definition of the hand module);
+  - `Progress.Case.r St`, for each rule `r` that reads a store cell (a pattern on it, or a side condition on its content): every well-typed configuration with `r`'s head of `<k>` has a rule that applies;
+  - every lemma that computes the typing is `@[k2l_pres]`, the unfolding set of `k2l_preserve`.
+- The hand module (`--hand-module`, default `NS.Store`): the store typings, the preservation case `hand.r : A.Step.Case.r (WTc envTy G)` of each rule that reads or writes a store cell, and the progress case `hand.progress.r : Progress.Case.r envTy` of each rule that reads one.
+- `Soundness.lean`, after the hand module: `preserved` by `k2l_preserve split [typeOf, wt] hand NS.hand`, which takes each rule's case from the hand module when it has one; `progress` by cases on the head of `<k>`, read off the term universe (a value, a leaf of `KResult`, followed by a freezer; a typed term, with its operands cased on whether they are values; the head of a store-reading rule, by its hand case), each leaf closed by `k2l_ctor_search` among the constructors of `App`; and `soundness` from `progress`, `preservation` and the typing of `init`.
+
+On kimp and `imp-typing.k` (measured 2026-10-25 on the shared 32-CPU host): generation takes 0.1 s; `Typing.lean` is 293 lines (23 inversion lemmas, 26 cases of `plug`) and builds in 4.8 s at a load of about 40; `Soundness.lean` is 108 lines and builds in 151 s wall and 2.5 GB at a load of about 80 (93 s at about 35); the hand module `Store.lean` is 100 lines, 64 of them Lean code (the hand-written proof it replaces was 674 lines in five modules).
+Progress alone took 64 s wall and 135 s of CPU at a load of about 63, against 169 s wall and 90 s of CPU at about 79 for the hand-written progress it replaces, run one after the other on the same tree (estimate: the generated proof costs about 1.5 times the CPU, since it computes the typing of values through the inversion lemmas and splits on `Option Bool` where the hand-written one used `Bool`).
+Compared with that proof, `soundness` has the same statement; `WTc G` became `WTc envTy G` (the store typing is a parameter), and the hand-written `tyOf`, `wtS : … → Bool` became `typeOf`, `wt : … → Option Bool`, so `preservation` is stated over `WTc envTy G`.
+The case splits are prelude tactics (`KPrelude.Soundness`: `k2l_cases_apps`, `k2l_cases_args`, `k2l_cases_bools`, `k2l_cases_frz`, `k2l_cases_typing`) whose arguments are the library's constants; `Soundness.lean` instantiates them in a few macros.
+It is a command of its own rather than an option of `relate`: it reads the checker's equations and the semantics' rules and writes two modules around a hand module, while `relate --roots` stays the translation.
+Not supported (the command stops with a message): rules of several priorities; a top cell whose children are not leaf cells; holes of several sorts; types that are not an enumeration; typing functions that are not `Option`-valued or take other than a term and an environment; a store-reading rule whose head of `<k>` is not a `KItem` injection of variables, or two such rules with one head.
+
 ## 4. Commands
 
 | command | does |
@@ -180,6 +222,7 @@ SIMPLE against a variant of it (`tests/simple-variant.py`: three constructors un
 | `goldens`, `cases`, `configs` | test and benchmark data from krust runs |
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |
+| `soundness` | the runtime typing, preservation, progress and type soundness of a semantics for a K type checker, around a hand module (§3.3) |
 | `claims`, `claims replay` | K claims as Lean statements and proofs; with `--assume-invariant`, under a preserved invariant; with `--induction`, the termination of a sublanguage (§3.2) |
 | `new-invariant` | the skeleton of a kind 2 invariant project (`invariants.md`, §4) |
 | `diff OLD NEW [--hand PATH]…` | the rules whose `Step.Case` changed between two generations, the generated functions whose definitions changed with the rules that call them, and the hand-written references to both (`invariants.md`, §7) |

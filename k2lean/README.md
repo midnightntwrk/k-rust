@@ -60,7 +60,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/ImpRel` | the KRS IMP port (`demos/k/krs-imp`) and kimp are bisimilar: `k2lean relate` pairs their rules and generates the proof |
 | `demos/SimpleRel` | SIMPLE and a variant of it (`tests/simple-variant.py`: constructors with other symbols, rules in another order) should be bisimilar (priorities, free-key matches on the thread cell map, typed cell maps); human-run (`pipelines/simple-rel.sh`), since the relation does not build yet within a gate tier's cost (`docs/design.md`, §9) |
 | `demos/PeanoRel`, `demos/CellMapRel` | the fixtures `tests/fixtures/peano` (an `owise` priority, recursive and mutual functions) and `tests/fixtures/cellmap` (a free-key rule over the typed cell map of `<worker>`s) are each bisimilar to themselves under two namespaces: the light gate's cheap pins of `relate` |
-| `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): preservation as a kind 2 invariant, and progress |
+| `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): `k2lean soundness` generates the runtime typing, preservation, progress and `soundness`; `Store.lean` holds the store typing and the cases of the three rules that read or write the store |
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
 | `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
@@ -87,6 +87,19 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 
 A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`).
 `docs/design.md`, §3.2, says what each statement means and how it is proved.
+
+## Type soundness
+
+`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except what is specific to the language's store: the hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`, `tests/libs.sh`, `libs_soundness`):
+
+```sh
+target/release/k2lean soundness --kore-a out/my/definition.kore --name-a My \
+  --kore-b out/my-typing/definition.kore --name-b MyTypes --ns MySound \
+  --typing typeOf,wt --store-cell env --store-typing envTy \
+  --out-typing MySound/Typing.lean --out-soundness MySound/Soundness.lean
+```
+
+It needs the two libraries and the translation of programs that `k2lean relate --roots` writes (`MySound/Tr.lean`; `--tr-module`), and writes `Typing.lean`, which the hand module `MySound/Store.lean` (`--hand-module`) imports, and `Soundness.lean`, which imports it; `docs/design.md`, §3.3, says what each part states and what is supported.
 
 ## Large definitions
 

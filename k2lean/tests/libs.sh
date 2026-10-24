@@ -195,3 +195,16 @@ libs_relate() {
     --kore-b "$kd/definition.kore" "${sb[@]}" --name-b "$nb" \
     --ns "$ns" "${extra[@]}" --out "$DEMOS/$ns/$ns/$f.lean" --report "$DEMOS/$ns/correspondence.toml"
 }
+
+# libs_soundness NS: the generated modules of the type-soundness demo NS around its hand module
+# `NS/Store.lean` (ImpTypes: `Typing.lean` before it, `Soundness.lean` after it; kimp against the
+# type checker demos/k/imp-typing.k, whose store cell <env> the hand module types by `envTy`).
+libs_soundness() {
+  case $1 in
+    ImpTypes) "$G" soundness --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
+        --kore-b "$(kore_dir imp-typing)/definition.kore" --name-b KImpTypes --ns ImpTypes \
+        --typing typeOf,wt --store-cell env --store-typing envTy \
+        --out-typing "$DEMOS/ImpTypes/ImpTypes/Typing.lean" --out-soundness "$DEMOS/ImpTypes/ImpTypes/Soundness.lean" ;;
+    *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
+  esac
+}
