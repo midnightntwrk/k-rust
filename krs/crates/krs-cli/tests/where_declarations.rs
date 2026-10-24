@@ -186,7 +186,7 @@ fn lines_with(definition: &str, pattern: &str) -> Vec<String> {
 
 fn incompatible(declared: &str, needed: &str) -> String {
     format!(
-        "error[krs::analysis::incompatible-binder]: binder `s` is declared `{declared}` but this occurrence needs `{needed}`"
+        "error[krs::analysis::incompatible-binder]: binder `s` is declared `{declared}`, but an occurrence needs `{needed}`"
     )
 }
 

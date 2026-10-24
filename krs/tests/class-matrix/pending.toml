@@ -1548,81 +1548,81 @@ finding = "S0-11"
 deviation = "accepted"
 step = "S3"
 
-# S0-12: `k::fragment!` is refused outside configuration rules ("complete cell terms require configuration rules", uncoded, unlocated), though `for Stmt` rules accept it
+# S0-12: `k::fragment!` is refused outside configuration rules ("complete cell terms require configuration rules", unlocated, under the internal `provenance-mismatch`), though `for Stmt` rules accept it
 
 ["terms/equation/guard/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/rule/guard/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/rule/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/shorthand/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/simplification/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/simplification/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/table/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/table/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 ["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ unlocated"
 step = "S3"
 
 # S0-13: literals refused where they are ground terms: `#[k::requires(true)]` as a "host literal", and `k::id!`/`k::bytes!`/`k::lexeme!` as a constant's value
@@ -3264,38 +3264,21 @@ finding = "N27"
 deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 step = "S4"
 
-# N30: `incompatible-binder` is reported at the binder's declaration, with no label at the occurrence
-
-["cells/result/env/k::configuration::Cell(x)"]
-finding = "N30"
-deviation = "krs::analysis::incompatible-binder @ item"
-step = "S1"
-
-["cells/result/frame/x"]
-finding = "N30"
-deviation = "krs::analysis::incompatible-binder @ item"
-step = "S1"
-
-["cells/result/stack/k::configuration::Cell(x)"]
-finding = "N30"
-deviation = "krs::analysis::incompatible-binder @ item"
-step = "S1"
-
 # X1: initializer fields out of declaration order are an unlocated collector error
 
 ["init/order/pc-first"]
 finding = "X1"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::invalid-configuration @ unlocated"
 step = "S2"
 
 ["init/order/queue-first"]
 finding = "X1"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::invalid-configuration @ unlocated"
 step = "S2"
 
 ["init/order/reversed"]
 finding = "X1"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::invalid-configuration @ unlocated"
 step = "S2"
 
 # X2: an initializer that leaves a configuration variable unused is an unlocated IR validation error

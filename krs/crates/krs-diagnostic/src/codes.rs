@@ -188,7 +188,7 @@ register_codes! {
         REFERENCE_KIND_MISMATCH: "krs::collect::reference-kind-mismatch" => "A resolved declaration had the wrong semantic item kind.",
         INVALID_CONFIGURATION: "krs::collect::invalid-configuration" => "A configuration, cell, or configuration-rule entry is not one its declaration admits.",
         INVALID_DISPLAY_FILE: "krs::collect::invalid-display-file" [Internal] => "A display filename was not a normalized relative source hint.",
-        SOURCE_OUTSIDE_PACKAGE: "krs::collect::source-outside-package" [Environment] => "A resolved source escaped its canonical package directory.",
+        SOURCE_OUTSIDE_PACKAGE: "krs::collect::source-outside-package" => "A KRS item's source resolves outside its Cargo package directory, such as generated code included from `OUT_DIR`.",
         AMBIGUOUS_SOURCE_PATH: "krs::collect::ambiguous-source-path" [Environment] => "A display hint resolved to multiple distinct files in the package.",
         SOURCE_POSITION_OUT_OF_BOUNDS: "krs::collect::source-position-out-of-bounds" [Environment] => "A line or Unicode-scalar column was outside the exact source revision.",
         IMPRECISE_AUTHORED_ANCHOR: "krs::collect::imprecise-authored-anchor" [Internal] => "A semantic node used an invocation-fallback rather than exact leaves.",

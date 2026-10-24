@@ -250,7 +250,7 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
     let diagnostic = &diagnostics[0];
     assert_eq!(diagnostic.code, "krs::collect::unresolved-type-reference");
     assert_eq!(diagnostic.stage, krs_cli::DiagnosticStage::Analysis);
-    let range = &diagnostic.authored_range;
+    let range = diagnostic.authored_range.as_ref().unwrap();
     assert_eq!(range.file.package().k_namespace(), "ORG-KRS-CLI-FOO-BAR");
     assert_eq!(range.file.package_relative_path(), "src/lib.rs");
     assert_eq!(
@@ -322,10 +322,14 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
     assert_eq!(output.status.code(), Some(1), "{stderr}");
     assert!(!stderr.contains("panicked"), "{stderr}");
     assert!(output.stdout.is_empty());
-    let prefix =
-        "krs: collector execution failed with status 1: KRS collector failed: display file `";
-    let generated_file = stderr
-        .strip_prefix(prefix)
+    // The collector's error crosses the process boundary as an envelope, with its code.
+    let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    assert_eq!(diagnostics[0].code, "krs::collect::source-outside-package");
+    assert_eq!(diagnostics[0].authored_range, None);
+    let message = diagnostics[0].message.as_str();
+    let generated_file = message
+        .strip_prefix("display file `")
         .and_then(|detail| detail.split('`').next())
         .unwrap_or_else(|| panic!("unexpected collector failure: {stderr}"));
     let generated_path = Path::new(generated_file);
@@ -337,9 +341,9 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
         generated_source
     );
     assert_eq!(
-        stderr,
+        message,
         format!(
-            "{prefix}{generated_file}` is outside Cargo package `{}` (invocation at {generated_file}:1:1)\n",
+            "display file `{generated_file}` is outside Cargo package `{}` (invocation at {generated_file}:1:1)",
             package.display()
         )
     );
@@ -1238,7 +1242,12 @@ pub struct Sha256Digest {{
         "hook namespace `KRYPTO` of `hook(KRYPTO.sha256raw)` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
     );
     assert_eq!(
-        diagnostics[0].authored_range.file.package_relative_path(),
+        diagnostics[0]
+            .authored_range
+            .as_ref()
+            .unwrap()
+            .file
+            .package_relative_path(),
         "src/lib.rs"
     );
     let cached = run();
@@ -1309,7 +1318,8 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         let lines = stderr.lines().collect::<Vec<_>>();
         assert_eq!(lines.len(), 1, "{backend}:\n{stderr}");
         let diagnostic: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(diagnostic["schema_version"], 1, "{stderr}");
+        assert_eq!(diagnostic["schema_version"], 2, "{stderr}");
+        assert_eq!(diagnostic["kind"], "author", "{stderr}");
         assert_eq!(diagnostic["stage"], "native", "{stderr}");
         assert_eq!(diagnostic["code"], "IllegalFunctionOnLhs", "{stderr}");
         assert_eq!(diagnostic["severity"], "error", "{stderr}");

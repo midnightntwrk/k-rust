@@ -839,7 +839,7 @@
       "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
     ],
     "binder-incompatible": [
-      "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool` but this occurrence needs `Exp`"
+      "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool`, but an occurrence needs `Exp`"
     ],
     "fresh-no-generator": [
       "error[krs::analysis::no-fresh-generator]: fresh binder `l` has sort `Loc`, which has no generator; declare `#[k::function(total, fresh_generator, sort = Loc, syntax = \"..\")]` with one Int field (Int and Id have K's own)"

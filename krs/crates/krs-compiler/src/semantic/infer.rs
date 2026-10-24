@@ -2877,7 +2877,7 @@ impl StructuredTermBuilder<'_> {
         Err(DescriptorLoweringError::IncompatibleBinder {
             item: Box::new(self.descriptor.id().clone()),
             reason: format!(
-                "binder `{name}` is declared `{declared_name}` but this occurrence needs `{expected_name}`"
+                "binder `{name}` is declared `{declared_name}`, but an occurrence needs `{expected_name}`"
             ),
             range: range(key),
             occurrence: range(Self::term_key(occurrence)).map(|range| (range, expected_name)),

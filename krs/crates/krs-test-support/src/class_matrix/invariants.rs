@@ -4,7 +4,8 @@
 //! 1. with at least one error whose code is registered in `krs-diagnostic`'s registry (a
 //!    refusal that only rustc or a prose message reports is red), not counting
 //!    [`FORWARDED_RUSTC`], which only says that rustc reported and KRS did not;
-//! 2. with its primary range, the first error's, inside the case's site;
+//! 2. with its primary range, the first error's, or one of that error's labels inside the case's
+//!    site;
 //! 3. with exactly one error;
 //! 4. with no code the registry gives another kind than author (an internal or environment
 //!    code is never the answer to an author's mistake);
@@ -18,7 +19,9 @@
 //! an optional cell and a mistake on a plain one), so an error located at the whole entry still
 //! names the mistake; a class narrows the site to the spelling, or widens it to the item where
 //! the mistake lies outside the entry (an initializer parameter no cell reads). For a term
-//! position the entry is the spelling.
+//! position the entry is the spelling. A label counts as the location because a diagnostic that
+//! relates two places names both: `incompatible-binder` puts its primary at the binder's
+//! declaration, the thing most fixes change, and labels the occurrence that needs another sort.
 
 use std::fmt;
 use std::ops::Range;
@@ -45,8 +48,21 @@ pub struct ObservedDiagnostic {
     pub code: Option<String>,
     /// The primary byte range in the rendered source, if the diagnostic is located there.
     pub range: Option<Range<usize>>,
+    /// The byte ranges of its labels, its related locations, in the rendered source.
+    pub labels: Vec<Range<usize>>,
     /// The message.
     pub message: String,
+}
+
+impl ObservedDiagnostic {
+    /// Whether its primary range or one of its labels lies inside `site`.
+    #[must_use]
+    pub fn located_inside(&self, site: &Range<usize>) -> bool {
+        self.range
+            .iter()
+            .chain(&self.labels)
+            .any(|range| site.start <= range.start && range.end <= site.end)
+    }
 }
 
 /// What a case did.
@@ -158,10 +174,14 @@ pub fn violations(
     }) {
         violations.push(Violation::NoRegisteredCode);
     }
-    match errors.first().map(|error| error.range.clone()) {
-        Some(Some(range)) if site.start <= range.start && range.end <= site.end => {}
-        Some(Some(range)) => violations.push(Violation::OutsideSite { range }),
-        Some(None) | None => violations.push(Violation::Unlocated),
+    match errors.first() {
+        Some(error) if error.located_inside(site) => {}
+        Some(ObservedDiagnostic {
+            range: Some(range), ..
+        }) => violations.push(Violation::OutsideSite {
+            range: range.clone(),
+        }),
+        Some(_) | None => violations.push(Violation::Unlocated),
     }
     if errors.len() != 1 {
         violations.push(Violation::ErrorCount(errors.len()));

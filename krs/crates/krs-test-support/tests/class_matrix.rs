@@ -608,6 +608,7 @@ fn error(code: Option<&str>, range: Option<Range<usize>>, message: &str) -> Obse
         severity: Severity::Error,
         code: code.map(str::to_owned),
         range,
+        labels: Vec::new(),
         message: message.to_owned(),
     }
 }
@@ -639,6 +640,12 @@ fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
         }]
     );
     assert!(violations(&at_parameter, &placed.item, registry_kind).is_empty());
+
+    // A diagnostic that relates two places is located at either: a binder's declaration as the
+    // primary, outside the entry, and the occurrence as a label, inside it.
+    let mut at_declaration = at_parameter.clone();
+    at_declaration.diagnostics[0].labels = vec![placed.entry.clone()];
+    assert!(violations(&at_declaration, &placed.entry, registry_kind).is_empty());
 
     // A rustc error forwarded under a registered code is still no KRS diagnosis.
     let forwarded = Observed {
@@ -686,6 +693,7 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
                 severity: Severity::Warning,
                 code: Some("unused_imports".to_owned()),
                 range: None,
+                labels: Vec::new(),
                 message: "unused import".to_owned(),
             },
         ],

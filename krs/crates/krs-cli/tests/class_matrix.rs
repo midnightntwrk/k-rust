@@ -214,11 +214,8 @@ fn table_miss(
                 return Some(format!("the table expects {}", class.code));
             }
             let site = rule.at.range(placed);
-            let inside = error
-                .range
-                .as_ref()
-                .is_some_and(|range| site.start <= range.start && range.end <= site.end);
-            (!inside).then(|| format!("the table expects the error inside the {:?}", rule.at))
+            (!error.located_inside(site))
+                .then(|| format!("the table expects the error inside the {:?}", rule.at))
         }
     }
 }

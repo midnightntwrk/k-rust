@@ -240,3 +240,92 @@ fn supplying_a_file_resolves_all_input_ranges_and_preserves_other_locations() {
         Location::Definition(_)
     ));
 }
+
+mod envelope_schema {
+    use super::*;
+    use crate::envelope::{
+        DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticLabel, DiagnosticStage,
+        diagnostic_envelope,
+    };
+    use krs_ir::SourceRange;
+
+    fn range(start: u32, end: u32) -> SourceRange {
+        let file = SourceFileId::new(
+            PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        SourceRange::new(file, start, end).unwrap()
+    }
+
+    #[test]
+    fn every_diagnostic_is_an_envelope_with_its_kind_and_exact_labels() {
+        let resolved = SourceMapKey::new("diag.resolved").unwrap();
+        let unresolved = SourceMapKey::new("diag.unresolved").unwrap();
+        let diagnostic = Diagnostic::error(
+            codes::analysis::INCOMPATIBLE_BINDER,
+            "binder `x` is declared `Bool`, but an occurrence needs `Int`",
+            Location::Source(range(1, 5)),
+        )
+        .with_secondary(
+            Label::new(Location::Definition(resolved.clone())).with_message("this occurrence"),
+        )
+        .with_secondary(Label::new(Location::Definition(unresolved)))
+        .with_secondary(Label::new(Location::None));
+        let envelope = diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, |key| {
+            (key == &resolved).then(|| range(7, 9))
+        });
+        assert_eq!(envelope.schema_version, DIAGNOSTIC_SCHEMA_VERSION);
+        assert_eq!(envelope.kind, codes::CodeKind::Author);
+        assert_eq!(envelope.authored_range, Some(range(1, 5)));
+        assert_eq!(
+            envelope.labels,
+            [DiagnosticLabel {
+                range: range(7, 9),
+                message: Some("this occurrence".to_owned()),
+            }]
+        );
+        let line = envelope.to_json_line().unwrap();
+        assert_eq!(
+            DiagnosticEnvelope::from_json_lines(&line).unwrap(),
+            [envelope]
+        );
+
+        let internal = diagnostic_envelope(
+            Diagnostic::error(
+                codes::analysis::INVALID_SEMANTIC_THEORY,
+                "variables disagree",
+                Location::None,
+            )
+            .with_item("diag::step (rule)"),
+            DiagnosticStage::Analysis,
+            |_| None,
+        );
+        assert_eq!(internal.kind, codes::CodeKind::Internal);
+        assert_eq!(internal.authored_range, None);
+        assert_eq!(internal.item.as_deref(), Some("diag::step (rule)"));
+        let line = internal.to_json_line().unwrap();
+        assert!(line.contains("\"authored_range\":null"), "{line}");
+        assert!(line.contains("\"kind\":\"internal\""), "{line}");
+        assert_eq!(
+            DiagnosticEnvelope::from_json_lines(&line).unwrap(),
+            [internal]
+        );
+    }
+
+    #[test]
+    fn a_version_one_line_is_rejected_by_its_version() {
+        let line = DiagnosticEnvelope::unlocated(DiagnosticStage::Analysis, "E0308", "mismatch")
+            .to_json_line()
+            .unwrap()
+            .replace("\"schema_version\":2", "\"schema_version\":1");
+        let error = DiagnosticEnvelope::from_json_lines(&line).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported diagnostic schema version 1"),
+            "{error}"
+        );
+    }
+}

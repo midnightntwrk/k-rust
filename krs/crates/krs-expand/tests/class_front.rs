@@ -126,6 +126,7 @@ fn run_front(placed: &Placed<'_>, source: &str) -> Front {
                         severity: Severity::Error,
                         code: Some(diagnostic.code.to_string()),
                         range: diagnostic.authored.map(range),
+                        labels: Vec::new(),
                         message: diagnostic.message,
                     })
                     .collect(),
@@ -183,6 +184,7 @@ fn written_errors(expansion: &FileExpansion) -> Vec<(ObservedDiagnostic, bool)> 
                     severity: Severity::Error,
                     code,
                     range: Some(range(exact.unwrap_or(call_site))),
+                    labels: Vec::new(),
                     message,
                 },
                 exact.is_some(),
@@ -578,16 +580,11 @@ fn judge(placed: &Placed<'_>, front: &Front, expected: Option<&Expected<'_>>) ->
         None => false,
         Some(Expected::Accept(_)) => true,
         Some(Expected::Refuse { rule, class }) => {
-            let site = Some(rule.at.range(placed));
+            let site = rule.at.range(placed);
             let first = front.observed.errors().next();
             !(front.exact
                 && first.and_then(|error| error.code.as_deref()) == Some(class.code.as_str())
-                && first
-                    .and_then(|error| error.range.as_ref())
-                    .zip(site)
-                    .is_some_and(|(range, site)| {
-                        site.start <= range.start && range.end <= site.end
-                    }))
+                && first.is_some_and(|error| error.located_inside(site)))
         }
     };
     if broken || off_table {

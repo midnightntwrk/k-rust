@@ -169,6 +169,9 @@ pub struct Diagnostic {
     pub primary: Label,
     /// Additional locations, in producer order.
     pub secondary: Vec<Label>,
+    /// The stable identity of the subject item, for a diagnostic whose subject has no exact
+    /// range: renderers name it when there is no location to show.
+    pub item: Option<String>,
     /// Additional explanations, in producer order.
     pub notes: Vec<String>,
     /// Advice on how to fix the problem, in producer order.
@@ -185,6 +188,7 @@ impl Diagnostic {
             message: message.into(),
             primary: Label::new(location),
             secondary: Vec::new(),
+            item: None,
             notes: Vec::new(),
             help: Vec::new(),
         }
@@ -217,6 +221,13 @@ impl Diagnostic {
     #[must_use]
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help.push(help.into());
+        self
+    }
+
+    /// Names the subject item, for a diagnostic whose subject has no exact range.
+    #[must_use]
+    pub fn with_item(mut self, item: impl Into<String>) -> Self {
+        self.item = Some(item.into());
         self
     }
 

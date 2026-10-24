@@ -227,7 +227,7 @@ fn existential_and_fresh_binders_keep_their_declared_sort() {
     let temporary = temp_dir();
     let incompatible = |name: &str, declared: &str, needed: &str| {
         format!(
-            "error[krs::analysis::incompatible-binder]: binder `{name}` is declared `{declared}` but this occurrence needs `{needed}`"
+            "error[krs::analysis::incompatible-binder]: binder `{name}` is declared `{declared}`, but an occurrence needs `{needed}`"
         )
     };
     let stored = |term: &str, sort: &str, position: &str, element: &str| {

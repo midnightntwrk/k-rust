@@ -95,7 +95,7 @@ def check_overlap(binary: Path) -> None:
         raise GateError(f"overlap: expected one KRS diagnostic, got {len(typed)}")
     diagnostic = typed[0]
     expected = {
-        "schema_version": 1,
+        "schema_version": 2,
         "stage": "analysis",
         "code": "krs::analysis::overlapping-rule-heads",
         "severity": "error",
