@@ -32,6 +32,22 @@
 //! `known_normal`) is in lowest form, so it is never an injection of a lesser production: it
 //! clashes with one instead of branching.
 //!
+//! Two maps of one definition are compared over the instances at which both are defined: a
+//! defined map term's explicit keys are pairwise distinct and none is a key of its rest
+//! (`term.rs`), and a normal form is defined. Two facts then decide a map equation
+//! (`Unifier::maps`). A map binds a key once, so two maps that bind one key term (written alike
+//! on both sides, after the problem's bindings) are equal exactly when they give it one value
+//! and are equal without it. And `n` explicit entries are `n` distinct keys, exactly `n` without
+//! a rest, while a rest only adds keys, so a side without a rest and with fewer entries than the
+//! other has no common instance with it. What is left after the shared keys is a rest against a
+//! rest (an absent rest read as the empty map), a variable rest of a side with no entry left
+//! (bound to the other side, entries and rest), or entries whose keys are not written alike,
+//! which wait for the other equations' bindings and answer [`UnresolvedShape::Collection`] when
+//! no binding comes (as does an opaque rest of a side with no entry left). A returned unifier
+//! may have instances at which a map repeats a key; both sides are then `\bottom`, which is no
+//! instance. An empty answer proves that the two have no common defined instance, which
+//! `classify`, `Join::refuted_at` and `Join::split_on` all read. Sets are not decomposed.
+//!
 //! Every rule replaces an equation by equations with the same solutions over normal forms modulo
 //! `Th`, so each returned substitution is a unifier (soundness), and every common instance is an
 //! instance of one returned substitution (completeness), except where the answer is
@@ -61,8 +77,10 @@ pub(crate) const UNIFIER_BRANCHES: usize = 4096;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum UnresolvedShape {
     /// Two collections outside the shapes decided completely (a collection pattern against a
-    /// collection variable, and two lists with fixed elements at the same end and one rest
-    /// each): map or set structure on both sides, or lists with elements at both ends.
+    /// collection variable, two lists with fixed elements at the same end and one rest each, and
+    /// two maps decided by their sizes, their keys written alike and their rests): two maps
+    /// with no key written alike and no size clash (or a side left with no entry and an opaque
+    /// rest), two sets, or lists with elements at both ends.
     Collection,
     /// A set variable.
     SetVariable,
@@ -86,7 +104,7 @@ impl std::fmt::Display for UnresolvedShape {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Collection => formatter.write_str(
-                "two collections the unifier does not decide (map or set structure on both sides, or lists with elements at both ends)",
+                "two collections the unifier does not decide (two maps with no key written alike and no size clash, two sets, or lists with elements at both ends)",
             ),
             Self::SetVariable => formatter.write_str("a set variable"),
             Self::Function(symbol) => write!(
@@ -213,6 +231,13 @@ struct Problem {
     equations: Vec<(Term, Term)>,
     /// The shape of the first equation dropped (deferred) from this problem, if any.
     deferred: Option<UnresolvedShape>,
+    /// Map equations with no key written alike on both sides yet, waiting for the other
+    /// equations' bindings ([`Unifier::maps`]).
+    postponed: Vec<(Term, Term)>,
+    /// The number of bindings when the postponed equations were last taken up again, and
+    /// whether they were then taken up as a last resort (no binding since the round before).
+    retried_at: Option<usize>,
+    last_resort: bool,
 }
 
 impl Problem {
@@ -229,7 +254,7 @@ impl Problem {
             return false;
         }
         let single = Substitution::from([(variable.clone(), value.clone())]);
-        for (left, right) in &mut self.equations {
+        for (left, right) in self.equations.iter_mut().chain(self.postponed.iter_mut()) {
             *left = substitute(left, &single);
             *right = substitute(right, &single);
         }
@@ -237,6 +262,7 @@ impl Problem {
             *bound = substitute(bound, &single);
         }
         self.bindings.insert(variable.clone(), value);
+        self.last_resort = false;
         true
     }
 }
@@ -297,6 +323,9 @@ impl Unifier<'_> {
             bindings: Substitution::new(),
             equations,
             deferred: None,
+            postponed: Vec::new(),
+            retried_at: None,
+            last_resort: false,
         }];
         let mut solutions = Vec::new();
         let mut explored = 0;
@@ -306,21 +335,33 @@ impl Unifier<'_> {
             if explored > UNIFIER_BRANCHES {
                 return Err(UnresolvedShape::Budget);
             }
-            while let Some((left, right)) = problem.equations.pop() {
-                match self.step(&mut problem, left, right) {
-                    Ok(Outcome::Continue) => {}
-                    Ok(Outcome::Clash) => continue 'problems,
-                    Ok(Outcome::Branch(branches)) => {
-                        stack.extend(branches);
-                        continue 'problems;
+            loop {
+                while let Some((left, right)) = problem.equations.pop() {
+                    match self.step(&mut problem, left, right) {
+                        Ok(Outcome::Continue) => {}
+                        Ok(Outcome::Clash) => continue 'problems,
+                        Ok(Outcome::Branch(branches)) => {
+                            stack.extend(branches);
+                            continue 'problems;
+                        }
+                        Err(
+                            shape @ (UnresolvedShape::Collection | UnresolvedShape::Function(_)),
+                        ) if self.defer => {
+                            problem.deferred.get_or_insert(shape);
+                        }
+                        Err(shape) => return Err(shape),
                     }
-                    Err(shape @ (UnresolvedShape::Collection | UnresolvedShape::Function(_)))
-                        if self.defer =>
-                    {
-                        problem.deferred.get_or_insert(shape);
-                    }
-                    Err(shape) => return Err(shape),
                 }
+                if problem.postponed.is_empty() {
+                    break;
+                }
+                // Keys change only by bindings: with none since the last round, the postponed
+                // equations are taken up as a last resort, and answer what they do not decide.
+                let bound = problem.bindings.len();
+                problem.last_resort = problem.retried_at == Some(bound);
+                problem.retried_at = Some(bound);
+                let postponed = std::mem::take(&mut problem.postponed);
+                problem.equations.extend(postponed);
             }
             solutions.push((problem.bindings, problem.deferred));
         }
@@ -462,8 +503,8 @@ impl Unifier<'_> {
                     (right_heads, right_rest.as_ref()),
                 )
             }
-            (TermKind::Map { .. }, TermKind::Map { .. })
-            | (TermKind::Set { .. }, TermKind::Set { .. }) => Err(UnresolvedShape::Collection),
+            (TermKind::Map { .. }, TermKind::Map { .. }) => self.maps(problem, &left, &right),
+            (TermKind::Set { .. }, TermKind::Set { .. }) => Err(UnresolvedShape::Collection),
             (TermKind::Application { symbol, .. }, _)
             | (_, TermKind::Application { symbol, .. }) => {
                 if computed(symbol) {
@@ -813,6 +854,153 @@ impl Unifier<'_> {
             | TermKind::Map { .. }
             | TermKind::List { .. }
             | TermKind::Set { .. } => Ok(Outcome::Clash),
+        }
+    }
+
+    /// Two maps of one sort, read over the instances at which both are defined (a defined map
+    /// term's explicit keys are pairwise distinct and none is a key of its rest, `term.rs`).
+    ///
+    /// 1. Size test (P7-KEVM-S2B): a term with `n` explicit entries binds at least `n` keys, and
+    ///    exactly `n` without a rest, so the equation clashes when a side without a rest has
+    ///    fewer entries than the other.
+    /// 2. An entry whose key is written alike on both sides (after the problem's bindings) is
+    ///    decomposed: a map binds each key once, so two maps that bind the same key are equal
+    ///    exactly when they give it the same value and are equal without it.
+    /// 3. What is left: rest = rest when no entry is left; a variable rest of a side with no entry
+    ///    left is the other side; otherwise the equation waits for the other equations'
+    ///    bindings, and as a last resort (or with an opaque rest) is
+    ///    [`UnresolvedShape::Collection`].
+    ///
+    /// A returned unifier may have instances at which a map repeats a key; both sides are then
+    /// `\bottom` and the instance is none. An empty answer proves no common defined instance,
+    /// which `classify`, `Join::refuted_at` and `Join::split_on` all read.
+    fn maps(
+        &mut self,
+        problem: &mut Problem,
+        left: &Term,
+        right: &Term,
+    ) -> Result<Outcome, UnresolvedShape> {
+        let (
+            TermKind::Map {
+                definition,
+                entries: left_entries,
+                rest: left_rest,
+            },
+            TermKind::Map {
+                definition: right_definition,
+                entries: right_entries,
+                rest: right_rest,
+            },
+        ) = (left.kind(), right.kind())
+        else {
+            unreachable!("two maps")
+        };
+        if definition != right_definition {
+            return Err(UnresolvedShape::Collection);
+        }
+        let switches = super::switches::active();
+        // 1. The size test.
+        let count = |entries: usize, rest: &Option<Term>| {
+            entries + usize::from(switches.size_counts_rest && rest.is_some())
+        };
+        let (left_count, right_count) = (
+            count(left_entries.len(), left_rest),
+            count(right_entries.len(), right_rest),
+        );
+        let closed = |rest: &Option<Term>| rest.is_none() || switches.size_clash_ignores_rest;
+        if (closed(left_rest) && left_count < right_count)
+            || (closed(right_rest) && right_count < left_count)
+        {
+            return Ok(Outcome::Clash);
+        }
+        // 2. Keys written alike.
+        let mut left_left: Vec<(Term, Term)> = left_entries.iter().cloned().collect();
+        let mut right_left: Vec<(Term, Term)> = right_entries.iter().cloned().collect();
+        let mut decomposed = false;
+        if switches.decompose_unifiable_keys {
+            // Defect: commit to the first pair of keys that are not written alike.
+            if !left_left.is_empty()
+                && !right_left.is_empty()
+                && !left_left
+                    .iter()
+                    .any(|(key, _)| right_left.iter().any(|(other, _)| key == other))
+            {
+                let (first, second) = (left_left.remove(0), right_left.remove(0));
+                problem.equations.push((first.0, second.0));
+                problem.equations.push((first.1, second.1));
+                decomposed = true;
+            }
+        }
+        left_left.retain(|(key, value)| {
+            match right_left.iter().position(|(other, _)| other == key) {
+                Some(position) => {
+                    let (_, other_value) = right_left.remove(position);
+                    problem.equations.push((value.clone(), other_value));
+                    decomposed = true;
+                    false
+                }
+                None => true,
+            }
+        });
+        // 3. What is left.
+        let unit = || Term::map(Arc::clone(definition), Vec::new(), None);
+        let side = |entries: Vec<(Term, Term)>, rest: &Option<Term>| {
+            Term::map(Arc::clone(definition), entries, rest.clone())
+        };
+        let open = |rest: &Option<Term>| {
+            rest.as_ref()
+                .is_some_and(|rest| matches!(rest.kind(), TermKind::Variable(_)))
+        };
+        match (left_left.is_empty(), right_left.is_empty()) {
+            (true, true) => {
+                problem.equations.push((
+                    left_rest.clone().unwrap_or_else(unit),
+                    right_rest.clone().unwrap_or_else(unit),
+                ));
+                return Ok(Outcome::Continue);
+            }
+            (true, false) | (false, true) => {
+                if switches.empty_clash_ignores_rest {
+                    return Ok(Outcome::Clash);
+                }
+                let (empty_rest, other, other_rest) = if left_left.is_empty() {
+                    (left_rest, right_left, right_rest)
+                } else {
+                    (right_rest, left_left, left_rest)
+                };
+                match empty_rest {
+                    // Not reached: the size test clashed (both counts fell by the same number).
+                    None => return Ok(Outcome::Clash),
+                    Some(rest) if open(empty_rest) => {
+                        let other_rest = if switches.rest_binding_drops_rest {
+                            &None
+                        } else {
+                            other_rest
+                        };
+                        problem
+                            .equations
+                            .push((rest.clone(), side(other, other_rest)));
+                        return Ok(Outcome::Continue);
+                    }
+                    Some(_) => {
+                        return if switches.raw_rest_clashes {
+                            Ok(Outcome::Clash)
+                        } else {
+                            Err(UnresolvedShape::Collection)
+                        };
+                    }
+                }
+            }
+            (false, false) => {}
+        }
+        let remainder = (side(left_left, left_rest), side(right_left, right_rest));
+        if decomposed || !problem.last_resort {
+            problem.postponed.push(remainder);
+            Ok(Outcome::Continue)
+        } else if switches.last_resort_clashes {
+            Ok(Outcome::Clash)
+        } else {
+            Err(UnresolvedShape::Collection)
         }
     }
 

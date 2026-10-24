@@ -122,6 +122,23 @@ pub(crate) struct Switches {
     /// Conditions: read an ML `\equals` between integer terms as showing its atoms defined, also
     /// when neither side is `ceil_free` (both sides undefined satisfy it).
     pub(crate) misread_equals_definedness: bool,
+    /// Unifier: decompose two maps on their first entries when no key is written alike on both
+    /// sides, committing to the case where those keys are equal.
+    pub(crate) decompose_unifiable_keys: bool,
+    /// Unifier (maps): count a map's rest as one entry in the size test.
+    pub(crate) size_counts_rest: bool,
+    /// Unifier (maps): clash two maps of different entry counts whatever their rests.
+    pub(crate) size_clash_ignores_rest: bool,
+    /// Unifier (maps): clash when one side has no entry left after the shared keys, whatever its
+    /// rest.
+    pub(crate) empty_clash_ignores_rest: bool,
+    /// Unifier (maps): bind a side's variable rest to the other side's remaining entries without
+    /// the other side's rest.
+    pub(crate) rest_binding_drops_rest: bool,
+    /// Unifier (maps): clash where a side with no entry left has an opaque (non-variable) rest.
+    pub(crate) raw_rest_clashes: bool,
+    /// Unifier (maps): clash a map equation left undecided at the last resort.
+    pub(crate) last_resort_clashes: bool,
 }
 
 #[cfg(test)]
@@ -172,6 +189,13 @@ thread_local! {
             misread_min_max: false,
             misplace_class_literal: false,
             misread_equals_definedness: false,
+            decompose_unifiable_keys: false,
+            size_counts_rest: false,
+            size_clash_ignores_rest: false,
+            empty_clash_ignores_rest: false,
+            rest_binding_drops_rest: false,
+            raw_rest_clashes: false,
+            last_resort_clashes: false,
         })
     };
 }

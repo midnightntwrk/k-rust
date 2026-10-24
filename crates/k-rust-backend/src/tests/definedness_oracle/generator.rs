@@ -1556,6 +1556,223 @@ pub(super) fn observed_through_a_map(definition: Definition) -> Definition {
         )
 }
 
+/// Maps decided by the unifier's map rule (`unify.rs`, `Unifier::maps`), one pair per decision
+/// whose defect would hide a real overlap with two different results (the definition then has
+/// no model, and the full check must name the pair), plus pairs that only show precision:
+///
+/// - `sk(K |-> mv0 M, K, J) = mk(1)` beside `sk(J |-> mv(1) M, K, J) = mk(2)`: keys not written
+///   alike, an overlap where `K` and `J` differ (`decompose_unifiable_keys`,
+///   `last_resort_clashes`);
+/// - `sa(K |-> mv0 M) = mk(1)` beside `sa(J |-> mv0 L |-> mv(1)) = mk(2)`: one entry and a rest
+///   against two closed entries, an overlap at `M = L |-> mv(1)` (`size_clash_ignores_rest`);
+/// - `one(K |-> V) = mk(0)` beside `one(J |-> W M) = mk(1)`: an overlap at `M = .Map`
+///   (`size_counts_rest`, P7-KEVM-S2B);
+/// - `sb(K |-> mv0 M, K) = mk(1)` beside `sb(K |-> mv0 J |-> mv(1) N, K) = mk(2)`: no entry
+///   left on one side with a variable rest, an overlap at `M = J |-> mv(1) N`
+///   (`empty_clash_ignores_rest`);
+/// - `sc(K |-> mv0 M, K) = kmk(M)` beside `sc(K |-> mv0 J |-> mv(1) N, K) = kmk(J |-> mv(1))`:
+///   the reducts differ exactly where `N` is not empty (`rest_binding_drops_rest`);
+/// - precision only: `sv(K |-> mv0 M, K) = mk(1)` beside `sv(K |-> mv(1) M, K) = mk(2)` (a key
+///   has one value: no overlap) and `em(.Map) = mk(0)` beside `em(K |-> V M) = mk(1)`;
+/// - `sd(K |-> mv0 K |-> mv(1), K) = mk(1)` beside `sd(K |-> V M, K) = mk(2)`: a left-hand side
+///   that repeats a key, and so has no instance.
+pub(super) fn same_key_maps(definition: Definition, rows: &[&str]) -> Definition {
+    let item = |key: Pat, value: Pat| app("mapItem", vec![key, value]);
+    let concat = |left: Pat, right: Pat| app("mapConcat", vec![left, right]);
+    let rest = |name: &str| var(name, "Map");
+    let mv1 = || app("mv", vec![int(1)]);
+    let mk = |value: i64| app("mk", vec![int(value)]);
+    let mut definition = definition
+        .with_collections()
+        .constructor("kmk", &["Map"], "S");
+    if rows.contains(&"sk") {
+        definition = definition
+            .head("sk", &["Map", "Int", "Int"], "S")
+            .equation(
+                app(
+                    "sk",
+                    vec![
+                        concat(item(int_var("VarK"), cons("mv0")), rest("VarM")),
+                        int_var("VarK"),
+                        int_var("VarJ"),
+                    ],
+                ),
+                mk(1),
+            )
+            .equation(
+                app(
+                    "sk",
+                    vec![
+                        concat(item(int_var("VarJ"), mv1()), rest("VarM")),
+                        int_var("VarK"),
+                        int_var("VarJ"),
+                    ],
+                ),
+                mk(2),
+            );
+    }
+    if rows.contains(&"sa") {
+        definition = definition
+            .head("sa", &["Map"], "S")
+            .equation(
+                app(
+                    "sa",
+                    vec![concat(item(int_var("VarK"), cons("mv0")), rest("VarM"))],
+                ),
+                mk(1),
+            )
+            .equation(
+                app(
+                    "sa",
+                    vec![concat(
+                        item(int_var("VarJ"), cons("mv0")),
+                        item(int_var("VarL"), mv1()),
+                    )],
+                ),
+                mk(2),
+            );
+    }
+    if rows.contains(&"one") {
+        definition = definition
+            .head("one", &["Map"], "S")
+            .equation(
+                app("one", vec![item(int_var("VarK"), var("VarV", "Mv"))]),
+                mk(0),
+            )
+            .equation(
+                app(
+                    "one",
+                    vec![concat(
+                        item(int_var("VarJ"), var("VarW", "Mv")),
+                        rest("VarM"),
+                    )],
+                ),
+                mk(1),
+            );
+    }
+    if rows.contains(&"sb") {
+        definition = definition
+            .head("sb", &["Map", "Int"], "S")
+            .equation(
+                app(
+                    "sb",
+                    vec![
+                        concat(item(int_var("VarK"), cons("mv0")), rest("VarM")),
+                        int_var("VarK"),
+                    ],
+                ),
+                mk(1),
+            )
+            .equation(
+                app(
+                    "sb",
+                    vec![
+                        concat(
+                            item(int_var("VarK"), cons("mv0")),
+                            concat(item(int_var("VarJ"), mv1()), rest("VarN")),
+                        ),
+                        int_var("VarK"),
+                    ],
+                ),
+                mk(2),
+            );
+    }
+    if rows.contains(&"sc") {
+        definition = definition
+            .head("sc", &["Map", "Int"], "S")
+            .equation(
+                app(
+                    "sc",
+                    vec![
+                        concat(item(int_var("VarK"), cons("mv0")), rest("VarM")),
+                        int_var("VarK"),
+                    ],
+                ),
+                app("kmk", vec![rest("VarM")]),
+            )
+            .equation(
+                app(
+                    "sc",
+                    vec![
+                        concat(
+                            item(int_var("VarK"), cons("mv0")),
+                            concat(item(int_var("VarJ"), mv1()), rest("VarN")),
+                        ),
+                        int_var("VarK"),
+                    ],
+                ),
+                app("kmk", vec![item(int_var("VarJ"), mv1())]),
+            );
+    }
+    if rows.contains(&"sv") {
+        definition = definition
+            .head("sv", &["Map", "Int"], "S")
+            .equation(
+                app(
+                    "sv",
+                    vec![
+                        concat(item(int_var("VarK"), cons("mv0")), rest("VarM")),
+                        int_var("VarK"),
+                    ],
+                ),
+                mk(1),
+            )
+            .equation(
+                app(
+                    "sv",
+                    vec![
+                        concat(item(int_var("VarK"), mv1()), rest("VarM")),
+                        int_var("VarK"),
+                    ],
+                ),
+                mk(2),
+            );
+    }
+    if rows.contains(&"em") {
+        definition = definition
+            .head("em", &["Map"], "S")
+            .equation(app("em", vec![cons("mapUnit")]), mk(0))
+            .equation(
+                app(
+                    "em",
+                    vec![concat(
+                        item(int_var("VarK"), var("VarV", "Mv")),
+                        rest("VarM"),
+                    )],
+                ),
+                mk(1),
+            );
+    }
+    if rows.contains(&"sd") {
+        definition = definition
+            .head("sd", &["Map", "Int"], "S")
+            .equation(
+                app(
+                    "sd",
+                    vec![
+                        concat(
+                            item(int_var("VarK"), cons("mv0")),
+                            item(int_var("VarK"), mv1()),
+                        ),
+                        int_var("VarK"),
+                    ],
+                ),
+                mk(1),
+            )
+            .equation(
+                app(
+                    "sd",
+                    vec![
+                        concat(item(int_var("VarK"), var("VarV", "Mv")), rest("VarM")),
+                        int_var("VarK"),
+                    ],
+                ),
+                mk(2),
+            );
+    }
+    definition
+}
+
 /// An equation on a hooked collection that disagrees with the hook where the claims are kept:
 /// `S ++ .Set = SetItem(mv(2)) requires size(S) ==Int 1`, indexed at the bare variable `S` (the
 /// unit law normalizes its left-hand side to `S`). At `S := SetItem(mv0)` the left-hand side
@@ -1665,6 +1882,18 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
     templates.push((
         "axiom template observed through a map".into(),
         observed_through_a_map(Definition::new(&[])),
+    ));
+    // One definition per row whose defect hides an overlap: in one definition the other rows'
+    // named pairs would keep the check from accepting it.
+    for row in ["sk", "sa", "one", "sb", "sc"] {
+        templates.push((
+            format!("axiom template same-key maps ({row})"),
+            same_key_maps(Definition::new(&[]), &[row]),
+        ));
+    }
+    templates.push((
+        "axiom template same-key maps (precision)".into(),
+        same_key_maps(Definition::new(&[]), &["sv", "em", "sd"]),
     ));
     templates
 }
