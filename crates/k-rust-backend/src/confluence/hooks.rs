@@ -29,7 +29,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use k_rust_kore::names::BuiltinSort;
+use k_rust_kore::names::{BuiltinSort, DEFAULT_RULE_PRIORITY, OWISE_RULE_PRIORITY};
 
 use crate::{
     definition::BackendDefinition,
@@ -475,6 +475,9 @@ impl Builder<'_, '_> {
     /// after it (non-overlapping), with valid `substr` indices. Only evaluated builtins and the
     /// hooked symbol itself occur.
     fn replace_all(&mut self) -> Option<()> {
+        if let Some(replace) = domains_replace(self.definition()) {
+            return self.replace_all_lemma(replace);
+        }
         let (source, target, replacement) = (
             self.variable("S", 0)?,
             self.variable("T", 1)?,
@@ -508,6 +511,44 @@ impl Builder<'_, '_> {
         let head = self.call("STRING.concat", vec![before, replacement], string)?;
         let rhs = self.call("STRING.concat", vec![head, replaced], string)?;
         self.equation(lhs, rhs, vec![present, nonempty]);
+        Some(())
+    }
+
+    /// `replaceAll(S, T, R) = replace(S, T, R, countAllOccurrences(S, T)) requires T =/=String ""`,
+    /// where `replace` is domains.md's own symbol read by exactly domains.md's two equations
+    /// ([`domains_replace`]). Then `replace` is a fixed function the definition cannot change,
+    /// and the equation is an identity of the builtin, by induction on `n = count(S, T)` for a
+    /// nonempty `T`: `n > 0` exactly when `find(S, T, 0) >= 0`; when `n > 0` the first row
+    /// (`requires Count >Int 0 andBool find >=Int 0`) applies, giving the prefix before the first
+    /// occurrence, `R`, and `replace` of the suffix after it, whose count is `n - 1`, which is the
+    /// builtin's prefix, `R` and `replaceAll` of that suffix; when `n = 0`, `find < 0` and the
+    /// first row does not apply, so the `owise` row (`requires Count >=Int 0`) gives `S`, the
+    /// builtin's result; and `n >= 0` always, so `replace`'s undefined `Count < 0` is never reached.
+    /// It covers every step the builtin takes (on a nonempty `T`), so it alone is `replaceAll`'s
+    /// written meaning there: pairing an equation with a covering set of identities of the builtin
+    /// suffices, and domains.md's own `replaceAll` equation, whose right-hand side is this one's,
+    /// joins it.
+    fn replace_all_lemma(&mut self, replace: Arc<Symbol>) -> Option<()> {
+        let (source, target, replacement) = (
+            self.variable("S", 0)?,
+            self.variable("T", 1)?,
+            self.variable("R", 2)?,
+        );
+        let count = self.call(
+            "STRING.countAllOccurrences",
+            vec![source.clone(), target.clone()],
+            Sort::builtin(BuiltinSort::Int),
+        )?;
+        let arguments = vec![source.clone(), target.clone(), replacement.clone(), count];
+        if arguments.iter().map(Term::sort).collect::<Vec<_>>() != replace.argument_sorts
+            || replace.result_sort != self.result
+        {
+            return None;
+        }
+        let rhs = Term::application(replace, Vec::<Sort>::new(), arguments);
+        let nonempty = self.nonempty(&target)?;
+        let lhs = self.own(vec![source, target, replacement]);
+        self.equation(lhs, rhs, vec![nonempty]);
         Some(())
     }
 
@@ -547,6 +588,48 @@ impl Builder<'_, '_> {
         self.equation(lhs, rhs, vec![present, nonempty]);
         Some(())
     }
+}
+
+/// The KORE name domains.md's `replace` production gets (module `STRING-COMMON`).
+const DOMAINS_REPLACE: &str = "Lblreplace'LParUndsCommUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String'Unds'Int";
+
+/// domains.md's `replace` symbol, when the definition reads it by exactly domains.md's two
+/// equations, so that its meaning is fixed: the symbol is the one domains.md declares (its name is
+/// the label of domains.md's production in module `STRING-COMMON`; `STRING.replace` has no
+/// builtin, so its hook identifies nothing), and its equations, at every priority and `symbolic`
+/// ones included, are exactly domains.md's rows 1911 (priority 50) and 1915 (`owise`), by origin
+/// (each equation's one written sentence has the source `domains.md` and that line; a compiled
+/// definition records every axiom in its main module, so the module says nothing) and by priority. `None` otherwise: another equation for it, at any priority, makes it whatever the
+/// definition says.
+pub(crate) fn domains_replace(definition: &BackendDefinition) -> Option<Arc<Symbol>> {
+    let symbol = definition.symbols().get(DOMAINS_REPLACE)?;
+    if symbol.attributes.hook.as_deref() != Some("STRING.replace") {
+        return None;
+    }
+    let rules = definition
+        .function_theory()
+        .get(&crate::rule::TermIndex::Symbol(symbol.name.clone()))?
+        .values()
+        .flatten()
+        .collect::<Vec<_>>();
+    let row = |rule: &RewriteRule| -> Option<usize> {
+        let [origin] = rule.attributes.origins.as_slice() else {
+            return None;
+        };
+        let position = origin.written_position()?;
+        let mut parts = position.rsplitn(3, ':');
+        let (_column, line, source) = (parts.next()?, parts.next()?, parts.next()?);
+        (source == "domains.md" || source.ends_with("/domains.md"))
+            .then(|| line.parse().ok())
+            .flatten()
+    };
+    let mut rows = rules
+        .iter()
+        .map(|rule| Some((row(rule)?, rule.attributes.priority)))
+        .collect::<Option<Vec<_>>>()?;
+    rows.sort_unstable();
+    (rows == [(1911, DEFAULT_RULE_PRIORITY), (1915, OWISE_RULE_PRIORITY)])
+        .then(|| Arc::clone(symbol))
 }
 
 /// The hook of the symbol an executable equation is rooted at, when that symbol carries one.

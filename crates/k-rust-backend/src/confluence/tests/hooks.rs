@@ -158,11 +158,12 @@ fn the_load_pairs_only_relevant_equations_with_their_hooks() {
     assert_eq!(all(&definition).unjoined().len(), 1);
 }
 
-/// FUN's prelude holds every equation of `domains.md` at a hooked symbol: each one at an
-/// evaluated hook joins every equation of its hook's meaning, but `replaceAll(S, T, R) =>
-/// replace(S, T, R, countAllOccurrences(S, T))`, which agrees with the builtin only through what
-/// `replace`'s equations make `replace` (no fixed identity of the builtin), and is named against
-/// both equations of `replaceAll`'s meaning.
+/// FUN's prelude holds every equation of `domains.md` at a hooked symbol, with the source
+/// locations stripped: each one at an evaluated hook joins every equation of its hook's meaning,
+/// but `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))`. Its `replace`
+/// equations cannot be identified as domains.md's by origin here, so the guarded lemma that would
+/// join it is absent (`hooks::domains_replace`), and it is named against both equations of the
+/// meaning written by evaluated builtins.
 #[test]
 fn the_preludes_hooked_equations_join_their_hooks_meanings() {
     let definition = prelude();
@@ -205,7 +206,9 @@ fn prelude() -> BackendDefinition {
 
 /// Review A, B1: a written meaning is a fixed identity of a builtin, so besides the hooked symbol
 /// itself it names only constructors, literals and symbols whose hook the evaluator applies,
-/// never a symbol whose meaning the definition's equations supply (`STRING.replace`).
+/// never a symbol whose meaning the definition's equations supply (`STRING.replace`), except
+/// domains.md's own `replace` while it is read by exactly domains.md's equations
+/// (`hooks::domains_replace`; in this fixture, whose locations are stripped, it is not).
 #[test]
 fn every_written_meaning_names_only_evaluated_builtins() {
     use crate::{
@@ -239,6 +242,7 @@ fn every_written_meaning_names_only_evaluated_builtins() {
             })
             .collect();
         let lhs = Term::application(std::sync::Arc::clone(symbol), sort_arguments, arguments);
+        let guarded = crate::confluence::hooks::domains_replace(&definition);
         let Meaning::Built(rules) = meaning(&symbols, hook, &lhs) else {
             panic!("{hook} has no written meaning in the prelude");
         };
@@ -255,6 +259,9 @@ fn every_written_meaning_names_only_evaluated_builtins() {
             for term in terms {
                 term.visit_symbols(&mut |used| {
                     let fixed = used.name == symbol.name
+                        || guarded
+                            .as_ref()
+                            .is_some_and(|replace| replace.name == used.name)
                         || used.attributes.head_role() == HeadRole::FreeConstructor
                         || matches!(term.kind(), TermKind::DomainValue { .. })
                         || used

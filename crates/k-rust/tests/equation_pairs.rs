@@ -400,13 +400,11 @@ fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals()
 }
 
 /// Every executable equation `domains.md` writes at a hooked symbol, in a module importing every
-/// domains module: none is at an evaluated hook without a written meaning, the nine at
-/// `STRING.findChar`, `rfindChar`, `replaceFirst`, `replace` and `LIST.push`, hooks no builtin
-/// implements, are read as their hooks' meaning and paired with nothing, and each one at a hook
-/// the evaluator applies joins every equation of its hook's written meaning but one:
-/// `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))`. Whether it agrees with
-/// the builtin depends on what `replace`'s equations make `replace` (an inductive fact about them
-/// that no join shows), so it is named against both equations of `replaceAll`'s meaning.
+/// domains module: each one at a hook the evaluator applies joins every equation of its hook's
+/// written meaning, none is at an evaluated hook without one, and the nine at `STRING.findChar`,
+/// `rfindChar`, `replaceFirst`, `replace` and `LIST.push`, hooks no builtin implements, are read
+/// as their hooks' meaning and paired with nothing. `replaceAll`'s equation joins the guarded
+/// lemma of its meaning, since `replace` is read by exactly domains.md's two equations here.
 #[test]
 fn the_domains_equations_at_hooked_symbols_agree_with_their_hooks() {
     let source = r#"module ALL-DOMAINS
@@ -432,36 +430,14 @@ endmodule
     let definition = backend.select_definition(None).unwrap();
     let all = definition.value_claims_in_scope(CheckScope::All);
     let counts = all.counts();
-    let named = all
-        .unjoined()
-        .iter()
-        .map(|pair| {
-            (
-                pair.hook.as_ref().map(ToString::to_string),
-                pair.second.attributes.label.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let replace_all = Some("STRING.replaceAll".to_owned());
-    assert_eq!(
-        named,
-        [
-            (
-                replace_all.clone(),
-                Some("STRING.replaceAll meaning 1".to_owned())
-            ),
-            (replace_all, Some("STRING.replaceAll meaning 2".to_owned())),
-        ],
-        "{:#?}",
-        all.unjoined()
-    );
+    assert!(all.unjoined().is_empty(), "{:#?}", all.unjoined());
     assert_eq!(
         (
             counts.hook.unevaluated,
             counts.hook.unmodelled,
             counts.hook.not_joined
         ),
-        (9, 0, 2),
+        (9, 0, 0),
         "{:?}",
         counts.hook
     );
@@ -636,6 +612,17 @@ fn a_written_meaning_reads_no_equation_of_the_definition() {
     let all = definition.value_claims_in_scope(CheckScope::All);
     let findings = hook_findings(&all, "mine");
     assert!(!findings.is_empty(), "{:#?}", all.unjoined());
+    // `#aReplace`'s equation is not domains.md's, so `replace` is still read by exactly
+    // domains.md's equations, the guarded lemma is built, and domains.md's `replaceAll` equation
+    // joins it: the only hook pairs named are `mine`'s.
+    assert!(
+        all.unjoined()
+            .iter()
+            .filter(|pair| pair.hook.is_some())
+            .all(|pair| pair.first.attributes.label.as_deref() == Some("PAIRS.mine")),
+        "{:#?}",
+        all.unjoined()
+    );
     assert!(
         findings
             .iter()
@@ -718,5 +705,34 @@ fn min_and_max_bound_their_operands_in_the_right_direction() {
   rule [b]: mm(X, Y) => 2"
         )),
         []
+    );
+}
+
+/// Coordinator's decision on domains.md 1917: `replaceAll(S, T, R) = replace(S, T, R,
+/// countAllOccurrences(S, T))` is part of `replaceAll`'s written meaning only while `replace` is
+/// read by exactly domains.md's two equations. A higher-priority `replace` equation changes what
+/// `replace` means, so the lemma is absent, and domains.md's `replaceAll` equation, which now
+/// disagrees with the builtin, is named against the meaning written by `findString`,
+/// `substrString`, `lengthString` and `+String`.
+#[test]
+fn a_redefined_replace_leaves_the_replace_all_equation_unshown() {
+    let definition = definition(
+        "  rule [mine]: replace(S, _, _, _) => S [priority(10)]",
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let replace_all = all
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.hook.as_deref() == Some("STRING.replaceAll"))
+        .map(|pair| pair.second.attributes.label.clone().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(!replace_all.is_empty(), "{:#?}", all.unjoined());
+    assert!(
+        replace_all
+            .iter()
+            .all(|label| label == "STRING.replaceAll meaning 1"
+                || label == "STRING.replaceAll meaning 2"),
+        "{replace_all:?}"
     );
 }

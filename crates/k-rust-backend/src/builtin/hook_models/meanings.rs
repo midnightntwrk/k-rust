@@ -569,3 +569,77 @@ fn every_builtin_step_on_variables_is_an_instance_of_a_written_meaning() {
     assert!(stepped >= 10, "the builtin stepped on {stepped} cases only");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// The guarded lemma of `replaceAll`'s meaning (`confluence/hooks.rs`, `replace_all_lemma`):
+/// `replaceAll(S, T, R) = replace(S, T, R, countAllOccurrences(S, T))` for a nonempty `T`, with
+/// `replace` read by domains.md's two equations. The left side is evaluated by the builtin, the
+/// right side through the prelude's `replace` equations (domains.md's rows, priority 50 and
+/// `owise`), on the edge values of `replaceAll`'s tests: multibyte strings and self-overlapping
+/// patterns (`"aaa"` with `"aa"`).
+#[test]
+fn the_replace_all_lemma_agrees_with_the_builtin_through_domains_replace() {
+    let definition = prelude();
+    let named = |hook: &str| {
+        definition
+            .symbols()
+            .values()
+            .find(|symbol| symbol.attributes.hook.as_deref() == Some(hook))
+            .unwrap_or_else(|| panic!("no symbol hooked {hook}"))
+            .name
+            .to_string()
+    };
+    let (replace, count) = (named("STRING.replace"), named("STRING.countAllOccurrences"));
+    let priorities = definition
+        .function_theory()
+        .get(&crate::rule::TermIndex::Symbol(replace.as_str().into()))
+        .expect("replace has equations")
+        .iter()
+        .flat_map(|(priority, rules)| rules.iter().map(move |_| *priority))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        priorities,
+        [
+            k_rust_kore::names::DEFAULT_RULE_PRIORITY,
+            k_rust_kore::names::OWISE_RULE_PRIORITY
+        ]
+    );
+    let domains = domains("STRING.replaceAll");
+    let (mut checked, mut failures) = (0, Vec::new());
+    for source in &domains[0] {
+        for target in &domains[1] {
+            if matches!(target, Val::Str(text) if text.is_empty()) {
+                continue;
+            }
+            for replacement in &domains[2] {
+                let [s, t, r] = [source, target, replacement].map(Val::kore);
+                let subject = term(
+                    &definition,
+                    &application(
+                        &definition,
+                        "STRING.replaceAll",
+                        &[s.clone(), t.clone(), r.clone()],
+                    ),
+                );
+                let Ok(Ok(BuiltinResult::Value(expected))) =
+                    evaluate_in_definition(&subject, &definition)
+                else {
+                    failures.push(format!("{source:?} {target:?}: the builtin takes no step"));
+                    continue;
+                };
+                let lemma = term(
+                    &definition,
+                    &format!("{replace}{{}}({s}, {t}, {r}, {count}{{}}({s}, {t}))"),
+                );
+                checked += 1;
+                let found = evaluated(&definition, &lemma);
+                if found != Ok(Some(expected.clone())) {
+                    failures.push(format!(
+                        "{source:?} {target:?} {replacement:?}: the builtin gives {expected:?}, replace {found:?}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(checked > 100, "{checked} instances checked");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
