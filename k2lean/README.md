@@ -64,7 +64,27 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
 | `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
 | `demos/k/kimp-inv`, `demos/k/kimp-keys`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
-| `demos/claims` | K claims of kimp proved in Lean, generically or by hand |
+| `demos/claims` | K claims of kimp proved in Lean, generically or by hand; claims under an invariant; the termination of kimp's expressions |
+| `demos/ImpRelClaims` | a K claim proved on kimp holds for the KRS IMP port, through `relate`'s bisimulation |
+
+## Claims
+
+`k2lean claims` states the `claim` sentences of specifications compiled with `krust kcompile --for-proving` as Lean propositions over a generated library, and proves them with the claim tactic of `lean/claims` (`KClaims`); the gate runs it on kimp's specs (`tests/gate.sh`, heavy tier):
+
+```sh
+target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/definition.kore \
+  --out out/generated/my-claims --name MyClaims --semantics My --semantics-path ../my \
+  --kclaims-path ../../lean/claims [--open OPEN.txt] [--hand MODULE]…
+```
+
+| option | does |
+|---|---|
+| `--open FILE` | claims (and induction obligations) that get no generic proof: false ones, or ones proved by hand in a `--hand` module |
+| `--assume-invariant NAME` | every claim is stated for the configurations satisfying the preserved invariant `NAME` (`NAME.preserved : Preserved Step NAME`; `--invariant-preserved`, `--invariant-module`), which its proof carries along every step; `--invariant-unfold FILE` gives the unfolding set (a kind 1 library's `Invariants.lean`) |
+| `--induction FILE` | the termination of a sublanguage of a syntax sort (TOML: classes and constructor typings), by structural induction, one obligation per typing |
+
+A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`).
+`docs/design.md`, §3.2, says what each statement means and how it is proved.
 
 ## Large definitions
 
