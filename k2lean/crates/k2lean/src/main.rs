@@ -603,6 +603,27 @@ fn main() {
                     .expect("--equations-part-weight: a positive integer"),
                 None => EQUATIONS_PART_WEIGHT,
             };
+            // the heartbeat budget of each proof (`eqns::Budget`)
+            let mut budget = eqns::Budget::default();
+            if let Some(i) = a.rest.iter().position(|x| x == "--equations-heartbeats") {
+                budget.default = a.rest[i + 1]
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|h| *h > 0)
+                    .expect("--equations-heartbeats: a positive integer");
+            }
+            if let Some(i) = a
+                .rest
+                .iter()
+                .position(|x| x == "--equations-heartbeats-file")
+            {
+                let f = &a.rest[i + 1];
+                let text = std::fs::read_to_string(f)
+                    .unwrap_or_else(|e| panic!("--equations-heartbeats-file {f}: {e}"));
+                budget
+                    .read_overrides(&text, &stated)
+                    .unwrap_or_else(|e| panic!("--equations-heartbeats-file {f}: {e}"));
+            }
             let _ = std::fs::remove_dir_all(out.join(ns).join("Equations"));
             let eq_weight: usize = stated.iter().map(|s| eqns::weight(s, &fgen.unfold)).sum();
             let mut eq_modules = 0;
@@ -615,6 +636,7 @@ fn main() {
                 &fgen.recursive,
                 &fgen.list_recursive,
                 part_weight,
+                &budget,
             ) {
                 write(
                     &out.join(ns).join(format!("{path}.lean")),

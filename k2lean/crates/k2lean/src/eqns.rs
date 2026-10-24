@@ -519,7 +519,17 @@ fn emit(
     unfold: &[String],
     recursive: &BTreeSet<String>,
 ) -> String {
-    emit_with(ns, stated, open, &[], unfold, recursive, &BTreeSet::new())
+    let budget = Budget::default();
+    emit_with(
+        ns,
+        stated,
+        open,
+        &[],
+        unfold,
+        recursive,
+        &BTreeSet::new(),
+        &budget,
+    )
 }
 
 /// The definitions a theorem's proof may unfold: those its statement names, with their rule
@@ -541,6 +551,62 @@ fn own_defs<'a>(s: &Stated, defs: &'a [String]) -> Vec<&'a str> {
         .collect()
 }
 
+/// The heartbeat budget of each generated proof (Lean's `maxHeartbeats`, per declaration): the
+/// module's `default` (`gen --equations-heartbeats`), and for the theorems of `per_theorem` their
+/// own (`gen --equations-heartbeats-file`, lines `NAME HEARTBEATS`), written as
+/// `set_option maxHeartbeats N in` before the theorem. The budget bounds what a failing proof
+/// costs: a proof that the tactics cannot finish runs until it exhausts it.
+pub struct Budget {
+    pub default: usize,
+    pub per_theorem: BTreeMap<String, usize>,
+}
+
+/// The default budget of a generated proof. On KEVM's 1,111 statements (each elaborated alone,
+/// 2026-10-24), the 872 proved theorems used at most 315,000 heartbeats, 155,000 at the 99th
+/// percentile and 33,000 at the 95th; 15 used more than 67,000 (two thirds of this default) and
+/// are given 400,000 by `pipelines/kevm-heartbeats.txt`. The 53 proofs that ran out of 400,000
+/// took 60 to 1,114 s each, and most of the cost of the failing ones.
+pub const DEFAULT_HEARTBEATS: usize = 100_000;
+
+impl Budget {
+    /// Reads per-theorem budgets from `text`, lines `NAME HEARTBEATS` (blank lines and `#`
+    /// comments skipped; the name may hold spaces inside `«…»`, the budget is the last word).
+    /// A name that is not one of `stated` is an error: the file only raises budgets, so an entry
+    /// left behind by a renamed theorem would otherwise leave the renamed theorem at the default
+    /// without a word, and the first sign would be a proof out of heartbeats in a long build.
+    pub fn read_overrides(&mut self, text: &str, stated: &[Stated]) -> Result<(), String> {
+        let names: BTreeSet<&str> = stated.iter().map(|s| s.name.as_str()).collect();
+        let mut unknown = Vec::new();
+        for l in text.lines().map(str::trim) {
+            if l.is_empty() || l.starts_with('#') {
+                continue;
+            }
+            let (name, h) = l
+                .rsplit_once(char::is_whitespace)
+                .and_then(|(n, h)| Some((n.trim(), h.parse::<usize>().ok().filter(|h| *h > 0)?)))
+                .ok_or_else(|| format!("`{l}` is not `NAME HEARTBEATS`"))?;
+            if !names.contains(name) {
+                unknown.push(name.to_string());
+            }
+            self.per_theorem.insert(name.to_string(), h);
+        }
+        if unknown.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("names no generated theorem: {unknown:?}"))
+        }
+    }
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget {
+            default: DEFAULT_HEARTBEATS,
+            per_theorem: BTreeMap::new(),
+        }
+    }
+}
+
 /// `Equations.lean`: every stated equation and simplification, proved by the generic tactics or,
 /// when it is in `open`, stated as an open obligation. `base` (hook definitions and projection
 /// lemmas) is in every proof's simp set; of `defs` (the generated definitions) each proof gets
@@ -548,6 +614,7 @@ fn own_defs<'a>(s: &Stated, defs: &'a [String]) -> Vec<&'a str> {
 /// well-founded recursive (`funcs::Generated::recursive`); their equations get the recursive
 /// proof (`k2l_eqn_r`), and those of `list_recursive` (recursion on a builtin `List`) also
 /// `k2l_fold_eqn`.
+#[allow(clippy::too_many_arguments)]
 pub fn emit_with(
     ns: &str,
     stated: &[Stated],
@@ -556,6 +623,7 @@ pub fn emit_with(
     defs: &[String],
     recursive: &BTreeSet<String>,
     list_recursive: &BTreeSet<String>,
+    budget: &Budget,
 ) -> String {
     let cx = Cx {
         ns,
@@ -565,6 +633,7 @@ pub fn emit_with(
         recursive,
         list_recursive,
         rec_fns: rec_fns(stated, recursive),
+        budget,
     };
     emit_part(&cx, &stated.iter().collect::<Vec<_>>(), None)
 }
@@ -580,6 +649,7 @@ struct Cx<'a> {
     /// The recursive functions of all the statements, not only of one module's: `k2l_eqn_r` cases
     /// on their calls, so that a proof is the same whichever module it is in.
     rec_fns: BTreeSet<String>,
+    budget: &'a Budget,
 }
 
 /// The recursive function whose equation `s` is, if any.
@@ -604,6 +674,7 @@ fn emit_part(cx: &Cx, stated: &[&Stated], part: Option<(usize, usize)>) -> Strin
         defs,
         recursive,
         list_recursive,
+        budget,
         ..
     } = cx;
     let fold_import = if list_recursive.is_empty() {
@@ -621,7 +692,8 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
     };
     let mut o = format!(
         "import {ns}.Functions\nimport KPrelude.Tactic\n{fold_import}\n/-! Generated by k2lean; do not edit.\n\n\
-{doc} -/\n\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\nset_option maxHeartbeats 400000\nset_option maxRecDepth 100000\n\nnamespace {ns}\n\nopen KPrelude\n\n"
+{doc} -/\n\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\nset_option maxHeartbeats {hb}\nset_option maxRecDepth 100000\n\nnamespace {ns}\n\nopen KPrelude\n\n",
+        hb = budget.default
     );
     // the generic proofs, defined once with the shared simp lemmas; a theorem's script passes
     // the definitions it may unfold
@@ -699,8 +771,12 @@ all_goals first\n      \
                 s.what, s.name, prop
             ));
         } else {
+            let own_budget = match budget.per_theorem.get(&s.name) {
+                Some(h) if *h != budget.default => format!("set_option maxHeartbeats {h} in\n"),
+                _ => String::new(),
+            };
             o.push_str(&format!(
-                "/-- {} -/\ntheorem {}{} := {tac}\n\n",
+                "{own_budget}/-- {} -/\ntheorem {}{} := {tac}\n\n",
                 s.what, s.name, s.statement
             ));
         }
@@ -735,10 +811,20 @@ pub fn emit_modules(
     recursive: &BTreeSet<String>,
     list_recursive: &BTreeSet<String>,
     max_weight: usize,
+    budget: &Budget,
 ) -> Vec<(String, String)> {
     let weights: Vec<usize> = stated.iter().map(|s| weight(s, defs)).collect();
     if weights.iter().sum::<usize>() <= max_weight {
-        let whole = emit_with(ns, stated, open, base, defs, recursive, list_recursive);
+        let whole = emit_with(
+            ns,
+            stated,
+            open,
+            base,
+            defs,
+            recursive,
+            list_recursive,
+            budget,
+        );
         return vec![("Equations".into(), whole)];
     }
     let cx = Cx {
@@ -749,6 +835,7 @@ pub fn emit_modules(
         recursive,
         list_recursive,
         rec_fns: rec_fns(stated, recursive),
+        budget,
     };
     let assigned = parts(&weights, max_weight);
     let n = assigned.len();
@@ -903,13 +990,43 @@ mod tests {
         let rec: BTreeSet<String> = ["K.f".to_string()].into();
         let defs = vec!["K.g".to_string(), "K.g.rule1".to_string()];
         let open = BTreeSet::new();
-        let whole = emit_with("N", &sample(), &open, &[], &defs, &rec, &BTreeSet::new());
+        let bd = Budget::default();
+        let whole = emit_with(
+            "N",
+            &sample(),
+            &open,
+            &[],
+            &defs,
+            &rec,
+            &BTreeSet::new(),
+            &bd,
+        );
         let weights: Vec<usize> = sample().iter().map(|s| weight(s, &defs)).collect();
         // `Eqn.g_1` unfolds `K.g` and `K.g.rule1`; the others name no definition of `defs`
         assert_eq!(weights, vec![1, 3, 1]);
-        let one = emit_modules("N", &sample(), &open, &[], &defs, &rec, &BTreeSet::new(), 5);
+        let one = emit_modules(
+            "N",
+            &sample(),
+            &open,
+            &[],
+            &defs,
+            &rec,
+            &BTreeSet::new(),
+            5,
+            &bd,
+        );
         assert_eq!(one, vec![("Equations".to_string(), whole.clone())]);
-        let parts = emit_modules("N", &sample(), &open, &[], &defs, &rec, &BTreeSet::new(), 4);
+        let parts = emit_modules(
+            "N",
+            &sample(),
+            &open,
+            &[],
+            &defs,
+            &rec,
+            &BTreeSet::new(),
+            4,
+            &bd,
+        );
         let names: Vec<&str> = parts.iter().map(|(p, _)| p.as_str()).collect();
         assert_eq!(names, ["Equations/Part1", "Equations/Part2", "Equations"]);
         let (p1, p2, agg) = (&parts[0].1, &parts[1].1, &parts[2].1);
@@ -933,7 +1050,7 @@ mod tests {
             assert!(p.starts_with("import N.Functions\nimport KPrelude.Tactic\n"));
             assert!(
                 p.contains("local macro \"k2l_eqn_a\"")
-                    && p.contains("set_option maxHeartbeats 400000")
+                    && p.contains("set_option maxHeartbeats 100000")
             );
             assert!(p.ends_with("end N\n"));
         }
@@ -962,6 +1079,7 @@ mod tests {
             &rec,
             &BTreeSet::new(),
             4,
+            &bd,
         );
         assert_eq!(reparts.len(), 3);
         assert!(reparts[0].1.contains("theorem Eqn.f_1") && reparts[0].1.contains("theorem Simp."));
@@ -970,8 +1088,57 @@ mod tests {
             "{}",
             reparts[1].1
         );
-        let tiny = emit_modules("N", &sample(), &open, &[], &defs, &rec, &BTreeSet::new(), 1);
+        // the module's budget in its header, a theorem's own before it
+        let mut own = Budget::default();
+        own.per_theorem.insert("Eqn.g_1".into(), 400_000);
+        let b = emit_with(
+            "N",
+            &sample(),
+            &open,
+            &[],
+            &defs,
+            &rec,
+            &BTreeSet::new(),
+            &own,
+        );
+        assert!(b.contains("set_option maxHeartbeats 100000\n"));
+        assert!(
+            b.contains("set_option maxHeartbeats 400000 in\n/-- "),
+            "{b}"
+        );
+        assert_eq!(b.matches(" in\n/-- ").count(), 1);
+        let tiny = emit_modules(
+            "N",
+            &sample(),
+            &open,
+            &[],
+            &defs,
+            &rec,
+            &BTreeSet::new(),
+            1,
+            &bd,
+        );
         assert_eq!(tiny.len(), 4);
+    }
+
+    /// The overrides file names generated theorems only: a name that no statement has (a renamed
+    /// or removed theorem) is an error, and so is a line without a positive budget.
+    #[test]
+    fn overrides_name_generated_theorems() {
+        let mut b = Budget::default();
+        b.read_overrides("# comment\n\nEqn.g_1 400000\n", &sample())
+            .unwrap();
+        assert_eq!(b.per_theorem.get("Eqn.g_1"), Some(&400_000));
+        let e = Budget::default()
+            .read_overrides("Eqn.g_1 400000\nEqn.gone_1 400000\n", &sample())
+            .unwrap_err();
+        assert!(e.contains("Eqn.gone_1") && !e.contains("Eqn.g_1\""), "{e}");
+        for bad in ["Eqn.g_1", "Eqn.g_1 many", "Eqn.g_1 0"] {
+            assert!(
+                Budget::default().read_overrides(bad, &sample()).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     /// Statements of equal weight go round the parts in turn, so that consecutive statements (one

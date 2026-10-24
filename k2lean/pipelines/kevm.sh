@@ -39,7 +39,8 @@
 #   LEAN_J           Lean threads per module (default 8); CAP seconds per target (default 3600);
 #   ADQ_HB           Adequacy's heartbeat bound per declaration (default 2000000);
 #   RULE_MODULES     matcher modules (default 4); EQ_WEIGHT the bound on one Equations module's
-#                    weight (default: the generator's)
+#                    weight, EQ_HB the heartbeat budget of an Equations proof (defaults: the
+#                    generator's; the theorems of kevm-heartbeats.txt keep their own)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -70,6 +71,7 @@ case $step in
     "$RT" "$K2LEAN" gen --kore "$OUT/kore/definition.kore" --runtime "$OUT/kore/runtime.json" --out "$lib" \
       --name KEvm --prelude "$root/k2lean/lean/prelude" --arity-terms --termination "$here/kevm-termination.toml" \
       --open-obligations "$OUT/open-obligations.txt" ${EQ_WEIGHT:+--equations-part-weight "$EQ_WEIGHT"} \
+      --equations-heartbeats-file "$here/kevm-heartbeats.txt" ${EQ_HB:+--equations-heartbeats "$EQ_HB"} \
       > "$logs/gen.log" 2>&1
     python3 -I "$here/split-rules.py" "$lib" KEvm "$RULE_MODULES"
     sed -i 's/^  leanOptions := #\[⟨`autoImplicit, false⟩\]$/&\n  moreLeanArgs := #["-j", "'"$LEAN_J"'"]/' "$lib/lakefile.lean"
