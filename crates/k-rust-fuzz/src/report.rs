@@ -751,9 +751,9 @@ pub struct DefinitionFinding {
     /// Which definition's check reports it.
     pub side: DefinitionRole,
     /// `genuine` when a ground instance is exhibited at which both equations apply and the input
-    /// has two normal forms, so k-rust's result for it depends on the order it tries the
-    /// equations (a defect of the definition); `undecided` otherwise: not shown to join, which
-    /// may be a limit of the check as well as a defect.
+    /// has two normal forms, so k-rust's result for that input depends on the order in which it
+    /// tries the equations; `undecided` otherwise: not shown to join, which may be a limit of the
+    /// check as well as an input with two normal forms.
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,
