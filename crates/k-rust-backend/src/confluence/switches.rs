@@ -95,6 +95,8 @@ pub(crate) struct Switches {
     /// Simplify every condition of the check, reusing no answer (`ConditionMemo::Off` at every
     /// load, so that the oracle runs on definitions loaded without the memo).
     pub(crate) no_condition_memo: bool,
+    /// Hook gap: pair no equation at an evaluated hook with the hook's written meaning.
+    pub(crate) skip_hook_pairs: bool,
 }
 
 #[cfg(test)]
@@ -135,6 +137,7 @@ thread_local! {
             relevance_ignores_tobs: false,
             relevance_needs_both: false,
             no_condition_memo: false,
+            skip_hook_pairs: false,
         })
     };
 }

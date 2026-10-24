@@ -342,7 +342,13 @@ fn confluence_findings(verdict: &crate::confluence::ValueClaims) -> Vec<String> 
         })
         .collect();
     findings.extend(verdict.unjoined().iter().map(|pair| {
-        if pair.reason.describes_one_equation() {
+        if let Some(hook) = &pair.hook {
+            format!(
+                "the equation {} is not shown to agree with its hook {hook} ({})",
+                name(&pair.first),
+                pair.reason
+            )
+        } else if pair.reason.describes_one_equation() {
             format!(
                 "the equation {} is not applied to every subject it describes ({})",
                 name(&pair.first),

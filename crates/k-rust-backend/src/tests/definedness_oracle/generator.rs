@@ -1514,7 +1514,7 @@ pub(super) fn le_overlap(definition: Definition) -> Definition {
         )
 }
 
-/// Two equations of the hooked `hf` (whose hook never applies to an `A`) at one constructor,
+/// Two equations of the hooked `hf` (whose hook the evaluator never applies) at one constructor,
 /// of which only one mentions an equation head: `hf(c) = w(c)` beside `hf(c) = mk(1)`, with the
 /// value production `w`. They equate `w(c)` and `mk(1)`, so `w` can keep no claim; the hooked root
 /// links the two equations through no taintable symbol, so the pair is classified at the load
@@ -1569,6 +1569,30 @@ pub(super) fn hooked_disagreement() -> Definition {
     )
 }
 
+/// An equation at a symbol hooked to `KEQUAL.ite`, whose builtin the evaluator applies before
+/// any equation: `selA(B, X, X) = X`, an identity of selection, or `selA(B, X, Y) = Y`, which
+/// disagrees with the builtin where `B` is `true` (`selA(true, c, d)` is `c` by the hook and `d`
+/// by the equation), so the definition has no model and the full check must name the equation
+/// against the hook's written meaning (`confluence/hooks.rs`).
+pub(super) fn written_hook_meaning(definition: Definition, agrees: bool) -> Definition {
+    let rhs = if agrees {
+        var("VarX", "A")
+    } else {
+        var("VarY", "A")
+    };
+    definition.with_table_hooks().equation(
+        app(
+            "selA",
+            vec![
+                var("VarB", "Bool"),
+                var("VarX", "A"),
+                var(if agrees { "VarX" } else { "VarY" }, "A"),
+            ],
+        ),
+        rhs,
+    )
+}
+
 /// The definitions of the classes the oracle's engine cannot evaluate, or that the oracle's
 /// templates do not hold, for the axiom-instance harness (`axioms`): two maximal common
 /// subsorts with `requires` that differ per unifier, maps and sets with self pairs, hooked
@@ -1603,6 +1627,12 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
         "axiom template hooked equations".into(),
         hooked_equations(base()).0,
     ));
+    for agrees in [true, false] {
+        templates.push((
+            format!("axiom template written hook meaning (agrees {agrees})"),
+            written_hook_meaning(base(), agrees),
+        ));
+    }
     templates.push((
         "axiom template variable-indexed head".into(),
         variable_indexed_head(base()).0,

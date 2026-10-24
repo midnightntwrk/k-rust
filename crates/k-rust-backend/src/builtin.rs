@@ -11,6 +11,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 mod bytes;
 mod collection_item;
 mod declaration_facts;
+mod evaluated;
 mod float;
 #[cfg(test)]
 mod hook_models;
@@ -28,6 +29,7 @@ pub use crate::collection_role::{
     CollectionKind, CollectionRole, RoleDeclaration, misfit as collection_role_misfit,
 };
 pub use declaration_facts::DeclarationFacts;
+pub(crate) use evaluated::evaluates;
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
 pub(crate) use hook_signature::{LoadedSorts, render as render_sort};
 pub(crate) use result_collection::{ResultCollection, stored_at};

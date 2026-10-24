@@ -1502,6 +1502,7 @@ fn group_counts_name_the_refuted_pair() {
     assert_eq!((load.equations, load.root_pairs), (2, 0), "{load:?}");
 }
 
+mod hooks;
 mod review_one;
 mod review_two;
 mod scope;

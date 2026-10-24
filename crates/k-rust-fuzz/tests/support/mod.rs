@@ -722,6 +722,13 @@ pub const R3_PLAINQ_PROGRAMS: &[Program] = &[program!("r3-plainq/go.pgm")];
 fixture!(R3_PLAINQ, "r3-plainq/b.k", "PQ", R3_PLAINQ_PROGRAMS);
 fixture!(R3_PLAINQ_M, "r3-plainq/m.k", "PQ", R3_PLAINQ_PROGRAMS);
 
+/// FZ-DATAEND review round 4 (r4-hookite): an equation at a symbol hooked to `KEQUAL.ite` that
+/// disagrees with the builtin, which the evaluator applies first; each baseline stores `a` and
+/// its mutant `bb`, which its theory equates.
+pub const R4_HOOKITE_PROGRAMS: &[Program] = &[program!("r4-hookite/go.pgm")];
+fixture!(R4_HOOKITE, "r4-hookite/b.k", "HI", R4_HOOKITE_PROGRAMS);
+fixture!(R4_HOOKITE_M, "r4-hookite/m.k", "HI", R4_HOOKITE_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -949,7 +956,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 74] = [
+pub static ALL: [&Fixture; 76] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1024,4 +1031,6 @@ pub static ALL: [&Fixture; 74] = [
     &R3_PROPAGATE_M,
     &R3_PLAINQ,
     &R3_PLAINQ_M,
+    &R4_HOOKITE,
+    &R4_HOOKITE_M,
 ];

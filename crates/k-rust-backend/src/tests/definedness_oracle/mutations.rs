@@ -410,6 +410,9 @@ axiom_mutation!(
     self_pair_ignores_ensures
 );
 axiom_mutation!(the_axiom_harness_sees_a_misread_int_le, misread_int_le);
+// The written-meaning template whose equation disagrees with `KEQUAL.ite` has no model; without
+// the hook pairs the full check names no pair for it.
+axiom_mutation!(the_axiom_harness_sees_skipped_hook_pairs, skip_hook_pairs);
 axiom_mutation!(
     the_axiom_harness_sees_relevance_that_needs_both_equations,
     relevance_needs_both

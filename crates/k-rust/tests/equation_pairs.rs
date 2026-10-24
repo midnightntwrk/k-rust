@@ -397,3 +397,48 @@ fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals()
         [UnjoinedReason::ConditionOpen]
     );
 }
+
+/// Every executable equation `domains.md` writes at a hooked symbol, in a module importing every
+/// domains module: each one at a hook the evaluator applies joins every equation of its hook's
+/// written meaning, none is at an evaluated hook without one, and the nine at `STRING.findChar`,
+/// `rfindChar`, `replaceFirst`, `replace` and `LIST.push`, hooks no builtin implements, are read
+/// as their hooks' meaning and paired with nothing.
+#[test]
+fn the_domains_equations_at_hooked_symbols_agree_with_their_hooks() {
+    let source = r#"module ALL-DOMAINS
+  imports DOMAINS
+  imports ARRAY
+  imports RANGEMAP
+  imports COLLECTIONS
+  imports FLOAT
+  imports STRING
+  imports STRING-BUFFER
+  imports BYTES
+  imports ID
+  imports K-EQUAL
+  imports K-REFLECTION
+  imports K-IO
+  imports MINT
+  syntax Prog ::= go(Int) [symbol(go)]
+  configuration <k> $PGM:Prog </k>
+endmodule
+"#;
+    let kore = compile(source, "ALL-DOMAINS");
+    let mut backend = Backend::new(&kore, "ALL-DOMAINS", BackendOptions::default()).unwrap();
+    let definition = backend.select_definition(None).unwrap();
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let counts = all.counts();
+    assert!(all.unjoined().is_empty(), "{:#?}", all.unjoined());
+    assert_eq!(
+        (
+            counts.hook.unevaluated,
+            counts.hook.unmodelled,
+            counts.hook.not_joined
+        ),
+        (9, 0, 0),
+        "{:?}",
+        counts.hook
+    );
+    assert_eq!(counts.hook.equations, 41, "{:?}", counts.hook);
+    assert!(counts.hook.joined > 0);
+}

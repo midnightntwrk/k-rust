@@ -24,7 +24,7 @@ use support::{
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
     KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
     R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
+    R3_PROPAGATE, R3_PROPAGATE_M, R4_HOOKITE, R4_HOOKITE_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -847,6 +847,18 @@ fn an_identification_reached_through_a_function_is_never_a_kill() {
 #[test]
 fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// R4 (r4-hookite): `sel(_, _, Y) => Y` at a symbol hooked to `KEQUAL.ite` disagrees with the
+/// builtin, which gives `sel(true, a, bb) = a`, so the theory equates `a` with `bb`. The full
+/// check pairs the equation with the hook's written meaning and reports it: no end is data, never
+/// a kill (main kills it).
+#[test]
+fn an_equation_that_disagrees_with_its_hook_leaves_the_definition_without_data() {
+    let report = r2_report(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm");
     assert!(report.witness().is_none(), "{:?}", report.outcome);
     assert_only_unsupported(&report);
     assert_not_confluent(&report, &["baseline", "mutant"]);
