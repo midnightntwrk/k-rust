@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 48
+passed = 51
 
 [lib.kimp-ar]
 tier = "arity"
@@ -41,6 +41,87 @@ open = [
   "Simp.s_b977e4810b4c",
 ]
 guarded = 108
+
+[lib.simple]
+tier = "heavy"
+stated = 109
+open = [
+  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
+  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_|Set__SET_Set_Set_Set_1»",
+  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
+  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
+  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Simp.s_44257f63a99a",
+  "Simp.s_942141263122",
+  "Simp.s_b977e4810b4c",
+]
+guarded = 108
+
+[lib.simpleinv]
+tier = "heavy"
+stated = 114
+open = [
+  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
+  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_|Set__SET_Set_Set_Set_1»",
+  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
+  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
+  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Simp.s_44257f63a99a",
+  "Simp.s_942141263122",
+  "Simp.s_b977e4810b4c",
+]
+
+[lib.simplestore]
+tier = "heavy"
+stated = 114
+open = [
+  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
+  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_|Set__SET_Set_Set_Set_1»",
+  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
+  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
+  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Simp.s_44257f63a99a",
+  "Simp.s_942141263122",
+  "Simp.s_b977e4810b4c",
+]
+
+[lib.simplet]
+tier = "heavy"
+stated = 114
+open = [
+  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
+  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
+  "Eqn.«_|Set__SET_Set_Set_Set_1»",
+  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
+  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
+  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
+  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
+  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
+  "Simp.s_44257f63a99a",
+  "Simp.s_942141263122",
+  "Simp.s_b977e4810b4c",
+]
 
 [lib.kimp]
 tier = "light"
@@ -101,27 +182,6 @@ open = [
 ]
 guarded = 110
 
-[lib.simple]
-tier = "heavy"
-stated = 109
-open = [
-  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
-  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_|Set__SET_Set_Set_Set_1»",
-  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
-  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
-  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Simp.s_44257f63a99a",
-  "Simp.s_942141263122",
-  "Simp.s_b977e4810b4c",
-]
-guarded = 108
-
 [lib.kimpinv]
 tier = "light"
 stated = 86
@@ -131,27 +191,6 @@ open = [
   "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
   "Simp.s_44257f63a99a",
   "Simp.s_942141263122",
-]
-# guarded: not measured
-
-[lib.simpleinv]
-tier = "heavy"
-stated = 114
-open = [
-  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
-  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_|Set__SET_Set_Set_Set_1»",
-  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
-  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
-  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Simp.s_44257f63a99a",
-  "Simp.s_942141263122",
-  "Simp.s_b977e4810b4c",
 ]
 # guarded: not measured
 
@@ -209,48 +248,6 @@ stated = 31
 open = ["Eqn.«_|Set__SET_Set_Set_Set_1»"]
 # guarded: not measured
 
-[lib.simplestore]
-tier = "heavy"
-stated = 114
-open = [
-  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
-  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_|Set__SET_Set_Set_Set_1»",
-  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
-  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
-  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Simp.s_44257f63a99a",
-  "Simp.s_942141263122",
-  "Simp.s_b977e4810b4c",
-]
-# guarded: not measured
-
-[lib.simplet]
-tier = "heavy"
-stated = 114
-open = [
-  "Eqn.«_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps_2»",
-  "Eqn.«_<=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_>=String__STRING-COMMON_Bool_String_String_1»",
-  "Eqn.«_|Set__SET_Set_Set_Set_1»",
-  "Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1»",
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1»",
-  "Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2»",
-  "Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1»",
-  "Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1»",
-  "Simp.s_44257f63a99a",
-  "Simp.s_942141263122",
-  "Simp.s_b977e4810b4c",
-]
-# guarded: not measured
-
 [lib.freekey]
 tier = "light"
 stated = 79
@@ -270,6 +267,22 @@ goldens_total = 126
 trace_states = 376
 trace_failures = 0
 
+[demo.SimpleEnv]
+tier = "heavy"
+guarded = 4
+preserve = [{ where = "SimpleEnv/Cases.lean:129", closed = 164, total = 169, open = [], hand = [
+  "«var X;»",
+  "«var X[N];»",
+  "«function F(Xs) S»",
+  "«++ loc(L)»",
+  "«loc(L) = V»",
+] }]
+
+[demo.ImpRelClaims]
+tier = "heavy"
+guarded = 11
+preserve = []
+
 [demo.ImpRel]
 tier = "light"
 guarded = 13
@@ -277,8 +290,8 @@ preserve = [{ where = "ImpRel/Preserve.lean:16", closed = 79, total = 79, open =
 
 [demo.ImpTypes]
 tier = "light"
-guarded = 20
-preserve = [{ where = "ImpTypes/Cases.lean:88", closed = 77, total = 79, open = [], hand = ["«CALC.var»", "«CALC.assign»"] }, { where = "ImpTypes/Preserve.lean:23", closed = 77, total = 79, open = ["«CALC.var»", "«CALC.assign»"] }, { where = "ImpTypes/PreservesOf.lean:72", closed = 77, total = 79, open = ["«CALC.var»", "«CALC.assign»"] }]
+guarded = 43
+preserve = [{ where = "ImpTypes/Preserve.lean:19", closed = 77, total = 79, open = ["«CALC.var»", "«CALC.assign»"] }, { where = "ImpTypes/PreservesOf.lean:27", closed = 77, total = 79, open = ["«CALC.var»", "«CALC.assign»"] }, { where = "ImpTypes/Soundness.lean:33", closed = 77, total = 79, open = [], hand = ["«CALC.var»", "«CALC.assign»"] }]
 
 [demo.ImpMut]
 tier = "light"
@@ -295,26 +308,10 @@ tier = "light"
 guarded = 4
 preserve = [{ where = "KImpTpl/Cases.lean:34", closed = 79, total = 79, open = [] }]
 
-[demo.SimpleEnv]
-tier = "heavy"
-guarded = 4
-preserve = [{ where = "SimpleEnv/Cases.lean:129", closed = 164, total = 169, open = [], hand = [
-  "«var X;»",
-  "«var X[N];»",
-  "«function F(Xs) S»",
-  "«++ loc(L)»",
-  "«loc(L) = V»",
-] }]
-
 [demo.ImpWrites]
 tier = "light"
 guarded = 3
 preserve = [{ where = "ImpWrites/Cases.lean:19", closed = 79, total = 79, open = [] }]
-
-[demo.ImpRelClaims]
-tier = "heavy"
-guarded = 11
-preserve = []
 
 [demo.PeanoRel]
 tier = "light"
@@ -325,6 +322,27 @@ preserve = []
 tier = "light"
 guarded = 10
 preserve = []
+
+[inv.simpleinv]
+tier = "heavy"
+cases = 169
+auto = 169
+open = []
+guarded = 4
+
+[inv.simplestore]
+tier = "heavy"
+cases = 169
+auto = 168
+open = ["«var X[N];»"]
+guarded = 4
+
+[inv.simplet]
+tier = "heavy"
+cases = 169
+auto = 168
+open = ["«var X[N];»"]
+guarded = 4
 
 [inv.kimpinv]
 tier = "light"
@@ -337,13 +355,6 @@ guarded = 4
 tier = "light"
 cases = 82
 auto = 82
-open = []
-guarded = 4
-
-[inv.simpleinv]
-tier = "heavy"
-cases = 169
-auto = 169
 open = []
 guarded = 4
 
@@ -382,20 +393,6 @@ auto = 6
 open = []
 guarded = 4
 
-[inv.simplestore]
-tier = "heavy"
-cases = 169
-auto = 168
-open = ["«var X[N];»"]
-guarded = 4
-
-[inv.simplet]
-tier = "heavy"
-cases = 169
-auto = 168
-open = ["«var X[N];»"]
-guarded = 4
-
 [negative.krsimp-ill-typed]
 builds = false
 open = ["«KRS-IMP.assign»"]
@@ -419,8 +416,6 @@ kc_auto = 35
 kc_auto_open = 0
 
 [outputs]
-"goldens.toml" = { tier = "light", compare = "exact" }
-"kimp-test.out" = { tier = "light", compare = "exact" }
 "simple-acceptance.toml" = { tier = "heavy", compare = "strip-ms" }
 "simple-acceptance.md" = { tier = "heavy", compare = "strip-ms" }
 "claims.toml" = { tier = "heavy", compare = "exact" }
@@ -431,6 +426,8 @@ kc_auto_open = 0
 "replay/addition-2.toml" = { tier = "heavy", compare = "strip-seconds" }
 "replay/branching.toml" = { tier = "heavy", compare = "strip-seconds" }
 "replay/sum-loop.toml" = { tier = "heavy", compare = "strip-seconds" }
+"goldens.toml" = { tier = "light", compare = "exact" }
+"kimp-test.out" = { tier = "light", compare = "exact" }
 
 [sources]
 allowed_axioms = []
@@ -442,7 +439,9 @@ allowed_axioms = []
 "demos/ImpMut/correspondence.toml" = { tier = "light", sha256 = "9dc529cbcde609dab9109f23f750bfed4acae18f51628905b4fdf5c6ee60acec" }
 "demos/ImpRel/ImpRel/Bisim.lean" = { tier = "light", sha256 = "3bf08ed00199169788164d217ab4afff8560e586b6edcafe669312a3ba716d4b" }
 "demos/ImpRel/correspondence.toml" = { tier = "light", sha256 = "3dc0d320c634fe05568a639cf181b83f224a8c2fe0f3d819f85bd34f193e6397" }
+"demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "0aaaa6c6b3c83e36e211f78005262faa5df0cba62e49843ed28ae06b10936697" }
 "demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "65f2d2ad4d36233ea1d49e76fb069089dc0b7e216fc9e039a14e6e0658a79e81" }
+"demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "957c208135f81a8cf2d4836b16d039baf63cc4bf4e856dea25a52f1c2f734ec4" }
 "demos/ImpTypes/correspondence.toml" = { tier = "light", sha256 = "d718a02a680fc8ebdc94898d98af4ef880e228e13fcbc185f1170668c8194572" }
 "demos/PeanoRel/PeanoRel/Bisim.lean" = { tier = "light", sha256 = "82bf7401ac59f5c09a698711bb5a1abc157b6a92b97d0a7e7f9b9a821913b938" }
 "demos/PeanoRel/correspondence.toml" = { tier = "light", sha256 = "ec93744c1bb8c5205b1bc62647c8da15c829ace831a2906c49f4c7f6e9254cf8" }
