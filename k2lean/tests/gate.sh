@@ -6,9 +6,12 @@
 #   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
 #                                 against krust and the K LLVM backend), kimp-d2 (kimp's determinism
 #                                 along the rule index, `--det2`), krsimp, kmut, imptypes; the
-#                                 demos ImpRel, ImpTypes, ImpMut, KrsImpTyping; the kind 1
-#                                 invariants of kimpinv (a K function, demos/k/kimp-inv) and krsimp
-#                                 (the KRS sidecar), and the negative check: on KRS IMP with an
+#                                 demos ImpRel, ImpTypes, ImpMut, KrsImpTyping, ImpWrites (a kind 2
+#                                 invariant that walks <k>); the kind 1 invariants of kimpinv (two K
+#                                 functions, demos/k/kimp-inv), kimpkeys (the walkthrough of
+#                                 docs/invariants.md, demos/k/kimp-keys), kimpkeys-hand (the same
+#                                 with one case taken from its hand module) and krsimp (the KRS
+#                                 sidecar), and the negative check: on KRS IMP with an
 #                                 ill-typed `assign`, the generated proof of the declared cell type
 #                                 must fail at that rule; the kind 2 template (`k2lean new-invariant`
 #                                 for kimp, built), and `k2lean diff` of every library against the
@@ -216,6 +219,7 @@ kc kimp
 kc kimp-verif
 if [ "$TIER" != arity ]; then
   kc kimp-inv
+  kc kimp-keys
   kc imp-typing
   kc kmut
 fi
@@ -318,6 +322,22 @@ if [ -f "$KO/kimp-inv/definition.kore" ]; then
     eqns kimpinv KImpInv && invcases kimpinv KImpInv
   else bad "gen kimpinv" "$L/gen-kimpinv.log"; fi
 fi
+# kimp with the K function `envKeysOk` (demos/k/kimp-keys): the walkthrough of docs/invariants.md,
+# §3, every case by `k2l_preserve`; then kimpkeys-hand, the same library (so its build starts from
+# kimpkeys') whose tracked open-invariant-cases.txt lists one case, proved in its tracked hand
+# module KImpKeys/InvariantsHand.lean: the kind 1 hand path, and an edit of the hand module is
+# checked by this build, not by the sources check
+for d in kimpkeys kimpkeys-hand; do
+  phase "lib $d"
+  [ -f "$KO/kimp-keys/definition.kore" ] || continue
+  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
+  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$d/open-obligations.txt"
+  [ "$d" = kimpkeys ] && inv_reset "$d"
+  [ "$d" = kimpkeys-hand ] && [ ! -d "$GEN/$d/.lake" ] && [ -d "$GEN/kimpkeys/.lake" ] && cp -a "$GEN/kimpkeys/.lake" "$GEN/$d/.lake"
+  if genlib "$d"; then
+    eqns "$d" KImpKeys && invcases "$d" KImpKeys
+  else bad "gen $d" "$L/gen-$d.log"; fi
+done
 phase "negative"
 # KRS IMP with an ill-typed `assign` (tests/krs-imp-ill-typed.py): the sidecar's `Preserved` proof
 # must fail, and name the rule (as the open case and in the build error); measured/negative.toml
@@ -373,9 +393,9 @@ diffs() { # DIR...
   done
 }
 phase diff
-diffs kimp krsimp kmut imptypes kimpinv
+diffs kimp krsimp kmut imptypes kimpinv kimpkeys
 
-# 5. the relations (generated files of ImpRel, ImpTypes, ImpMut) and the four demo projects; their
+# 5. the relations (generated files of ImpRel, ImpTypes, ImpMut) and the five demo projects; their
 #    axiom guards are `#k2l_assert_axioms` commands inside them
 phase demos
 rel() { # NS (tests/libs.sh)
@@ -384,7 +404,7 @@ rel() { # NS (tests/libs.sh)
 rel ImpRel
 rel ImpTypes
 rel ImpMut
-for p in ImpRel ImpTypes ImpMut KrsImpTyping; do
+for p in ImpRel ImpTypes ImpMut KrsImpTyping ImpWrites; do
   if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
 done
 

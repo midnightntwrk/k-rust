@@ -14,7 +14,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, imp-typing, kmut, simple, simple-inv), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -24,6 +24,7 @@ libs_kcompile() {
     kimp) f=$KIMP/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
     kimp-verif) f=$KIMP/imp-verification.k m=IMP-VERIFICATION s=IMP-VERIFICATION-SYNTAX inc=$KIMP ;;
     kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
+    kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
     imp-typing) f=$DEMOS/k/imp-typing.k m=IMP-TYPING s=IMP-TYPING-SYNTAX inc=$KIMP ;;
     kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
@@ -37,7 +38,7 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple|simple-ar) echo KSimple ;; simpleinv) echo KSimpleInv ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; simple|simple-ar) echo KSimple ;; simpleinv) echo KSimpleInv ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -59,7 +60,13 @@ libs_gen() {
             --det2 --det2-overlap IMP.if-true,IMP.if-false ;;
     kimpinv) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
             --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-            --invariant envOk@env ;;
+            --invariant envOk@env --invariant storeNoIds@env ;;
+    # kimp with the K function `envKeysOk` (demos/k/kimp-keys, the walkthrough of
+    # docs/invariants.md, §3); kimpkeys-hand is the same library with one case listed in its
+    # open-invariant-cases.txt, so that the case is taken from its hand module
+    kimpkeys|kimpkeys-hand) "$G" gen --kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json" \
+            --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
+            --invariant envKeysOk@env ;;
     krsimp) "$G" gen --kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude \
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json" ;;
     kmut) "$G" gen --kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json" \

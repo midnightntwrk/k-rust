@@ -62,7 +62,8 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
 | `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
-| `demos/k/kimp-inv`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
+| `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
+| `demos/k/kimp-inv`, `demos/k/kimp-keys`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
 | `demos/claims` | K claims of kimp proved in Lean, generically or by hand |
 
 ## Large definitions

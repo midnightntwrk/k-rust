@@ -47,12 +47,14 @@ from pathlib import Path
 
 LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
         "imptypes": ("KImpTypes", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
-        "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity")}
+        "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity"),
+        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
-NO_GUARD = {"kimpinv", "simpleinv"}
-INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy")}
+NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand"}
+INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy"),
+        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light")}
 DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
-         "Kind2Template": "light", "SimpleEnv": "heavy"}
+         "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light"}
 OUTPUTS = {  # recorded output → (tier, normalization)
     "goldens.toml": ("light", "exact"),
     "kimp-test.out": ("light", "exact"),
@@ -75,7 +77,8 @@ HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHa
 # generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
 NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
                    "generated/kimp-ar/KImpBench/Programs.lean"}
-SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv"],
+SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv",
+                         "generated/kimpkeys", "generated/kimpkeys-hand"],
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv"],
                "arity": ["generated/kimp-ar", "generated/simple-ar"]}
 DEMO_SOURCES = ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
