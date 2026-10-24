@@ -89,9 +89,10 @@ enum Operand {
     /// and `INT.max`.
     Min(usize, usize, i64),
     Max(usize, usize, i64),
-    /// `minInt(X, k)` and `maxInt(X, k)` with a literal `k`: at most, respectively at least, `k`.
-    MinLiteral(usize, i64),
-    MaxLiteral(usize, i64),
+    /// `minInt(X, k)` and `maxInt(X, k)` with a literal `k`, or `minInt(k, X)` and `maxInt(k, X)`
+    /// when the flag is set: at most, respectively at least, `k`.
+    MinLiteral(usize, i64, bool),
+    MaxLiteral(usize, i64, bool),
 }
 
 const NAMES: [&str; 3] = ["X", "Y", "Z"];
@@ -127,16 +128,20 @@ impl Operand {
                 Self::Variable(left).kore(),
                 Self::Shifted(right, offset).kore()
             ),
-            Self::MinLiteral(index, value) => format!(
-                "minInt{{}}({}, {})",
-                Self::Variable(index).kore(),
-                Self::Literal(value).kore()
-            ),
-            Self::MaxLiteral(index, value) => format!(
-                "maxInt{{}}({}, {})",
-                Self::Variable(index).kore(),
-                Self::Literal(value).kore()
-            ),
+            Self::MinLiteral(index, value, first) | Self::MaxLiteral(index, value, first) => {
+                let name = if matches!(self, Self::MinLiteral(..)) {
+                    "minInt"
+                } else {
+                    "maxInt"
+                };
+                let (variable, literal) =
+                    (Self::Variable(index).kore(), Self::Literal(value).kore());
+                if first {
+                    format!("{name}{{}}({literal}, {variable})")
+                } else {
+                    format!("{name}{{}}({variable}, {literal})")
+                }
+            }
         }
     }
 
@@ -156,8 +161,8 @@ impl Operand {
             Self::Max(left, right, offset) => {
                 Some(assignment[left].max(assignment[right] + offset))
             }
-            Self::MinLiteral(index, value) => Some(assignment[index].min(value)),
-            Self::MaxLiteral(index, value) => Some(assignment[index].max(value)),
+            Self::MinLiteral(index, value, _) => Some(assignment[index].min(value)),
+            Self::MaxLiteral(index, value, _) => Some(assignment[index].max(value)),
         }
     }
 }
@@ -596,8 +601,12 @@ pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) ->
             6 => match next(4) {
                 0 => Operand::Min(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
                 1 => Operand::Max(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
-                2 => Operand::MinLiteral(next(3), i64::try_from(next(3)).unwrap() - 1),
-                _ => Operand::MaxLiteral(next(3), i64::try_from(next(3)).unwrap() - 1),
+                2 => {
+                    Operand::MinLiteral(next(3), i64::try_from(next(5)).unwrap() - 2, next(2) == 0)
+                }
+                _ => {
+                    Operand::MaxLiteral(next(3), i64::try_from(next(5)).unwrap() - 2, next(2) == 0)
+                }
             },
             _ => Operand::Variable(next(3)),
         };
@@ -704,19 +713,21 @@ fn a_literal_operand_of_min_or_max_bounds_it() {
         ]
         .map(|conjunct| conjunct.predicate(d))
     };
-    assert!(contradictory(
-        d,
-        &conjunction("leInt", Operand::MaxLiteral(0, 0), Y)
-    ));
+    for first in [false, true] {
+        assert!(contradictory(
+            d,
+            &conjunction("leInt", Operand::MaxLiteral(0, 0, first), Y)
+        ));
+    }
     assert!(!contradictory(
         d,
-        &conjunction("leInt", Operand::MaxLiteral(0, -3), Y)
+        &conjunction("leInt", Operand::MaxLiteral(0, -3, true), Y)
     ));
     assert!(contradictory(
         d,
         &[literal(
             "gtInt",
-            Operand::MinLiteral(0, 0),
+            Operand::MinLiteral(0, 0, true),
             Operand::Literal(0),
             true
         )
@@ -726,7 +737,7 @@ fn a_literal_operand_of_min_or_max_bounds_it() {
         d,
         &[literal(
             "gtInt",
-            Operand::MinLiteral(0, 1),
+            Operand::MinLiteral(0, 1, false),
             Operand::Literal(0),
             true
         )
