@@ -1053,3 +1053,62 @@ fn the_replace_all_lemma_is_guarded_by_the_content_of_the_replace_rows() {
         );
     }
 }
+
+/// FZ-MEMBERSHIP: sorts for the membership fixtures: `MemC < MemA`, `MemC < MemB`, and `MemT`
+/// above `MemA`, `MemB` and `MemD`, which shares no subsort with `MemA` or `MemB`. Each sort has
+/// a constructor, so every fixture's `fm(X)` has an instance in each sort.
+const MEMBERSHIP_SORTS: &str = "  syntax MemC ::= mc() [symbol(mc)]
+  syntax MemA ::= ma() [symbol(ma)] | MemC
+  syntax MemB ::= mb() [symbol(mb)] | MemC
+  syntax MemD ::= md() [symbol(md)]
+  syntax MemT ::= MemA | MemB | MemD | mt() [symbol(mt)]
+  syntax Int ::= fm(MemT) [function, symbol(fm)]";
+
+/// FZ-MEMBERSHIP: the sort predicates `isS`, read from their two equations, decide which
+/// subsort an item lies in. `isMemA(X)` beside `isMemD(X)` holds on no instance (`MemA` and
+/// `MemD` share no subsort), nor does `isMemC(X)` beside `isMemA(X)` required false in any
+/// surface form (`MemC < MemA`); each pair is refuted. `isMemA(X)` beside `isMemB(X)` holds at
+/// `mc()` and `isMemA(X)` beside `isMemC(X)` required false at `ma()`, where the results differ:
+/// those pairs stay reported.
+#[test]
+fn membership_literals_refute_disjoint_sorts_and_keep_shared_ones() {
+    let refuted = [
+        // disjoint
+        ("isMemA(X)", "isMemD(X)"),
+        // neg
+        ("isMemC(X)", "isMemA(X) ==Bool false"),
+        // negnot
+        ("isMemC(X)", "notBool isMemA(X)"),
+        ("isMemC(X)", "isMemA(X) =/=Bool true"),
+        ("isMemC(X)", "isMemA(X) ==K false"),
+        ("isMemC(X) ==Bool true", "isMemD(X) =/=Bool false"),
+        ("isMemA(X) andBool isMemB(X)", "isMemD(X)"),
+        ("isMemA(X) andBool isMemB(X)", "notBool isMemC(X)"),
+    ];
+    let genuine = [
+        // shared: both hold at `mc()`
+        ("isMemA(X)", "isMemB(X)"),
+        // negok: both hold at `ma()`
+        ("isMemA(X)", "isMemC(X) ==Bool false"),
+        ("isMemA(X)", "notBool isMemC(X)"),
+    ];
+    let cases = refuted.iter().map(|case| (case, Vec::new())).chain(
+        genuine
+            .iter()
+            .map(|case| (case, vec![UnjoinedReason::ConditionOpen])),
+    );
+    let mut wrong = Vec::new();
+    for ((first, second), expected) in cases {
+        let reasons = reasons_between_a_and_b(&format!(
+            "{MEMBERSHIP_SORTS}
+  rule [a]: fm(X) => 1 requires {first}
+  rule [b]: fm(X) => 2 requires {second}"
+        ));
+        if reasons != expected {
+            wrong.push(format!(
+                "{first} / {second}: {reasons:?}, expected {expected:?}"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

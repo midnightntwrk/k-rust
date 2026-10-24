@@ -139,6 +139,16 @@ pub(crate) struct Switches {
     pub(crate) raw_rest_clashes: bool,
     /// Unifier (maps): clash a map equation left undecided at the last resort.
     pub(crate) last_resort_clashes: bool,
+    /// Conditions: read two sorts an item is required to lie in as disjoint unless one is below
+    /// the other, ignoring their common subsorts.
+    pub(crate) disjoint_incomparable_memberships: bool,
+    /// Conditions: read a membership literal under `\not` also where its item is not shown
+    /// defined.
+    pub(crate) membership_not_without_definedness: bool,
+    /// Conditions: recognize as the membership predicate of `S` any symbol with an equation whose
+    /// result is `true` at a sequence starting with an injection from `S`, whatever its other
+    /// equations, conditions, priorities and argument shape.
+    pub(crate) loose_membership_recognition: bool,
 }
 
 #[cfg(test)]
@@ -196,6 +206,9 @@ thread_local! {
             rest_binding_drops_rest: false,
             raw_rest_clashes: false,
             last_resort_clashes: false,
+            disjoint_incomparable_memberships: false,
+            membership_not_without_definedness: false,
+            loose_membership_recognition: false,
         })
     };
 }

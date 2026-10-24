@@ -262,8 +262,8 @@ pub enum CheckScope {
     ///   lists per-equation reports ([`UnjoinedReason::describes_one_equation`]), which are not
     ///   pairs;
     /// - `refuted` and `joined` are sound: a refuted overlap has both `requires` holding on no
-    ///   instance in any model; a joined one has both reducts reaching one term by innermost
-    ///   steps valid on every instance. No overlap is set aside because a variable of it ranges
+    ///   instance in any model of the axioms read as true (the last point); a joined one has
+    ///   both reducts reaching one term by innermost steps valid on every instance. No overlap is set aside because a variable of it ranges
     ///   over a sort with no normal form: carriers are nonempty, so every model has an element
     ///   of that sort, where both equations hold. Such an overlap is counted in
     ///   [`CheckCounts::uninhabited`] and classified like any other, and when it does not join
@@ -285,8 +285,13 @@ pub enum CheckScope {
     ///   decide which terms are `ceil_free` and what `condition_definedness` states), the
     ///   constructor and `injective` declarations (the unifier separates distinct constructor
     ///   roots), the hooks' semantics (a refutation of `X >Int 0` beside `X <=Int 0` reads the
-    ///   `INT` hooks), and the subsort and overload axioms. Only the backend's value claims are withheld while the check runs
-    ///   (`ValueClaims::withheld`).
+    ///   `INT` hooks), and the subsort and overload axioms; and two axioms of the matching theory
+    ///   that are no KORE axioms, injection composition (`inj{B, A}(inj{C, B}(x)) = inj{C, A}(x)`)
+    ///   and no confusion between injections (`inj{A, K}(x) = inj{B, K}(y)` only through a common
+    ///   subsort of `A` and `B`): the unifier separates injections from incomparable sorts, and the
+    ///   condition reader's membership literals read both (`conditions.rs`). The evaluator
+    ///   matches modulo both, and the normal-form model satisfies them. Only the backend's value
+    ///   claims are withheld while the check runs (`ValueClaims::withheld`).
     All,
 }
 
@@ -1515,6 +1520,9 @@ pub(crate) struct Context<'d> {
     /// The simplified conditions, keyed up to a renaming of their free variables; `None` with
     /// [`ConditionMemo::Off`].
     memo: Option<memo::Memo>,
+    /// The definition's membership predicates, read once for every condition
+    /// (`conditions::memberships`).
+    memberships: Arc<conditions::Memberships>,
     fresh: u64,
     counts: CheckCounts,
     /// The counts of each group, one entry for every group of `executable_equations`.
@@ -1659,7 +1667,7 @@ impl<'d> Context<'d> {
         flatten(simplified, &mut conjuncts);
         let conjuncts = conjuncts.into_iter().collect::<Vec<_>>();
         if conjuncts.contains(&Predicate::False)
-            || conditions::contradictory(self.definition, &conjuncts)
+            || conditions::contradictory_in(self.definition, &self.memberships, &conjuncts)
         {
             return Conditions::Refuted;
         }
@@ -1673,7 +1681,8 @@ impl<'d> Context<'d> {
         // (congruence); simplified again, the conjunction may be refuted (`conditions.rs`,
         // "equality classes").
         let definition = self.definition;
-        if conditions::refuted_by_literals(definition, &conjuncts, &mut |predicate| {
+        let memberships = Arc::clone(&self.memberships);
+        if conditions::refuted_by_literals(definition, &memberships, &conjuncts, &mut |predicate| {
             self.simplify(predicate)
         }) {
             return Conditions::Refuted;
@@ -2665,6 +2674,7 @@ fn check_detached(
         renamed: FxHashMap::default(),
         memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
             .then(memo::Memo::default),
+        memberships: Arc::new(conditions::memberships(definition)),
         fresh: 0,
         counts: CheckCounts::default(),
         group_counts,

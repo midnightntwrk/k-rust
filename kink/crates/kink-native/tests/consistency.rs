@@ -185,6 +185,19 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// only decides more map equations, so more overlaps are separated or refuted and a mutant whose
 /// map-keyed equations that separates is admitted (`MUTANT_CONSISTENCY_VERSION` is bumped at
 /// integration). No line moves: 1100-1107 `3af0cfea` -> `7deefbc9`.
+/// k-rust FZ-MEMBERSHIP: line 1103 of 1100-1107 adds membership literals to what "refuted"
+/// reads (`3af0cfea` -> `933b39db`): an item required in sorts with no common lower bound, or
+/// outside a sort above each of their maximal common lower bounds, by the predicates whose two
+/// equations make them a sort's membership predicates, in the models that also satisfy
+/// injection composition and no confusion between injections from incomparable sorts. The
+/// normal-form model kink's premise builds satisfies both (`Term::injection` composes chains, and
+/// injections from incomparable sorts are distinct normal forms), so a mutant newly admitted has
+/// guards that hold on no normal-form instance. Only more overlaps are refuted; the other
+/// passages are unmoved.
+///
+/// fz26 int9 (FZ-MAPKEY merged with FZ-MEMBERSHIP): line 1102 carries FZ-MAPKEY's map sentence
+/// and line 1103 FZ-MEMBERSHIP's membership clause, each as its branch wrote it; 1100-1107
+/// re-pinned by digest of the merged text: -> `e3fe4b3b`.
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -200,7 +213,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "7deefbc90a10b40ac6a2b5e54f1d8b59a52d2a7e11137afffebd0cffefdb2610",
+        "e3fe4b3b87701466c2e8e518d461ba0a8a54b3004ffa89c8c98c366d2917cec5",
     ),
     (
         "docs/compatibility.md",
@@ -271,7 +284,13 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// INT8 follow-up: 286e86d7 -> c9fa00d8. Documentation only: `Context::uninhabited_sort`'s
 /// account of the simplifier's mark argues from its readers where it stated the overloaded
 /// partial function as a limit.
-const CONFLUENCE_RS: &str = "c9fa00d8917e74a9f56506902688c76df92178ac91e1afeff37a6ad41fa56dfe";
+///
+/// Re-pin FZ-MEMBERSHIP (k-rust fz26/membership): c9fa00d8 -> b19c2538. The contract's list of
+/// axioms read as true adds injection composition and no confusion between injections, and
+/// `refuted` is stated over the models of that list; `Context` reads the definition's membership
+/// predicates once (`conditions::memberships`) and passes them to the condition reader. The
+/// stages, the early return and the counts kink reads are unchanged; `refuted` can only grow.
+const CONFLUENCE_RS: &str = "b19c253866cf9bb2b3a70f7a1e2e599a59c2f84602c2794d0e40354a97b6d2a6";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
