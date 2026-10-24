@@ -740,14 +740,14 @@ fn main() {
                 .collect();
             write(
                 &out.join(format!("{ns}Test")).join("Axioms.lean"),
-                &det2::fix_guard(
-                    &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
-                    ns,
-                    det_overlaps,
-                    det_unwitnessed,
-                    &det_witnessed,
-                ),
+                &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
             );
+            if !multi {
+                write(
+                    &out.join(format!("{ns}Test")).join("DetAxioms.lean"),
+                    &det2::guard(ns, det_overlaps, det_unwitnessed, &det_witnessed),
+                );
+            }
             write(
                 &out.join(format!("{ns}Bench")).join("Main.lean"),
                 &drivers::bench_main(ns, &top),
