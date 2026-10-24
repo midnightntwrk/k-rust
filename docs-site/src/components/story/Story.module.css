@@ -282,7 +282,6 @@ pre.panel {
 
 .covered {
   border-color: var(--ok);
-  box-shadow: inset 4px 0 0 var(--ok);
 }
 
 .firing {
@@ -401,9 +400,16 @@ pre.panel {
 
 /* Tool tour */
 .hub {
+  align-items: start;
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr);
+}
+
+.hub > .panel .mono {
+  font-family: var(--vocs-font-mono);
+  font-size: 0.75rem;
+  line-height: 1.65;
 }
 
 @media (max-width: 640px) {
@@ -420,15 +426,25 @@ pre.panel {
 
 .tools .choice {
   align-items: baseline;
-  display: flex;
+  display: grid;
   gap: 0.6rem;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
   text-align: left;
 }
 
 .tools .verb {
   font-family: var(--vocs-font-mono);
+  font-size: 0.8rem;
   font-weight: 600;
-  min-width: 4.4rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 440px) {
+  .tools .choice {
+    gap: 0.15rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .tools .what {
@@ -604,6 +620,11 @@ details.raw pre {
 
 .score strong {
   font-variant-numeric: tabular-nums;
+}
+
+.coverageComplete {
+  color: var(--ok);
+  font-size: 1.2rem;
 }
 
 .meter {

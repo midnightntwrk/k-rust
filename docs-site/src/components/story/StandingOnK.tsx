@@ -1,7 +1,6 @@
 'use client'
 
-// Scene: the KRS source beside the K that krs emit-k recorded for it. The speed and memory
-// bars stay empty until they can be drawn from a recorded benchmark run.
+// Scene: the KRS source beside the K that krs emit-k recorded for it.
 
 import { output, region } from './data'
 import { Stage, usePlayer } from './player'
@@ -61,24 +60,6 @@ export function StandingOnK() {
           <span className={styles.label}>definition.k from krs emit-k</span>
           <Lines lines={kLines} lit={group.id} />
         </div>
-      </div>
-      <div className={styles.bench}>
-        <span className={styles.label}>k-rust against the reference K toolchain</span>
-        <div className={styles.benchRow}>
-          <span>Time</span>
-          <div className={styles.bars}>
-            <span>reference K</span>
-            <span>k-rust</span>
-          </div>
-        </div>
-        <div className={styles.benchRow}>
-          <span>Peak memory</span>
-          <div className={styles.bars}>
-            <span>reference K</span>
-            <span>k-rust</span>
-          </div>
-        </div>
-        <span className={styles.note}>Placeholder: these bars will be drawn from a recorded benchmark run.</span>
       </div>
     </Stage>
   )

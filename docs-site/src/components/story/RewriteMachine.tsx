@@ -61,7 +61,7 @@ const bindN = (
 )
 
 const phases: { term: Term; rule: number; bind: ReactNode; caption: string }[] = [
-  { term: plus(s(zero()), s(zero())), rule: -1, bind: null, caption: "Test t3 sits in the machine's k cell, with the two rules of the specification above it." },
+  { term: plus(s(zero()), s(zero())), rule: -1, bind: null, caption: "Matching logic describes this configuration with a pattern. Test t3 sits in the k cell, and the two rules above it say how plus is evaluated." },
   { term: plus(s(zero('a')), s(zero(), 'b'), 'match'), rule: 1, bind: bindMN, caption: 'plus_succ matches the whole term. Its pattern binds m to zero and n to s(zero).' },
   { term: s(plus(zero('a'), s(zero(), 'b'))), rule: 1, bind: bindMN, caption: 'The term is replaced by the right-hand side, s(plus(m, n)), with the bindings substituted in.' },
   { term: s(plus(zero(), s(zero(), 'b'), 'match')), rule: 0, bind: bindN, caption: 'Now plus_zero matches a subterm inside s(…). Rules apply wherever their pattern fits, not only at the top.' },

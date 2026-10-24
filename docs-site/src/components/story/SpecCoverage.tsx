@@ -4,20 +4,20 @@
 // story/story.toml (read off the rewrite steps; krs does not report run coverage yet).
 
 import { corpus, paperRules, type RuleName, ruleNames } from './data'
-import { Stage, Status, usePlayer } from './player'
+import { Stage, usePlayer } from './player'
 import styles from './Story.module.css'
 
 const rulesOf = (index: number) => corpus[index].rules as readonly RuleName[]
 const describe = (index: number) => {
   const rules = rulesOf(index)
   const all = ruleNames.every((name) => corpus.slice(0, index + 1).some((test) => (test.rules as readonly string[]).includes(name)))
-  return `${corpus[index].id} passes through the machine: ${rules.join(', then ')} ${rules.length > 1 ? 'fire' : 'fires'}.${all ? ' Every rule of the specification has now fired.' : ''}`
+  return `${corpus[index].id} passes through the machine: ${rules.join(', then ')} ${rules.length > 1 ? 'fire' : 'fires'}.${all ? ' Every rule has now fired: 100% specification coverage.' : ''}`
 }
 
 const phases = [
   { done: 0, active: -1, caption: 'The two rules of the specification, and the tests of the corpus.' },
   ...corpus.map((_, index) => ({ done: index + 1, active: index, caption: describe(index) })),
-  { done: corpus.length, active: -1, caption: '100% coverage of the specification. Every developer also knows what 100% coverage is worth on its own.' },
+  { done: corpus.length, active: -1, caption: '100% specification coverage: the corpus exercises every rule. Next, measure which mistakes those tests would actually catch.' },
 ]
 
 export function SpecCoverage() {
@@ -26,11 +26,12 @@ export function SpecCoverage() {
   const firedBy = (name: RuleName) => corpus.slice(0, phase.done).filter((test) => (test.rules as readonly string[]).includes(name)).map((test) => test.id)
   const covered = ruleNames.filter((name) => firedBy(name).length > 0).length
   return (
-    <Stage player={player} caption={phase.caption} aside={<Status kind="available">in k-rust's run API; not yet in krs</Status>}>
+    <Stage player={player} caption={phase.caption}>
       <div className={styles.score}>
-        <strong>
-          {covered} / {ruleNames.length} rules covered
+        <strong className={covered === ruleNames.length ? styles.coverageComplete : undefined}>
+          {Math.round((covered / ruleNames.length) * 100)}% specification coverage
         </strong>
+        <span>{covered} / {ruleNames.length} rules covered</span>
         <div className={`${styles.meter} ${styles.ok}`} aria-hidden="true">
           <div style={{ width: `${(covered / ruleNames.length) * 100}%` }} />
         </div>

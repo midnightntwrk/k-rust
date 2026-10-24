@@ -5,7 +5,7 @@
 
 import { corpus, mutations, paperRules, type RuleName, ruleNames } from './data'
 import { MutationMatrix, survives } from './MutationMatrix'
-import { Stage, Status, usePlayer } from './player'
+import { Stage, usePlayer } from './player'
 import styles from './Story.module.css'
 
 const all = mutations.map((_, index) => index)
@@ -33,7 +33,7 @@ export function MutateTheSpec() {
   const phase = phases[player.at]
   const mutated = phase.mutated >= 0 ? mutations[phase.mutated] : undefined
   return (
-    <Stage player={player} caption={phase.caption} aside={<Status kind="development">mutation tool in development</Status>}>
+    <Stage player={player} caption={phase.caption}>
       <div className={styles.ai}>
         <span className={styles.who}>AI</span>
         <span>{phase.ai}</span>

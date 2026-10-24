@@ -5,7 +5,7 @@
 
 import { caught, corpus, mutations, tests } from './data'
 import { type MatrixState, MutationMatrix, survives } from './MutationMatrix'
-import { Stage, Status, usePlayer } from './player'
+import { Stage, usePlayer } from './player'
 import styles from './Story.module.css'
 
 const all = mutations.map((_, index) => index)
@@ -50,7 +50,7 @@ export function Climb() {
   const player = usePlayer(phases.length, 3800)
   const phase = phases[player.at]
   return (
-    <Stage player={player} caption={phase.caption} aside={<Status kind="development">mutation tool in development</Status>}>
+    <Stage player={player} caption={phase.caption}>
       <div className={styles.score}>
         <strong>
           {phase.score} / {mutations.length} edits caught
