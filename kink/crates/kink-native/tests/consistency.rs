@@ -263,7 +263,11 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// INT8 follow-up: 286e86d7 -> c9fa00d8. Documentation only: `Context::uninhabited_sort`'s
 /// account of the simplifier's mark argues from its readers where it stated the overloaded
 /// partial function as a limit.
-const CONFLUENCE_RS: &str = "c9fa00d8917e74a9f56506902688c76df92178ac91e1afeff37a6ad41fa56dfe";
+///
+/// fz26 phase-8 FZ-JUNK-ORACLE: c9fa00d8 -> c74b0eb3. The classification of an overlap over a
+/// sort with no normal form reads the test-only switch `separate_uninhabited`, which outside
+/// test builds is the constant `false` (`switches::active`): no verdict kink reads changes.
+const CONFLUENCE_RS: &str = "c74b0eb39b4d03f4f2e33c90eccc220552b9ada6382fc72d1bd8b823dce9bb2f";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
