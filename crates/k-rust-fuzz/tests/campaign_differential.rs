@@ -973,8 +973,9 @@ fn a_mutant_that_stops_at_max_work_where_the_baseline_ended_is_not_told_to_raise
 /// TRIAL2 N-T1 (FZ-POLISH): a campaign whose holes all have finite domains ends once every
 /// assignment has run. An `Id` hole with the two choices `sum` (the anchor) and `n` on the
 /// equivalent `add-commuted` has two assignments: the campaign stops with `domain exhausted`
-/// once both have run, not after its budget of 50. At seed 7 the first blind draw repeats the
-/// anchor, so that is after three cases (a repeated assignment is still a case).
+/// after exactly two cases, not after its budget of 50. No assignment runs twice: a proposal
+/// that repeats one is replaced by an unseen one (at seed 7 the first blind draw repeats the
+/// anchor).
 #[test]
 fn a_finite_domain_is_exhausted_after_its_assignments() {
     let token = |text: &str| Value::Token {
@@ -1008,7 +1009,7 @@ fn a_finite_domain_is_exhausted_after_its_assignments() {
     .expect("valid")
     .run(Budget::Cases(50), None);
     let statement = &report.no_witness().expect("no kill").statement;
-    assert_eq!(report.totals.cases, 3, "{statement}");
+    assert_eq!(report.totals.cases, 2, "{statement}");
     assert!(
         statement.contains("Domain exhausted: every one of the 2 assignments"),
         "{statement}"
@@ -1051,4 +1052,36 @@ fn a_token_choice_written_as_a_string_is_refused_with_the_token_form() {
         error.contains(r#"{ token = { sort = "Id", text = "n" } }"#),
         "{error}"
     );
+}
+
+/// FZ-POLISH N-T1, review round 1: three holes of four values each (64 assignments) under blind
+/// sampling end after exactly 64 cases, each assignment once, at every seed (the review measured
+/// 722, 418 and 1059 cases when repeats ran).
+#[test]
+fn a_finite_product_is_exhausted_in_exactly_its_size_of_cases() {
+    let program = "imp-diff/sum.imp";
+    for seed in [1, 2, 3] {
+        let mut spec = trial_spec(
+            &IMP_DIFF,
+            &IMP_ADD_COMMUTED,
+            program,
+            vec![
+                int_hole("N", program, "n = 3;", "3", 3),
+                int_hole("S", program, "sum = 0;", "0", 3),
+                int_hole("D", program, "n + -1;", "1", 3),
+            ],
+            Vec::new(),
+            PathMode::OnePath,
+        );
+        spec.seed = seed;
+        let report = Campaign::new(spec)
+            .expect("valid")
+            .run(Budget::Cases(2000), None);
+        let statement = &report.no_witness().expect("no kill").statement;
+        assert_eq!(report.totals.cases, 64, "seed {seed}: {statement}");
+        assert!(
+            statement.contains("Domain exhausted: every one of the 64 assignments"),
+            "seed {seed}: {statement}"
+        );
+    }
 }

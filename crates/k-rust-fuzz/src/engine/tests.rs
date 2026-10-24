@@ -2346,4 +2346,18 @@ fn a_finite_domain_is_the_product_of_the_holes_finite_domains() {
     let wide = range(1, i64::try_from(MAX_EXHAUSTIVE).expect("fits") + 1);
     assert_eq!(size(&[(&ValueSort::Int, &wide)]), None);
     assert_eq!(size(&[]), None);
+    // The seeded walk visits every assignment once, and the same seed gives the same walk.
+    let domain = FiniteDomain::of([(&ValueSort::Int, &small), (&ValueSort::Bool, &unbounded)])
+        .expect("finite");
+    let order = domain.permutation(7);
+    assert_eq!(order, domain.permutation(7));
+    let mut sorted = order.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, (0..10).collect::<Vec<u64>>());
+    let assignments: std::collections::BTreeSet<Vec<Value>> = order
+        .iter()
+        .map(|index| domain.assignment(*index))
+        .collect();
+    assert_eq!(assignments.len(), 10);
+    assert!(assignments.contains(&vec![int(-2), Value::Bool(true)]));
 }

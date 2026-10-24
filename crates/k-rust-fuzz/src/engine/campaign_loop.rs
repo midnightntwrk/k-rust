@@ -123,6 +123,28 @@ impl HoleDomain {
         }
     }
 
+    /// The value of index `index` (below [`Self::size`]): a choice in order, `false` then
+    /// `true`, the integers from the range's minimum.
+    fn value(&self, index: u64) -> Value {
+        match self {
+            Self::Choices(choices) => {
+                choices[usize::try_from(index).expect("an index below the domain's size")].clone()
+            }
+            Self::Bool => Value::Bool(index == 1),
+            Self::Ints {
+                min, width: None, ..
+            } => Value::Int(min + index),
+            Self::Ints {
+                min,
+                width: Some(width),
+                ..
+            } => Value::MInt {
+                width: *width,
+                value: (min + index).to_biguint().unwrap_or_default(),
+            },
+        }
+    }
+
     /// How many values the domain has, when it fits a `u64`.
     fn size(&self) -> Option<u64> {
         match self {
@@ -211,6 +233,32 @@ impl FiniteDomain {
     pub(crate) fn size(&self) -> u64 {
         self.size
     }
+
+    /// The assignment of index `index` (below [`Self::size`]), the holes read as the digits
+    /// of a mixed-radix number, the last hole the least significant.
+    pub(crate) fn assignment(&self, mut index: u64) -> Vec<Value> {
+        let mut values = Vec::with_capacity(self.holes.len());
+        for hole in self.holes.iter().rev() {
+            let size = hole.size().unwrap_or(1).max(1);
+            values.push(hole.value(index % size));
+            index /= size;
+        }
+        values.reverse();
+        values
+    }
+
+    /// The indices of every assignment in an order drawn from `seed` (Fisher-Yates over a
+    /// `ChaCha20` stream of its own purpose), so the walk is part of the determinism contract.
+    pub(crate) fn permutation(&self, seed: u64) -> Vec<u64> {
+        use rand::{Rng as _, SeedableRng as _};
+        let mut rng =
+            rand_chacha::ChaCha20Rng::from_seed(super::schedule::derive_seed(seed, "domain"));
+        let mut order: Vec<u64> = (0..self.size).collect();
+        for last in (1..order.len()).rev() {
+            order.swap(last, rng.random_range(0..=last));
+        }
+        order
+    }
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -249,6 +297,8 @@ pub(crate) fn run_loop(
         let Some(proposal) = proposal else {
             break Ending::Exhausted;
         };
+        // An assignment of a finite domain runs at most once (FZ-POLISH N-T1).
+        let proposal = state.unrepeated(settings, proposal);
         let case = state.totals.cases;
         state.sequence(&proposal.values);
         let mut run = match run_proposal(runner, &mut state, &proposal, cancel) {
@@ -695,8 +745,12 @@ pub(crate) struct Diverging {
 struct State {
     budget: Budget,
     totals: Totals,
-    /// The canonical JSON of each assignment of [`LoopSettings::domain`] that ran.
+    /// The canonical JSON of each assignment of [`LoopSettings::domain`] that was tried.
     assignments: BTreeSet<String>,
+    /// The seeded permutation of the domain's assignment indices, made on the first repeat,
+    /// and how far [`State::unrepeated`] has walked it.
+    order: Option<Vec<u64>>,
+    next_untried: usize,
     /// The `miss` cases scored, and the best score with the earliest case that reached it
     /// ([`Totals::best_score`]).
     scored: u64,
@@ -717,6 +771,8 @@ impl State {
                 ..Totals::default()
             },
             assignments: BTreeSet::new(),
+            order: None,
+            next_untried: 0,
             scored: 0,
             best: None,
             cuts: Cuts::default(),
@@ -804,6 +860,35 @@ impl State {
              is not a witness",
             render(values)
         ));
+    }
+
+    /// `proposal`, or, when it repeats an assignment of the campaign's finite domain that was
+    /// already tried, the next untried assignment in a permutation of the domain seeded from
+    /// the campaign seed, proposed by the same proposer without value trees (FZ-POLISH N-T1).
+    /// Every case's outcome is a function of its assignment (ARCHITECTURE 5.4), so a repeat
+    /// adds nothing; the repeat is not run and is no case, and the proposer observes the
+    /// replacement it is credited with, as it would any case of its own.
+    fn unrepeated(&mut self, settings: &LoopSettings, proposal: Proposal) -> Proposal {
+        let Some(domain) = &settings.domain else {
+            return proposal;
+        };
+        if proposal.failure.is_some()
+            || !domain.contains(&proposal.values)
+            || !self.assignments.contains(&render(&proposal.values))
+        {
+            return proposal;
+        }
+        let order = self
+            .order
+            .get_or_insert_with(|| domain.permutation(settings.identity.seed));
+        while let Some(&index) = order.get(self.next_untried) {
+            self.next_untried += 1;
+            let values = domain.assignment(index);
+            if !self.assignments.contains(&render(&values)) {
+                return Proposal::plain(proposal.origin, values);
+            }
+        }
+        proposal
     }
 
     /// Record that `proposal`'s assignment ran, when it is one of `domain`'s; the number of
@@ -1067,7 +1152,8 @@ pub(crate) fn no_witness(
             text,
             " Domain exhausted: every one of the {assignments} assignments of the holes' finite \
              domains (each hole's choices, a Boolean, or a bounded integer range, as generated) \
-             ran, so the campaign ended before its budget; more cases would only repeat them."
+             was tried once (run, or rejected before running), so the campaign ended before its \
+             budget; more cases would only repeat them."
         )
         .expect("writing to a String"),
         Ending::RejectedOut => {
