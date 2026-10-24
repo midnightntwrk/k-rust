@@ -1,7 +1,8 @@
 //! Mutation switches for the verification of the check (the design's V7): each turns one rule of
-//! the check, the closure, the gate or the instance-normal scan off, so that a test can show the
-//! oracle test meant to catch that class fails without it. Outside test builds every switch is
-//! off and [`active`] is a constant, so the checks that read it compile away.
+//! the check, the closure, the gate, the instance-normal scan or the ground-instance search off,
+//! so that a test can show the oracle test meant to catch that class fails without it. Outside
+//! test builds every switch is off and [`active`] is a constant, so the checks that read it
+//! compile away.
 
 /// The switches; all off by default.
 #[derive(Clone, Copy, Debug, Default)]
@@ -178,6 +179,9 @@ pub(crate) struct Switches {
     /// Conditions: read a collection membership also in a list with a middle or a collection with
     /// a rest, against its known members.
     pub(crate) collection_membership_reads_open: bool,
+    /// Ground instances (`data_term/instance.rs`): read a stuck application of a declared partial
+    /// function as a defined value, as a stuck total one is, instead of as `\bottom`.
+    pub(crate) stuck_partial_is_value: bool,
 }
 
 #[cfg(test)]
@@ -246,6 +250,7 @@ thread_local! {
             membership_not_without_definedness: false,
             loose_membership_recognition: false,
             collection_membership_reads_open: false,
+            stuck_partial_is_value: false,
         })
     };
 }

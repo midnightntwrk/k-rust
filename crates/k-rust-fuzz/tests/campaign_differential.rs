@@ -910,6 +910,8 @@ fn a_pair_whose_input_has_two_normal_forms_is_genuine() {
     let mut values = instance.values.clone();
     values.sort();
     assert_eq!(values, ["a", "bb"]);
+    // Both values are data: no stuck application (S2B-T3).
+    assert_eq!(instance.stuck, [None, None], "{instance:?}");
     assert!(
         finding
             .reason

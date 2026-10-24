@@ -760,12 +760,13 @@ pub struct DefinitionFinding {
     /// Which definition's check reports it.
     pub side: DefinitionRole,
     /// `genuine` when a ground instance is exhibited at which both equations apply and the input
-    /// has two normal forms, so k-rust's result for that input depends on the order in which it
-    /// tries the equations; `decided` for a precondition row that an equation is headed by a
+    /// has two different results, two normal forms or a normal form and an undefined value
+    /// ([`FindingInstance::stuck`]), so k-rust's result for that input depends on the order in
+    /// which it tries the equations; `decided` for a precondition row that an equation is headed by a
     /// constructor or an injection or indexed at a collection or a bare variable, or an equation
     /// whose right-hand side leaves a variable unbound (a fact about the definition as written, which no assumption
     /// removes); `undecided` otherwise: not shown to join, which may
-    /// be a limit of the check as well as an input with two normal forms.
+    /// be a limit of the check as well as an input with two different results.
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,
@@ -808,7 +809,8 @@ pub struct DefinitionFinding {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FindingVerdict {
-    /// A ground instance shows the two equations giving two different constructor values.
+    /// A ground instance shows the two equations giving two different normal forms, or a normal
+    /// form and an undefined value (`FindingInstance::stuck`).
     Genuine,
     /// Not shown to join; possibly a limit of the check.
     Undecided,
@@ -843,8 +845,25 @@ pub struct FindingInstance {
     pub assignment: Vec<String>,
     /// The overlap under the assignment.
     pub overlap: String,
-    /// What each reduct evaluates to under the assignment: two different constructor terms.
+    /// What each reduct evaluates to under the assignment: two different normal forms, or a
+    /// normal form and an undefined value.
     pub values: Vec<String>,
+    /// For each of `values`, in order, the stuck application it holds: `null` when it is built
+    /// from data only, `total` when it is a normal form holding an application of a declared
+    /// total function that no equation rewrites, `partial` when it holds an application of a
+    /// declared partial function that no equation rewrites, and is undefined in the normal-form
+    /// reading (k-rust returns the stuck term). At most one side is `partial`.
+    pub stuck: Vec<Option<FindingStuck>>,
+}
+
+/// [`FindingInstance::stuck`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingStuck {
+    /// A normal form holding a stuck application of a declared total function.
+    Total,
+    /// An undefined value: a stuck application of a declared partial function.
+    Partial,
 }
 
 /// The rule a rule target resolved to: its unique id and its names.

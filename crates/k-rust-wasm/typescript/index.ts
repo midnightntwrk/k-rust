@@ -1688,8 +1688,9 @@ export interface FuzzReport {
 
 /**
  * One finding of a definition's full critical-pair check. `genuine`: at a ground instance both
- * equations apply and the input has two normal forms, so k-rust's result for it depends on the
- * order it tries the equations; `decided`: an equation headed by a constructor or an injection,
+ * equations apply and the input has two different results, two normal forms or a normal form
+ * and an undefined value (`instance.stuck`), so k-rust's result for it depends on the order it
+ * tries the equations; `decided`: an equation headed by a constructor or an injection,
  * or indexed at a collection or a bare variable, so the terms it describes are not distinct
  * normal forms, or one that leaves a right-hand-side variable unbound (a fact about the definition, which `assume-joined` refuses); `undecided`: not shown to join, which may be a limit of the check.
  */
@@ -1705,7 +1706,17 @@ export interface FuzzDefinitionFinding {
   overlap?: string
   reducts?: string[]
   conditions?: string
-  instance?: { assignment: string[]; overlap: string; values: string[] }
+  instance?: {
+    assignment: string[]
+    overlap: string
+    values: string[]
+    /**
+     * Per value, in order: `null` when built from data only, `'total'` for a normal form holding
+     * an application of a declared total function that no equation rewrites, `'partial'` for an
+     * undefined value holding such an application of a declared partial function.
+     */
+    stuck: ('total' | 'partial' | null)[]
+  }
   assumed?: boolean
 }
 

@@ -36,7 +36,7 @@ use std::collections::BTreeSet;
 use k_rust::{
     k_rust_backend::{
         confluence::{UnjoinedPair, UnjoinedReason, Violation, ViolationKind},
-        data_term::{DataHeads, Finding},
+        data_term::{DataHeads, Finding, Stuck},
         externalize,
         rule::{Predicate, RewriteRule, RuleOrigin, TermIndex},
         substitution::{Substitution, substitute},
@@ -47,7 +47,10 @@ use k_rust::{
 };
 
 use crate::{
-    report::{DefinitionFinding, DefinitionRole, FindingInstance, FindingKind, FindingVerdict},
+    report::{
+        DefinitionFinding, DefinitionRole, FindingInstance, FindingKind, FindingStuck,
+        FindingVerdict,
+    },
     values::TextSyntax,
 };
 
@@ -734,6 +737,29 @@ fn labelled(pattern: &KorePattern, sorts: bool) -> String {
     }
 }
 
+/// The reason of a genuine pair finding: what its instance's two values are.
+fn genuine_reason(instance: &FindingInstance) -> String {
+    let order = "k-rust's result for it depends on the order it tries the equations";
+    let partial = instance
+        .stuck
+        .iter()
+        .position(|stuck| *stuck == Some(FindingStuck::Partial));
+    match partial {
+        Some(undefined) => format!(
+            "at {} both equations apply; one result is the normal form {}, the other, {}, holds \
+             an application of a partial function that no equation rewrites, undefined in the \
+             normal-form reading: {order}",
+            instance.overlap,
+            instance.values[1 - undefined],
+            instance.values[undefined]
+        ),
+        None => format!(
+            "at {} both equations apply and the input has two normal forms, {} and {}: {order}",
+            instance.overlap, instance.values[0], instance.values[1]
+        ),
+    }
+}
+
 /// The report entry of a pair finding (see [`entry`]).
 fn pair_entry(
     side: DefinitionRole,
@@ -775,6 +801,21 @@ fn pair_entry(
     });
     let instance = instance.as_ref().map(|instance| {
         let (left, right) = names.show_apart(&instance.values.0, &instance.values.1, text);
+        // The input written apart from a value that would print alike (an overload application
+        // against its stuck lowering, `Cgascap_Gas(S, inj(-1), ..)` against `Cgascap_Int(S, -1,
+        // ..)`).
+        let written = show(&instance.overlap);
+        let overlap = if written == left {
+            names
+                .show_apart(&instance.overlap, &instance.values.0, text)
+                .0
+        } else if written == right {
+            names
+                .show_apart(&instance.overlap, &instance.values.1, text)
+                .0
+        } else {
+            written
+        };
         FindingInstance {
             assignment: instance
                 .assignment
@@ -783,8 +824,17 @@ fn pair_entry(
                     format!("{} = {}", readable_variable(&variable.name), show(value))
                 })
                 .collect(),
-            overlap: show(&instance.overlap),
+            overlap,
             values: vec![left, right],
+            stuck: [instance.stuck.0, instance.stuck.1]
+                .into_iter()
+                .map(|stuck| {
+                    stuck.map(|stuck| match stuck {
+                        Stuck::Total => FindingStuck::Total,
+                        Stuck::Partial => FindingStuck::Partial,
+                    })
+                })
+                .collect(),
         }
     });
     DefinitionFinding {
@@ -795,11 +845,7 @@ fn pair_entry(
         equations: vec![equation(&pair.first), equation(&pair.second)],
         position: Some(position_text(&pair.position)),
         reason: match &instance {
-            Some(instance) => format!(
-                "at {} both equations apply and the input has two normal forms, {} and {}: \
-                 k-rust's result for it depends on the order it tries the equations",
-                instance.overlap, instance.values[0], instance.values[1]
-            ),
+            Some(instance) => genuine_reason(instance),
             None => format!("not shown to join: {}", pair.reason),
         },
         overlap,
@@ -863,6 +909,67 @@ endmodule{tail}"#
         let (named, why) = decided_named(&name, &heads).expect("refused");
         assert_eq!(named, name);
         assert!(why.contains("leaves `Y` unbound"), "{why}");
+    }
+
+    /// S2B-T3: a genuine pair whose second reduct holds a stuck partial application under a
+    /// constructor (`s(V) = failed` beside `s(V) = bound(nb(V))`, `nb` partial without an
+    /// equation) reports `stuck` per value, `null` and `partial`, and a reason that names the
+    /// undefined value as such rather than as a normal form.
+    #[test]
+    fn an_undefined_side_is_reported_as_partial() {
+        use crate::report::FindingStuck;
+        const FIXTURE: &str =
+            include_str!("../../k-rust-backend/tests/fixtures/overloaded-list-owise.kore");
+        let (head, tail) = FIXTURE.rsplit_once("endmodule").expect("one module");
+        let equation = |rhs: &str, label: &str| {
+            format!(
+                r#"
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortVal{{}}, R}}(X0:SortVal{{}}, V:SortVal{{}}), \top{{R}}())),
+        \equals{{SortState{{}}, R}}(s{{}}(X0:SortVal{{}}), \and{{SortState{{}}}}({rhs}, \top{{SortState{{}}}}())))
+        [label{{}}("{label}")]
+"#
+            )
+        };
+        let source = format!(
+            "{head}
+    symbol nb{{}}(SortVal{{}}) : SortVal{{}} [function{{}}()]
+    symbol s{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]
+{}{}
+endmodule{tail}",
+            equation("failed{}()", "s-failed"),
+            equation("bound{}(nb{}(V:SortVal{}))", "s-nb"),
+        );
+        let syntax = parse_definition(&source).expect("parses");
+        let definition =
+            BackendDefinition::internalize(&syntax, "OVERLOADED-LIST-OWISE").expect("loads");
+        let heads = definition.data_heads();
+        let finding = heads
+            .findings()
+            .iter()
+            .find(|finding| finding.is_genuine())
+            .expect("a genuine finding");
+        let report = entry(DefinitionRole::Baseline, finding, false, None);
+        assert_eq!(report.verdict, FindingVerdict::Genuine);
+        let instance = report.instance.as_ref().expect("the instance");
+        let undefined = usize::from(instance.stuck[0].is_none());
+        assert_eq!(
+            instance.stuck[undefined],
+            Some(FindingStuck::Partial),
+            "{instance:?}"
+        );
+        assert_eq!(instance.stuck[1 - undefined], None, "{instance:?}");
+        assert!(instance.values[undefined].contains("nb"), "{instance:?}");
+        assert!(
+            report.reason.contains(&format!(
+                "one result is the normal form {}, the other, {}, holds an application of a \
+                 partial function",
+                instance.values[1 - undefined],
+                instance.values[undefined]
+            )),
+            "{}",
+            report.reason
+        );
     }
 
     /// INT8 follow-ups review round 2 (R2-B1): a pinned injective row is an overload premise,

@@ -3,7 +3,11 @@
 //! (`tests/fixtures/overloaded-list-owise.kore`): `exps`, `vals` and `listExp` root only overload
 //! equations, `pipe` is an `anywhere` head with no equation, `ordinaryVals` a declared function.
 
-use k_rust_backend::{data_term::DataHeads, definition::BackendDefinition, term::Term};
+use k_rust_backend::{
+    data_term::{DataHeads, Stuck},
+    definition::BackendDefinition,
+    term::Term,
+};
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 const FIXTURE: &str = include_str!("../fixtures/overloaded-list-owise.kore");
@@ -496,4 +500,507 @@ fn a_pinned_injective_row_is_not_decided() {
     assert!(row(ViolationKind::ConstructorHeaded("Lblc".into())).is_decided());
     assert!(row(ViolationKind::InjectionHeaded).is_decided());
     assert!(row(ViolationKind::IndexedAt(TermIndex::List)).is_decided());
+}
+
+/// One equation `HEAD(X0) = RHS requires REQUIRES` of the fixture's shape, `X0` bound to `V`.
+fn equation(head: &str, sort: &str, rhs: &str, requires: &str, label: &str) -> String {
+    attributed_equation(
+        head,
+        sort,
+        rhs,
+        requires,
+        &format!(r#"label{{}}("{label}")"#),
+    )
+}
+
+/// [`equation`] with the attribute list `attributes`.
+fn attributed_equation(
+    head: &str,
+    sort: &str,
+    rhs: &str,
+    requires: &str,
+    attributes: &str,
+) -> String {
+    format!(
+        r#"
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}({requires}, \and{{R}}(\in{{SortVal{{}}, R}}(X0:SortVal{{}}, V:SortVal{{}}), \top{{R}}())),
+        \equals{{{sort}, R}}({head}{{}}(X0:SortVal{{}}), \and{{{sort}}}({rhs}, \top{{{sort}}}())))
+        [{attributes}]
+"#
+    )
+}
+
+/// `cap(listVal(Vs)) = one`: a declared total function that no equation rewrites at `one`.
+const CAP: &str = r#"
+    symbol cap{}(SortVal{}) : SortVal{} [function{}(), total{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, listVal{}(Vs:SortVals{})), \top{R}())),
+        \equals{SortVal{}, R}(cap{}(X0:SortVal{}), \and{SortVal{}}(one{}(), \top{SortVal{}}())))
+        [label{}("cap-list")]
+"#;
+
+/// `nb`: a declared partial function without an equation.
+const NB: &str = "    symbol nb{}(SortVal{}) : SortVal{} [function{}()]";
+
+/// The one pair finding whose description names `label`.
+fn pair_finding<'h>(heads: &'h DataHeads, label: &str) -> &'h k_rust_backend::data_term::Finding {
+    let found = heads
+        .findings()
+        .iter()
+        .filter(|finding| finding.pair().is_some() && finding.to_string().contains(label))
+        .collect::<Vec<_>>();
+    let [finding] = found[..] else {
+        panic!("one pair finding naming {label}: {:?}", heads.findings());
+    };
+    finding
+}
+
+/// S2B-T3 (KEVM `Cgascap`'s shape): `p(V) = one` beside `p(V) = cap(V)`, where `cap` is a
+/// declared total function whose only equation does not match `one`. At `p(one)` both apply, and
+/// the reducts are the two normal forms `one` and the stuck total application `cap(one)`.
+#[test]
+fn a_stuck_total_application_against_a_constructor_is_genuine() {
+    let definition = with_sentences(&format!(
+        "{CAP}\n    symbol p{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]\n{}{}",
+        equation("p", "SortVal{}", "one{}()", r"\top{R}()", "p-one"),
+        equation(
+            "p",
+            "SortVal{}",
+            "cap{}(V:SortVal{})",
+            r"\top{R}()",
+            "p-cap"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "p-one");
+    let instance = finding.instance().expect("a genuine finding");
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "p{}(one{}())"),
+        "{instance:?}"
+    );
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&term(&definition, "one{}()")),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&&term(&definition, "cap{}(one{}())")),
+        "{values:?}"
+    );
+}
+
+/// S2B-T3 (KEVM's Merkle splitter's shape): `s(V) = failed` beside `s(V) = bound(nb(V))`, where
+/// `nb` is a declared partial function without an equation. At `s(one)` one reduct is the
+/// normal form `failed` and the other holds the stuck partial application `nb(one)` under a
+/// constructor, `\bottom` in `M_NF`.
+#[test]
+fn a_stuck_partial_application_under_a_constructor_against_a_constructor_is_genuine() {
+    let definition = with_sentences(&format!(
+        "{NB}\n    symbol s{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]\n{}{}",
+        equation("s", "SortState{}", "failed{}()", r"\top{R}()", "s-failed"),
+        equation(
+            "s",
+            "SortState{}",
+            "bound{}(nb{}(V:SortVal{}))",
+            r"\top{R}()",
+            "s-nb"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "s-failed");
+    let instance = finding.instance().expect("a genuine finding");
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "s{}(one{}())"),
+        "{instance:?}"
+    );
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&term(&definition, "failed{}()")),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&&term(&definition, "bound{}(nb{}(one{}()))")),
+        "{values:?}"
+    );
+}
+
+/// S2B-T3: two reducts that are both undefined at every tried instance are no instance:
+/// `f(V) = g(V)` beside `f(V) = h(V)`, with `g` and `h` declared partial functions whose only
+/// equations match `listVal(_)` and agree there.
+#[test]
+fn two_stuck_partial_reducts_stay_undecided() {
+    let definition = with_sentences(&format!(
+        r#"
+    symbol g{{}}(SortVal{{}}) : SortVal{{}} [function{{}}()]
+    symbol h{{}}(SortVal{{}}) : SortVal{{}} [function{{}}()]
+    symbol f{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortVal{{}}, R}}(X0:SortVal{{}}, listVal{{}}(Vs:SortVals{{}})), \top{{R}}())),
+        \equals{{SortVal{{}}, R}}(g{{}}(X0:SortVal{{}}), \and{{SortVal{{}}}}(one{{}}(), \top{{SortVal{{}}}}())))
+        [label{{}}("g-list")]
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortVal{{}}, R}}(X0:SortVal{{}}, listVal{{}}(Vs:SortVals{{}})), \top{{R}}())),
+        \equals{{SortVal{{}}, R}}(h{{}}(X0:SortVal{{}}), \and{{SortVal{{}}}}(one{{}}(), \top{{SortVal{{}}}}())))
+        [label{{}}("h-list")]
+{}{}"#,
+        equation("f", "SortVal{}", "g{}(V:SortVal{})", r"\top{R}()", "f-g"),
+        equation("f", "SortVal{}", "h{}(V:SortVal{})", r"\top{R}()", "f-h"),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "f-g");
+    assert!(!finding.is_genuine(), "{:?}", finding.instance());
+}
+
+/// S2B-T3 (review S6): a stuck application of a total function with an algebraic axiom is no
+/// value: `cat` is `assoc`, whose emitted axiom equates the two reducts of `f(V) = cat(cat(V, V),
+/// V)` beside `f(V) = cat(V, cat(V, V))`, so the pair stays undecided.
+#[test]
+fn a_stuck_application_of_an_associative_total_function_stays_undecided() {
+    let definition = with_sentences(&format!(
+        "    symbol cat{{}}(SortVal{{}}, SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}(), assoc{{}}()]
+    symbol f{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]\n{}{}",
+        equation(
+            "f",
+            "SortVal{}",
+            "cat{}(cat{}(V:SortVal{}, V:SortVal{}), V:SortVal{})",
+            r"\top{R}()",
+            "f-left"
+        ),
+        equation(
+            "f",
+            "SortVal{}",
+            "cat{}(V:SortVal{}, cat{}(V:SortVal{}, V:SortVal{}))",
+            r"\top{R}()",
+            "f-right"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "f-left");
+    assert!(!finding.is_genuine(), "{:?}", finding.instance());
+}
+
+/// S2B-T3 (review N6): a stuck partial application under a stuck total application, or under a
+/// hooked symbol, is neither defined nor undefined, and gives no instance: `s(V) = failed`
+/// beside `s(V) = state(tot(nb(V)))` (`tot` total and `nb` partial, neither with an equation),
+/// and `b(V) = failed` beside `b(V) = flag(notBool(brb(V)))` (`brb` partial without an equation).
+/// A hooked application is no value even over a defined argument: `t(V) = failed` beside
+/// `t(V) = flag(notBool(tb(V)))` (`tb` total without an equation) stays undecided too.
+#[test]
+fn a_stuck_partial_application_under_a_stuck_total_or_hooked_symbol_gives_no_instance() {
+    let definition = with_sentences(&format!(
+        r#"
+    symbol tot{{}}(SortVal{{}}) : SortMatchResult{{}} [function{{}}(), total{{}}()]
+{NB}
+    symbol brb{{}}(SortVal{{}}) : SortBool{{}} [function{{}}()]
+    symbol tb{{}}(SortVal{{}}) : SortBool{{}} [function{{}}(), total{{}}()]
+    hooked-symbol notBool{{}}(SortBool{{}}) : SortBool{{}} [function{{}}(), functional{{}}(), total{{}}(), hook{{}}("BOOL.not")]
+    symbol flag{{}}(SortBool{{}}) : SortState{{}} [constructor{{}}()]
+    symbol s{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]
+    symbol b{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]
+    symbol t{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]
+{}{}{}{}{}{}"#,
+        equation("s", "SortState{}", "failed{}()", r"\top{R}()", "s-failed"),
+        equation(
+            "s",
+            "SortState{}",
+            "state{}(tot{}(nb{}(V:SortVal{})))",
+            r"\top{R}()",
+            "s-tot"
+        ),
+        equation("b", "SortState{}", "failed{}()", r"\top{R}()", "b-failed"),
+        equation(
+            "b",
+            "SortState{}",
+            "flag{}(notBool{}(brb{}(V:SortVal{})))",
+            r"\top{R}()",
+            "b-not"
+        ),
+        equation("t", "SortState{}", "failed{}()", r"\top{R}()", "t-failed"),
+        equation(
+            "t",
+            "SortState{}",
+            "flag{}(notBool{}(tb{}(V:SortVal{})))",
+            r"\top{R}()",
+            "t-not"
+        ),
+    ));
+    let heads = definition.data_heads();
+    // `t` guards the hooked rule apart from the argument rule: `tb(one)` is a stuck total
+    // application, a defined argument, so only reading `notBool` as no value keeps it undecided.
+    for label in ["s-failed", "b-failed", "t-failed"] {
+        let finding = pair_finding(&heads, label);
+        assert!(!finding.is_genuine(), "{label}: {:?}", finding.instance());
+    }
+}
+
+/// S2B-T3: a total application one of whose equations matches with a `requires` the search does
+/// not decide is not stuck, so it is no value: `p(V) = one` beside `p(V) = cap(V)` with
+/// `cap(X0) = one requires und(V)`, `und` a partial function without an equation.
+#[test]
+fn a_total_application_with_an_undecided_equation_is_no_value() {
+    let definition = with_sentences(&format!(
+        "    symbol und{{}}(SortVal{{}}) : SortBool{{}} [function{{}}()]
+    symbol cap{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]
+    symbol p{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]\n{}{}{}",
+        equation(
+            "cap",
+            "SortVal{}",
+            "one{}()",
+            r#"\equals{SortBool{}, R}(und{}(V:SortVal{}), \dv{SortBool{}}("true"))"#,
+            "cap-und"
+        ),
+        equation("p", "SortVal{}", "one{}()", r"\top{R}()", "p-one"),
+        equation(
+            "p",
+            "SortVal{}",
+            "cap{}(V:SortVal{})",
+            r"\top{R}()",
+            "p-cap"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "p-one");
+    assert!(!finding.is_genuine(), "{:?}", finding.instance());
+}
+
+/// S2B-T3: a variable of a `Bytes` sort gets the candidates `""` and `"a"`, so `bf(B) = failed`
+/// beside `bf(B) = bound(one)` is genuine at `bf("")`.
+#[test]
+fn a_bytes_variable_gets_candidates() {
+    let definition = with_sentences(&format!(
+        "    hooked-sort SortBytes{{}} [hook{{}}(\"BYTES.Bytes\"), hasDomainValues{{}}()]
+    symbol bf{{}}(SortBytes{{}}) : SortState{{}} [function{{}}(), total{{}}()]
+{}{}",
+        r#"
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortBytes{}, R}(X0:SortBytes{}, B:SortBytes{}), \top{R}())),
+        \equals{SortState{}, R}(bf{}(X0:SortBytes{}), \and{SortState{}}(failed{}(), \top{SortState{}}())))
+        [label{}("bf-failed")]
+"#,
+        r#"
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortBytes{}, R}(X0:SortBytes{}, B:SortBytes{}), \top{R}())),
+        \equals{SortState{}, R}(bf{}(X0:SortBytes{}), \and{SortState{}}(bound{}(one{}()), \top{SortState{}}())))
+        [label{}("bf-bound")]
+"#
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "bf-failed");
+    let instance = finding.instance().expect("a genuine finding");
+    assert_eq!(
+        instance.overlap,
+        term(&definition, r#"bf{}(\dv{SortBytes{}}(""))"#),
+        "{instance:?}"
+    );
+}
+
+/// Review S1: an axiom at a stuck total application's index that the evaluator does not apply
+/// (`non-executable`, `symbolic`, `simplification`) still equates it with another term in every
+/// model, so the application is no value: `p(V) = one` beside `p(V) = cap(V)` with `cap(X0) =
+/// one` carrying each attribute stays undecided.
+#[test]
+fn a_total_application_an_unapplied_axiom_matches_is_no_value() {
+    for attribute in ["non-executable{}()", "symbolic{}()"] {
+        let definition = with_sentences(&format!(
+            "{CAP}\n    symbol p{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]\n{}{}{}",
+            attributed_equation(
+                "cap",
+                "SortVal{}",
+                "one{}()",
+                r"\top{R}()",
+                &format!(r#"label{{}}("cap-any"), {attribute}"#)
+            ),
+            equation("p", "SortVal{}", "one{}()", r"\top{R}()", "p-one"),
+            equation(
+                "p",
+                "SortVal{}",
+                "cap{}(V:SortVal{})",
+                r"\top{R}()",
+                "p-cap"
+            ),
+        ));
+        let heads = definition.data_heads();
+        let finding = pair_finding(&heads, "p-one");
+        assert!(
+            !finding.is_genuine(),
+            "{attribute}: {:?}",
+            finding.instance()
+        );
+    }
+    let definition = with_sentences(&format!(
+        r#"{CAP}
+    symbol p{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]
+    axiom{{R}} \implies{{R}}(
+        \top{{R}}(),
+        \equals{{SortVal{{}}, R}}(cap{{}}(X:SortVal{{}}), \and{{SortVal{{}}}}(one{{}}(), \top{{SortVal{{}}}}())))
+        [label{{}}("cap-lemma"), simplification{{}}()]
+{}{}"#,
+        equation("p", "SortVal{}", "one{}()", r"\top{R}()", "p-one"),
+        equation(
+            "p",
+            "SortVal{}",
+            "cap{}(V:SortVal{})",
+            r"\top{R}()",
+            "p-cap"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "p-one");
+    assert!(
+        !finding.is_genuine(),
+        "simplification: {:?}",
+        finding.instance()
+    );
+}
+
+/// `cap2(listVal(Vs)) = one`, a second declared total function like [`CAP`].
+const CAP2: &str = r#"
+    symbol cap2{}(SortVal{}) : SortVal{} [function{}(), total{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, listVal{}(Vs:SortVals{})), \top{R}())),
+        \equals{SortVal{}, R}(cap2{}(X0:SortVal{}), \and{SortVal{}}(one{}(), \top{SortVal{}}())))
+        [label{}("cap2-list")]
+"#;
+
+/// Review N1: an undefined value against a stuck total one is genuine: at `s(one)`,
+/// `bound(nb(one))` is `\bottom` in `M_NF` and `bound(cap(one))` a normal form.
+#[test]
+fn an_undefined_value_against_a_stuck_total_value_is_genuine() {
+    let definition = with_sentences(&format!(
+        "{CAP}\n{NB}\n    symbol s{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]\n{}{}",
+        equation(
+            "s",
+            "SortState{}",
+            "bound{}(nb{}(V:SortVal{}))",
+            r"\top{R}()",
+            "s-nb"
+        ),
+        equation(
+            "s",
+            "SortState{}",
+            "bound{}(cap{}(V:SortVal{}))",
+            r"\top{R}()",
+            "s-cap"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let instance = pair_finding(&heads, "s-nb")
+        .instance()
+        .expect("a genuine finding")
+        .clone();
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "s{}(one{}())"),
+        "{instance:?}"
+    );
+    let mut stuck = vec![instance.stuck.0, instance.stuck.1];
+    stuck.sort();
+    assert_eq!(
+        stuck,
+        [Some(Stuck::Total), Some(Stuck::Partial)],
+        "{instance:?}"
+    );
+}
+
+/// Review N1: two different stuck total values are two normal forms: at `p(one)`, `cap(one)`
+/// and `cap2(one)`.
+#[test]
+fn two_different_stuck_total_values_are_genuine() {
+    let definition = with_sentences(&format!(
+        "{CAP}{CAP2}\n    symbol p{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]\n{}{}",
+        equation(
+            "p",
+            "SortVal{}",
+            "cap{}(V:SortVal{})",
+            r"\top{R}()",
+            "p-cap"
+        ),
+        equation(
+            "p",
+            "SortVal{}",
+            "cap2{}(V:SortVal{})",
+            r"\top{R}()",
+            "p-cap2"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let instance = pair_finding(&heads, "p-cap")
+        .instance()
+        .expect("a genuine finding")
+        .clone();
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "p{}(one{}())"),
+        "{instance:?}"
+    );
+    assert_eq!(
+        instance.stuck,
+        (Some(Stuck::Total), Some(Stuck::Total)),
+        "{instance:?}"
+    );
+}
+
+/// Review N1: an undefined item makes its collection undefined: `l(V) = .List` beside `l(V) =
+/// ListItem(nb(V))` is genuine at `l(one)`, the second value `partial`.
+#[test]
+fn an_undefined_list_item_is_an_undefined_value() {
+    let definition = with_sentences(&format!(
+        r#"{NB}
+    hooked-sort SortList{{}}
+        [hook{{}}("LIST.List"), unit{{}}(Lbl'Stop'List{{}}()), element{{}}(LblListItem{{}}()),
+         concat{{}}(Lbl'Unds'List'Unds'{{}}())]
+    hooked-symbol Lbl'Stop'List{{}}() : SortList{{}} [function{{}}(), total{{}}(), hook{{}}("LIST.unit")]
+    hooked-symbol LblListItem{{}}(SortVal{{}}) : SortList{{}}
+        [function{{}}(), total{{}}(), hook{{}}("LIST.element")]
+    hooked-symbol Lbl'Unds'List'Unds'{{}}(SortList{{}}, SortList{{}}) : SortList{{}}
+        [function{{}}(), total{{}}(), hook{{}}("LIST.concat"), assoc{{}}()]
+    symbol l{{}}(SortVal{{}}) : SortList{{}} [function{{}}(), total{{}}()]
+{}{}"#,
+        equation(
+            "l",
+            "SortList{}",
+            "Lbl'Stop'List{}()",
+            r"\top{R}()",
+            "l-empty"
+        ),
+        equation(
+            "l",
+            "SortList{}",
+            "LblListItem{}(nb{}(V:SortVal{}))",
+            r"\top{R}()",
+            "l-item"
+        ),
+    ));
+    let heads = definition.data_heads();
+    let instance = pair_finding(&heads, "l-empty")
+        .instance()
+        .expect("a genuine finding")
+        .clone();
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "l{}(one{}())"),
+        "{instance:?}"
+    );
+    let mut stuck = vec![instance.stuck.0, instance.stuck.1];
+    stuck.sort();
+    assert_eq!(stuck, [None, Some(Stuck::Partial)], "{instance:?}");
+}
+
+/// Review N1: a stuck application of a `functional` symbol that is no declared function is no
+/// value (an uninterpreted symbol, which no `M_NF` normal-form claim covers): `p(V) = one`
+/// beside `p(V) = q(V)` stays undecided.
+#[test]
+fn a_functional_uninterpreted_application_is_no_value() {
+    let definition = with_sentences(&format!(
+        "    symbol q{{}}(SortVal{{}}) : SortVal{{}} [functional{{}}()]
+    symbol p{{}}(SortVal{{}}) : SortVal{{}} [function{{}}(), total{{}}()]\n{}{}",
+        equation("p", "SortVal{}", "one{}()", r"\top{R}()", "p-one"),
+        equation("p", "SortVal{}", "q{}(V:SortVal{})", r"\top{R}()", "p-q"),
+    ));
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "p-one");
+    assert!(!finding.is_genuine(), "{:?}", finding.instance());
 }

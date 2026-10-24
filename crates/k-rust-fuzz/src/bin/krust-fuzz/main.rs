@@ -737,12 +737,26 @@ fn write_finding(text: &mut String, finding: &k_rust_fuzz::report::DefinitionFin
         let _ = writeln!(text, "    when: {conditions}");
     }
     if let Some(instance) = &finding.instance {
-        let _ = writeln!(
-            text,
-            "    instance: at {} both equations apply; its two normal forms: {}",
-            instance.overlap,
-            instance.values.join(" and ")
-        );
+        let undefined = instance
+            .stuck
+            .iter()
+            .position(|stuck| *stuck == Some(k_rust_fuzz::report::FindingStuck::Partial));
+        let _ = match undefined {
+            Some(undefined) => writeln!(
+                text,
+                "    instance: at {} both equations apply; its normal form {} against the \
+                 undefined {}",
+                instance.overlap,
+                instance.values[1 - undefined],
+                instance.values[undefined]
+            ),
+            None => writeln!(
+                text,
+                "    instance: at {} both equations apply; its two normal forms: {}",
+                instance.overlap,
+                instance.values.join(" and ")
+            ),
+        };
     }
 }
 
