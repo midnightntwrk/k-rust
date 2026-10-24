@@ -3,7 +3,7 @@
 use std::fmt;
 
 use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic, codes, tag_rustc_message};
-use krs_syntax::SyntaxError;
+use krs_syntax::{SyntaxError, TokenRange};
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 
@@ -35,6 +35,31 @@ impl ExpandError {
             message.to_string(),
             Location::Span(span),
         ))
+    }
+
+    /// Creates a renderer error covering an authored node, from its first leaf to its last.
+    #[must_use]
+    pub fn at_range(code: Code, range: TokenRange, message: impl fmt::Display) -> Self {
+        Self {
+            failures: vec![Failure {
+                diagnostic: Diagnostic::error(
+                    code,
+                    message.to_string(),
+                    Location::Span(range.first()),
+                ),
+                rustc_spans: Some((range.first(), range.last())),
+            }],
+            stand_in: TokenStream::new(),
+        }
+    }
+
+    /// Creates a renderer error whose subject is the whole invocation, for a site that holds no
+    /// narrower authored node: a helper attribute in the wrong place is its own invocation, an
+    /// empty declaration has no part to point at, and a capacity limit counts the whole sentence.
+    /// rustc reports it at the invocation; callers say which of these applies.
+    #[must_use]
+    pub fn at_invocation(code: Code, message: impl fmt::Display) -> Self {
+        Self::from_diagnostic(Diagnostic::error(code, message.to_string(), Location::None))
     }
 
     /// Creates a renderer error covering the supplied tokens.

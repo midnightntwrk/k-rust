@@ -946,9 +946,9 @@ pub(crate) fn orphan_strictness(
         }
         _ => unreachable!(),
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         format!("`#[k::{name}]` is a constructor helper; place `#[k::constructor(...)]` before it"),
     ))
 }

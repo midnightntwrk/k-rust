@@ -259,6 +259,12 @@ pub struct MapExpression {
 }
 
 impl MapExpression {
+    /// Returns the tokens the expression was parsed from.
+    #[must_use]
+    pub const fn tokens(&self) -> &TokenStream {
+        &self.tokens
+    }
+
     fn empty(tokens: TokenStream, explicit_dot: bool, context: StateMacroContext) -> Self {
         Self {
             tokens,

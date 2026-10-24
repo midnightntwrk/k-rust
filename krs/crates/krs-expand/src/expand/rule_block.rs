@@ -736,12 +736,9 @@ impl ReadableStateContext<'_, '_> {
         side: krs_syntax::RuleSide,
         counter: &mut usize,
     ) -> crate::Result<krs_ir::ProvenanceKey> {
+        // The count is the whole sentence's, so no one node is the subject.
         let ordinal = u32::try_from(*counter).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                proc_macro2::Span::call_site(),
-                "too many readable state keys",
-            )
+            ExpandError::at_invocation(expand::DESCRIPTOR_CAPACITY, "too many readable state keys")
         })?;
         *counter += 1;
         Ok(role.on_side(side).key(ordinal))
@@ -821,10 +818,9 @@ fn readable_state_wire(
             })
         }
         StateTerm::Map(map) => {
-            let _ = map;
-            return Err(ExpandError::new(
+            return Err(ExpandError::new_spanned(
                 expand::CELL_COLLECTION_PLACEMENT,
-                proc_macro2::Span::call_site(),
+                map.tokens(),
                 "a readable collection instance holds terms and `[..]` sequences; write a map child with `cells!`",
             ));
         }

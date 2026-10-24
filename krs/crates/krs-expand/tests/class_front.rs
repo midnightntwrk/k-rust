@@ -854,6 +854,10 @@ doc = "`k::or_bool!` outside a claim"
 code = "krs::analysis::invalid-term"
 doc = "another mistake"
 
+[class.local-rewrite]
+code = "krs::syntax::invalid-local-rewrite"
+doc = "a predicate in a local rule's subject"
+
 [[refuse]]
 match = "terms/{init,equation}/{item,guard}/k::or_bool!(true, false)"
 class = "claim-only"
@@ -862,6 +866,11 @@ at = "spelling"
 [[refuse]]
 match = "terms/init/item-depth-2/k::or_bool!(true, false)"
 class = "other"
+at = "spelling"
+
+[[refuse]]
+match = "terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"
+class = "local-rewrite"
 at = "spelling"
 
 [accept."terms/init/item/1"]
@@ -891,14 +900,16 @@ k = ""
         }
     };
     // Exactly located inside the spelling, with the class's code.
+    for id in [
+        "terms/init/item/k::or_bool!(true, false)",
+        "terms/equation/guard/k::or_bool!(true, false)",
+    ] {
+        assert_eq!(verdict(id), "conforms", "{id}");
+    }
+    // The class's code, but outside the spelling.
     assert_eq!(
-        verdict("terms/init/item/k::or_bool!(true, false)"),
-        "conforms"
-    );
-    // The class's code, but at the invocation's call site, not at the island.
-    assert_eq!(
-        verdict("terms/equation/guard/k::or_bool!(true, false)"),
-        "K2 front: krs::expand::claim-only-term @ item"
+        verdict("terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"),
+        "K2 front: krs::syntax::invalid-local-rewrite @ item"
     );
     // Located, but with another class's code.
     assert_eq!(

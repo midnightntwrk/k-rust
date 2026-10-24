@@ -746,9 +746,9 @@ impl<'a> InitializerBuilder<'a> {
                     literal,
                 })
             }
-            TermTree::Wildcard(_) => Err(ExpandError::new(
+            TermTree::Wildcard(range) => Err(ExpandError::at_range(
                 expand::INITIALIZER_WILDCARD,
-                Span::call_site(),
+                *range,
                 "initializer terms cannot contain wildcards",
             )),
             // A builtin literal is one constant of its sort, in an initializer as anywhere.
