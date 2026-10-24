@@ -15,8 +15,8 @@ use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
     BUILTIN_OPEN_HOOKS, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
-    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, UNDOCUMENTED_EVALUATED_HOOKS,
-    state_references_implementation_chosen,
+    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, SHORT_CIRCUIT_HOOKS,
+    UNDOCUMENTED_EVALUATED_HOOKS, state_references_implementation_chosen,
 };
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
@@ -987,6 +987,227 @@ fn a_condition_that_depends_on_the_short_circuit_reading_excludes_the_definition
             Some(Exclusion::ShortCircuitReading)
         );
     });
+}
+
+/// KINK-SC-DEFINED (fz26 P7-SIMPLE-KINK design): the prelude equation of `findChar` skips
+/// operands over the partial `findString` and `findChar`, but every such application in a
+/// skipped operand is also evaluated by an operand that runs whenever it is skipped (an `#if`
+/// condition or the other branch), so neither reading leaves one undefined where the other gives
+/// a value: `findChar` does not depend on the reading, the rule applying it is not flagged, and
+/// `fc("xb")` is evidence. Before KINK-SC-DEFINED `findChar` was reading-dependent and the
+/// definition was excluded.
+///
+/// `replace` and `replaceAll` (prelude `STRING-COMMON`) stay reading-dependent: `replace`'s
+/// `owise` equation negates `Count >Int 0 andBool findString(Source, ToReplace, 0) >=Int 0`,
+/// whose skippable `findString` application, of a function declared partial, no other operand
+/// evaluates; at `Count` 0 a short-circuiting backend takes the `owise` equation whatever
+/// `findString` is, where k-rust's reading needs it defined. `replaceAll` applies `replace`.
+/// Neither is applied here, so nothing is excluded.
+#[test]
+fn a_skipped_operand_whose_partial_terms_another_operand_evaluates_flags_nothing() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scstr");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let flagged = exclusions
+            .short_circuit_symbols
+            .iter()
+            .map(|symbol| {
+                symbol
+                    .split_once("'LPar")
+                    .map_or(symbol.as_str(), |(head, _)| head)
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            flagged,
+            BTreeSet::from(["Lblreplace", "LblreplaceAll"]),
+            "{exclusions:?}"
+        );
+        assert!(
+            exclusions.short_circuit_conditions.is_empty()
+                && exclusions.short_circuit_results.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None);
+        let string = parse_pattern(r#"\dv{SortString{}}("xb")"#).unwrap();
+        let execution = run(&side, &module, support::app("Lblfc", vec![string]));
+        let [leaf] = execution.leaves() else {
+            panic!("fc(\"xb\"): one leaf")
+        };
+        assert_eq!(leaf.halt, HaltClass::Stuck);
+        assert!(leaf.branch.state.to_string().contains(r#""1""#));
+        assert_eq!(exclusions.run_exclusion(&execution), None);
+    });
+}
+
+/// KINK-SC-DEFINED: the prelude's stdin rules, which kompile copies into a definition with a
+/// `stdin` stream cell, have `requires` clauses over `findChar`; with `findChar` no longer
+/// reading-dependent, no rule of such a definition is a short-circuit row. Before, three rules
+/// were (stock SIMPLE's `short-circuit-reading` exclusion). The prelude's `replace` and
+/// `replaceAll` stay reading-dependent (above), but no rule applies them. The definition stays
+/// excluded by the census of its console hook, which this ticket leaves alone.
+#[test]
+fn the_prelude_stdin_rules_are_no_short_circuit_row() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scin");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_conditions.is_empty()
+                && exclusions.short_circuit_results.is_empty()
+                && exclusions
+                    .short_circuit_symbols
+                    .iter()
+                    .all(|symbol| symbol.starts_with("Lblreplace")),
+            "{exclusions:?}"
+        );
+    });
+}
+
+/// KINK-SC-DEFINED (fz26 P7-SIMPLE-KINK review B3 and round 2): `f(A) => #if A >=Int 0 #then A
+/// #else pd(A) #fi`, with `pd` defined exactly on negatives, skips `pd(A)` where a guard holds,
+/// and `pd(A)` occurs in no other operand: `f(3)` is undefined in k-rust's reading and `3` in a
+/// short-circuiting one, so `f` stays reading-dependent whatever the guard says. In the covered
+/// variant (`scpdc`, `#if pd(A) >Int 0 #then pd(A) #else 0 #fi`) the condition, evaluated on every
+/// path, evaluates the skippable `pd(A)` too, so where it is undefined both readings are: `f` is
+/// not flagged, `go(-3)` reaches `res(3)` and is evidence, and `go(3)`, where `pd(3)` is undefined
+/// in both readings, is not excluded for the reading. Before KINK-SC-DEFINED the covered variant
+/// was flagged too.
+#[test]
+fn a_skipped_operand_no_other_operand_evaluates_stays_flagged() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scpd");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_symbols.contains("Lblf"),
+            "{exclusions:?}"
+        );
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let (side, module) = fixture("r0c", "scpdc");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_symbols.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None);
+        let value = run(
+            &side,
+            &module,
+            support::app("Lblgo", vec![support::int(-3)]),
+        );
+        let [leaf] = value.leaves() else {
+            panic!("go(-3): one leaf")
+        };
+        assert_eq!(leaf.halt, HaltClass::Stuck);
+        assert!(leaf.branch.state.to_string().contains(r#""3""#));
+        assert_eq!(exclusions.run_exclusion(&value), None);
+        let undefined = run(&side, &module, support::app("Lblgo", vec![support::int(3)]));
+        assert!(
+            undefined
+                .leaves()
+                .iter()
+                .any(|leaf| leaf.halt == HaltClass::Trivial),
+            "go(3): an undefined step"
+        );
+        assert_ne!(
+            exclusions.run_exclusion(&undefined),
+            Some(Exclusion::ShortCircuitReading)
+        );
+    });
+}
+
+/// KINK-SC-DEFINED: the short-circuit analysis takes the terms every evaluation of an operator
+/// evaluates as its non-skippable operands' plus those common to all its skippable ones. That
+/// under-approximates every evaluation only if each operator of `SHORT_CIRCUIT_HOOKS` evaluates
+/// at least one of its skippable positions, and every other position whenever one is skipped.
+/// Checked here from each operator's meaning, read on `Bool` (an instance of `#if`'s sort):
+/// - its arity is that of the prelude production with its hook, and its skippable positions are
+///   distinct positions of it;
+/// - for every value of its other positions, its result is no constant of the skippable ones, so
+///   no evaluation can give it without reading one of them;
+/// - its other positions are `#if`'s condition alone, which both prelude rules of `#if` read
+///   (`requires C`, `requires notBool C`), so every evaluation evaluates it.
+#[test]
+fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one() {
+    type Meaning = fn(&[bool]) -> bool;
+    let meaning = |hook: &str| -> Meaning {
+        match hook {
+            "BOOL.and" | "BOOL.andThen" => |v| v[0] && v[1],
+            "BOOL.or" | "BOOL.orElse" => |v| v[0] || v[1],
+            "BOOL.implies" => |v| !v[0] || v[1],
+            "KEQUAL.ite" => |v| if v[0] { v[1] } else { v[2] },
+            other => panic!("{other}: no meaning given; check the invariant for it first"),
+        }
+    };
+    let domains =
+        std::fs::read_to_string(k_rust_backend().join("../k-rust/builtin/domains.md")).unwrap();
+    // The number of non-terminals of the production that declares `hook`.
+    let arity = |hook: &str| -> usize {
+        let line = domains
+            .lines()
+            .find(|line| line.contains(&format!("hook({hook})")))
+            .unwrap_or_else(|| panic!("domains.md declares {hook}"));
+        let body = line.split_once("::=").map_or(line, |(_, body)| body);
+        let body = &body[..body.rfind('[').unwrap()];
+        let mut quoted = false;
+        let mut unquoted = String::new();
+        for character in body.chars() {
+            if character == '"' {
+                quoted = !quoted;
+            } else if !quoted {
+                unquoted.push(character);
+            }
+        }
+        unquoted
+            .split_whitespace()
+            .filter(|word| word.starts_with(|c: char| c.is_ascii_uppercase()))
+            .count()
+    };
+    for (hook, skippable) in SHORT_CIRCUIT_HOOKS {
+        let n = arity(hook);
+        let positions = skippable.iter().copied().collect::<BTreeSet<_>>();
+        assert!(
+            !positions.is_empty()
+                && positions.len() == skippable.len()
+                && positions.iter().all(|p| *p < n),
+            "{hook}: {skippable:?} of arity {n}"
+        );
+        let meaning = meaning(hook);
+        let others = (0..n)
+            .filter(|p| !positions.contains(p))
+            .collect::<Vec<_>>();
+        for fixed in 0..1u32 << others.len() {
+            let results = (0..1u32 << positions.len())
+                .map(|free| {
+                    let mut values = vec![false; n];
+                    for (bit, position) in others.iter().enumerate() {
+                        values[*position] = fixed >> bit & 1 == 1;
+                    }
+                    for (bit, position) in positions.iter().enumerate() {
+                        values[*position] = free >> bit & 1 == 1;
+                    }
+                    meaning(&values)
+                })
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                results.len(),
+                2,
+                "{hook}: constant in its skippable positions at {fixed:b}"
+            );
+        }
+        if *hook == "KEQUAL.ite" {
+            assert_eq!(others, [0], "{hook}");
+            for rule in [
+                "rule #if C:Bool #then B1::K #else _ #fi => B1 requires C\n",
+                "rule #if C:Bool #then _ #else B2::K #fi => B2 requires notBool C\n",
+            ] {
+                assert!(domains.contains(rule), "domains.md: {rule}");
+            }
+        } else {
+            assert!(others.is_empty(), "{hook}: {others:?}");
+        }
+    }
 }
 
 /// Re-pin R0c deliverable 2 (the R0b reviewer's probe): a rule that applies `Base2String`, whose
