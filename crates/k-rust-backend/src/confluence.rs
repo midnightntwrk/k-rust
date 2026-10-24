@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions and for the per-equation reports, each one walk of the equation's left-hand side; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions and for the per-equation reports, each one walk of the equation's left-hand side; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort; when the first pass proposes witness equations (`witness.rs`), one more join per proposing overlap and one unification per two proposals, then at most three more passes of this bound (the full check's two and the load's second)"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -23,8 +23,19 @@
 //! "Anywhere rules").
 //!
 //! `M_NF` is well defined and a model of the definition when evaluation terminates (assumed, as
-//! every evaluation assumes) and the critical pairs of the executable equations join. This module
-//! checks the second precondition once, when the definition is loaded:
+//! every evaluation assumes: A1) and the critical pairs of the executable equations join. This
+//! module checks the second precondition once, when the definition is loaded.
+//!
+//! A sort with no normal form is empty in `M_NF`, while every model of the definition has an
+//! element of it (matching-logic carriers are nonempty). So "joined" is read in `M+`: the normal
+//! forms of innermost evaluation by `R ∪ W` over the signature with one fresh free constant `*_S`
+//! in each sort `S` that is not surely inhabited (`symbols.rs`), where `R` are the executable
+//! equations and `W` the witness equations the check adopted ([`ValueClaims::witnesses`],
+//! `witness.rs`; empty when none). No witness applies to a term free of the constants, so `M+`
+//! agrees with `M_NF` on every such term. `M+` is a model of the definition when every pair of
+//! `R ∪ W` joins and `R ∪ W` terminates innermost over that signature (A1+: a premise of its own,
+//! derived neither from A1, which is about ground terms of the signature, nor from termination of
+//! `R` on open terms, and not checked). The check:
 //!
 //! 1. the rows of precondition P5 (no executable equation headed by a free constructor or an
 //!    injection, or indexed at a collection kind or a bare variable; overload equations of the
@@ -65,7 +76,12 @@
 //!    that sort, where both equations hold (`Context::uninhabited_sort`). It is classified like
 //!    any other; a pair all of whose non-joined overlaps are over such sorts names the sort
 //!    ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, since the
-//!    claims are read in `M_NF`, where it has no instance;
+//!    claims are read in `M_NF`, where it has no instance. Where such an overlap does not join,
+//!    in a pair the load's scope classifies, the first pass proposes witness equations from a
+//!    join that reads a stuck partial application at such an element as an open atom, and a
+//!    second pass checks every pair again on `R ∪ W`; the full check adopts it only when it
+//!    loses nothing, joins more and taints no witness head, and the load's scope reads that
+//!    decision and runs its own second pass (`witness.rs`);
 //! 7. the taint closure of the non-joined pairs (`closure.rs`) names the symbols whose
 //!    applications get no claim.
 //!
@@ -238,6 +254,16 @@ pub enum CheckScope {
     /// listed ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, in
     /// both scopes, so the two admit the same claims and warn alike (`Context::uninhabited_sort`
     /// gives the reading and its limit).
+    ///
+    /// Witness equations are decided once, by [`Self::All`] (`witness.rs`): when this scope's
+    /// first pass proposes one, the check runs the full check's two passes, takes from them only
+    /// the witnesses, the adoption and its condition that no witness head is tainted, and runs
+    /// this scope's own second pass with those witnesses. Its counts, pairs and claims are its
+    /// own: its closure is contained in the full check's, so no witness head is tainted in it, and
+    /// each claim it admits rests on its own classification of `R ∪ W`. Where the two scopes
+    /// classify the relevant pairs alike, they read the same witnesses (tested, V9); where this
+    /// scope proposes nothing that the full check would, it keeps its first pass, which only
+    /// withdraws more.
     Gate,
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
@@ -267,14 +293,20 @@ pub enum CheckScope {
     ///   pairs;
     /// - `refuted` and `joined` are sound: a refuted overlap has both `requires` holding on no
     ///   instance in any model; a joined one has both reducts reaching one term by innermost
-    ///   steps valid on every instance. No overlap is set aside because a variable of it ranges
-    ///   over a sort with no normal form: carriers are nonempty, so every model has an element
-    ///   of that sort, where both equations hold. Such an overlap is counted in
+    ///   steps of `R ∪ W` valid on every instance, over the signature with one added constant in
+    ///   each sort that is not surely inhabited (`M+`, module documentation), where `W` are the
+    ///   adopted witness equations ([`ValueClaims::witnesses`]; empty unless
+    ///   [`ValueClaims::witness_pass_adopted`]). No overlap is set aside because a variable of it
+    ///   ranges over a sort with no normal form: carriers are nonempty, so every model has an
+    ///   element of that sort, where both equations hold. Such an overlap is counted in
     ///   [`CheckCounts::uninhabited`] and classified like any other, and when it does not join
     ///   it is listed with a reason that names the sort ([`UnjoinedReason::UninhabitedSort`]);
-    ///   it withdraws no value claim ([`UnjoinedPair::over_uninhabited_sort`]). A model of the
-    ///   definition's equations, read with the priority antecedent, follows from the pairs only
-    ///   if evaluation terminates;
+    ///   it withdraws no value claim ([`UnjoinedPair::over_uninhabited_sort`]). The witnesses
+    ///   are adopted only when their pass loses no pair the first pass joined or refuted. When
+    ///   no pair is reported, `M+` is a model of the definition's equations, read with the
+    ///   priority antecedent, provided `R ∪ W` terminates innermost over that signature (A1+, a
+    ///   premise of its own, not checked; with `W` empty it is termination of evaluation on the
+    ///   terms with the added constants);
     /// - a non-joined pair is not shown to join, and may be spurious, for example: its
     ///   conditions are undecided by the solver-free condition reader
     ///   ([`UnjoinedReason::ConditionOpen`]), a simplification stopped on its budget of polls,
@@ -461,7 +493,9 @@ impl ValueClaims {
     /// ([`GroupKey`]), within which root pairs are formed; a group that holds only `[symbolic]`
     /// function equations is listed too. Empty for a withheld verdict: nothing was classified.
     ///
-    /// Summed over the groups, `equations` is [`CheckCounts::equations`], `root_pairs +
+    /// A verdict with witness equations ([`ValueClaims::witnesses`]) also lists the witness
+    /// group of each index that has one. Summed over the groups, `equations` is
+    /// [`CheckCounts::equations`] plus [`CheckCounts::witnesses`], `root_pairs +
     /// inner_pairs` is [`CheckCounts::pairs`], `self_pairs` is [`CheckCounts::several_matches`],
     /// `skipped`, `overlaps`, `uninhabited`, `refuted` and `joined` are their totals (overlaps and
     /// joins of self pairs included), and `not_joined` is the number of pairs in

@@ -24,11 +24,13 @@
 //!    has its `requires` refuted at each unifier. The first group with an equation that surely
 //!    applies gives the step; a group that is neither refuted nor gives a step leaves the subterm
 //!    a residual;
-//! 3. when every group is refuted, a partial declared function without a hook is stuck on every
-//!    instance and the subterm is `\bottom`; an application of any other class but a hooked one
-//!    (`symbols.rs`: an equation head, a total symbol, a partial symbol that is not a declared
-//!    function) whose arguments are settled is settled (a stuck total application is an element
-//!    no equation names).
+//! 3. when every group is refuted (the witness group of the index included, in a pass with
+//!    witness equations, `witness.rs`), a partial declared function without a hook is stuck on
+//!    every instance and the subterm is `\bottom`, in `M_NF` and in `M+`, whose relation offers
+//!    the witnesses as the lowest group of their index; an application of any other class but a
+//!    hooked one (`symbols.rs`: an equation head, a total symbol, a partial symbol that is not a
+//!    declared function) whose arguments are settled is settled (a stuck total application is an
+//!    element no equation names).
 //!
 //! The binding rule keeps every step valid on every instance: the matcher compares only settled
 //! structure, so each residual lies inside the value of some variable `X`, and the step is taken
@@ -37,19 +39,30 @@
 //! step is refused and the subterm is a residual: a step that erased an undefined residual would
 //! identify a defined term with `\bottom`.
 //!
-//! Why "joined" is sound (the lifting lemma): on an instance `rho` of the pair's variables at
-//! which both `requires` hold, each residual `R` has one normal form `n_R` (it is a subterm of a
-//! reduct of the peak, below the peak in the well-founded order of Newman's lemma). Replacing
-//! every residual instance by its normal form, each join step is an `->E` step on the instance,
-//! or both its sides are `\bottom` there (a residual that is `\bottom` occurs in the result by the
-//! binding rule, or the step erases only a subterm defined on every instance). So both sides
-//! reach the common term's instance, and the peak's two reducts have a common reduct.
+//! Why "joined" is sound (the lifting lemma): the instances range over the signature with one
+//! fresh constant in each sort that is not surely inhabited, and the steps are those of `R ∪ W`
+//! (the executable equations and the pass's witness equations, `M+` in `confluence.rs`). On an
+//! instance `rho` of the pair's variables at which both `requires` hold, each residual `R` has one
+//! normal form `n_R` (it is a subterm of a reduct of the peak, below the peak in the well-founded
+//! order of Newman's lemma, which A1+ gives). Replacing every residual instance by its normal
+//! form, each join step is a step of that relation on the instance, or both its sides are
+//! `\bottom` there (a residual that is `\bottom` occurs in the result by the binding rule, or the
+//! step erases only a subterm defined on every instance). So both sides reach the common term's
+//! instance, and the peak's two reducts have a common reduct. No rule reads emptiness or
+//! coverage: the unifier enumerates subsort branches, and a complement case only assumes that no
+//! offered left-hand side matches, so the argument holds with the constants as with any element.
 //!
 //! The join's precision is frozen at these rules. A rule that lets more pairs join (a step, a
 //! settled shape or a refutation not stated above) keeps more claims, and a wrong one shows only
 //! as a claim that holds in no model; so a new rule comes with a definition of the class it
 //! decides in the axiom-instance harness (`tests/definedness_oracle/axioms.rs`), which judges the
 //! claims by the axioms, and a defect switch in the rule (`switches.rs`) that the harness catches.
+//! The witness equations add steps only through the groups the check offers; they are adopted
+//! only after a second pass checks every pair with them, and their class is judged by the
+//! oracle's `D+` with the verdict's witnesses. Open mode ([`Mode::Open`]), which reads a stuck
+//! partial application at an element of a sort with no normal form as an atom, is no rule of the
+//! verdict: it only proposes witnesses to that second pass, so a wrong proposal costs a join,
+//! never a claim.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

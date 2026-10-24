@@ -10,9 +10,12 @@
 //!   application is a normal form;
 //! - how the model `M'` of the closure's construction (`closure.rs`) interprets an application
 //!   whose arguments hold a *new* element (a normal form containing an untainted equation-head
-//!   application) and that no untainted equation rewrites: formally (the application is itself
-//!   a new element of `S` that contains its arguments), as `\bottom`, as one fixed *old* element
-//!   of `S`, by its hook, or not at all (a *pin*).
+//!   application) and that no untainted equation of `R ∪ W` (the executable equations and the
+//!   verdict's witness equations, `witness.rs`) rewrites: formally (the application is itself a
+//!   new element of `S` that contains its arguments), as `\bottom`, as one fixed *old* element of
+//!   `S`, by its hook, or not at all (a *pin*). A witness `p => t` with an untainted head
+//!   interprets `p`'s instances by `t`'s, which hold `t`'s variables: the closure's sort reach has
+//!   an edge from `sort(p)` to their sorts.
 //!
 //! Everything else is derived from those two: which sorts have a normal form (the overlaps over a
 //! sort without one, which are still classified and name it when they do not join),
@@ -111,7 +114,7 @@ impl Class {
 }
 
 /// How `M'` interprets an application whose arguments hold a new element and that no untainted
-/// equation rewrites (R1.2, third column).
+/// equation of `R ∪ W` rewrites (R1.2, third column).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OnNewArguments {
     /// The application itself, a new element of its sort that contains its arguments: the sort's
@@ -130,7 +133,10 @@ pub(crate) enum OnNewArguments {
 pub(crate) struct Sorts {
     /// Sorts with a normal form: an over-approximation (a sort outside it has no normal form).
     normal_form: FxHashSet<Sort>,
-    /// Sorts with an element in every model: an under-approximation.
+    /// Sorts with an element in every model: an under-approximation. The model `M+` of the full
+    /// check (`confluence.rs`) adds one fresh constant to every parameterless sort outside it and
+    /// to every instance of a parametric sort the signatures use that is neither hooked nor a
+    /// collection (which this set never holds), so that every carrier of `M+` is nonempty.
     surely_inhabited: FxHashSet<Sort>,
 }
 
