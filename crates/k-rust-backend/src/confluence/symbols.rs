@@ -188,9 +188,10 @@ impl Sorts {
     ///   whose result sort is a sort variable. Such an application can be a normal form that is
     ///   no constructor application, or a new element of `M'` (`OnNewArguments::Formal`). A
     ///   declared partial function without a hook does not count: its stuck application is
-    ///   `\bottom`, and in `M'` it is `\bottom` or rewritten. Nor does a symbol hooked to
-    ///   `KEQUAL.ite`: its condition is a `Bool`, a fixed carrier whose elements are literals,
-    ///   so it always evaluates, to one of its other arguments;
+    ///   `\bottom`, and in `M'` it is `\bottom` or rewritten. A symbol hooked to `KEQUAL.ite`
+    ///   counts like any other: in `M+` and `M_NF` a stuck total or hooked application of sort
+    ///   `Bool` is a normal form, so `ite(b, s1, s2)` with such a `b` is a normal form of the sort
+    ///   that no constructor builds (K's parametric `ite{S}` thus disables coverage everywhere);
     /// - and has a constructor.
     ///
     /// Then the normal forms of `sort` in `M+` (over the signature with the constants) are its
@@ -301,9 +302,6 @@ fn least_sorts<'s>(
     }
 }
 
-/// The hook that [`Sorts::constructors_covering`] does not count as a producer.
-const ITE_HOOK: &str = "KEQUAL.ite";
-
 /// [`Sorts::constructors_covering`]'s table: each sort it holds with its constructors.
 fn covered_sorts(
     definition: &BackendDefinition,
@@ -313,20 +311,10 @@ fn covered_sorts(
 ) -> FxHashMap<Sort, Vec<Name>> {
     let switches = super::switches::active();
     let open = |sort: &Sort| ClosedSort::new(*sort).is_err();
-    let ite = |symbol: &Symbol| {
-        symbol
-            .attributes
-            .hook
-            .as_ref()
-            .is_some_and(|hook| hook.as_ref() == ITE_HOOK)
-    };
     let mut constructors = FxHashMap::<Sort, Vec<Name>>::default();
     let mut produced = FxHashSet::<Sort>::default();
     let mut open_producer = false;
     for symbol in symbols {
-        if ite(symbol) {
-            continue;
-        }
         if open(&symbol.result_sort) {
             // A sort variable instantiates at every sort; any other open sort is a parametric
             // sort's, whose instances are never covered.
