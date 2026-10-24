@@ -192,6 +192,15 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
 /// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
 ///
+/// fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 1100-1107 and 1123-1136 change, by digest; no line moves.
+/// Line 1104: a pair over a sort with no normal form withdraws claims and is named at load like
+/// any other pair (it withdrew nothing and was not named, the claims being read in `M_NF`); the
+/// reason naming the sort is a label. Line 1130: the warnings both scopes give alike include
+/// those of such pairs. Line 1120 (outside these passages) reads the claims' models with
+/// nonempty carriers. For kink: the full check lists exactly the pairs it listed, so no verdict
+/// moves through the listing; an adoption of witnesses can now flip, since adoption condition 4
+/// reads a closure that such pairs now seed (`CONFLUENCE_RS`).
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -206,13 +215,13 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "3483b03dce2cf5265ac2ca28f9a5bc34c56517108eb1ce955468cd3f45e0302a",
+        "bfdadcf22d280b3b15c19ce39c187601a9123eb21b9146fcdc1f1b41c1d785c5",
     ),
     (
         "docs/compatibility.md",
         1123,
         1136,
-        "55c5f5caa7619a70ced6638c5e7d3b26abca9f9f05a238653a86f7686128e1a6",
+        "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
@@ -300,7 +309,16 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// `CheckScope::All`, whose verdict changes only where settling dropped two proposals of
 /// different roots as undecided: the conflict rule now compares proposals of one root alone, so
 /// more witnesses can be adopted (precision; each adoption still passes the second pass).
-const CONFLUENCE_RS: &str = "895e7fe4ab6483435e1b082e1710d6a64c8cf8673056b04051fe43bbb243f412";
+///
+/// fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 895e7fe4 -> ddb29c1a. A pair over a sort with no normal form
+/// (`UnjoinedReason::UninhabitedSort`) seeds the closure and is reported like any other pair, in
+/// both scopes and in argument position; the documentation reads the claims with nonempty
+/// carriers. The stages, the early return and the counts kink reads are unchanged, and the full
+/// check lists the same pairs. Its witness adoption can change: condition 4 (no witness head
+/// tainted in the second pass's closure) now sees the seeds of such pairs, so a pair over an empty
+/// sort that stays unjoined and reaches a witness head keeps the first pass (fewer witnesses, so
+/// more pairs listed: kink can only refuse more). WASM keeps its witness.
+const CONFLUENCE_RS: &str = "ddb29c1a8a40f8129aea77a15c5a4cf8efe66547ab814bc7b4c5b18101d83e13";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
@@ -308,8 +326,10 @@ const CONFLUENCE_RS: &str = "895e7fe4ab6483435e1b082e1710d6a64c8cf8673056b04051f
 /// change of its sort patterns as `CONFLUENCE_RS`. fz26 phase-8 FZ-EMPTYJOIN-WITNESS: 37bed07e ->
 /// 13672570: the closure's equations include the witness equations of a pass that has them, which add
 /// `SortReach` edges, and the documentation reads the claims' model with `R ∪ W`; `taintable` is
-/// unchanged.
-const CLOSURE_RS: &str = "13672570f6038fe59ff83c59abc34f34f6c14111236ec118e26ac93e2e16aec9";
+/// unchanged. fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 13672570 -> f436f6fa, documentation only: the
+/// claims' model starts from a model with nonempty carriers, so a pair over a sort with no normal
+/// form seeds like any other.
+const CLOSURE_RS: &str = "f436f6fa0939bbd9153888df29cc03849ed9659d842d97351e58946d3c3d2fb1";
 
 /// A re-pin that changes the premise text or the check's driver needs the consistency check
 /// (and its probe head) read again against it.
