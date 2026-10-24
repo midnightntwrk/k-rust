@@ -12,7 +12,8 @@ use k_rust::backend::CancellationToken;
 use crate::{
     exec::{Abort, OutcomeClass, UnjudgedReason},
     report::{
-        HoleValue, IncidentalCase, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide,
+        Comparability, HoleValue, IncidentalCase, KillKind, LoadRecord, Reaching, RejectionReason,
+        WitnessSide,
     },
     score::{Guards, records::Compared},
     values::Value,
@@ -151,6 +152,9 @@ pub(crate) struct HitDetail {
     pub(crate) mutant_krun_command: Option<String>,
     /// The instantiated program text, for a campaign with a program text.
     pub(crate) program: Option<String>,
+    /// For a rule or pattern hit, whether the program's run of every path is comparable
+    /// ([`crate::report::WitnessCase::comparable`]); `None` for every other target.
+    pub(crate) comparable: Option<Comparability>,
 }
 
 /// Why a confirmation gave no run.

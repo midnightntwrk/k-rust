@@ -849,16 +849,19 @@ impl LiveCases {
         };
         let side = &mut self.baseline;
         // `run_and_judge` is `run` then `judge` for rule and pattern targets; an observer target
-        // also walks its observer over the observed run (FZ-10).
-        let judged =
-            target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
-        let (result, hit_step, progress, judged) = (
-            judged.result,
-            judged.hit_step,
-            judged.progress,
-            judged.judgement,
-        );
-        let mut run = run_of(&result, &[&result]);
+        // also walks its observer over the observed run (FZ-10). The program's run of every path
+        // that judged a hit's comparability, when the case made one, counts in the case's work,
+        // load records and determinism (`target::comparable`).
+        let target::JudgedRun {
+            result,
+            judgement: judged,
+            hit_step,
+            progress,
+            comparable,
+            every_path,
+        } = target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
+        let sides: Vec<_> = std::iter::once(&result).chain(&every_path).collect();
+        let mut run = run_of(&result, &sides);
         run.pattern_body_matches = target.pattern_body_matches(&result);
         run.progress = progress;
         run.cut = cut_of(&result);
@@ -911,6 +914,7 @@ impl LiveCases {
                             ),
                             mutant_krun_command: None,
                             program: program_text(&prepared.instantiated),
+                            comparable: comparable.clone(),
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -980,8 +984,7 @@ impl LiveCases {
             Some(all_paths) => (all_paths, PathMode::AllPaths),
             None => (&one_path, self.spec.options.paths),
         };
-        let mut sides = vec![&baseline, &one_path];
-        sides.extend(&rerun);
+        let sides: Vec<_> = [&baseline, &one_path].into_iter().chain(&rerun).collect();
         let mut run = run_of(mutated, &sides);
         run.baseline_ended_within = ended_within(&baseline);
         // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
@@ -1034,6 +1037,7 @@ impl LiveCases {
                             krun_command,
                             mutant_krun_command,
                             program,
+                            comparable: None,
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -1956,6 +1960,8 @@ mod tests {
                 run_to_completion: false,
                 negated_property: true,
                 data_end: true,
+                comparable: false,
+                query_confirmable: false,
             },
             options: CaseOptions::default(),
             proposers: ProposerConfig {
@@ -2078,6 +2084,8 @@ mod tests {
                 run_to_completion: false,
                 negated_property: false,
                 data_end: true,
+                comparable: false,
+                query_confirmable: false,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -2132,6 +2140,8 @@ mod tests {
                 run_to_completion: true,
                 negated_property: false,
                 data_end: true,
+                comparable: false,
+                query_confirmable: false,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -2228,6 +2238,8 @@ mod tests {
                 run_to_completion: false,
                 negated_property: false,
                 data_end: true,
+                comparable: false,
+                query_confirmable: false,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -2307,6 +2319,8 @@ mod tests {
                 run_to_completion: false,
                 negated_property: false,
                 data_end: true,
+                comparable: false,
+                query_confirmable: false,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),
@@ -2370,6 +2384,8 @@ mod tests {
                 run_to_completion: false,
                 negated_property: false,
                 data_end: true,
+                comparable: false,
+                query_confirmable: false,
             },
             definitions: Definitions {
                 baseline: Arc::new(compiled.definition()),

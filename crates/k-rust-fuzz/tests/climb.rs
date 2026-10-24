@@ -239,6 +239,8 @@ fn the_climb_needs_another_generating_proposer_and_a_rule_target() {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     };
     let refusal = Campaign::new(pattern).err().expect("refused").to_string();
     assert!(
@@ -353,6 +355,8 @@ fn an_observer_target_climbs_on_the_observers_progress() {
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         };
         Campaign::new(spec)
             .expect("an observer campaign with the climb is valid")

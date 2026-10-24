@@ -79,6 +79,8 @@ fn c1(
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         options: CaseOptions {
             max_work: Some(10_000),
@@ -215,6 +217,8 @@ fn a_campaign_without_such_cases_reports_no_finding() {
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         ..c1(&IMP_DIFF, None, &[])
     };

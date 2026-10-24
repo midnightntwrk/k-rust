@@ -48,6 +48,8 @@ fn final_pattern(pattern: &str, negated_property: bool) -> Target {
         run_to_completion: false,
         negated_property,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     }
 }
 
@@ -332,6 +334,8 @@ fn an_undefined_step_is_never_a_hit() {
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
     );
     setup.holes = vec![int_hole("B", "rules/div.pgm", "2)", "2")];
@@ -524,6 +528,8 @@ fn fired(label: &str) -> Target {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     }
 }
 

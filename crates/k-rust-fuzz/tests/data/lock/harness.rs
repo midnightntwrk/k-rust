@@ -139,6 +139,8 @@ pub fn list_spec(
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         options: CaseOptions {
             shrink: false,

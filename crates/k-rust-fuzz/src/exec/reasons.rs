@@ -18,12 +18,19 @@
 use k_rust::backend::{HaltReasonOutput, StopCause};
 use serde::{Deserialize, Serialize};
 
-use super::{CaseFailure, CaseResult, DeterminismBreak, FailureCause, LeafReport, UncleanReason};
+use super::{
+    CaseFailure, CaseResult, ComparableCondition, DeterminismBreak, FailureCause, LeafReport,
+    UncleanReason,
+};
 
 /// Why a case could not be judged: `unsupported` (a hit, a miss or a stuck end may hide behind
 /// it) or `baseline-incomplete` (the baseline's set of ends is not known, so no kill can be
-/// judged). Its report name is the kebab-case variant name. The declaration order is the order in
-/// which one reason is chosen for a case with several, and the report's key order.
+/// judged). Its report name is the kebab-case variant name, and for the two reasons that name a
+/// condition ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) that name, a colon and
+/// the condition's name (`end-not-comparable:work-bound`). The declaration order is the order in
+/// which one reason is chosen for a case with several, and the report's key order; the two
+/// reasons that name a condition come last (serde reads a name without a condition first), and
+/// each is the only reason of its case: it demotes a hit.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnjudgedReason {
@@ -139,7 +146,61 @@ pub enum UnjudgedReason {
     Unconfirmed,
     /// The engine met a defect judging the case (see the report's engine defects).
     EngineDefect,
+    /// A rule or pattern hit under `comparable-end` (`crate::Target::comparable`) whose witness
+    /// program's run of every path is not comparable: it fails the named condition, the first
+    /// in [`ComparableCondition`]'s order (`crate::exec::comparable::end_conditions`).
+    #[serde(untagged)]
+    EndNotComparable(EndNotComparable),
+    /// A pattern hit under `query-confirmable` (`crate::Target::query_confirmable`) that kink's
+    /// query could not confirm: the run fails the named condition, the first in
+    /// [`ComparableCondition`]'s order (`crate::exec::comparable::query_conditions`).
+    #[serde(untagged)]
+    QueryNotConfirmable(QueryNotConfirmable),
 }
+
+/// Defines a reason payload that names a [`ComparableCondition`] and reads and writes as
+/// `PREFIX:CONDITION`.
+macro_rules! condition_reason {
+    ($(#[$meta:meta])* $name:ident, $prefix:literal) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct $name(pub ComparableCondition);
+
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.collect_str(&format_args!(concat!($prefix, ":{}"), self.0.name()))
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let name = String::deserialize(deserializer)?;
+                name.strip_prefix(concat!($prefix, ":"))
+                    .and_then(ComparableCondition::of_name)
+                    .map(Self)
+                    .ok_or_else(|| {
+                        serde::de::Error::custom(format!(
+                            "`{name}` is not `{}:` and a condition",
+                            $prefix
+                        ))
+                    })
+            }
+        }
+    };
+}
+
+condition_reason!(
+    /// The condition of [`UnjudgedReason::EndNotComparable`], named `end-not-comparable:CONDITION`.
+    EndNotComparable,
+    "end-not-comparable"
+);
+
+condition_reason!(
+    /// The condition of [`UnjudgedReason::QueryNotConfirmable`], named
+    /// `query-not-confirmable:CONDITION`.
+    QueryNotConfirmable,
+    "query-not-confirmable"
+);
 
 /// The remedy of [`UnjudgedReason::MutantEndNotData`] and [`UnjudgedReason::BaselineEndNotData`].
 const NOT_DATA_REMEDY: &str = concat!(
@@ -171,8 +232,27 @@ const REACHED_END_NOT_DATA_REMEDY: &str = concat!(
     "`Target::data_end`); a negated property is exempt",
 );
 
+/// The remedy of [`UnjudgedReason::EndNotComparable`].
+const END_NOT_COMPARABLE_REMEDY: &str = concat!(
+    "the target was reached, but the witness program's run of every path is not one kink can ",
+    "compare (it is cut, stops abnormally, is undecided, or carries a diagnostic or a ",
+    "definition fact the reason names), so the hit is refused; a program or hole range whose ",
+    "every path ends cleanly can be a hit, or accept such hits (campaign key ",
+    "`comparable = false`, command line `--no-comparable`, library `Target::comparable`)",
+);
+
+/// The remedy of [`UnjudgedReason::QueryNotConfirmable`].
+const QUERY_NOT_CONFIRMABLE_REMEDY: &str = concat!(
+    "the pattern was matched, but the run carries a diagnostic or a run fact the reason names, ",
+    "which kink's query reads on the matching state (its search absorbs converging paths), so ",
+    "the hit is refused; a program or hole range whose run carries none can be a hit (library ",
+    "`Target::query_confirmable`, which has no command-line flag)",
+);
+
 impl UnjudgedReason {
-    /// Every reason, in declaration order.
+    /// Every reason that names no condition, in declaration order: the reasons that name one
+    /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
+    /// [`ComparableCondition`].
     pub const ALL: [Self; 35] = [
         Self::BackendError,
         Self::StackExhausted,
@@ -297,6 +377,8 @@ impl UnjudgedReason {
                  command line `--smt-timeout`, library \
                  `CaseOptions::backend.smt_timeout_ms`)"
             }
+            Self::EndNotComparable(_) => END_NOT_COMPARABLE_REMEDY,
+            Self::QueryNotConfirmable(_) => QUERY_NOT_CONFIRMABLE_REMEDY,
             Self::BackendError
             | Self::StackExhausted
             | Self::HaltIndeterminate
@@ -457,7 +539,7 @@ mod tests {
     #[test]
     fn every_reason_is_listed_once_in_order_and_no_remedy_suggests_a_claim() {
         assert!(UnjudgedReason::ALL.windows(2).all(|pair| pair[0] < pair[1]));
-        for reason in UnjudgedReason::ALL {
+        for reason in UnjudgedReason::ALL.into_iter().chain(with_conditions()) {
             let Some(remedy) = reason.remedy() else {
                 continue;
             };
@@ -477,6 +559,67 @@ mod tests {
         }
     }
 
+    /// The reasons that name a condition, one per condition each.
+    fn with_conditions() -> impl Iterator<Item = UnjudgedReason> {
+        ComparableCondition::ALL.into_iter().flat_map(|condition| {
+            [
+                UnjudgedReason::EndNotComparable(EndNotComparable(condition)),
+                UnjudgedReason::QueryNotConfirmable(QueryNotConfirmable(condition)),
+            ]
+        })
+    }
+
+    /// A reason that names a condition reads and writes as `PREFIX:CONDITION`, as a value and as
+    /// a report's map key, sorts after every other reason, and no other text reads as one.
+    #[test]
+    fn a_reason_that_names_a_condition_reads_back_from_its_name() {
+        assert!(
+            ComparableCondition::ALL
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        );
+        for reason in with_conditions() {
+            let name = reason.name();
+            let (prefix, condition) = name.split_once(':').expect("a prefixed name");
+            assert!(
+                ["end-not-comparable", "query-not-confirmable"].contains(&prefix),
+                "{name}"
+            );
+            assert!(ComparableCondition::of_name(condition).is_some(), "{name}");
+            let back: UnjudgedReason =
+                serde_json::from_value(serde_json::json!(name)).expect("reads back");
+            assert_eq!(back, reason);
+            assert!(UnjudgedReason::ALL.iter().all(|other| *other < reason));
+        }
+        let counts = std::collections::BTreeMap::from([
+            (
+                UnjudgedReason::EndNotComparable(EndNotComparable(ComparableCondition::WorkBound)),
+                2_u64,
+            ),
+            (UnjudgedReason::WorkBound, 1),
+        ]);
+        let text = serde_json::to_string(&counts).expect("serializes");
+        assert_eq!(
+            text,
+            r#"{"work-bound":1,"end-not-comparable:work-bound":2}"#
+        );
+        let back: std::collections::BTreeMap<UnjudgedReason, u64> =
+            serde_json::from_str(&text).expect("reads back");
+        assert_eq!(back, counts);
+        for refused in [
+            "end-not-comparable",
+            "end-not-comparable:",
+            "end-not-comparable:no-such-condition",
+            "query-not-confirmable:work_bound",
+            "work-bound:end-not-comparable",
+        ] {
+            assert!(
+                serde_json::from_value::<UnjudgedReason>(serde_json::json!(refused)).is_err(),
+                "{refused}"
+            );
+        }
+    }
+
     #[test]
     fn a_cancellation_is_told_from_a_clock() {
         let leaf = |halt| LeafReport {
@@ -488,6 +631,8 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            diagnostics: Vec::new(),
+            term_conjunction: false,
         };
         let result = |halt, safety_limit_hit| CaseResult {
             leaves: vec![leaf(halt)],
@@ -546,6 +691,8 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            diagnostics: Vec::new(),
+            term_conjunction: false,
         };
         assert_eq!(beyond_halt(&leaf), Some(UnjudgedReason::NotCeilFree));
     }

@@ -97,6 +97,9 @@ pub(super) fn plan(leaves: &[ExecutionLeaf]) -> Vec<PlannedConfiguration<'_>> {
 struct Reached {
     /// When a configuration on the leaf's path reaches the target, the depth of the first one.
     hit_steps: Vec<Option<u64>>,
+    /// Whether that first reaching configuration's term holds a term-level `\and`
+    /// ([`ConfigurationVerdict::Reaches`]); `false` for a leaf that reaches nothing.
+    hit_conjunctions: Vec<bool>,
     /// The reasons of the configurations that could not be decided before any reach on their
     /// path, and [`UnjudgedReason::Unobservable`] for a node that shows no configuration.
     unresolved: Vec<UnjudgedReason>,
@@ -122,11 +125,13 @@ fn walk(
     }
     let mut reached = Reached {
         hit_steps: vec![None; leaves.len()],
+        hit_conjunctions: vec![false; leaves.len()],
         unresolved: Vec::new(),
     };
-    // (node, depth, the depth of the first reaching configuration above it).
-    let mut work: Vec<(usize, u64, Option<u64>)> = vec![(0, 0, None)];
-    while let Some((index, depth, mut hit)) = work.pop() {
+    // (node, depth, the depth of the first reaching configuration above it, whether that one
+    // holds a term-level `\and`).
+    let mut work: Vec<(usize, u64, Option<u64>, bool)> = vec![(0, 0, None, false)];
+    while let Some((index, depth, mut hit, mut conjunction)) = work.pop() {
         let node = &nodes[index];
         if hit.is_none() {
             if node.stopped && node.edges.is_empty() {
@@ -140,7 +145,10 @@ fn walk(
                 continue;
             }
             match &verdicts[index] {
-                ConfigurationVerdict::Reaches => hit = Some(depth),
+                ConfigurationVerdict::Reaches { term_conjunction } => {
+                    hit = Some(depth);
+                    conjunction = *term_conjunction;
+                }
                 ConfigurationVerdict::Refuted => {}
                 ConfigurationVerdict::Unresolved(reason) => reached.unresolved.push(*reason),
                 ConfigurationVerdict::NotJudged => {
@@ -152,13 +160,14 @@ fn walk(
         }
         for &leaf in &node.leaves {
             reached.hit_steps[leaf] = hit;
+            reached.hit_conjunctions[leaf] = conjunction;
         }
         // The first successor is walked first.
         work.extend(
             node.edges
                 .iter()
                 .rev()
-                .map(|edge| (edge.child, depth + 1, hit)),
+                .map(|edge| (edge.child, depth + 1, hit, conjunction)),
         );
     }
     Ok(reached)
@@ -237,14 +246,17 @@ impl ResolvedTarget {
                 "a case classed `hit` has no clean leaf that reaches the target",
             ));
         };
-        Ok((
+        let judgement = self.confirmable(
             Judgement {
                 class,
                 hit_site: Some(HitSite::Leaf(leaf)),
                 blocked: false,
                 reason,
             },
-            walked.hit_steps[leaf],
-        ))
+            result,
+            walked.hit_conjunctions[leaf],
+        );
+        let hit_step = walked.hit_steps[leaf].filter(|_| judgement.class == OutcomeClass::Hit);
+        Ok((judgement, hit_step))
     }
 }

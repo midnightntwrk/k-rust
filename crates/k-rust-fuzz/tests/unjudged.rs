@@ -65,6 +65,8 @@ fn spec(
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         options,
         proposers: ProposerConfig::default(),

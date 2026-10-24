@@ -230,6 +230,8 @@ fn rule_target(label: &str) -> Target {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     }
 }
 
@@ -328,6 +330,8 @@ fn a_pattern_target_harvests_its_own_requires() {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     };
     for seed in [1, 2, 3] {
         let spec = probe_spec(

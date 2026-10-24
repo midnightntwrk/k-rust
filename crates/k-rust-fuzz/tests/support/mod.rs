@@ -1110,6 +1110,103 @@ pub static ANY_STATE_HITS: [AnyStateHit; 4] = [
     },
 ];
 
+// The comparable-end fixture (FZ-COMPARABLE-A and -Q, P7-ADDENDUM section 4).
+fixture!(
+    COMPARABLE,
+    "comparable/comparable.k",
+    "COMPARABLE",
+    &[
+        program!("comparable/start.pgm"),
+        program!("comparable/cond.pgm"),
+        program!("comparable/cond-zero.pgm"),
+        program!("comparable/both.pgm"),
+    ]
+);
+
+/// One named program and what its all-paths run says about comparability (FZ-COMPARABLE-A,
+/// P7-ADDENDUM section 4, conditions P1, P2, P4 and P5): `conditions` are the report names of
+/// the conditions that fail, in the report's order, empty when the run is comparable. `pattern`
+/// matches a clean end of the program's run on one path (`at: final`), so that a campaign on
+/// the program as written, without holes, finds a witness that carries the judgement.
+///
+/// Every entry that is comparable here must be `comparable` in kink-flow's results of the same
+/// program (FZ-KINK-XTEST (c)): the fuzz reads the k-rust facts kink's comparability rests on,
+/// so it may refuse more than kink (a vacuous leaf, `smtUnknowns`), never less. `tests/
+/// comparable.rs` checks each entry against the fuzz.
+pub struct ComparableEnd {
+    /// The fixture.
+    pub fixture: &'static Fixture,
+    /// One of its programs.
+    pub program: &'static str,
+    /// A pattern a clean end of one path of the program's run matches.
+    pub pattern: &'static str,
+    /// The conditions that fail, by report name; empty when the run is comparable.
+    pub conditions: &'static [&'static str],
+}
+
+impl std::fmt::Debug for ComparableEnd {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} on {}: {:?}",
+            self.fixture.file, self.program, self.conditions
+        )
+    }
+}
+
+/// The named comparable and non-comparable programs ([`ComparableEnd`]).
+pub static COMPARABLE_ENDS: [ComparableEnd; 7] = [
+    // Deterministic, one clean end.
+    ComparableEnd {
+        fixture: &IMP,
+        program: "imp/le.imp",
+        pattern: "<k> .K </k>",
+        conditions: &[],
+    },
+    // Two paths, two clean ends.
+    ComparableEnd {
+        fixture: &COIN,
+        program: "coin/flip.pgm",
+        pattern: "<out> 3 </out>",
+        conditions: &[],
+    },
+    // `f(0)` evaluates: no diagnostic.
+    ComparableEnd {
+        fixture: &COMPARABLE,
+        program: "comparable/cond-zero.pgm",
+        pattern: "<out> 1 </out>",
+        conditions: &[],
+    },
+    // The other path never ends: the default work bound cuts it.
+    ComparableEnd {
+        fixture: &COMPARABLE,
+        program: "comparable/start.pgm",
+        pattern: "<out> 5 </out>",
+        conditions: &["work-bound"],
+    },
+    // The one end carries the `undecided-condition` of `f-pos`.
+    ComparableEnd {
+        fixture: &COMPARABLE,
+        program: "comparable/cond.pgm",
+        pattern: "<k> .K </k>",
+        conditions: &["undecided-condition"],
+    },
+    // The clean end has a sibling that carries it.
+    ComparableEnd {
+        fixture: &COMPARABLE,
+        program: "comparable/both.pgm",
+        pattern: "<out> 3 </out>",
+        conditions: &["undecided-condition"],
+    },
+    // The load contradicts `td`'s `total` claim.
+    ComparableEnd {
+        fixture: &LOADCLAIM,
+        program: "loadclaim/go.pgm",
+        pattern: "<out> 0 </out>",
+        conditions: &["contradicted-claim"],
+    },
+];
+
 /// The re-run pair (INT7): a baseline with the ends `a(N)`, `c(N)` and `b(opaque(N))` (clean,
 /// not data) and a mutant without the last, whose one path reaches `a(N)` and whose all-paths
 /// re-run decides the case.
@@ -1121,7 +1218,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 92] = [
+pub static ALL: [&Fixture; 93] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1214,4 +1311,5 @@ pub static ALL: [&Fixture; 92] = [
     &REPLACE_PRIORITY_M,
     &R2_SPOOF,
     &R2_SPOOF_M,
+    &COMPARABLE,
 ];
