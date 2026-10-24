@@ -242,14 +242,9 @@ fn the_shipped_table_and_red_list_parse() {
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
     let resolution = table.resolve(&ids, registered);
-    // The refusal rules and the accepted K are written when the table is populated; until
-    // then the table may only leave cases uncovered.
-    let defects = resolution
-        .errors
-        .iter()
-        .filter(|error| !matches!(error, TableError::Uncovered { .. }))
-        .collect::<Vec<_>>();
-    assert!(defects.is_empty(), "{defects:#?}");
+    // The table decides every case exactly once.
+    assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
+    assert_eq!(resolution.expected.len(), ids.len());
     assert!(!table.internal.is_empty());
     // K5's entries name mutations, which are no cases of the table.
     let mutations = entry_points::mutations();

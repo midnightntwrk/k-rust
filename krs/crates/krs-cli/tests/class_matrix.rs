@@ -59,9 +59,9 @@ use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 use closure::{Closure, case_k};
 use pipeline::{Judged, Settings};
 
-/// Whether a case no table entry decides fails the suite. Until the table is reviewed it is only
-/// counted; the review turns it on.
-const UNCOVERED_IS_A_TABLE_ERROR: bool = false;
+/// Whether a case no table entry decides fails the suite: the table covers every generated case,
+/// so a new case needs its entry.
+const UNCOVERED_IS_A_TABLE_ERROR: bool = true;
 
 /// The K each accepted case was recorded with in this process, by ID: in the record mode, a
 /// `same_k_as` names a case whose K an earlier shard of the run may have just written.

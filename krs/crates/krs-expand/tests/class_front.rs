@@ -19,8 +19,7 @@
 //! PENDING rules, `class_matrix::pending`). A pending case that the front accepts with sound keys
 //! was recorded by the full tier and is left to it.
 //!
-//! Until the table is populated, cases it does not cover are counted and judged by the
-//! invariants alone; [`UNCOVERED_IS_TABLE_ERROR`] makes them a failure.
+//! Every case must be covered by the table ([`UNCOVERED_IS_TABLE_ERROR`]).
 //!
 //! The cases run on every available thread: `proc_macro2`'s fallback spans are per thread, and
 //! each thread drops its spans after every case. The generator caps the number of cases
@@ -46,9 +45,9 @@ use krs_test_support::class_matrix::{self, Base, Placed};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde_json::Value;
 
-/// Whether a case that no entry of `expected.toml` covers fails the suite: off until the table
-/// is populated.
-const UNCOVERED_IS_TABLE_ERROR: bool = false;
+/// Whether a case that no entry of `expected.toml` covers fails the suite: the table covers
+/// every generated case, so a new case needs its entry.
+const UNCOVERED_IS_TABLE_ERROR: bool = true;
 
 fn expand(source: &str) -> Result<FileExpansion, Vec<ExpandDiagnostic>> {
     let module_path = vec!["krs_class_case".to_owned()];

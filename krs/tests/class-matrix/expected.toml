@@ -1,33 +1,881 @@
 # The expected outcome of every class-test case (`krs_test_support::class_matrix`), in four parts.
 # The schema and how a case is decided are documented in `class_matrix::table`.
 #
-# 1. Mistake classes: one registered code each. A class names an author mistake, not a site.
-#
-#    [class.presence-on-plain-cell]
-#    code = "krs::analysis::optional-presence"
-#    doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
-#
+# 1. Mistake classes: one registered code each. A class names an author mistake, not a site;
+#    `proposed = true` marks a code its step has yet to register, so every case of it is red.
 # 2. Refusal rules: a glob over case IDs, the class of the mistake the matched cases make, and the
 #    range the error must lie inside (entry, spelling, item, or header). The most specific entry
-#    that covers a case decides it; two entries of which neither is more specific are a tie.
+#    that covers a case decides it; two entries of which neither is more specific are a tie. Here
+#    the rules are disjoint, one per class and slot group.
+# 3. Codes that never answer an author mistake.
+# 4. Accepted cases with the K sentences each adds to its base, normalized: written by the record
+#    mode (`scripts/krs-class.sh --record`) and reviewed as a diff, never by hand. An entry without
+#    `k` is a case that should be accepted and is refused today. `same_k_as` names the cases whose
+#    documented equal spelling must emit the same normalized K.
 #
-#    [[refuse]]
-#    match = "readable/*/{pc,stack,env,frame,job}/{Some(x),None}"
-#    class = "presence-on-plain-cell"
-#    at = "spelling"
-#
-# 3. Accepted cases with their own sentence as normalized K, written by `--record` and reviewed as a
-#    diff; `same_k_as` names the cases that must emit the same normalized K.
-#
-#    [accept."readable/subject/stack/[x, ..]"]
-#    k = "..."
-#    same_k_as = []
-#
-# 4. Codes that never answer an author mistake.
+# How a case's outcome is decided, from what its construct means in its slot:
+# - A spelling that belongs to one kind of cell (`Some`/`None`, an instance list, map notation,
+#   brackets) written on a cell of another kind is that kind's mistake (`presence-on-plain-cell`,
+#   `instances-on-plain-cell`, `map-notation-at-non-map`, `bracket-reading`).
+# - A spelling that belongs to no kind (a binder, `_`, a literal, a record) on a cell whose kind
+#   has a spelling of its own (the computation cell's sequence, an optional cell's `Some`/`None`,
+#   a collection's instance list, a `cells!` wrapper) is that cell's mistake (`cell-wrapper`,
+#   `optional-without-presence`, `collection-without-instances`).
+# - Otherwise the term itself decides: its sort against the cell's (`content-sort`, `binder-sort`),
+#   and the construct's own placement rules (where `_`, `@`, `|`, `k::matches!`, `let`, islands,
+#   predicates and rewrites may stand) before its sort.
 
 [class]
 
-[accept]
+[class.absence-test-without-creation]
+code = "krs::analysis::optional-presence"
+doc = "a subject tests an optional cell's absence (`None`) and the result does not create it: K tests absence only by creating the cell"
+
+[class.alias-outside-pattern]
+code = "krs::syntax::invalid-pattern-as"
+doc = "`name @ pattern` (K's `#as`) outside a left-hand side"
+
+[class.alternatives-in-one-term-rewrite]
+code = "krs::analysis::invalid-pattern-or"
+doc = "`A | B` in a simplification's or single-body rule's subject, which is rewritten as one term"
+
+[class.alternatives-outside-pattern]
+code = "krs::analysis::ambiguous-operator"
+doc = "`A | B` in a result, a condition or an initializer, where `|` is the bitwise operator"
+
+[class.binder-sort]
+code = "krs::analysis::incompatible-binder"
+doc = "a binder of one sort written where a sort it is not below is needed"
+
+[class.bracket-reading]
+code = "krs::analysis::invalid-list-notation"
+doc = "brackets on a cell they denote nothing in: no list, computation or List collection, or elements that are none of its items, elements or instances"
+
+[class.cell-wrapper]
+code = "krs::analysis::cell-wrapper"
+doc = "an entry whose wrapper is not its cell's: `KCell(..)`/`k::k![..]`/brackets for the computation cell, `Cell(..)` for a leaf, none for a group, used on another kind of cell"
+proposed = true
+
+[class.claim-only-term]
+code = "krs::expand::claim-only-term"
+doc = "a claim-only island (`k::or_bool!`) outside a claim"
+
+[class.claim-subject-only-term]
+code = "krs::expand::claim-subject-only-term"
+doc = "`k::anonymous!` outside a claim's subject"
+
+[class.collection-element-sort]
+code = "krs::analysis::collection-element-sort"
+doc = "an element, key or value of a typed collection whose sort is not below the declared one"
+
+[class.collection-without-instances]
+code = "krs::analysis::collection-entry"
+doc = "a `*` collection written as one value (a binder, `_`, a literal, a record, `Some`/`None`, a wrapper) instead of an instance list"
+
+[class.computation-back-item]
+code = "krs::collect::invalid-configuration"
+doc = "an item after the rest of the computation cell, which is matched from its front"
+
+[class.condition-sort]
+code = "krs::analysis::invalid-term"
+doc = "a `#[k::requires]` condition that is not a Bool term"
+
+[class.constant-applies-function]
+code = "krs::analysis::invalid-constant"
+doc = "a `#[k::constant]` value that applies a function"
+
+[class.constant-not-ground]
+code = "krs::syntax::invalid-constant"
+doc = "a `#[k::constant]` value that is no ground constructor term"
+
+[class.content-sort]
+code = "krs::analysis::invalid-term"
+doc = "a term whose sort is not below the sort of the cell or position it fills"
+
+[class.fragment-in-initializer]
+code = "krs::expand::initializer-fragment"
+doc = "`k::fragment!` in an initializer, which builds nested cells with their structs"
+
+[class.function-in-pattern]
+code = "krs::analysis::function-in-pattern"
+doc = "a function application below the root of a rewrite rule's or equation's pattern, outside a collection's key, value or element: a pattern matches terms as written, and an application is evaluated"
+proposed = true
+
+[class.instance-list-shape]
+code = "krs::analysis::collection-entry"
+doc = "an instance list a List collection does not admit: braced, matching a back instance in place, or changing both ends"
+
+[class.instances-on-plain-cell]
+code = "krs::analysis::collection-entry"
+doc = "an instance list (`{ .. }`, `[.., Job { .. }]` read as instances) on a cell that is no `*` collection"
+
+[class.let-outside-term]
+code = "krs::expand::let-outside-term"
+doc = "a `let` block (K's `#let`) in a pattern, an initializer or a claim"
+
+[class.let-sort]
+code = "krs::analysis::invalid-let"
+doc = "a `let` block whose names or result have no sort its position admits"
+
+[class.map-notation-at-non-map]
+code = "krs::analysis::invalid-term"
+doc = "map notation (`{ k -> v, .. }`, `k::map![..]`) on a cell that is no Map"
+
+[class.map-read-in-result]
+code = "krs::syntax::rust-syntax"
+doc = "a map read `{ k -> v, .. }`, which is a pattern, written in a result"
+
+[class.map-read-value-binder]
+code = "krs::syntax::rust-syntax"
+doc = "a readable map read whose value is not a fresh binder: the value names what the entry maps to"
+
+[class.matches-outside-condition]
+code = "krs::expand::matches-outside-condition"
+doc = "`k::matches!` (K's `:=K`) in a pattern, an initializer or a claim"
+
+[class.ml-in-condition]
+code = "krs::analysis::ml-placement"
+doc = "a matching-logic predicate in the condition of a transition or equation"
+
+[class.ml-in-initializer]
+code = "krs::expand::ml-placement"
+doc = "a matching-logic predicate in an initializer"
+
+[class.ml-predicate-as-term]
+code = "krs::analysis::invalid-ml-predicate"
+doc = "a matching-logic predicate as an operand of an object constructor or function"
+
+[class.no-effect-entry]
+code = "krs::syntax::rust-syntax"
+doc = "a subject entry that matches any content of a cell the result leaves out (`_`, `[..]`), so the rule is the same without it"
+
+[class.none-in-initializer]
+code = "krs::syntax::unsupported-initializer-body"
+doc = "`None` as an initial value: K needs a template for every cell"
+
+[class.optional-without-presence]
+code = "krs::analysis::optional-presence"
+doc = "an optional (`?`) cell written without `Some(..)`/`None`: a binder, `_`, a literal, a record, a wrapper or a template"
+
+[class.presence-on-plain-cell]
+code = "krs::analysis::optional-presence"
+doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
+
+[class.rest-mismatch]
+code = "krs::syntax::invalid-list-notation"
+doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
+
+[class.rewrite-outside-local-rule]
+code = "krs::syntax::invalid-local-rewrite"
+doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
+
+[class.rule-term-in-initializer]
+code = "krs::expand::claim-only-term"
+doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer"
+
+[class.sort-test-in-pattern]
+code = "krs::analysis::invalid-sort-test"
+doc = "`k::is!`/`k::project!`, which compute, in a pattern"
+
+[class.unbound-name]
+code = "krs::expand::unbound-name"
+doc = "a binder that nothing in the sentence or initializer binds"
+
+[class.unused-configuration-variable]
+code = "krs::analysis::unused-configuration-variable"
+doc = "an initializer parameter (configuration variable) that no cell reads (X2)"
+proposed = true
+
+[class.wildcard-outside-pattern]
+code = "krs::syntax::unsupported-term-expression"
+doc = "`_` in a result, a condition or an initializer"
+
+# absence-test-without-creation
+[[refuse]]
+match = '{cells,claim,readable}/subject/counter/None'
+class = "absence-test-without-creation"
+at = "entry"
+
+# alias-outside-pattern
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/y @ Cmd::Hold(_)'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/local-rule/subject/y @ Cmd::Hold(_)'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{result,result-list-element}/y @ Cmd::Hold(_)'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/y @ Cmd::Hold(_)'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result}/y @ Cmd::Hold(_)'
+class = "alias-outside-pattern"
+at = "spelling"
+
+# alternatives-in-one-term-rewrite
+[[refuse]]
+match = 'terms/{local-rule,simplification}/subject/Cmd::Go() | Cmd::Hold(_)'
+class = "alternatives-in-one-term-rewrite"
+at = "spelling"
+
+# alternatives-outside-pattern
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/Cmd::Go() | Cmd::Hold(_)'
+class = "alternatives-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{result,result-list-element}/Cmd::Go() | Cmd::Hold(_)'
+class = "alternatives-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/Cmd::Go() | Cmd::Hold(_)'
+class = "alternatives-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result}/Cmd::Go() | Cmd::Hold(_)'
+class = "alternatives-outside-pattern"
+at = "spelling"
+
+# binder-sort
+[[refuse]]
+match = 'cells/result/frame/x'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/result/{env,stack}/k::configuration::Cell(x)'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/{env,frame,stack}/x'
+class = "binder-sort"
+at = "spelling"
+
+# bracket-reading
+[[refuse]]
+match = '{claim,readable}/{result,subject}/job/[x\, ..]'
+class = "bracket-reading"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/{counter,env,frame,pc}/{[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[],[x\, ..]}'
+class = "bracket-reading"
+at = "entry"
+
+# bracket-reading
+[[refuse]]
+match = 'cells/result/{env,pc}/k::configuration::Cell([x\, y])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/subject/{env,pc}/k::configuration::Cell([x\, ..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'init/{env,frame,job,pc}/{[0],[],[pgm]}'
+class = "bracket-reading"
+at = "spelling"
+
+# cell-wrapper
+[[refuse]]
+match = 'cells/result/frame/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x)}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/k/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/{env,pc,stack}/{k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/frame/{k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x\, ..)}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/k/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/{env,pc,stack}/{_,k::configuration::KCell(),k::configuration::KCell(x\, ..),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/k/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),list::empty(),pgm}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/{counter,env,frame,job,pc,stack}/{k::k![0],k::k![],k::k![pgm]}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/k/{0,Frame \{ ret: x \},_,x}'
+class = "cell-wrapper"
+at = "entry"
+
+# claim-only-term
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/local-rule/subject/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/shorthand/result/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/simplification/{result,subject}/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result,subject,subject-depth-2}/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{sort-rule,table}/{result,subject,subject-depth-2}/k::or_bool!(true\, false)'
+class = "claim-only-term"
+at = "spelling"
+
+# claim-subject-only-term
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/local-rule/subject/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/simplification/{result,subject}/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,shorthand}/result/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result,subject,subject-depth-2}/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{sort-rule,table}/{result,subject,subject-depth-2}/k::anonymous!(Int\, "_V")'
+class = "claim-subject-only-term"
+at = "spelling"
+
+# collection-element-sort
+[[refuse]]
+match = 'init/typed/{list,map}/{Cmd::Go(),any}'
+class = "collection-element-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/typed/{list,map}/Go()'
+class = "collection-element-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/subject/typed/list/Go()'
+class = "collection-element-sort"
+at = "spelling"
+
+# collection-without-instances
+[[refuse]]
+match = 'cells/result/job/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/job/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x\, ..),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/job/{0,Frame \{ ret: x \},_,x}'
+class = "collection-without-instances"
+at = "entry"
+
+# computation-back-item
+[[refuse]]
+match = '{claim,readable}/{result,subject}/k/[..\, Job \{ payload: 0\, .. \}]'
+class = "computation-back-item"
+at = "entry"
+
+# condition-sort
+[[refuse]]
+match = 'import/{equation,rule}/guard/{Go(),Hold(x)}'
+class = "condition-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/guard/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x)}'
+class = "condition-sort"
+at = "spelling"
+
+# constant-applies-function
+[[refuse]]
+match = 'terms/constant/value/k::builtin::int::add(1\, 2)'
+class = "constant-applies-function"
+at = "spelling"
+
+# constant-not-ground
+[[refuse]]
+match = 'terms/constant/value/{Cmd::Go() | Cmd::Hold(_),_,k::anonymous!(Int\, "_V"),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),y @ Cmd::Hold(_),\{ let y = x; y \}}'
+class = "constant-not-ground"
+at = "spelling"
+
+# content-sort
+[[refuse]]
+match = 'cells/{result,subject}/{env,stack}/k::configuration::Cell(0)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/env/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},list::empty(),pgm}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/frame/{0,Job \{ payload: 0 \},k::builtin::map::empty(),list::empty(),pgm}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/job/{0,Frame \{ ret: 0 \},k::builtin::map::empty(),list::empty(),pgm}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/pc/{Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),list::empty(),pgm}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/stack/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),pgm}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/typed/stmt/any'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/typed/{boxed,leaf,opt,slot}/{Cmd::Go(),any}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/frame/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/pc/Frame \{ ret: x \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/typed/{boxed,leaf,opt,slot}/Go()'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/{env,stack}/{0,Frame \{ ret: x \}}'
+class = "content-sort"
+at = "spelling"
+
+# fragment-in-initializer
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/k::fragment![crate::Frame \{ ret: 1 \}]'
+class = "fragment-in-initializer"
+at = "spelling"
+
+# function-in-pattern
+[[refuse]]
+match = 'terms/local-rule/subject/{Size(x),k::builtin::int::add(1\, 2)}'
+class = "function-in-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,readable,rule,sort-rule,table}/{subject,subject-depth-2}/{Size(x),k::builtin::int::add(1\, 2)}'
+class = "function-in-pattern"
+at = "spelling"
+
+# instance-list-shape
+[[refuse]]
+match = '{claim,readable}/{result,subject}/job/{[..\, Job \{ payload: 0\, .. \}],\{ .. \}}'
+class = "instance-list-shape"
+at = "entry"
+
+# instances-on-plain-cell
+[[refuse]]
+match = 'cells/result/{counter,env,frame,k,pc,stack}/[k::fragment![crate::Job \{ payload: x\, ..old \}]\, ..instances0]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/{counter,env,frame,k,pc,stack}/[k::fragment![crate::Job \{ payload: x\, .. \}]\, instances0 @ ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/{counter,env,frame,k,pc,stack}/\{ .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+# let-outside-term
+[[refuse]]
+match = 'terms/claim/{result,subject}/\{ let y = x; y \}'
+class = "let-outside-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/\{ let y = x; y \}'
+class = "let-outside-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/\{ let y = x; y \}'
+class = "let-outside-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/\{ let y = x; y \}'
+class = "let-outside-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{local-rule,simplification}/subject/\{ let y = x; y \}'
+class = "let-outside-term"
+at = "spelling"
+
+# let-sort
+[[refuse]]
+match = 'terms/{equation,rule}/guard/\{ let y = x; y \}'
+class = "let-sort"
+at = "spelling"
+
+# map-notation-at-non-map
+[[refuse]]
+match = '{claim,readable}/{result,subject}/{counter,frame,job,k,pc,stack}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "entry"
+
+# map-notation-at-non-map
+[[refuse]]
+match = 'cells/result/{pc,stack}/k::configuration::Cell(k::map![x -> y])'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/subject/{pc,stack}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'init/{counter,frame,job,k,pc,stack}/{k::map![0 -> 1],k::map![]}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+# map-read-in-result
+[[refuse]]
+match = '{claim,readable}/result/env/\{ y -> x\, .. \}'
+class = "map-read-in-result"
+at = "spelling"
+
+# map-read-value-binder
+[[refuse]]
+match = '{claim,readable}/subject/typed/map/{1,Go(),Unit()}'
+class = "map-read-value-binder"
+at = "spelling"
+
+# matches-outside-condition
+[[refuse]]
+match = 'terms/claim/{result,subject}/k::matches!(x\, Cmd::Hold(_))'
+class = "matches-outside-condition"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/k::matches!(x\, Cmd::Hold(_))'
+class = "matches-outside-condition"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/k::matches!(x\, Cmd::Hold(_))'
+class = "matches-outside-condition"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/k::matches!(x\, Cmd::Hold(_))'
+class = "matches-outside-condition"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{local-rule,simplification}/subject/k::matches!(x\, Cmd::Hold(_))'
+class = "matches-outside-condition"
+at = "spelling"
+
+# ml-in-condition
+[[refuse]]
+match = 'terms/{equation,rule}/guard/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-in-condition"
+at = "spelling"
+
+# ml-in-initializer
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-in-initializer"
+at = "spelling"
+
+# ml-predicate-as-term
+[[refuse]]
+match = 'terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-predicate-as-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-predicate-as-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/shorthand/result/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-predicate-as-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,simplification}/{result,subject}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-predicate-as-term"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule,sort-rule,table}/{result,subject,subject-depth-2}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
+class = "ml-predicate-as-term"
+at = "spelling"
+
+# no-effect-entry
+[[refuse]]
+match = '{claim,readable}/subject/stack/{[..],_}'
+class = "no-effect-entry"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/{env,frame,pc}/_'
+class = "no-effect-entry"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/{job,k}/[..]'
+class = "no-effect-entry"
+at = "entry"
+
+# none-in-initializer
+[[refuse]]
+match = 'init/{counter,env,frame,job,k,pc,stack}/None'
+class = "none-in-initializer"
+at = "spelling"
+
+# optional-without-presence
+[[refuse]]
+match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/counter/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x\, ..),k::fragment![crate::Frame \{ ret: x \}],x}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/counter/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},[0],[],[pgm],k::builtin::map::empty(),list::empty(),pgm}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/counter/{0,Frame \{ ret: x \},_,x}'
+class = "optional-without-presence"
+at = "entry"
+
+# presence-on-plain-cell
+[[refuse]]
+match = 'cells/{result,subject}/{env,frame,job,k,pc,stack}/{None,Some(k::configuration::Cell(x))}'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'init/{env,frame,job,k,pc,stack}/Some(0)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/{result,subject}/{env,frame,job,k,pc,stack}/{None,Some(x)}'
+class = "presence-on-plain-cell"
+at = "entry"
+
+# rest-mismatch
+[[refuse]]
+match = '{claim,readable}/result/stack/{[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[x\, ..]}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/{job,k}/[]'
+class = "rest-mismatch"
+at = "entry"
+
+# rewrite-outside-local-rule
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/k::rewrite!(_ => 1)'
+class = "rewrite-outside-local-rule"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::rewrite!(_ => 1)'
+class = "rewrite-outside-local-rule"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/shorthand/result/k::rewrite!(_ => 1)'
+class = "rewrite-outside-local-rule"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,simplification}/{result,subject}/k::rewrite!(_ => 1)'
+class = "rewrite-outside-local-rule"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result,subject,subject-depth-2}/k::rewrite!(_ => 1)'
+class = "rewrite-outside-local-rule"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{sort-rule,table}/{result,subject,subject-depth-2}/k::rewrite!(_ => 1)'
+class = "rewrite-outside-local-rule"
+at = "spelling"
+
+# rule-term-in-initializer
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/{k::is!(Int\, x),k::project!(Int\, x)}'
+class = "rule-term-in-initializer"
+at = "spelling"
+
+# sort-test-in-pattern
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/{k::is!(Int\, x),k::project!(Int\, x)}'
+class = "sort-test-in-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,local-rule,simplification}/subject/{k::is!(Int\, x),k::project!(Int\, x)}'
+class = "sort-test-in-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/{k::is!(Int\, x),k::project!(Int\, x)}'
+class = "sort-test-in-pattern"
+at = "spelling"
+
+# unbound-name
+[[refuse]]
+match = 'import/constant/value/Hold(x)'
+class = "unbound-name"
+at = "spelling"
+
+[[refuse]]
+match = 'import/init/{item,item-depth-2}/Hold(x)'
+class = "unbound-name"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/constant/value/{Cmd::Hold(x),Size(x),x}'
+class = "unbound-name"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/{Cmd::Hold(x),Size(x),x}'
+class = "unbound-name"
+at = "spelling"
+
+# unused-configuration-variable
+[[refuse]]
+match = 'init/k/{[0],[],k::k![0],k::k![]}'
+class = "unused-configuration-variable"
+at = "item"
+
+# wildcard-outside-pattern
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{result,result-list-element}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/{env,frame,pc,stack}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
 
 [internal]
 codes = [
@@ -35,3 +883,5777 @@ codes = [
     "krs::analysis::parser-reference-disagreement",
     "krs::expand::duplicate-provenance-key",
 ]
+
+[accept]
+
+[accept."cells/result/counter/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(<counter> V2:Int </counter> => .Bag)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<counter> V2:Int => V0:Int </counter>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/env/k::configuration::Cell(k::map![x -> y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> V2:Map => V0:Int |-> V1:Int </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <ret> V0:Int </ret> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/job/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+<job>
+<payload> _ => V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/k/k::configuration::KCell()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/k/k::configuration::KCell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/pc/k::configuration::Cell(0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/stack/k::configuration::Cell([x, y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stack> V2:List => ListItem(V0:Int) ListItem(V1:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/subject/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/env/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/env/k::configuration::Cell(k::map![y -> x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/env/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/frame/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <ret> V0:Int </ret> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:FrameCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/k/k::configuration::KCell()"]
+k = """
+rule [case-TAG]:
+<k> .K </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."cells/subject/k/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> V0:KItem ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."cells/subject/pc/k::configuration::Cell(0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/pc/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/stack/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/stack/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/stack/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/result/counter/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(<counter> V2:Int </counter> => .Bag)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/counter/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<counter> V2:Int => V0:Int </counter>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/frame/Frame { ret: x }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <ret> V0:Int </ret> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/job/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+(<job>
+<payload> _ </payload>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/job/[Job { payload: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+(<job>
+<payload> _ </payload>
+...
+</job> => .Bag)
+(.Bag => <job>
+<payload> V0:Int </payload>
+...
+</job>)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/k/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/k/[Job { payload: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => <job> <payload> V0:Int </payload> </job> ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/k/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/pc/0"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/pc/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/stack/[]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stack> V2:List => .List </stack>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/any/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => 1 </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/any/Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => go </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/any/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => unit </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/any/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => V0:Int </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/boxed/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:BoxedCell => <boxed> <inner> 1 </inner> </boxed>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/boxed/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:BoxedCell => <boxed> <inner> unit </inner> </boxed>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/boxed/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:BoxedCell => <boxed> <inner> V0:Int </inner> </boxed>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/leaf/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<leaf> _ => 1 </leaf>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/leaf/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<leaf> _ => unit </leaf>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/leaf/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<leaf> _ => V0:Int </leaf>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/list/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<list> ListItem(_) V2:List => ListItem(1) V2:List </list>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/list/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<list> ListItem(_) V2:List => ListItem(unit) V2:List </list>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/list/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<list> ListItem(_) V2:List => ListItem(V0:Int) V2:List </list>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/map/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<map> V2:Map => V2:Map [ 0 <- 1 ] </map>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/map/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<map> V2:Map => V2:Map [ 0 <- unit ] </map>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/map/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<map> V2:Map => V2:Map [ 0 <- V0:Int ] </map>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/opt/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<opt> _ => 1 </opt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/opt/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<opt> _ => unit </opt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/opt/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<opt> _ => V0:Int </opt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/slot/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<slots>
+<slot>
+<item> _ => 1 </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/slot/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<slots>
+<slot>
+<item> _ => unit </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/slot/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<slots>
+<slot>
+<item> _ => V0:Int </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/stmt/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => 1 </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/stmt/Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => go </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/stmt/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => unit </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/result/typed/stmt/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => V0:Int </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/subject/counter/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/env/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/env/{ y -> x, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/frame/Frame { ret: x }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <ret> V0:Int </ret> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/frame/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:FrameCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/job/[Job { payload: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/job/[]"]
+
+[accept."claim/subject/k/[Job { payload: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> <job> <payload> V0:Int </payload> </job> ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."claim/subject/k/[]"]
+k = """
+claim [case-TAG]:
+<k> .K </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."claim/subject/k/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> V0:KItem ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."claim/subject/pc/0"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/pc/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/stack/[.., Job { payload: 0, .. }]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(<job> <payload> 0 </payload> </job>) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/stack/[Job { payload: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<job> <payload> V0:Int </payload> </job>) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/stack/[]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/stack/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/stack/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/any/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> 1 </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/any/Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> go </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/any/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> unit </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/any/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> V0:KItem </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/boxed/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<boxed> <inner> 1 </inner> </boxed>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/boxed/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<boxed> <inner> unit </inner> </boxed>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/boxed/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<boxed> <inner> V0:Value </inner> </boxed>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/leaf/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<leaf> 1 </leaf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/leaf/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<leaf> unit </leaf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/leaf/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<leaf> V0:Value </leaf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/list/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<list> ListItem(1) ... </list>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/list/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<list> ListItem(unit) ... </list>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/list/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<list> ListItem(V0:Value) ... </list>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/map/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<map> 0 |-> V0:Value ... </map>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/opt/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<opt> 1 </opt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/opt/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<opt> unit </opt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/opt/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<opt> V0:Value </opt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/slot/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<slots>
+<slot>
+<item> 1 </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/slot/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<slots>
+<slot>
+<item> unit </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/slot/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<slots>
+<slot>
+<item> V0:Value </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/stmt/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> 1 </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/stmt/Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> go </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/stmt/Unit()"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> unit </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/typed/stmt/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> V0:Stmt </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/claim/result/Go()"]
+
+[accept."import/claim/result/Hold(x)"]
+
+[accept."import/claim/subject/Go()"]
+
+[accept."import/claim/subject/Hold(x)"]
+
+[accept."import/constant/value/Go()"]
+
+[accept."import/equation/result/Go()"]
+
+[accept."import/equation/result/Hold(x)"]
+
+[accept."import/equation/subject-depth-2/Go()"]
+
+[accept."import/equation/subject-depth-2/Hold(x)"]
+
+[accept."import/equation/subject/Go()"]
+
+[accept."import/equation/subject/Hold(x)"]
+
+[accept."import/init/item-depth-2/Go()"]
+
+[accept."import/init/item/Go()"]
+
+[accept."import/local-rule/subject/Go()"]
+
+[accept."import/local-rule/subject/Hold(x)"]
+
+[accept."import/readable/list-element/Go()"]
+
+[accept."import/readable/list-element/Hold(x)"]
+
+[accept."import/readable/map-key/Go()"]
+
+[accept."import/readable/map-key/Hold(x)"]
+
+[accept."import/readable/result-list-element/Go()"]
+
+[accept."import/readable/result-list-element/Hold(x)"]
+
+[accept."import/readable/result/Go()"]
+
+[accept."import/readable/result/Hold(x)"]
+
+[accept."import/readable/subject-depth-2/Go()"]
+
+[accept."import/readable/subject-depth-2/Hold(x)"]
+
+[accept."import/readable/subject/Go()"]
+
+[accept."import/readable/subject/Hold(x)"]
+
+[accept."import/rule/result/Go()"]
+
+[accept."import/rule/result/Hold(x)"]
+
+[accept."import/rule/subject-depth-2/Go()"]
+
+[accept."import/rule/subject-depth-2/Hold(x)"]
+
+[accept."import/rule/subject/Go()"]
+
+[accept."import/rule/subject/Hold(x)"]
+
+[accept."import/shorthand/result/Go()"]
+
+[accept."import/shorthand/result/Hold(x)"]
+
+[accept."import/simplification/result/Go()"]
+
+[accept."import/simplification/result/Hold(x)"]
+
+[accept."import/simplification/subject/Go()"]
+
+[accept."import/simplification/subject/Hold(x)"]
+
+[accept."import/sort-rule/result/Go()"]
+
+[accept."import/sort-rule/result/Hold(x)"]
+
+[accept."import/sort-rule/subject-depth-2/Go()"]
+
+[accept."import/sort-rule/subject-depth-2/Hold(x)"]
+
+[accept."import/sort-rule/subject/Go()"]
+
+[accept."import/sort-rule/subject/Hold(x)"]
+
+[accept."import/table/result/Go()"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/table/result/Hold(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/table/subject-depth-2/Go()"]
+k = """
+rule probe ( cTAG , hold ( go ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/table/subject-depth-2/Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( hold ( V0:KItem ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/table/subject/Go()"]
+k = """
+rule probe ( cTAG , go ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/table/subject/Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."init/counter/Some(0)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/env/k::builtin::map::empty()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/env/k::map![0 -> 1]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> 0 |-> 1 </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/env/k::map![]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/frame/Frame { ret: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/job/Job { payload: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/k/[pgm]"]
+
+[accept."init/k/k::k![pgm]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/order/pc-first"]
+
+[accept."init/order/queue-first"]
+
+[accept."init/order/reversed"]
+
+[accept."init/pc/0"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/stack/[0]"]
+
+[accept."init/stack/[]"]
+
+[accept."init/stack/[pgm]"]
+
+[accept."init/stack/list::empty()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/typed/any/1"]
+
+[accept."init/typed/any/Cmd::Go()"]
+
+[accept."init/typed/any/Val::Unit()"]
+
+[accept."init/typed/any/any"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/boxed/1"]
+
+[accept."init/typed/boxed/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/leaf/1"]
+
+[accept."init/typed/leaf/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/list/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> ListItem(1) </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/list/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> ListItem(unit) </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/map/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> 0 |-> 1 </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/map/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> 0 |-> unit </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/opt/1"]
+
+[accept."init/typed/opt/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/slot/1"]
+
+[accept."init/typed/slot/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/stmt/1"]
+
+[accept."init/typed/stmt/Cmd::Go()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/stmt/Val::Unit()"]
+
+[accept."readable/result/counter/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(<counter> V2:Int </counter> => .Bag)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["cells/result/counter/None"]
+
+[accept."readable/result/counter/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<counter> V2:Int => V0:Int </counter>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["cells/result/counter/Some(k::configuration::Cell(x))"]
+
+[accept."readable/result/frame/Frame { ret: x }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <ret> V0:Int </ret> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
+
+[accept."readable/result/job/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+(<job>
+<payload> _ </payload>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/job/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+(<job>
+<payload> _ </payload>
+...
+</job> => .Bag)
+(.Bag => <job>
+<payload> V0:Int </payload>
+...
+</job>)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/k/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/k/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => <job> <payload> V0:Int </payload> </job> ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/k/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/pc/0"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["cells/result/pc/k::configuration::Cell(0)"]
+
+[accept."readable/result/pc/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["cells/result/pc/k::configuration::Cell(x)"]
+
+[accept."readable/result/stack/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stack> V2:List => .List </stack>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/any/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => 1 </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/any/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => go </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/any/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => unit </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/any/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<any> _ => V0:Int </any>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/boxed/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:BoxedCell => <boxed> <inner> 1 </inner> </boxed>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/boxed/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:BoxedCell => <boxed> <inner> unit </inner> </boxed>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/boxed/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:BoxedCell => <boxed> <inner> V0:Int </inner> </boxed>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/leaf/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<leaf> _ => 1 </leaf>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/leaf/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<leaf> _ => unit </leaf>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/leaf/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<leaf> _ => V0:Int </leaf>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/list/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<list> ListItem(_) V2:List => ListItem(1) V2:List </list>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/list/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<list> ListItem(_) V2:List => ListItem(unit) V2:List </list>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/list/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<list> ListItem(_) V2:List => ListItem(V0:Int) V2:List </list>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/map/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<map> V2:Map => V2:Map [ 0 <- 1 ] </map>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/map/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<map> V2:Map => V2:Map [ 0 <- unit ] </map>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/map/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<map> V2:Map => V2:Map [ 0 <- V0:Int ] </map>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/opt/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<opt> _ => 1 </opt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/opt/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<opt> _ => unit </opt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/opt/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<opt> _ => V0:Int </opt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/slot/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<slots>
+<slot>
+<item> _ => 1 </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/slot/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<slots>
+<slot>
+<item> _ => unit </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/slot/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<slots>
+<slot>
+<item> _ => V0:Int </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/stmt/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => 1 </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/stmt/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => go </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/stmt/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => unit </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/result/typed/stmt/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stmt> _ => V0:Int </stmt>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/subject/counter/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/counter/Some(k::configuration::Cell(x))"]
+
+[accept."readable/subject/env/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/env/k::configuration::Cell(x)"]
+
+[accept."readable/subject/env/{ y -> x, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/env/k::configuration::Cell(k::map![y -> x, ..])"]
+
+[accept."readable/subject/frame/Frame { ret: x }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <ret> V0:Int </ret> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/frame/k::fragment![crate::Frame { ret: x }]"]
+
+[accept."readable/subject/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:FrameCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/frame/x"]
+
+[accept."readable/subject/job/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]"]
+
+[accept."readable/subject/job/[]"]
+
+[accept."readable/subject/k/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> <job> <payload> V0:Int </payload> </job> ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."readable/subject/k/[]"]
+k = """
+rule [case-TAG]:
+<k> .K </k>
+<pc> _ => 1 </pc>
+"""
+same_k_as = ["cells/subject/k/k::configuration::KCell()"]
+
+[accept."readable/subject/k/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> V0:KItem ... </k>
+<pc> _ => 1 </pc>
+"""
+same_k_as = ["cells/subject/k/k::configuration::KCell(x, ..)"]
+
+[accept."readable/subject/pc/0"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/pc/k::configuration::Cell(0)"]
+
+[accept."readable/subject/pc/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/pc/k::configuration::Cell(x)"]
+
+[accept."readable/subject/stack/[.., Job { payload: 0, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(<job> <payload> 0 </payload> </job>) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/stack/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<job> <payload> V0:Int </payload> </job>) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/stack/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/stack/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/stack/k::configuration::Cell([x, ..])"]
+
+[accept."readable/subject/stack/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["cells/subject/stack/k::configuration::Cell(x)"]
+
+[accept."readable/subject/typed/any/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> 1 </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/any/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> go </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/any/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> unit </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/any/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<any> V0:KItem </any>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/boxed/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<boxed> <inner> 1 </inner> </boxed>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/boxed/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<boxed> <inner> unit </inner> </boxed>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/boxed/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<boxed> <inner> V0:Value </inner> </boxed>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/leaf/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<leaf> 1 </leaf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/leaf/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<leaf> unit </leaf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/leaf/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<leaf> V0:Value </leaf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/list/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<list> ListItem(1) ... </list>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/list/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<list> ListItem(unit) ... </list>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/list/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<list> ListItem(V0:Value) ... </list>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/map/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<map> 0 |-> V0:Value ... </map>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/opt/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<opt> 1 </opt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/opt/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<opt> unit </opt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/opt/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<opt> V0:Value </opt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/slot/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<slots>
+<slot>
+<item> 1 </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/slot/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<slots>
+<slot>
+<item> unit </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/slot/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<slots>
+<slot>
+<item> V0:Value </item>
+...
+</slot>
+...
+</slots>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/stmt/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> 1 </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/stmt/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> go </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/stmt/Unit()"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> unit </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/typed/stmt/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stmt> V0:Stmt </stmt>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/claim/result/\"s\""]
+k = '''
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("\"s\"","String") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/claim/result/-1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( -1 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/1.5"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1.5 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/Cmd::Go"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/Cmd::Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/Cmd::Hold(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/Size(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::builtin::int::add(1, 2)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1 +Int 2 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::bytes!(b\"ab\")"]
+k = '''
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/claim/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( <frame> <ret> 1 </ret> </frame> ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::id!(\"$x\")"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("$x","Id") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::is!(Int, x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( isInt(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::lexeme!(Word, \"word\")"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("word","Word") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::or_bool!(true, false)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( true orBool false ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/k::project!(Int, x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( {V0:KItem}:>Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/true"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( true ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/result/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/\"s\""]
+k = '''
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , #token("\"s\"","String") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/claim/subject/-1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , -1 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/1"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , 1 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/1.5"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , 1.5 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/Cmd::Go"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/Cmd::Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , ( go #Or hold ( _ ) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/Cmd::Hold(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/Size(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , size ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/k::anonymous!(Int, \"_V\")"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/k::builtin::int::add(1, 2)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , 1 +Int 2 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/k::bytes!(b\"ab\")"]
+k = '''
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/claim/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , <frame> <ret> 1 </ret> </frame> ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/k::id!(\"$x\")"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , #token("$x","Id") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/k::lexeme!(Word, \"word\")"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , #token("word","Word") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/k::or_bool!(true, false)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , true orBool false ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/true"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , true ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , V0:KItem ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/claim/subject/y @ Cmd::Hold(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , ( hold ( _ ) #as V1:Stmt ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/\"s\""]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/-1"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/1"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/1.5"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/Cmd::Go"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/Cmd::Go()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/constant/value/k::bytes!(b\"ab\")"]
+
+[accept."terms/constant/value/k::id!(\"$x\")"]
+
+[accept."terms/constant/value/k::lexeme!(Word, \"word\")"]
+
+[accept."terms/constant/value/true"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/equation/guard/k::is!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0
+requires isInt(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/guard/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/guard/true"]
+
+[accept."terms/equation/guard/x"]
+k = """
+rule probe ( cTAG , V0:Bool ) => 0
+requires V0:Bool [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/\"s\""]
+k = '''
+rule probe ( cTAG , V0:KItem ) => size ( #token("\"s\"","String") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/equation/result/-1"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( -1 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/1"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/1.5"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1.5 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/Cmd::Go"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/Cmd::Go()"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/Size(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( size ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/k::builtin::int::add(1, 2)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1 +Int 2 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/equation/result/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( #token("$x","Id") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/k::is!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( isInt(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( #token("word","Word") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( hold ( _ ) :=K V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/k::project!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( {V0:KItem}:>Int ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/true"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( true ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/x"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/result/{ let y = x; y }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/\"s\""]
+k = '''
+rule probe ( cTAG , hold ( #token("\"s\"","String") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/equation/subject-depth-2/-1"]
+k = """
+rule probe ( cTAG , hold ( -1 ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/1"]
+k = """
+rule probe ( cTAG , hold ( 1 ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/1.5"]
+k = """
+rule probe ( cTAG , hold ( 1.5 ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/Cmd::Go"]
+k = """
+rule probe ( cTAG , hold ( go ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/Cmd::Go()"]
+k = """
+rule probe ( cTAG , hold ( go ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , hold ( ( go #Or hold ( _ ) ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( hold ( V0:KItem ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/_"]
+k = """
+rule probe ( cTAG , hold ( _ ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/equation/subject-depth-2/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , hold ( #token("$x","Id") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , hold ( #token("word","Word") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/true"]
+k = """
+rule probe ( cTAG , hold ( true ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/x"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject-depth-2/y @ Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , hold ( ( hold ( _ ) #as V0:Stmt ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/\"s\""]
+k = '''
+rule probe ( cTAG , #token("\"s\"","String") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/equation/subject/-1"]
+k = """
+rule probe ( cTAG , -1 ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/1"]
+k = """
+rule probe ( cTAG , 1 ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/1.5"]
+k = """
+rule probe ( cTAG , 1.5 ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/Cmd::Go"]
+k = """
+rule probe ( cTAG , go ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/Cmd::Go()"]
+k = """
+rule probe ( cTAG , go ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , ( go #Or hold ( _ ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/_"]
+k = """
+rule probe ( cTAG , _ ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , #token("b\"\x61\x62\"","Bytes") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/equation/subject/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , #token("$x","Id") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , #token("word","Word") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/true"]
+k = """
+rule probe ( cTAG , true ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/x"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/subject/y @ Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , ( hold ( _ ) #as V0:Stmt ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/init/item-depth-2/\"s\""]
+k = '''
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( #token("\"s\"","String") ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+'''
+
+[accept."terms/init/item-depth-2/-1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( -1 ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( 1 ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/1.5"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( 1.5 ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/Cmd::Go"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( go ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/Cmd::Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( go ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
+
+[accept."terms/init/item-depth-2/k::bytes!(b\"ab\")"]
+k = '''
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( #token("b\"\x61\x62\"","Bytes") ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+'''
+
+[accept."terms/init/item-depth-2/k::id!(\"$x\")"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( #token("$x","Id") ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/k::lexeme!(Word, \"word\")"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( #token("word","Word") ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item-depth-2/true"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( true ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/\"s\""]
+k = '''
+configuration
+<k> $PGM:Stmt ~> hold ( #token("\"s\"","String") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+'''
+
+[accept."terms/init/item/-1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( -1 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( 1 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/1.5"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( 1.5 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/Cmd::Go"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( go ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/Cmd::Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( go ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/k::builtin::int::add(1, 2)"]
+
+[accept."terms/init/item/k::bytes!(b\"ab\")"]
+k = '''
+configuration
+<k> $PGM:Stmt ~> hold ( #token("b\"\x61\x62\"","Bytes") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+'''
+
+[accept."terms/init/item/k::id!(\"$x\")"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( #token("$x","Id") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/k::lexeme!(Word, \"word\")"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( #token("word","Word") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/init/item/true"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( true ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
+
+[accept."terms/local-rule/subject/\"s\""]
+k = '''
+rule cTAG ( (V0:KItem => go) , #token("\"s\"","String") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/local-rule/subject/-1"]
+k = """
+rule cTAG ( (V0:KItem => go) , -1 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/1"]
+k = """
+rule cTAG ( (V0:KItem => go) , 1 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/1.5"]
+k = """
+rule cTAG ( (V0:KItem => go) , 1.5 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/Cmd::Go"]
+k = """
+rule cTAG ( (V0:KItem => go) , go ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/Cmd::Go()"]
+k = """
+rule cTAG ( (V0:KItem => go) , go ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/Cmd::Hold(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , hold ( V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/_"]
+k = """
+rule cTAG ( (V0:KItem => go) , _ ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule cTAG ( (V0:KItem => go) , #token("b\"\x61\x62\"","Bytes") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/local-rule/subject/k::id!(\"$x\")"]
+k = """
+rule cTAG ( (V0:KItem => go) , #token("$x","Id") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule cTAG ( (V0:KItem => go) , #token("word","Word") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/k::rewrite!(_ => 1)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (_ => 1) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/true"]
+k = """
+rule cTAG ( (V0:KItem => go) , true ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/local-rule/subject/x"]
+k = """
+rule cTAG ( (V0:KItem => go) , V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(#token("\"s\"","String")) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/list-element/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(-1) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(1) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(1.5) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(go) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(go) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(( go #Or hold ( _ ) )) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(hold ( V0:KItem )) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/Size(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(size ( V0:KItem )) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/k::builtin::int::add(1, 2)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(1 +Int 2) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(#token("b\"\x61\x62\"","Bytes")) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/list-element/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(<frame> <ret> 1 </ret> </frame>) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(#token("$x","Id")) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(#token("word","Word")) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(true) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/list-element/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(( hold ( _ ) #as V1:Stmt )) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> #token("\"s\"","String") |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/map-key/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> -1 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> 1 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> 1.5 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> go |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> go |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/Cmd::Go() | Cmd::Hold(_)"]
+
+[accept."terms/readable/map-key/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> hold ( V0:KItem ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/Size(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> size ( V0:KItem ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/k::builtin::int::add(1, 2)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> 1 +Int 2 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> #token("b\"\x61\x62\"","Bytes") |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/map-key/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> <frame> <ret> 1 </ret> </frame> |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> #token("$x","Id") |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> #token("word","Word") |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> true |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/map-key/y @ Cmd::Hold(_)"]
+
+[accept."terms/readable/result-list-element/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(#token("\"s\"","String")) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/result-list-element/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(-1) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(1) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(1.5) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(go) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(go) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(hold ( V0:KItem )) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/Size(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(size ( V0:KItem )) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::builtin::int::add(1, 2)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(1 +Int 2) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(#token("b\"\x61\x62\"","Bytes")) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/result-list-element/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(<frame> <ret> 1 </ret> </frame>) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(#token("$x","Id")) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::is!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(isInt(V0:KItem)) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(#token("word","Word")) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(( hold ( _ ) :=K V0:KItem )) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/k::project!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem({V0:KItem}:>Int) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(true) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(V0:KItem) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result-list-element/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(( #let V2:KItem = V0:KItem #in V2:KItem )) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("\"s\"","String") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/result/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( -1 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1.5 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/Size(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::builtin::int::add(1, 2)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1 +Int 2 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( <frame> <ret> 1 </ret> </frame> ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("$x","Id") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::is!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( isInt(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("word","Word") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( hold ( _ ) :=K V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/k::project!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( {V0:KItem}:>Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( true ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/result/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("\"s\"","String") ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/subject-depth-2/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( -1 ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( 1 ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( 1.5 ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( go ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( go ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( ( go #Or hold ( _ ) ) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( _ ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( <frame> <ret> 1 </ret> </frame> ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("$x","Id") ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("word","Word") ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( true ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject-depth-2/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( ( hold ( _ ) #as V1:Stmt ) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("\"s\"","String") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/subject/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , -1 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , 1 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , 1.5 ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , ( go #Or hold ( _ ) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/readable/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , <frame> <ret> 1 </ret> </frame> ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("$x","Id") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("word","Word") ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , true ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , V0:KItem ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/subject/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , ( hold ( _ ) #as V1:Stmt ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/k::is!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires isInt(V0:KItem) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( hold ( _ ) :=K V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/true"]
+
+[accept."terms/rule/guard/x"]
+k = """
+rule cTAG ( V0:Bool , _ ) => hold ( V0:Bool )
+requires V0:Bool [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/\"s\""]
+k = '''
+rule cTAG ( V0:KItem , _ ) => hold ( #token("\"s\"","String") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/rule/result/-1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( -1 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( 1 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/1.5"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( 1.5 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/Cmd::Go"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( go ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/Cmd::Go()"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( go ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/Size(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( size ( V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/k::builtin::int::add(1, 2)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( 1 +Int 2 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/k::bytes!(b\"ab\")"]
+k = '''
+rule cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/rule/result/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/rule/result/k::id!(\"$x\")"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( #token("$x","Id") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/k::is!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( isInt(V0:KItem) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( #token("word","Word") ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( hold ( _ ) :=K V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/k::project!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( {V0:KItem}:>Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/true"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( true ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/x"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/{ let y = x; y }"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/\"s\""]
+k = '''
+rule cTAG ( V0:KItem , hold ( #token("\"s\"","String") ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/rule/subject-depth-2/-1"]
+k = """
+rule cTAG ( V0:KItem , hold ( -1 ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/1"]
+k = """
+rule cTAG ( V0:KItem , hold ( 1 ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/1.5"]
+k = """
+rule cTAG ( V0:KItem , hold ( 1.5 ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/Cmd::Go"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/Cmd::Go()"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule cTAG ( V0:KItem , hold ( ( go #Or hold ( _ ) ) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/_"]
+k = """
+rule cTAG ( V0:KItem , hold ( _ ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/k::bytes!(b\"ab\")"]
+k = '''
+rule cTAG ( V0:KItem , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/rule/subject-depth-2/k::id!(\"$x\")"]
+k = """
+rule cTAG ( V0:KItem , hold ( #token("$x","Id") ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/k::lexeme!(Word, \"word\")"]
+k = """
+rule cTAG ( V0:KItem , hold ( #token("word","Word") ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/true"]
+k = """
+rule cTAG ( V0:KItem , hold ( true ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/x"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-depth-2/y @ Cmd::Hold(_)"]
+k = """
+rule cTAG ( V0:KItem , hold ( ( hold ( _ ) #as V1:Stmt ) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/\"s\""]
+k = '''
+rule cTAG ( V0:KItem , #token("\"s\"","String") ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/rule/subject/-1"]
+k = """
+rule cTAG ( V0:KItem , -1 ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/1"]
+k = """
+rule cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/1.5"]
+k = """
+rule cTAG ( V0:KItem , 1.5 ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/Cmd::Go"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/Cmd::Go()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule cTAG ( V0:KItem , ( go #Or hold ( _ ) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/_"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/rule/subject/k::id!(\"$x\")"]
+k = """
+rule cTAG ( V0:KItem , #token("$x","Id") ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule cTAG ( V0:KItem , #token("word","Word") ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/true"]
+k = """
+rule cTAG ( V0:KItem , true ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/x"]
+k = """
+rule cTAG ( V0:KItem , V0:KItem ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject/y @ Cmd::Hold(_)"]
+k = """
+rule cTAG ( V0:KItem , ( hold ( _ ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/\"s\""]
+k = '''
+rule fTAG ( V0:KItem ) => size ( #token("\"s\"","String") ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/shorthand/result/-1"]
+k = """
+rule fTAG ( V0:KItem ) => size ( -1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/1"]
+k = """
+rule fTAG ( V0:KItem ) => size ( 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/1.5"]
+k = """
+rule fTAG ( V0:KItem ) => size ( 1.5 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/Cmd::Go"]
+k = """
+rule fTAG ( V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/Cmd::Go()"]
+k = """
+rule fTAG ( V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/Cmd::Hold(x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/Size(x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( size ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/k::builtin::int::add(1, 2)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( 1 +Int 2 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/k::bytes!(b\"ab\")"]
+k = '''
+rule fTAG ( V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/shorthand/result/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/shorthand/result/k::id!(\"$x\")"]
+k = """
+rule fTAG ( V0:KItem ) => size ( #token("$x","Id") ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/k::is!(Int, x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( isInt(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule fTAG ( V0:KItem ) => size ( #token("word","Word") ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule fTAG ( V0:KItem ) => size ( ( hold ( _ ) :=K V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/k::project!(Int, x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( {V0:KItem}:>Int ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/true"]
+k = """
+rule fTAG ( V0:KItem ) => size ( true ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/x"]
+k = """
+rule fTAG ( V0:KItem ) => size ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/shorthand/result/{ let y = x; y }"]
+k = """
+rule fTAG ( V0:KItem ) => size ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/simplification/result/\"s\""]
+k = '''
+rule probe ( cTAG , V0:KItem ) => size ( #token("\"s\"","String") ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/simplification/result/-1"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( -1 ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/1"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1 ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/1.5"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1.5 ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/Cmd::Go"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/Cmd::Go()"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( hold ( V0:KItem ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/Size(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( size ( V0:KItem ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/k::builtin::int::add(1, 2)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1 +Int 2 ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/simplification/result/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/simplification/result/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( #token("$x","Id") ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/k::is!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( isInt(V0:KItem) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( #token("word","Word") ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( hold ( _ ) :=K V0:KItem ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/k::project!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( {V0:KItem}:>Int ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/true"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( true ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/x"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/result/{ let y = x; y }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/\"s\""]
+k = '''
+rule probe ( cTAG , #token("\"s\"","String") ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/simplification/subject/-1"]
+k = """
+rule probe ( cTAG , -1 ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/1"]
+k = """
+rule probe ( cTAG , 1 ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/1.5"]
+k = """
+rule probe ( cTAG , 1.5 ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/Cmd::Go"]
+k = """
+rule probe ( cTAG , go ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/Cmd::Go()"]
+k = """
+rule probe ( cTAG , go ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/Size(x)"]
+k = """
+rule probe ( cTAG , size ( V0:KItem ) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/_"]
+k = """
+rule probe ( cTAG , _ ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/k::builtin::int::add(1, 2)"]
+k = """
+rule probe ( cTAG , 1 +Int 2 ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , #token("b\"\x61\x62\"","Bytes") ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+
+[accept."terms/simplification/subject/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/simplification/subject/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , #token("$x","Id") ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , #token("word","Word") ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/true"]
+k = """
+rule probe ( cTAG , true ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/x"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/subject/y @ Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , ( hold ( _ ) #as V0:Stmt ) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/sort-rule/result/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("\"s\"","String") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/sort-rule/result/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( -1 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1.5 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/Size(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::builtin::int::add(1, 2)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( 1 +Int 2 ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/sort-rule/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( <frame> <ret> 1 </ret> </frame> ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("$x","Id") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::is!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( isInt(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("word","Word") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( hold ( _ ) :=K V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/k::project!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( {V0:KItem}:>Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( true ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/result/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("\"s\"","String") ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/sort-rule/subject-depth-2/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( -1 ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( 1 ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( 1.5 ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( ( go #Or hold ( _ ) ) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( _ ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/sort-rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( <frame> <ret> 1 </ret> </frame> ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("$x","Id") ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( #token("word","Word") ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( true ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject-depth-2/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( ( hold ( _ ) #as V1:Stmt ) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("\"s\"","String") ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/sort-rule/subject/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , -1 ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , 1.5 ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , ( go #Or hold ( _ ) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/sort-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , <frame> <ret> 1 </ret> </frame> ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("$x","Id") ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , #token("word","Word") ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , true ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , V0:KItem ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/sort-rule/subject/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , ( hold ( _ ) #as V1:Stmt ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/table/result/\"s\""]
+k = '''
+rule probe ( cTAG , V0:KItem ) => size ( #token("\"s\"","String") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+same_k_as = ["terms/equation/result/\"s\""]
+
+[accept."terms/table/result/-1"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( -1 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/-1"]
+
+[accept."terms/table/result/1"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/1"]
+
+[accept."terms/table/result/1.5"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1.5 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/1.5"]
+
+[accept."terms/table/result/Cmd::Go"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/Cmd::Go"]
+
+[accept."terms/table/result/Cmd::Go()"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/Cmd::Go()"]
+
+[accept."terms/table/result/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/Cmd::Hold(x)"]
+
+[accept."terms/table/result/Size(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( size ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/Size(x)"]
+
+[accept."terms/table/result/k::builtin::int::add(1, 2)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( 1 +Int 2 ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/k::builtin::int::add(1, 2)"]
+
+[accept."terms/table/result/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+same_k_as = ["terms/equation/result/k::bytes!(b\"ab\")"]
+
+[accept."terms/table/result/k::fragment![crate::Frame { ret: 1 }]"]
+same_k_as = ["terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/table/result/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( #token("$x","Id") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/k::id!(\"$x\")"]
+
+[accept."terms/table/result/k::is!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( isInt(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/k::is!(Int, x)"]
+
+[accept."terms/table/result/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( #token("word","Word") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/k::lexeme!(Word, \"word\")"]
+
+[accept."terms/table/result/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( hold ( _ ) :=K V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/table/result/k::project!(Int, x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( {V0:KItem}:>Int ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/k::project!(Int, x)"]
+
+[accept."terms/table/result/true"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( true ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/true"]
+
+[accept."terms/table/result/x"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/x"]
+
+[accept."terms/table/result/{ let y = x; y }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/result/{ let y = x; y }"]
+
+[accept."terms/table/subject-depth-2/\"s\""]
+k = '''
+rule probe ( cTAG , hold ( #token("\"s\"","String") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+same_k_as = ["terms/equation/subject-depth-2/\"s\""]
+
+[accept."terms/table/subject-depth-2/-1"]
+k = """
+rule probe ( cTAG , hold ( -1 ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/-1"]
+
+[accept."terms/table/subject-depth-2/1"]
+k = """
+rule probe ( cTAG , hold ( 1 ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/1"]
+
+[accept."terms/table/subject-depth-2/1.5"]
+k = """
+rule probe ( cTAG , hold ( 1.5 ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/1.5"]
+
+[accept."terms/table/subject-depth-2/Cmd::Go"]
+k = """
+rule probe ( cTAG , hold ( go ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/Cmd::Go"]
+
+[accept."terms/table/subject-depth-2/Cmd::Go()"]
+k = """
+rule probe ( cTAG , hold ( go ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/Cmd::Go()"]
+
+[accept."terms/table/subject-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , hold ( ( go #Or hold ( _ ) ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+
+[accept."terms/table/subject-depth-2/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( hold ( V0:KItem ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/Cmd::Hold(x)"]
+
+[accept."terms/table/subject-depth-2/_"]
+k = """
+rule probe ( cTAG , hold ( _ ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/_"]
+
+[accept."terms/table/subject-depth-2/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+same_k_as = ["terms/equation/subject-depth-2/k::bytes!(b\"ab\")"]
+
+[accept."terms/table/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+same_k_as = ["terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/table/subject-depth-2/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , hold ( #token("$x","Id") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/k::id!(\"$x\")"]
+
+[accept."terms/table/subject-depth-2/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , hold ( #token("word","Word") ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/k::lexeme!(Word, \"word\")"]
+
+[accept."terms/table/subject-depth-2/true"]
+k = """
+rule probe ( cTAG , hold ( true ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/true"]
+
+[accept."terms/table/subject-depth-2/x"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/x"]
+
+[accept."terms/table/subject-depth-2/y @ Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , hold ( ( hold ( _ ) #as V0:Stmt ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject-depth-2/y @ Cmd::Hold(_)"]
+
+[accept."terms/table/subject/\"s\""]
+k = '''
+rule probe ( cTAG , #token("\"s\"","String") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+same_k_as = ["terms/equation/subject/\"s\""]
+
+[accept."terms/table/subject/-1"]
+k = """
+rule probe ( cTAG , -1 ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/-1"]
+
+[accept."terms/table/subject/1"]
+k = """
+rule probe ( cTAG , 1 ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/1"]
+
+[accept."terms/table/subject/1.5"]
+k = """
+rule probe ( cTAG , 1.5 ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/1.5"]
+
+[accept."terms/table/subject/Cmd::Go"]
+k = """
+rule probe ( cTAG , go ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/Cmd::Go"]
+
+[accept."terms/table/subject/Cmd::Go()"]
+k = """
+rule probe ( cTAG , go ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/Cmd::Go()"]
+
+[accept."terms/table/subject/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , ( go #Or hold ( _ ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/Cmd::Go() | Cmd::Hold(_)"]
+
+[accept."terms/table/subject/Cmd::Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/Cmd::Hold(x)"]
+
+[accept."terms/table/subject/_"]
+k = """
+rule probe ( cTAG , _ ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/_"]
+
+[accept."terms/table/subject/k::bytes!(b\"ab\")"]
+k = '''
+rule probe ( cTAG , #token("b\"\x61\x62\"","Bytes") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+'''
+same_k_as = ["terms/equation/subject/k::bytes!(b\"ab\")"]
+
+[accept."terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
+same_k_as = ["terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
+
+[accept."terms/table/subject/k::id!(\"$x\")"]
+k = """
+rule probe ( cTAG , #token("$x","Id") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/k::id!(\"$x\")"]
+
+[accept."terms/table/subject/k::lexeme!(Word, \"word\")"]
+k = """
+rule probe ( cTAG , #token("word","Word") ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/k::lexeme!(Word, \"word\")"]
+
+[accept."terms/table/subject/true"]
+k = """
+rule probe ( cTAG , true ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/true"]
+
+[accept."terms/table/subject/x"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/x"]
+
+[accept."terms/table/subject/y @ Cmd::Hold(_)"]
+k = """
+rule probe ( cTAG , ( hold ( _ ) #as V0:Stmt ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+same_k_as = ["terms/equation/subject/y @ Cmd::Hold(_)"]
