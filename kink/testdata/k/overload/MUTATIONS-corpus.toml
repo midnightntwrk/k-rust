@@ -1,0 +1,244 @@
+# SIMPLE untyped mutations (line numbers of simple.md)
+
+[[mutation]]
+id = 'plus-becomes-minus'
+note = '+ subtracts'
+
+  [[mutation.edit]]
+  line = 603
+  find = 'I1 +Int I2'
+  replace = 'I1 -Int I2'
+
+[[mutation]]
+id = 'minus-swapped'
+note = '- subtracts the other way'
+
+  [[mutation.edit]]
+  line = 605
+  find = 'I1 -Int I2'
+  replace = 'I2 -Int I1'
+
+[[mutation]]
+id = 'mul-becomes-add'
+note = '* adds'
+
+  [[mutation.edit]]
+  line = 606
+  find = 'I1 *Int I2'
+  replace = 'I1 +Int I2'
+
+[[mutation]]
+id = 'div-guard-dropped'
+note = 'division by zero no longer stuck'
+
+  [[mutation.edit]]
+  line = 607
+  find = ' requires I2 =/=K 0'
+  replace = ''
+
+[[mutation]]
+id = 'mod-becomes-div'
+note = '% divides'
+
+  [[mutation.edit]]
+  line = 608
+  find = 'I1 %Int I2'
+  replace = 'I1 /Int I2'
+
+[[mutation]]
+id = 'neg-identity'
+note = 'unary minus returns its operand'
+
+  [[mutation.edit]]
+  line = 609
+  find = '0 -Int I'
+  replace = 'I'
+
+[[mutation]]
+id = 'lt-becomes-le'
+note = '< is <='
+
+  [[mutation.edit]]
+  line = 610
+  find = 'I1 <Int I2'
+  replace = 'I1 <=Int I2'
+
+[[mutation]]
+id = 'le-becomes-lt'
+note = '<= is <'
+
+  [[mutation.edit]]
+  line = 611
+  find = 'I1 <=Int I2'
+  replace = 'I1 <Int I2'
+
+[[mutation]]
+id = 'gt-becomes-ge'
+note = '> is >='
+
+  [[mutation.edit]]
+  line = 612
+  find = 'I1 >Int I2'
+  replace = 'I1 >=Int I2'
+
+[[mutation]]
+id = 'ge-swapped'
+note = '>= compares the other way'
+
+  [[mutation.edit]]
+  line = 613
+  find = 'I1 >=Int I2'
+  replace = 'I2 >=Int I1'
+
+[[mutation]]
+id = 'neq-becomes-eq'
+note = '!= is =='
+
+  [[mutation.edit]]
+  line = 619
+  find = 'V1 =/=K V2'
+  replace = 'V1 ==K V2'
+
+[[mutation]]
+id = 'and-true-ignores-rhs'
+note = 'true && E is true'
+
+  [[mutation.edit]]
+  line = 625
+  find = 'true  && E => E'
+  replace = 'true  && _ => true'
+
+[[mutation]]
+id = 'or-false-true'
+note = 'false || E is true'
+
+  [[mutation.edit]]
+  line = 628
+  find = 'false || E => E'
+  replace = 'false || _ => true'
+
+[[mutation]]
+id = 'concat-reversed'
+note = 'string + concatenates in reverse'
+
+  [[mutation.edit]]
+  line = 604
+  find = 'Str1 +String Str2'
+  replace = 'Str2 +String Str1'
+
+[[mutation]]
+id = 'increment-returns-old'
+note = '++x returns the old value'
+
+  [[mutation.edit]]
+  line = 593
+  find = '++loc(L) => I +Int 1'
+  replace = '++loc(L) => I'
+
+[[mutation]]
+id = 'array-index-off-by-one'
+note = 'a[i] reads element i+1'
+
+  [[mutation.edit]]
+  line = 650
+  find = 'lookup(L +Int N)'
+  replace = 'lookup(L +Int N +Int 1)'
+
+[[mutation]]
+id = 'sizeof-plus-one'
+note = 'sizeOf is one too large'
+
+  [[mutation.edit]]
+  line = 660
+  find = 'sizeOf(array(_,N)) => N'
+  replace = 'sizeOf(array(_,N)) => N +Int 1'
+
+[[mutation]]
+id = 'array-size-zero-refused'
+note = 'an array of size 0 is stuck'
+
+  [[mutation.edit]]
+  line = 476
+  find = 'requires N >=Int 0'
+  replace = 'requires N >Int 0'
+
+[[mutation]]
+id = 'while-runs-once'
+note = 'while runs its body at most once'
+
+  [[mutation.edit]]
+  line = 862
+  find = '{S while(E)S}'
+  replace = '{S}'
+
+[[mutation]]
+id = 'print-prepends'
+note = 'print puts each value at the front of the output'
+
+  [[mutation.edit]]
+  line = 872
+  find = '<output>... .List => ListItem(V) </output>'
+  replace = '<output> .List => ListItem(V) ...</output>'
+
+[[mutation]]
+id = 'popx-keeps-handler'
+note = 'leaving a try block keeps its handler'
+
+  [[mutation.edit]]
+  line = 916
+  find = 'ListItem(_) => .List ...'
+  replace = 'ListItem(_) ...'
+
+[[mutation]]
+id = 'catch-loses-value'
+note = 'the caught variable is bound to 0'
+
+  [[mutation.edit]]
+  line = 918
+  find = '{ var X = V; S2 }'
+  replace = '{ var X = 0; S2 }'
+
+[[mutation]]
+id = 'acquire-ignores-busy'
+note = 'a busy lock can be acquired'
+
+  [[mutation.edit]]
+  line = 1007
+  find = 'requires (notBool(V in Busy))'
+  replace = 'requires true'
+
+[[mutation]]
+id = 'release-at-zero'
+note = 'release with count 0 may decrement'
+
+  [[mutation.edit]]
+  line = 1025
+  find = 'requires N >Int 0'
+  replace = 'requires N >=Int 0'
+
+[[mutation]]
+id = 'mkdecls-zero'
+note = 'function parameters are bound to 0'
+
+  [[mutation.edit]]
+  line = 1064
+  find = 'var X=V;'
+  replace = 'var X=0;'
+
+[[mutation]]
+id = 'range-overlap'
+note = 'N...M with N == M also yields the empty map'
+
+  [[mutation.edit]]
+  line = 1157
+  find = 'requires N >Int M'
+  replace = 'requires N >=Int M'
+
+[[mutation]]
+id = 'return-keeps-callee-env'
+note = 'return keeps the callee environment'
+
+  [[mutation.edit]]
+  line = 713
+  find = '<env> _ => Env </env>'
+  replace = '<env> _ </env>'

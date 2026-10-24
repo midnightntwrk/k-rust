@@ -1,0 +1,8 @@
+[[mutation]]
+id = "becomes-anywhere"
+note = "the rule now applies anywhere"
+
+  [[mutation.edit]]
+  line = 11
+  find = "c(1) => d"
+  replace = "c(1) => d [anywhere]"

@@ -1,0 +1,8 @@
+// Functions as values, and a function that returns nothing.
+function twice(f, x) { return f(f(x)); }
+function inc(x) { return x + 3; }
+function hello() { print("hi "); return; }
+function main() {
+  hello();
+  print(twice(inc, 1), "\n");
+}

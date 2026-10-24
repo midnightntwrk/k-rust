@@ -1,0 +1,5 @@
+// String concatenation and equality.
+function main() {
+  var s = "ab", t = "cd";
+  print(s + t, " ", s == "ab", "\n");
+}

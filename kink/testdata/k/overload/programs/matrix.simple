@@ -1,0 +1,7 @@
+// A two-dimensional array.
+function main() {
+  var m[2, 3];
+  m[1][2] = 7;
+  m[0][1] = 5;
+  print(m[1][2] + m[0][1], " ", sizeOf(m[1]), "\n");
+}
