@@ -215,22 +215,24 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// fz26 FZ-G7 then added 22 lines to "Run coverage", above two of them, which only moved again, and
 /// fz26 FZ-17 added 16 more there ("Applied counts"), which moved the same two down 16;
 /// fz26 FZ-DATAEND added 6 lines to "Anywhere rules" (the data-term paragraph), above all but
-/// 92 and 859, which moved those five down 6, re-pinned at the fz26 phase-5 integration by digest):
+/// 92 and 859, which moved those five down 6, re-pinned at the fz26 phase-5 integration by digest;
+/// fz26 FZ-CONFLUENCE added 5 lines after "The contract states, and does not check" (the checked
+/// hook premise), which moved the same five down 5, re-pinned by digest):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
 /// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
 ///   least as many bytes, so a refusal-free record may be reused on any host (decision 5 stands);
-/// - 1659-1667: a record is a path fact; the load's records are on every run's list and on no
+/// - 1664-1672: a record is a path fact; the load's records are on every run's list and on no
 ///   leaf; the list holds those of work that ended on no reported leaf; it is complete for ground
 ///   contradictions and says nothing about a symbolic run;
-/// - 1907-1930: a mark is noted where the evaluator takes the value, kept through undone work and
+/// - 1912-1935: a mark is noted where the evaluator takes the value, kept through undone work and
 ///   memos; the run's list holds every mark, absorbed and vanished work included; the guarantee
 ///   for a run whose list is empty;
-/// - 2503: a run under another allowance is outside the determinism contract when a bounded
+/// - 2508: a run under another allowance is outside the determinism contract when a bounded
 ///   `Bytes` hook may refuse;
-/// - 2390-2393 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
+/// - 2395-2398 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
 ///   of every run with a larger budget, at the same position, which the one-sided kill rests on;
-/// - 2135-2140 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
+/// - 2140-2145 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
 ///   leaves were all merged into an earlier stuck leaf of their configuration is complete, which
 ///   README route 3 rests on.
 const A1_PASSAGES: [(usize, usize, &str); 7] = [
@@ -245,28 +247,28 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "8398220da3f64af5a820407732a493f31703b3c5821d1323aa8101011a864c52",
     ),
     (
-        1659,
-        1667,
+        1664,
+        1672,
         "61a132b02858ecd84dba10c1341bd64effab638b78bc5857102340a016d2edc0",
     ),
     (
-        1907,
-        1930,
+        1912,
+        1935,
         "309b843d88518f4bdec637057d724ba4726130237eedd1e63d228bba075c800c",
     ),
     (
-        2503,
-        2503,
+        2508,
+        2508,
         "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
     ),
     (
-        2390,
-        2393,
+        2395,
+        2398,
         "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
     ),
     (
-        2135,
         2140,
+        2145,
         "b7ea1c2b5ca5d494cd4245286fafe9a068b0ad4f9f6f18cef4a5a505cb73795e",
     ),
 ];
