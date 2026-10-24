@@ -30,7 +30,7 @@ use crate::{
     error::{CampaignError, TargetProblem},
     exec::{
         self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds,
-        UnjudgedReason,
+        UncleanReason, UnjudgedReason,
     },
     report::EngineDefect,
     spec::{CompiledDefinition, PathMode},
@@ -515,10 +515,13 @@ impl ResolvedTarget {
             .collect()
     }
 
-    /// For a pattern target, how many clean end leaves of `result` (`stuck`, `trivial` or
+    /// For a pattern target, how many end leaves of `result` (`stuck`, `trivial` or
     /// `terminal`) matched the pattern's configuration without its `requires` (the target's
-    /// own matcher when the pattern has no `requires`); `None` for every other target kind
-    /// (FZ-POLISH S2).
+    /// own matcher when the pattern has no `requires`), whatever the `requires` gave there:
+    /// true, false or undecided. A leaf counts when it is clean apart from the target
+    /// matcher's own undecided verdict ([`UncleanReason::UndecidedMatch`]); a leaf unclean for
+    /// another reason has no decided configuration to match. `None` for every other target
+    /// kind (FZ-POLISH S2).
     pub(crate) fn pattern_body_matches(&self, result: &CaseResult) -> Option<u64> {
         if self.resolved != Resolved::PatternFinal {
             return None;
@@ -533,8 +536,12 @@ impl ResolvedTarget {
                     HaltReasonOutput::Stuck
                         | HaltReasonOutput::Trivial
                         | HaltReasonOutput::Terminal
-                ) && leaf.is_clean()
-                    && leaf.matches.get(index) == Some(&true)
+                ) && leaf.unclean.iter().all(|reason| {
+                    matches!(
+                        reason,
+                        UncleanReason::NaturalEndUndecided | UncleanReason::UndecidedMatch
+                    )
+                }) && leaf.matches.get(index) == Some(&true)
             })
             .count();
         Some(u64::try_from(count).unwrap_or(u64::MAX))

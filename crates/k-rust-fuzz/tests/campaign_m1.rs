@@ -467,7 +467,7 @@ fn a_vacuous_negated_property_is_told_apart_from_one_that_holds() {
         report
             .warnings
             .iter()
-            .any(|warning| warning.contains("matched the pattern's configuration without its"))
+            .any(|warning| warning.contains("pattern body: no end of the"))
     };
     assert!(vacuous(&report), "{:?}", report.warnings);
     assert_eq!(report.totals.pattern_body_matches, Some(0));

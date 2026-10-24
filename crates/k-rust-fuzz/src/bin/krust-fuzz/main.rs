@@ -632,8 +632,8 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
     if let Some(count) = report.totals.pattern_body_matches {
         let _ = writeln!(
             text,
-            "pattern body: {count} clean {} matched the pattern's configuration without its \
-             `requires`",
+            "pattern body: {count} {} matched the pattern's configuration without its \
+             `requires`, whatever the `requires` gave",
             if count == 1 { "end" } else { "ends" }
         );
     }

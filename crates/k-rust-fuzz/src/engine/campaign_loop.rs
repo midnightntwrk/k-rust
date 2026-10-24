@@ -1005,9 +1005,9 @@ impl State {
                 .saturating_sub(self.rejected())
                 .saturating_sub(totals.outside_determinism);
             self.warn(format!(
-                "pattern body: no clean end of the {judged} executed {} matched the pattern's \
-                 configuration without its `requires`, so the pattern may name a cell, key or \
-                 value no end holds (a misspelled key?); a negated property then holds \
+                "pattern body: no end of the {judged} executed {} matched the pattern's \
+                 configuration, whatever its `requires` gave, so the pattern may name a cell, \
+                 key or value no end holds (a misspelled key?); a negated property then holds \
                  vacuously, and a `miss` says nothing about it",
                 if judged == 1 { "case" } else { "cases" }
             ));

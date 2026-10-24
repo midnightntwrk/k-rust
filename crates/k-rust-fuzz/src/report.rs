@@ -755,11 +755,12 @@ pub struct Totals {
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
     pub target_blocked: u64,
-    /// For a pattern target (a negated property included), how many clean end leaves (`stuck`,
+    /// For a pattern target (a negated property included), how many end leaves (`stuck`,
     /// `trivial` or `terminal`) of the cases inside the determinism contract matched the
-    /// pattern's configuration without its `requires`: 0 means no end came near the pattern (a
-    /// misspelled key, a cell no end holds), so a negated property held vacuously, and a
-    /// warning says so. Information, not a class: each leaf is matched on its own. Absent for
+    /// pattern's configuration without its `requires`, whatever the `requires` gave there
+    /// (true, false or undecided); a leaf counts when it is clean apart from the target's own
+    /// undecided verdict. 0 means no end's configuration matched the pattern's (a misspelled
+    /// key, a cell no end holds), so a negated property held vacuously, and a warning says so. Information, not a class: each leaf is matched on its own. Absent for
     /// every other target, and when no case inside the determinism contract was executed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern_body_matches: Option<u64>,

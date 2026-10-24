@@ -1030,3 +1030,48 @@ fn rules_are_described_by_references_that_name_one_file() {
         "b/rules.k:3 unique id id-2"
     );
 }
+
+/// FZ-POLISH S2, review round 1: the pattern-body count counts every end leaf whose
+/// configuration matched, whatever the target's `requires` gave: a leaf left unclean only by
+/// the target matcher's undecided verdict counts; a leaf unclean for another reason, a leaf
+/// whose configuration did not match, and a bounded leaf do not.
+#[test]
+fn the_pattern_body_count_ignores_the_targets_own_verdict() {
+    let target = ResolvedTarget {
+        target: Target {
+            kind: TargetKind::Pattern(super::PatternTarget {
+                pattern: "<k> .K </k>".to_owned(),
+                at: super::PatternAt::Final,
+            }),
+            run_to_completion: false,
+            negated_property: true,
+            data_end: true,
+        },
+        resolved: Resolved::PatternFinal,
+        matchers: Vec::new(),
+    };
+    let with = |unclean: Vec<UncleanReason>, matched: bool, halt| LeafReport {
+        matches: vec![matched],
+        ..leaf(halt, unclean, true)
+    };
+    let result = case(
+        vec![
+            with(Vec::new(), true, HaltReasonOutput::Stuck),
+            with(
+                vec![UncleanReason::UndecidedMatch],
+                true,
+                HaltReasonOutput::Stuck,
+            ),
+            with(Vec::new(), false, HaltReasonOutput::Stuck),
+            with(
+                vec![UncleanReason::Undecided],
+                true,
+                HaltReasonOutput::Stuck,
+            ),
+            with(Vec::new(), true, HaltReasonOutput::DepthBound),
+        ],
+        &[],
+        &[],
+    );
+    assert_eq!(target.pattern_body_matches(&result), Some(2));
+}
