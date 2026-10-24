@@ -50,12 +50,12 @@ use crate::outcomes::slot_name;
 use crate::{
     manifest::{Budget, FlowManifest},
     mutation::{EditedRule, RuleText},
-    results::{ORACLE_SLOTS, ResultClass, cache_directory, kebab},
+    results::{ORACLE_SLOTS, ResultClass, cache_directory, kebab, non_value_text},
     search::REPORT_FILE,
 };
 use kink_campaign::{
-    ExecutionFailureKind, FinalResult, LeafCensus, OracleOutcome, OracleSide, OracleValue, SideRun,
-    TestRun,
+    CrossCause, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus, OracleOutcome,
+    OracleSide, OracleValue, SideRun, TestRun,
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
@@ -404,6 +404,7 @@ pub fn census_clause(census: &LeafCensus) -> String {
 pub fn executed_cause(
     run: &TestRun,
     mutant: Option<&SideRun>,
+    across: &[CrossRefusal],
     budget: Budget,
     census: Option<&LeafCensus>,
 ) -> Option<String> {
@@ -437,15 +438,36 @@ pub fn executed_cause(
             // Slots with the same cause are named together: `exit-stop, whole-term: <cause>`.
             let mut groups: Vec<(Vec<&str>, String)> = Vec::new();
             // An unknown or timed-out side: the census tells a depth bound from an undecided end.
-            let incomplete = sides
-                .iter()
-                .any(|side| matches!(side, OracleSide::Unknown | OracleSide::Timeout));
+            // A side the pair's cross-definition judgement refused ended in a value of its own
+            // definition, so its census says nothing of the cause (fz26 KINK-CAUSE-SUBTERM).
+            let refused = |slot: usize, baseline_end: bool| {
+                across
+                    .iter()
+                    .find(|refusal| refusal.slot == slot && refusal.baseline_end == baseline_end)
+            };
+            let incomplete = sides.iter().enumerate().any(|(slot, side)| {
+                matches!(side, OracleSide::Unknown | OracleSide::Timeout)
+                    && refused(slot, false).is_none()
+            });
             for (slot, outcome) in outcomes.iter().enumerate() {
                 if *outcome == OracleOutcome::Agree {
                     continue;
                 }
                 let name = ORACLE_SLOTS.get(slot).copied().unwrap_or("slot");
-                let cause = slot_cause(*outcome, sides.get(slot), budget);
+                // The mutant's own refusal first; the baseline's only when the mutant's side is
+                // otherwise a value.
+                let cross = refused(slot, false).or_else(|| {
+                    refused(slot, true).filter(|_| {
+                        !matches!(
+                            sides.get(slot),
+                            Some(OracleSide::Unknown | OracleSide::Timeout)
+                        )
+                    })
+                });
+                let cause = cross.map_or_else(
+                    || slot_cause(*outcome, sides.get(slot), budget),
+                    cross_cause,
+                );
                 match groups.iter_mut().find(|(_, existing)| *existing == cause) {
                     Some((names, _)) => names.push(name),
                     None => groups.push((vec![name], cause)),
@@ -535,6 +557,42 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
              ({ A #Equals B }), which k-rust may decide wrongly when they may be undefined"
                 .into()
         }
+    }
+}
+
+/// Why a slot the pair's cross-definition judgement refused is unknown (kink-campaign
+/// `judge_across`; fz26 KINK-CAUSE-SUBTERM, KINK-OVERLOAD-VALUE review N4): the side, that its
+/// run did end in a value of its own definition, and why that end is not data under the other
+/// side's definition.
+fn cross_cause(refusal: &CrossRefusal) -> String {
+    let (side, other) = if refusal.baseline_end {
+        ("baseline", "mutant")
+    } else {
+        ("mutant", "baseline")
+    };
+    let head = if refusal.binding {
+        format!(
+            "a binding of the {side}'s match is not definition-independent under the mutant's \
+             definition, which judges the bindings of both sides"
+        )
+    } else {
+        format!(
+            "the {side}'s run ended in a value of its own definition, but that end is not data \
+             under the {other}'s definition, so the two ends cannot be compared"
+        )
+    };
+    let judge = if refusal.binding { "mutant" } else { other };
+    match &refusal.cause {
+        CrossCause::NoData => format!(
+            "{head} (the {judge}'s definition admits no end as data: it has no data facts or a \
+             finding of its full check is left)"
+        ),
+        CrossCause::NotData(Some(failure)) => {
+            format!("{head}; there, {}", non_value_text(failure))
+        }
+        CrossCause::NotData(None) => format!(
+            "{head} (every node passes its own test there, but its canonical form there differs)"
+        ),
     }
 }
 

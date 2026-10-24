@@ -539,6 +539,11 @@ The cause of an `unknown` slot names the possible reasons together (a path stopp
 or a final configuration holding a collection kink cannot compare (for example one with a Bytes key), an unevaluated function or a symbolic term),
 because the runner's evidence records that the mutant's value is unknown but not which of these stopped it; the leaf census that follows
 (leaves per halt class: `depth-bound`, `stuck`, `indeterminate`, ...) usually says which.
+One case has its own cause (fz26 KINK-CAUSE-SUBTERM): a slot the runner made unknown for the pair because one side's end, which is a value of
+its own definition, is not data under the other side's definition (kink-campaign `judge_across`, recorded in the mutant's evidence as
+`RunNotes::across`). The cause names that side (`the baseline's run ended in a value of its own definition, but that end is not data under
+the mutant's definition ...`; for a pattern slot, a binding not definition-independent under the mutant's definition), and the first node of
+the end, in pre-order, that fails its own test there, as a refused baseline's cause names it (see `results`); no leaf census follows it.
 
 ## `kink-flow report FLOW.toml [--cache DIR]`
 

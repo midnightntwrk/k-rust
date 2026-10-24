@@ -649,7 +649,7 @@ const NODE_TEXT_LIMIT: usize = 160;
 /// below the top cell, and the collection entries on the way), the test it fails, for an overload
 /// application the first node inside it that fails its own test ([`NonValue::inside`]), and the
 /// KORE of the last node named, cut after [`NODE_TEXT_LIMIT`] characters.
-fn non_value_text(failure: &NonValue) -> String {
+pub(crate) fn non_value_text(failure: &NonValue) -> String {
     let place = cell_place(&failure.path);
     let mut text = format!(
         "the first node, in pre-order, that fails its own test is {} at {}: {}",

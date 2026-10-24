@@ -1386,7 +1386,13 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                 .recording
                 .mutant_run(mutant.plan.mutant_id, &test.test_id);
             let baseline_run = live.recording.baseline_of(&test.test_id);
-            let cause = executed_cause(&test.run, evidence, budget, run.map(|run| &run.census));
+            let cause = executed_cause(
+                &test.run,
+                evidence,
+                found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
+                budget,
+                run.map(|run| &run.census),
+            );
             let mut entry = match &test.run {
                 TestRun::SkippedAfterKill => return None,
                 TestRun::Compared(outcomes) => json!({

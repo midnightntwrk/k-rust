@@ -670,6 +670,21 @@ impl<'a> ObservationDecider<'a> {
         })
     }
 
+    /// Why `term` is not [`Self::definition_independent`]: the first node, in pre-order, that
+    /// fails [`Self::node_test`] with its children ignored (a collection symbol fails it, as a
+    /// head that is not a free constructor), or `None` when `term` is definition-independent.
+    /// The walk is the one [`Self::definition_independent`] takes.
+    pub fn first_dependent(&self, term: &Pattern) -> Option<NonValue> {
+        self.independent(term, false).err().map(|failure| {
+            let mut failure = *failure;
+            failure.path.reverse();
+            if failure.test == LocalTest::OverloadData {
+                failure.inside = self.inside_overload(&failure.node);
+            }
+            failure
+        })
+    }
+
     /// [`NonValue::inside`] of an overload application: the first of its arguments, at its
     /// symbol's argument sorts, without a value of its own, and the first node of that argument
     /// that fails its own test.

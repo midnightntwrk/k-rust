@@ -142,7 +142,7 @@ use kink_native::execution::{
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
 use kink_native::signature::{DefinitionFacts, definition_facts};
-use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
+use kink_native::step_events::{NonValue, ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
     Baseline, CandidateDisposition, CandidateGeneration, Claim, ClaimSupport, Patch,
@@ -309,6 +309,10 @@ pub struct RunNotes {
     /// admission keeps a baseline and makes only its test unknown ([`admit`]). A record on the
     /// run's list alone refuses the baseline, as any other exclusion does.
     pub leaf_contradiction: bool,
+    /// On the mutant's evidence of a pair only: the slots [`judge_across`] made unknown for the
+    /// pair, and why (fz26 KINK-CAUSE-SUBTERM). Empty on every run's own evidence, and on a
+    /// baseline's.
+    pub across: Vec<CrossRefusal>,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -2323,6 +2327,9 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
 ///
 /// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
 /// end judged under it not data. A failure to reach a definition does too.
+///
+/// Each slot made unknown is recorded in the mutant's evidence ([`RunNotes::across`]), with whose
+/// end it is and why (fz26 KINK-CAUSE-SUBTERM), for the reader's cause; nothing compares it.
 fn judge_across(
     test: &TestCase,
     baseline: &mut TestEvidence,
@@ -2378,20 +2385,35 @@ fn judge_across(
     let (mutant_data, one_sided_data) = under_baseline.terminals.split_at(terminals);
     let mut one_sided_data = one_sided_data.iter().copied();
     one_sided.retain(|_| one_sided_data.next().unwrap_or(false));
-    for (evidence, data) in [
-        (&mut *baseline, under_mutant.terminals.as_slice()),
-        (&mut *mutant, mutant_data),
+    let mut across = Vec::new();
+    for (evidence, data, causes, baseline_end) in [
+        (
+            &mut *baseline,
+            under_mutant.terminals.as_slice(),
+            under_mutant.terminal_causes.as_slice(),
+            true,
+        ),
+        (
+            &mut *mutant,
+            mutant_data,
+            &under_baseline.terminal_causes[..terminals],
+            false,
+        ),
     ] {
         let SideRun::Sides { sides } = &mut evidence.run else {
             continue;
         };
         let states_data = data.iter().all(|data| *data);
-        for (declaration, side) in test.oracles.iter().zip(sides) {
+        for (slot, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
+            // Why the slot is refused: the first refused terminal, or binding, and its cause.
             let refused = match (declaration.projection(), &*side) {
                 (Projection::State(_), OracleSide::Normal(_) | OracleSide::SemanticCrash(_)) => {
-                    !states_data
+                    (!states_data).then(|| {
+                        let cause = causes.iter().flatten().next().cloned();
+                        (false, cause.unwrap_or(CrossCause::NotData(None)))
+                    })
                 }
-                (Projection::State(_), _) => false,
+                (Projection::State(_), _) => None,
                 (
                     Projection::Pattern { .. },
                     OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
@@ -2400,14 +2422,29 @@ fn judge_across(
                 ) => witnesses
                     .iter()
                     .flatten()
-                    .any(|binding| !under_mutant.independent.contains(&binding.term)),
-                (Projection::Pattern { .. }, _) => false,
+                    .find(|binding| !under_mutant.independent.contains(&binding.term))
+                    .map(|binding| {
+                        let cause = under_mutant
+                            .binding_causes
+                            .iter()
+                            .find(|(term, _)| *term == binding.term)
+                            .map(|(_, cause)| cause.clone());
+                        (true, cause.unwrap_or(CrossCause::NotData(None)))
+                    }),
+                (Projection::Pattern { .. }, _) => None,
             };
-            if refused {
+            if let Some((binding, cause)) = refused {
                 *side = OracleSide::Unknown;
+                across.push(CrossRefusal {
+                    slot,
+                    baseline_end,
+                    binding,
+                    cause,
+                });
             }
         }
     }
+    mutant.notes.across = across;
 }
 
 /// What one definition says of the ends of the other side of a pair ([`Runtime::judge_ends`]).
@@ -2416,6 +2453,41 @@ struct EndJudgement {
     terminals: Vec<bool>,
     /// The binding terms judged definition-independent there.
     independent: Vec<Pattern>,
+    /// For each terminal judged, in order, why it is not data there (`None` when it is).
+    terminal_causes: Vec<Option<CrossCause>>,
+    /// Each binding term judged not definition-independent there, and why.
+    binding_causes: Vec<(Pattern, CrossCause)>,
+}
+
+/// A slot of one pair that [`judge_across`] made unknown, because an end or binding of one side
+/// is not data under the other side's definition (fz26 KINK-CAUSE-SUBTERM, KINK-OVERLOAD-VALUE
+/// review N4): the side's run did end in a value of its own definition. Kept in the mutant's
+/// evidence of the pair ([`RunNotes::across`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CrossRefusal {
+    /// The slot's index in the test's oracles.
+    pub slot: usize,
+    /// Whose end it is: the baseline's or the mutant's.
+    pub baseline_end: bool,
+    /// Whether the end is a pattern slot's binding, judged under the mutant's definition (both
+    /// sides' bindings are), rather than a terminal a state slot reads, judged under the other
+    /// side's definition.
+    pub binding: bool,
+    /// Why the first such end of the slot is not data there.
+    pub cause: CrossCause,
+}
+
+/// Why an end is not data under the other side's definition ([`CrossRefusal`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CrossCause {
+    /// That definition admits no end as data: it has no data facts, or a finding of its full
+    /// check is left, or it could not be reached ([`data_ends`] gives [`DataEnds::None`]).
+    NoData,
+    /// The end is not its own terminal value there (a binding: not definition-independent there):
+    /// the first node, in pre-order, that fails its own test there
+    /// ([`ObservationDecider::first_non_value`], [`ObservationDecider::first_dependent`]), or
+    /// `None` when every node passes and the end's canonical form there differs from it.
+    NotData(Option<Box<NonValue>>),
 }
 
 fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Option<&[OracleSide]>) {
@@ -2719,6 +2791,7 @@ impl Runtime {
                 contradicted_claims: execution.facts().contradicted_claims.clone(),
                 smt_unknowns: execution.facts().smt_unknowns,
                 leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
+                across: Vec::new(),
             },
             _ => RunNotes::default(),
         };
@@ -2933,6 +3006,11 @@ impl Runtime {
         let refused = || EndJudgement {
             terminals: vec![false; terminals.len()],
             independent: Vec::new(),
+            terminal_causes: vec![Some(CrossCause::NoData); terminals.len()],
+            binding_causes: bindings
+                .iter()
+                .map(|term| (term.clone(), CrossCause::NoData))
+                .collect(),
         };
         if terminals.is_empty() && bindings.is_empty() {
             return refused();
@@ -2951,16 +3029,35 @@ impl Runtime {
                 )
                 .trusting_collections(trusted)
                 .judging_data(ends, ends);
+                let terminals = terminals
+                    .iter()
+                    .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                    .zip(terminals)
+                    .collect::<Vec<_>>();
+                let (independent, dependent): (Vec<_>, Vec<_>) = bindings
+                    .iter()
+                    .partition(|term| decider.definition_independent(term));
+                // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
                 Ok::<_, k_rust::backend::BackendError>(EndJudgement {
-                    terminals: terminals
+                    terminal_causes: terminals
                         .iter()
-                        .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                        .map(|(data, end)| {
+                            (!data).then(|| {
+                                CrossCause::NotData(decider.first_non_value(end).map(Box::new))
+                            })
+                        })
                         .collect(),
-                    independent: bindings
-                        .iter()
-                        .filter(|term| decider.definition_independent(term))
-                        .cloned()
+                    terminals: terminals.iter().map(|(data, _)| *data).collect(),
+                    binding_causes: dependent
+                        .into_iter()
+                        .map(|term| {
+                            (
+                                term.clone(),
+                                CrossCause::NotData(decider.first_dependent(term).map(Box::new)),
+                            )
+                        })
                         .collect(),
+                    independent: independent.into_iter().cloned().collect(),
                 })
             })
             .unwrap_or_else(|_| refused())
@@ -4474,6 +4571,40 @@ mod tests {
                 assert_eq!(sides(&baseline), [true, true], "{baseline:?}");
                 assert_eq!(sides(&mutant), [false, false], "{mutant:?}");
                 assert_eq!(one_sided, [terminal(&c1), terminal(&d)]);
+                // fz26 KINK-CAUSE-SUBTERM: the mutant's evidence says which slots were refused,
+                // whose end, and the first node that fails its own test under the mutant's
+                // definition: `c(1)`, whose head is no free constructor there.
+                let refusals = |evidence: &TestEvidence| {
+                    evidence
+                        .notes
+                        .across
+                        .iter()
+                        .map(|refusal| {
+                            let node = match &refusal.cause {
+                                CrossCause::NotData(Some(failure)) => {
+                                    assert_eq!(
+                                        failure.test,
+                                        kink_native::step_events::LocalTest::FreeConstructor
+                                    );
+                                    Some(failure.node.clone())
+                                }
+                                CrossCause::NotData(None) => None,
+                                CrossCause::NoData => Some(Pattern::Top {
+                                    sort: k_rust::kore::ast::Sort::Variable("no-data".into()),
+                                }),
+                            };
+                            (refusal.slot, refusal.baseline_end, refusal.binding, node)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    refusals(&mutant),
+                    [
+                        (0, true, false, Some(c1.clone())),
+                        (1, true, true, Some(c1.clone()))
+                    ]
+                );
+                assert!(baseline.notes.across.is_empty());
                 // The mutant's own binding `c(1)` is not data under its own definition.
                 let (mut baseline, mut mutant) = (evidence(&d), evidence(&c1));
                 let mut none = Vec::new();
@@ -4487,6 +4618,7 @@ mod tests {
                 );
                 assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
                 assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
+                assert_eq!(refusals(&mutant), [(1, false, true, Some(c1.clone()))]);
                 // The anywhere baseline against the plain mutant: one-sided terminals.
                 let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
                 let mut one_sided = vec![terminal(&c1), terminal(&d)];
@@ -4514,6 +4646,17 @@ mod tests {
                 );
                 assert_eq!(sides(&baseline), [true, true], "{baseline:?}");
                 assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
+                let no_data = Some(Pattern::Top {
+                    sort: k_rust::kore::ast::Sort::Variable("no-data".into()),
+                });
+                assert_eq!(
+                    refusals(&mutant),
+                    [
+                        (0, true, false, no_data.clone()),
+                        (1, true, true, no_data.clone()),
+                        (1, false, true, no_data)
+                    ]
+                );
             })
             .unwrap()
             .join()
