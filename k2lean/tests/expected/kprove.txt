@@ -19,6 +19,8 @@ claim IMP-TWO-SUM-AUX-SPEC.two-sum-spec: proven (4 states, 0 unexplored)
 claim IMP-DIV0-SPEC.div0-seven: failed (1 states, 0 unexplored)
 claim IMP-DIV0-SPEC.div0-any-int: failed (1 states, 0 unexplored)
 claim IMP-DIV0-SPEC.div0-self: proven (1 states, 0 unexplored)
+claim IMP-INV-SPEC.copy: failed (4 states, 1 unexplored)
+claim IMP-INV-SPEC.copy-loop: failed (19 states, 1 unexplored)
 claim IMP-SUM-SPEC.sum-spec: proven (39 states, 0 unexplored)
 claim IMP-SUM-SPEC.two-sum-spec: depth bound (1819 states, 12 unexplored)
   depth-bound at depth 300

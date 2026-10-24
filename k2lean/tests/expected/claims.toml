@@ -114,3 +114,25 @@ label = "IMP-DIV0-SPEC.div0-self"
 stated = true
 all_path = true
 
+[[claim]]
+label = "IMP-INV-SPEC.copy"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMP-INV-SPEC.copy-loop"
+stated = true
+all_path = true
+
+[[induction]]
+name = "ExprEval"
+sort = "SortExpr"
+obligations = 15
+open = []
+
+[[induction]]
+name = "ExprDiv"
+sort = "SortExpr"
+obligations = 1
+open = ["ExprDiv.AExp._/_"]
+
