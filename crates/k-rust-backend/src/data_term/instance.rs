@@ -1,14 +1,15 @@
-//! The bounded search for a ground input with two normal forms: an instance of an unjoined
-//! pair's overlap at which both equations apply and whose two reducts evaluate to different
-//! normal forms (the parent module's "Findings: genuine or undecided").
+//! The bounded search for a ground input with two results: an instance of an unjoined pair's
+//! overlap at which both equations apply and whose two reducts evaluate to two different normal
+//! forms, or to a normal form and an undefined value (the parent module's "Findings: genuine or
+//! undecided").
 //!
 //! Each variable of the pair's overlap, reducts and conditions ([`UnjoinedPair::overlap`],
 //! [`UnjoinedPair::sides`], [`UnjoinedPair::conditions`]) gets a few small ground terms of its
 //! sort ([`Search::candidates`]): domain values (`0`, `1`, `-1` for an integer sort, `false` and
-//! `true`, `""` and `"a"` for a string sort), nullary free constructors, empty and one-element
-//! collections, free-constructor applications over such terms, and injections of a subsort's
-//! terms, all normal forms. The assignments are tried in a fixed order, at most [`INSTANCES`]
-//! per pair. One is an instance when, under it:
+//! `true`, `""` and `"a"` for a string sort and for a bytes sort), nullary free constructors,
+//! empty and one-element collections, free-constructor applications over such terms, and
+//! injections of a subsort's terms, all normal forms. The assignments are tried in a fixed order,
+//! at most [`INSTANCES`] per pair. One is an instance when, under it:
 //!
 //! - the overlap's instance is built from normal forms: every map and set in it is keyed by
 //!   distinct normal forms (no repeated key or element, k-rust's internal normal form compared);
@@ -17,18 +18,47 @@
 //!   left-hand side matches the redex, its `requires` evaluates to `true`, it has no `ensures`,
 //!   and no executable equation of the same head in a group of higher priority (`priority`,
 //!   `owise` the lowest) matches the redex with its `requires` true or undecided;
-//! - each reduct evaluates, unconditionally and without a stop, to a ground normal form built
-//!   only from free constructors, injections, domain values and rest-free collections with
-//!   distinct keys and elements;
-//! - the two normal forms differ (on k-rust's internal normal form, whose injections compose);
+//! - each reduct evaluates, unconditionally and without a stop, to a ground term that is
+//!   *defined* or *undefined* (below);
+//! - the two values are both defined and differ (on k-rust's internal normal form, whose
+//!   injections compose), or exactly one of them is undefined;
 //! - no evaluation noted an implementation-chosen value or a contradicted claim.
 //!
-//! Then the input has two normal forms, one through each equation: its evaluation is not
-//! uniquely determined, so `M_NF` is not a model of the definition (the parent module, "What a
-//! data term denotes"), and k-rust's result for that input depends on the order in which it
-//! tries the equations. This is no claim about every model of the definition: KORE keeps, for
-//! instance, injections from different source sorts apart by no axiom. The search decides
-//! nothing when it finds no instance: the finding stays undecided.
+//! # Stuck applications
+//!
+//! An application is *stuck* when its arguments are defined and every executable equation the
+//! evaluator offers at it (its index's groups and the bare-variable ones, every priority, `owise`
+//! and overload equations included, `symbolic` ones excluded) fails to match it or matches with
+//! its `requires` evaluating to `false`. What a stuck application is in `M_NF` depends on its
+//! symbol's class, read through `confluence::symbols::Class`, which the join reads too
+//! (`confluence/join.rs`, rule 3), so a change of that reading moves the search with it:
+//!
+//! - a *defined* value is built from domain values, injections, free-constructor applications,
+//!   rest-free collections with distinct keys and elements, and stuck applications of declared
+//!   total functions without a hook or an algebraic axiom (`Class::Total` with
+//!   `HeadRole::Function { declared: true, .. }`). Such a stuck application is a normal form of
+//!   `M_NF` (`docs/compatibility.md`, "Anywhere rules"), distinct from every other normal form.
+//!   A symbol with `assoc`, `comm`, `unit` or `idem` is left out: its axioms are emitted and
+//!   never used by the backend, so `M_NF` fails them at every input, and two of its stuck
+//!   applications that the axioms equate would say nothing about the pair. Residuals,
+//!   `functional` uninterpreted symbols, equation heads and hooked symbols are left out too;
+//! - an *undefined* value holds a stuck application whose class makes it `\bottom`
+//!   (`Class::stuck_is_bottom`) and is not hooked, a declared partial function without a hook,
+//!   reached from the root through free constructors, injections and collection items only, the
+//!   other parts of the term defined. It is `\bottom` in `M_NF`. A partial hook's missing value is
+//!   left out: `M_NF` gives it the builtin meaning, which the hook's text may leave open;
+//! - any other term, for instance a stuck partial application under a stuck total application
+//!   or under a hooked symbol, is neither, and gives no instance.
+//!
+//! Then the input has two different results in `M_NF`, one through each equation: two normal
+//! forms, or a normal form and `\bottom`. A term cannot equal both, so `M_NF` is not a model of
+//! the definition (the parent module, "What a data term denotes"). The evaluator does not reduce
+//! a stuck partial application to `\bottom` (`docs/compatibility.md`, "Anywhere rules"), but its
+//! two results still differ, so k-rust's result for that input depends on the order in which it
+//! tries the equations. Two undefined values are not an instance. This is no claim about every
+//! model of the definition: KORE keeps, for instance, injections from different source sorts
+//! apart by no axiom, and a model may give a partial function a value where no equation does.
+//! The search decides nothing when it finds no instance: the finding stays undecided.
 
 use std::collections::BTreeSet;
 
@@ -40,14 +70,14 @@ use crate::{
     diagnostic,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::Predicate,
-    rule::{Concreteness, ConstraintKind, RewriteRule, term_index},
+    rule::{Concreteness, ConstraintKind, RewriteRule, applicable_groups, term_index},
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
     term::{CollectionMetadata, HeadRole, Sort, SortNode, Term, TermKind, Variable},
 };
 
-use crate::confluence::UnjoinedPair;
+use crate::confluence::{UnjoinedPair, symbols::Class};
 
 /// The assignments tried per pair.
 const INSTANCES: usize = 81;
@@ -66,8 +96,8 @@ const EVALUATION_POLLS: u64 = 200_000;
 const EVALUATION_ITERATIONS: usize = 256;
 
 /// A ground instance of an unjoined pair's overlap at which both equations apply and the two
-/// reducts evaluate to two different normal forms (the parent module's "Findings: genuine or
-/// undecided").
+/// reducts evaluate to two different normal forms, or to a normal form and an undefined value
+/// (the parent module's "Findings: genuine or undecided").
 #[derive(Clone, Debug)]
 pub struct GroundInstance {
     /// Each variable of the overlap, the reducts and the conditions, with its ground value, in
@@ -78,6 +108,43 @@ pub struct GroundInstance {
     /// What each reduct evaluates to, in the order of [`UnjoinedPair::sides`] (the first
     /// equation's, then the second's).
     pub values: (Term, Term),
+    /// Which stuck applications each value holds, in the same order: `None` for a value built
+    /// from data only, [`Stuck::Total`] for a defined value holding a stuck total application,
+    /// [`Stuck::Partial`] for an undefined value. At most one side is [`Stuck::Partial`].
+    pub stuck: (Option<Stuck>, Option<Stuck>),
+}
+
+/// What a value of a [`GroundInstance`] holds beyond data (the module documentation, "Stuck
+/// applications").
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Stuck {
+    /// A stuck application of a declared total function: the value is a normal form of `M_NF`
+    /// that no equation names.
+    Total,
+    /// A stuck application of a declared partial function: the value is `\bottom` in `M_NF`,
+    /// while the evaluator returns the stuck term.
+    Partial,
+}
+
+/// How a term reads in `M_NF` (the module documentation, "Stuck applications").
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Reading {
+    /// Built from data only.
+    Data,
+    /// Defined, holding a stuck total application.
+    Total,
+    /// Undefined: holding a stuck partial application.
+    Undefined,
+}
+
+impl Reading {
+    fn stuck(self) -> Option<Stuck> {
+        match self {
+            Self::Data => None,
+            Self::Total => Some(Stuck::Total),
+            Self::Undefined => Some(Stuck::Partial),
+        }
+    }
 }
 
 /// The search over one definition, with the candidates of each sort computed once.
@@ -187,8 +254,13 @@ impl<'d> Search<'d> {
             let right = self.value(&substitute(second, &substitution))?;
             Some((left, right))
         });
-        let (left, right) = values?;
-        if left == right
+        let ((left, left_reading), (right, right_reading)) = values?;
+        let apart = match (left_reading, right_reading) {
+            (Reading::Undefined, Reading::Undefined) => false,
+            (Reading::Undefined, _) | (_, Reading::Undefined) => true,
+            _ => left != right,
+        };
+        if !apart
             || diagnostics
                 .iter()
                 .any(diagnostic::BackendDiagnostic::is_path_fact)
@@ -199,6 +271,7 @@ impl<'d> Search<'d> {
             assignment: assignment.to_vec(),
             overlap: instance,
             values: (left, right),
+            stuck: (left_reading.stuck(), right_reading.stuck()),
         })
     }
 
@@ -270,10 +343,10 @@ impl<'d> Search<'d> {
         }
     }
 
-    /// The value `term` evaluates to, when it evaluates unconditionally, within the budget, to
-    /// a ground term built only from free constructors, injections, domain values and rest-free
-    /// collections with distinct keys and elements.
-    fn value(&self, term: &Term) -> Option<Term> {
+    /// The value `term` evaluates to, with how it reads in `M_NF`, when it evaluates
+    /// unconditionally, within the budget, to a ground term that is defined or undefined (the
+    /// module documentation, "Stuck applications").
+    fn value(&self, term: &Term) -> Option<(Term, Reading)> {
         let (value, stops) = budgeted(|| {
             let options = SimplificationOptions {
                 max_iterations: EVALUATION_ITERATIONS,
@@ -291,9 +364,97 @@ impl<'d> Search<'d> {
             }
         });
         let value = value.filter(|_| !stops.any())?;
-        (value.attributes().variables.is_empty()
-            && self.definition.built_from_data(&value, &BTreeSet::new()))
-        .then_some(value)
+        if !value.attributes().variables.is_empty() {
+            return None;
+        }
+        if self.definition.built_from_data(&value, &BTreeSet::new()) {
+            return Some((value, Reading::Data));
+        }
+        let reading = self.reading(&value)?;
+        Some((value, reading))
+    }
+
+    /// How the ground term `term` reads in `M_NF` (the module documentation, "Stuck
+    /// applications"): `None` when it is neither defined nor undefined.
+    fn reading(&self, term: &Term) -> Option<Reading> {
+        if term.attributes().constructor_like {
+            return Some(Reading::Data);
+        }
+        let distinct = |items: &[&Term]| items.windows(2).all(|pair| pair[0] != pair[1]);
+        match term.kind() {
+            TermKind::DomainValue { .. } => Some(Reading::Data),
+            TermKind::Injection { term, .. } => self.reading(term),
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                let role = symbol.attributes.head_role();
+                if role == HeadRole::FreeConstructor {
+                    return self.readings(arguments);
+                }
+                let class = Class::of(symbol);
+                let reading = if class.stuck_is_bottom() && !matches!(class, Class::Hooked { .. }) {
+                    if crate::confluence::switches::active().stuck_partial_is_value {
+                        Reading::Total
+                    } else {
+                        Reading::Undefined
+                    }
+                } else if matches!(class, Class::Total { .. })
+                    && matches!(role, HeadRole::Function { declared: true, .. })
+                    && symbol.attributes.hook.is_none()
+                    && symbol.attributes.algebraic_axioms().is_empty()
+                {
+                    Reading::Total
+                } else {
+                    return None;
+                };
+                // Stuckness is read on defined arguments only: an equation tried on an undefined
+                // argument says nothing in `M_NF`.
+                if self.readings(arguments)? == Reading::Undefined || !self.stuck(term) {
+                    return None;
+                }
+                Some(reading)
+            }
+            // Entries and elements are sorted, so an item held twice follows its first instance.
+            TermKind::Map { entries, rest, .. } => {
+                let keys = entries.iter().map(|(key, _)| key).collect::<Vec<_>>();
+                if rest.is_some() || !distinct(&keys) {
+                    return None;
+                }
+                self.readings(entries.iter().flat_map(|(key, value)| [key, value]))
+            }
+            TermKind::List { heads, rest, .. } => {
+                if rest.is_some() {
+                    return None;
+                }
+                self.readings(heads)
+            }
+            TermKind::Set { elements, rest, .. } => {
+                if rest.is_some() || !distinct(&elements.iter().collect::<Vec<_>>()) {
+                    return None;
+                }
+                self.readings(elements)
+            }
+            TermKind::Variable(_) | TermKind::And(..) => None,
+        }
+    }
+
+    /// How a term built of `items` reads: undefined when one of them is, otherwise defined with
+    /// a stuck total application when one of them holds one, otherwise data.
+    fn readings<'t>(&self, items: impl IntoIterator<Item = &'t Term>) -> Option<Reading> {
+        items.into_iter().try_fold(Reading::Data, |reading, item| {
+            Some(reading.max(self.reading(item)?))
+        })
+    }
+
+    /// Whether the ground application `application` is stuck: every executable equation the
+    /// evaluator offers at it, `symbolic` ones aside, fails to match it or matches with its
+    /// `requires` evaluating to `false`.
+    fn stuck(&self, application: &Term) -> bool {
+        applicable_groups(self.definition.function_theory(), &term_index(application))
+            .values()
+            .flatten()
+            .filter(|rule| rule.attributes.executable && !symbolic(rule))
+            .all(|rule| self.matches(rule, application) == Some(false))
     }
 
     /// At most [`CANDIDATES`] small ground terms of `sort`, free constructors nested at most
@@ -328,7 +489,7 @@ impl<'d> Search<'d> {
             let texts: &[&str] = match info.hook.as_deref() {
                 Some("INT.Int") => &["0", "1", "-1"],
                 Some("BOOL.Bool") => &["false", "true"],
-                Some("STRING.String") => &["", "a"],
+                Some("STRING.String" | "BYTES.Bytes") => &["", "a"],
                 _ => &[],
             };
             for text in texts {
@@ -579,3 +740,6 @@ fn budgeted<T>(work: impl FnOnce() -> T) -> (T, crate::stop::PollBudgetRecord) {
         work,
     )
 }
+
+#[cfg(test)]
+mod tests;

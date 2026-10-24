@@ -1,7 +1,8 @@
 //! Mutation switches for the verification of the check (the design's V7): each turns one rule of
-//! the check, the closure, the gate or the instance-normal scan off, so that a test can show the
-//! oracle test meant to catch that class fails without it. Outside test builds every switch is
-//! off and [`active`] is a constant, so the checks that read it compile away.
+//! the check, the closure, the gate, the instance-normal scan or the ground-instance search off,
+//! so that a test can show the oracle test meant to catch that class fails without it. Outside
+//! test builds every switch is off and [`active`] is a constant, so the checks that read it
+//! compile away.
 
 /// The switches; all off by default.
 #[derive(Clone, Copy, Debug, Default)]
@@ -122,6 +123,9 @@ pub(crate) struct Switches {
     /// Conditions: read an ML `\equals` between integer terms as showing its atoms defined, also
     /// when neither side is `ceil_free` (both sides undefined satisfy it).
     pub(crate) misread_equals_definedness: bool,
+    /// Ground instances (`data_term/instance.rs`): read a stuck application of a declared partial
+    /// function as a defined value, as a stuck total one is, instead of as `\bottom`.
+    pub(crate) stuck_partial_is_value: bool,
 }
 
 #[cfg(test)]
@@ -172,6 +176,7 @@ thread_local! {
             misread_min_max: false,
             misplace_class_literal: false,
             misread_equals_definedness: false,
+            stuck_partial_is_value: false,
         })
     };
 }

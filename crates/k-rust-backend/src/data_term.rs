@@ -86,18 +86,26 @@
 //! # Findings: genuine or undecided
 //!
 //! A finding of the full check ([`Finding`]) is *genuine* only when it comes with a
-//! [`GroundInstance`] (`instance.rs`): a ground input that has two normal forms. The instance is
-//! built from normal forms (its maps and sets keyed by distinct ones), both equations apply
+//! [`GroundInstance`] (`instance.rs`): a ground input with two different results. The instance
+//! is built from normal forms (its maps and sets keyed by distinct ones), both equations apply
 //! there by the evaluator's own rule (each matches its redex, its `requires` evaluates to true,
 //! and no equation of its head with a higher priority applies, an undecided one counting as
-//! applying), and the two reducts evaluate to different normal forms, read on k-rust's internal
-//! normal form as everywhere in this module. Evaluation of that input is then not uniquely
-//! determined: `M_NF` is not a model of the definition, and k-rust's result for the input
-//! depends on the order in which it tries the equations. This is not a claim that no model
-//! satisfies the definition (no KORE axiom keeps, for instance, injections from different
-//! source sorts apart). Every other finding is *undecided*: not shown to join, which may be a
-//! limit of the checker (a condition its solver-free reader does not decide, a shape its
-//! unifier does not solve) as well as a defect of the definition.
+//! applying), and the two reducts evaluate either to two different normal forms, read on
+//! k-rust's internal normal form as everywhere in this module, or to a normal form and an
+//! undefined value. A normal form there may hold an application of a declared total function
+//! without a hook or an algebraic axiom that no equation rewrites; an undefined value holds,
+//! under free constructors, injections and collection items only, such an application of a
+//! declared partial function without a hook, which is `\bottom` in `M_NF`
+//! ([`GroundInstance::stuck`]; `instance.rs`, "Stuck applications"). No term is both a normal
+//! form and `\bottom`, so evaluation of that input is not uniquely determined: `M_NF` is not a
+//! model of the definition, and k-rust's result for the input depends on the order in which it
+//! tries the equations (the evaluator returns a stuck partial application as it stands, which
+//! still differs from the other result). Two undefined values are no instance. This is not a
+//! claim that no model satisfies the definition (no KORE axiom keeps, for instance, injections
+//! from different source sorts apart, and a model may give a partial function a value where no
+//! equation does). Every other finding is *undecided*: not shown to join, which may be a limit of
+//! the checker (a condition its solver-free reader does not decide, a shape its unifier does not
+//! solve) as well as a defect of the definition.
 //!
 //! # Assumed pairs
 //!
@@ -134,7 +142,7 @@ mod instance;
 
 use std::collections::BTreeSet;
 
-pub use instance::GroundInstance;
+pub use instance::{GroundInstance, Stuck};
 
 use crate::{
     confluence::{UnjoinedPair, Violation},
@@ -171,7 +179,7 @@ pub enum Finding {
     /// (a hook pair, [`UnjoinedPair::hook`](crate::confluence::UnjoinedPair::hook)).
     Equation(UnjoinedPair),
     /// A pair of executable equations the check does not join, with a ground input that has two
-    /// normal forms when one was found (a genuine finding); otherwise undecided.
+    /// different results when one was found (a genuine finding); otherwise undecided.
     Pair {
         pair: UnjoinedPair,
         instance: Option<GroundInstance>,
@@ -585,7 +593,7 @@ fn confluence_findings(
     findings.extend(verdict.unjoined().iter().map(|pair| {
         // A hook pair's second equation is a written meaning of the hook, not an equation of
         // the definition: the finding is about the one equation, which is not shown to agree
-        // with the builtin, and no input with two normal forms is searched for.
+        // with the builtin, and no input with two results is searched for.
         if pair.hook.is_some() || pair.reason.describes_one_equation() {
             Finding::Equation(pair.clone())
         } else {
