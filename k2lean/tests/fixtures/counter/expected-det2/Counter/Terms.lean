@@ -1552,6 +1552,24 @@ instance : MapRepr SortMap SortKItem SortKItem where
   eraseR_eq := SortMap.eraseR_eq
   sortedR_eq := SortMap.sortedR_eq
 
+theorem SortMap.sizeOf_lookupR {k : SortKItem} {v : SortKItem} : ∀ {m : SortMap}, SortMap.lookupR k m = some v → sizeOf v < sizeOf m
+  | .nil, h => by simp [SortMap.lookupR] at h
+  | .cons k' v' t, h => by
+    unfold SortMap.lookupR at h
+    cases ho : compare k k' <;> simp only [ho] at h
+    · simp at h
+    · simp only [Option.some.injEq] at h; subst h; simp only [SortMap.cons.sizeOf_spec]; omega
+    · have := SortMap.sizeOf_lookupR h; simp only [SortMap.cons.sizeOf_spec]; omega
+theorem SortMap.sizeOf_eraseR {k : SortKItem} {v : SortKItem} : ∀ {m : SortMap}, SortMap.lookupR k m = some v → sizeOf (SortMap.eraseR k m) < sizeOf m
+  | .nil, h => by simp [SortMap.lookupR] at h
+  | .cons k' v' t, h => by
+    unfold SortMap.lookupR at h
+    unfold SortMap.eraseR
+    cases ho : compare k k' <;> simp only [ho] at h ⊢
+    · simp at h
+    · simp only [SortMap.cons.sizeOf_spec]; omega
+    · have := SortMap.sizeOf_eraseR h; simp only [SortMap.cons.sizeOf_spec]; omega
+
 def SortSet.toList : SortSet → List (SortKItem × Unit)
   | .nil => []
   | .cons k r => (k, ()) :: r.toList

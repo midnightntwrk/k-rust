@@ -15,9 +15,9 @@ proofs need and the tactic the generator emits:
   generator proves it for each collection sort of the arity-indexed universe (`Term.coll_S l`).
   From it, the hooks that
   destructure a collection give smaller pieces: `ListHook.uncons`, `ListHook.unsnoc`, and the
-  value and the rest of a map pattern `K |-> V REST` (`MapHook.lookup`, `MapHook.remove`).
-  `MapHook.choose` is not covered: function equations do not use it (the generator rejects a map
-  pattern with a free key in a function equation).
+  value and the rest of a map pattern `K |-> V REST` (`MapHook.lookup`, `MapHook.remove`), for
+  a bound key and, through the certificate `MapHook.chooseFirst` passes, for a free one
+  (`MapSizeOf`, which the per-sort carriers also have).
 * Facts about defined partial hooks, for `omega`: an index accepted by `BytesHook.get` or
   `BytesHook.substr` is in range, and a defined `IntHook.tdiv`/`IntHook.emod` by a literal is a
   Euclidean division (`tdiv` of a nonnegative dividend).
@@ -114,24 +114,114 @@ theorem sizeOf_erase_lt {k : α} {v : β} : ∀ {m : List (α × β)}, lookup k 
 
 end SAL
 
+/-- A map carrier whose `sizeOf` decreases from a map to the value and to the rest of a binding:
+the termination facts of `K |-> V REST` (key bound or free). Instances: every carrier whose
+`sizeOf` is its list's plus one (`ListSizeOf`, the arity-indexed universe), and, through
+`MapHook.mapSizeOf_of_add`, the per-sort carriers (`.nil`/`.cons k v r`), whose `sizeOf` is
+their list's minus its length. -/
+class MapSizeOf (M K V : Type) [Ord K] [ListIso M (K × V)] [MapRepr M K V] [SizeOf M] [SizeOf V] :
+    Prop where
+  sizeOf_lookup : ∀ {m : M} {k : K} {v : V}, MapHook.lookup m k = some v → sizeOf v < sizeOf m
+  sizeOf_remove : ∀ {m : M} {k : K} {v : V}, MapHook.lookup m k = some v →
+    sizeOf (MapHook.remove m k) < sizeOf m
+
+namespace SAL
+variable {α β : Type} [Ord α] [SizeOf α] [SizeOf β]
+
+theorem length_erase_of_lookup {k : α} {v : β} : ∀ {m : List (α × β)}, lookup k m = some v →
+    (erase k m).length + 1 = m.length
+  | [], h => by simp [lookup] at h
+  | (k', v') :: t, h => by
+    unfold lookup at h
+    unfold erase
+    split at h
+    · simp at h
+    · simp
+    · have := length_erase_of_lookup h
+      simp only [List.length_cons]
+      omega
+
+theorem _root_.List.length_le_sizeOf {γ : Type} [SizeOf γ] : ∀ l : List γ, l.length ≤ sizeOf l
+  | [] => by simp
+  | _ :: t => by have := List.length_le_sizeOf t; simp only [List.cons.sizeOf_spec, List.length_cons]; omega
+
+theorem sizeOf_erase_add {k : α} {v : β} : ∀ {m : List (α × β)}, lookup k m = some v →
+    sizeOf (erase k m) + 2 + sizeOf v ≤ sizeOf m
+  | [], h => by simp [lookup] at h
+  | (k', v') :: t, h => by
+    unfold lookup at h
+    unfold erase
+    split at h
+    · simp at h
+    · simp only [Option.some.injEq] at h
+      subst h
+      simp only [List.cons.sizeOf_spec, Prod.mk.sizeOf_spec]
+      omega
+    · have := sizeOf_erase_add h
+      simp only [List.cons.sizeOf_spec]
+      omega
+
+end SAL
+
 namespace MapHook
 variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V] [SizeOf M] [SizeOf K] [SizeOf V]
-  [ListSizeOf M (K × V)] [Std.TransOrd K] [Std.LawfulEqOrd K]
+  [Std.TransOrd K] [Std.LawfulEqOrd K]
+
+instance mapSizeOf_of_listSizeOf [ListSizeOf M (K × V)] : MapSizeOf M K V where
+  sizeOf_lookup {m k v} h := by
+    rw [lookup_def] at h
+    have h1 := List.sizeOf_lt_of_mem (SAL.lookup_mem h)
+    rw [sizeOf_eq_toList m]
+    simp only [Prod.mk.sizeOf_spec] at h1
+    omega
+  sizeOf_remove {m k v} h := by
+    rw [lookup_def] at h
+    rw [remove_def, sizeOf_eq_toList m, ListSizeOf.sizeOf_ofList]
+    have := SAL.sizeOf_erase_lt h
+    omega
+
+/-- `MapSizeOf` for a carrier whose `sizeOf` plus its length is its list's `sizeOf` (the
+per-sort carriers `.nil`/`.cons k v r`: one constructor per binding instead of a cons and a
+pair). -/
+theorem mapSizeOf_of_add (h : ∀ l : List (K × V), sizeOf (ofList l : M) + l.length = sizeOf l) :
+    MapSizeOf M K V where
+  sizeOf_lookup {m k v} hl := by
+    rw [lookup_def] at hl
+    have h2 := h (toList m)
+    rw [ofList_toList] at h2
+    have h4 := SAL.sizeOf_erase_add hl
+    have h5 := SAL.length_erase_of_lookup hl
+    have h6 := List.length_le_sizeOf (SAL.erase k (toList m))
+    omega
+  sizeOf_remove {m k v} hl := by
+    rw [lookup_def] at hl
+    rw [remove_def]
+    have h2 := h (toList m)
+    rw [ofList_toList] at h2
+    have h3 := h (SAL.erase k (toList m))
+    have h4 := SAL.sizeOf_erase_add hl
+    have h5 := SAL.length_erase_of_lookup hl
+    omega
+
+variable [MapSizeOf M K V]
 
 /-- The value of `K |-> V REST` is smaller than the map. -/
-theorem sizeOf_lookup {m : M} {k : K} {v : V} (h : lookup m k = some v) : sizeOf v < sizeOf m := by
-  rw [lookup_def] at h
-  have h1 := List.sizeOf_lt_of_mem (SAL.lookup_mem h)
-  rw [sizeOf_eq_toList m]
-  simp only [Prod.mk.sizeOf_spec] at h1
-  omega
+theorem sizeOf_lookup {m : M} {k : K} {v : V} (h : lookup m k = some v) : sizeOf v < sizeOf m :=
+  MapSizeOf.sizeOf_lookup h
 
 /-- The rest of `K |-> V REST` is smaller than the map. -/
-theorem sizeOf_remove {m : M} {k : K} {v : V} (h : lookup m k = some v) : sizeOf (remove m k) < sizeOf m := by
-  rw [lookup_def] at h
-  rw [remove_def, sizeOf_eq_toList m, ListSizeOf.sizeOf_ofList]
-  have := SAL.sizeOf_erase_lt h
-  omega
+theorem sizeOf_remove {m : M} {k : K} {v : V} (h : lookup m k = some v) :
+    sizeOf (remove m k) < sizeOf m :=
+  MapSizeOf.sizeOf_remove h
+
+/-- The value and the rest of a match `k |-> v r` of `m` (a free-key pattern's certificate)
+are smaller than the map. -/
+theorem sizeOf_of_concat_element {m r : M} {k : K} {v : V}
+    (h : concat (element k v) r = some m) : sizeOf v < sizeOf m ∧ sizeOf r < sizeOf m := by
+  have hl := lookup_of_concat_element h
+  refine ⟨sizeOf_lookup hl, ?_⟩
+  rw [← remove_of_concat_element h]
+  exact sizeOf_remove hl
 
 end MapHook
 
@@ -194,6 +284,7 @@ private def factLemmas : List (Name × List Name) :=
   [(``ListHook.uncons, [``ListHook.sizeOf_uncons]),
    (``ListHook.unsnoc, [``ListHook.sizeOf_unsnoc]),
    (``MapHook.lookup, [``MapHook.sizeOf_lookup, ``MapHook.sizeOf_remove]),
+   (``MapHook.concat, [``MapHook.sizeOf_of_concat_element]),
    (``BytesHook.get, [``BytesHook.get_facts]),
    (``BytesHook.substr, [``BytesHook.substr_facts]),
    (``IntHook.tdiv, [``IntHook.tdiv_facts]),

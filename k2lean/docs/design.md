@@ -41,6 +41,14 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
 - **Functions.** A function's equations are tried in priority order, `owise` last; the first equation whose argument patterns match and whose `requires` is `true` gives the value, even when that value is `⊥`.
   An `owise` equation's guard is the negation of its competitors' applicability, which the cascade position realizes.
   Where no equation applies the result is `none`: the least-defined model, since KORE leaves the value unconstrained there.
+- **Free-key map patterns in function equations.** An equation `f(K |-> V REST) => e requires c` whose key `K` is bound nowhere else in its left-hand side is, as a KORE axiom, `∀ K V REST. M = (K |-> V) REST ∧ c → f(M) = e`: one instance per binding of `M` at which the rest of the left-hand side matches and `c` holds (a *matching binding*).
+  - When every matching binding gives the same value (`⊥` included), that value is the K function's meaning at `M`.
+  - When two matching bindings give different values, the axioms equate `f(M)` with both; a function denotes one value (or `⊥`), so no model of the definition contains `M` with that equation, and the K definition determines no value at `M` (the definition is not confluent there; krust's `UnjoinedCriticalPair` warning flags equations where this can happen).
+  - The generated definition takes the first matching binding in the map's canonical order (ascending keys): `MapHook.chooseFirst`, which tries each binding and passes to the next exactly when the rest of the left-hand side or the requires fails there, and otherwise gives that binding's value, even `⊥`.
+    So it is the K function's meaning wherever the definition determines one (`MapHook.chooseFirst_eq_of_agree`: if some binding gives `b` and every value at any binding is `b`, the result is `b`), and a choice among the instances where it does not; `chooseFirst_eq_some` and `chooseFirst_eq_none` characterize it.
+  - The equation applies at `M` exactly when some binding matches; an `owise` equation or one of a lower priority is tried only when none does, as the KORE guard of the cascade says.
+  - Several free keys in one left-hand side choose lexicographically; a function that recurses on the rest or on the value of the binding terminates by `MapSizeOf` (the value and the rest are smaller than the map, from the certificate the continuation receives).
+  - Such an equation is not stated in `Equations.lean`, as no equation with a map pattern in its arguments is (their arguments are partial patterns, not terms); its K statement, the agreement of all matching bindings, holds exactly where the definition is confluent.
   Well-founded recursive functions are Lean definitions by well-founded recursion, and their equations get a proof by the recursion's own unfolding (`k2l_eqn_r`).
   The measure is the length of a list the function destructures, an integer distance bounded by a requires, or one the generator synthesizes from the equations (`termination.rs`: integer distances from the requires, from failed earlier guards and from defined partial hooks, constructor ranks for fallback chains, combined lexicographically); the proof is Lean's (`k2l_decreasing`), so a wrong choice is a build error, never an unsound definition.
   `gen --termination FILE` (TOML, keyed by K label) supplies a measure and its proof where no generic rule does, or makes a function whose rewriting diverges on some arguments the least fixed point of its equations (`partial_fixpoint`): `none` exactly where the rewriting diverges, the equations' value everywhere else.
@@ -198,7 +206,7 @@ The repository's own Lean proofs (`lean/`) are a separate project with a toolcha
 ## 8. Limits
 
 - Not every KORE construct is supported: `k2lean survey` lists what a definition uses that the generator does not; an unsupported construct is an error, not an approximation.
-- A function equation with a free-key map pattern (several matches) makes `gen` stop with a panic naming the equation.
+- Function equations with map patterns in their arguments (bound or free keys) are not stated as theorems in `Equations.lean`; a free-key set pattern `SetItem(X) REST` in a recursive function has no termination facts (`MapSizeOf` covers map carriers only), so its termination is Lean's own search or a `--termination` entry.
 - Determinism is not generated for definitions with several-match rules; `uniqueAt c` checks it at one configuration.
 - Recursive functions on lists close only in the fold shape `k2l_fold_eqn` recognizes; other equations the tactics cannot prove stay open obligations (`generated/*/open-obligations.txt` lists them per library).
 - The limits of the invariant tooling are in `invariants.md`, §9.

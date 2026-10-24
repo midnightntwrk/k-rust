@@ -71,6 +71,53 @@ theorem mem_choose {β : Type} {m : M} {hw : WF m}
   obtain ⟨y, hy, rfl⟩ := exists_mem_choose (P := fun y => y = x) h (fun hc => ⟨x, hx hc, rfl⟩)
   exact hy
 
+/-- The first binding of a well-formed map, in the map's order, at which `f` has a value, and
+that value: how a function equation with a free-key map pattern `K |-> V REST` is evaluated
+(`docs/design.md`, §2, "Functions"). `f` is `none` at a binding where the rest of the
+equation's left-hand side or its requires fails. -/
+def chooseFirst {β : Type} (m : M) (hw : WF m)
+    (f : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β) : Option β :=
+  (toList m).attach.findSome? fun p =>
+    f p.1.1 p.1.2 (concat_element_remove hw (lookup_of_mem_toList hw p.2))
+
+/-- A value of `chooseFirst` is the value of `f` at some binding of `m`. -/
+theorem chooseFirst_eq_some {β : Type} {m : M} {hw : WF m}
+    {f : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β} {b : β}
+    (h : chooseFirst m hw f = some b) : ∃ k v hc, f k v hc = some b := by
+  unfold chooseFirst at h
+  obtain ⟨p, -, hp⟩ := List.exists_of_findSome?_eq_some h
+  exact ⟨_, _, _, hp⟩
+
+/-- `chooseFirst` has no value exactly when `f` has none at any match `k |-> v (remove m k)`. -/
+theorem chooseFirst_eq_none {β : Type} {m : M} {hw : WF m}
+    {f : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β} :
+    chooseFirst m hw f = none ↔ ∀ k v hc, f k v hc = none := by
+  unfold chooseFirst
+  rw [List.findSome?_eq_none_iff]
+  constructor
+  · intro h k v hc
+    have hl := lookup_of_concat_element hc
+    rw [lookup_def] at hl
+    exact h ⟨(k, v), SAL.lookup_mem hl⟩ (List.mem_attach _ _)
+  · intro h p _
+    exact h _ _ _
+
+/-- When `f` has a value at some binding and every value it has at any binding is `b`, the value
+is `b`: a function equation with a free key, whose matches all give one value, gives that value
+whichever binding comes first. -/
+theorem chooseFirst_eq_of_agree {β : Type} {m : M} {hw : WF m}
+    {f : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β} {b : β}
+    (hex : ∃ k v hc, f k v hc = some b) (hall : ∀ k v hc b', f k v hc = some b' → b' = b) :
+    chooseFirst m hw f = some b := by
+  cases h : chooseFirst m hw f with
+  | none =>
+    obtain ⟨k, v, hc, hb⟩ := hex
+    rw [chooseFirst_eq_none.1 h k v hc] at hb
+    exact absurd hb (by simp)
+  | some b' =>
+    obtain ⟨k, v, hc, hb⟩ := chooseFirst_eq_some h
+    rw [hall k v hc b' hb]
+
 end MapHook
 
 /-! ## More `MAP` hooks -/

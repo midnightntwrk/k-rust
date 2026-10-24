@@ -288,15 +288,6 @@ fn lower_equation(
     }
     let lhs_len = lw.steps.len();
     let rhs = lw.expr(&e.rhs, &sig.result).map_err(err)?;
-    if lw
-        .steps
-        .iter()
-        .any(|s| matches!(s, crate::lower::Step::MapChoose { .. }))
-    {
-        return Err(err(
-            "a map pattern with a free key in a function equation (several matches)".into(),
-        ));
-    }
     Ok((lw.steps, lhs_len, rhs))
 }
 
@@ -507,6 +498,27 @@ pub fn list_size_instances(m: &Model) -> String {
     o
 }
 
+/// `MapSizeOf` for each map sort of the per-sort universe, from the structural facts of
+/// `Terms.lean` (`S.sizeOf_lookupR`, `S.sizeOf_eraseR`): the termination facts of a function that
+/// recurses on the value or the rest of `K |-> V REST`.
+pub fn map_size_instances(m: &Model) -> String {
+    let mut o = String::new();
+    for s in &m.block {
+        let info = m.sort(s);
+        if info.kind != crate::model::Kind::Coll(crate::model::Coll::Map) {
+            continue;
+        }
+        o.push_str(&format!(
+            "instance : KPrelude.MapSizeOf {s} {} {} := ⟨{s}.sizeOf_lookupR, {s}.sizeOf_eraseR⟩\n",
+            info.elems[0], info.elems[1]
+        ));
+    }
+    if !o.is_empty() {
+        o.push('\n');
+    }
+    o
+}
+
 /// The equations of one function, lowered: (equation index, steps, left-hand-side steps, result).
 type Lowered = Vec<(usize, Vec<crate::lower::Step>, usize, L)>;
 
@@ -673,7 +685,7 @@ fn gen_recursive(
                 }
             };
             // named hypotheses: the termination proof needs the requires and the matched shapes
-            let eb = render::exec(steps, true, &fail, &leaf, 4 + 2 * depth);
+            let eb = render::exec_first(steps, true, &fail, &leaf, 4 + 2 * depth);
             body.push_str(&format!(
                 "{pad}let e{} : Option (Option {}) :=\n{eb}",
                 i + 1,
@@ -1123,7 +1135,7 @@ pub fn generate_with(
                     "some none".to_string()
                 }
             };
-            let body = render::exec(steps, false, &fail, &leaf, 2);
+            let body = render::exec_first(steps, false, &fail, &leaf, 2);
             lean.push_str(&format!(
                 "def {eq_name} {} : Option ({eq_ty}) :=\n{body}",
                 ps.join(" ")

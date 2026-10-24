@@ -262,7 +262,37 @@ pub fn exec(
     indent: usize,
 ) -> String {
     let mut out = String::new();
-    render_from(steps, 0, certified, fail, leaf, indent, &mut out);
+    let r = Render {
+        cert: certified,
+        first: false,
+        fail,
+        leaf,
+    };
+    r.from(steps, 0, indent, &mut out);
+    out
+}
+
+/// Render the matcher of a function equation: `Option`-valued, and a free-key map pattern
+/// (`MapChoose`) takes the first binding of the map, in the map's order, at which the rest of the
+/// equation's left-hand side and its requires hold (`MapHook.chooseFirst`): `fail(i)` must be
+/// `none` exactly for the steps of the left-hand side, so that a binding at which the left-hand
+/// side fails passes to the next one, and a binding at which it holds gives the equation's value
+/// (`⊥` included).
+pub fn exec_first(
+    steps: &[Step],
+    certified: bool,
+    fail: &dyn Fn(usize) -> String,
+    leaf: &str,
+    indent: usize,
+) -> String {
+    let mut out = String::new();
+    let r = Render {
+        cert: certified,
+        first: true,
+        fail,
+        leaf,
+    };
+    r.from(steps, 0, indent, &mut out);
     out
 }
 
@@ -285,149 +315,155 @@ fn fallback_arms() -> bool {
     FALLBACK_ARMS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-fn render_from(
-    steps: &[Step],
-    i: usize,
+struct Render<'a> {
     cert: bool,
-    fail: &dyn Fn(usize) -> String,
-    leaf: &str,
-    ind: usize,
-    out: &mut String,
-) {
-    let p = pad(ind);
-    if i == steps.len() {
-        out.push_str(&format!("{p}{leaf}\n"));
-        return;
-    }
-    let h = |name: &str| {
-        if cert {
-            format!("{name} : ")
-        } else {
-            String::new()
+    /// A function equation's matcher (`exec_first`), not a rule's list-valued one.
+    first: bool,
+    fail: &'a dyn Fn(usize) -> String,
+    leaf: &'a str,
+}
+
+impl Render<'_> {
+    fn from(&self, steps: &[Step], i: usize, ind: usize, out: &mut String) {
+        let (cert, fail, leaf) = (self.cert, self.fail, self.leaf);
+        let p = pad(ind);
+        if i == steps.len() {
+            out.push_str(&format!("{p}{leaf}\n"));
+            return;
         }
-    };
-    match &steps[i] {
-        Step::Destruct {
-            scrut,
-            pat,
-            hyp,
-            refutable,
-        } => {
-            let hh = match hyp {
-                Some(n) => h(n),
-                None => String::new(),
-            };
-            out.push_str(&format!(
-                "{p}match {hh}{scrut} with\n{p}| {} =>\n",
-                pat.render()
-            ));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            // a fallback arm also after an irrefutable non-variable pattern (a single-constructor
-            // cell): the match compiler then sends every other constructor of the inductive to
-            // `_` instead of refuting each one (`fallback_arms`); a variable pattern gets none,
-            // which Lean would reject as redundant
-            if *refutable || (fallback_arms() && !matches!(pat, L::Var(_))) {
-                out.push_str(&format!("{p}| _ => {}\n", fail(i)));
-            }
-        }
-        Step::Bind { expr, var, hyp } => {
-            out.push_str(&format!(
-                "{p}match {}{} with\n{p}| some {var} =>\n",
-                h(hyp),
-                expr.render()
-            ));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            out.push_str(&format!("{p}| none => {}\n", fail(i)));
-        }
-        Step::Cond { cond, hyp } => {
-            out.push_str(&format!("{p}if {}{} = true then\n", h(hyp), cond.render()));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            out.push_str(&format!("{p}else {}\n", fail(i)));
-        }
-        Step::CondEq { lhs, rhs, hyp } => {
-            out.push_str(&format!(
-                "{p}if {}{} = {} then\n",
-                h(hyp),
-                lhs.render(),
-                rhs.render()
-            ));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            out.push_str(&format!("{p}else {}\n", fail(i)));
-        }
-        Step::EqVar { a, b, hyp } => {
-            out.push_str(&format!("{p}if {}{b} = {a} then\n", h(hyp)));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            out.push_str(&format!("{p}else {}\n", fail(i)));
-        }
-        Step::MapElem {
-            map,
-            key,
-            val,
-            rest,
-            wf_hyp,
-            lookup_hyp,
-            ..
-        } => {
-            out.push_str(&format!(
-                "{p}if {}KPrelude.MapHook.wfb {map} = true then\n",
-                h(wf_hyp)
-            ));
-            out.push_str(&format!(
-                "{p}  match {}KPrelude.MapHook.lookup {map} {} with\n{p}  | some {val} =>\n",
-                h(lookup_hyp),
-                key.render_arg()
-            ));
-            out.push_str(&format!(
-                "{p}    let {rest} := KPrelude.MapHook.remove {map} {}\n",
-                key.render_arg()
-            ));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 4, out);
-            out.push_str(&format!("{p}  | none => {}\n", fail(i)));
-            out.push_str(&format!("{p}else {}\n", fail(i)));
-        }
-        Step::MapChoose {
-            map,
-            key,
-            val,
-            rest,
-            wf_hyp,
-            cert: hc,
-            ..
-        } => {
-            assert!(
-                cert,
-                "a free-key map pattern needs the certified, list-valued matcher"
-            );
-            out.push_str(&format!(
-                "{p}if {wf_hyp} : KPrelude.MapHook.wfb {map} = true then\n"
-            ));
-            out.push_str(&format!(
-                "{p}  KPrelude.MapHook.choose {map} ((KPrelude.MapHook.wfb_iff _).1 {wf_hyp}) fun {key} {val} {hc} =>\n"
-            ));
-            out.push_str(&format!(
-                "{p}    let {rest} := KPrelude.MapHook.remove {map} {key}\n"
-            ));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 4, out);
-            out.push_str(&format!("{p}else {}\n", fail(i)));
-        }
-        Step::ListElem {
-            list,
-            head,
-            tail,
-            front,
-            hyp,
-        } => {
-            let (f, pat) = if *front {
-                ("uncons", format!("({head}, {tail})"))
+        let h = |name: &str| {
+            if cert {
+                format!("{name} : ")
             } else {
-                ("unsnoc", format!("({tail}, {head})"))
-            };
-            out.push_str(&format!(
-                "{p}match {}KPrelude.ListHook.{f} {list} with\n{p}| some {pat} =>\n",
-                h(hyp)
+                String::new()
+            }
+        };
+        match &steps[i] {
+            Step::Destruct {
+                scrut,
+                pat,
+                hyp,
+                refutable,
+            } => {
+                let hh = match hyp {
+                    Some(n) => h(n),
+                    None => String::new(),
+                };
+                out.push_str(&format!(
+                    "{p}match {hh}{scrut} with\n{p}| {} =>\n",
+                    pat.render()
+                ));
+                self.from(steps, i + 1, ind + 2, out);
+                // a fallback arm also after an irrefutable non-variable pattern (a single-constructor
+                // cell): the match compiler then sends every other constructor of the inductive to
+                // `_` instead of refuting each one (`fallback_arms`); a variable pattern gets none,
+                // which Lean would reject as redundant
+                if *refutable || (fallback_arms() && !matches!(pat, L::Var(_))) {
+                    out.push_str(&format!("{p}| _ => {}\n", fail(i)));
+                }
+            }
+            Step::Bind { expr, var, hyp } => {
+                out.push_str(&format!(
+                    "{p}match {}{} with\n{p}| some {var} =>\n",
+                    h(hyp),
+                    expr.render()
+                ));
+                self.from(steps, i + 1, ind + 2, out);
+                out.push_str(&format!("{p}| none => {}\n", fail(i)));
+            }
+            Step::Cond { cond, hyp } => {
+                out.push_str(&format!("{p}if {}{} = true then\n", h(hyp), cond.render()));
+                self.from(steps, i + 1, ind + 2, out);
+                out.push_str(&format!("{p}else {}\n", fail(i)));
+            }
+            Step::CondEq { lhs, rhs, hyp } => {
+                out.push_str(&format!(
+                    "{p}if {}{} = {} then\n",
+                    h(hyp),
+                    lhs.render(),
+                    rhs.render()
+                ));
+                self.from(steps, i + 1, ind + 2, out);
+                out.push_str(&format!("{p}else {}\n", fail(i)));
+            }
+            Step::EqVar { a, b, hyp } => {
+                out.push_str(&format!("{p}if {}{b} = {a} then\n", h(hyp)));
+                self.from(steps, i + 1, ind + 2, out);
+                out.push_str(&format!("{p}else {}\n", fail(i)));
+            }
+            Step::MapElem {
+                map,
+                key,
+                val,
+                rest,
+                wf_hyp,
+                lookup_hyp,
+                ..
+            } => {
+                out.push_str(&format!(
+                    "{p}if {}KPrelude.MapHook.wfb {map} = true then\n",
+                    h(wf_hyp)
+                ));
+                out.push_str(&format!(
+                    "{p}  match {}KPrelude.MapHook.lookup {map} {} with\n{p}  | some {val} =>\n",
+                    h(lookup_hyp),
+                    key.render_arg()
+                ));
+                out.push_str(&format!(
+                    "{p}    let {rest} := KPrelude.MapHook.remove {map} {}\n",
+                    key.render_arg()
+                ));
+                self.from(steps, i + 1, ind + 4, out);
+                out.push_str(&format!("{p}  | none => {}\n", fail(i)));
+                out.push_str(&format!("{p}else {}\n", fail(i)));
+            }
+            Step::MapChoose {
+                map,
+                key,
+                val,
+                rest,
+                wf_hyp,
+                cert: hc,
+                ..
+            } => {
+                assert!(
+                    cert || self.first,
+                    "a free-key map pattern of a rule needs the certified, list-valued matcher"
+                );
+                // the certificate is a binder of the continuation; unnamed when nothing reads it
+                let hc = if cert { hc.as_str() } else { "_" };
+                let comb = if self.first { "chooseFirst" } else { "choose" };
+                out.push_str(&format!(
+                    "{p}if {wf_hyp} : KPrelude.MapHook.wfb {map} = true then\n"
+                ));
+                out.push_str(&format!(
+                "{p}  KPrelude.MapHook.{comb} {map} ((KPrelude.MapHook.wfb_iff _).1 {wf_hyp}) fun {key} {val} {hc} =>\n"
             ));
-            render_from(steps, i + 1, cert, fail, leaf, ind + 2, out);
-            out.push_str(&format!("{p}| none => {}\n", fail(i)));
+                out.push_str(&format!(
+                    "{p}    let {rest} := KPrelude.MapHook.remove {map} {key}\n"
+                ));
+                self.from(steps, i + 1, ind + 4, out);
+                out.push_str(&format!("{p}else {}\n", fail(i)));
+            }
+            Step::ListElem {
+                list,
+                head,
+                tail,
+                front,
+                hyp,
+            } => {
+                let (f, pat) = if *front {
+                    ("uncons", format!("({head}, {tail})"))
+                } else {
+                    ("unsnoc", format!("({tail}, {head})"))
+                };
+                out.push_str(&format!(
+                    "{p}match {}KPrelude.ListHook.{f} {list} with\n{p}| some {pat} =>\n",
+                    h(hyp)
+                ));
+                self.from(steps, i + 1, ind + 2, out);
+                out.push_str(&format!("{p}| none => {}\n", fail(i)));
+            }
         }
     }
 }

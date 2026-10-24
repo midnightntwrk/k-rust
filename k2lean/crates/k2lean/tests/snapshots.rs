@@ -130,6 +130,14 @@ fn counter() {
     snapshot("counter", "Counter");
 }
 
+/// Function equations with a free-key map pattern `K |-> V REST` (`MapHook.chooseFirst`): not
+/// recursive (`hasNeg`, with an `owise` equation), recursive over a map (`allNat`) and over a
+/// cell map (`total`), whose termination comes from the map carriers' `MapSizeOf`.
+#[test]
+fn freekey() {
+    snapshot("freekey", "FreeKey");
+}
+
 /// A hook the hook library does not implement (`Bytes2Hex`) and a function without equations
 /// (`oracle`): the fields of the generated `Hooks` class, with `variable [Hooks]` in the modules
 /// after `Terms`; `Int2Bytes` and `Bytes2Int` through their generated adapters.

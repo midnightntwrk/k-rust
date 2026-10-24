@@ -753,6 +753,31 @@ instance : MapRepr {s} {kt} {vt} where
 "#
             )
             .unwrap();
+            // the value and the rest of a binding are smaller than the map: the termination
+            // facts of a function that recurses on `K |-> V REST` (`KPrelude.MapSizeOf`, whose instance
+            // `Functions.lean` declares, `funcs::map_size_instances`)
+            writeln!(
+                o,
+                r#"theorem {s}.sizeOf_lookupR {{k : {kt}}} {{v : {vt}}} : ∀ {{m : {s}}}, {s}.lookupR k m = some v → sizeOf v < sizeOf m
+  | .nil, h => by simp [{s}.lookupR] at h
+  | .cons k' v' t, h => by
+    unfold {s}.lookupR at h
+    cases ho : compare k k' <;> simp only [ho] at h
+    · simp at h
+    · simp only [Option.some.injEq] at h; subst h; simp only [{s}.cons.sizeOf_spec]; omega
+    · have := {s}.sizeOf_lookupR h; simp only [{s}.cons.sizeOf_spec]; omega
+theorem {s}.sizeOf_eraseR {{k : {kt}}} {{v : {vt}}} : ∀ {{m : {s}}}, {s}.lookupR k m = some v → sizeOf ({s}.eraseR k m) < sizeOf m
+  | .nil, h => by simp [{s}.lookupR] at h
+  | .cons k' v' t, h => by
+    unfold {s}.lookupR at h
+    unfold {s}.eraseR
+    cases ho : compare k k' <;> simp only [ho] at h ⊢
+    · simp at h
+    · simp only [{s}.cons.sizeOf_spec]; omega
+    · have := {s}.sizeOf_eraseR h; simp only [{s}.cons.sizeOf_spec]; omega
+"#
+            )
+            .unwrap();
         }
         if info.kind == Kind::Coll(Coll::Set) {
             // a set is a map to `Unit`; the map operations on lists serve it directly

@@ -12,6 +12,8 @@ namespace Peano
 
 open KPrelude
 
+instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
+
 /-! `plus(_,_)_PEANO_Nat_Nat_Nat` (recursive) -/
 def K.«plus(_,_)_PEANO_Nat_Nat_Nat» (x0 : SortNat) (x1 : SortNat) : Option SortNat :=
   let e1 : Option (Option SortNat) :=

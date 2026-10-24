@@ -12,6 +12,8 @@ namespace Measure
 
 open KPrelude
 
+instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
+
 /-- The rank of `x0`'s constructors in `K.fee`'s chain of recursive calls (termination). -/
 def K.fee.rank0 : SortFork → Nat
   | SortFork.B => 1

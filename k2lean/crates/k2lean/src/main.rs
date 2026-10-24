@@ -309,7 +309,10 @@ fn main() {
             let (terms_text, size_instances) = if arity {
                 (terms_arity::emit(&m, ns), funcs::list_size_instances(&m))
             } else {
-                (terms::emit_with(&m, ns, topts), String::new())
+                (
+                    terms::emit_with(&m, ns, topts),
+                    funcs::map_size_instances(&m),
+                )
             };
             write(&out.join(ns).join("Terms.lean"), &terms_text);
             write(
