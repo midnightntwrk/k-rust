@@ -4002,9 +4002,9 @@ fn strict_variables(
 /// Whether `term` is provably defined under the path condition: every obligation `ceil_term`
 /// derives for it is `known`. `ceil_term` derives nothing for a term built from constructors,
 /// total symbols, domain values, and element variables. A term-level `\and` is the
-/// intersection of its operands and has no definedness witness of its own (`Y /\ Z` over two
-/// element variables is empty unless `Y = Z`), while `ceil_term` only collects its operands'
-/// obligations, so a term that contains one anywhere is never provably defined here.
+/// intersection of its operands (`Y /\ Z` over two element variables is empty unless `Y = Z`);
+/// `ceil_term` states it as the equality of its operands (`definedness::and_side`), but a term
+/// that contains one anywhere is still never provably defined here.
 pub(crate) fn term_is_provably_defined(
     definition: &BackendDefinition,
     term: &Term,

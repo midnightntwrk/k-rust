@@ -73,7 +73,8 @@ def evar (x : String) : Term := .var .element "SortInt" x
                             (injK "SortString" (.dv "SortString" "a"), int "0")] none)
 -- `k ↦ 1` and `k ↦ 2` survive the pair dedup; the adjacency check rejects them.
 #guard !ceilFree (.map "M" [(int "1", int "1"), (int "1", int "2")] none)
-#guard ceilFree (.and (int "1") (int "2"))
+#guard !ceilFree (.and (int "1") (int "2"))
+#guard ceilFree (.and (int "1") (int "1"))
 -- Keys of free constructors over domain values, such as cell-map keys `<id>(1)`, share a header
 -- when they have one skeleton; keys of two constructors, or under an equation head, do not.
 #guard ceilFree (.map "M" [(.app (ctor "id") [] [int "1"], int "0"),

@@ -50,7 +50,7 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
   crates/k-rust-kore/src/names.rs:45  (KCell spelling)
   crates/k-rust-backend/src/definedness.rs
     ceil_term :94-97, ceil_term_recursive :99-189,
-    elements_are_apart :269-283, apply_ceil_equation :216,
+    elements_are_apart :269-283, apply_ceil_equation :216, and_side,
     not_in_collection :284, deduplicate :307-310
   crates/k-rust-backend/src/rule.rs
     rule_index :766-777, find_k_cells :789-840
@@ -325,6 +325,7 @@ section 9b proves that loop's list, deduplicated, equal to `ceilTerm`. -/
 inductive Pred where
   | ceil    : Term → Pred
   | notEq   : Term → Term → Pred   -- Predicate::Not(Box::new(Predicate::Equals(l, r)))
+  | equals  : Term → Term → Pred   -- Predicate::Equals(l, r)
   | opaque  : Nat → Pred           -- whatever a ceil equation or not_in_collection produces
 
 /-- What `ceil_term_recursive` calls and this proof does not open. -/
@@ -340,6 +341,9 @@ structure Oracles where
   /-- The sort graph's answer for two injections with different sources or targets
   (definedness.rs `terms_apart`). -/
   injectionsDistinct : Term → Term → Bool
+  /-- Whether the term holds a set variable: the greatest variable of its stored `variables`
+  attribute is a set variable (definedness.rs `and_side`). -/
+  holdsSetVariable : Term → Bool
   /-- `not_in_collection` (definedness.rs): the hook, the map or set definition, the key or
   element, and the rest; no entry value, as the absence it states does not depend on one. -/
   notInCollection : String → String → Term → Term → Pred
@@ -378,6 +382,15 @@ def setSide (O : Oracles) (d : String) : List Term → Option Term → List Pred
           | none   => [])
       ++ setSide O d es rest
 
+/-- definedness.rs `and_side`: the obligation of `l ∧ r` of its own, beside its sides'. Nothing
+for equal sides (`t ∧ t` is `t`), their equality when the conjunction holds no set variable (two
+terms that each denote at most one element share one exactly when they are equal), and the
+conjunction's own ceil otherwise. -/
+def andSide (O : Oracles) (l r : Term) : List Pred :=
+  if l = r then []
+  else if O.holdsSetVariable (.and l r) then [.ceil (.and l r)]
+  else [.equals l r]
+
 /- `ceil_term_recursive` (definedness.rs:99-189). Each arm builds its list, then `deduplicate`. -/
 mutual
 def ceilTerm (O : Oracles) : Term → List Pred
@@ -386,7 +399,7 @@ def ceilTerm (O : Oracles) : Term → List Pred
         O.dedup ((O.ceilEquation (.app s ss args)).getD [.ceil (.app s ss args)] ++ ceilList O args)
       else
         O.dedup (ceilList O args)
-  | .and l r         => O.dedup (ceilTerm O l ++ ceilTerm O r)
+  | .and l r         => O.dedup (ceilTerm O l ++ ceilTerm O r ++ andSide O l r)
   | .inj _ _ t       => O.dedup (ceilTerm O t)
   | .dv _ _          => O.dedup []
   | .var .element _ _ => O.dedup []
@@ -458,13 +471,12 @@ def adjacentElementsDiffer : List Term → Bool
   | a :: b :: rest => decide (a ≠ b) && adjacentElementsDiffer (b :: rest)
   | _              => true
 
-/- `ceil_free`, computed bottom-up by the constructors. `and` is the conjunction: its arm of
-`ceil_term_recursive` only concatenates its sides (definedness.rs:117-121), which settles the
-question OT-01 leaves open. -/
+/- `ceil_free`, computed bottom-up by the constructors. `and` holds when its sides are equal and
+ceil-free: its arm of the walk adds the equality of two different sides to theirs (`andSide`). -/
 mutual
 def ceilFree : Term → Bool
   | .app s _ args   => !s.isPartial && ceilFreeList args
-  | .and l r        => ceilFree l && ceilFree r
+  | .and l r        => ceilFree l && decide (l = r)
   | .inj _ _ t      => ceilFree t
   | .dv _ _         => true
   | .var k _ _      => k == .element
@@ -862,9 +874,9 @@ theorem ceilFree_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalO
       simp only [ceilFree, Bool.and_eq_true, Bool.not_eq_true'] at hc
       simp [ceilTerm, hc.1, ceilList_sound O hle args hw hc.2, O.dedup_nil]
   | .and l r, hw, hc => by
-      simp only [ceilFree, Bool.and_eq_true] at hc
-      simp [ceilTerm, ceilFree_sound O hle l hw.1 hc.1, ceilFree_sound O hle r hw.2 hc.2,
-        O.dedup_nil]
+      simp only [ceilFree, Bool.and_eq_true, decide_eq_true_eq] at hc
+      obtain ⟨hl, rfl⟩ := hc
+      simp [ceilTerm, andSide, ceilFree_sound O hle l hw.1 hl, O.dedup_nil]
   | .inj _ _ t, hw, hc => by
       simp [ceilTerm, ceilFree_sound O hle t hw hc, O.dedup_nil]
   | .dv _ _, _, _ => by simp [ceilTerm, O.dedup_nil]
@@ -911,7 +923,8 @@ definedness.rs `ceil_term_walk` keeps its pending subterms on a work list instea
 stack, and deduplicates once at the end rather than at every node: it returns
 `O.dedup (walk O skip t)`. `walk` lists, in pre-order, each node's own obligations (the ceil of a
 partial application or its ceil equation's instance, the ceil of a set variable), then its
-children's, then its collection obligations (`mapSide`, `setSide`), and with `skip` (Rust
+children's, then its collection obligations (`mapSide`, `setSide`) or a conjunction's (`andSide`),
+and with `skip` (Rust
 `AtCeilFree::Skip`) contributes nothing for a subterm whose `ceilFree` holds. The work-list loop
 emits exactly this list (it pushes a node's collection obligations, then its children in reverse
 order, so the first child is taken next); that correspondence is the Rust's, checked by
@@ -925,7 +938,7 @@ def walk (O : Oracles) (skip : Bool) : Term → List Pred
           else [])
         ++ walkList O skip args
   | .and l r =>
-      if skip && ceilFree (.and l r) then [] else walk O skip l ++ walk O skip r
+      if skip && ceilFree (.and l r) then [] else walk O skip l ++ walk O skip r ++ andSide O l r
   | .inj a b t => if skip && ceilFree (.inj a b t) then [] else walk O skip t
   | .dv _ _ => []
   | .var .element _ _ => []

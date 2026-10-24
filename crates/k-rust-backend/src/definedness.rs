@@ -85,8 +85,9 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
 }
 
 /// The definedness obligations of `term`, deduplicated: the ceil of every partial application
-/// (or the instance of its ceil equation), the ceil of every set variable, and the disequalities
-/// and not-in atoms of every map and set, in the order `ceil_term_walk` gives.
+/// (or the instance of its ceil equation), the ceil of every set variable, the disequalities
+/// and not-in atoms of every map and set, and the equality of the sides of every term-level
+/// `\and` whose sides differ (`and_side`), in the order `ceil_term_walk` gives.
 ///
 /// An operand of `#if`, `andThenBool` or `orElseBool` that is not evaluated states its
 /// definedness as deferred atoms (`crate::deferred`); when that definedness depends on an impure
@@ -125,7 +126,7 @@ enum Pending<'a> {
     /// A subterm whose obligations come next.
     Term(&'a Term),
     /// Obligations of a node that follow those of its children: the collection obligations of a
-    /// map or set.
+    /// map or set, the equality of a conjunction's sides.
     Obligations(Vec<Predicate>),
 }
 
@@ -133,8 +134,9 @@ enum Pending<'a> {
 ///
 /// The list is that of every node in pre-order: first the node's own obligations (the ceil of a
 /// partial application or the instance of its ceil equation, the ceil of a set variable), then
-/// its children's, left to right, then its collection obligations; it is deduplicated once at
-/// the end, keeping the first occurrence of each member. A list deduplicated at every node gives
+/// its children's, left to right, then its collection obligations or a conjunction's equality
+/// (`and_side`); it is deduplicated once at the end, keeping the first occurrence of each
+/// member. A list deduplicated at every node gives
 /// the same result, since keeping first occurrences absorbs a deduplication of a part of the list
 /// (a member removed inside the part has an earlier copy in it): `walk_eq_ceilTerm` of
 /// `lean/KRust/TermAttributes.lean` proves it for the model of this walk (`walk`), from that
@@ -446,6 +448,41 @@ fn push_list_items<'a>(
     }
 }
 
+/// The obligation of a term-level conjunction `and` = `left /\ right` of its own, beside its
+/// sides' obligations, which the walk collects: `None` when the sides are equal, `left = right`
+/// when neither side holds a set variable, and `\ceil(and)` otherwise.
+///
+/// In matching logic `left /\ right` denotes the elements both sides denote. A term without a
+/// set variable denotes at most one element: a variable or a domain value one, an application of
+/// a constructor or a function one or none (its arguments' elements, if any, determine it), a
+/// collection one or none, and a conjunction of two such terms the element they share, if they
+/// share one. For two such terms, `⌈left /\ right⌉` is therefore `⌈left⌉ /\ ⌈right⌉ /\ left =
+/// right`, exactly: the first two are the sides' obligations, the third is this one. With equal
+/// sides, `t /\ t` is `t`, and the equality is `\top`. A set variable may denote several
+/// elements, and the intersection of a term holding one with another term is not an equality, so
+/// its definedness is stated as the conjunction's own `\ceil`, which is exact and opaque. The
+/// obligation is exact in each case, so a caller may assume it (a claim's left-hand side, an
+/// initial configuration's definedness) as well as require it.
+///
+/// So `\and{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))` owes `1 = 2` and denotes
+/// nothing. `simplify::without_term_conjunctions` reads a conjunction nested in a term the same
+/// way. The attribute `ceil_free` of a conjunction requires equal sides (term.rs `ceil_free`).
+fn and_side(and: &Term, left: &Term, right: &Term) -> Option<Predicate> {
+    if left == right {
+        return None;
+    }
+    let holds_set_variable = and
+        .attributes()
+        .variables
+        .last()
+        .is_some_and(|greatest| greatest.kind == VariableKind::Set);
+    Some(if holds_set_variable {
+        Predicate::Ceil(and.clone())
+    } else {
+        Predicate::Equals(left.clone(), right.clone())
+    })
+}
+
 /// One node of the definedness walk: appends the node's own obligations to `before` and its
 /// children, left to right, to `children`, and returns the obligations that follow the
 /// children's.
@@ -500,7 +537,7 @@ fn ceil_term_node<'a>(
         }
         TermKind::And(left, right) => {
             children.extend([left, right]);
-            Ok(Vec::new())
+            Ok(and_side(term, left, right).into_iter().collect())
         }
         TermKind::Injection { term, .. } => {
             children.push(term);

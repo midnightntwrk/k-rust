@@ -209,9 +209,10 @@ pub enum UncleanReason {
     /// from the constraints (`ExecutionState::defined_where`), so the leaf may denote nothing
     /// (D16, review B2). Not a decided state.
     Undecided,
-    /// Its internalized term is not `ceil_free`: an application of a partial function or a
-    /// malformed map or set (T-1). The K label of the first partial function application found
-    /// (in preorder), when there is one.
+    /// Its internalized term is not `ceil_free`: an application of a partial function, a
+    /// term-level `\and` of two different sides, or a malformed map or set (T-1). The K label of
+    /// the first partial function application found (in preorder), or `\and` when a conjunction
+    /// is found first (`run::AND_NOTE`), when there is one.
     NotCeilFree(Option<String>),
     /// Its diagnostics carry an implementation-chosen value.
     ImplementationChosenValue,
