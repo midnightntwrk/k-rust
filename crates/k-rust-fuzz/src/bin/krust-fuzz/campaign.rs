@@ -12,14 +12,13 @@ use std::{
 
 use k_rust_fuzz::{
     Budget, CallerIdentity, CampaignSpec, CaseOptions, CompiledDefinition, Definitions, HoleDecl,
-    HoleLocation, PathMode, ProgramInput, ProgramSource, ProposerConfig, SpanAddress, Target,
-    TargetKind, Value,
+    PathMode, ProgramInput, ProgramSource, ProposerConfig, Target, TargetKind, Value,
+    holes::{HoleChoice, HoleFile, IntoHoleChoice},
     report::TargetRule,
     spec::{BackendRoute, DEFAULT_REJECTION_CAP, ProgramText, ProposerKind},
     target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
-    values::{Constraints, ElementSorts, GenerationBounds, IntRange, LengthRange},
+    values::GenerationBounds,
 };
-use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Serialize};
 
 /// The per-case wall-clock safety limit the command line sets unless told otherwise (D24): a
@@ -65,7 +64,7 @@ pub struct CampaignFile {
     pub proposers: Option<ProposersFile>,
     /// The hole declarations (ARCHITECTURE 2.2).
     #[serde(default)]
-    pub hole: Vec<HoleFile>,
+    pub hole: Vec<HoleFile<TomlChoice>>,
 }
 
 /// A seed as written: an integer, or a string in decimal or `0x` hexadecimal.
@@ -157,77 +156,30 @@ pub struct ProposersFile {
     pub explicit: Vec<BTreeMap<String, toml::Value>>,
 }
 
-/// One `[[hole]]` (ARCHITECTURE 2.2, 2.5): a span of a program text, or a configuration
-/// variable.
+/// A `choices` entry as the campaign file writes it, kept as TOML until the hole is declared,
+/// so that a refusal names the hole and shows the entry as written.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct HoleFile {
-    /// The hole's name.
-    pub name: String,
-    /// The hole's sort.
-    pub sort: String,
-    /// The addressed text: the program's name (the default) or `$NAME` for a binding's text.
-    pub program: Option<String>,
-    /// The one-based line of the span.
-    pub line: Option<u32>,
-    /// The one-based column, in characters, of the literal's first character on `line`, which
-    /// places the literal without a unique `find`.
-    pub column: Option<u32>,
-    /// A text occurring once in the line or text and containing the literal; the literal
-    /// itself by default.
-    pub find: Option<String>,
-    /// The hole's literal: its anchor value.
-    pub literal: Option<String>,
-    /// A configuration variable (without `$`) whose value is the hole, instead of a span.
-    pub config_var: Option<String>,
-    /// An inclusive integer range; each end an integer or a decimal string.
-    pub range: Option<RangeFile>,
-    /// An inclusive length range.
-    pub length: Option<LengthRange>,
-    /// Element sorts of a collection: `{ element = "Int" }` or `{ key = "Id", value = "Int" }`.
-    pub elements: Option<ElementsFile>,
-    /// The values the hole may take.
-    pub choices: Option<Vec<toml::Value>>,
-    /// Admit a sort the hole-sort rule refuses (ARCHITECTURE 2.4).
-    pub allow_refused_sort: Option<bool>,
-}
+#[serde(transparent)]
+pub struct TomlChoice(pub toml::Value);
 
-/// An integer range as written.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RangeFile {
-    /// The least value.
-    pub min: Option<IntText>,
-    /// The greatest value.
-    pub max: Option<IntText>,
-}
-
-/// An integer as written: a TOML integer, or a decimal string for any size.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum IntText {
-    /// A TOML integer.
-    Integer(i64),
-    /// A decimal string.
-    Text(String),
-}
-
-/// Element sorts as written.
-#[derive(Debug, Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
-pub enum ElementsFile {
-    /// A `List` or `Set` element sort.
-    Elements {
-        /// The element sort.
-        element: String,
-    },
-    /// A `Map`'s key and value sorts.
-    Entries {
-        /// The key sort.
-        key: String,
-        /// The value sort.
-        value: String,
-    },
+impl IntoHoleChoice for TomlChoice {
+    /// An integer, a boolean, a string, or a table in the library's value form (`{ int = "123" }`,
+    /// `{ list = [{ int = "1" }] }`, `{ token = { sort = "Id", text = "x" } }`).
+    fn into_hole_choice(self) -> Result<HoleChoice, String> {
+        match self.0 {
+            toml::Value::Integer(integer) => Ok(HoleChoice::Integer(integer)),
+            toml::Value::Boolean(boolean) => Ok(HoleChoice::Boolean(boolean)),
+            toml::Value::String(text) => Ok(HoleChoice::String(text)),
+            value @ toml::Value::Table(_) => value
+                .try_into()
+                .map(HoleChoice::Table)
+                .map_err(|error| format!("not a value: {error}")),
+            other => Err(format!(
+                "`{other}` is not a value; write collections and other values as tables, such as \
+                 {{ list = [{{ int = \"1\" }}] }}"
+            )),
+        }
+    }
 }
 
 /// What the flags say about the campaign; each set field overrides the campaign file.
@@ -448,7 +400,7 @@ pub fn resolve(
     let holes = file
         .hole
         .into_iter()
-        .map(|hole| hole_decl(hole, program_name))
+        .map(|hole| hole.into_decl(program_name))
         .collect::<Result<Vec<_>, String>>()?;
     let proposers = proposers(file.proposers.unwrap_or_default(), &holes)?;
     let resolved = ResolvedCampaign {
@@ -875,116 +827,251 @@ fn proposers(file: ProposersFile, holes: &[HoleDecl]) -> Result<ProposerConfig, 
     })
 }
 
-/// The library declaration of a `[[hole]]`.
-fn hole_decl(hole: HoleFile, program: Option<&str>) -> Result<HoleDecl, String> {
-    let name = hole.name;
-    let span = hole.literal.is_some()
-        || hole.find.is_some()
-        || hole.line.is_some()
-        || hole.column.is_some();
-    let location = match (hole.config_var, span) {
-        (Some(variable), false) if hole.program.is_none() => HoleLocation::ConfigVar {
-            name: variable.strip_prefix('$').unwrap_or(&variable).to_owned(),
-        },
-        (Some(_), _) => {
-            return Err(format!(
-                "hole `{name}`: `config-var` addresses a whole variable; it takes no `program`, \
-                 `line`, `column`, `find` or `literal`"
-            ));
-        }
-        (None, _) => {
-            let literal = hole.literal.ok_or_else(|| {
-                format!("hole `{name}`: give its `literal` (and `find`), or a `config-var`")
-            })?;
-            let program = hole
-                .program
-                .or_else(|| program.map(str::to_owned))
-                .ok_or_else(|| {
-                    format!("hole `{name}`: no program to address; give the hole a `program`")
-                })?;
-            HoleLocation::Span(SpanAddress {
-                program,
-                line: hole.line,
-                column: hole.column,
-                find: hole.find.unwrap_or_else(|| literal.clone()),
-                literal,
-            })
-        }
-    };
-    let range = hole
-        .range
-        .map(|range| -> Result<IntRange, String> {
-            Ok(IntRange {
-                min: range.min.map(|end| int_text(&end)).transpose()?,
-                max: range.max.map(|end| int_text(&end)).transpose()?,
-            })
-        })
-        .transpose()
-        .map_err(|message| format!("hole `{name}`: {message}"))?;
-    let choices = hole
-        .choices
-        .map(|choices| {
-            choices
-                .iter()
-                .map(|choice| value_from_toml(choice, &hole.sort))
-                .collect::<Result<Vec<_>, String>>()
-        })
-        .transpose()
-        .map_err(|message| format!("hole `{name}`: {message}"))?;
-    Ok(HoleDecl {
-        name,
-        sort: hole.sort,
-        location,
-        constraints: Constraints {
-            range,
-            length: hole.length,
-            elements: hole.elements.map(|elements| match elements {
-                ElementsFile::Elements { element } => ElementSorts::Elements { element },
-                ElementsFile::Entries { key, value } => ElementSorts::Entries { key, value },
-            }),
-            choices,
-        },
-        allow_refused_sort: hole.allow_refused_sort.unwrap_or(false),
-    })
-}
-
-fn int_text(text: &IntText) -> Result<BigInt, String> {
-    match text {
-        IntText::Integer(value) => Ok(BigInt::from(*value)),
-        IntText::Text(text) => text
-            .parse()
-            .map_err(|error| format!("`{text}` is not a decimal integer: {error}")),
-    }
-}
-
-/// The width of an `MInt{N}` sort.
-fn machine_width(sort: &str) -> Option<u32> {
-    sort.strip_prefix("MInt{")?.strip_suffix('}')?.parse().ok()
-}
-
 /// A hole value written in TOML: an integer (an `Int`, or an `MInt{N}` for such a hole), a
 /// boolean, a string, or a table in the library's value form (`{ int = "123" }`,
 /// `{ list = [{ int = "1" }] }`, `{ token = { sort = "Id", text = "x" } }`).
 pub fn value_from_toml(value: &toml::Value, sort: &str) -> Result<Value, String> {
-    match value {
-        toml::Value::Integer(integer) => match machine_width(sort) {
-            Some(width) => u64::try_from(*integer)
-                .map(|unsigned| Value::MInt {
-                    width,
-                    value: BigUint::from(unsigned),
-                })
-                .map_err(|_| format!("{integer} is negative; an {sort} value is unsigned")),
-            None => Ok(Value::Int(BigInt::from(*integer))),
-        },
-        toml::Value::Boolean(boolean) => Ok(Value::Bool(*boolean)),
-        toml::Value::String(text) => Ok(Value::String(text.clone())),
-        toml::Value::Table(_) => value
+    TomlChoice(value.clone()).into_hole_choice()?.to_value(sort)
+}
+
+#[cfg(test)]
+mod hole_tests {
+    //! The campaign file's `[[hole]]` decodes as the library decodes it (FZ-KF-HOLES): through
+    //! `krust fuzz`'s campaign file, through `toml::Value` as a client decoding TOML by hand
+    //! does, and through JSON, one hole file gives the same declarations and the same refusals.
+
+    use k_rust_fuzz::{HoleDecl, holes::HoleFile};
+
+    use super::CampaignFile;
+
+    /// Every key form, each kind of choice, and a binding's text (`"$TX"`).
+    const HOLES: &str = r#"
+program = "prog.imp"
+
+[[hole]]
+name = "AMOUNT"
+sort = "Int"
+line = 4
+column = 12
+find = "amount = 250;"
+literal = "250"
+range = { min = -5, max = "100000000000000000000000" }
+allow-refused-sort = true
+choices = [0, -3, true, "s", { int = "123456789012345678901234567890" }, { list = [{ int = "1" }] }, { token = { sort = "Id", text = "x" } }, { bytes = "00ff" }]
+
+[[hole]]
+name = "B"
+sort = "Int"
+program = "$TX"
+find = "(30,"
+literal = "30"
+
+[[hole]]
+name = "TX"
+sort = "List"
+config-var = "$TX"
+length = { min = 1, max = 4 }
+elements = { element = "Int" }
+
+[[hole]]
+name = "M"
+sort = "Map"
+config-var = "M"
+elements = { key = "Int", value = "Bool" }
+choices = [{ map = [[{ int = "1" }, { bool = true }]] }]
+
+[[hole]]
+name = "W"
+sort = "MInt{8}"
+literal = "7"
+choices = [0, 255]
+"#;
+
+    /// The holes of `text` through the campaign file, as `krust fuzz` reads them.
+    fn through_the_cli(text: &str, program: Option<&str>) -> Result<Vec<HoleDecl>, String> {
+        let file: CampaignFile = toml::from_str(text).map_err(|error| error.to_string())?;
+        file.hole
+            .into_iter()
+            .map(|hole| hole.into_decl(program))
+            .collect()
+    }
+
+    /// The `[[hole]]` tables of `text` as `toml::Value`s, as a client decoding TOML by hand
+    /// holds them.
+    fn hole_values(text: &str) -> Vec<toml::Value> {
+        let table: toml::Table = toml::from_str(text).expect("the file is TOML");
+        table["hole"]
+            .as_array()
+            .expect("an array of tables")
             .clone()
-            .try_into()
-            .map_err(|error| format!("not a value: {error}")),
-        other => Err(format!(
-            "`{other}` is not a value; write collections and other values as tables, such as \
-             {{ list = [{{ int = \"1\" }}] }}"
-        )),
+    }
+
+    /// The holes of `text` through `toml::Value`: each `[[hole]]` table is made the library's
+    /// serde type with `try_into`, with no TOML in the library.
+    fn through_toml_values(text: &str, program: Option<&str>) -> Result<Vec<HoleDecl>, String> {
+        hole_values(text)
+            .into_iter()
+            .map(|value| {
+                value
+                    .try_into::<HoleFile>()
+                    .map_err(|error| format!("hole: {error}"))?
+                    .into_decl(program)
+            })
+            .collect()
+    }
+
+    /// The holes of `text` through JSON, the library's portable route.
+    fn through_json(text: &str, program: Option<&str>) -> Result<Vec<HoleDecl>, String> {
+        hole_values(text)
+            .into_iter()
+            .map(|value| {
+                let json = serde_json::to_value(value).expect("TOML without dates is JSON");
+                serde_json::from_value::<HoleFile>(json)
+                    .map_err(|error| format!("hole: {error}"))?
+                    .into_decl(program)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_hole_file_decodes_identically_through_the_cli_and_the_library() {
+        let cli = through_the_cli(HOLES, Some("prog.imp")).expect("the holes decode");
+        assert_eq!(cli.len(), 5);
+        assert_eq!(cli[0].constraints.choices.as_ref().map(Vec::len), Some(8));
+        assert_eq!(
+            through_toml_values(HOLES, Some("prog.imp")),
+            Ok(cli.clone())
+        );
+        assert_eq!(through_json(HOLES, Some("prog.imp")), Ok(cli));
+    }
+
+    const NOT_A_VALUE: &str = "is not a value; write collections and other values as tables, \
+                               such as { list = [{ int = \"1\" }] }";
+
+    /// One-hole files (keys after `name = "X"`, and `sort = "Int"` unless given), the program a
+    /// span hole defaults to, the refusal `krust fuzz` gave at the base commit (`NAV` stands for
+    /// [`NOT_A_VALUE`]), and whether the library route gives the same refusal.
+    const REFUSALS: [(&str, Option<&str>, &str, bool); 13] = [
+        (
+            "config-var = \"X\"\nliteral = \"1\"",
+            Some("p.imp"),
+            "hole `X`: `config-var` addresses a whole variable; it takes no `program`, \
+             `line`, `column`, `find` or `literal`",
+            true,
+        ),
+        (
+            "config-var = \"X\"\nprogram = \"$X\"",
+            Some("p.imp"),
+            "hole `X`: `config-var` addresses a whole variable; it takes no `program`, \
+             `line`, `column`, `find` or `literal`",
+            true,
+        ),
+        (
+            "find = \"x = 1;\"",
+            Some("p.imp"),
+            "hole `X`: give its `literal` (and `find`), or a `config-var`",
+            true,
+        ),
+        (
+            "literal = \"1\"\nrange = { max = \"1e3\" }",
+            Some("p.imp"),
+            "hole `X`: `1e3` is not a decimal integer: invalid digit found in string",
+            true,
+        ),
+        (
+            "literal = \"1\"\nchoices = [-1]\nsort = \"MInt{8}\"",
+            Some("p.imp"),
+            "hole `X`: -1 is negative; an MInt{8} value is unsigned",
+            true,
+        ),
+        (
+            "literal = \"1\"\nchoices = [1.5]",
+            Some("p.imp"),
+            "hole `X`: `1.5` NAV",
+            false,
+        ),
+        (
+            "literal = \"1\"\nchoices = [[1, 2]]",
+            Some("p.imp"),
+            "hole `X`: `[1, 2]` NAV",
+            false,
+        ),
+        (
+            "literal = \"1\"\nchoices = [1979-05-27]",
+            Some("p.imp"),
+            "hole `X`: `{ \"$__toml_private_datetime\" = \"1979-05-27\" }` NAV",
+            false,
+        ),
+        (
+            "literal = \"1\"\nchoices = [{ integer = \"1\" }]",
+            Some("p.imp"),
+            "hole `X`: not a value: unknown variant `integer`, expected one of `int`, `bool`, \
+             `string`, `bytes`, `m-int`, `token`, `list`, `set`, `map`, `apply`\n",
+            false,
+        ),
+        (
+            "literal = \"1\"\nchoices = [{ int = \"1\", bool = true }]",
+            Some("p.imp"),
+            "hole `X`: not a value: wanted exactly 1 element, more than 1 element\n",
+            false,
+        ),
+        (
+            "literal = \"1\"\nchoices = [{ int = 1 }]",
+            Some("p.imp"),
+            "hole `X`: not a value: invalid type: integer `1`, expected a string\n",
+            false,
+        ),
+        (
+            "literal = \"1\"\nchoices = [{}]",
+            Some("p.imp"),
+            "hole `X`: not a value: wanted exactly 1 element, found 0 elements\n",
+            false,
+        ),
+        (
+            "literal = \"1\"",
+            None,
+            "hole `X`: no program to address; give the hole a `program`",
+            true,
+        ),
+    ];
+
+    /// The refusals word for word as before the decoder moved into the library (recorded at
+    /// the base commit), the same through the library where the entry is a value.
+    #[test]
+    fn the_cli_keeps_its_hole_refusals_word_for_word() {
+        for (keys, program, message, library_too) in REFUSALS {
+            let sort = if keys.contains("sort") {
+                ""
+            } else {
+                "sort = \"Int\"\n"
+            };
+            let text = format!("[[hole]]\nname = \"X\"\n{sort}{keys}\n");
+            let message = message.replace("NAV", NOT_A_VALUE);
+            assert_eq!(
+                through_the_cli(&text, program),
+                Err(message.clone()),
+                "{keys}"
+            );
+            if library_too {
+                assert_eq!(through_toml_values(&text, program), Err(message.clone()));
+                assert_eq!(through_json(&text, program), Err(message));
+            } else if keys.contains("1979-05-27") {
+                // `toml::Value` deserializes a date as its text, so the `try_into` route reads
+                // it as a string choice; a client decoding TOML by hand refuses dates itself.
+                let decls = through_toml_values(&text, program).expect("a string choice");
+                assert_eq!(
+                    decls[0].constraints.choices,
+                    Some(vec![k_rust_fuzz::Value::String("1979-05-27".into())])
+                );
+            } else {
+                // The library refuses a non-value entry when it decodes it, with its own words.
+                for library in [
+                    through_toml_values(&text, program).unwrap_err(),
+                    through_json(&text, program).unwrap_err(),
+                ] {
+                    assert!(library.starts_with("hole: "), "{keys}: {library}");
+                }
+            }
+        }
     }
 }
