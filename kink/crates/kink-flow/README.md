@@ -154,7 +154,18 @@ supplies the class, the cause, the final states and the coverage (`diagnostic` c
 the campaign named the exclusion of the baseline run, the cause says that exclusion and why it
 holds, never a guess from the shape of the leaves (an excluded run's leaves can all be values); for
 `contradicted-claim` it points at the row's `specification_diagnostics` and says to fix the claim,
-not the program (re-pin adoption A-1b). Only the campaign admitting a baseline makes a program
+not the program (re-pin adoption A-1b). When no exclusion is named and every path ended, the cause
+names why a final configuration is not a value kink compares (fz26 KINK-CAUSE-SUBTERM): in the first
+leaf whose state's term has no terminal value, the first node, in pre-order, that fails its own test
+with its children ignored (a head that is not a free constructor, an overload application k-rust does
+not judge data, a domain value without a trusted codec, a collection node, ...), its cells and
+collection entries (`<T>/<store>/Map entry 1 value`), the test, and its KORE cut after 160
+characters; for an overload application, also the first node inside it that fails its own test.
+Naming the first subterm without a value would always name the root. The judgement is kink-native's
+`ObservationDecider::first_non_value`, from the walk the runner's terminal value takes, with the
+decider built as the runner builds the baseline's (collection trust, the baseline's data facts). It
+judges the baseline alone: whether an end is data under a mutant's definition is decided for each
+pair by the runner, never in this cause. Only the campaign admitting a baseline makes a program
 `comparable`.
 
 `--verify` reruns every program that has a current record and compares: a different class,

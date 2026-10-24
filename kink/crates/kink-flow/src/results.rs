@@ -38,8 +38,15 @@ use crate::{
     manifest::{Budget, FlowManifest, Program},
 };
 use k_rust::{
+    backend::{Backend, BackendOptions},
     definition::{AttributeKey, Sentence},
-    kore::codec::from_value,
+    kast::identifier::{decode_sort_name, label_or_name},
+    kore::{
+        ast::{Definition as KoreDefinition, Pattern},
+        codec::from_value,
+        parser::parse_definition,
+        printer::Printer,
+    },
 };
 use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
@@ -47,14 +54,16 @@ use kink_campaign::{
     OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun, StateProjection, TestCase,
     run_campaign_multi_with,
 };
-use kink_corpus::{
-    Store, admission::AdmissionRecord, admission::input_backend, runner::all_normal,
-};
+use kink_corpus::{Store, admission::AdmissionRecord, runner::all_normal};
 use kink_native::{
     K_RUST_REVISION,
+    bridge::{LeafTerm, leaf_terms},
     coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
-    exclusion::Exclusion,
-    execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
+    data::{DataFacts, data_ends},
+    exclusion::{DefinitionExclusions, Exclusion},
+    execution::{AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
+    feasibility::TestInitialState,
+    step_events::{EntryRole, NonValue, NonValueStep, ObservationDecider},
 };
 use kink_patch::{
     CandidateGeneration, Discovery, Patch, SelectionPolicy, SentenceRef, Sha256Digest,
@@ -436,9 +445,23 @@ impl<'a> BaselineRunner<'a> {
         refused: &str,
     ) -> ProgramResult {
         self.diagnostic.set(self.diagnostic.get() + 1);
-        let mut backend = match input_backend(&self.spec.compiled, self.main_module) {
-            Ok(backend) => backend,
-            Err(e) => return self.error(format!("{refused}; no diagnostic run: {}", e.detail)),
+        // Loaded as the campaign runner loads a side (kink-campaign `LoadedSide::load`): the
+        // parsed KORE also gives the definition exclusions and the symbol sorts the cause of a
+        // leaf without a terminal value is read with ([`Self::non_value_cause`]).
+        let loaded = parse_definition(&self.spec.compiled.artifacts().definition_kore)
+            .map_err(|e| e.to_string())
+            .and_then(|parsed| {
+                Backend::from_definition(
+                    parsed.clone(),
+                    k_rust::kast::identifier::encode(self.main_module),
+                    BackendOptions::default(),
+                )
+                .map(|backend| (parsed, backend))
+                .map_err(|e| e.to_string())
+            });
+        let (parsed, mut backend) = match loaded {
+            Ok(loaded) => loaded,
+            Err(e) => return self.error(format!("{refused}; no diagnostic run: {e}")),
         };
         let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
         let execution = match adapter.execute(&mut backend, &test.initial_state, self.budget) {
@@ -497,10 +520,15 @@ impl<'a> BaselineRunner<'a> {
                 )
             })
         {
-            "every path ended, but a final configuration is not a value kink can compare \
-             (for example it holds a collection kink cannot compare, such as one with a Bytes key, \
-             an unevaluated function or a symbolic term)"
-                .to_owned()
+            let lead =
+                "every path ended, but a final configuration is not a value kink can compare";
+            match self.non_value_cause(&mut backend, &parsed, test, leaves) {
+                Some(cause) => format!("{lead}: {cause}"),
+                None => format!(
+                    "{lead} (for example it holds a collection kink cannot compare, such as one \
+                     with a Bytes key, an unevaluated function or a symbolic term)"
+                ),
+            }
         } else {
             "a path did not end".to_owned()
         };
@@ -528,6 +556,174 @@ impl<'a> BaselineRunner<'a> {
             ),
             smt_unknowns: execution.facts().smt_unknowns,
         }
+    }
+
+    /// Which node of which leaf has no terminal value, for a baseline every path of which ended
+    /// but which the runner refused (fz26 KINK-CAUSE-SUBTERM): the first leaf, in the run's
+    /// order, whose state's term has no terminal value, and the first node of that term, in
+    /// pre-order, that fails its own test (kink-native `ObservationDecider::first_non_value`).
+    /// The decider is built as the campaign runner builds the baseline's (`Runtime::judge_with`):
+    /// on the definition this backend selected, with its exclusions' collection trust and the
+    /// data ends of the session's baseline facts. A leaf whose state is not one decided or
+    /// feasible term is named when no leaf has a term without a value. `None` when neither
+    /// exists, or no definition can be selected.
+    ///
+    /// The cause is the baseline's own judgement: whether an end is data under a mutant's
+    /// definition is judged by the runner for each pair (`judge_across`), never here.
+    fn non_value_cause(
+        &self,
+        backend: &mut Backend,
+        parsed: &KoreDefinition,
+        test: &TestCase,
+        leaves: &[AdaptedLeaf],
+    ) -> Option<String> {
+        let selected = backend.select_definition(None).ok()?;
+        let trusted = DefinitionExclusions::of(
+            parsed,
+            &selected,
+            &self.spec.compiled.compile_options().builtin_source_prefixes,
+        )
+        .collections_trusted();
+        let session = self.session.borrow();
+        let computed;
+        let facts = match session.baseline_data() {
+            Some(facts) => facts,
+            None => {
+                computed = DataFacts::of(&selected, session.assume_joined());
+                &computed
+            }
+        };
+        let own = data_ends(facts);
+        let terms = leaf_terms(leaves, parsed);
+        backend
+            .with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                )
+                .trusting_collections(trusted)
+                .judging_data(own, own);
+                let mut undecided = None;
+                for (leaf, term) in leaves.iter().zip(&terms) {
+                    match term {
+                        Ok(LeafTerm::Term(term)) => {
+                            if let Some(failure) = decider.first_non_value(term) {
+                                return Ok::<_, k_rust::backend::BackendError>(Some(format!(
+                                    "in the {}, {}",
+                                    leaf_name(leaf),
+                                    non_value_text(&failure)
+                                )));
+                            }
+                        }
+                        Ok(LeafTerm::Undecided) if undecided.is_none() => {
+                            undecided = Some(format!(
+                                "the state of the {} is not one ground term without a path \
+                                 condition",
+                                leaf_name(leaf)
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(undecided)
+            })
+            .ok()
+            .flatten()
+    }
+}
+
+/// A leaf, as the cause's `leaves:` list names it: its halt and depth.
+fn leaf_name(leaf: &AdaptedLeaf) -> String {
+    format!(
+        "{} leaf at depth {}",
+        kebab(&format!("{:?}", leaf.halt)),
+        leaf.branch.depth
+    )
+}
+
+/// The longest node text a cause prints, in characters.
+const NODE_TEXT_LIMIT: usize = 160;
+
+/// A [`NonValue`] in the reader's words: the node, where it sits (its cells, from the outermost
+/// below the top cell, and the collection entries on the way), the test it fails, for an overload
+/// application the first node inside it that fails its own test ([`NonValue::inside`]), and the
+/// KORE of the last node named, cut after [`NODE_TEXT_LIMIT`] characters.
+fn non_value_text(failure: &NonValue) -> String {
+    let place = cell_place(&failure.path);
+    let mut text = format!(
+        "the first node, in pre-order, that fails its own test is {} at {}: {}",
+        node_name(&failure.node),
+        if place.is_empty() {
+            "the top of the configuration".to_owned()
+        } else {
+            place.join("/")
+        },
+        failure.test.description()
+    );
+    let mut shown = &failure.node;
+    if let Some(inside) = &failure.inside {
+        let place = cell_place(&inside.path);
+        text.push_str(&format!(
+            "; inside it{}, {} fails its own test: {}",
+            if place.is_empty() {
+                String::new()
+            } else {
+                format!(" at {}", place.join("/"))
+            },
+            node_name(&inside.node),
+            inside.test.description()
+        ));
+        shown = &inside.node;
+    }
+    let mut kore = Printer::compact().print_pattern(shown);
+    if let Some((cut, _)) = kore.char_indices().nth(NODE_TEXT_LIMIT) {
+        kore.truncate(cut);
+        kore.push_str("...");
+    }
+    format!("{text} (node: {kore})")
+}
+
+/// The cells (below the top cell) and collection entries of a [`NonValue`] path, outermost first.
+fn cell_place(path: &[NonValueStep]) -> Vec<String> {
+    path.iter()
+        .filter_map(|step| match step {
+            NonValueStep::Argument { symbol, .. } => {
+                let label = label_or_name(symbol);
+                (label.len() > 2
+                    && label.starts_with('<')
+                    && label.ends_with('>')
+                    && label != "<generatedTop>")
+                    .then_some(label)
+            }
+            NonValueStep::Entry {
+                collection,
+                entry,
+                role,
+                ..
+            } => Some(format!(
+                "{} entry {} {}",
+                decode_sort_name(collection).unwrap_or_else(|_| collection.clone()),
+                entry + 1,
+                match role {
+                    EntryRole::Key => "key",
+                    EntryRole::Value => "value",
+                    EntryRole::Element => "element",
+                }
+            )),
+        })
+        .collect()
+}
+
+/// A node, by its kind and, for an application, its head's label.
+fn node_name(node: &Pattern) -> String {
+    match node {
+        Pattern::Application { symbol, .. } => {
+            format!("an application of `{}`", label_or_name(&symbol.name))
+        }
+        Pattern::DomainValue { .. } => "a domain value".to_owned(),
+        Pattern::Variable(_) => "a variable".to_owned(),
+        _ => "a node".to_owned(),
     }
 }
 
