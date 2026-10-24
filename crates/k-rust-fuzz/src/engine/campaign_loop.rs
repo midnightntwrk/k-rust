@@ -153,7 +153,7 @@ pub(crate) fn run_loop(
                 }
             }
         }
-        state.keep_incidental(case, class, &mut run);
+        state.keep_incidental(case, &mut run, runner);
         state.record(&run, class);
         if is_cancelled(cancel) {
             break Ending::Cancelled;
@@ -613,23 +613,28 @@ impl State {
         ));
     }
 
-    /// Keep case `case` as the incidental finding of `class` when it is the first case of that
-    /// class (`stuck` or `undefined`) inside the determinism contract whose runner described it
-    /// ([`CaseRun::incidental`]). Nothing else changes: the class, the counts, the case sequence
-    /// and the budget are what they would be without it.
-    fn keep_incidental(&mut self, case: u64, class: OutcomeClass, run: &mut CaseRun) {
+    /// Keep case `case`'s incidental finding ([`CaseRun::incidental`]) when it is the first of
+    /// its class (`stuck` or `undefined`) inside the determinism contract, and tell `runner`,
+    /// which then describes no later case of that class. Nothing else changes: the class, the
+    /// counts, the case sequence and the budget are what they would be without it.
+    fn keep_incidental(&mut self, case: u64, run: &mut CaseRun, runner: &mut dyn CaseRunner) {
+        if run.outside_determinism {
+            return;
+        }
+        let Some((class, mut found)) = run.incidental.take() else {
+            return;
+        };
         let slot = match class {
             OutcomeClass::Stuck => &mut self.incidental.stuck,
             OutcomeClass::Undefined => &mut self.incidental.undefined,
             _ => return,
         };
-        if slot.is_some() || run.outside_determinism {
+        if slot.is_some() {
             return;
         }
-        if let Some(mut found) = run.incidental.take() {
-            found.case = case;
-            *slot = Some(*found);
-        }
+        found.case = case;
+        *slot = Some(*found);
+        runner.incidental_kept(class);
     }
 
     /// Count a case under `class`.

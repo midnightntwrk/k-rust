@@ -1601,21 +1601,24 @@ export interface FuzzTotals {
 }
 
 /**
- * The first case of the class `stuck` or `undefined` of a campaign, kept as information about
- * the semantics, not as a failure (k-rust-fuzz README, "Incidental findings").
+ * The first case of the class `stuck` or `undefined` of the semantics under test (a differential
+ * campaign's baseline), kept as information, not as a failure (k-rust-fuzz README, "Incidental
+ * findings").
  */
 export interface FuzzIncidentalCase {
   /** The case's number, counted from 0. */
   case: number
   holes: FuzzHoleValue[]
-  /** The side whose leaf shows the class (the baseline unless only the mutant has one). */
-  role: FuzzDefinitionRole
+  /** How many leaves the run has; the finding's leaf is one path's outcome among them. */
+  leaves: number
   leaf: number
+  /** The leaf's depth; an undefined step is the step after it. */
   steps: number
-  /** The item at the head of the leaf's first non-empty `<k>` cell, as K text. */
-  'k-head'?: string
+  /** The first item of each `<k>` cell that holds one, in order, as K text. */
+  'k-heads'?: string[]
   /** The leaf's configuration, as KORE text. */
   configuration: string
+  /** Re-runs the semantics under test (a differential campaign's baseline, on all paths). */
   'krun-command': string | null
 }
 

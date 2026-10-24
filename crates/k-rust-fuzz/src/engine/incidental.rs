@@ -41,31 +41,40 @@ pub(crate) fn leaf_of(result: &CaseResult, class: OutcomeClass) -> Option<usize>
     result.leaves.iter().position(|leaf| shows(leaf, class))
 }
 
-/// The first item of the first `<k>` cell of `state` (in preorder) that holds a K sequence
-/// `kseq(item, rest)`, below its injections: as one line of K text when `text` prints it, else
-/// as the K label of its head symbol, else as KORE text. `None` when no `<k>` cell holds an
-/// item.
-pub(crate) fn k_head(state: &KorePattern, text: Option<&TextSyntax>) -> Option<String> {
-    let item = first_k_item(state)?;
-    text.and_then(|syntax| syntax.show(item))
-        .or_else(|| head_label(item))
-        .or_else(|| Some(item.to_string()))
+/// The first item of each `<k>` cell of `state` that holds a K sequence `kseq(item, rest)`, in
+/// preorder, below its injections: each as one line of K text when `text` prints it, else as
+/// the K label of its head symbol, else as KORE text. Under the every-`<k>` normal end a stuck
+/// configuration is stuck in every thread, so every such item is where a thread stopped.
+pub(crate) fn k_heads(state: &KorePattern, text: Option<&TextSyntax>) -> Vec<String> {
+    let mut items = Vec::new();
+    k_items(state, &mut items);
+    items
+        .into_iter()
+        .map(|item| {
+            text.and_then(|syntax| syntax.show(item))
+                .or_else(|| head_label(item))
+                .unwrap_or_else(|| item.to_string())
+        })
+        .collect()
 }
 
-/// The item [`k_head`] names.
-fn first_k_item(pattern: &KorePattern) -> Option<&KorePattern> {
+/// Push the items [`k_heads`] names, in preorder, not descending into a `<k>` cell.
+fn k_items<'a>(pattern: &'a KorePattern, items: &mut Vec<&'a KorePattern>) {
     let KorePattern::Application { symbol, arguments } = pattern else {
-        return None;
+        return;
     };
     if symbol.name == K_CELL {
-        return match arguments.as_slice() {
-            [KorePattern::Application { symbol, arguments }] if symbol.name == "kseq" => {
-                arguments.first().map(below_injections)
-            }
-            _ => None,
-        };
+        if let [KorePattern::Application { symbol, arguments }] = arguments.as_slice()
+            && symbol.name == "kseq"
+            && let Some(item) = arguments.first()
+        {
+            items.push(below_injections(item));
+        }
+        return;
     }
-    arguments.iter().find_map(first_k_item)
+    for argument in arguments {
+        k_items(argument, items);
+    }
 }
 
 /// `pattern` without the injections around it.
@@ -98,17 +107,17 @@ mod tests {
     }
 
     #[test]
-    fn the_head_is_the_first_item_of_the_first_cell_that_holds_one() {
-        // Two threads: the first `<k>` is empty (a finished thread), the second holds
-        // `foo(1) ~> .K` below an injection.
+    fn the_heads_are_the_first_items_of_every_cell_that_holds_one() {
+        // Three threads: the first `<k>` holds `bar() ~> .K`, the second is empty (a finished
+        // thread), the third holds `foo(1) ~> .K` below an injection.
         let state = pattern(
-            r#"Lbl'-LT-'threads'-GT-'{}(Lbl'-LT-'k'-GT-'{}(dotk{}()), Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortFoo{}, SortKItem{}}(Lblfoo{}(\dv{SortInt{}}("1"))), dotk{}())))"#,
+            r#"Lbl'-LT-'threads'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblbar{}(), dotk{}())), Lbl'-LT-'k'-GT-'{}(dotk{}()), Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortFoo{}, SortKItem{}}(Lblfoo{}(\dv{SortInt{}}("1"))), dotk{}())))"#,
         );
-        assert_eq!(k_head(&state, None).as_deref(), Some("foo"));
+        assert_eq!(k_heads(&state, None), vec!["bar", "foo"]);
         // No cell holds an item.
         let finished = pattern(r"Lbl'-LT-'k'-GT-'{}(dotk{}())");
-        assert_eq!(k_head(&finished, None), None);
+        assert!(k_heads(&finished, None).is_empty());
         // A configuration without a `<k>` cell.
-        assert_eq!(k_head(&pattern(r"Lblbar{}()"), None), None);
+        assert!(k_heads(&pattern(r"Lblbar{}()"), None).is_empty());
     }
 }

@@ -1014,7 +1014,8 @@ pub struct EngineDefect {
     pub description: String,
 }
 
-/// The first case of each of the classes `stuck` and `undefined` (FZ-INCIDENTAL).
+/// The first case of each of the classes `stuck` and `undefined` of the semantics under test
+/// (FZ-INCIDENTAL).
 ///
 /// A rule missing from the semantics, or a partiality its author did not intend, is invisible to
 /// every target: no mutant of an absent rule exists, a baseline and its mutant get stuck alike,
@@ -1023,8 +1024,8 @@ pub struct EngineDefect {
 /// leaves a program stuck on purpose (an ill-typed program, a division by zero that the
 /// language leaves without meaning).
 ///
-/// The classes are the case classes ([`OutcomeClass`]), with the meaning they have under the
-/// normal end the report's [`NormalEnds`] names:
+/// The classes are the classes of one run ([`OutcomeClass`]), with the meaning they have under
+/// the normal end the report's [`NormalEnds`] names:
 ///
 /// - `stuck`: some leaf is a clean, decided `stuck` leaf that is not a natural end (an abnormal
 ///   stop: no rule applies, and the configuration is not finished under the campaign's pattern,
@@ -1035,12 +1036,15 @@ pub struct EngineDefect {
 ///   of higher precedence. An undefined step is not an end: its leaf is the configuration
 ///   before the step.
 ///
-/// In a differential campaign a case has these classes when the pair gave no kill and the
-/// mutant's run has the class (the baseline and the mutant agree on the ends compared); the
-/// finding names the baseline's leaf of that kind when the baseline has one, else the
-/// mutant's ([`IncidentalCase::role`]). Only cases inside the determinism contract are kept, so
-/// a finding reproduces. Keeping one changes no class, no case and no budget: the case already
-/// ran, and nothing is re-run or shrunk.
+/// In a rule, pattern or observer campaign that run is the case's, so the finding's class is
+/// the case's class. In a differential campaign the semantics under test is the baseline, so the
+/// finding comes from the baseline's own run of the case (all paths), classed alone, whatever
+/// the pair's class: a stop or undefined step only the mutant has is never a finding (it is a
+/// kill, or under `run-to-completion` the pair's own disagreement, which its class reports). A
+/// case that ends the campaign with a witness gives no finding; its witness shows its runs.
+/// Only cases inside the determinism contract are kept, so a finding reproduces. Keeping one
+/// changes no class, no case and no budget: the case already ran, and nothing is re-run or
+/// shrunk.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Incidentals {
@@ -1065,15 +1069,19 @@ impl Incidentals {
     pub fn lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         if let Some(case) = &self.stuck {
+            let steps = plural(case.steps, "step");
             lines.push(case.line(
-                "got stuck before a natural end",
+                &format!("got stuck before a natural end after {steps}"),
                 "no rule applies there: a missing rule, or a stop the semantics intends",
                 "stuck",
             ));
         }
         if let Some(case) = &self.undefined {
             lines.push(case.line(
-                "took an undefined step",
+                &format!(
+                    "took an undefined step at step {}",
+                    case.steps.saturating_add(1)
+                ),
                 "a rule applied whose result is undefined there: a partiality the semantics may \
                  or may not intend",
                 "undefined",
@@ -1083,7 +1091,17 @@ impl Incidentals {
     }
 }
 
-/// One incidental finding: a case whose class was `stuck` or `undefined` ([`Incidentals`]).
+/// "1 step" or "N steps".
+fn plural(count: u64, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+/// One incidental finding: a case whose run of the semantics under test was `stuck` or
+/// `undefined` ([`Incidentals`]).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct IncidentalCase {
@@ -1092,25 +1110,28 @@ pub struct IncidentalCase {
     pub case: u64,
     /// The hole overlay with values, in declaration order.
     pub holes: Vec<HoleValue>,
-    /// The side whose leaf shows the class: the baseline in a rule or pattern campaign; in a
-    /// differential campaign the baseline when it has a leaf of that kind, else the mutant.
-    pub role: DefinitionRole,
-    /// The index of that leaf among the side's leaves, in the backend's order.
+    /// How many leaves the run has: the finding's leaf is one path's outcome among them.
+    pub leaves: u64,
+    /// The index of the finding's leaf among them, in the backend's order.
     pub leaf: u64,
-    /// The leaf's depth (rewrite steps on its path).
+    /// The leaf's depth (rewrite steps on its path); an undefined step is the step after it.
     pub steps: u64,
-    /// The first item of the leaf's first `<k>` cell that is not empty, as K text when the
-    /// definition's unparser prints it, else as its head's K label: where the program stopped
-    /// (an abnormal stop) or the item at the head of `<k>` when a rule's result was undefined
-    /// (the leaf of an undefined step is the configuration before the step). Absent when the
-    /// configuration has no `<k>` cell holding an item.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub k_head: Option<String>,
+    /// The first item of each `<k>` cell of the leaf that holds one, in the configuration's
+    /// order, as K text when the definition's unparser prints it, else as its head's K label.
+    /// A stuck leaf is stuck in every thread, so each item is where a thread stopped (a thread
+    /// waiting for another included); for an undefined step, whose leaf is the configuration
+    /// before the step, the items the step may have rewritten. Absent when no `<k>` cell holds
+    /// an item.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub k_heads: Vec<String>,
     /// The leaf's configuration, as KORE text.
     pub configuration: String,
-    /// The `krun` command line that re-runs the case on the side [`Self::role`] names, written as
-    /// [`Witness::krun_command`] is; `None` when no `krun` run is equivalent (a KORE-template
-    /// program, the `from-definition` route, a program without `$PGM`).
+    /// The `krun` command line that re-runs the case's run of the semantics under test (in a
+    /// differential campaign the baseline, on all paths), written as [`Witness::krun_command`]
+    /// is; `None` when no `krun` run is equivalent (a KORE-template program, the
+    /// `from-definition` route, a program without `$PGM`). `krun` reports an undefined step only
+    /// when every path of the run takes one; when another path does not, the line says so in a
+    /// trailing comment, and the finding is leaf [`Self::leaf`] of [`Self::leaves`].
     pub krun_command: Option<String>,
 }
 
@@ -1120,6 +1141,8 @@ impl IncidentalCase {
     fn line(&self, what: &str, meaning: &str, key: &str) -> String {
         /// The longest hole value or `<k>` item a line prints in full, in characters.
         const SHOWN: usize = 80;
+        /// The most `<k>` items a line prints.
+        const HEADS: usize = 4;
         let cut = |text: &str| {
             if text.chars().count() <= SHOWN {
                 text.to_owned()
@@ -1127,32 +1150,50 @@ impl IncidentalCase {
                 format!("{}…", text.chars().take(SHOWN).collect::<String>())
             }
         };
-        let holes = self
-            .holes
-            .iter()
-            .map(|hole| {
-                format!(
-                    "{} = {}",
-                    hole.name,
-                    cut(hole.k_text.as_deref().unwrap_or(&hole.kore))
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        let side = match self.role {
-            DefinitionRole::Baseline => "",
-            DefinitionRole::Mutant => " on the mutant",
+        let holes = if self.holes.is_empty() {
+            String::new()
+        } else {
+            let values = self
+                .holes
+                .iter()
+                .map(|hole| {
+                    format!(
+                        "{} = {}",
+                        hole.name,
+                        cut(hole.k_text.as_deref().unwrap_or(&hole.kore))
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" ({values})")
         };
-        let at = self
-            .k_head
-            .as_deref()
-            .map(|head| format!(" at `{}`", cut(head)))
-            .unwrap_or_default();
+        let path = if self.leaves > 1 {
+            format!(" on one of its {} paths", self.leaves)
+        } else {
+            String::new()
+        };
+        let at = if self.k_heads.is_empty() {
+            String::new()
+        } else {
+            let heads = self
+                .k_heads
+                .iter()
+                .take(HEADS)
+                .map(|head| format!("`{}`", cut(head)))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            let more = self.k_heads.len().saturating_sub(HEADS);
+            let more = if more > 0 {
+                format!(" and {more} more")
+            } else {
+                String::new()
+            };
+            format!(" at {heads}{more}")
+        };
         format!(
-            "incidental (information, not a failure): case {} ({holes}){side} {what} after {} \
-             steps{at}; {meaning}. The report's `incidental.{key}` holds its configuration and \
-             krun line.",
-            self.case, self.steps
+            "incidental (information, not a failure): case {}{holes}{path} {what}{at}; \
+             {meaning}. The report's `incidental.{key}` holds its configuration and krun line.",
+            self.case
         )
     }
 }
@@ -1435,10 +1476,10 @@ mod tests {
         report.incidental.undefined = Some(IncidentalCase {
             case: 3,
             holes: Vec::new(),
-            role: DefinitionRole::Baseline,
+            leaves: 1,
             leaf: 0,
             steps: 9,
-            k_head: Some("100 / 0".into()),
+            k_heads: vec!["100 / 0".into()],
             configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
             krun_command: None,
         });
@@ -1446,14 +1487,23 @@ mod tests {
         assert!(
             text.contains(concat!(
                 r#""normal-end":{"baseline":"every-k"},"incidental":{"undefined":{"case":3,"#,
-                r#""holes":[],"role":"baseline","leaf":0,"steps":9,"k-head":"100 / 0","#,
+                r#""holes":[],"leaves":1,"leaf":0,"steps":9,"k-heads":["100 / 0"],"#,
                 r#""configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","krun-command":null}},"#,
                 r#""load-records":"#
             )),
             "{text}"
         );
         assert_eq!(FuzzReport::from_json(&text).expect("reads back"), report);
-        assert_eq!(report.incidental.lines().len(), 1);
+        assert_eq!(
+            report.incidental.lines(),
+            vec![
+                "incidental (information, not a failure): case 3 took an undefined step at step \
+                 10 at `100 / 0`; a rule applied whose result is undefined there: a partiality \
+                 the semantics may or may not intend. The report's `incidental.undefined` holds \
+                 its configuration and krun line."
+                    .to_owned()
+            ]
+        );
     }
 
     #[test]

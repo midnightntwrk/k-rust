@@ -147,8 +147,11 @@ fn the_imp_division_campaign_reports_its_undefined_case() {
         (hole(undefined, "B"), hole(undefined, "C")),
         ("5".into(), "5".into())
     );
-    assert_eq!(undefined["role"], "baseline");
-    assert_eq!(undefined["k-head"], "100 / 0", "{undefined}");
+    assert_eq!(
+        undefined["k-heads"],
+        serde_json::json!(["100 / 0"]),
+        "{undefined}"
+    );
     let krun = undefined["krun-command"].as_str().expect("a krun line");
     assert!(
         krun.contains("--strategy any") && krun.contains("b = 5;"),
@@ -166,7 +169,7 @@ fn a_stuck_division_is_reported_with_its_k_head() {
     assert!(report.totals.classes.contains_key(&OutcomeClass::Stuck));
     let stuck = &json["incidental"]["stuck"];
     assert_eq!(stuck["case"], 1, "{json}");
-    assert_eq!(stuck["k-head"], "100 / 0", "{stuck}");
+    assert_eq!(stuck["k-heads"], serde_json::json!(["100 / 0"]), "{stuck}");
     assert!(
         stuck["configuration"]
             .as_str()
@@ -224,9 +227,40 @@ fn a_differential_case_where_both_sides_stop_names_the_baseline() {
         assert_eq!(report.totals.classes.get(&OutcomeClass::Hit), None);
         let stuck = &json["incidental"]["stuck"];
         assert_eq!(stuck["case"], 1, "{paths:?}: {json}");
-        assert_eq!(stuck["role"], "baseline");
-        assert_eq!(stuck["k-head"], "100 / 0");
+        assert_eq!(stuck["k-heads"], serde_json::json!(["100 / 0"]));
         let krun = stuck["krun-command"].as_str().expect("a krun line");
         assert!(krun.contains("--strategy all"), "{krun}");
+    }
+}
+
+#[test]
+fn a_differential_finding_is_the_baselines_own_class() {
+    // Under run-to-completion an abnormal stop is no kill, so a case where the sides end
+    // differently can pass without one. The finding is about the semantics under test, the
+    // baseline: its undefined step at B = C on the guard-dropped baseline, never the guarded
+    // mutant's stop; and the reverse pair reports the baseline's stop, never the mutant's
+    // undefined step.
+    for paths in [PathMode::OnePath, PathMode::AllPaths] {
+        for (baseline, mutant, kept, absent) in [
+            (&IMP_DIV_GUARD_DROPPED, &IMP_DIFF, "undefined", "stuck"),
+            (&IMP_DIFF, &IMP_DIV_GUARD_DROPPED, "stuck", "undefined"),
+        ] {
+            let mut spec = c1(baseline, Some(mutant), &[(5, 5)]);
+            spec.options.paths = paths;
+            spec.target.run_to_completion = true;
+            let (_, json) = run(spec, 4);
+            let finding = &json["incidental"][kept];
+            assert_eq!(finding["case"], 1, "{paths:?} {kept}: {json}");
+            assert_eq!(
+                finding["k-heads"],
+                serde_json::json!(["100 / 0"]),
+                "{finding}"
+            );
+            assert_eq!(
+                json["incidental"].get(absent),
+                None,
+                "{paths:?} {kept}: {json}"
+            );
+        }
     }
 }

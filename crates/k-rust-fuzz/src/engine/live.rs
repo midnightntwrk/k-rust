@@ -409,6 +409,8 @@ pub(crate) struct LiveCases {
     spec: Arc<CampaignSpec>,
     pub(crate) baseline: Side,
     judge: Judge,
+    /// The classes whose incidental finding the loop has kept ([`CaseRunner::incidental_kept`]).
+    incidental_kept: Vec<OutcomeClass>,
 }
 
 impl LiveCases {
@@ -484,6 +486,7 @@ impl LiveCases {
             spec,
             baseline,
             judge,
+            incidental_kept: Vec::new(),
         })
     }
 
@@ -762,21 +765,12 @@ impl LiveCases {
                 run.defects.push(defect.description);
             }
         }
-        if wants_incidental(&run) {
-            let options = &self.spec.options;
-            run.incidental = incidental_case(
-                run.class,
-                &self.hole_values(values, &prepared.printed),
-                options,
-                &[SideRun {
-                    role: DefinitionRole::Baseline,
-                    side: &self.baseline,
-                    prepared: &prepared,
-                    result: &result,
-                    paths: options.paths,
-                    terminal_rules: &target.needs(options.paths).terminal_rules,
-                }],
-            );
+        if self.wants_incidental(run.class, &run) {
+            let paths = self.spec.options.paths;
+            let terminal_rules = target.needs(paths).terminal_rules;
+            let class = run.class;
+            run.incidental =
+                self.incidental_of(class, values, &prepared, &result, paths, &terminal_rules);
         }
         run.warnings.extend(partial_warnings(&result, run.unjudged));
         if run.class == OutcomeClass::Rejected {
@@ -882,8 +876,7 @@ impl LiveCases {
                             .push("a kill names no leaf of either result".to_owned());
                     }
                 }
-                let sides = ((&baseline_case, &baseline), (&mutant_case, mutated, paths));
-                run.incidental = self.differential_incidental(&run, values, sides);
+                run.incidental = self.baseline_incidental(&run, values, &baseline_case, &baseline);
             }
             Err(defect) => {
                 run.class = OutcomeClass::Unsupported;
@@ -926,100 +919,98 @@ fn data_reason(
 }
 
 impl LiveCases {
-    /// The incidental finding of a differential case `run` with `values`, from the baseline's
-    /// prepared case and result and the mutant's prepared case, judged result and its path mode:
-    /// the baseline's leaf when it has one of the case's class, else the mutant's; `None` unless
-    /// the case wants one ([`wants_incidental`]). Each side's krun line runs it as the case did:
-    /// the baseline on all paths, the mutant in its judged result's mode.
-    fn differential_incidental(
+    /// Whether a case of `run` gets an incidental finding of `class`
+    /// ([`crate::report::Incidentals`]): the class is `stuck` or `undefined`, the case is inside
+    /// the determinism contract, so that the finding reproduces, and the loop has not kept a
+    /// finding of that class yet ([`CaseRunner::incidental_kept`]).
+    fn wants_incidental(&self, class: OutcomeClass, run: &CaseRun) -> bool {
+        matches!(class, OutcomeClass::Stuck | OutcomeClass::Undefined)
+            && !run.outside_determinism
+            && !self.incidental_kept.contains(&class)
+    }
+
+    /// The incidental finding of a differential case `run` with `values`: the baseline's own
+    /// run of the case (`baseline`, all paths, from `baseline_case`), classed alone with no
+    /// target, whatever the pair's class ([`crate::report::Incidentals`]). A stop or undefined step only the mutant has is no finding.
+    fn baseline_incidental(
         &self,
         run: &CaseRun,
         values: &[Value],
-        ((baseline_case, baseline), (mutant_case, mutated, paths)): (
-            (&Prepared, &CaseResult),
-            (&Prepared, &CaseResult, PathMode),
-        ),
-    ) -> Option<Box<IncidentalCase>> {
-        let Judge::Differential(mutant) = &self.judge else {
-            return None;
-        };
-        if !wants_incidental(run) {
+        baseline_case: &Prepared,
+        baseline: &CaseResult,
+    ) -> Option<(OutcomeClass, Box<IncidentalCase>)> {
+        let class = exec::classify(baseline, &vec![false; baseline.leaves.len()], false).ok()?;
+        if !self.wants_incidental(class, run) {
             return None;
         }
-        incidental_case(
-            run.class,
-            &self.hole_values(values, &baseline_case.printed),
-            &self.spec.options,
-            &[
-                SideRun {
-                    role: DefinitionRole::Baseline,
-                    side: &self.baseline,
-                    prepared: baseline_case,
-                    result: baseline,
-                    paths: PathMode::AllPaths,
-                    terminal_rules: &[],
-                },
-                SideRun {
-                    role: DefinitionRole::Mutant,
-                    side: mutant,
-                    prepared: mutant_case,
-                    result: mutated,
-                    paths,
-                    terminal_rules: &[],
-                },
-            ],
+        self.incidental_of(
+            class,
+            values,
+            baseline_case,
+            baseline,
+            PathMode::AllPaths,
+            &[],
         )
     }
-}
 
-/// Whether a case gets an incidental finding ([`crate::report::Incidentals`]): it is `stuck` or
-/// `undefined` and inside the determinism contract, so that the finding reproduces.
-fn wants_incidental(run: &CaseRun) -> bool {
-    matches!(run.class, OutcomeClass::Stuck | OutcomeClass::Undefined) && !run.outside_determinism
-}
-
-/// One side's judged run of a case, as an incidental finding names it.
-struct SideRun<'a> {
-    role: DefinitionRole,
-    /// The side, whose definition the krun line names and whose K-text syntax prints the `<k>`
-    /// item.
-    side: &'a Side,
-    prepared: &'a Prepared,
-    result: &'a CaseResult,
-    /// The path mode `result` was run in, and its terminal rules, for the krun line.
-    paths: PathMode,
-    terminal_rules: &'a [String],
-}
-
-/// The incidental finding of a case of `class` with `holes`, in a campaign with `options`: the
-/// first leaf that shows the class ([`incidental::shows`]) on the first of `runs` that has one,
-/// with `case` 0 (the loop numbers it); `None` when no run has such a leaf.
-fn incidental_case(
-    class: OutcomeClass,
-    holes: &[HoleValue],
-    options: &CaseOptions,
-    runs: &[SideRun<'_>],
-) -> Option<Box<IncidentalCase>> {
-    runs.iter().find_map(|run| {
-        let index = incidental::leaf_of(run.result, class)?;
-        let leaf = run.result.leaves.get(index)?;
-        Some(Box::new(IncidentalCase {
+    /// The incidental finding of class `class` of a case with `values`, from the baseline's
+    /// prepared case and its `result`, run in `paths` with `terminal_rules`: the first leaf that
+    /// shows the class ([`incidental::shows`]), with `case` 0 (the loop numbers it); `None` when
+    /// no leaf does.
+    ///
+    /// `krun` reports an undefined step only when every leaf of its run is one (it prints the
+    /// other leaves' configurations and drops the undefined steps), so when another leaf of
+    /// `result` is not, the krun line says that it will not show the finding.
+    fn incidental_of(
+        &self,
+        class: OutcomeClass,
+        values: &[Value],
+        prepared: &Prepared,
+        result: &CaseResult,
+        paths: PathMode,
+        terminal_rules: &[String],
+    ) -> Option<(OutcomeClass, Box<IncidentalCase>)> {
+        let index = incidental::leaf_of(result, class)?;
+        let leaf = result.leaves.get(index)?;
+        let leaves = index_u64(result.leaves.len());
+        let hidden = class == OutcomeClass::Undefined
+            && result.leaves.iter().any(|leaf| {
+                !matches!(
+                    leaf.halt,
+                    HaltReasonOutput::Trivial | HaltReasonOutput::Vacuous
+                )
+            });
+        let krun_command = krun_line(
+            &self.baseline.definition,
+            &self.spec.options,
+            paths,
+            terminal_rules,
+            &prepared.instantiated,
+        )
+        .map(|line| {
+            if hidden {
+                format!(
+                    "{line}  # krun reports an undefined step only when every path takes one, \
+                     and another path of this run does not: this finding is leaf {index} of \
+                     {leaves}, an undefined step at step {}",
+                    leaf.depth.saturating_add(1)
+                )
+            } else {
+                line
+            }
+        });
+        let finding = IncidentalCase {
             case: 0,
-            holes: holes.to_vec(),
-            role: run.role,
+            holes: self.hole_values(values, &prepared.printed),
+            leaves,
             leaf: index_u64(index),
             steps: leaf.depth,
-            k_head: incidental::k_head(&leaf.state, run.side.holes.text.as_ref()),
+            k_heads: incidental::k_heads(&leaf.state, self.baseline.holes.text.as_ref()),
             configuration: leaf.state.to_string(),
-            krun_command: krun_line(
-                &run.side.definition,
-                options,
-                run.paths,
-                run.terminal_rules,
-                &run.prepared.instantiated,
-            ),
-        }))
-    })
+            krun_command,
+        };
+        Some((class, Box::new(finding)))
+    }
 }
 
 /// The run-level parts of a [`CaseRun`]: coverage from `covered`, work and determinism and load
@@ -1588,6 +1579,10 @@ impl CaseRunner for LiveRunner<'_> {
             run_live(&mut fresh, &mut assemblers, values, cancel).map_err(ConfirmFailure::Abort)?;
         self.self_check(&mut run);
         Ok(run)
+    }
+
+    fn incidental_kept(&mut self, class: OutcomeClass) {
+        self.cases.incidental_kept.push(class);
     }
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {

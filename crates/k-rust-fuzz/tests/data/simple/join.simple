@@ -1,0 +1,7 @@
+// A spawned thread divides by d and main joins it: with d = 0 the spawned thread is stuck at
+// `10 / 0` and main waits for it at `join`.
+function main() {
+  var d = 4;
+  var t = spawn { print(10 / d, "\n"); };
+  join t;
+}
