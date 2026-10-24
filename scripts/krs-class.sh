@@ -14,9 +14,9 @@ usage: scripts/krs-class.sh [--workers N] [--shard NAME]...
 
 Run the shards of krs/crates/krs-cli/tests/class_matrix.rs (every shard by default; NAME is one of
 ${all_shards[*]}). Each worker builds the batch packages of its cases in a Cargo target of its own,
-reused across its batches; --workers defaults to what the host has room for now: the idle CPUs
-(the CPU count, or the cgroup's quota, minus the one-minute load) over 4, and the available memory
-over 3 GiB, the smaller, and at least 1. The workers' targets and packages live in one scratch
+reused across its batches; --workers defaults to what the host's memory has room for now: the
+available memory over 3 GiB, at least 1 and at most the CPU count (or the cgroup's quota). CPU load
+is not consulted: it fluctuates far more than memory, and an oversubscribed CPU only slows a run. The workers' targets and packages live in one scratch
 directory, removed when the run ends, failure included. KRS_CLASS_TARGET_DIR selects the target the
 test binary is built in (default target/gates), KRS_CLASS_OUT a directory for one TSV line per case
 and the pending entries of each unrecorded deviation (see the test's documentation). Exit status 0
@@ -61,14 +61,12 @@ cpus() {
 }
 
 if [[ -z $workers ]]; then
-  load=$(cut -d' ' -f1 /proc/loadavg)
-  idle=$(($(cpus) - ${load%.*}))
   available_kib=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)
-  by_cpu=$((idle / 4))
-  by_memory=$((available_kib / (3 * 1024 * 1024)))
-  workers=$((by_cpu < by_memory ? by_cpu : by_memory))
+  workers=$((available_kib / (3 * 1024 * 1024)))
+  limit=$(cpus)
+  ((workers <= limit)) || workers=$limit
   ((workers >= 1)) || workers=1
-  echo "[krs-class] $workers workers (load $load, $((available_kib / 1024 / 1024)) GiB available)" >&2
+  echo "[krs-class] $workers workers ($((available_kib / 1024 / 1024)) GiB available)" >&2
 fi
 
 # The test removes the scratch of a run whose owner (owner.pid) is gone, an interrupted one.
