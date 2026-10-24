@@ -191,7 +191,8 @@ fn sidecar_invariant_reads_nested_cells_and_routes_open_cases_to_the_hand_module
 /// `<worker>`s: the part is lifted to "for every element", stated as `EntriesOn` of an element
 /// predicate over the cell map read through one projection per level, the element predicate reads
 /// the cell off the binding's value, and since the cell map is empty in `init` the init theorem is
-/// proved by computation, with no hypothesis and no obligation.
+/// proved by computation, with no hypothesis and no obligation. The unfolding set has both
+/// equations of `isCount`, the `owise` one included.
 #[test]
 fn invariant_inside_a_cell_map_is_lifted_to_every_element() {
     let d = tmp("cli-cellmap");
@@ -230,6 +231,12 @@ fn invariant_inside_a_cell_map_is_lifted_to_every_element() {
     assert!(defs.contains("KPrelude.MapHook.EntriesOn Invariant.cntOk_elem (Invariant.content_workers (Invariant.cell_workers (Invariant.cell_T c)))"), "{defs}");
     let thms = std::fs::read_to_string(out.join("CellMap/Invariants.lean")).unwrap();
     assert!(thms.contains("k2l_preserve [Invariant.cntOk, Invariant.cell_T, Invariant.cell_workers, Invariant.content_workers, Invariant.cell_cnt, Invariant.content_cnt, Invariant.cntOk_elem,"), "{thms}");
+    assert!(
+        thms.contains(
+            "Eqn.«isCount(_)_CELLMAP_Bool_KItem_1», Eqn.«isCount(_)_CELLMAP_Bool_KItem_2»"
+        ),
+        "{thms}"
+    );
     assert!(thms.contains("theorem Invariant.init_holds (pgm : SortPgm) :\n    Invariant (init pgm) :=\n  (by simp only [Invariant, Invariant.cntOk,"), "{thms}");
     assert!(!thms.contains("Invariant.hand.init"), "{thms}");
 }

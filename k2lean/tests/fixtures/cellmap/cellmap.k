@@ -1,5 +1,6 @@
 // The cell-map lift of `k2lean gen --invariant NAME@CELL`: `<cnt>` is inside the cell map of
 // `<worker>`s, so `cntOk@cnt` means "for every worker, cntOk of its <cnt>" (crates/k2lean/tests/cli.rs).
+// `isCount` has an `owise` equation, which joins the invariant's unfolding set.
 requires "domains.md"
 
 module CELLMAP-SYNTAX
@@ -19,7 +20,10 @@ module CELLMAP
     </T>
 
   syntax Bool ::= cntOk(Int) [function, total]
-  rule cntOk(I) => I >=Int 0
+                | isCount(KItem) [function, total]
+  rule cntOk(I) => isCount(I)
+  rule isCount(I:Int) => I >=Int 0
+  rule isCount(_) => false [owise]
 
   rule <worker> <wid> _ </wid> <cnt> C => C +Int 1 </cnt> </worker> [label(tick)]
   rule <k> go => .K ... </k>

@@ -26,7 +26,8 @@
 //! build at `Invariant.case.r` with "unknown identifier 'Invariant.hand.r'", naming the rule.
 //!
 //! **Unfolding.** The tactic is given the parts, the projections, the K equations (`Eqn.*` of
-//! `{ns}/Equations.lean`) of the non-recursive functions the invariant calls, and, for each
+//! `{ns}/Equations.lean`, the `owise` ones included, as rewrites conditional on their side
+//! condition) of the non-recursive functions the invariant calls, and, for each
 //! recursive function that is a list fold (`f(.List) => true`, `f(ListItem(X) L) => φ(X) andBool
 //! f(L)`), the theorem that `f l = some true` exactly when every element satisfies `φ`
 //! (`ListHook.all_iff_of_eqns`, from the two equations, which `k2l_fold_eqn` proves from the
@@ -854,23 +855,32 @@ pub fn emit(
                 }
                 continue;
             }
+            // an `owise` equation is a conditional rewrite whose side condition says that no
+            // other equation's patterns match (`howise : ∀ …, x = pat → False`); simp uses it
+            // where it can discharge that condition, which it does when the argument is built
+            // from constructors other than the patterns' (and after a case split on a variable
+            // under an injection), so it joins the unfolding set when it is proved
             let es = &cx.eqs[&g];
+            let eq_name = |i: usize| {
+                format!(
+                    "Eqn.{}",
+                    names::ident(&format!("{}_{}", names::demangle(&g), i + 1))
+                )
+            };
+            let proved = |n: &String| cx.stated.contains(n) && !cx.open_eqns.contains(n);
             let eq_names: Vec<String> = (0..es.len())
                 .filter(|&i| !es[i].owise)
-                .map(|i| {
-                    format!(
-                        "Eqn.{}",
-                        names::ident(&format!("{}_{}", names::demangle(&g), i + 1))
-                    )
-                })
+                .map(eq_name)
                 .collect();
-            if !eq_names.is_empty()
-                && eq_names
-                    .iter()
-                    .all(|n| cx.stated.contains(n) && !cx.open_eqns.contains(n))
-            {
+            let owise_names: Vec<String> = (0..es.len())
+                .filter(|&i| es[i].owise)
+                .map(eq_name)
+                .filter(proved)
+                .collect();
+            if !eq_names.is_empty() && eq_names.iter().all(proved) {
                 uses_eqns = true;
                 unfold.extend(eq_names);
+                unfold.extend(owise_names);
             } else {
                 unfold.push(gs.lean.clone());
                 unfold.extend((1..=es.len()).map(|k| format!("{}.rule{k}", gs.lean)));

@@ -288,7 +288,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,22)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,22)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1226,7 +1226,17 @@ module CELLMAP
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,19,22,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
+    ),
+    total{}()
+  ]
+  symbol LblisCount'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'KItem{}(SortKItem{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,19,23,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     ),
@@ -1238,7 +1248,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1250,7 +1260,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1262,7 +1272,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1274,7 +1284,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1304,7 +1314,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1318,7 +1328,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1330,7 +1340,7 @@ module CELLMAP
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,19,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,20,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
     )
@@ -1951,6 +1961,15 @@ module CELLMAP
       \equals{SortBool{}, R}(
         Val:SortBool{},
         LblcntOk'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblisCount'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'KItem{}(K0:SortKItem{})
       )
     )
     [functional{}()]
@@ -5540,17 +5559,82 @@ module CELLMAP
       \equals{SortBool{}, R}(
         LblcntOk'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'Int{}(X0:SortInt{}),
         \and{SortBool{}}(
+          LblisCount'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'KItem{}(
+            inj{SortInt{}, SortKItem{}}(VarI:SortInt{})
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("307c461bd72efd2dff2b84ff72127a6d78372de54485f2bfb159303b4df49f5b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(X0:SortKItem{}, inj{SortInt{}, SortKItem{}}(VarI:SortInt{})),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisCount'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortBool{}}(
           Lbl'Unds-GT-Eqls'Int'Unds'{}(VarI:SortInt{}, \dv{SortInt{}}("0")),
           \top{SortBool{}}()
         )
       )
     )
     [
-      UNIQUE'Unds'ID{}("574725ead95571f9cc99c7a91f2091ad3256ccbb641b0f2fa4ca2c2039e80f49"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,29)"),
+      UNIQUE'Unds'ID{}("60f450b7c51a5476b6c5630d79630982dd8626c88854b3f175279ba68e1b681a"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
       )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen1:SortInt{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortKItem{}, R}(
+                    X0:SortKItem{},
+                    inj{SortInt{}, SortKItem{}}(Var'Unds'Gen1:SortInt{})
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortKItem{}, R}(X0:SortKItem{}, Var'Unds'Gen0:SortKItem{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisCount'LParUndsRParUnds'CELLMAP'Unds'Bool'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("949ec32b177e7b15c7330e0bb93f413453478886b2c2513fec92281a1290d428"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
+      ),
+      owise{}()
     ]
   axiom{}
     \rewrites{SortGeneratedTopCell{}}(
@@ -5604,7 +5688,7 @@ module CELLMAP
     [
       UNIQUE'Unds'ID{}("d22a9d44b6e2fbfd4ec6586faf052dbfc587abff7436bb39a2b42da4e89cf7dd"),
       label{}("tick"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,82)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,82)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
       )
@@ -5653,7 +5737,7 @@ module CELLMAP
     [
       UNIQUE'Unds'ID{}("8e1f7cf32a9616401d9ba848ef7bf5eb100a23b44226b8d5cc573981e9dbe8b6"),
       label{}("spawn"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,27,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,31,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
       )
@@ -7429,7 +7513,7 @@ module CELLMAP
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,1,28,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,1,32,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/cellmap/cellmap.k)"
   )
