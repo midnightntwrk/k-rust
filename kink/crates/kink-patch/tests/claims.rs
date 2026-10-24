@@ -570,6 +570,14 @@ fn trusted_claims_are_pinned() {
 /// one line above every compatibility.md passage after 1100, which moves those ten passages down
 /// 1, byte-identical (found by their text in the merged file): only their lines, and
 /// `TRUSTED_CLAIMS`' citations of them, are re-pinned.
+///
+/// Re-pin fz26 INT9-FIX-DOCS (review CHKB-2): compatibility.md 1143, the list of premises the
+/// contract states and does not check, now also names A1+ (the executable and adopted witness
+/// equations terminate innermost over the signature with the added constants). The clauses the
+/// `total`, `concrete`/`symbolic` and lemma rows cite (a `total` symbol is defined on defined
+/// arguments, an author axiom; lemmas and `concrete` or `symbolic` equations are theorems of the
+/// executable equations) are byte-identical and still unchecked; no line moved. Only 1143's
+/// digest is re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
@@ -581,7 +589,7 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
         "docs/compatibility.md",
         1143,
         1143,
-        "8199e9124fc14aae5d25b074e191ce3e7885cfd662b51e8a055d0360b294c39b",
+        "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
     ),
     (
         "docs/compatibility.md",

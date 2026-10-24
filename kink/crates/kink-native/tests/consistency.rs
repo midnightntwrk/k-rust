@@ -259,6 +259,12 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// by digest of the merged texts: 1100-1107 -> `d519755a`; 1069-1071 (`a350602f`), 1123-1136
 /// (`64b22da3`) and `definition.rs` 2926-2956 (`3b520509`) are as the branches pinned them.
 ///
+/// fz26 INT9-FIX-DOCS (review CHKB-3): line 1104 now also says that the load checks again that
+/// the closure of its own second pass withdraws no witness head, and otherwise keeps its own first
+/// pass, with no witness (`confluence.rs`, `witness::heads_untainted`), which `CONFLUENCE_RS`
+/// already pinned in the code. kink reads the full check (`CheckScope::All`), not the load, so no
+/// reading of kink's moves. Re-pinned by digest: 1100-1107 -> `16798fc0`; no line moved.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -273,7 +279,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "d519755a07611bd6bbdd9789fe100d20e4466886e7760a565421fc35577846b8",
+        "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
     ),
     (
         "docs/compatibility.md",

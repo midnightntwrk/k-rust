@@ -88,7 +88,7 @@
 //! [`BackendDefinition::is_data`] with that definition's own [`DataHeads`] (its own full check,
 //! equations and overload families, its own full subsort order through its matcher), so each of
 //! the two definitions must have data. Then, by the argument
-//! above under A1 and A2 for each definition, two different such terms denote different values of
+//! above under A1+ and A2 for each definition, two different such terms denote different values of
 //! each definition's initial model, so `tm` differs from every `tb` whichever theory reads them.
 //! Syntactic difference is read on k-rust's internal normal form, whose injections are taken
 //! from the term's own sort (nested injections compose), which does not depend on the

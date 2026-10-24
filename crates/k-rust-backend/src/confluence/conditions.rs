@@ -81,8 +81,9 @@
 //!   is an equivalence relation. A class holding two different domain values of one sort (two
 //!   different elements: the unifier reads them as a clash too) holds on no instance, nor does a
 //!   class two of whose members a negative equality (the atom required false, or `\not` of the
-//!   `\equals`) relates. The operands of `KEQUAL.eq` that are one-element sequences of injections
-//!   from one sort are compared by their items (`kseq` is a free constructor, `inj` injective).
+//!   `\equals`) relates. The operands of `KEQUAL.eq` are compared as whole sequences: comparing
+//!   one-element sequences of injections from one sort by their items is not done yet
+//!   ([`sequence_item`] gives no item), which only leaves classes coarser.
 //!   A class with exactly one domain value gives each of its other members that value on every
 //!   instance where the conjuncts hold, so each conjunct with the members replaced by the value
 //!   holds there too (symbols denote functions: congruence); `Context::conditions` simplifies the
@@ -98,10 +99,13 @@
 //!   never from the name (`isS` is what K generates), once per check ([`memberships`]). A conjunct
 //!   states a membership literal of an item `u` when its Boolean literal is
 //!   `p(kseq(inj{T, KItem}(u), dotk))` (exactly a `dotk` tail: `p` is false at a longer sequence
-//!   whatever its first item) with a polarity, read through `notBool`, through `==Bool`,
-//!   `=/=Bool`, `==K` and `=/=K` against a Boolean literal (each holds only where its operands
-//!   are defined, and a Boolean sort has two values), and through `andBool` or `andThenBool`
-//!   required true and `orBool` or `orElseBool` required false, which state both operands. A
+//!   whatever its first item) with a polarity, read through `notBool`, through `==Bool` and
+//!   `=/=Bool` against a Boolean literal (each holds only where its operands are defined, and a
+//!   Boolean sort has two values), and through `andBool` or `andThenBool` required true and
+//!   `orBool` or `orElseBool` required false, which state both operands. The K equalities `==K`
+//!   and `=/=K` against a one-element sequence of a Boolean literal are not read yet: the reader
+//!   asks [`sequence_item`] for their operands' items, which never gives one, so such a conjunct
+//!   states no literal (a literal not read only makes fewer conjunctions refuted). A
 //!   literal under `\not` holds also where its term is undefined, so it is read only where its
 //!   whole term is shown defined; `p`, `kseq` and the injection are total, so a membership atom is
 //!   defined where its item is: `ceil_free`, shown by the definedness rules above, or the item of
@@ -661,10 +665,11 @@ fn membership_atom(memberships: &Memberships, term: &Term) -> Option<(Term, Sort
 
 /// The membership literals of the Boolean term `term` required with `polarity`: `(u, S, b)`
 /// says that `u` lies in `S` when `b`, and does not when not `b`. The term is read through
-/// `notBool`, `==Bool`, `=/=Bool`, `==K` and `=/=K` against a Boolean literal (each holds only
-/// where its operands are defined, so the operand is the literal or its complement there),
-/// `andBool` and `andThenBool` required true and `orBool` and `orElseBool` required false (both
-/// operands hold, respectively fail).
+/// `notBool`, `==Bool` and `=/=Bool` against a Boolean literal (each holds only where its
+/// operands are defined, so the operand is the literal or its complement there), `andBool` and
+/// `andThenBool` required true and `orBool` and `orElseBool` required false (both operands hold,
+/// respectively fail). `==K` and `=/=K` are not read yet (module documentation): their branch
+/// below gets no operands from [`sequence_item`].
 fn membership_literals(
     definition: &BackendDefinition,
     memberships: &Memberships,
@@ -687,6 +692,8 @@ fn membership_literals(
             both(left, right, literals);
         }
         Some((hook @ ("BOOL.eq" | "BOOL.ne" | "KEQUAL.eq" | "KEQUAL.ne"), [left, right])) => {
+            // Not read yet for `KEQUAL`: `sequence_item` asks for an injection under the item
+            // `k_sequence_item` already returns, so it gives `None` and this branch returns.
             let (left, right) = if hook.starts_with("KEQUAL") {
                 match (sequence_item(left), sequence_item(right)) {
                     (Some(left), Some(right)) => (left, right),
@@ -1051,8 +1058,8 @@ impl Classes {
 /// The equality or disequality a conjunct states between two terms, and whether it is positive:
 /// an equality atom (`INT.eq`, `KEQUAL.eq`, `BOOL.eq`, `STRING.eq` and their negations) required
 /// true or false (not under `\not`), an ML `\equals(t, u)` neither of whose sides is a Boolean
-/// literal, or its `\not`. The operands of `KEQUAL.eq` that are one-element sequences of an injection from one
-/// sort are compared by the injected items: `kseq` is a free constructor and `inj` injective.
+/// literal, or its `\not`. The operands of `KEQUAL.eq` are kept as whole sequences: reading
+/// one-element sequences by their injected items is not done yet ([`sequence_item`] gives none).
 fn equality(definition: &BackendDefinition, conjunct: &Predicate) -> Option<(Term, Term, bool)> {
     let plain = |predicate: &Predicate| match predicate {
         Predicate::Equals(left, right)
@@ -1086,7 +1093,10 @@ fn equality(definition: &BackendDefinition, conjunct: &Predicate) -> Option<(Ter
     Some((left, right, polarity))
 }
 
-/// The item of a one-element `K` sequence `kseq(inj{S, KItem}(item), dotk)`.
+/// Meant as the item of a one-element `K` sequence `kseq(inj{S, KItem}(item), dotk)`, but
+/// `k_sequence_item` already returns the item under the injection and this asks for a second
+/// injection, so it gives `None` unless the item is itself an injection, which `Term::injection`
+/// composes away. The K-equality readers above therefore read no items yet.
 fn sequence_item(term: &Term) -> Option<Term> {
     let item = crate::builtin::k_sequence_item(term)?;
     match item.kind() {
