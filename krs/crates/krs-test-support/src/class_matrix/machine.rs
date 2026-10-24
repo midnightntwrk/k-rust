@@ -146,9 +146,11 @@ const READABLE_SPELLINGS: [&str; 13] = [
 /// A readable record or claim clause with `construct` in `kind`'s entry on `side`.
 ///
 /// - Subject: `{ k: [C(), ..], CELL: S } => { k: [..] }`, which only reads the cell.
-/// - Result: `{ k: [C(x, y), ..], CELL: old } => { k: [..], CELL: S }`; the subject binds the
+/// - Result: `{ k: [C(x, y), ..], CELL: OLD } => { k: [..], CELL: S }`; the subject matches the
 ///   cell because a result cannot introduce a cell the subject does not match, and the command
-///   binds `x` and `y` for the spelling.
+///   binds `x` and `y` for the spelling. `OLD` ([`result_subject`]) is the binder `old` for a
+///   cell that holds one value, and the spelling the cell's kind requires otherwise, so that the
+///   subject is no case of its own.
 /// - The computation cell's subject: `{ k: S, pc: _ } => { pc: 1 }`, which reads the
 ///   computation and writes another cell, so the rule changes a cell whatever `S` is.
 /// - The computation cell's result: `{ k: [C(x, y), ..] } => { k: S }`.
@@ -178,8 +180,9 @@ fn record_clause(
         }
         (_, _, Some(command)) => {
             item.push(&format!(
-                "k: [{}(x, y), ..], {cell}: old }} => {{ k: [..], ",
-                command.name
+                "k: [{}(x, y), ..], {cell}: {} }} => {{ k: [..], ",
+                command.name,
+                result_subject(kind)
             ))
             .entry(cell, construct)
             .push(" }");
@@ -187,6 +190,17 @@ fn record_clause(
         (_, _, None) => unreachable!("only the computation cell's subject has no command"),
     }
     item.push(";\n");
+}
+
+/// What a result case's subject matches in the cell it rewrites: the binder `old`, and for the
+/// optional cell and the collection, whose entries `Some`/`None` and an instance list are the
+/// only spellings their kinds admit, a present cell and a front instance.
+const fn result_subject(kind: CellKind) -> &'static str {
+    match kind {
+        CellKind::Optional => "Some(old)",
+        CellKind::Collection => "[Job { payload: _, .. }, ..]",
+        _ => "old",
+    }
 }
 
 /// Readable records: 7 kinds × 13 spellings × {subject, result}.
