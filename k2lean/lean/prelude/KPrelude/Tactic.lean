@@ -160,7 +160,9 @@ elab "k2l_choose" : tactic => withMainContext do
       evalTactic (← `(tactic| refine KPrelude.MapHook.exists_mem_choose' $h ?k2lheq ?_))
       evalTactic (← `(tactic| case k2lheq => first | rfl | (simp_all; done)))
       evalTactic (← `(tactic| intro _))
-      evalTactic (← `(tactic| dsimp only))
+      -- the continuation can already be in normal form, and `dsimp only` fails when it makes no
+      -- progress
+      evalTactic (← `(tactic| try dsimp only))
       return
     catch _ => s.restore
   throwError "k2l_choose: no hypothesis matches"
