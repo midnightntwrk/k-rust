@@ -100,7 +100,9 @@ pub use values::{Constraints, Value};
 /// every hole, value trees included (N-T2); a campaign that reads data ends on a definition
 /// whose full critical-pair check reports a finding not assumed joined runs no case
 /// (not comparable at setup); and the data judgement's check reads an overlap over a sort with
-/// no normal form like any other (FZ-EMPTYSORT), which moves the classes the proposers read.
+/// no normal form like any other (FZ-EMPTYSORT), pairs each equation at an evaluated hook with the
+/// hook's written meaning and refutes more overlaps (FZ-CONFLUENCE), which moves the classes the
+/// proposers read.
 pub const ENGINE_VERSION: u32 = 5;
 
 #[cfg(test)]
