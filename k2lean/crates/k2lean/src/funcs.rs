@@ -500,18 +500,23 @@ pub fn list_size_instances(m: &Model) -> String {
 
 /// `MapSizeOf` for each map sort of the per-sort universe, from the structural facts of
 /// `Terms.lean` (`S.sizeOf_lookupR`, `S.sizeOf_eraseR`): the termination facts of a function that
-/// recurses on the value or the rest of `K |-> V REST`.
+/// recurses on the value or the rest of `K |-> V REST`; `ListSizeAffine` for each list sort (its
+/// `sizeOf` is its list's), those of `ListItem(X) REST`.
 pub fn map_size_instances(m: &Model) -> String {
     let mut o = String::new();
     for s in &m.block {
         let info = m.sort(s);
-        if info.kind != crate::model::Kind::Coll(crate::model::Coll::Map) {
-            continue;
+        match info.kind {
+            crate::model::Kind::Coll(crate::model::Coll::Map) => o.push_str(&format!(
+                "instance : KPrelude.MapSizeOf {s} {} {} := ⟨{s}.sizeOf_lookupR, {s}.sizeOf_eraseR⟩\n",
+                info.elems[0], info.elems[1]
+            )),
+            crate::model::Kind::Coll(crate::model::Coll::List) => o.push_str(&format!(
+                "instance : KPrelude.ListSizeAffine {s} {} := ⟨⟨0, {s}.sizeOf_ofList_eq⟩⟩\n",
+                info.elems[0]
+            )),
+            _ => {}
         }
-        o.push_str(&format!(
-            "instance : KPrelude.MapSizeOf {s} {} {} := ⟨{s}.sizeOf_lookupR, {s}.sizeOf_eraseR⟩\n",
-            info.elems[0], info.elems[1]
-        ));
     }
     if !o.is_empty() {
         o.push('\n');

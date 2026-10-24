@@ -1486,6 +1486,13 @@ theorem SortList.ofList_toList : ∀ m, SortList.ofList (SortList.toList m) = m
   | .cons k r => by simp [SortList.ofList, SortList.toList, SortList.ofList_toList r]
 instance : ListIso SortList (SortKItem) := ⟨SortList.toList, SortList.ofList, SortList.toList_ofList, SortList.ofList_toList⟩
 
+theorem SortList.sizeOf_ofList_eq : ∀ l : List SortKItem, sizeOf (SortList.ofList l) = 0 + sizeOf l
+  | [] => rfl
+  | x :: r => by
+    have := SortList.sizeOf_ofList_eq r
+    simp only [SortList.ofList, SortList.cons.sizeOf_spec, List.cons.sizeOf_spec] at this ⊢
+    omega
+
 def SortMap.toList : SortMap → List (SortKItem × SortKItem)
   | .nil => []
   | .cons k v r => (k, v) :: r.toList

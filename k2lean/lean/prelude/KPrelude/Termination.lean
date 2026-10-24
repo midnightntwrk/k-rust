@@ -63,25 +63,38 @@ theorem sizeOf_dropLast_lt {E : Type} [SizeOf E] : ∀ (xs : List E), xs ≠ [] 
     simp only [List.dropLast_cons_cons, List.cons.sizeOf_spec] at ih ⊢
     omega
 
+/-- A list carrier whose `sizeOf` is its list's plus a constant: one (`ListSizeOf`, the
+arity-indexed universe) or none (the per-sort carriers `.nil`/`.cons x r`, whose instances
+`Functions.lean` declares). The termination facts of `ListItem(X) REST` and `REST ListItem(X)`. -/
+class ListSizeAffine (L E : Type) [ListIso L E] [SizeOf L] [SizeOf E] : Prop where
+  affine : ∃ c : Nat, ∀ l : List E, sizeOf (ofList l : L) = c + sizeOf l
+
+instance listSizeAffine_of_listSizeOf {L E : Type} [ListIso L E] [SizeOf L] [SizeOf E]
+    [ListSizeOf L E] : ListSizeAffine L E := ⟨⟨1, ListSizeOf.sizeOf_ofList⟩⟩
+
 namespace ListHook
-variable {L E : Type} [ListIso L E] [SizeOf L] [SizeOf E] [ListSizeOf L E]
+variable {L E : Type} [ListIso L E] [SizeOf L] [SizeOf E] [ListSizeAffine L E]
 
 /-- The pieces of `ListItem(X) REST` are smaller than the list. -/
 theorem sizeOf_uncons {l t : L} {x : E} (h : uncons l = some (x, t)) :
     sizeOf x < sizeOf l ∧ sizeOf t < sizeOf l := by
+  obtain ⟨c, hc⟩ := ListSizeAffine.affine (L := L) (E := E)
   unfold uncons at h
   split at h
   · simp at h
   · next y ys hl =>
     simp only [Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    rw [sizeOf_eq_toList l, hl, ListSizeOf.sizeOf_ofList]
+    have hl' := hc (toList l)
+    rw [ofList_toList, hl] at hl'
+    rw [hl', hc ys]
     simp only [List.cons.sizeOf_spec]
     omega
 
 /-- The pieces of `REST ListItem(X)` are smaller than the list. -/
 theorem sizeOf_unsnoc {l t : L} {x : E} (h : unsnoc l = some (t, x)) :
     sizeOf x < sizeOf l ∧ sizeOf t < sizeOf l := by
+  obtain ⟨c, hc⟩ := ListSizeAffine.affine (L := L) (E := E)
   unfold unsnoc at h
   split at h
   · simp at h
@@ -90,7 +103,9 @@ theorem sizeOf_unsnoc {l t : L} {x : E} (h : unsnoc l = some (t, x)) :
     obtain ⟨rfl, rfl⟩ := h
     have hne : toList l ≠ [] := by intro e; simp [e] at hl
     have hmem : y ∈ toList l := List.mem_of_getLast? hl
-    rw [sizeOf_eq_toList l, ListSizeOf.sizeOf_ofList]
+    have hl' := hc (toList l)
+    rw [ofList_toList] at hl'
+    rw [hl', hc]
     have h1 := List.sizeOf_lt_of_mem hmem
     have h2 := sizeOf_dropLast_lt (toList l) hne
     omega

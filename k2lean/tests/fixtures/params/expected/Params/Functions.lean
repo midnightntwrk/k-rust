@@ -20,6 +20,7 @@ class Hooks where
 
 variable [Hooks]
 
+instance : KPrelude.ListSizeAffine SortList SortKItem := ⟨⟨0, SortList.sizeOf_ofList_eq⟩⟩
 instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
 
 /-- `BYTES.bytes2int`, with the byte order and signedness compared with `bigEndianBytes`

@@ -779,6 +779,15 @@ theorem {s}.sizeOf_eraseR {{k : {kt}}} {{v : {vt}}} : ∀ {{m : {s}}}, {s}.looku
             )
             .unwrap();
         }
+        if info.kind == Kind::Coll(Coll::List) {
+            // `sizeOf` of the carrier is its list's: the termination facts of `ListItem(X) REST`
+            // (`KPrelude.ListSizeAffine`, whose instance `Functions.lean` declares)
+            writeln!(
+                o,
+                "theorem {s}.sizeOf_ofList_eq : ∀ l : List {kt}, sizeOf ({s}.ofList l) = 0 + sizeOf l\n  | [] => rfl\n  | x :: r => by\n    have := {s}.sizeOf_ofList_eq r\n    simp only [{s}.ofList, {s}.cons.sizeOf_spec, List.cons.sizeOf_spec] at this ⊢\n    omega\n"
+            )
+            .unwrap();
+        }
         if info.kind == Kind::Coll(Coll::Set) {
             // a set is a map to `Unit`; the map operations on lists serve it directly
             writeln!(o, "instance : MapRepr {s} {kt} Unit := {{}}\n").unwrap();

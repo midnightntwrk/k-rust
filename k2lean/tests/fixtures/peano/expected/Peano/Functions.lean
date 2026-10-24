@@ -12,6 +12,7 @@ namespace Peano
 
 open KPrelude
 
+instance : KPrelude.ListSizeAffine SortList SortKItem := ⟨⟨0, SortList.sizeOf_ofList_eq⟩⟩
 instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
 
 /-! `plus(_,_)_PEANO_Nat_Nat_Nat` (recursive) -/
