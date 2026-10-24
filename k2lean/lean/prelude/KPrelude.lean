@@ -7,6 +7,7 @@ import KPrelude.Run
 import KPrelude.Rules
 import KPrelude.Tactic
 import KPrelude.Ext
+import KPrelude.HookLaws
 import KPrelude.RelAttr
 import KPrelude.Relate
 import KPrelude.Invariant

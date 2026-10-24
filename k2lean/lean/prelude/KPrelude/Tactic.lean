@@ -1,6 +1,7 @@
 import Lean
 import KPrelude.Coll
 import KPrelude.Ext
+import KPrelude.HookLaws
 
 /-!
 # Tactics used by generated proofs
@@ -114,6 +115,49 @@ elab "k2l_case_discr" : tactic => do
     let some d := tgt.find? (fun s => (discrVar s).isSome) >>= discrVar
       | throwError "k2l_case_discr: no match on a variable"
     let gs ← g.cases d.fvarId!
+    pure (gs.toList.map (·.mvarId))
+
+/-! ## Equations that need more than unfolding -/
+
+/-- Close a generated equation statement with a law of `KPrelude.HookLaws`: an equation of
+`domains.md` proved about the hook definitions, in the shape `Equations.lean` states it, whose
+hypotheses are the statement's own. The match is syntactic (reducible transparency), so a
+statement that is not one of the laws fails fast. -/
+macro "k2l_hook_law" : tactic => `(tactic| first
+  | (with_reducible apply KPrelude.IntHook.bitRange_eqn)
+  | (with_reducible apply KPrelude.IntHook.signExtendBitRange_eqn)
+  | (with_reducible apply KPrelude.IntHook.emod_tmod_abs)
+  | (with_reducible apply KPrelude.IntHook.land_assoc)
+  | (with_reducible apply KPrelude.StringHook.le_eqn)
+  | (with_reducible apply KPrelude.StringHook.ge_eqn)
+  | (with_reducible apply KPrelude.StringHook.rfindChar_eqn1 <;> assumption)
+  | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn1 <;> assumption)
+  | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn2 <;> assumption)
+  | (with_reducible apply KPrelude.StringHook.countAllOccurrences_eqn1 <;> assumption))
+
+/-- `k2l_case_inj`: case on a variable of a generated sort (an inductive type `Sort…`) that is the
+argument of an injection function `inj_…` in the goal. An injection is defined by cases on its
+argument, so after the split it reduces: a `match` of the cascade on the injected term (the
+pattern of another subsort) then reduces too, which `simp` cannot do on the variable. Fails when
+there is no such variable. -/
+elab "k2l_case_inj" : tactic => do
+  liftMetaTactic fun g => g.withContext do
+    let env ← getEnv
+    let tgt ← instantiateMVars (← g.getType)
+    let lctx ← getLCtx
+    let sortVar (d : Expr) : Bool :=
+      d.isFVar && (match lctx.find? d.fvarId! with
+        | some decl => match decl.type.getAppFn with
+          | .const n _ => (match n with | .str _ s => s.startsWith "Sort" | _ => false) &&
+              (match env.find? n with | some (.inductInfo _) => true | _ => false)
+          | _ => false
+        | none => false)
+    let injOfVar (e : Expr) : Bool := match e.getAppFn with
+      | .const n@(.str _ s) _ => s.startsWith "inj_" && e.getAppNumArgs == 1 &&
+          (match env.find? n with | some (.defnInfo _) => true | _ => false) && sortVar e.appArg!
+      | _ => false
+    let some e := tgt.find? injOfVar | throwError "k2l_case_inj: no injected variable"
+    let gs ← g.cases e.appArg!.fvarId!
     pure (gs.toList.map (·.mvarId))
 
 end KPrelude
