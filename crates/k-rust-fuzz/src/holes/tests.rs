@@ -146,6 +146,7 @@ fn span(
         location: HoleLocation::Span(SpanAddress {
             program: program.to_owned(),
             line,
+            column: None,
             find: find.to_owned(),
             literal: literal.to_owned(),
         }),
@@ -301,6 +302,62 @@ fn a_span_that_is_not_exactly_one_literal_is_refused() {
         assert_eq!(
             resolve_err(&[decl], &program, definition),
             span_error(&hole, problem)
+        );
+    }
+}
+
+/// A span hole addressed by `line` and `column` (FZ-POLISH S8): the literal `3` of
+/// `x3 = 3;` also occurs inside the identifier `x3`, so `find = "3"` is ambiguous on that line,
+/// while the column of the literal's first character names it alone (as DOGFOOD's
+/// `(i32.const 3)`, whose `i32` holds a 3).
+#[test]
+fn a_span_hole_is_addressed_by_line_and_column() {
+    let definition = imp();
+    let text = "int x3;\nx3 = 3;\n";
+    let program = program("imp/col.imp", text, &[]);
+    let at = |line: Option<u32>, column: u32, find: &str, literal: &str| HoleDecl {
+        location: HoleLocation::Span(SpanAddress {
+            column: Some(column),
+            ..match span("X", "Int", "imp/col.imp", line, find, literal).location {
+                HoleLocation::Span(address) => address,
+                _ => unreachable!("a span"),
+            }
+        }),
+        ..span("X", "Int", "imp/col.imp", line, find, literal)
+    };
+    assert_eq!(
+        resolve_err(
+            &[span("X", "Int", "imp/col.imp", Some(2), "3", "3")],
+            &program,
+            definition
+        ),
+        span_error("X", SpanProblem::FindCount(2))
+    );
+    let start = text.find("= 3").expect("the assignment") + "= ".len();
+    for decl in [at(Some(2), 6, "", "3"), at(Some(2), 6, "3", "3")] {
+        let holes = resolve_ok(&[decl], &program, definition);
+        let [hole] = holes.holes.as_slice() else {
+            panic!("one hole: {holes:?}");
+        };
+        assert_eq!(
+            hole.site,
+            HoleSite::Span {
+                text: SpanText::Program,
+                start,
+                end: start + 1
+            }
+        );
+        assert_eq!(hole.anchor, Some(Value::Int(BigInt::from(3))));
+    }
+    for (decl, problem) in [
+        (at(None, 6, "", "3"), SpanProblem::ColumnWithoutLine),
+        (at(Some(2), 5, "", "3"), SpanProblem::LiteralNotAtColumn),
+        (at(Some(2), 40, "", "3"), SpanProblem::LiteralNotAtColumn),
+        (at(Some(2), 6, "= 3", "3"), SpanProblem::FindWithColumn),
+    ] {
+        assert_eq!(
+            resolve_err(&[decl], &program, definition),
+            span_error("X", problem)
         );
     }
 }

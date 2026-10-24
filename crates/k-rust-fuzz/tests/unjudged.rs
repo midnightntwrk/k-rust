@@ -47,6 +47,7 @@ fn spec(
             location: HoleLocation::Span(SpanAddress {
                 program: program.into(),
                 line: None,
+                column: None,
                 find: find.into(),
                 literal: literal.into(),
             }),

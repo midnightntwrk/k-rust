@@ -1142,6 +1142,7 @@ mod tests {
             location: HoleLocation::Span(SpanAddress {
                 program: "transfer.imp".into(),
                 line: Some(4),
+                column: Some(10),
                 find: "amount = 250;".into(),
                 literal: "250".into(),
             }),
@@ -1380,7 +1381,8 @@ mod tests {
         );
         let case = concat!(
             r#"{"holes":[{"name":"AMOUNT","location":{"kind":"span","#,
-            r#""program":"transfer.imp","line":4,"find":"amount = 250;","literal":"250"},"#,
+            r#""program":"transfer.imp","line":4,"column":10,"find":"amount = 250;","#,
+            r#""literal":"250"},"#,
             r#""k-text":"-7","kore":"\\dv{SortInt{}}(\"-7\")","#,
             r#""value":{"int":"-7"}}],"class":"hit","#,
             r#""sides":[{"role":"baseline","#,

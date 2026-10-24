@@ -60,7 +60,8 @@ The no-witness statement, and the summary of a report with a witness, list the r
 
 ## Hole declarations
 
-A hole replaces a span of the unmodified program, addressed by `program`, an optional `line`, `find` (a text that occurs exactly once in the addressed line or program) and `literal` (the hole's literal, which occurs exactly once in `find`).
+A hole replaces a span of the unmodified program, addressed by `program`, an optional `line`, `find` (a text that occurs exactly once in the addressed line or program) and `literal` (the hole's literal, which occurs exactly once in `find`), or by `line`, `column` and `literal`.
+Instead of a unique `find`, `line` and `column` may place the literal: `column` is the one-based column, counted in characters (a tab is one), of the literal's first character on that line, and `find` is then left out (or is the literal itself). This addresses a literal that also occurs nearby inside other text, such as the `3` of `(i32.const 3)`, whose `i32` holds a 3: give the line and the column of that `3`, with `literal = "3"`.
 The text at the span is the hole's anchor value, the first value the explicit proposer tries.
 A configuration variable (`$NAME`) can also be a hole, addressed by its name; so can a free variable of a KORE initial pattern, in the library API.
 The declaration format of ARCHITECTURE 2.2, with the program `transfer.imp` unchanged:
@@ -226,7 +227,7 @@ safety-limit-seconds = 60     # shrink, smt-timeout-ms, smt-retry-limit; no-safe
 name = "AMOUNT"
 sort = "Int"
 line = 4                      # `program` defaults to the program's name; `$NAME` addresses a binding's text
-find = "amount = 250;"        # defaults to `literal`
+find = "amount = 250;"        # defaults to `literal`; or `column = 10` places the literal on `line`
 literal = "250"
 range = { min = 0, max = 1000000 }   # also `length`, `elements = { element = "Int" }`, `choices = [1, 2]`
 

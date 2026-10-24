@@ -1521,6 +1521,7 @@ mod tests {
             location: HoleLocation::Span(SpanAddress {
                 program: "imp/le.imp".into(),
                 line: None,
+                column: None,
                 find: find.into(),
                 literal: literal.into(),
             }),
@@ -1663,6 +1664,7 @@ mod tests {
                 location: HoleLocation::Span(SpanAddress {
                     program: "coin/count.pgm".into(),
                     line: None,
+                    column: None,
                     find: "count(3)".into(),
                     literal: "3".into(),
                 }),
@@ -1749,6 +1751,7 @@ mod tests {
                 location: HoleLocation::Span(SpanAddress {
                     program: "coin/count.pgm".into(),
                     line: None,
+                    column: None,
                     find: "count(3)".into(),
                     literal: "3".into(),
                 }),

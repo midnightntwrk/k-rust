@@ -353,6 +353,7 @@ fn the_command_line_runs_the_library_campaign() {
         location: HoleLocation::Span(SpanAddress {
             program: "le.imp".into(),
             line,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),

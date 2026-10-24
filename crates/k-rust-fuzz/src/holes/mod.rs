@@ -104,7 +104,9 @@ pub enum HoleLocation {
 /// (or the whole text without `line`), and `literal`, the hole's text, exactly once inside
 /// `find`; occurrences are counted overlapping. `find` may equal `literal` when the literal is
 /// unique, and otherwise carries enough context to make the span unique (`find = "x = 7;"`,
-/// `literal = "7"`).
+/// `literal = "7"`). Instead, `line` and `column` may place the literal (its first character's
+/// one-based column), which needs no unique text: the `3` of `(i32.const 3)`, whose `i32` holds
+/// a 3 too.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct SpanAddress {
@@ -113,7 +115,13 @@ pub struct SpanAddress {
     pub program: String,
     /// The one-based line of the addressed text the span is on.
     pub line: Option<u32>,
-    /// A text occurring exactly once in the line or program, containing the literal.
+    /// The one-based column, in characters, of the literal's first character on `line`: the
+    /// span is the literal there, which `find` then need not make unique (`find` is empty or
+    /// the literal itself). Needs `line`. Absent from the JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    /// A text occurring exactly once in the line or program, containing the literal; empty or
+    /// the literal itself when [`Self::column`] places the literal.
     pub find: String,
     /// The hole's literal, occurring exactly once in `find`; the hole's anchor value.
     pub literal: String,

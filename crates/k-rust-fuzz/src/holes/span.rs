@@ -111,11 +111,54 @@ fn addressed_text<'p>(
     }
 }
 
-/// The byte range of `address.literal` in `content`: `find` occurs exactly once in the
-/// addressed line (or all of `content`), and `literal` exactly once in `find`. Occurrences are
-/// counted overlapping, since each is a different place the text could mean.
+/// The byte range of `address.literal` in `content`: the literal at `line` and `column` when a
+/// column is given; otherwise `find` occurs exactly once in the addressed line (or all of
+/// `content`), and `literal` exactly once in `find`. Occurrences are counted overlapping, since
+/// each is a different place the text could mean.
 fn literal_span(address: &SpanAddress, content: &str) -> Result<(usize, usize), SpanProblem> {
-    let (offset, region) = match address.line {
+    if let Some(column) = address.column {
+        if address.line.is_none() {
+            return Err(SpanProblem::ColumnWithoutLine);
+        }
+        if !address.find.is_empty() && address.find != address.literal {
+            return Err(SpanProblem::FindWithColumn);
+        }
+        let (offset, region) = addressed_line(address, content)?;
+        let at = usize::try_from(column)
+            .ok()
+            .and_then(|column| column.checked_sub(1))
+            .and_then(|index| match region.char_indices().nth(index) {
+                Some((at, _)) => Some(at),
+                None if index == region.chars().count() => Some(region.len()),
+                None => None,
+            })
+            .ok_or(SpanProblem::LiteralNotAtColumn)?;
+        if address.literal.is_empty() || !region[at..].starts_with(&address.literal) {
+            return Err(SpanProblem::LiteralNotAtColumn);
+        }
+        let start = offset + at;
+        return Ok((start, start + address.literal.len()));
+    }
+    let (offset, region) = addressed_line(address, content)?;
+    let finds = occurrences(region, &address.find);
+    let [find] = finds.as_slice() else {
+        return Err(SpanProblem::FindCount(finds.len()));
+    };
+    let literals = occurrences(&address.find, &address.literal);
+    let [literal] = literals.as_slice() else {
+        return Err(SpanProblem::LiteralCount(literals.len()));
+    };
+    let start = offset + find + literal;
+    Ok((start, start + address.literal.len()))
+}
+
+/// The byte offset in `content` and the text of the line `address` names, or all of `content`
+/// without a line.
+fn addressed_line<'c>(
+    address: &SpanAddress,
+    content: &'c str,
+) -> Result<(usize, &'c str), SpanProblem> {
+    Ok(match address.line {
         None => (0, content),
         Some(line) => {
             let index = usize::try_from(line)
@@ -133,17 +176,7 @@ fn literal_span(address: &SpanAddress, content: &str) -> Result<(usize, usize), 
             }
             found.ok_or(SpanProblem::LineOutOfRange)?
         }
-    };
-    let finds = occurrences(region, &address.find);
-    let [find] = finds.as_slice() else {
-        return Err(SpanProblem::FindCount(finds.len()));
-    };
-    let literals = occurrences(&address.find, &address.literal);
-    let [literal] = literals.as_slice() else {
-        return Err(SpanProblem::LiteralCount(literals.len()));
-    };
-    let start = offset + find + literal;
-    Ok((start, start + address.literal.len()))
+    })
 }
 
 /// The byte offsets of every occurrence of `needle` in `haystack`, overlapping ones included;

@@ -1188,7 +1188,7 @@ export type FuzzValue =
   | { apply: { symbol: string; arguments: FuzzValue[] } }
 
 export type FuzzHoleLocation =
-  | { kind: 'span'; program: string; line?: number | null; find: string; literal: string }
+  | { kind: 'span'; program: string; line?: number | null; column?: number; find: string; literal: string }
   | { kind: 'config-var'; name: string }
   | { kind: 'kore-variable'; name: string }
 

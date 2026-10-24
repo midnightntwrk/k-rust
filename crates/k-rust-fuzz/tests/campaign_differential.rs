@@ -60,6 +60,7 @@ fn spec_on(
             location: HoleLocation::Span(SpanAddress {
                 program: program.into(),
                 line: None,
+                column: None,
                 find: "3".into(),
                 literal: "3".into(),
             }),
@@ -233,6 +234,7 @@ fn int_hole(name: &str, program: &str, find: &str, literal: &str, max: i64) -> H
         location: HoleLocation::Span(SpanAddress {
             program: program.into(),
             line: None,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),
@@ -349,6 +351,7 @@ fn an_undefined_redeclaration_where_the_baseline_stops_is_killed() {
         location: HoleLocation::Span(SpanAddress {
             program: "imp-diff/sum.imp".into(),
             line: None,
+            column: None,
             find: "int n, sum;".into(),
             literal: "sum".into(),
         }),
@@ -960,6 +963,7 @@ fn a_finite_domain_is_exhausted_after_its_assignments() {
         location: HoleLocation::Span(SpanAddress {
             program: "imp-diff/sum.imp".into(),
             line: None,
+            column: None,
             find: "int n, sum;".into(),
             literal: "sum".into(),
         }),
@@ -998,6 +1002,7 @@ fn a_token_choice_written_as_a_string_is_refused_with_the_token_form() {
         location: HoleLocation::Span(SpanAddress {
             program: "imp-diff/sum.imp".into(),
             line: None,
+            column: None,
             find: "int n, sum;".into(),
             literal: "sum".into(),
         }),

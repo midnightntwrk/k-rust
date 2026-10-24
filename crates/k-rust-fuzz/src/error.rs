@@ -18,6 +18,13 @@ pub enum SpanProblem {
     FindCount(usize),
     /// `literal` occurs this many times (not once) inside `find`.
     LiteralCount(usize),
+    /// A `column` is given without a `line`.
+    ColumnWithoutLine,
+    /// The text at `line` and `column` is not `literal` (or the line is shorter).
+    LiteralNotAtColumn,
+    /// A `column` places the literal, and `find` is neither empty nor the literal: the two
+    /// addresses could disagree.
+    FindWithColumn,
     /// The hole addresses a configuration variable the definition does not declare, or one the
     /// program binds in no way the hole can replace.
     UnknownConfigVar,
@@ -379,6 +386,17 @@ impl fmt::Display for CampaignError {
                     SpanProblem::LiteralCount(count) => {
                         write!(f, "`literal` occurs {count} times in `find`, not once")
                     }
+                    SpanProblem::ColumnWithoutLine => {
+                        f.write_str("its `column` needs a `line` to count in")
+                    }
+                    SpanProblem::LiteralNotAtColumn => f.write_str(
+                        "its `literal` does not start at its `line` and `column` (columns are \
+                         one-based and count characters)",
+                    ),
+                    SpanProblem::FindWithColumn => f.write_str(
+                        "its `column` places the literal, so `find` must be left out (or be the \
+                         literal itself)",
+                    ),
                     SpanProblem::UnknownConfigVar => {
                         f.write_str("names a configuration variable it cannot replace")
                     }

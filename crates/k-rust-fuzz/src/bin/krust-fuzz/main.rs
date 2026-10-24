@@ -832,6 +832,20 @@ mod tests {
         .expect("the example parses");
         assert_eq!(file.hole.len(), 1);
         assert_eq!(file.hole[0].literal.as_deref(), Some("250"));
+        // A column places the literal on its line (FZ-POLISH S8).
+        let file: CampaignFile = toml::from_str(
+            r#"
+            [[hole]]
+            name = "C"
+            sort = "Int"
+            program = "t.wat"
+            line = 3
+            column = 17
+            literal = "3"
+            "#,
+        )
+        .expect("a hole with a column parses");
+        assert_eq!(file.hole[0].column, Some(17));
     }
 
     #[test]
