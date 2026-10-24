@@ -1282,6 +1282,17 @@ fn emit(
         "theorem fold_update {{m : {na}.SortMap}} (hm : KeysOK m) {{k : {na}.SortKItem}} (hk : keyOK k = true) (v : {na}.SortKItem) :\n    MapHook.update (tr_SortMap m) (tr_SortKItem k) (tr_SortKItem v) = tr_SortMap (MapHook.update m k v) :=\n  MapHook.update_pointwise toList_tr_SortMap pres v hm hk\n"
     )
     .unwrap();
+    // `fold_update` at each key leaf, where `keyOK` holds by evaluation: the tactics rewrite with
+    // these, so no rewrite needs `simp` to discharge `keyOK k = true` (since Lean v4.33 `simp`
+    // rejects a discharge proved by unfolding `keyOK`, a definition it may not unfold reducibly)
+    for l in &key_leaves {
+        let s = names::short_sort(l);
+        writeln!(
+            o,
+            "theorem fold_update_{s} {{m : {na}.SortMap}} (hm : KeysOK m) {{x}} (v : {na}.SortKItem) :\n    MapHook.update (tr_SortMap m) (tr_SortKItem (.inj_{s} x)) (tr_SortKItem v) = tr_SortMap (MapHook.update m (.inj_{s} x) v) :=\n  fold_update hm rfl v\n"
+        )
+        .unwrap();
+    }
     writeln!(o, "theorem keysOK_update {{m : {na}.SortMap}} {{k v : {na}.SortKItem}} (hm : KeysOK m) (hk : keyOK k = true) : KeysOK (MapHook.update m k v) :=\n  MapHook.keysOn_update hm hk\n").unwrap();
     let top_lean = &a.m.ctors[&top_ctor].lean;
     // value sorts that B's rules refine map values to (`Map<Id, Value>` in KRS)
@@ -1432,13 +1443,17 @@ fn emit(
             }
         }
     }
+    let upd_lemmas: Vec<String> = key_leaves
+        .iter()
+        .map(|l| format!("fold_update_{}", names::short_sort(l)))
+        .collect();
     let folds_upd: String = inv_pats
         .iter()
-        .map(|p| format!(", fold_update ({p})"))
+        .flat_map(|p| upd_lemmas.iter().map(move |u| format!(", {u} ({p})")))
         .collect();
     let unfolds_upd: String = inv_pats
         .iter()
-        .map(|p| format!(", ← fold_update ({p})"))
+        .flat_map(|p| upd_lemmas.iter().map(move |u| format!(", ← {u} ({p})")))
         .collect();
     let inv_hint = inv_pats.first().cloned().unwrap_or_default();
     // the tr equations and the injections, oriented to push `tr` inwards
