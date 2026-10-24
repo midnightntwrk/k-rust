@@ -159,9 +159,14 @@ impl Campaign {
                         initial.push(Some(digest_hex(configuration.to_string().as_bytes())));
                     }
                     Err(reason) if side == 0 => {
+                        let reason = serde_json::to_value(reason)
+                            .ok()
+                            .and_then(|name| name.as_str().map(str::to_owned))
+                            .unwrap_or_default();
                         return Err(CampaignError::Program {
                             message: format!(
-                                "the program with its anchor values is refused: {reason:?}"
+                                "the program with its anchor values is refused ({reason}: the \
+                                 rejection reason a case with these values would have)"
                             ),
                         });
                     }

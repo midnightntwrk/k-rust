@@ -69,6 +69,55 @@ pub enum SortRefusal {
     },
 }
 
+/// The words of a refusal: why the sort is refused and, where an author can act, what to do.
+impl fmt::Display for SortRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const OVERRIDE: &str = "a hole's `allow-refused-sort = true` (library \
+                                `HoleDecl::allow_refused_sort`) admits it, and the report \
+                                records the override";
+        match self {
+            Self::Unknown => f.write_str("the definition declares no sort of that name"),
+            Self::Computation => f.write_str(
+                "it is `K`, `KItem` or a cell sort: a hole is data, never a computation",
+            ),
+            Self::ProgramSyntax => write!(
+                f,
+                "programs are written in it (it lies in the closure of the program start \
+                 sort's productions), and a hole is data, never program text; {OVERRIDE}"
+            ),
+            Self::Token => write!(
+                f,
+                "it is a user token sort, whose tokens name declarations of the program (as an \
+                 `Id` does), so a value of it edits the program; {OVERRIDE}, and its values are \
+                 then written as tokens, such as `{{ token = {{ sort = \"Id\", text = \"n\" }} }}`"
+            ),
+            Self::NoGenerator => f.write_str(
+                "it is hooked to a builtin that has no value generator (such as `Float` or an \
+                 input/output handle)",
+            ),
+            Self::Collection => f.write_str(
+                "it is a collection whose element sorts are not declared, or not in the shape \
+                 its kind takes: declare `elements = { element = \"Int\" }` for a list or a \
+                 set, `elements = { key = \"Id\", value = \"Int\" }` for a map",
+            ),
+            Self::ElementRefused { element, reason } => {
+                write!(f, "its element sort `{element}` is refused: {reason}")
+            }
+            Self::ElementNotHeld { declared, element } => write!(
+                f,
+                "its declared element sort `{declared}` is not what the collection's element \
+                 production takes there (`{element}`), so its values would hold ill-sorted \
+                 elements; no override admits it"
+            ),
+            Self::MissingOnSide { side } => write!(
+                f,
+                "the {side} definition of the differential pair does not declare it, so a value \
+                 of it means nothing there"
+            ),
+        }
+    }
+}
+
 /// Why a target is refused (ARCHITECTURE 4.2, 9.2). [`fmt::Display`] says why in words, with
 /// the rules an author can name instead.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,7 +143,9 @@ pub enum TargetProblem {
     UnknownId,
     /// The entry is an equation; equation targets are refused in M1.
     Equation,
-    /// The pattern does not compile in the execution definition.
+    /// The pattern does not compile in the execution definition, or is refused (a `requires`
+    /// that reads a variable its configuration does not bind). Positions in the message are
+    /// lines and columns of the pattern's own text (`line 1, column 23`).
     Pattern(String),
     /// The target kind or option is not provided by this milestone or build (for example
     /// `at: any-state` before G-4, or an observer before FZ-10).
@@ -218,7 +269,7 @@ impl fmt::Display for TargetProblem {
                 "the reference names an equation, not a rewrite rule; a rule target names a \
                  rewrite rule (target a rewrite rule whose step evaluates the function instead)",
             ),
-            Self::Pattern(message) => write!(f, "the pattern does not compile: {message}"),
+            Self::Pattern(message) => write!(f, "the target pattern is refused: {message}"),
             Self::Unsupported(message) => f.write_str(message),
         }
     }
@@ -351,7 +402,7 @@ impl fmt::Display for CampaignError {
                 )
             }
             Self::RefusedHoleSort { hole, sort, reason } => {
-                write!(f, "hole `{hole}`: sort `{sort}` is refused: {reason:?}")
+                write!(f, "hole `{hole}`: sort `{sort}` is refused: {reason}")
             }
             Self::InvalidConstraints { hole, message } => {
                 write!(f, "hole `{hole}`: invalid constraints: {message}")
@@ -389,6 +440,93 @@ impl From<k_rust::backend::StopCause> for CampaignError {
     fn from(cause: k_rust::backend::StopCause) -> Self {
         Self::Definition {
             message: format!("validation stopped: {cause}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FZ-POLISH S6: every sort refusal prints words, never a Rust variant name.
+    #[test]
+    fn every_sort_refusal_prints_human_text() {
+        let refusals = [
+            SortRefusal::Unknown,
+            SortRefusal::Computation,
+            SortRefusal::ProgramSyntax,
+            SortRefusal::Token,
+            SortRefusal::NoGenerator,
+            SortRefusal::Collection,
+            SortRefusal::ElementRefused {
+                element: "Stmt".into(),
+                reason: Box::new(SortRefusal::ProgramSyntax),
+            },
+            SortRefusal::ElementNotHeld {
+                declared: "Int".into(),
+                element: "Stmt".into(),
+            },
+            SortRefusal::MissingOnSide { side: "mutant" },
+        ];
+        let identifiers = [
+            "Unknown",
+            "Computation",
+            "ProgramSyntax",
+            "Token",
+            "NoGenerator",
+            "Collection",
+            "ElementRefused",
+            "ElementNotHeld",
+            "MissingOnSide",
+            "Box(",
+        ];
+        for refusal in refusals {
+            let error = CampaignError::RefusedHoleSort {
+                hole: "H".into(),
+                sort: "Map".into(),
+                reason: refusal.clone(),
+            }
+            .to_string();
+            for identifier in identifiers {
+                assert!(!error.contains(identifier), "{refusal:?}: {error}");
+            }
+            assert!(
+                error.len() > "hole `H`: sort `Map` is refused: ".len() + 10,
+                "{error}"
+            );
+        }
+    }
+
+    /// FZ-POLISH S6: every target problem prints words, never a Rust variant name.
+    #[test]
+    fn every_target_problem_prints_human_text() {
+        let problems = [
+            TargetProblem::SharedIdentity,
+            TargetProblem::NotExecutable,
+            TargetProblem::UnknownId,
+            TargetProblem::Equation,
+            TargetProblem::Pattern("line 1, column 3: no".into()),
+            TargetProblem::Unsupported("not here".into()),
+            TargetProblem::AmbiguousRule(Vec::new()),
+            TargetProblem::AmbiguousSource {
+                source: "a.k".into(),
+                files: vec!["x/a.k".into()],
+            },
+        ];
+        for problem in problems {
+            let text = CampaignError::Target(problem.clone()).to_string();
+            for identifier in [
+                "SharedIdentity",
+                "NotExecutable",
+                "UnknownId",
+                "Equation",
+                "Pattern(",
+                "Unsupported(",
+                "AmbiguousRule",
+                "AmbiguousSource",
+            ] {
+                assert!(!text.contains(identifier), "{problem:?}: {text}");
+            }
         }
     }
 }

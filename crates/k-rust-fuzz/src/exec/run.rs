@@ -97,7 +97,7 @@ impl PatternCompiler {
             pattern,
             pattern_attributes(pattern),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| relocate_positions(&error.to_string()))?;
         let unbound = unbound_condition_variables(&search);
         if !unbound.is_empty() {
             let names = unbound
@@ -143,6 +143,42 @@ impl PatternCompiler {
             .map_err(|message| CampaignError::NormalEndPattern { message })?;
         Ok(NormalEnd { pattern, kind })
     }
+}
+
+/// `message` with each position `<command line>:LINE:COLUMN:` that the frontend gives a
+/// pattern's text (krun's source name for a command-line pattern, [`pattern_attributes`])
+/// written as `line LINE, column COLUMN:` of the pattern's own text: a campaign's pattern comes
+/// from a campaign file, a flag or a library call, and its client names which.
+fn relocate_positions(message: &str) -> String {
+    const SOURCE: &str = "<command line>:";
+    let mut relocated = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(start) = rest.find(SOURCE) {
+        relocated.push_str(&rest[..start]);
+        let after = &rest[start + SOURCE.len()..];
+        let digits = |text: &str| text.bytes().take_while(u8::is_ascii_digit).count();
+        let line = digits(after);
+        let column = after
+            .get(line..)
+            .and_then(|text| text.strip_prefix(':'))
+            .map_or(0, digits);
+        match after.get(line + 1 + column..) {
+            Some(tail) if line > 0 && column > 0 && tail.starts_with(':') => {
+                relocated.push_str(&format!(
+                    "line {}, column {}:",
+                    &after[..line],
+                    &after[line + 1..line + 1 + column]
+                ));
+                rest = &tail[1..];
+            }
+            _ => {
+                relocated.push_str("the pattern:");
+                rest = after;
+            }
+        }
+    }
+    relocated.push_str(rest);
+    relocated
 }
 
 /// The K names of the free variables of `search`'s condition that its configuration does not

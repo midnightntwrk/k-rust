@@ -96,7 +96,8 @@ It accepts builtin and hooked sorts that have a generator (`Int`, `Bool`, `Strin
 The rule applies to every sort a value of the hole's sort may contain: collection element sorts and the argument sorts of its constructors, transitively, so `List<Stmt>`, `List<K>` and a record holding an `AExp` are refused, and `KResult` and other K-internal sorts count as computation.
 When the start sort is `K` or `KItem`, the closure is every non-hooked sort of the syntax module.
 User token sorts such as `Id` are refused, because an identifier names a declaration of the program.
-`allow_refused_sort` overrides a refusal, and the report records the override.
+`allow_refused_sort` (`allow-refused-sort = true` in a campaign file) overrides a refusal, and the report records the override; the refusal itself says why the sort is refused and, where an override applies, names it.
+The values of an admitted token sort are tokens, written `{ token = { sort = "Id", text = "n" } }` in a campaign file (`{"token": {"sort": "Id", "text": "n"}}` in JSON), in `choices` too; a plain string there is refused with that form.
 
 ## Differential target
 
@@ -205,6 +206,7 @@ The start sort defaults to the sort of `$PGM`.
 The campaign file holds the `[[hole]]` declarations of [Hole declarations](#hole-declarations) and, optionally, everything else; paths in the file are relative to its directory.
 Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--data-end`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
 `--rule-mode` and `mode` are refused unless the target is a rule, `at` unless it is a pattern, and `--mutant` selects the differential target only when no other target is named (a mutant with a rule or pattern target is refused).
+A pattern the campaign refuses (it does not parse, or its `requires` reads a variable its configuration does not bind) is named by where it came from (`--pattern`, `--normal-end`, or the key and table of the campaign file), with positions as lines and columns of the pattern's own text; the library's `TargetProblem::Pattern` and `CampaignError::NormalEndPattern` give the same positions.
 
 ```toml
 definition = "imp-kompiled"   # --definition; `mutant` (--mutant) names a mutant: the differential target

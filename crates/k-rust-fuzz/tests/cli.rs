@@ -833,6 +833,47 @@ fn contradictory_options_are_refused_and_flags_switch_off_the_file() {
     assert!(stdout.starts_with("witness found\n"), "{stdout}");
 }
 
+/// FZ-POLISH S6: a pattern that does not compile is refused naming where it came from (the
+/// campaign file's key or the flag), with its position in the pattern's own text, never
+/// krun's `<command line>`.
+#[test]
+fn a_pattern_refusal_names_where_the_pattern_came_from() {
+    let directory = le_workspace("pattern-origin");
+    let broken = le_campaign().replace(LE_VIOLATION, "<k> .K </k> <state> r |-> R </state>");
+    fs::write(directory.join("broken.toml"), broken).unwrap();
+    let refused = |args: &[&str], needles: &[&str]| {
+        let output = krust_fuzz(&directory, args);
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+        for needle in needles {
+            assert!(stderr.contains(needle), "{args:?}: {stderr}");
+        }
+        assert!(!stderr.contains("<command line>"), "{args:?}: {stderr}");
+    };
+    refused(
+        &["--campaign", "broken.toml"],
+        &["`pattern` of `[target]` in broken.toml", "line 1, column"],
+    );
+    refused(
+        &[
+            "--campaign",
+            "le.toml",
+            "--pattern",
+            "<k> .K </k> <state> r |-> R </state>",
+        ],
+        &["--pattern", "line 1, column"],
+    );
+    refused(
+        &[
+            "--campaign",
+            "le.toml",
+            "--normal-end",
+            "<k> .K </k> <nope> </nope>",
+        ],
+        &["--normal-end"],
+    );
+}
+
 /// Round 2, S1 and N2: a missing or non-executable `krust-fuzz` is an error (exit 2), never
 /// the "no witness" status 1; a non-executable candidate on PATH is skipped; a leading `--`
 /// reaches `krust-fuzz`.

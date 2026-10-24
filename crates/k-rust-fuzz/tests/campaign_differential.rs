@@ -987,3 +987,39 @@ fn a_finite_domain_is_exhausted_after_its_assignments() {
     );
     assert!(!statement.contains("The budget was spent"), "{statement}");
 }
+
+/// TRIAL2 N-T3 (FZ-POLISH): a token choice written as a plain string is refused with the form
+/// a token is written in.
+#[test]
+fn a_token_choice_written_as_a_string_is_refused_with_the_token_form() {
+    let hole = HoleDecl {
+        name: "V".into(),
+        sort: "Id".into(),
+        location: HoleLocation::Span(SpanAddress {
+            program: "imp-diff/sum.imp".into(),
+            line: None,
+            find: "int n, sum;".into(),
+            literal: "sum".into(),
+        }),
+        constraints: Constraints {
+            choices: Some(vec![Value::String("n".into())]),
+            ..Constraints::default()
+        },
+        allow_refused_sort: true,
+    };
+    let error = Campaign::new(trial_spec(
+        &IMP_DIFF,
+        &IMP_ADD_COMMUTED,
+        "imp-diff/sum.imp",
+        vec![hole],
+        Vec::new(),
+        PathMode::OnePath,
+    ))
+    .err()
+    .expect("refused")
+    .to_string();
+    assert!(
+        error.contains(r#"{ token = { sort = "Id", text = "n" } }"#),
+        "{error}"
+    );
+}

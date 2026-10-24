@@ -19,7 +19,8 @@ use std::{
 use clap::{Parser, ValueEnum};
 use k_rust::backend::CompiledRuleKind;
 use k_rust_fuzz::{
-    Campaign,
+    Campaign, CampaignError,
+    error::TargetProblem,
     exec::UnjudgedReason,
     report::{BestScore, CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
     target::RuleMode,
@@ -353,13 +354,18 @@ fn run(args: Args) -> Result<u8, String> {
         file.as_ref()
             .and_then(|(_, file)| file.target.as_ref()?.rule.clone())
     });
+    let origins = PatternOrigins::of(
+        args.campaign.as_deref(),
+        file.as_ref().map(|(_, file)| file),
+        &overrides,
+    );
     let loaded = campaign::resolve(file, overrides)?;
     let spec = loaded.spec(
         loaded.resolved.proposers.clone(),
         loaded.resolved.options.clone(),
         STACK_SIZE as u64,
     );
-    let mut campaign = Campaign::new(spec).map_err(|error| format!("campaign refused: {error}"))?;
+    let mut campaign = Campaign::new(spec).map_err(|error| origins.refusal(&error))?;
     if let (Some(text), Some(rule)) = (&rule_text, campaign.target_rule()) {
         campaign::check_rule_range(text, rule)?;
     }
@@ -396,6 +402,62 @@ fn run(args: Args) -> Result<u8, String> {
     } else {
         NOT_FOUND
     })
+}
+
+/// Where a campaign's patterns came from, for a refusal that names them (FZ-POLISH S6): the
+/// library positions an error in the pattern's own text, and only the command line knows which
+/// key or flag gave the text.
+struct PatternOrigins {
+    /// The target pattern's: `--pattern` or the campaign file's key.
+    target: String,
+    /// The normal-end pattern's: `--normal-end` or the campaign file's key.
+    normal_end: String,
+}
+
+impl PatternOrigins {
+    /// The origins of the patterns that `overrides` and the campaign file at `path` give, as
+    /// `campaign::resolve` chooses them: a flag over the file.
+    fn of(
+        path: Option<&Path>,
+        file: Option<&campaign::CampaignFile>,
+        overrides: &Overrides,
+    ) -> Self {
+        let in_file = |key: &str, table: &str| match path {
+            Some(path) => format!("`{key}` of `[{table}]` in {}", path.display()),
+            None => format!("`{key}` of `[{table}]`"),
+        };
+        let target = if overrides.pattern.is_some() {
+            "--pattern".to_owned()
+        } else {
+            in_file("pattern", "target")
+        };
+        let in_options = file
+            .and_then(|file| file.options.as_ref())
+            .is_some_and(|options| options.normal_end_pattern.is_some());
+        let normal_end = if overrides.normal_end.is_some() {
+            "--normal-end".to_owned()
+        } else if in_options {
+            in_file("normal-end-pattern", "options")
+        } else {
+            "the default `<k> .K </k>`".to_owned()
+        };
+        Self { target, normal_end }
+    }
+
+    /// The command line's message for `error`, naming the origin of a refused pattern.
+    fn refusal(&self, error: &CampaignError) -> String {
+        match error {
+            CampaignError::Target(TargetProblem::Pattern(message)) => format!(
+                "campaign refused: the target pattern ({}) is refused: {message}",
+                self.target
+            ),
+            CampaignError::NormalEndPattern { message } => format!(
+                "campaign refused: the normal-end pattern ({}) is refused: {message}",
+                self.normal_end
+            ),
+            other => format!("campaign refused: {other}"),
+        }
+    }
 }
 
 /// `Some(true)` for the switch, `Some(false)` for its negation (clap keeps only the last one
