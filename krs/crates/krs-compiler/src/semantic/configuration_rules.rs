@@ -77,6 +77,7 @@ impl StateRuleTerms<'_> {
             pattern_key: None,
             binding_sorts: BTreeMap::new(),
             binding_constraints: initial_binding_constraints(binding_sorts),
+            constraint_sites: BTreeMap::new(),
             wildcard_offset: self.wildcard_ordinal,
             wildcards: Vec::new(),
             result_wildcards: false,
@@ -130,6 +131,7 @@ impl StateRuleTerms<'_> {
             pattern_key: None,
             binding_sorts: BTreeMap::new(),
             binding_constraints: initial_binding_constraints(binding_sorts),
+            constraint_sites: BTreeMap::new(),
             wildcard_offset: self.wildcard_ordinal,
             wildcards: Vec::new(),
             result_wildcards: false,
@@ -183,19 +185,19 @@ impl StateRuleTerms<'_> {
             )),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::invalid_term(
-                        descriptor.id(),
-                        "a nested cell entry is a binder, `_`, or fragment!, without a `Cell(..)` wrapper",
-                    ));
+                    return Err(DescriptorLoweringError::CellWrapper {
+                        reason: "a nested cell group's entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper".to_owned(),
+                        range: None,
+                    });
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::Group(term) => {
                 if !matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::invalid_term(
-                        descriptor.id(),
-                        "a leaf cell entry needs its `Cell(..)` or `KCell(..)` wrapper",
-                    ));
+                    return Err(DescriptorLoweringError::CellWrapper {
+                        reason: "a leaf cell's entry is `k::configuration::Cell(..)` around its content, and the computation cell's `k::configuration::KCell(..)` around its items".to_owned(),
+                        range: None,
+                    });
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
@@ -809,20 +811,38 @@ fn lower_configuration_rule_clause(
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
+    let name = &subject.field.cell.field;
+    // Neither entry is `Some`/`None` or an instance list, so on an optional cell or a collection,
+    // whose entries are written that way, the subject's spelling is that cell's mistake.
+    match declared
+        .multiplicity
+        .as_ref()
+        .map(|multiplicity| multiplicity.value.as_str())
+    {
+        Some("?") => {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
+                &subject.field.key,
+                format!("the optional cell `{name}` is matched with `Some(..)` or `None`"),
+            ));
+        }
+        Some(_) => {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                &subject.field.key,
+                format!(
+                    "`{name}` is a cell collection: its entry is an instance list (`[..]` for a List collection, `{{ .. }}` for a Set or Map one), not one value"
+                ),
+            ));
+        }
+        None => {}
+    }
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
         let ProtocolCellContent::Nested { declaration } = &declared.content else {
             unreachable!("a fixed cell is a leaf or nested");
         };
-        if declared.multiplicity.is_some() {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "configuration rule cell",
-                detail: format!(
-                    "the repeated cell `{}` is a cell collection, not one nested cell, so a rule cannot name it as a whole",
-                    subject.field.cell.field
-                ),
-                range: entry_range(descriptor, subject),
-            });
-        }
         return lower_configuration_group_clause(
             terms,
             subject,
@@ -834,25 +854,12 @@ fn lower_configuration_rule_clause(
     };
     // Each check names the entry that disagrees with the declaration, the subject first.
     let entries = || std::iter::once(subject).chain(result);
-    if let Some(entry) = entries().find(|entry| entry.wrapper.is_none()) {
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            format!(
-                "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
-                subject.field.cell.field
-            ),
-        )
-        .within(entry_range(descriptor, entry).as_deref()));
-    }
     if let Some(entry) = entries().find(|entry| entry.wrapper != Some(*wrapper)) {
-        return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(subject.field.cell.owner.clone()),
-            detail: format!(
-                "rule wrapper disagrees with declared cell {:?}",
-                subject.field.cell.field
-            ),
-            range: entry_range(descriptor, entry),
-        });
+        return Err(DescriptorLoweringError::cell_wrapper(
+            name,
+            Some(*wrapper),
+            entry_range(descriptor, entry),
+        ));
     }
     let declared_sort = semantic_sort_ref(&sort.sort);
     let mut before = terms.state_term(
@@ -920,14 +927,11 @@ fn lower_configuration_group_clause(
         .chain(result)
         .find(|entry| !group_entry(entry))
     {
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            format!(
-                "the nested cell entry `{}` is a binder, `_`, or fragment!, without a `Cell(..)` wrapper",
-                subject.field.cell.field
-            ),
-        )
-        .within(entry_range(descriptor, entry).as_deref()));
+        return Err(DescriptorLoweringError::cell_wrapper(
+            &subject.field.cell.field,
+            None,
+            entry_range(descriptor, entry),
+        ));
     }
     let sort = SemanticSortRef::Cell(declaration.clone());
     let before = terms.state_term(
@@ -1645,14 +1649,13 @@ fn check_moved_remainders(
             .flat_map(SemanticCondition::terms)
             .any(|term| super::evaluation::mentions(term, tail));
         if !used {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "cell content frame",
-                detail: format!(
-                    "rule {} uses incompatible subject/result associative state families or frames: the computation remainder `{tail}` is neither put back with `..{tail}` nor used",
-                    descriptor.id()
+            // The same mistake as a map remainder the result drops, and the same code.
+            return Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!(
+                    "the computation remainder `{tail}` is neither put back with `..{tail}` nor used, so the rule would drop the rest of the computation: keep it with `..{tail}`, or use it in a condition"
                 ),
-                range: None,
-            });
+            ));
         }
     }
     Ok(())

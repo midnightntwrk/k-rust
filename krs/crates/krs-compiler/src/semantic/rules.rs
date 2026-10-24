@@ -46,7 +46,8 @@ pub(super) fn framework_k_item_sort(
         .next()
         .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
             node: "framework sort",
-            detail: "internal error: the descriptor bundle has no framework KItem sort, which every definition has".into(),
+            detail: "the descriptor bundle has no framework KItem sort, which every definition has"
+                .into(),
             range: None,
         })?;
     if matches.next().is_some() {
@@ -537,6 +538,7 @@ pub(super) fn lower_head_rule_descriptor(
             .map(|(name, (sort, _))| (name.clone(), sort.clone()))
             .collect(),
         binding_constraints,
+        constraint_sites: BTreeMap::new(),
         wildcard_offset: 0,
         wildcards: Vec::new(),
         result_wildcards: false,
@@ -1562,12 +1564,13 @@ fn lower_head_rule_fixed_extra(
             },
         ) = (&declared.content, extra)
         else {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "head-anchored rule extra",
-                detail: "a nested cell entry is a binder, `_`, or fragment!, not a map pattern"
-                    .into(),
-                range: None,
-            });
+            return Err(DescriptorLoweringError::invalid_term(
+                builder.descriptor.id(),
+                format!(
+                    "map notation `{{ k -> v, .. }}` reads a Map cell, and `{}` is a nested cell group",
+                    cell_reference.cell.field
+                ),
+            ));
         };
         super::cell_alternatives::reject_cell_alternatives(
             builder.descriptor,
@@ -1642,11 +1645,13 @@ fn lower_head_rule_map_read(
     if wrapper != krs_ir::CellWrapper::Cell
         || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
     {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule extra",
-            detail: format!("extra cell {:?} is not a Map cell", cell.cell.field),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
+                "map notation `{{ k -> v, .. }}` reads a Map cell, and `{}` does not hold a Map",
+                cell.cell.field
+            ),
+        ));
     }
     let mut items = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
@@ -1753,14 +1758,11 @@ fn lower_head_rule_cell_rewrite(
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
     if wrapper != krs_ir::CellWrapper::Cell {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule extra",
-            detail: format!(
-                "ordinary cell {:?} does not use the Cell wrapper",
-                cell.cell.field
-            ),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::cell_wrapper(
+            &cell.cell.field,
+            Some(wrapper),
+            None,
+        ));
     }
     let expected = semantic_sort_ref(&sort.sort);
     let before = builder.lower(before, Some(&expected), true)?;
@@ -2003,6 +2005,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .chain(existential_sorts)
             .collect(),
         binding_constraints: BTreeMap::new(),
+        constraint_sites: BTreeMap::new(),
         wildcard_offset: 0,
         wildcards: Vec::new(),
         result_wildcards: rule

@@ -585,6 +585,13 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending entry.
         range: Option<Box<SourceRange>>,
     },
+    /// A configuration entry whose wrapper is not its cell's.
+    CellWrapper {
+        /// Stable reason naming the cell and the wrapper it takes.
+        reason: String,
+        /// Sole exact authored range of the entry.
+        range: Option<Box<SourceRange>>,
+    },
     /// A configuration variable no cell's initial content reads.
     UnusedConfigurationVariable {
         /// Stable reason naming the variable.
@@ -697,6 +704,7 @@ macro_rules! by_location_slot {
             | DescriptorLoweringError::DuplicateSmtlib { range: $range, .. }
             | DescriptorLoweringError::InvalidConsoleCell { range: $range, .. }
             | DescriptorLoweringError::CellCollection { range: $range, .. }
+            | DescriptorLoweringError::CellWrapper { range: $range, .. }
             | DescriptorLoweringError::UnusedConfigurationVariable { range: $range, .. }
             | DescriptorLoweringError::InvalidGeneratedIdentity { range: $range, .. }
             | DescriptorLoweringError::InvalidSemanticTheory { range: $range, .. } => $located,
@@ -725,6 +733,26 @@ impl DescriptorLoweringError {
             }, arms => ());
         }
         self
+    }
+
+    /// A wrapper error naming the cell `name`, which takes `wrapper` (`None` for a group).
+    pub(crate) fn cell_wrapper(
+        name: &str,
+        wrapper: Option<krs_ir::CellWrapper>,
+        range: Option<Box<SourceRange>>,
+    ) -> Self {
+        let reason = match wrapper {
+            Some(krs_ir::CellWrapper::KCell) => format!(
+                "`{name}` is the computation cell: its entry is `k::configuration::KCell(..)` around its items, or its items in brackets"
+            ),
+            Some(krs_ir::CellWrapper::Cell) => format!(
+                "`{name}` is a leaf cell: its entry is `k::configuration::Cell(..)` around its content"
+            ),
+            None => format!(
+                "`{name}` is a nested cell group: its entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper"
+            ),
+        };
+        Self::CellWrapper { reason, range }
     }
 
     /// An unsupported-shape error, without a range: the traversal that encloses it locates it.
@@ -919,6 +947,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
             | Self::CellCollection { reason, .. }
+            | Self::CellWrapper { reason, .. }
             | Self::UnusedConfigurationVariable { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity { detail, .. } => formatter.write_str(detail),
             Self::InvalidSemanticTheory { error, .. } => error.fmt(formatter),
@@ -1012,6 +1041,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
             Self::InvalidStaticClause { .. } => codes::analysis::INVALID_STATIC_CLAUSE,
             Self::InvalidConstant { .. } => codes::analysis::INVALID_CONSTANT,
+            Self::CellWrapper { .. } => codes::analysis::CELL_WRAPPER,
             Self::UnusedConfigurationVariable { .. } => {
                 codes::analysis::UNUSED_CONFIGURATION_VARIABLE
             }

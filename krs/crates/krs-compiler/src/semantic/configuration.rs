@@ -738,6 +738,7 @@ fn lower_initializer_term(
         pattern_key: None,
         binding_sorts: BTreeMap::new(),
         binding_constraints: initial_binding_constraints(binding_sorts),
+        constraint_sites: BTreeMap::new(),
         wildcard_offset: 0,
         wildcards: Vec::new(),
         result_wildcards: false,

@@ -451,6 +451,7 @@ pub(super) fn check_constants(
             pattern_key: None,
             binding_sorts: BTreeMap::new(),
             binding_constraints: BTreeMap::new(),
+            constraint_sites: BTreeMap::new(),
             wildcard_offset: 0,
             wildcards: Vec::new(),
             result_wildcards: false,
