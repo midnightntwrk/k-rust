@@ -2268,7 +2268,9 @@ pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
 
 /// The `ceil_free` attribute of a node with this kind, from its children's stored attributes, in
 /// time linear in the number of children; for a map, from its entries' summary, which holds the
-/// same conjunction, key header and repeated-key test over them.
+/// same conjunction, key header and repeated-key test over them; for an `And`, from a comparison
+/// of its sides (`Eq for Term`), linear in their size only when their hashes agree and they are
+/// not one `Arc`.
 ///
 /// Meaning: when it is true, the definedness walk (`definedness::ceil_term_walk`) returns no
 /// predicate for the term, whatever the definition. Each arm follows from what the walk emits
@@ -2276,7 +2278,8 @@ pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
 /// these cases:
 /// - an application of a `Partial` function emits its ceil (or a ceil equation's predicates);
 ///   any other application only collects its arguments' predicates;
-/// - `And`, an injection and a list only collect their children's predicates;
+/// - `And` emits the equality of its two sides unless they are equal (`definedness::and_side`);
+/// - an injection and a list only collect their children's predicates;
 /// - a domain value and an element variable emit nothing; a set variable emits its ceil;
 /// - a map or a set emits a not-in predicate per key or element when it has a rest, and a
 ///   disequality for each pair of keys (elements) that `elements_are_apart`
@@ -2312,7 +2315,9 @@ fn ceil_free(kind: &TermKind) -> bool {
             symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
                 && arguments.iter().all(free)
         }
-        TermKind::And(left, right) => free(left) && free(right),
+        // `t /\ t` is `t`; two different sides owe their equality (`definedness::and_side`).
+        // Equal sides are compared in O(1) when the hashes differ or the sides are one `Arc`.
+        TermKind::And(left, right) => free(left) && left == right,
         TermKind::Injection { term, .. } => free(term),
         TermKind::DomainValue { .. } => true,
         TermKind::Variable(variable) => variable.kind == VariableKind::Element,

@@ -24,8 +24,10 @@ use super::lean_bridge::generators::term_with_ground_keys;
 use crate::{
     definedness::{ceil_term, ceil_term_without_attribute},
     definition::BackendDefinition,
+    rule::Predicate,
     term::{
         CollectionSymbols, HeadRole, ListDefinition, MapDefinition, Sort, Symbol, Term, TermKind,
+        Variable,
     },
 };
 
@@ -73,6 +75,53 @@ fn closed_keys(term: &Term) -> Option<usize> {
         } if elements.len() > 1 => Some(elements.len()),
         _ => None,
     }
+}
+
+/// `⌈l /\ r⌉` is `⌈l⌉ /\ ⌈r⌉ /\ l = r` for sides without a set variable, each of which denotes
+/// at most one element (`definedness::and_side`): `\and{SortInt{}}(1, 2)` owes `1 = 2`, which is
+/// false, and `t /\ t` is `t`. A side that holds a set variable owes the conjunction's own ceil.
+#[test]
+fn a_term_conjunction_owes_the_equality_of_its_sides() {
+    let definition = definition();
+    let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
+    let walks = |term: &Term| {
+        let walk = ceil_term(&definition, term).unwrap();
+        assert_eq!(
+            walk,
+            ceil_term_without_attribute(&definition, term).unwrap()
+        );
+        walk
+    };
+    let different = Term::and(int("1"), int("2"));
+    assert!(!different.attributes().ceil_free());
+    assert_eq!(walks(&different), [Predicate::Equals(int("1"), int("2"))]);
+    // Nested under a constructor, the conjunction's obligation is the term's.
+    let inside = Term::injection(
+        Sort::simple("SortInt"),
+        Sort::simple("SortKItem"),
+        different,
+    );
+    assert!(!inside.attributes().ceil_free());
+    assert_eq!(walks(&inside), [Predicate::Equals(int("1"), int("2"))]);
+
+    let x = Term::variable(Variable::new("X", Sort::simple("SortInt")));
+    let y = Term::variable(Variable::new("Y", Sort::simple("SortInt")));
+    assert_eq!(
+        walks(&Term::and(x.clone(), y.clone())),
+        [Predicate::Equals(x.clone(), y)]
+    );
+
+    for equal in [Term::and(int("1"), int("1")), Term::and(x.clone(), x)] {
+        assert!(equal.attributes().ceil_free(), "{equal:?}");
+        assert!(walks(&equal).is_empty(), "{equal:?}");
+    }
+
+    let set = Term::variable(Variable::set("S", Sort::simple("SortInt")));
+    let with_set = Term::and(set.clone(), int("1"));
+    assert_eq!(
+        walks(&with_set),
+        [Predicate::Ceil(set), Predicate::Ceil(with_set.clone())]
+    );
 }
 
 #[test]
