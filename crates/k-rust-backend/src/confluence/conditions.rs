@@ -205,41 +205,14 @@ fn cases_contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) 
 fn contradictory_without_cases(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
     let mut seen = FxHashMap::<Atom, bool>::default();
     // A literal under `\not` holds also where its term is undefined: it is read only where the
-    // term is `ceil_free` or a literal not under `\not` requires the same atom (which shows it
-    // defined wherever the conjunction holds).
-    // A literal not under `\not` that requires `d =/=Int 0` shows `d` nonzero, so a quotient or
-    // remainder by `d` is defined wherever the conjunction holds.
-    let zero = |term: &Term| integer(definition, term) == Some(BigInt::from(0));
-    let nonzero = conjuncts
-        .iter()
-        .filter_map(|conjunct| {
-            // `\not(\equals(d, 0))`: `d` is nonzero wherever it is defined, which a quotient by
-            // it also needs (`defined_given` asks both).
-            if let Predicate::Not(inner) = conjunct {
-                return match &**inner {
-                    Predicate::Equals(left, right) if zero(right) => Some(left.clone()),
-                    Predicate::Equals(left, right) if zero(left) => Some(right.clone()),
-                    _ => None,
-                };
-            }
-            let (term, polarity) = literal(definition, conjunct)?;
-            match atom(&term, polarity) {
-                (Atom::Equal(left, right), false) => {
-                    match (integer(definition, &left), integer(definition, &right)) {
-                        (Some(zero), None) if zero == BigInt::from(0) => Some(right),
-                        (None, Some(zero)) if zero == BigInt::from(0) => Some(left),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
-        })
-        .collect::<BTreeSet<_>>();
+    // term is shown defined wherever the conjunction holds (`Definedness`), or a literal not
+    // under `\not` requires the same atom.
+    let facts = Definedness::of(definition, conjuncts);
     let read = conjuncts
         .iter()
         .filter_map(|conjunct| {
             let (term, polarity) = literal(definition, conjunct)?;
-            let defined = !matches!(conjunct, Predicate::Not(_)) || defined_given(&term, &nonzero);
+            let defined = !matches!(conjunct, Predicate::Not(_)) || facts.defined(&term);
             let (atom, polarity) = atom(&term, polarity);
             Some((atom, polarity, defined))
         })
@@ -273,36 +246,123 @@ fn contradictory_without_cases(definition: &BackendDefinition, conjuncts: &[Pred
         || Differences::of(definition, conjuncts).is_none()
 }
 
-/// Whether `term` is defined on every instance where each term of `nonzero` is a nonzero integer:
-/// it is `ceil_free`, or an application of a total symbol (or a constructor) to such terms, or an
-/// integer quotient or remainder (`INT.tdiv`, `tmod`, `ediv`, `emod`, each defined exactly where
-/// its divisor is nonzero) of such terms by a term of `nonzero`.
-fn defined_given(term: &Term, nonzero: &BTreeSet<Term>) -> bool {
-    use crate::term::{FunctionType, SymbolType};
-    if term.attributes().ceil_free() {
-        return true;
-    }
-    let TermKind::Application {
-        symbol, arguments, ..
-    } = term.kind()
-    else {
-        return false;
-    };
-    let arguments_defined = || {
-        arguments
-            .iter()
-            .all(|argument| defined_given(argument, nonzero))
-    };
-    match (symbol.attributes.hook.as_deref(), arguments.as_slice()) {
-        (Some("INT.tdiv" | "INT.tmod" | "INT.ediv" | "INT.emod"), [_, divisor]) => {
-            nonzero.contains(divisor) && arguments_defined()
+/// What the conjuncts show about the definedness of terms, wherever they hold: the integer terms
+/// they require nonzero (`d =/=Int 0` required true, or `\not(\equals(d, 0))`, which also holds
+/// where `d` is undefined: [`Self::defined`] asks `d` defined too), and the keys they require
+/// absent from a map (`MAP.in_keys(k, m)` or `k in keys(m)` required false, under `\not` only
+/// when the atom is `ceil_free`, or a `Predicate::Absent`).
+struct Definedness {
+    nonzero: BTreeSet<Term>,
+    absent: BTreeSet<(Term, Term)>,
+}
+
+impl Definedness {
+    fn of(definition: &BackendDefinition, conjuncts: &[Predicate]) -> Self {
+        let zero = |term: &Term| integer(definition, term) == Some(BigInt::from(0));
+        let mut facts = Self {
+            nonzero: BTreeSet::new(),
+            absent: BTreeSet::new(),
+        };
+        for conjunct in conjuncts {
+            if let Predicate::Absent(absence) = conjunct
+                && matches!(absence.collection(), crate::rule::KeyedCollection::Map(_))
+            {
+                facts
+                    .absent
+                    .insert((absence.key().clone(), absence.rest().clone()));
+                continue;
+            }
+            if let Predicate::Not(inner) = conjunct
+                && let Predicate::Equals(left, right) = &**inner
+            {
+                if zero(right) {
+                    facts.nonzero.insert(left.clone());
+                } else if zero(left) {
+                    facts.nonzero.insert(right.clone());
+                }
+                continue;
+            }
+            let Some((term, polarity)) = literal(definition, conjunct) else {
+                continue;
+            };
+            let under_not = matches!(conjunct, Predicate::Not(_));
+            match atom(&term, polarity) {
+                (Atom::Equal(left, right), false) if !under_not => {
+                    if zero(&right) {
+                        facts.nonzero.insert(left);
+                    } else if zero(&left) {
+                        facts.nonzero.insert(right);
+                    }
+                }
+                (Atom::Other(term), false) if !under_not || term.attributes().ceil_free() => {
+                    match hooked(&term) {
+                        Some(("MAP.in_keys", [key, map])) => {
+                            facts.absent.insert((key.clone(), map.clone()));
+                        }
+                        Some(("SET.in", [key, set])) => {
+                            if let Some(("MAP.keys", [map])) = hooked(set) {
+                                facts.absent.insert((key.clone(), map.clone()));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
         }
-        _ => {
-            matches!(
-                symbol.attributes.symbol_type,
-                SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
-            ) && symbol.attributes.collection.is_none()
-                && arguments_defined()
+        facts
+    }
+
+    /// Whether `term` is defined on every instance where the conjuncts hold: it is `ceil_free`;
+    /// an application of a total symbol (or a constructor) to such terms; an integer quotient or
+    /// remainder (`INT.tdiv`, `tmod`, `ediv`, `emod`, each defined exactly where its divisor is
+    /// nonzero) of such terms by a nonzero divisor; or a map of such keys and values with one
+    /// entry whose key is absent from its rest, or with distinct domain values as keys and no
+    /// rest (a map is defined exactly where its keys are pairwise distinct and absent from its
+    /// rest).
+    fn defined(&self, term: &Term) -> bool {
+        use crate::term::{FunctionType, SymbolType};
+        if term.attributes().ceil_free() {
+            return true;
+        }
+        match term.kind() {
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                let arguments_defined = || arguments.iter().all(|argument| self.defined(argument));
+                match (symbol.attributes.hook.as_deref(), arguments.as_slice()) {
+                    (Some("INT.tdiv" | "INT.tmod" | "INT.ediv" | "INT.emod"), [_, divisor]) => {
+                        self.nonzero.contains(divisor) && arguments_defined()
+                    }
+                    _ => {
+                        matches!(
+                            symbol.attributes.symbol_type,
+                            SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+                        ) && symbol.attributes.collection.is_none()
+                            && arguments_defined()
+                    }
+                }
+            }
+            TermKind::Injection { term, .. } => self.defined(term),
+            TermKind::Map { entries, rest, .. } => {
+                let parts = entries
+                    .iter()
+                    .all(|(key, value)| self.defined(key) && self.defined(value))
+                    && rest.as_ref().is_none_or(|rest| self.defined(rest));
+                let entries = entries.iter().cloned().collect::<Vec<_>>();
+                let distinct = match (entries.as_slice(), rest) {
+                    ([(key, _)], Some(rest)) => self.absent.contains(&(key.clone(), rest.clone())),
+                    (_, None) => entries.iter().enumerate().all(|(index, (key, _))| {
+                        matches!(key.kind(), TermKind::DomainValue { .. })
+                            && entries[index + 1..].iter().all(|(other, _)| {
+                                matches!(other.kind(), TermKind::DomainValue { .. }) && other != key
+                            })
+                    }),
+                    _ => false,
+                };
+                parts && distinct
+            }
+            _ => false,
         }
     }
 }

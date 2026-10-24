@@ -658,6 +658,36 @@ fn a_misread_interval_bound_is_caught_by_the_property_test() {
     assert!(!failures.is_empty());
 }
 
+/// A literal under `\not` holds also where its term is undefined: `\not(X in_keys (X |-> Y M))`
+/// holds where `M` has the key `X` (the map is undefined), so it refutes nothing alone, and is
+/// read as the false literal (which the key's membership contradicts) only beside the absence of
+/// `X` from `M` that makes the map defined (KOOL's `lookupMember` pair).
+#[test]
+fn a_negated_literal_is_read_only_where_its_term_is_shown_defined() {
+    let definition = definition();
+    let d = &definition;
+    let not_holds =
+        |text: &str| Predicate::Not(std::sync::Arc::new(Predicate::Term(term(d, text))));
+    let in_own_map = not_holds(
+        "inKeys{}(X:SortInt{}, mapConcat{}(mapItem{}(X:SortInt{}, Y:SortInt{}), M:SortMap{}))",
+    );
+    assert!(!contradictory(d, std::slice::from_ref(&in_own_map)));
+    let absent = not_holds("inKeys{}(X:SortInt{}, M:SortMap{})");
+    assert!(contradictory(d, &[in_own_map, absent]));
+    // `\not(Q ==Int Q)` over the partial quotient `Q = X /Int Y` holds where `Y` is 0.
+    let quotient = "divInt{}(X:SortInt{}, Y:SortInt{})";
+    let not_equal_to_itself = not_holds(&format!("eqInt{{}}({quotient}, {quotient})"));
+    assert!(!contradictory(
+        d,
+        std::slice::from_ref(&not_equal_to_itself)
+    ));
+    let nonzero = Predicate::Not(std::sync::Arc::new(Predicate::Equals(
+        term(d, "Y:SortInt{}"),
+        term(d, &int("0")),
+    )));
+    assert!(contradictory(d, &[not_equal_to_itself, nonzero]));
+}
+
 /// V7: merging the operands of a negative equality into one class refutes satisfiable
 /// conjunctions (`X =/=Int Y` beside `X ==Int 0` and `Y ==Int 1`), which the property test sees.
 #[test]
