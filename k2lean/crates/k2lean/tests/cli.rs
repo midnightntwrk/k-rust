@@ -241,6 +241,49 @@ fn invariant_inside_a_cell_map_is_lifted_to_every_element() {
     assert!(!thms.contains("Invariant.hand.init"), "{thms}");
 }
 
+/// `gen --invariant even@v` on the `nested` fixture, where `<v>` is inside the cell map of
+/// `<member>`s, which is inside the cell map of `<group>`s: the part is lifted over both, the
+/// element predicate of a group being the inner collection's predicate of its members; `even` is
+/// structurally recursive on `Nat` (`even(s(s(N))) => even(N)`), so its K equations join the
+/// unfolding set instead of a note; init's collections are literals of closed cells, so the init
+/// theorem is proved by computation.
+#[test]
+fn invariant_inside_two_nested_cell_maps_is_lifted_twice() {
+    let d = tmp("cli-nested");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/nested");
+    let out = d.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("gen")
+        .arg("--kore")
+        .arg(fx.join("definition.kore"))
+        .arg("--runtime")
+        .arg(fx.join("runtime.json"))
+        .arg("--out")
+        .arg(&out)
+        .args([
+            "--name",
+            "KNested",
+            "--prelude",
+            "../../prelude",
+            "--invariant",
+            "even@v",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!err.contains("is neither a list fold"), "{err}");
+    let defs = std::fs::read_to_string(out.join("KNested/InvariantDefs.lean")).unwrap();
+    assert!(defs.contains("def Invariant.even_elem (p : SortMidCell × SortMemberCell) : Prop :=\n  K.«even(_)_NESTED_Bool_Nat» (Invariant.content_v (Invariant.cell_v p.2)) = some true"), "{defs}");
+    assert!(defs.contains("def Invariant.even_in_group (p : SortGidCell × SortGroupCell) : Prop :=\n  KPrelude.MapHook.EntriesOn Invariant.even_elem (Invariant.content_members (Invariant.cell_members p.2))"), "{defs}");
+    assert!(defs.contains("def Invariant.even (c : SortGeneratedTopCell) : Prop :=\n  KPrelude.MapHook.EntriesOn Invariant.even_in_group (Invariant.content_groups (Invariant.cell_groups c))"), "{defs}");
+    let thms = std::fs::read_to_string(out.join("KNested/Invariants.lean")).unwrap();
+    assert!(thms.contains("Invariant.even_elem, Invariant.even_in_group, Eqn.«even(_)_NESTED_Bool_Nat_1», Eqn.«even(_)_NESTED_Bool_Nat_2», Eqn.«even(_)_NESTED_Bool_Nat_3»"), "{thms}");
+    assert!(thms.contains("theorem Invariant.init_holds (pgm : SortCmd) :\n    Invariant (init pgm) :=\n  (by simp only [Invariant, Invariant.even,"), "{thms}");
+    assert!(!thms.contains("Invariant.hand.init"), "{thms}");
+}
+
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {
     let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
         .arg("gen")
