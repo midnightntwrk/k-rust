@@ -293,7 +293,13 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// `pairs` counts witness pairs too (so `pairs >= root pairs` still holds), and `skipped` stays
 /// 0 under `CheckScope::All`. A verdict kink reads can now be the adopted pass, in which a pair
 /// that joins through a witness is not listed: see `PREMISE_PASSAGES`.
-const CONFLUENCE_RS: &str = "4d58d09a60ab5033107c005c542def14d32f6b944bf8bfdff0a9ee0cbed74483";
+///
+/// fz26 phase-8 FZ-EMPTYJOIN-ORACLE: 4d58d09a -> 414e35af. `check_detached`, the proposal and
+/// `Context::holds_empty_variable` read the test-only witness switches
+/// (`adopt_unvalidated_witnesses`, `witnesses_only_at_their_pair`,
+/// `witness_without_empty_variable`), which outside test builds are the constant `false`
+/// (`switches::active`): no verdict kink reads changes.
+const CONFLUENCE_RS: &str = "414e35af394769dffdb96ea5e74e35c6df6274c1553016b4fc53ffb031227298";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
