@@ -670,7 +670,12 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
             } else {
                 ""
             };
-            let _ = writeln!(text, "  [{verdict}{assumed}] {}", equations.join(" and "));
+            // The file's last path component: the report's `equations` hold the whole path.
+            let short = equations
+                .iter()
+                .map(|equation| equation.rsplit('/').next().unwrap_or(equation))
+                .collect::<Vec<_>>();
+            let _ = writeln!(text, "  [{verdict}{assumed}] {}", short.join(" and "));
             for finding in members {
                 if let Some(name) = &finding.name {
                     let _ = writeln!(text, "    name: {name}");

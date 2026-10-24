@@ -184,8 +184,7 @@ impl Campaign {
         let mut identity = identity(&spec, &initial)?;
         identity.effective_constraints = effective_constraints(holes);
         identity.target_rule = rules.target;
-        let not_comparable = (!definition_findings.without_data.is_empty())
-            .then(|| not_comparable(&definition_findings.without_data, &spec.target));
+        let not_comparable = not_comparable(&definition_findings.without_data, &spec.target);
         let warnings = campaign_warnings(holes, graph.as_deref(), definition_findings.warnings);
         let settings = LoopSettings {
             identity,
@@ -757,7 +756,14 @@ fn campaign_warnings(
 /// (ARCHITECTURE 4.3): every end of such a definition is not data, so a differential case could
 /// compare no end and a rule or pattern case could reach no data end; whatever the budget, bounds
 /// or values, no case could give a witness, and that is known before the first case.
-fn not_comparable(without_data: &[DefinitionRole], target: &crate::Target) -> CampaignOutcome {
+/// `None` when every definition read has data.
+fn not_comparable(
+    without_data: &[DefinitionRole],
+    target: &crate::Target,
+) -> Option<CampaignOutcome> {
+    if without_data.is_empty() {
+        return None;
+    }
     let named = without_data
         .iter()
         .map(|role| match role {
@@ -779,7 +785,7 @@ fn not_comparable(without_data: &[DefinitionRole], target: &crate::Target) -> Ca
         "no hit can be established: a hit needs a data end, and no end of the definition is data \
          (`data-end = false`, `--no-data-end` accept other ends)"
     };
-    CampaignOutcome::NotComparable {
+    Some(CampaignOutcome::NotComparable {
         sides: without_data.to_vec(),
         statement: format!(
             "{consequence}. The full critical-pair check of {named} equations reports pairs \
@@ -790,7 +796,7 @@ fn not_comparable(without_data: &[DefinitionRole], target: &crate::Target) -> Ca
              assumed joined by naming it with `assume-joined`, and every verdict then holds \
              only under that assumption. No case was run."
         ),
-    }
+    })
 }
 
 /// How a hit of `target` is reported: as a property failure when the target states a

@@ -298,31 +298,53 @@ impl<'d> Search<'d> {
             push(&mut found, empty_collection(metadata));
         }
         if depth > 0 {
-            for symbol in constructors
+            // Each constructor over its arguments' first candidates, then, while room is
+            // left, over their other candidates in mixed radix (the last argument fastest), so
+            // that a sort with one constructor (`wrap(Int)`) still has several terms.
+            let applied = constructors
                 .iter()
                 .filter(|symbol| !symbol.argument_sorts.is_empty())
-            {
-                if found.len() >= CANDIDATES {
-                    break;
-                }
-                let mut arguments = Vec::with_capacity(symbol.argument_sorts.len());
-                for argument in &symbol.argument_sorts {
-                    match self.candidates(*argument, depth - 1).first() {
-                        Some(candidate) => arguments.push(candidate.clone()),
-                        None => break,
+                .filter_map(|symbol| {
+                    let choices = symbol
+                        .argument_sorts
+                        .iter()
+                        .map(|argument| self.candidates(*argument, depth - 1))
+                        .collect::<Vec<_>>();
+                    choices
+                        .iter()
+                        .all(|choice| !choice.is_empty())
+                        .then_some((symbol, choices))
+                })
+                .collect::<Vec<_>>();
+            for round in 0..CANDIDATES {
+                for (symbol, choices) in &applied {
+                    if found.len() >= CANDIDATES {
+                        break;
                     }
-                }
-                if arguments.len() == symbol.argument_sorts.len() {
+                    let mut index = round;
+                    let mut arguments = vec![None; choices.len()];
+                    for (position, choice) in choices.iter().enumerate().rev() {
+                        arguments[position] = Some(choice[index % choice.len()].clone());
+                        index /= choice.len();
+                    }
+                    if round > 0 && index > 0 {
+                        // Every combination was tried.
+                        continue;
+                    }
                     push(
                         &mut found,
-                        Term::application(symbol.clone(), Vec::<Sort>::new(), arguments),
+                        Term::application(
+                            (*symbol).clone(),
+                            Vec::<Sort>::new(),
+                            arguments.into_iter().flatten().collect(),
+                        ),
                     );
                 }
             }
-            if let Some(metadata) = &collection {
-                if let Some(single) = self.singleton_collection(metadata, depth - 1) {
-                    push(&mut found, single);
-                }
+            if let Some(metadata) = &collection
+                && let Some(single) = self.singleton_collection(metadata, depth - 1)
+            {
+                push(&mut found, single);
             }
         }
         if found.len() < CANDIDATES {
