@@ -195,9 +195,18 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// guards that hold on no normal-form instance. Only more overlaps are refuted; the other
 /// passages are unmoved.
 ///
-/// fz26 int9 (FZ-MAPKEY merged with FZ-MEMBERSHIP): line 1102 carries FZ-MAPKEY's map sentence
-/// and line 1103 FZ-MEMBERSHIP's membership clause, each as its branch wrote it; 1100-1107
-/// re-pinned by digest of the merged text: -> `e3fe4b3b`.
+/// k-rust S2B-T2 (collection membership): line 1103 of 1100-1107 adds collection memberships to
+/// what "refuted" reads (`933b39db` -> `3e1072d3`): a membership required true or false in a
+/// list without middle, a set or map without rest, or the values or keys of a map without rest
+/// is read as the equalities between the element and the members (their disjunction when
+/// required true, each negated when required false), each implied wherever the membership is
+/// defined, and a conjunction is refuted when it is refuted with or without them. Only more
+/// overlaps are refuted; the other passages are unmoved.
+///
+/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP and S2B-T2 merged): line 1102 carries FZ-MAPKEY's map
+/// sentence and line 1103 FZ-MEMBERSHIP's membership clause and S2B-T2's collection-membership
+/// clause, each as its branch wrote it; 1100-1107 re-pinned by digest of the merged text: ->
+/// `4a4ecc6f`.
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -213,7 +222,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "e3fe4b3b87701466c2e8e518d461ba0a8a54b3004ffa89c8c98c366d2917cec5",
+        "4a4ecc6f4e22a431d3fa1f5cb63a7af8efcaadd17a46e89f54825e4e6cbab706",
     ),
     (
         "docs/compatibility.md",

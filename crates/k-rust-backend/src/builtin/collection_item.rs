@@ -36,7 +36,7 @@ use crate::{
 };
 
 /// An item operand, read against the elements of a collection.
-pub(super) enum Operand<'a> {
+pub(crate) enum Operand<'a> {
     /// The item as a term of the element sort.
     Element(Cow<'a, Term>),
     /// The element sort is a strict subsort of the item's sort, the item's sort is `sort`, and
@@ -48,7 +48,7 @@ pub(super) enum Operand<'a> {
 }
 
 /// `item` read against the elements of a collection whose element (key) sort is `element_sort`.
-pub(super) fn read<'a>(
+pub(crate) fn read<'a>(
     sorts: Option<&SortGraph>,
     item: &'a Term,
     element_sort: &Sort,
