@@ -870,13 +870,13 @@ impl State {
     }
 
     /// Keep case `case`'s incidental finding ([`CaseRun::incidental`]) when it is the first of
-    /// its class (`stuck` or `undefined`) inside the determinism contract, and tell `runner`,
-    /// which then describes no later case of that class. Nothing else changes: the class, the
-    /// counts, the case sequence and the budget are what they would be without it.
+    /// its class (`stuck` or `undefined`), and tell `runner`, which then describes no later case
+    /// of that class. The runner gives a finding only when the run it comes from is inside the
+    /// determinism contract, which for a differential case is the baseline's run alone, so the
+    /// case's own [`CaseRun::outside_determinism`] (which counts the mutant's run too) is not
+    /// read here. Nothing else changes: the class, the counts, the case sequence and the budget
+    /// are what they would be without it.
     fn keep_incidental(&mut self, case: u64, run: &mut CaseRun, runner: &mut dyn CaseRunner) {
-        if run.outside_determinism {
-            return;
-        }
         let Some((class, mut found)) = run.incidental.take() else {
             return;
         };

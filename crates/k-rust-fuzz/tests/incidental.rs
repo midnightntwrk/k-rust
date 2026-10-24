@@ -18,7 +18,9 @@ use k_rust_fuzz::{
 };
 use num_bigint::BigInt;
 use serde_json::Value as Json;
-use support::{Fixture, IMP, IMP_ADD_COMMUTED, IMP_DIFF, IMP_DIV_GUARD_DROPPED};
+use support::{
+    Fixture, IMP, IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_DIFF, IMP_DIV_GUARD_DROPPED,
+};
 
 const DIV: &str = "imp-diff/div.imp";
 
@@ -279,4 +281,36 @@ fn a_differential_finding_is_the_baselines_own_class() {
             );
         }
     }
+}
+
+/// A differential finding comes from the baseline's own run, so only that run decides whether it
+/// reproduces: a determinism break on the mutant's side does not suppress it. On
+/// `countdown-div.imp` the baseline stops at `100 / 0` after a few steps, while the mutant
+/// `add-becomes-sub` counts up forever; with no work bound the per-case safety limit stops the
+/// mutant, which puts the case outside the determinism contract. The baseline's stop is still
+/// reported, from its own run, with a krun line that reproduces it.
+#[test]
+fn a_mutant_side_determinism_break_leaves_the_baselines_finding() {
+    let program = "imp-diff/countdown-div.imp";
+    let mut spec = c1(&IMP_DIFF, Some(&IMP_ADD_BECOMES_SUB), &[]);
+    spec.program = ProgramInput::Source(IMP_DIFF.compiled().program_source(program));
+    spec.holes = vec![int_hole("N", program, "n = 1;", "1")];
+    spec.proposers.explicit = Vec::new();
+    // No work bound: only the safety limit stops the mutant's endless loop.
+    spec.options.max_work = None;
+    spec.options.max_depth = Some(1_000_000_000);
+    spec.options.safety_limit_ms = Some(1500);
+    let (report, json) = run(spec, 1);
+    assert_eq!(report.totals.cases, 1, "{json}");
+    assert_eq!(report.totals.outside_determinism, 1, "{json}");
+    let stuck = &json["incidental"]["stuck"];
+    assert_eq!(stuck["case"], 0, "{json}");
+    assert_eq!(hole(stuck, "N"), "1", "{stuck}");
+    assert_eq!(stuck["k-heads"], serde_json::json!(["100 / 0"]), "{stuck}");
+    let krun = stuck["krun-command"].as_str().expect("a krun line");
+    assert!(
+        krun.contains("--definition <definition-dir>") && krun.contains("--strategy all"),
+        "{krun}"
+    );
+    assert!(report.incidental.lines()[0].contains("the baseline's own run on all paths"));
 }

@@ -956,7 +956,8 @@ impl LiveCases {
                 run.defects.push(defect.description);
             }
         }
-        if self.wants_incidental(run.class, &run) {
+        // The case's one run is the finding's: its determinism is the case's.
+        if self.wants_incidental(run.class, !run.outside_determinism) {
             let paths = self.spec.options.paths;
             let terminal_rules = target.needs(paths).terminal_rules;
             let class = run.class;
@@ -1071,7 +1072,7 @@ impl LiveCases {
                             .push("a kill names no leaf of either result".to_owned());
                     }
                 }
-                run.incidental = self.baseline_incidental(&run, values, &baseline_case, &baseline);
+                run.incidental = self.baseline_incidental(values, &baseline_case, &baseline);
             }
             Err(defect) => {
                 run.class = OutcomeClass::Unsupported;
@@ -1157,28 +1158,31 @@ fn data_reason(
 }
 
 impl LiveCases {
-    /// Whether a case of `run` gets an incidental finding of `class`
-    /// ([`crate::report::Incidentals`]): the class is `stuck` or `undefined`, the case is inside
-    /// the determinism contract, so that the finding reproduces, and the loop has not kept a
-    /// finding of that class yet ([`CaseRunner::incidental_kept`]).
-    fn wants_incidental(&self, class: OutcomeClass, run: &CaseRun) -> bool {
+    /// Whether a run of class `class` gets an incidental finding
+    /// ([`crate::report::Incidentals`]): the class is `stuck` or `undefined`, the run the finding
+    /// comes from is inside the determinism contract (`reproduces`), so that the finding
+    /// reproduces, and the loop has not kept a finding of that class yet
+    /// ([`CaseRunner::incidental_kept`]). Only that run counts: in a differential case a clock
+    /// or stack fact of the mutant's run says nothing about the baseline's.
+    fn wants_incidental(&self, class: OutcomeClass, reproduces: bool) -> bool {
         matches!(class, OutcomeClass::Stuck | OutcomeClass::Undefined)
-            && !run.outside_determinism
+            && reproduces
             && !self.incidental_kept.contains(&class)
     }
 
-    /// The incidental finding of a differential case `run` with `values`: the baseline's own
-    /// run of the case (`baseline`, all paths, from `baseline_case`), classed alone with no
-    /// target, whatever the pair's class ([`crate::report::Incidentals`]). A stop or undefined step only the mutant has is no finding.
+    /// The incidental finding of a differential case with `values`: the baseline's own run of
+    /// the case (`baseline`, all paths, from `baseline_case`), classed alone with no target,
+    /// whatever the pair's class ([`crate::report::Incidentals`]). A stop or undefined step only
+    /// the mutant has is no finding, and whether the finding reproduces is the baseline run's
+    /// determinism alone.
     fn baseline_incidental(
         &self,
-        run: &CaseRun,
         values: &[Value],
         baseline_case: &Prepared,
         baseline: &CaseResult,
     ) -> Option<(OutcomeClass, Box<IncidentalCase>)> {
         let class = exec::classify(baseline, &vec![false; baseline.leaves.len()], false).ok()?;
-        if !self.wants_incidental(class, run) {
+        if !self.wants_incidental(class, baseline.determinism_breaks().is_empty()) {
             return None;
         }
         self.incidental_of(

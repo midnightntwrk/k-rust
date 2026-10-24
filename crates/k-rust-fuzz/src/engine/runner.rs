@@ -61,8 +61,9 @@ pub(crate) struct CaseRun {
     /// For a (candidate) hit, what a witness reports of it.
     pub(crate) hit: Option<HitDetail>,
     /// When the case's run of the semantics under test (the case's run; a differential case's
-    /// baseline) is `stuck` or `undefined` and the case is inside the determinism contract, that
-    /// class and what the report's incidental finding holds of it
+    /// baseline) is `stuck` or `undefined` and that run is inside the determinism contract (a
+    /// differential case's mutant run does not count), that class and what the report's
+    /// incidental finding holds of it
     /// ([`crate::report::Incidentals`]), with `case` 0: the loop numbers it. `None` otherwise,
     /// and for a class the loop has already kept ([`CaseRunner::incidental_kept`]).
     pub(crate) incidental: Option<(OutcomeClass, Box<IncidentalCase>)>,

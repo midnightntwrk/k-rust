@@ -1,0 +1,11 @@
+// A countdown, then a division by what is left of it: on the tutorial IMP the loop ends with
+// n = -1, so `100 / 0` is left on `<k>`; under `add-becomes-sub` the countdown counts up and the
+// loop does not end.
+
+int a, n, q;
+a = 100;
+n = 1;
+while (0 <= n) {
+  n = n + -1;
+}
+q = a / (n + 1);

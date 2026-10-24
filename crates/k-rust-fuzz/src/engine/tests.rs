@@ -2343,13 +2343,13 @@ fn incidental(values: &[Value], class: OutcomeClass, head: &str) -> CaseRun {
 #[test]
 fn the_first_stuck_and_the_first_undefined_case_are_kept_and_nothing_else_moves() {
     // Values 1, 2, …: 2 and 5 get stuck, 3 and 6 take an undefined step, 4 is stuck outside the
-    // determinism contract (kept nowhere), the rest miss.
+    // determinism contract (so its runner describes no finding), the rest miss.
     let script = |values: &[Value]| match as_int(&values[0]) {
         2 | 5 => incidental(values, OutcomeClass::Stuck, "stop"),
         3 | 6 => incidental(values, OutcomeClass::Undefined, "undef"),
         4 => CaseRun {
             outside_determinism: true,
-            ..incidental(values, OutcomeClass::Stuck, "clock")
+            ..run(OutcomeClass::Stuck, 10)
         },
         _ => run(OutcomeClass::Miss, 10),
     };
@@ -2413,11 +2413,12 @@ fn the_first_stuck_and_the_first_undefined_case_are_kept_and_nothing_else_moves(
 
 #[test]
 fn a_finding_outside_the_determinism_contract_leaves_the_class_open() {
-    // The only stuck case is outside the contract: no finding, though the class is counted.
+    // The only stuck case is outside the contract and its runner describes no finding: no
+    // finding, though the class is counted.
     let mut runner = Scripted::new(
-        |values| CaseRun {
+        |_| CaseRun {
             outside_determinism: true,
-            ..incidental(values, OutcomeClass::Stuck, "clock")
+            ..run(OutcomeClass::Stuck, 10)
         },
         |_| Ok(run(OutcomeClass::Miss, 7)),
     );
@@ -2431,6 +2432,32 @@ fn a_finding_outside_the_determinism_contract_leaves_the_class_open() {
     assert_eq!(classes(&report), vec![(OutcomeClass::Stuck, 2)]);
     assert!(report.incidental.is_empty());
     assert!(!report.to_canonical_json().contains("\"incidental\""));
+}
+
+#[test]
+fn the_loop_keeps_the_finding_the_runner_gives_whatever_the_cases_determinism() {
+    // A differential case whose mutant run broke the determinism contract while its baseline's
+    // did not: the case is outside the contract, and the runner describes the baseline's
+    // finding, which reproduces; the loop keeps it.
+    let mut runner = Scripted::new(
+        |values| CaseRun {
+            outside_determinism: true,
+            ..incidental(values, OutcomeClass::Stuck, "stop")
+        },
+        |_| Ok(run(OutcomeClass::Miss, 7)),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(2),
+        None,
+    );
+    assert_eq!(report.totals.outside_determinism, 2);
+    assert_eq!(
+        report.incidental.stuck.as_ref().map(|found| found.case),
+        Some(0)
+    );
 }
 
 #[test]

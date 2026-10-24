@@ -1213,7 +1213,9 @@ pub struct EngineDefect {
 /// the pair's class: a stop or undefined step only the mutant has is never a finding (it is a
 /// kill, or under `run-to-completion` the pair's own disagreement, which its class reports). A
 /// case that ends the campaign with a witness gives no finding; its witness shows its runs.
-/// Only cases inside the determinism contract are kept, so a finding reproduces. Keeping one
+/// Only findings whose run is inside the determinism contract are kept, so a finding
+/// reproduces; in a differential case that run is the baseline's, so a clock or stack fact of
+/// the mutant's run alone (which puts the case outside the contract) keeps it. Keeping one
 /// changes no class, no case and no budget: the case already ran, and nothing is re-run or
 /// shrunk.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
