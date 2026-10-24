@@ -814,7 +814,9 @@ fn mint_resolves_and_matches_the_backend() {
             Ok(text) => text,
             Err(error)
                 if !cfg!(feature = "z3")
-                    && format!("{error:?}").contains("Z3InferenceRequired") =>
+                    && error
+                        .to_string()
+                        .contains("requires native Z3 sort inference") =>
             {
                 continue;
             }
@@ -854,7 +856,9 @@ fn k_name_or_mint(sort: &ValueSort) -> &str {
 fn frontend_with_inference(syntax: &TextSyntax, text: &str, sort: &str) -> Option<Pattern> {
     match syntax.parse(text, sort) {
         Ok(pattern) => Some(pattern),
-        Err(error) if error.contains("Z3InferenceRequired") && !cfg!(feature = "z3") => {
+        Err(error)
+            if error.contains("requires native Z3 sort inference") && !cfg!(feature = "z3") =>
+        {
             eprintln!("`{text}` at {sort} needs Z3 inference; checked in the z3 build");
             None
         }
@@ -1375,7 +1379,7 @@ fn a_renamed_sort_without_its_own_literals_is_refused() {
 
 /// FZ-G6+09 review N4: the frontend reads a machine-integer literal (`w8(200p8)`) only with
 /// Z3's inference of the parametric sort `MInt{8}`. Without it, printing such a data value
-/// refuses (`Z3InferenceRequired`) rather than return a text that does not read back, so a span
+/// refuses (the frontend requires native Z3 sort inference) rather than return a text that does not read back, so a span
 /// or configuration-variable case of it is `rejected` (`print`); its KORE needs no frontend, so
 /// a KORE-template hole of the sort runs in every build. With Z3 the text reads back.
 #[test]
@@ -1394,7 +1398,9 @@ fn a_machine_integer_inside_a_data_value_prints_only_with_z3_inference() {
     match (print_k_text(&value, &word), k_rust::Z3_INFERENCE) {
         (Ok(text), true) => assert_eq!(parse_k_text(&text, &word), Ok(value)),
         (Err(error), false) => assert!(
-            format!("{error:?}").contains("Z3InferenceRequired"),
+            error
+                .to_string()
+                .contains("requires native Z3 sort inference"),
             "{error:?}"
         ),
         (printed, inference) => panic!("with Z3 inference {inference}: {printed:?}"),

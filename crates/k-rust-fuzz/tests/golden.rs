@@ -44,10 +44,14 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 /// its hole's range `-40 ..= 4` is generated as `0 ..= 4`, since UNSIGNED's literals read no
 /// negative value back, and the campaign tries one explicit negative value so that it keeps a
 /// round-trip rejection. Version 4 (phase 5, whose other changes move no golden campaign) re-pins
-/// it by recomputation with the same digest.
+/// it by recomputation with the same digest. FZ-POLISH N-T1 moved it (from `78acdd46…`) through
+/// the UNSIGNED campaign alone: its effective range `0 ..= 4` is a finite domain of 5
+/// assignments, now each tried once, so the campaign ends with `Domain exhausted` instead of
+/// repeating them for 30 cases. That change owes an `ENGINE_VERSION` bump, which the
+/// integration round makes (D25); re-pin this digest under the new version then.
 const PINNED: Option<(u32, &str)> = Some((
     4,
-    "78acdd4634fdfb3f7122ba61f905123719610d56f4356d1909d849530e1d2a13",
+    "ed2751abb407d6d93e71ecc4f9a1b35448ec00c213637182796ad268c4440bcf",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
