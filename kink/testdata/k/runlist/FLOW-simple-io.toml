@@ -1,0 +1,21 @@
+# Stock SIMPLE with a program that binds $IO: refused (stream-mode), since kink runs a definition
+# with stream cells with IO off only. The other program is admitted.
+[spec]
+entry = "simple-untyped.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+
+[[program]]
+id = "io-on"
+text = 'function main() { print(1); }'
+variables = { IO = '"on"' }
+
+[[program]]
+id = "io-off"
+text = 'function main() { print(1); }'
+variables = { IO = '"off"' }
+
+[[program]]
+id = "stdin"
+text = 'function main() { print(1); }'
+variables = { STDIN = '"5\n"' }

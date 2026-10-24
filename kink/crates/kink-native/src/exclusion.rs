@@ -48,8 +48,15 @@
 //!   or the environment, and those k-rust evaluates that no builtin file documents
 //!   ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`], [`BUILTIN_OPEN_HOOKS`],
 //!   [`UNDOCUMENTED_EVALUATED_HOOKS`]). The census reads the definition's own sentences and every
-//!   rewrite rule whatever its source: kompile copies the prelude's stream rules (`#getc`, `#write`,
-//!   `Float2String`) into a definition with stream cells, keeping their prelude source.
+//!   rewrite rule whatever its source: kompile copies the prelude's stream rules into a definition
+//!   with stream cells, keeping their prelude source. Since KINK-CENSUS-RUNLIST (fz26) it reads
+//!   only the open hooks k-rust evaluates without a run-level record ([`census_hook`]): an open
+//!   hook an execute request cannot evaluate (a console operation, or one k-rust has no
+//!   evaluator for, [`RUN_LIST_HOOKS`]) takes no value in a run, and an application of one whose
+//!   value the run needs is on the run's `unsupportedHooks` wherever it sits, which excludes that
+//!   run ([`Exclusion::UnsupportedHook`]). So the prelude's stream rules (`#getc`, `#write`,
+//!   `Float2String`) no longer exclude a definition with stream cells; a run that reaches one
+//!   with constructor-like arguments is excluded by its list.
 //! - [`Exclusion::ShortCircuitReading`]: the run's result can depend on whether `andBool`,
 //!   `orBool`, `impliesBool`, `#if`, `andThenBool` or `orElseBool` skip an operand that may be
 //!   undefined
@@ -627,6 +634,97 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "SECP256K1.ecdsaRecover",
 ];
 
+/// The open hooks ([`IMPLEMENTATION_CHOSEN_HOOKS`]) that the definition-level census leaves to
+/// the run's `unsupportedHooks` list (KINK-CENSUS-RUNLIST, fz26): those an execute request cannot
+/// evaluate, because it supplies no console (the console operations, k-rust's inventory class
+/// `execution_only`) or because k-rust has no evaluator for them (its inventory class
+/// `unsupported`, its `NOT_EVALUATED` list, or a namespace it does not evaluate), less those with
+/// a k-rust `chosen_value` class ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`]: `IO.read`, a console
+/// operation of class `read-count`, stays in the census).
+///
+/// Why the census need not read them: such a hook takes no value in a run kink requests. An
+/// application of one on constructor-like arguments whose value the run needs is on the run's
+/// `unsupportedHooks`, wherever it sits (a right-hand side, a condition, a left-hand-side match
+/// that fails, an equation passed over, an undone attempt, the load) and whatever became of the
+/// work that met it ([`Exclusion::UnsupportedHook`]); on symbolic arguments it stays unevaluated,
+/// so it denotes some value of its sort, an end that holds it is no terminal value, and a branch
+/// on it is a branch the definition has; a comparison that sorts or heads alone decide reads no
+/// value of it. So no value of one can steer a compared run without the run's list naming it,
+/// and a census entry only duplicated that list. The census keeps the hooks k-rust evaluates
+/// without a record: the `String2Bytes`/`Bytes2String` pair, the hooks no builtin file documents
+/// ([`UNDOCUMENTED_EVALUATED_HOOKS`]), and those of its `chosen_value` classes (moving these
+/// needs every class shown withheld outside execution, which is not verified).
+///
+/// The premise is k-rust's contract, `docs/compatibility.md` line 117 ("Backend scope", the
+/// console paragraph), which the kink-native test
+/// `the_console_passage_the_run_list_rests_on_is_pinned` pins by digest; k-rust's test
+/// `unsupported_hook_positions.rs` checks it in the four positions for every hook of its `CASES`,
+/// which hold every hook here (`the_run_list_hooks_are_k_rusts_unevaluated_open_hooks`, which
+/// also derives this list from k-rust's inventory, its `NOT_EVALUATED` list and its hook
+/// namespaces). A test's initial state is still read against every open hook
+/// ([`state_references_implementation_chosen`]): the contract names the positions of a rule or
+/// equation, not the initial state.
+pub const RUN_LIST_HOOKS: &[&str] = &[
+    "STRING.float2string",
+    "STRING.floatFormat",
+    "STRING.category",
+    "STRING.directionality",
+    "STRING.uuid",
+    "INT.rand",
+    "INT.srand",
+    "RANGEMAP.choice",
+    "RANGEMAP.keys_list",
+    "RANGEMAP.values",
+    "KREFLECTION.configuration",
+    "KREFLECTION.fresh",
+    "KREFLECTION.getenv",
+    "KREFLECTION.kompiledDir",
+    "KREFLECTION.argv",
+    "KREFLECTION.printKORE",
+    "IO.open",
+    "IO.tell",
+    "IO.seek",
+    "IO.seekEnd",
+    "IO.getc",
+    "IO.putc",
+    "IO.write",
+    "IO.close",
+    "IO.lock",
+    "IO.unlock",
+    "IO.accept",
+    "IO.shutdownWrite",
+    "IO.time",
+    "IO.system",
+    "IO.mkstemp",
+    "IO.remove",
+    "SUBSTITUTION.substMany",
+    "UNIFICATION.renameVariables",
+    "UNIFICATION.variables",
+    "UNIFICATION.metaVariables",
+    "UNIFICATION.variablesMap",
+    "UNIFICATION.rename",
+    "UNIFICATION.freezeVariables",
+    "UNIFICATION.unifiable",
+    "JSON.json2string",
+    "JSON.string2json",
+    "TIMER.timerStart",
+    "TIMER.timerStop",
+    "FFI.call",
+    "FFI.call_variadic",
+    "FFI.address",
+    "FFI.alloc",
+    "FFI.bytes_address",
+    "FFI.read",
+    "FFI.write",
+];
+
+/// Whether the definition-level census reads `hook`: it is open ([`IMPLEMENTATION_CHOSEN_HOOKS`])
+/// and k-rust evaluates it without a run-level record (it is not on [`RUN_LIST_HOOKS`]).
+#[must_use]
+pub fn census_hook(hook: &str) -> bool {
+    IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook) && !RUN_LIST_HOOKS.contains(&hook)
+}
+
 /// The hooks of the operators whose operands a backend may or may not skip (domains.md
 /// 1115-1117: `andBool` and `orBool` "may be short-circuited in concrete backends", and
 /// `impliesBool` is `notBool P orBool Q`, 1110-1111; 2314-2317: `#if` "does not short-circuit
@@ -694,8 +792,8 @@ impl Exclusion {
     }
 }
 
-/// A non-prelude sentence of a definition that references a symbol with an
-/// [`IMPLEMENTATION_CHOSEN_HOOKS`] hook.
+/// A sentence of a definition (its own, or a rewrite rule whatever its source) that references a
+/// symbol with a hook the census reads ([`census_hook`]).
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct HookReference {
     /// The KORE module of the sentence.
@@ -713,7 +811,8 @@ pub struct DefinitionExclusions {
     /// `discharge_counts().stack_stops + value_claims().counts().condition_stack_stops` of the
     /// default module's load (the only module kink's requests name).
     pub load_stack_stops: usize,
-    /// The non-prelude sentences that reference an implementation-chosen hook.
+    /// The sentences that reference a hook the census reads ([`census_hook`]): the definition's
+    /// own, and every rewrite rule whatever its source.
     pub implementation_chosen: Vec<HookReference>,
     /// The axioms rooted at a collection role symbol: the executable equations the load reports
     /// as `IndexedAt(Map | List | Set)` and the `simplification` or `symbolic` axioms it does not
@@ -766,9 +865,7 @@ impl DefinitionExclusions {
             .values()
             .filter_map(|symbol| {
                 let hook = symbol.attributes.hook.as_deref()?;
-                IMPLEMENTATION_CHOSEN_HOOKS
-                    .contains(&hook)
-                    .then(|| (symbol.name.to_string(), hook.to_owned()))
+                census_hook(hook).then(|| (symbol.name.to_string(), hook.to_owned()))
             })
             .collect::<std::collections::BTreeMap<_, _>>();
         let roles = definition
@@ -833,7 +930,9 @@ impl DefinitionExclusions {
                     }
                 }
                 // A rewrite rule counts whatever its source says: the prelude's stream rules are
-                // copied into a definition with stream cells and keep their prelude source.
+                // copied into a definition with stream cells and keep their prelude source (their
+                // hooks, `#getc`, `#write` and `Float2String`, are on the run list, so they no
+                // longer count; a census hook in such a rule would).
                 if !authored(attributes, builtin_prefixes) && !is_rewrite_axiom(sentence) {
                     continue;
                 }

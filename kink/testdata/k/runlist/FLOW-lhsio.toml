@@ -1,0 +1,8 @@
+[spec]
+entry = "lhsio.k"
+main_module = "LHSIO"
+syntax_module = "LHSIO-SYNTAX"
+
+[[program]]
+id = "miss"
+text = 'go(1)'

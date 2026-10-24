@@ -67,7 +67,7 @@ Defaults:
 | `budget.max_depth` | `100000` | Rewrite-depth bound of one program run; must be positive. A run is never unbounded. |
 | `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program, long before `time_ms` would stop it, unless the part it ran already holds a final configuration the baseline's program never ends in: then the program kills it one-sidedly (re-pin L1-2, decision 6; the root README, "What a kill trusts"). Absent: no work budget. It never bounds a baseline run. |
 | `program.start_sort` | the sort of `$PGM` | |
-| `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty. |
+| `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty (`$IO` to `"off"`, `$STDIN` to `""`). On a definition with stream cells a program may not bind `$IO` (refused at `inputs`, reason `stream-mode`): with IO off the stream cells hold the text printed and the input not yet read, so a final configuration states the program's output. |
 
 The tool supplies everything else: the k-rust revision is the build's (`kink_native::K_RUST_REVISION`, the version of the in-repo k-rust kink is built with, printed in every output),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads.
@@ -391,7 +391,9 @@ internalization; re-pin finding B-13(a)), which decide nothing for ground progra
 A mutation whose specification uses a hook for which k-rust chooses a value the definition leaves open (`choice`, the order of
 `keys_list`, `values` or `Set2List`, mixed-format or NaN-sign Float, and the hooks whose value k-rust's builtin files leave to
 the backend, the implementation or the environment, such as `String2Bytes`, `Bytes2String`, `Base2String` and substitution's
-renamed variables, and the `KRYPTO`, `HASH` and `SECP256K1` hooks no builtin file documents), or whose condition or rule
+renamed variables, and the `KRYPTO`, `HASH` and `SECP256K1` hooks no builtin file documents; an open hook k-rust cannot
+evaluate in an execute request, a console operation such as `#getc` or `#write` or one without an evaluator such as
+`Float2String`, is judged per run through `unsupportedHooks` below instead, so stock SIMPLE's stream cells exclude nothing), or whose condition or rule
 result depends on whether `andBool`, `orBool` or `#if` skip an operand that may be undefined, or that has a rule or
 equation condition equating two terms (`{ A #Equals B }`, a gap of k-rust's answers), is `unknown` with reason
 `implementation-chosen-hook`, `short-circuit-reading` or `equals-condition`. Since re-pin adoption A-1 a program whose run reads
@@ -587,7 +589,7 @@ k-rust 501f18b9 has no unparser from KORE back to the specification's syntax, so
 **Why a no can be unknown.** A `no` is a claim about every run, so it needs more than a `hit`:
 - the exploration completed: no path stopped at `budget.max_depth` (`a path reached max_depth = N`), the search finished within `budget.time_ms`, and k-rust decided every step and every match (an undecided step, an undecided match, a state stopped for lack of native stack each make it incomplete);
 - the program's baseline run (its `results` row) is `comparable`: complete, with no stack stop and nothing else that makes a run no evidence (a contradicted claim, an allowance refusal, ...);
-- the definition leaves nothing to the implementation: no rule depends on a hook whose value the definition leaves open and k-rust chooses (`implementation-chosen-hook`, decision 1's census: `keys_list`, `choice`, `String2Bytes`, ...), or on whether `andBool`, `orBool` or `#if` skip an undefined operand (`short-circuit-reading`), and neither does the program's initial configuration; with such a value another implementation could reach the pattern, so the exploration of k-rust's choice says nothing about it;
+- the definition leaves nothing to the implementation: no rule depends on a hook whose value the definition leaves open and k-rust chooses (`implementation-chosen-hook`, decision 1's census: `keys_list`, `choice`, `String2Bytes`, ...; an open hook k-rust cannot evaluate, such as `#getc` or `Float2String`, is judged by the baseline run's `unsupportedHooks` instead, which the comparable baseline below requires empty), or on whether `andBool`, `orBool` or `#if` skip an undefined operand (`short-circuit-reading`), and neither does the program's initial configuration; with such a value another implementation could reach the pattern, so the exploration of k-rust's choice says nothing about it;
 - the build is not the Z3 profile (a solver query can time out silently).
 
 A `hit` needs none of these. It is a run k-rust found to a configuration that exists, and k-rust's choice of an open value is one model of the definition. A hit is found even in a program that never ends, or that the budget stops: the search stops at the first match.
