@@ -192,18 +192,18 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
 /// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
 ///
-/// fz26 phase-8 FZ-CONFLUENCE-F: 1100-1107 changes, by digest (3483b03d -> 3b2a6595). Line 1103
+/// fz26 phase-8 FZ-CONFLUENCE-F: 1100-1107 changes, by digest (3483b03d -> 5b52aef7). Line 1103
 /// adds two ways the join closes a case it split off, each because the case has no instance at
 /// which both conditions hold: a case whose two `requires`, read again under the substitution
 /// that made it, are refuted (F1), and the complement of a split whose cases bind one variable to
 /// each constructor of a sort whose every element in `M+` is such an application (F2: surely
 /// inhabited, no proper subsort, neither hooked nor a collection, no domain values, and no symbol
-/// of the sort but its constructors and unhooked partial functions, `KEQUAL.ite` aside); such a
-/// pair is joined. "Joined" keeps its meaning (steps of `R ∪ W` valid on the instances the
-/// lifting lemma ranges over, in `M+`); the check shows more pairs joined, so kink can admit more
-/// mutants: on KEVM the six `#hashTxData` pairs (`serialization.md:193-196`) now join by F1, and
-/// on WASM the `replaceAt` pair (`sparse-bytes.k:121/133`) by F1 and F2 with the literal-operand
-/// range fact of `INT.max` (`conditions.rs`); line 1104's WASM count goes from four to three.
+/// of the sort but its constructors and unhooked partial functions; `KEQUAL.ite` counts as
+/// another symbol, so a definition declaring K's `ite{S}` drops no complement); such a pair is
+/// joined. "Joined" keeps its meaning (steps of `R ∪ W` valid on the instances the lifting lemma
+/// ranges over, in `M+`); the check shows more pairs joined, so kink can admit more mutants: on
+/// KEVM the six `#hashTxData` pairs (`serialization.md:193-196`) now join by F1. Line 1104's WASM
+/// count stays four.
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -219,7 +219,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "3b2a6595d36cc335fddd3b9dcec9e5b66ad754d2898dd25e7dd9c975a72fb2b2",
+        "5b52aef7bec333526b6d9ec484d2d00ce404bd52fe73fe76274ae2ff74d4c23d",
     ),
     (
         "docs/compatibility.md",
