@@ -1,0 +1,20 @@
+[spec]
+entry = "iop.k"
+main_module = "IOP"
+syntax_module = "IOP-SYNTAX"
+
+[[program]]
+id = "w"
+text = "w"
+
+[[program]]
+id = "g"
+text = "g"
+
+[[program]]
+id = "b"
+text = "b"
+
+[[program]]
+id = "n"
+text = "n"

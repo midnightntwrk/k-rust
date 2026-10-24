@@ -13,8 +13,9 @@
 //!   linked k-rust. Nothing has to be bumped for it to change;
 //! - [`KINK_IDENTITY`], the semantics identity, names the versioned algorithms by their version
 //!   constants: how a patch is addressed and admitted, which claims a mutant loses, whether its
-//!   equations are consistent, what its edit changes, which comparisons are excluded, what
-//!   execution request is sent, what counts as a comparable result, how coverage is read, when a
+//!   equations are consistent, what its edit changes, which definitions have data (each
+//!   definition's full critical-pair check, fz26 KINK-BASELINE-FINDINGS), which comparisons are
+//!   excluded, what execution request is sent, what counts as a comparable result, how coverage is read, when a
 //!   work-bound mutant run kills one-sidedly, and the k-rust revision. [`kink_identity`] is their
 //!   object, `{key: value}`. It is the human-readable part: a store from another build says
 //!   which versioned algorithm differs, when one does, and the identity keeps campaign reports
@@ -92,7 +93,7 @@ pub struct Component {
 /// the first that differs. The k-rust revision comes last: a campaign manifest also names it in
 /// its `k_rust` member, which replay checks first, and a manifest written before packet CACHE-ID
 /// lacks it in `kink`, where the first kink algorithm it lacks is the more useful report.
-pub const KINK_IDENTITY: [Component; 13] = [
+pub const KINK_IDENTITY: [Component; 15] = [
     Component {
         key: "fingerprint",
         krate: "kink-patch",
@@ -134,6 +135,18 @@ pub const KINK_IDENTITY: [Component; 13] = [
         krate: "kink-native",
         constant: "MUTANT_EFFECT_VERSION",
         value: kink_native::consistency::MUTANT_EFFECT_VERSION,
+    },
+    Component {
+        key: "data_facts",
+        krate: "kink-native",
+        constant: "DATA_FACTS_VERSION",
+        value: kink_native::data::DATA_FACTS_VERSION,
+    },
+    Component {
+        key: "terminal_value",
+        krate: "kink-native",
+        constant: "TERMINAL_VALUE_VERSION",
+        value: kink_native::data::TERMINAL_VALUE_VERSION,
     },
     Component {
         key: "definition_exclusion",

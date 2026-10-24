@@ -15,7 +15,8 @@ use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
     BUILTIN_OPEN_HOOKS, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
-    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, UNDOCUMENTED_EVALUATED_HOOKS,
+    IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, RUN_LIST_HOOKS,
+    SHORT_CIRCUIT_HOOKS, UNDOCUMENTED_EVALUATED_HOOKS, census_hook,
     state_references_implementation_chosen,
 };
 use kink_native::execution::{
@@ -854,6 +855,207 @@ fn evaluated_hooks_no_builtin_file_documents_are_open() {
     }
 }
 
+/// The quoted strings of the Rust array literal `const {name}: ... = &[ ... ];` in `source`.
+fn array_strings(source: &str, head: &str) -> Vec<String> {
+    let start = source.find(head).unwrap_or_else(|| panic!("no {head}")) + head.len();
+    let end = source[start..].find("\n];").expect("the array ends") + start;
+    source[start..end]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The hooks of k-rust's test `unsupported_hook_positions.rs` `CASES`: the first string of each
+/// `(hook, application)` entry, whether the entry is on one line or spread over several.
+fn unsupported_hook_cases(source: &str) -> Vec<String> {
+    let head = "pub const CASES: &[(&str, &str)] = &[";
+    let start = source.find(head).expect("CASES") + head.len();
+    let end = source[start..].find("\n];").expect("CASES ends") + start;
+    let mut lines = source[start..end].lines().map(str::trim);
+    let mut hooks = Vec::new();
+    while let Some(line) = lines.next() {
+        let entry = if line == "(" {
+            lines.next().expect("an entry's hook")
+        } else if let Some(rest) = line.strip_prefix('(') {
+            rest
+        } else {
+            continue;
+        };
+        let hook = entry
+            .strip_prefix('"')
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or_else(|| panic!("an entry starts with its hook: {entry}"));
+        hooks.push(hook.to_owned());
+    }
+    hooks
+}
+
+/// KINK-CENSUS-RUNLIST (fz26): `RUN_LIST_HOOKS` is exactly the open hooks
+/// (`IMPLEMENTATION_CHOSEN_HOOKS`) that k-rust cannot evaluate in an execute request, less those of
+/// its `chosen_value` classes, derived from the k-rust source the workspace builds against:
+/// - its hook capability inventory (`crates/k-rust/tests/fixtures/hook-capabilities.toml`, every
+///   hook of the prelude and what it requires): `execution_only` (the console operations, which
+///   need a console) and the `unsupported` groups (no evaluator);
+/// - for an open hook the inventory does not hold (the builtin files the prelude does not require:
+///   `substitution.md`, `unification.k`, `json.md`, `timer.md`, `ffi.md`), the evaluator's own
+///   test: no evaluator for its namespace (`HookName::kind` is `Other`), or its name on
+///   `NOT_EVALUATED` (k-rust-backend `builtin/evaluated.rs`).
+///
+/// For every open hook the inventory does hold, both readings agree. Every census hook but the
+/// console operation `IO.read` has a dispatch arm (`K_RUST_EVALUATED_HOOKS`), and a run-list hook
+/// has none unless it is a console operation or on `NOT_EVALUATED` (an arm that answers
+/// unsupported, as `substMany`'s). What stays in the census is exactly k-rust's
+/// `chosen_value` hooks, the `String2Bytes`/`Bytes2String` pair and the hooks no builtin file
+/// documents. Every run-list hook is a case of k-rust's `unsupported_hook_positions.rs`, which
+/// checks the contract the list rests on in each position (compatibility.md 117, pinned below);
+/// `IO.read` is a case there too, and stays in the census for its class.
+#[test]
+fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
+    use k_rust_backend::term::names::{HookName, HookNamespace};
+
+    let backend = k_rust_backend();
+    let inventory: toml::Value = toml::from_str(
+        &std::fs::read_to_string(backend.join("../k-rust/tests/fixtures/hook-capabilities.toml"))
+            .unwrap(),
+    )
+    .unwrap();
+    let strings = |value: &toml::Value| {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hook| hook.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let groups = |value: &toml::Value| {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| strings(&group["hooks"]))
+            .collect::<Vec<_>>()
+    };
+    let execution_only = strings(&inventory["execution_only"])
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let unsupported = groups(&inventory["unsupported"])
+        .into_iter()
+        .chain(groups(&inventory["crypto"]["unsupported"]))
+        .collect::<BTreeSet<_>>();
+    let inventoried = strings(&inventory["implemented"])
+        .into_iter()
+        .chain(strings(&inventory["structural"]))
+        .chain(groups(&inventory["equation_defined"]))
+        .chain(strings(&inventory["crypto"]["implemented"]))
+        .chain(execution_only.iter().cloned())
+        .chain(unsupported.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        execution_only,
+        BTreeSet::from(["IO.getc", "IO.putc", "IO.read", "IO.write"].map(str::to_owned))
+    );
+    let evaluated_rs = std::fs::read_to_string(backend.join("src/builtin/evaluated.rs")).unwrap();
+    let not_evaluated = array_strings(&evaluated_rs, "const NOT_EVALUATED: &[&str] = &[")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert!(not_evaluated.contains("STRING.float2string"));
+    // k-rust's `evaluated::evaluates`, which is crate-private there.
+    let evaluator_has_none = |hook: &str| {
+        matches!(
+            HookName::parse(hook).map(HookName::kind),
+            None | Some(HookNamespace::Other)
+        ) || not_evaluated.contains(hook)
+    };
+    let unevaluated = |hook: &str| {
+        execution_only.contains(hook)
+            || if inventoried.contains(hook) {
+                assert_eq!(
+                    unsupported.contains(hook),
+                    evaluator_has_none(hook),
+                    "{hook}: the inventory and the evaluator disagree"
+                );
+                unsupported.contains(hook)
+            } else {
+                evaluator_has_none(hook)
+            }
+    };
+    let derived = IMPLEMENTATION_CHOSEN_HOOKS
+        .iter()
+        .copied()
+        .filter(|hook| unevaluated(hook) && !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(hook))
+        .collect::<Vec<_>>();
+    assert_eq!(derived, RUN_LIST_HOOKS);
+    for hook in RUN_LIST_HOOKS {
+        assert!(!census_hook(hook), "{hook}");
+        // A dispatch arm for one answers unsupported (`substMany`'s, which k-rust checks
+        // `NOT_EVALUATED` against) or needs a console.
+        assert!(
+            execution_only.contains(*hook)
+                || not_evaluated.contains(*hook)
+                || !K_RUST_EVALUATED_HOOKS.contains(hook),
+            "{hook} is evaluated"
+        );
+    }
+    let census = IMPLEMENTATION_CHOSEN_HOOKS
+        .iter()
+        .copied()
+        .filter(|hook| census_hook(hook))
+        .collect::<BTreeSet<_>>();
+    for hook in &census {
+        assert!(
+            execution_only.contains(*hook) || K_RUST_EVALUATED_HOOKS.contains(hook),
+            "{hook} is not evaluated"
+        );
+    }
+    assert_eq!(
+        census,
+        K_RUST_IMPLEMENTATION_CHOSEN_HOOKS
+            .iter()
+            .copied()
+            .chain(["BYTES.string2bytes", "BYTES.bytes2string"])
+            .chain(UNDOCUMENTED_EVALUATED_HOOKS.iter().copied())
+            .collect::<BTreeSet<_>>()
+    );
+    assert!(census_hook("IO.read") && execution_only.contains("IO.read"));
+    assert_eq!(
+        census.len() + RUN_LIST_HOOKS.len(),
+        IMPLEMENTATION_CHOSEN_HOOKS.len()
+    );
+    // Every moved hook is a case of k-rust's per-position test.
+    let cases = unsupported_hook_cases(
+        &std::fs::read_to_string(backend.join("../k-rust/tests/unsupported_hook_positions.rs"))
+            .unwrap(),
+    );
+    assert_eq!(cases.len(), 52, "{cases:?}");
+    for hook in RUN_LIST_HOOKS {
+        assert!(cases.iter().any(|case| case == hook), "{hook} has no case");
+    }
+    assert!(cases.iter().any(|case| case == "IO.read"));
+}
+
+/// KINK-CENSUS-RUNLIST (fz26): the k-rust passage `RUN_LIST_HOOKS` rests on,
+/// `docs/compatibility.md` line 117 ("Backend scope", the console paragraph, added by
+/// K-RUST-CONSOLE-PIN): an execute request has no console, evaluates no console operation and no
+/// hook without an evaluator, and lists an application of one whose value the run needs on
+/// `unsupportedHooks`, wherever it sits. Pinned by the digest of the line without its newline; a
+/// re-pin that moves or changes it fails here, and the run list is read again against it.
+#[test]
+fn the_console_passage_the_run_list_rests_on_is_pinned() {
+    let text =
+        std::fs::read_to_string(k_rust_backend().join("../../docs/compatibility.md")).unwrap();
+    let line = text.split('\n').nth(116).expect("line 117");
+    assert!(
+        line.starts_with("Given the console of the request, `#getc`, `#putc` and `#write` are"),
+        "{line}"
+    );
+    assert_eq!(
+        kink_patch::sha256(line.as_bytes()).to_string(),
+        "0e21af4d52506fe9e9cdfae85637b1613bc289ac3859c2b4a86dad061e2ee85b"
+    );
+}
+
 /// Re-pin R0c-fix-1 deliverable 4 (R0c review 1 minor, decision 1): an undefined step of a rule
 /// whose right-hand side applies a short-circuit operator over an operand that may be undefined
 /// is excluded. On 0, `go` (`false andBool 10 /Int I >Int 0`), `fn` (the same through a function),
@@ -987,6 +1189,229 @@ fn a_condition_that_depends_on_the_short_circuit_reading_excludes_the_definition
             Some(Exclusion::ShortCircuitReading)
         );
     });
+}
+
+/// KINK-SC-DEFINED (fz26 P7-SIMPLE-KINK design): the prelude equation of `findChar` skips
+/// operands over the partial `findString` and `findChar`, but every such application in a
+/// skipped operand is also evaluated by an operand that runs whenever it is skipped (an `#if`
+/// condition or the other branch), so neither reading leaves one undefined where the other gives
+/// a value: `findChar` does not depend on the reading, the rule applying it is not flagged, and
+/// `fc("xb")` is evidence. Before KINK-SC-DEFINED `findChar` was reading-dependent and the
+/// definition was excluded.
+///
+/// `replace` and `replaceAll` (prelude `STRING-COMMON`) stay reading-dependent: `replace`'s
+/// `owise` equation negates `Count >Int 0 andBool findString(Source, ToReplace, 0) >=Int 0`,
+/// whose skippable `findString` application, of a function declared partial, no other operand
+/// evaluates; at `Count` 0 a short-circuiting backend takes the `owise` equation whatever
+/// `findString` is, where k-rust's reading needs it defined. `replaceAll` applies `replace`.
+/// Neither is applied here, so nothing is excluded.
+#[test]
+fn a_skipped_operand_whose_partial_terms_another_operand_evaluates_flags_nothing() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scstr");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let flagged = exclusions
+            .short_circuit_symbols
+            .iter()
+            .map(|symbol| {
+                symbol
+                    .split_once("'LPar")
+                    .map_or(symbol.as_str(), |(head, _)| head)
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            flagged,
+            BTreeSet::from(["Lblreplace", "LblreplaceAll"]),
+            "{exclusions:?}"
+        );
+        assert!(
+            exclusions.short_circuit_conditions.is_empty()
+                && exclusions.short_circuit_results.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None);
+        let string = parse_pattern(r#"\dv{SortString{}}("xb")"#).unwrap();
+        let execution = run(&side, &module, support::app("Lblfc", vec![string]));
+        let [leaf] = execution.leaves() else {
+            panic!("fc(\"xb\"): one leaf")
+        };
+        assert_eq!(leaf.halt, HaltClass::Stuck);
+        assert!(leaf.branch.state.to_string().contains(r#""1""#));
+        assert_eq!(exclusions.run_exclusion(&execution), None);
+    });
+}
+
+/// KINK-SC-DEFINED: the prelude's stdin rules, which kompile copies into a definition with a
+/// `stdin` stream cell, have `requires` clauses over `findChar`; with `findChar` no longer
+/// reading-dependent, no rule of such a definition is a short-circuit row. Before, three rules
+/// were (stock SIMPLE's `short-circuit-reading` exclusion). The prelude's `replace` and
+/// `replaceAll` stay reading-dependent (above), but no rule applies them. Since
+/// KINK-CENSUS-RUNLIST the copied rules' console operation (`#getc`) is on the run list, so the
+/// definition is not excluded at all; before, the census of `IO.getc` excluded it.
+#[test]
+fn the_prelude_stdin_rules_are_no_short_circuit_row() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scin");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_conditions.is_empty()
+                && exclusions.short_circuit_results.is_empty()
+                && exclusions
+                    .short_circuit_symbols
+                    .iter()
+                    .all(|symbol| symbol.starts_with("Lblreplace")),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None, "{exclusions:?}");
+    });
+}
+
+/// KINK-SC-DEFINED (fz26 P7-SIMPLE-KINK review B3 and round 2): `f(A) => #if A >=Int 0 #then A
+/// #else pd(A) #fi`, with `pd` defined exactly on negatives, skips `pd(A)` where a guard holds,
+/// and `pd(A)` occurs in no other operand: `f(3)` is undefined in k-rust's reading and `3` in a
+/// short-circuiting one, so `f` stays reading-dependent whatever the guard says. In the covered
+/// variant (`scpdc`, `#if pd(A) >Int 0 #then pd(A) #else 0 #fi`) the condition, evaluated on every
+/// path, evaluates the skippable `pd(A)` too, so where it is undefined both readings are: `f` is
+/// not flagged, `go(-3)` reaches `res(3)` and is evidence, and `go(3)`, where `pd(3)` is undefined
+/// in both readings, is not excluded for the reading. Before KINK-SC-DEFINED the covered variant
+/// was flagged too.
+#[test]
+fn a_skipped_operand_no_other_operand_evaluates_stays_flagged() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scpd");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_symbols.contains("Lblf"),
+            "{exclusions:?}"
+        );
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let (side, module) = fixture("r0c", "scpdc");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_symbols.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None);
+        let value = run(
+            &side,
+            &module,
+            support::app("Lblgo", vec![support::int(-3)]),
+        );
+        let [leaf] = value.leaves() else {
+            panic!("go(-3): one leaf")
+        };
+        assert_eq!(leaf.halt, HaltClass::Stuck);
+        assert!(leaf.branch.state.to_string().contains(r#""3""#));
+        assert_eq!(exclusions.run_exclusion(&value), None);
+        let undefined = run(&side, &module, support::app("Lblgo", vec![support::int(3)]));
+        assert!(
+            undefined
+                .leaves()
+                .iter()
+                .any(|leaf| leaf.halt == HaltClass::Trivial),
+            "go(3): an undefined step"
+        );
+        assert_ne!(
+            exclusions.run_exclusion(&undefined),
+            Some(Exclusion::ShortCircuitReading)
+        );
+    });
+}
+
+/// KINK-SC-DEFINED: the short-circuit analysis takes the terms every evaluation of an operator
+/// evaluates as its non-skippable operands' plus those common to all its skippable ones. That
+/// under-approximates every evaluation only if each operator of `SHORT_CIRCUIT_HOOKS` evaluates
+/// at least one of its skippable positions, and every other position whenever one is skipped.
+/// Checked here from each operator's meaning, read on `Bool` (an instance of `#if`'s sort):
+/// - its arity is that of the prelude production with its hook, and its skippable positions are
+///   distinct positions of it;
+/// - for every value of its other positions, its result is no constant of the skippable ones, so
+///   no evaluation can give it without reading one of them;
+/// - its other positions are `#if`'s condition alone, which both prelude rules of `#if` read
+///   (`requires C`, `requires notBool C`), so every evaluation evaluates it.
+#[test]
+fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one() {
+    type Meaning = fn(&[bool]) -> bool;
+    let meaning = |hook: &str| -> Meaning {
+        match hook {
+            "BOOL.and" | "BOOL.andThen" => |v| v[0] && v[1],
+            "BOOL.or" | "BOOL.orElse" => |v| v[0] || v[1],
+            "BOOL.implies" => |v| !v[0] || v[1],
+            "KEQUAL.ite" => |v| if v[0] { v[1] } else { v[2] },
+            other => panic!("{other}: no meaning given; check the invariant for it first"),
+        }
+    };
+    let domains =
+        std::fs::read_to_string(k_rust_backend().join("../k-rust/builtin/domains.md")).unwrap();
+    // The number of non-terminals of the production that declares `hook`.
+    let arity = |hook: &str| -> usize {
+        let line = domains
+            .lines()
+            .find(|line| line.contains(&format!("hook({hook})")))
+            .unwrap_or_else(|| panic!("domains.md declares {hook}"));
+        let body = line.split_once("::=").map_or(line, |(_, body)| body);
+        let body = &body[..body.rfind('[').unwrap()];
+        let mut quoted = false;
+        let mut unquoted = String::new();
+        for character in body.chars() {
+            if character == '"' {
+                quoted = !quoted;
+            } else if !quoted {
+                unquoted.push(character);
+            }
+        }
+        unquoted
+            .split_whitespace()
+            .filter(|word| word.starts_with(|c: char| c.is_ascii_uppercase()))
+            .count()
+    };
+    for (hook, skippable) in SHORT_CIRCUIT_HOOKS {
+        let n = arity(hook);
+        let positions = skippable.iter().copied().collect::<BTreeSet<_>>();
+        assert!(
+            !positions.is_empty()
+                && positions.len() == skippable.len()
+                && positions.iter().all(|p| *p < n),
+            "{hook}: {skippable:?} of arity {n}"
+        );
+        let meaning = meaning(hook);
+        let others = (0..n)
+            .filter(|p| !positions.contains(p))
+            .collect::<Vec<_>>();
+        for fixed in 0..1u32 << others.len() {
+            let results = (0..1u32 << positions.len())
+                .map(|free| {
+                    let mut values = vec![false; n];
+                    for (bit, position) in others.iter().enumerate() {
+                        values[*position] = fixed >> bit & 1 == 1;
+                    }
+                    for (bit, position) in positions.iter().enumerate() {
+                        values[*position] = free >> bit & 1 == 1;
+                    }
+                    meaning(&values)
+                })
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                results.len(),
+                2,
+                "{hook}: constant in its skippable positions at {fixed:b}"
+            );
+        }
+        if *hook == "KEQUAL.ite" {
+            assert_eq!(others, [0], "{hook}");
+            for rule in [
+                "rule #if C:Bool #then B1::K #else _ #fi => B1 requires C\n",
+                "rule #if C:Bool #then _ #else B2::K #fi => B2 requires notBool C\n",
+            ] {
+                assert!(domains.contains(rule), "domains.md: {rule}");
+            }
+        } else {
+            assert!(others.is_empty(), "{hook}: {others:?}");
+        }
+    }
 }
 
 /// Re-pin R0c deliverable 2 (the R0b reviewer's probe): a rule that applies `Base2String`, whose
@@ -1639,29 +2064,86 @@ mod kink_tier {
 
     /// Re-pin R0c-fix-1 deliverable 3 (R0c review 1 minor, the reviewer's probe): a definition with a
     /// `stdout` stream cell gets the prelude's stream rules, which apply `#write` (`IO.write`) and
-    /// `Float2String`, with their prelude `Source`. The census counts every rewrite rule whatever its
-    /// source, so the definition is flagged; before R0c-fix-1 it was not (the rules' source is
-    /// `krust-builtin://domains.md`).
+    /// `Float2String`, with their prelude `Source`. The census reads every rewrite rule whatever its
+    /// source; R0c-fix-1 flagged the definition (before, the rules' source,
+    /// `krust-builtin://domains.md`, hid them). Since KINK-CENSUS-RUNLIST both hooks are on the run
+    /// list: k-rust cannot evaluate either in an execute request, and a run that needs one lists it
+    /// on `unsupportedHooks`. So the census holds neither, and the definition is not excluded,
+    /// though the copied rules are still there (the stdout rules of the compiled definition apply
+    /// both hooks).
     #[test]
     #[ignore = "kink"]
-    fn prelude_stream_rules_are_counted_whatever_their_source() {
+    fn prelude_stream_rules_no_longer_flag_a_stream_definition() {
         on_a_big_stack(|| {
             let (side, module) = fixture("r0c", "outs");
             let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-            let hooks = exclusions
-                .implementation_chosen
-                .iter()
-                .map(|reference| reference.hook.as_str())
-                .collect::<BTreeSet<_>>();
-            assert_eq!(
-                hooks,
-                BTreeSet::from(["IO.write", "STRING.float2string"]),
+            assert!(
+                exclusions.implementation_chosen.is_empty(),
                 "{exclusions:?}"
             );
-            assert_eq!(
-                exclusions.definition_exclusion(),
-                Some(Exclusion::ImplementationChosenHook)
+            assert_eq!(exclusions.definition_exclusion(), None);
+            let rules = backend(&side, &module).rule_catalog(None).unwrap();
+            assert!(
+                rules
+                    .iter()
+                    .any(|rule| rule.label.as_deref() == Some("STDOUT-STREAM.stdoutWrite")),
+                "{rules:?}"
             );
+        });
+    }
+
+    /// KINK-CENSUS-RUNLIST (fz26): the census reads only the open hooks k-rust evaluates without a
+    /// run-level record. Fixtures in `testdata/k/runlist` (also run end to end by kink-flow's
+    /// `census_runlist` tests):
+    /// - `iopw` applies `#write` and `#getc` in right-hand sides: nothing in the census, no
+    ///   definition exclusion (before: `IO.getc` and `IO.write`, `implementation-chosen-hook`);
+    /// - `lhsio` applies `#getc` in a left-hand-side map key: the same (before: `IO.getc`);
+    /// - `iop` (`iopw` with a rule applying `Bytes2String(String2Bytes("ab"))`) and `lhs` (the pair
+    ///   in a left-hand-side map key) stay excluded by the bytes pair alone;
+    /// - stock SIMPLE (untyped, K's pl-tutorial `simple-untyped.md`, unedited), whose stream cells
+    ///   get the prelude's stream rules: no definition exclusion (before: `IO.getc`, `IO.write` and
+    ///   `STRING.float2string` in the copied rules).
+    #[test]
+    #[ignore = "kink"]
+    fn the_census_reads_only_open_hooks_k_rust_evaluates_without_a_record() {
+        on_a_big_stack(|| {
+            let census = |side: &ValidatedDefinition, module: &str| {
+                let exclusions = DefinitionExclusions::of_validated(side, module).unwrap();
+                let hooks = exclusions
+                    .implementation_chosen
+                    .iter()
+                    .map(|reference| reference.hook.clone())
+                    .collect::<BTreeSet<_>>();
+                (hooks, exclusions.definition_exclusion())
+            };
+            let bytes =
+                BTreeSet::from(["BYTES.bytes2string", "BYTES.string2bytes"].map(str::to_owned));
+            for (name, expected) in [
+                ("iopw", BTreeSet::new()),
+                ("lhsio", BTreeSet::new()),
+                ("iop", bytes.clone()),
+                ("lhs", bytes.clone()),
+            ] {
+                let (side, module) = fixture("runlist", name);
+                let (hooks, exclusion) = census(&side, &module);
+                assert_eq!(hooks, expected, "{name}");
+                assert_eq!(
+                    exclusion,
+                    (!expected.is_empty()).then_some(Exclusion::ImplementationChosenHook),
+                    "{name}"
+                );
+            }
+            let loaded = support::load_path(
+                &Path::new(support::DIR).join("runlist/simple-untyped.md"),
+                "SIMPLE-UNTYPED",
+            );
+            let side = NativeValidator::bind(loaded, CompileOptions::default())
+                .compile_baseline()
+                .unwrap();
+            let module = k_rust::kast::identifier::encode("SIMPLE-UNTYPED");
+            let (hooks, exclusion) = census(&side, &module);
+            assert!(hooks.is_empty(), "{hooks:?}");
+            assert_eq!(exclusion, None);
         });
     }
 }

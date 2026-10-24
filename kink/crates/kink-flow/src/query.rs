@@ -345,8 +345,11 @@ pub(crate) fn query_with(
         "from_cache": accounting["from_cache"],
         "records_written": accounting["records_written"],
     });
-    let programs = update.rows.iter().map(|row| row.row.clone()).collect();
-    let document = document(
+    let programs = crate::results::data_marked(
+        update.rows.iter().map(|row| row.row.clone()).collect(),
+        &spec.data,
+    );
+    let mut document = document(
         &record,
         Some(spec_digest),
         programs,
@@ -356,6 +359,7 @@ pub(crate) fn query_with(
         pattern_cache,
         runner.baseline_runs(),
     );
+    document["data"] = spec.data.value();
     (document, ok)
 }
 
@@ -430,6 +434,7 @@ fn ask(
             |record| record["cause"].as_str(),
         ),
         profile: SolverProfile::BUILD,
+        unnamed_findings: spec.data.heads().findings().len(),
     };
     let keyed = context.build.map(|build| {
         (

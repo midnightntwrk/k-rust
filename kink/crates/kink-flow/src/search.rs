@@ -109,7 +109,10 @@ use kink_campaign::{
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{
-    DeclarationCensus, K_RUST_REVISION, declaration_census, execution::SolverProfile,
+    DeclarationCensus, K_RUST_REVISION,
+    data::{DataEnds, NamedFinding, data_ends},
+    declaration_census,
+    execution::SolverProfile,
 };
 use kink_patch::{CandidateGeneration, ClaimSupport, Patch, SentenceRef, Sha256Digest, Withdrawal};
 use serde_json::{Map, Value, json};
@@ -719,7 +722,7 @@ impl Search<'_> {
             return Vec::new();
         };
         let order = order(&self.candidates, &resolved.rules, self.order);
-        if order.is_empty() {
+        if order.is_empty() || self.gated() {
             return Vec::new();
         }
         if self.mode == RunMode::Search {
@@ -769,6 +772,58 @@ impl Search<'_> {
             .expect("a live resolution's search always gives a row")
     }
 
+    /// Whether the baseline has a finding no `[spec] assume_joined` name assumes, so that no end
+    /// of it is data (kink-native `data::data_ends`) and no mutation can be killed (fz26
+    /// KINK-BASELINE-FINDINGS).
+    fn gated(&self) -> bool {
+        data_ends(&self.spec.data) == DataEnds::None
+    }
+
+    /// The row of a mutation of a baseline with findings left ([`Search::gated`]): `unknown`
+    /// with reason `baseline-findings` (kink-campaign's fold of a mutant-scope failure that
+    /// precedes execution, over the programs of O), the findings named with their verdicts, and
+    /// no call.
+    fn baseline_findings_row(&self, mut row: Map<String, Value>, order: &[usize]) -> Value {
+        let report = self
+            .assemble(
+                &[],
+                Some((
+                    order,
+                    &MutantPlan {
+                        selection: None,
+                        mutant_id: MutantId(0),
+                        tests: Vec::new(),
+                        mutant_failure: Some(MutantScopeFailure::BaselineFindings),
+                        claims: Withdrawal::default(),
+                        inconsistent_pairs: Vec::new(),
+                    },
+                )),
+            )
+            .expect("a mutant-scope failure with no test is a valid plan");
+        row.insert(
+            "findings".into(),
+            json!(
+                self.spec
+                    .data
+                    .unnamed()
+                    .iter()
+                    .map(NamedFinding::value)
+                    .collect::<Vec<_>>()
+            ),
+        );
+        verdict_row(
+            row,
+            &report,
+            Some(kebab(&format!(
+                "{:?}",
+                MutantScopeFailure::BaselineFindings
+            ))),
+            None,
+            RowCalls::default(),
+            Vec::new(),
+        )
+    }
+
     /// The facts of `resolved` that a row reads before any call ([`Facts`]; re-pin L1-4): what
     /// the resolution memo stores.
     fn facts(&self, resolved: &ResolvedMutation, generation: &CandidateGeneration<'_>) -> Facts {
@@ -801,6 +856,9 @@ impl Search<'_> {
             return false;
         }
         let order = order(&self.candidates, &facts.rules, self.order);
+        if !order.is_empty() && self.gated() {
+            return true;
+        }
         let records = self.valid_records(facts.identity, &order, &mut Map::new());
         tier1_decides(&order, &records)
     }
@@ -855,6 +913,15 @@ impl Search<'_> {
         // an inconsistent mutant; empty otherwise.
         row.insert("inconsistent_pairs".into(), json!([]));
         let key = hint_key_of(mutation, &facts.rules);
+        // fz26 KINK-BASELINE-FINDINGS: on a baseline with a finding no `[spec] assume_joined`
+        // name assumes, no end is data, so no program can kill: the mutation is unknown before
+        // any store is read or any call made (no cached outcome decides it, whatever it says).
+        if !order.is_empty() && self.gated() {
+            if self.mode == RunMode::Search {
+                self.hints.remove(key);
+            }
+            return Some((self.baseline_findings_row(row, &order), false));
+        }
         let records = self.valid_records(identity, &order, &mut row);
         // A memo's facts carry no generation (re-pin L1-4): they are used only when tier 1
         // decides with no call. Otherwise the search stops here, on the records it decides from,
@@ -1319,7 +1386,13 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                 .recording
                 .mutant_run(mutant.plan.mutant_id, &test.test_id);
             let baseline_run = live.recording.baseline_of(&test.test_id);
-            let cause = executed_cause(&test.run, evidence, budget, run.map(|run| &run.census));
+            let cause = executed_cause(
+                &test.run,
+                evidence,
+                found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
+                budget,
+                run.map(|run| &run.census),
+            );
             let mut entry = match &test.run {
                 TestRun::SkippedAfterKill => return None,
                 TestRun::Compared(outcomes) => json!({
@@ -1534,11 +1607,10 @@ pub fn run_with(
         .enumerate()
         .filter_map(|(index, (program, row))| candidate(index, &program.id, row))
         .collect::<Vec<_>>();
-    let program_rows = update
-        .rows
-        .iter()
-        .map(|row| row.row.clone())
-        .collect::<Vec<_>>();
+    let program_rows = crate::results::data_marked(
+        update.rows.iter().map(|row| row.row.clone()).collect(),
+        &spec.data,
+    );
     let mut search = Search {
         spec: &spec,
         manifest,
@@ -1719,6 +1791,7 @@ pub fn run_with(
                 baseline_runs: runner.baseline_runs(),
                 order: json!(options.order.as_str()),
                 untargeted_rules: untargeted.clone(),
+                data: spec.data.value(),
             },
         );
         match store.write_json(&report_path, &document) {
@@ -1756,6 +1829,7 @@ pub fn run_with(
             baseline_runs: runner.baseline_runs(),
             order: json!(options.order.as_str()),
             untargeted_rules: untargeted,
+            data: spec.data.value(),
         },
     );
     // The stored report is the document the command prints: write it unless the last write
@@ -1983,6 +2057,8 @@ struct Accounting<'m> {
     baseline_runs: Value,
     order: Value,
     untargeted_rules: Value,
+    /// The baseline's data facts (kink-native `DataFacts::value`): the premises and findings.
+    data: Value,
 }
 
 impl Accounting<'_> {
@@ -1992,6 +2068,7 @@ impl Accounting<'_> {
         baseline_runs: Value::Null,
         order: Value::Null,
         untargeted_rules: Value::Null,
+        data: Value::Null,
     };
 }
 
@@ -2056,6 +2133,7 @@ fn document(
         "baseline_runs": accounting.baseline_runs,
         "order": accounting.order,
         "untargeted_rules": accounting.untargeted_rules,
+        "data": accounting.data,
     })
 }
 

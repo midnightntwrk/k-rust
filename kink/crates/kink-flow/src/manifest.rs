@@ -45,6 +45,13 @@ pub struct SpecSection {
     pub syntax_module: Option<String>,
     pub include_dirs: Vec<String>,
     pub md_selector: String,
+    /// `assume_joined`: the findings of the definition's full critical-pair check the author
+    /// names as premises (fz26 KINK-BASELINE-FINDINGS), each by the name k-rust-backend's
+    /// `data_term::names` gives it (the name `results` prints and k-rust-fuzz's
+    /// `definition-findings` and `assume-joined` use), sorted and without repeats. Empty by
+    /// default: a definition with a finding then has no data, and every mutation is `unknown`
+    /// (`baseline-findings`).
+    pub assume_joined: Vec<String>,
 }
 
 /// `[budget]`: the bounds of every program run.
@@ -270,6 +277,7 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
             "syntax_module",
             "include_dirs",
             "md_selector",
+            "assume_joined",
         ],
     )?;
     let entry = relative_path(
@@ -293,6 +301,28 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
             ));
         }
     };
+    let mut assume_joined = match spec.get("assume_joined") {
+        None => Vec::new(),
+        Some(Value::Array(names)) => names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| match name {
+                Value::String(name) if !name.trim().is_empty() => Ok(name.clone()),
+                _ => Err(ManifestError::new(
+                    format!("spec.assume_joined[{i}]"),
+                    "expected a nonempty string, a finding's name",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => {
+            return Err(ManifestError::new(
+                "spec.assume_joined",
+                "expected an array of strings",
+            ));
+        }
+    };
+    assume_joined.sort();
+    assume_joined.dedup();
     Ok(SpecSection {
         entry,
         main_module: required_string(spec, "spec", "main_module")?,
@@ -300,6 +330,7 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
         include_dirs,
         md_selector: optional_string(spec, "spec", "md_selector")?
             .unwrap_or_else(|| DEFAULT_MD_SELECTOR.to_owned()),
+        assume_joined,
     })
 }
 

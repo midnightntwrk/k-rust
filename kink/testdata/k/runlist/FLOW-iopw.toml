@@ -1,0 +1,16 @@
+[spec]
+entry = "iopw.k"
+main_module = "IOPW"
+syntax_module = "IOPW-SYNTAX"
+
+[[program]]
+id = "w"
+text = "w"
+
+[[program]]
+id = "g"
+text = "g"
+
+[[program]]
+id = "n"
+text = "n"

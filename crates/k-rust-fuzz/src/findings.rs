@@ -1,6 +1,8 @@
 //! The findings of a definition's full critical-pair check as a campaign states them
 //! (ARCHITECTURE 4.3): their names, which `assume-joined` matches, and their report entries
-//! with readable terms ([`crate::report::DefinitionFinding`]).
+//! with readable terms ([`crate::report::DefinitionFinding`]). The names are k-rust-backend's
+//! (`data_term::names`), the one renderer kink's `[spec] assume_joined` reads too, called with
+//! the K label decoder; this module adds the side prefixes.
 //!
 //! A pair is named `FIRST,SECOND@POSITION`: each equation by its written position
 //! `FILE:LINE:COLUMN` with the file's last path component (a compiler-generated overload axiom,
@@ -35,14 +37,14 @@ use std::collections::BTreeSet;
 
 use k_rust::{
     k_rust_backend::{
-        confluence::{UnjoinedPair, UnjoinedReason, Violation, ViolationKind},
-        data_term::{DataHeads, Finding, Stuck},
+        confluence::{UnjoinedPair, Violation, ViolationKind},
+        data_term::{DataHeads, Finding, Stuck, names},
         externalize,
         rule::{Predicate, RewriteRule, RuleOrigin, TermIndex},
         substitution::{Substitution, substitute},
         term::Term,
     },
-    kast::identifier::{decode_label, decode_sort_name, decode_variable, encode_variable},
+    kast::identifier::{decode_sort_name, decode_variable, encode_variable},
     kore::ast::{Pattern as KorePattern, VariableKind},
 };
 
@@ -71,143 +73,43 @@ fn equation(rule: &RewriteRule) -> String {
         .unwrap_or_else(|| rule.attributes.diagnostic_name(label))
 }
 
-/// `position` as a name writes it.
+/// `position` as a name writes it (k-rust-backend `data_term::names`).
 fn position_text(position: &[usize]) -> String {
-    if position.is_empty() {
-        "root".to_owned()
-    } else {
-        position
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(".")
-    }
+    names::position_text(position)
 }
 
-/// The overload part naming a compiler-generated overload axiom, which has no written position:
-/// `overload:GREATER:LESSER` with the K labels of its overloaded pair, quoted where needed
-/// ([`quoted`]).
+/// The overload part naming a compiler-generated overload axiom (k-rust-backend
+/// `data_term::names`).
 fn overload_part(rule: &RewriteRule) -> Option<String> {
-    let (greater, lesser) = rule.attributes.overload.as_ref()?;
-    Some(format!(
-        "overload:{}:{}",
-        quoted(&label(greater)),
-        quoted(&label(lesser))
-    ))
+    names::overload_part(rule, label)
 }
 
-/// The same part with the KORE names, which a name may also use.
-fn overload_kore_part(rule: &RewriteRule) -> Option<String> {
-    let (greater, lesser) = rule.attributes.overload.as_ref()?;
-    Some(format!("overload:{greater}:{lesser}"))
+/// The prefix of the name of a finding about one equation (k-rust-backend `data_term::names`).
+fn equation_prefix(pair: &UnjoinedPair) -> &'static str {
+    names::equation_prefix(pair)
 }
 
-/// `text`, or `text` in `"` with `"` and `\` escaped by `\` when it holds a character a name
-/// separates its parts with (`,`, `:`, `@`), a quote, a backslash or whitespace.
-fn quoted(text: &str) -> String {
-    if text
-        .chars()
-        .any(|character| ",:@\"\\".contains(character) || character.is_whitespace())
-    {
-        let mut out = String::from('"');
-        for character in text.chars() {
-            if character == '"' || character == '\\' {
-                out.push('\\');
-            }
-            out.push(character);
-        }
-        out.push('"');
-        out
-    } else {
-        text.to_owned()
-    }
+/// The kind of a precondition row as a name writes it (k-rust-backend `data_term::names`).
+fn precondition_kind(kind: &ViolationKind) -> String {
+    names::precondition_kind(kind, label)
 }
 
-/// `given` split at its first `,` and its last `@` outside quotes: the two rule parts and the
-/// position; `None` for any other shape.
-fn split_name(given: &str) -> Option<(String, String, String)> {
-    let mut parts = vec![String::new()];
-    let mut separators = Vec::new();
-    let (mut quoted, mut escaped) = (false, false);
-    for character in given.chars() {
-        let current = parts.last_mut().expect("one part at least");
-        if escaped {
-            escaped = false;
-            current.push(character);
-        } else if quoted && character == '\\' {
-            escaped = true;
-            current.push(character);
-        } else if character == '"' {
-            quoted = !quoted;
-            current.push(character);
-        } else if !quoted && (character == ',' || character == '@') {
-            separators.push(character);
-            parts.push(String::new());
-        } else {
-            current.push(character);
-        }
-    }
-    match (separators.as_slice(), parts.as_slice()) {
-        ([',', '@'], [first, second, position]) => {
-            Some((first.clone(), second.clone(), position.clone()))
-        }
-        _ => None,
-    }
-}
-
-/// How a name writes `rule`: its written position with the file's last path component, else its
-/// overload part, its label or its unique id.
-fn rule_part(rule: &RewriteRule) -> Option<String> {
-    written(rule)
-        .map(|written| match written.rsplit_once('/') {
-            Some((_, file)) => file.to_owned(),
-            None => written,
-        })
-        .or_else(|| overload_part(rule))
-        .or_else(|| rule.attributes.label.clone())
-        .or_else(|| rule.attributes.identifier().map(str::to_owned))
-}
-
-/// The name `assume-joined` takes for `pair` (the module documentation), `None` when an
-/// equation has neither a written position, an overloaded pair, a label nor a unique id.
+/// The name `assume-joined` takes for `pair` (the module documentation; k-rust-backend
+/// `data_term::names`, the renderer kink's `[spec] assume_joined` reads too).
 pub(crate) fn name(pair: &UnjoinedPair) -> Option<String> {
-    Some(format!(
-        "{},{}@{}",
-        rule_part(&pair.first)?,
-        rule_part(&pair.second)?,
-        position_text(&pair.position)
-    ))
+    names::pair_name(pair, label)
 }
 
-/// Whether `given`, one rule part of a name, names `rule`.
-fn names_rule(given: &str, rule: &RewriteRule) -> bool {
-    let given = given.trim();
-    if given.is_empty() {
-        return false;
-    }
-    written(rule).is_some_and(|written| {
-        written == given
-            || written
-                .strip_suffix(given)
-                .is_some_and(|prefix| prefix.ends_with('/'))
-    }) || rule.attributes.identifier() == Some(given)
-        || rule.attributes.label.as_deref() == Some(given)
-        || overload_part(rule).as_deref() == Some(given)
-        || overload_kore_part(rule).as_deref() == Some(given)
+/// The name `assume-joined` takes for `finding` (the module documentation; k-rust-backend
+/// `data_term::names`).
+pub(crate) fn finding_name(finding: &Finding) -> Option<String> {
+    names::finding_name(finding, label)
 }
 
-/// Whether the name `given`, without a side prefix, names `pair` (the module documentation). A
-/// name not of the shape `FIRST,SECOND@POSITION` names nothing.
-pub(crate) fn names(given: &str, pair: &UnjoinedPair) -> bool {
-    let Some((first, second, position)) = split_name(given) else {
-        return false;
-    };
-    position.trim() == position_text(&pair.position)
-        && ((names_rule(&first, &pair.first) && names_rule(&second, &pair.second))
-            // A root pair is symmetric.
-            || (pair.position.is_empty()
-                && names_rule(&first, &pair.second)
-                && names_rule(&second, &pair.first)))
+/// Whether the name `given`, without a side prefix, names `finding` (the module documentation;
+/// k-rust-backend `data_term::names`).
+pub(crate) fn names_finding(given: &str, finding: &Finding) -> bool {
+    names::names_finding(given, finding, label)
 }
 
 /// The names of `assume_joined` that apply on the definition `side`, side prefixes removed.
@@ -229,75 +131,6 @@ pub(crate) fn side_of(given: &str) -> (Option<DefinitionRole>, &str) {
         (Some(DefinitionRole::Mutant), rest)
     } else {
         (None, given)
-    }
-}
-
-/// The prefix of the name of a finding about one equation ([`Finding::Equation`]): `hook` for an
-/// equation at an evaluated hook not shown to agree with it, `equation` otherwise.
-fn equation_prefix(pair: &UnjoinedPair) -> &'static str {
-    if pair.hook.is_some() || matches!(pair.reason, UnjoinedReason::UnmodelledHook(_)) {
-        "hook"
-    } else {
-        "equation"
-    }
-}
-
-/// The kind of a precondition row as a name writes it, with the K labels it names.
-fn precondition_kind(kind: &ViolationKind) -> String {
-    match kind {
-        ViolationKind::ConstructorHeaded(symbol) => {
-            format!("constructor-headed:{}", quoted(&label(symbol)))
-        }
-        ViolationKind::InjectionHeaded => "injection-headed".to_owned(),
-        ViolationKind::IndexedAt(index) => format!("indexed-at:{}", quoted(&format!("{index:?}"))),
-        ViolationKind::OverloadShape(symbol) => {
-            format!("overload-shape:{}", quoted(&label(symbol)))
-        }
-        ViolationKind::NoLeastCommonOverload(first, second) => format!(
-            "no-least-common-overload:{}:{}",
-            quoted(&label(first)),
-            quoted(&label(second))
-        ),
-        ViolationKind::PinnedByInjectiveTotal(symbol) => {
-            format!("pinned-by-injective-total:{}", quoted(&label(symbol)))
-        }
-    }
-}
-
-/// The name `assume-joined` takes for `finding` (the module documentation), `None` when an
-/// equation it names has neither a written position, an overloaded pair, a label nor a unique
-/// id.
-pub(crate) fn finding_name(finding: &Finding) -> Option<String> {
-    match finding {
-        Finding::Pair { pair, .. } => name(pair),
-        Finding::Equation(pair) => Some(format!(
-            "{}:{}",
-            equation_prefix(pair),
-            rule_part(&pair.first)?
-        )),
-        Finding::Precondition(violation) => Some(match &violation.rule {
-            Some(rule) => format!("precondition:{}", rule_part(rule)?),
-            None => format!("precondition:{}", precondition_kind(&violation.kind)),
-        }),
-    }
-}
-
-/// Whether the name `given`, without a side prefix, names `finding` (the module documentation).
-pub(crate) fn names_finding(given: &str, finding: &Finding) -> bool {
-    match finding {
-        Finding::Pair { pair, .. } => names(given, pair),
-        Finding::Equation(pair) => given
-            .strip_prefix(equation_prefix(pair))
-            .and_then(|rest| rest.strip_prefix(':'))
-            .is_some_and(|rest| names_rule(rest, &pair.first)),
-        Finding::Precondition(violation) => {
-            given
-                .strip_prefix("precondition:")
-                .is_some_and(|rest| match &violation.rule {
-                    Some(rule) => names_rule(rest, rule),
-                    None => rest == precondition_kind(&violation.kind),
-                })
-        }
     }
 }
 
@@ -551,7 +384,7 @@ fn entry(
 
 /// A KORE symbol name as the K label it encodes.
 fn label(name: &str) -> String {
-    decode_label(name).unwrap_or_else(|_| name.to_owned())
+    k_rust::kast::identifier::label_or_name(name)
 }
 
 /// A backend variable name as the author wrote it: the K name its KORE name encodes, and for a
@@ -905,7 +738,8 @@ endmodule{tail}"#
             report.reason
         );
         let name = finding_name(finding).expect("named");
-        assert!(name.starts_with("equation:"), "{name}");
+        // kink-native `tests/data.rs` pins the same name (fz26 KINK-BASELINE-FINDINGS review N4).
+        assert_eq!(name, "equation:any-unbound");
         let (named, why) = decided_named(&name, &heads).expect("refused");
         assert_eq!(named, name);
         assert!(why.contains("leaves `Y` unbound"), "{why}");

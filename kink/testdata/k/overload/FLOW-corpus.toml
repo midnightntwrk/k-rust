@@ -1,0 +1,53 @@
+[spec]
+entry = "simple.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+
+[budget]
+time_ms = 10000
+max_depth = 100000
+work_factor = 4
+
+[[program]]
+id = "arith"
+file = "programs/arith.simple"
+
+[[program]]
+id = "cmp"
+file = "programs/cmp.simple"
+
+[[program]]
+id = "loop"
+file = "programs/loop.simple"
+
+[[program]]
+id = "array"
+file = "programs/array.simple"
+
+[[program]]
+id = "fact"
+file = "programs/fact.simple"
+
+[[program]]
+id = "strings"
+file = "programs/strings.simple"
+
+[[program]]
+id = "exc"
+file = "programs/exc.simple"
+
+[[program]]
+id = "threads"
+file = "programs/threads.simple"
+
+[[program]]
+id = "locks"
+file = "programs/locks.simple"
+
+[[program]]
+id = "matrix"
+file = "programs/matrix.simple"
+
+[[program]]
+id = "higher"
+file = "programs/higher.simple"

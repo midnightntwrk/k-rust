@@ -396,8 +396,9 @@ pub fn input_backend(
     .map_err(|e| AdmissionRefusal::new("inputs", "input-gate", e))
 }
 
-/// Input assembly of one program: a parse failure refuses with reason `parse`, any other
-/// assembly failure with `assemble`. `compiled` is the admission's compile of `loaded`'s
+/// Input assembly of one program: a parse failure refuses with reason `parse`, a binding of `$IO`
+/// on a definition with stream cells with `stream-mode`, any other assembly failure with
+/// `assemble`. `compiled` is the admission's compile of `loaded`'s
 /// baseline ([`compile_definition`]), so assembling costs no compile (re-pin L1-4;
 /// [`crate::assemble_input_with`]).
 pub fn program_input(
@@ -408,6 +409,7 @@ pub fn program_input(
     assemble_input_with(loaded, Some(compiled), spec).map_err(|e| {
         let reason = match e {
             crate::InputError::Parse(_) => "parse",
+            crate::InputError::StreamMode(_) => "stream-mode",
             _ => "assemble",
         };
         AdmissionRefusal::new("inputs", reason, e)

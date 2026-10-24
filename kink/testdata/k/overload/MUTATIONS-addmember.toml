@@ -1,0 +1,9 @@
+[[mutation]]
+id = "add-member"
+note = "adds the overload member Bot ::= f(Bot), which lowers the baseline's f_Nm(inj(b))"
+
+  [[mutation.edit]]
+  line = 15
+  find = 'rule <k> go(_) => .K </k> <s> _ => f(b) </s>'
+  replace = '''syntax Bot ::= f(Bot) [overload(f)]
+  rule <k> go(_) => .K </k> <s> _ => f(b) </s>'''

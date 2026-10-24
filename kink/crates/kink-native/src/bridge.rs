@@ -17,8 +17,9 @@
 //! instance (re-pin finding A-11).
 //!
 //! A stuck leaf is complete for a ground term without a path condition, or when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
-//! In either case its terminal term must have a definition-independent value (TV-01): free constructors, normal-form injections and domain values with trusted injective codecs, or ground natural collections canonicalized by [`ObservationDecider::terminal_value`] (T-COLL).
-//! An unevaluated function, anywhere head or uninterpreted application makes the path `SolverUnknown` before terminal classification.
+//! In either case its terminal term must have a definition-independent value (TV-01): free constructors, normal-form injections and domain values with trusted injective codecs, or ground natural collections canonicalized by [`ObservationDecider::terminal_value`] (T-COLL), and, with the definition's data facts ([`ObservationDecider::judging_data`], fz26 KINK-OVERLOAD-VALUE), instance-normal applications of an overload data head where k-rust's `is_data` holds (a leaf of another definition than the decider's shared one: under both), under premises A1 (evaluation terminates) and A2 (lemmas are theorems of the executable equations).
+//! An unevaluated function, any other anywhere head or an uninterpreted application makes the path `SolverUnknown` before terminal classification.
+//! The runner judges each compared end under the other side's definition too (kink-campaign `runner::judge_across`).
 //!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
 //! its pre-step state and no instance has a defined successor, because the rule's result
@@ -545,6 +546,29 @@ pub(crate) fn partition_conjuncts(conjuncts: Vec<Pattern>) -> (Vec<Pattern>, Vec
 impl SplitState {
     /// The decided state: one definition-independent term, no predicate, and no free variable.
     /// Anything else is neither complete terminal evidence nor a real prefix.
+    /// Whether the leaf whose state this is, of feasibility `feasibility`, is feasible. The
+    /// adapter checked the internalized state. A syntactic claim needs the split to agree that no
+    /// path condition is left, so such a cut path always has predicate `\top`; a solver claim is
+    /// about the predicate conjuncts it found.
+    const fn feasible(&self, feasibility: LeafFeasibility) -> bool {
+        match feasibility {
+            LeafFeasibility::Syntactic => self.predicates.is_empty(),
+            LeafFeasibility::Solver => true,
+            LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
+        }
+    }
+
+    /// The one term `PathSet::push` reads a terminal value of, through [`Self::decided_term`]
+    /// or its complete term: the state's only term, when it is decided (no path predicate, no
+    /// free variable) or `feasible`.
+    fn valued_term(&self, feasible: bool) -> Option<&Pattern> {
+        match (self.terms.as_slice(), self.predicates.is_empty()) {
+            ([term], true) if term.free_variables().is_empty() => Some(term),
+            ([term], _) if feasible => Some(term),
+            _ => None,
+        }
+    }
+
     fn decided_term(&self, value: &dyn Fn(&Pattern) -> Option<Pattern>) -> Option<Pattern> {
         match (self.terms.as_slice(), self.predicates.is_empty()) {
             ([term], true) if term.free_variables().is_empty() => value(term),
@@ -612,6 +636,45 @@ const fn collection_stop(stop: PathStop) -> CollectionStop {
     }
 }
 
+/// The term of a leaf's state whose terminal value [`paths_from_execution_values`] reads, for
+/// a diagnosis of why it has none (kink-flow, fz26 KINK-CAUSE-SUBTERM).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LeafTerm {
+    /// The leaf adds no path ([`discarded`]).
+    Discarded,
+    /// The state is not one term that is decided (no path predicate, no free variable) or
+    /// feasible, so no value is read from it.
+    Undecided,
+    /// The state's one term.
+    Term(Pattern),
+}
+
+/// The [`LeafTerm`] of each of `leaves`, as `PathSet::push` selects it, their symbol sorts read
+/// from `definition` (the parsed KORE of the definition that ran them).
+///
+/// A leaf's entry is an error when its halt is outside the bridge's contract, or its state does
+/// not decode or has no decided sort (as [`paths_from_execution_values`] fails).
+#[must_use]
+pub fn leaf_terms(
+    leaves: &[crate::execution::AdaptedLeaf],
+    definition: &k_rust::kore::ast::Definition,
+) -> Vec<Result<LeafTerm, BridgeFailure>> {
+    let sorts = SymbolSorts::from_definition(definition);
+    leaves
+        .iter()
+        .map(|leaf| {
+            halt_stop(leaf.halt)?;
+            if discarded(leaf).is_some() {
+                return Ok(LeafTerm::Discarded);
+            }
+            let split = split_state(&leaf.branch.state, &sorts)?;
+            Ok(split
+                .valued_term(split.feasible(leaf.feasibility))
+                .map_or(LeafTerm::Undecided, |term| LeafTerm::Term(term.clone())))
+        })
+        .collect()
+}
+
 /// State-slot paths under construction, keyed by the raw leaf ordinal.
 struct PathSet<'a> {
     context: &'a BridgeContext<'a>,
@@ -643,14 +706,7 @@ impl<'a> PathSet<'a> {
             return Ok(());
         }
         let split = split_state(&branch.state, self.context.sorts)?;
-        // The adapter checked the internalized state. A syntactic claim needs the split to
-        // agree that no path condition is left, so such a cut path always has predicate
-        // `\top`; a solver claim is about the predicate conjuncts it found.
-        let feasible = match leaf.feasibility {
-            LeafFeasibility::Syntactic => split.predicates.is_empty(),
-            LeafFeasibility::Solver => true,
-            LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
-        };
+        let feasible = split.feasible(leaf.feasibility);
         let complete_term = match split.terms.as_slice() {
             [term] if feasible => value(term),
             _ => None,

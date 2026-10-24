@@ -1,0 +1,7 @@
+// Comparisons and Boolean connectives.
+function main() {
+  var x = 3, y = 4;
+  if (x < y && !(x == y)) { print("lt "); } else { print("ge "); }
+  if (x >= y || x != y) { print("ne "); } else { print("eq "); }
+  if (y <= x) { print("le\n"); } else { print("gt\n"); }
+}

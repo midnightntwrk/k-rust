@@ -1,0 +1,12 @@
+// Re-entrant lock: acquire twice, release twice, then a second thread takes it.
+function main() {
+  var c = 0;
+  acquire 7;
+  acquire 7;
+  c = c + 1;
+  release 7;
+  release 7;
+  var t = spawn { acquire 7; c = c + 10; release 7; };
+  join t;
+  print(c, "\n");
+}

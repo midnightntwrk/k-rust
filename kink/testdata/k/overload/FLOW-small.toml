@@ -1,0 +1,42 @@
+# Small SIMPLE programs (TRIAL2's stream-free copy, simple.md): FZ-OVERLIST's `simple` repro
+# (p1-var-init is P7-SIMPLE-IN's `listform`) and probe-a's p3, p5 and p6.
+[spec]
+entry = "simple.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+[[program]]
+id = "p1-var-init"
+text = 'function main() { var x = 1; }'
+[[program]]
+id = "p2-print-int"
+text = 'function main() { print(1); }'
+[[program]]
+id = "p3-print-string"
+text = 'function main() { print("a"); }'
+[[program]]
+id = "p4-var"
+text = 'function main() { var x; }'
+[[program]]
+id = "p5-exp"
+text = 'function main() { 1 + 2; }'
+[[program]]
+id = "p6-two-functions"
+text = 'function f() { } function main() { }'
+[[program]]
+id = "q1-call-empty"
+text = 'function f() { } function main() { f(); }'
+[[program]]
+id = "q2-var-two"
+text = 'function main() { var x, y; }'
+[[program]]
+id = "q3-param"
+text = 'function f(a) { } function main() { }'
+[[program]]
+id = "q5-call-int"
+text = 'function f(a) { } function main() { f(1); }'
+[[program]]
+id = "q6-call-exp"
+text = 'function f(a) { } function main() { f(1 + 2); }'
+[[program]]
+id = "q7-call-id"
+text = 'function f(a) { } function main() { var y; y = 0; f(y); }'

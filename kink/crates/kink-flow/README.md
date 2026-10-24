@@ -39,6 +39,7 @@ main_module = "CALC"
 syntax_module = "CALC-SYNTAX" # optional
 include_dirs = ["."]          # optional
 md_selector = "k"             # optional
+assume_joined = ["spec.k:7:3,spec.k:8:3@root"]   # optional; findings named as premises
 
 [budget]                      # optional
 time_ms = 10000
@@ -63,11 +64,12 @@ Defaults:
 | `spec.syntax_module` | none | k-rust then uses `<main_module>-SYNTAX` if it exists, else the main module (a kompile warning). |
 | `spec.include_dirs` | `["."]` | The manifest's directory. |
 | `spec.md_selector` | `"k"` | |
+| `spec.assume_joined` | none | The findings of the definition's full critical-pair check you accept as premises (fz26 KINK-BASELINE-FINDINGS; root README, "What a kill trusts"), each by the name `results` prints in `data.findings` (k-rust-backend `data_term::names`: k-rust-fuzz's `definition-findings` name, byte for byte). A name must name exactly one finding, and not a decided one, or the specification is refused (stage `assume-joined`, reason `name-refused`). With a finding left unnamed, no end of the definition is data: every mutation is `unknown` (`baseline-findings`), no comparable program can kill, and no query `no` is given. The list is in the specification digest (when not empty) and every document prints it (`data.assume_joined`). |
 | `budget.time_ms` | `10000` | Wall-clock bound of one program run; must be positive. A run whose state set kink replaces by its path set (an undefined step, a vacuous leaf or a contradicted claim) is two runs, each with this bound, so it can take up to twice as long. |
 | `budget.max_depth` | `100000` | Rewrite-depth bound of one program run; must be positive. A run is never unbounded. |
 | `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program, long before `time_ms` would stop it, unless the part it ran already holds a final configuration the baseline's program never ends in: then the program kills it one-sidedly (re-pin L1-2, decision 6; the root README, "What a kill trusts"). Absent: no work budget. It never bounds a baseline run. |
 | `program.start_sort` | the sort of `$PGM` | |
-| `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty. |
+| `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty (`$IO` to `"off"`, `$STDIN` to `""`). On a definition with stream cells a program may not bind `$IO` (refused at `inputs`, reason `stream-mode`): with IO off the stream cells hold the text printed and the input not yet read, so a final configuration states the program's output. |
 
 The tool supplies everything else: the k-rust revision is the build's (`kink_native::K_RUST_REVISION`, the version of the in-repo k-rust kink is built with, printed in every output),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads.
@@ -76,7 +78,8 @@ and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused fo
 
 Admits the specification through kink-corpus's admission stages, with the same stage names and refusal reasons:
 `manifest` (this crate: the manifest does not decode), `exclusion`, `load`, `semantic-input`, `compile`,
-`representation`, `declaration-census` and `inputs`.
+`representation`, `declaration-census` and `inputs`, then `assume-joined` (this crate: the definition's full
+critical-pair check on the input backend, against `[spec] assume_joined`).
 Then each program is admitted on its own (file read: stage `load`; parse: `inputs`/`parse`;
 other assembly failures: `inputs`/`assemble`; the concrete-state check and the input gate: `inputs`/`input-gate`).
 A refused specification skips the programs; a refused program never stops the others.
@@ -151,7 +154,18 @@ supplies the class, the cause, the final states and the coverage (`diagnostic` c
 the campaign named the exclusion of the baseline run, the cause says that exclusion and why it
 holds, never a guess from the shape of the leaves (an excluded run's leaves can all be values); for
 `contradicted-claim` it points at the row's `specification_diagnostics` and says to fix the claim,
-not the program (re-pin adoption A-1b). Only the campaign admitting a baseline makes a program
+not the program (re-pin adoption A-1b). When no exclusion is named and every path ended, the cause
+names why a final configuration is not a value kink compares (fz26 KINK-CAUSE-SUBTERM): in the first
+leaf whose state's term has no terminal value, the first node, in pre-order, that fails its own test
+with its children ignored (a head that is not a free constructor, an overload application k-rust does
+not judge data, a domain value without a trusted codec, a collection node, ...), its cells and
+collection entries (`<T>/<store>/Map entry 1 value`), the test, and its KORE cut after 160
+characters; for an overload application, also the first node inside it that fails its own test.
+Naming the first subterm without a value would always name the root. The judgement is kink-native's
+`ObservationDecider::first_non_value`, from the walk the runner's terminal value takes, with the
+decider built as the runner builds the baseline's (collection trust, the baseline's data facts). It
+judges the baseline alone: whether an end is data under a mutant's definition is decided for each
+pair by the runner, never in this cause. Only the campaign admitting a baseline makes a program
 `comparable`.
 
 `--verify` reruns every program that has a current record and compares: a different class,
@@ -159,7 +173,7 @@ a different `run_sha256`, or a record whose `run_sha256` is not the digest of it
 row is a mismatch. Mismatches are listed (program, record path, detail) and records are never
 rewritten by `--verify`; delete a mismatching record (or the cache) to recompute it.
 
-The document (version 2 since re-pin L2-1) lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns}` (the last two from the result record since re-pin adoption A-1, so absent on a `refused` row, which has none), every authored
+The document (version 2 since re-pin L2-1) lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns}` (the last two from the result record since re-pin adoption A-1, so absent on a `refused` row, which has none; a `comparable` row also has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made), the baseline's findings (`data`, see "The report: the run document"), every authored
 rule `{module, index, label, file, start_line, end_line, status, reached_by, fired_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
 `covered`, then `no-coverage-signal` (none of the rule's compiled ids can appear in a run's coverage: it
@@ -391,7 +405,9 @@ internalization; re-pin finding B-13(a)), which decide nothing for ground progra
 A mutation whose specification uses a hook for which k-rust chooses a value the definition leaves open (`choice`, the order of
 `keys_list`, `values` or `Set2List`, mixed-format or NaN-sign Float, and the hooks whose value k-rust's builtin files leave to
 the backend, the implementation or the environment, such as `String2Bytes`, `Bytes2String`, `Base2String` and substitution's
-renamed variables, and the `KRYPTO`, `HASH` and `SECP256K1` hooks no builtin file documents), or whose condition or rule
+renamed variables, and the `KRYPTO`, `HASH` and `SECP256K1` hooks no builtin file documents; an open hook k-rust cannot
+evaluate in an execute request, a console operation such as `#getc` or `#write` or one without an evaluator such as
+`Float2String`, is judged per run through `unsupportedHooks` below instead, so stock SIMPLE's stream cells exclude nothing), or whose condition or rule
 result depends on whether `andBool`, `orBool` or `#if` skip an operand that may be undefined, or that has a rule or
 equation condition equating two terms (`{ A #Equals B }`, a gap of k-rust's answers), is `unknown` with reason
 `implementation-chosen-hook`, `short-circuit-reading` or `equals-condition`. Since re-pin adoption A-1 a program whose run reads
@@ -418,7 +434,7 @@ author can act on.
 | `equivalent` | The mutant compiles to the baseline's executable definition. | Nothing can kill it; drop or change the mutation. |
 | `invalid` | The mutant does not compile (`reason` is the runner's failure, for example `rejected`). | Fix the mutation. |
 | `timeout` | No program killed it, and a program did not finish on the mutant within `budget.time_ms`. | Write a program that terminates under the mutant and shows a different result. |
-| `unknown` | No program killed it, and a program's result on the mutant is not comparable. | Write a program whose result on the mutant kink can compare. |
+| `unknown` | No program killed it, and a program's result on the mutant is not comparable; or, with reason `baseline-findings`, the baseline's full critical-pair check has a finding `[spec] assume_joined` does not name (`findings` lists each with its name and verdict; no call is made and no store is read), or, with reason `mutant-findings`, the claim-free mutant's findings outside the heads its edit can change differ from the baseline's. | Write a program whose result on the mutant kink can compare; for `baseline-findings`, fix the specification or name the findings you accept as premises. |
 | `error` | The runner failed for the mutant, a corpus error (`reason`: `baseline-mismatch:<id>`, `baseline-count-mismatch`, `campaign-refused`, `program-refused:<id>`, `outcome-conflict`, `no-comparable-program`), `run --verify` found a cached outcome that differs from a live run (`outcome-mismatch:<id>`) or a memo of the mutation's resolution that differs from its live resolution (`resolution-mismatch`, re-pin L1-4), or the host refused the stack the mutation's patch needs (`host-stack-refused`, see the reason table). | Report it, or fix the corpus; for `outcome-mismatch`, delete `outcomes/`; for `resolution-mismatch`, delete `memo/`; for `host-stack-refused`, rerun where the host grants more address space. |
 | `invalid-mutation` | The mutation does not resolve (`reason`, `edit`, `detail`; see the table above). | Fix the mutation. |
 
@@ -434,10 +450,11 @@ Besides `results/` and `report.json` (the last run's document, also written when
   `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity, mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256, outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
   The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`):
-  `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, definition_exclusion, execution_request, result_schema, coverage, one_sided}`, the version of every kink algorithm an outcome can depend on. Among them:
+  `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, data_facts, terminal_value, definition_exclusion, execution_request, result_schema, coverage, one_sided}`, the version of every kink algorithm an outcome can depend on. Among them:
   `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
   `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts);
   `mutant_effect` is kink-native's `MUTANT_EFFECT_VERSION`, since the symbols the check reads, and the cross-check of kink-patch's source reading, come from the compiled definitions (re-pin R0c-fix-4);
+  `terminal_value` is kink-native's `TERMINAL_VALUE_VERSION`, since which ends a slot compares depends on it (v1 since fz26 KINK-OVERLOAD-VALUE: an instance-normal overload application is admitted where k-rust's `is_data` holds, and every compared end is judged under both definitions);
   `definition_exclusion`, `patch_admission` and `execution_request` name the definition exclusions (re-pin R0-tail; v2 since re-pin adoption A-1, which reads k-rust's run-level lists), the rule that no typing error refuses a patch (L2-2-fix-1) and the execution request with its state-set modality and work budget (L1-1);
   `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
   `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
@@ -471,7 +488,7 @@ no program is comparable, a corpus error stopped the run, or `--verify` found a 
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 9, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules}`.
+`{schema: "kink-flow-run", version: 9, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules, data}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `results` and `query` documents, null when the specification is refused) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
 Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, and version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries.
 `report` prints the stored statuses without re-deriving them, so it refuses (`unreadable`) a document of another version, one written by another build (or naming none), and one whose `kink` is not this build's.
 
@@ -522,6 +539,12 @@ The cause of an `unknown` slot names the possible reasons together (a path stopp
 or a final configuration holding a collection kink cannot compare (for example one with a Bytes key), an unevaluated function or a symbolic term),
 because the runner's evidence records that the mutant's value is unknown but not which of these stopped it; the leaf census that follows
 (leaves per halt class: `depth-bound`, `stuck`, `indeterminate`, ...) usually says which.
+One case has its own cause (fz26 KINK-CAUSE-SUBTERM): a slot the runner made unknown for the pair because one side's end, which is a value of
+its own definition, is not data under the other side's definition (kink-campaign `judge_across`, recorded in the mutant's evidence as
+`RunNotes::across`). The cause names that side (`the baseline's run ended in a value of its own definition, but that end is not data under
+the mutant's definition ...`; for a pattern slot, a binding not definition-independent under the mutant's definition, or a term its relation
+decisions read not definition-independent under the other side's; a state value without ends to judge is said so), and the first node of
+the end, in pre-order, that fails its own test there, as a refused baseline's cause names it (see `results`); no leaf census follows it.
 
 ## `kink-flow report FLOW.toml [--cache DIR]`
 
@@ -587,8 +610,9 @@ k-rust 501f18b9 has no unparser from KORE back to the specification's syntax, so
 **Why a no can be unknown.** A `no` is a claim about every run, so it needs more than a `hit`:
 - the exploration completed: no path stopped at `budget.max_depth` (`a path reached max_depth = N`), the search finished within `budget.time_ms`, and k-rust decided every step and every match (an undecided step, an undecided match, a state stopped for lack of native stack each make it incomplete);
 - the program's baseline run (its `results` row) is `comparable`: complete, with no stack stop and nothing else that makes a run no evidence (a contradicted claim, an allowance refusal, ...);
-- the definition leaves nothing to the implementation: no rule depends on a hook whose value the definition leaves open and k-rust chooses (`implementation-chosen-hook`, decision 1's census: `keys_list`, `choice`, `String2Bytes`, ...), or on whether `andBool`, `orBool` or `#if` skip an undefined operand (`short-circuit-reading`), and neither does the program's initial configuration; with such a value another implementation could reach the pattern, so the exploration of k-rust's choice says nothing about it;
-- the build is not the Z3 profile (a solver query can time out silently).
+- the definition leaves nothing to the implementation: no rule depends on a hook whose value the definition leaves open and k-rust chooses (`implementation-chosen-hook`, decision 1's census: `keys_list`, `choice`, `String2Bytes`, ...; an open hook k-rust cannot evaluate, such as `#getc` or `Float2String`, is judged by the baseline run's `unsupportedHooks` instead, which the comparable baseline below requires empty), or on whether `andBool`, `orBool` or `#if` skip an undefined operand (`short-circuit-reading`), and neither does the program's initial configuration; with such a value another implementation could reach the pattern, so the exploration of k-rust's choice says nothing about it;
+- the build is not the Z3 profile (a solver query can time out silently);
+- the definition's full critical-pair check has no finding `[spec] assume_joined` leaves unnamed (`baseline-findings`, fz26 KINK-BASELINE-FINDINGS): matching is syntactic, while a pair that does not join can identify a reached configuration with an instance of the pattern in every model.
 
 A `hit` needs none of these. It is a run k-rust found to a configuration that exists, and k-rust's choice of an open value is one model of the definition. A hit is found even in a program that never ends, or that the budget stops: the search stops at the first match.
 That choice includes the short-circuit reading. K leaves it open: `domains.md` says `andBool` and `orBool` "may be short-circuited in concrete backends", and that `#if` "does not short-circuit on symbolic backends". k-rust reads them strictly: a condition with an undefined operand is undefined, so its rule does not apply. That is one reading K allows, so a `short-circuit-reading` flag on the definition or on the initial configuration makes a `no` unknown but leaves a `hit` standing.

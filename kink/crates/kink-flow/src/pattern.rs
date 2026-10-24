@@ -479,6 +479,9 @@ pub struct Facts<'a> {
     pub baseline_cause: Option<&'a str>,
     /// The build's solver profile.
     pub profile: SolverProfile,
+    /// The findings of the definition's full critical-pair check no `[spec] assume_joined` name
+    /// assumes (fz26 KINK-BASELINE-FINDINGS): while there is one, no `no` is given.
+    pub unnamed_findings: usize,
 }
 
 /// An answer: `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with its cause (null for
@@ -579,6 +582,18 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
             let would = "the exploration completed with no match, but a no is not given";
             if let Some(exclusion) = exclusions.definition_exclusion() {
                 return Answer::unknown(exclusion_cause(exclusion, would));
+            }
+            // fz26 KINK-BASELINE-FINDINGS: matching is syntactic, while a pair that does not join
+            // can identify a reached state with an instance of the pattern in every model; a hit
+            // stays a hit (k-rust reached that configuration).
+            if facts.unnamed_findings > 0 {
+                return Answer::unknown(format!(
+                    "{would}: the definition's full critical-pair check has {} finding(s) no \
+                     [spec] assume_joined name assumes (baseline-findings; the document's data \
+                     lists them), so the definition may identify a reached configuration with \
+                     an instance of the pattern",
+                    facts.unnamed_findings
+                ));
             }
             if let Some(exclusion) = facts.state {
                 return Answer::unknown(exclusion_cause(

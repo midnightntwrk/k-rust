@@ -70,6 +70,33 @@ fn streams_are_refused() {
     assert!(json.contains("off"));
 }
 
+/// KINK-CENSUS-RUNLIST (fz26): on a definition with stream cells a program may not bind `$IO`
+/// (`stream-mode`), whatever the text, written with or without its `$`; it may bind `$STDIN`. A
+/// definition without stream cells that declares its own `$IO` may bind it. At base every binding
+/// here was accepted.
+#[test]
+fn an_io_binding_on_a_stream_definition_is_refused() {
+    let streams = load("streams.k", "STREAMS");
+    for (name, text) in [("IO", "\"on\""), ("$IO", "\"on\""), ("IO", "\"off\"")] {
+        let mut input = spec();
+        input.variables.push((name.into(), text.into()));
+        let refused = assemble_input(&streams, &input);
+        assert!(
+            matches!(&refused, Err(InputError::StreamMode(message)) if message.contains("stream cells")),
+            "{name} = {text}: {refused:?}"
+        );
+    }
+    let mut stdin = spec();
+    stdin.variables.push(("STDIN".into(), "\"5\\n\"".into()));
+    validate(&streams, &assemble_input(&streams, &stdin).unwrap());
+    let own = load("ioparam.k", "IOPARAM");
+    let mut input = spec();
+    input.variables.push(("IO".into(), "\"on\"".into()));
+    let state = assemble_input(&own, &input).unwrap();
+    validate(&own, &state);
+    assert!(to_value(&state).unwrap().to_string().contains("on"));
+}
+
 #[test]
 fn assembled_inputs_are_deterministic() {
     let left = load("program.k", "PROGRAM");

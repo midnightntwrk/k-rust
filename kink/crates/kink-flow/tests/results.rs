@@ -439,12 +439,17 @@ mod kink_tier {
         // `encodeBytes("UTF-8", K)`, which the decision-1 census does not flag, so the cause is again
         // the oracle gate's refusal of the Bytes-keyed Map (as at R0a; R0b's cause named
         // implementation-chosen-hook for `String2Bytes`). The class is unknown either way.
+        // fz26 KINK-CAUSE-SUBTERM: the cause names the first node, in pre-order, that fails its
+        // own test: the Map under <mem> and its entry pass, the key's Bytes value does not.
         assert_eq!(
             document["programs"][0]["cause"],
             "the campaign runner refused the baseline run (BaselineOracleFailed: a baseline \
              declaration-scoped oracle gate rejected); every path ended, but a final configuration \
-             is not a value kink can compare (for example it holds a collection kink cannot compare, \
-             such as one with a Bytes key, an unevaluated function or a symbolic term); leaves: stuck at depth 1"
+             is not a value kink can compare: in the stuck leaf at depth 1, the first node, in \
+             pre-order, that fails its own test is a domain value at <mem>/Map entry 1 key: it is a \
+             domain value without a trusted injective codec (only canonical Int and Bool values, \
+             and ASCII values of String and of sorts without a hook, have one) (node: \
+             \\dv{SortBytes{}}(\"a\")); leaves: stuck at depth 1"
         );
         let record = read_json(&record_path(&manifest, &document, "store"));
         assert_eq!(record["class"], "unknown");
@@ -452,6 +457,51 @@ mod kink_tier {
         assert_eq!(record["final_configuration"].as_array().unwrap().len(), 1);
         assert_eq!(document["rules"][0]["status"], "uncovered");
         assert_eq!(document["rules"][0]["reached_by"], json!([]));
+    }
+
+    /// fz26 KINK-CAUSE-SUBTERM (P7-SIMPLE-IN, review S7): on SIMPLE (TRIAL2's stream-free copy,
+    /// `testdata/k/overload/simple.md`), an array declaration leaves `var a[1];` in `main`'s
+    /// closure in the store. Every node above its argument list passes its own test (the cells,
+    /// the store's Map and entry, the closure's constructors), so the cause names that `Exps`
+    /// list, an overload application k-rust does not judge data, under `<T>/<store>`, not the
+    /// root, and, inside it, the `_[_]` application, which roots `[anywhere]` rules.
+    #[test]
+    #[ignore = "kink"]
+    fn an_array_declaration_names_its_list_under_the_store() {
+        let dir = scratch("cause-subterm-simple");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/overload/simple.md"),
+            dir.join("simple.md"),
+        )
+        .unwrap();
+        let manifest = dir.join("FLOW.toml");
+        write(
+            &manifest,
+            r#"[spec]
+entry = "simple.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+[[program]]
+id = "arr-decl"
+text = 'function main() { var a[1]; }'
+"#,
+        );
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(rows(&document), expect(&[("arr-decl", "unknown", false)]));
+        let cause = document["programs"][0]["cause"].as_str().unwrap();
+        for part in [
+            "every path ended, but a final configuration is not a value kink can compare: in the \
+             stuck leaf at depth 17, the first node, in pre-order, that fails its own test is an \
+             application of `_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps` at <T>/<store>/Map entry 1 \
+             value: it is an application of an overload head that k-rust does not judge data; \
+             inside it, an application of `_[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps` fails its own \
+             test: its head is neither a free constructor",
+            "(node: Lbl'UndsLSqBUndsRSqBUnds'SIMPLE-UNTYPED-SYNTAX'Unds'Exp'Unds'Exp'Unds'Exps{}(",
+            "; leaves: stuck at depth 17",
+        ] {
+            assert!(cause.contains(part), "{part}\n{cause}");
+        }
     }
 
     /// Re-pin L2-1-tail (review L2-1-1, D1): a `non-executable` rule is one k-rust never runs, so no

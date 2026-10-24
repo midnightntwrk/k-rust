@@ -1,0 +1,7 @@
+// A spawned thread increments a shared variable; main joins it.
+function main() {
+  var x = 40;
+  var t = spawn { x = x + 2; };
+  join t;
+  print(x, "\n");
+}

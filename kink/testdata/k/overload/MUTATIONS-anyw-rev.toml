@@ -1,0 +1,8 @@
+[[mutation]]
+id = "no-longer-anywhere"
+note = "the anywhere attribute removed"
+
+  [[mutation.edit]]
+  line = 11
+  find = "c(1) => d [anywhere]"
+  replace = "c(1) => d"

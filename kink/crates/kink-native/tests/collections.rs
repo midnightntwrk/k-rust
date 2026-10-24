@@ -24,7 +24,7 @@ use kink_native::{
     declaration_census,
     execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
     feasibility::{LeafFeasibility, TestInitialState},
-    step_events::ObservationDecider,
+    step_events::{EntryRole, LocalTest, NonValue, NonValueStep, ObservationDecider},
 };
 use kink_pattern::{ExecutionTerminalKind, PathStop, SymbolSorts};
 
@@ -318,6 +318,159 @@ fn elements(term: &Pattern, unit: &str, concat: &str, out: &mut Vec<Pattern>) {
 
 fn inj(from: &str, to: &str, value: Pattern) -> Pattern {
     kore_application("inj", vec![kore_sort(from), kore_sort(to)], vec![value])
+}
+
+/// The state of the one stuck leaf of `program` on `fixture`.
+fn stuck_state(fixture: &Fixture, backend: &mut Backend, program: &str) -> Pattern {
+    let initial = fixture.input(program, None);
+    let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+        .execute(backend, &initial, BUDGET)
+        .expect("execution");
+    let stuck = execution
+        .leaves()
+        .iter()
+        .filter(|leaf| leaf.halt == HaltClass::Stuck)
+        .collect::<Vec<_>>();
+    assert_eq!(stuck.len(), 1, "{program}: one stuck leaf");
+    from_value(&stuck[0].branch.state).expect("leaf KORE")
+}
+
+/// `term` with every `SortInt` domain value `from` replaced by `to`.
+fn with_int(term: &Pattern, from: &str, to: &str) -> Pattern {
+    match term {
+        Pattern::DomainValue { sort, value } if value == from && sort_named(sort, "SortInt") => {
+            Pattern::DomainValue {
+                sort: sort.clone(),
+                value: to.into(),
+            }
+        }
+        Pattern::Application { symbol, arguments } => Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: arguments.iter().map(|a| with_int(a, from, to)).collect(),
+        },
+        other => other.clone(),
+    }
+}
+
+const STORE: &str = "Lbl'-LT-'store'-GT-'";
+
+fn sort_named(sort: &k_rust::kore::ast::Sort, expected: &str) -> bool {
+    matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments } if name == expected && arguments.is_empty())
+}
+
+/// fz26 KINK-CAUSE-SUBTERM: `first_non_value` names the first node, in pre-order, whose own test
+/// fails with its children ignored, from the walk `terminal_value` takes, so it names no node
+/// exactly when the term has a terminal value. A parent has no terminal value whenever a child has
+/// none, so the root is named only when its own test fails.
+#[test]
+fn the_first_non_value_is_the_first_node_whose_own_test_fails() {
+    let fixture = Fixture::new("collstore.k", "COLLSTORE", "COLLSTORE-SYNTAX");
+    let mut backend = fixture.backend();
+    let bytes = stuck_state(&fixture, &mut backend, "bytesKey(\"a\")");
+    let fkey = stuck_state(&fixture, &mut backend, "fKey(1)");
+    let put = stuck_state(&fixture, &mut backend, "seq(put(2, 20), put(1, 10))");
+    // The only failure is a leaf: a non-canonical Int value under a valued key.
+    let leaf = with_int(&put, "10", "010");
+    // Keys 1 and 1: every node below the Map passes its own test, the Map does not.
+    let duplicate = with_int(&put, "2", "1");
+    let initial = fixture.input("halt()", None);
+    let entry =
+        |failure: &NonValue, from_end: usize| failure.path[failure.path.len() - from_end].clone();
+    backend
+        .with_solver(None, |definition, solver| {
+            let decider =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&initial));
+            for term in [&bytes, &fkey, &put, &leaf, &duplicate] {
+                assert_eq!(
+                    decider.terminal_value(term).is_some(),
+                    decider.first_non_value(term).is_none(),
+                    "one walk: {term:?}"
+                );
+            }
+            assert!(decider.terminal_value(&put).is_some());
+
+            // The Map and its entry pass; the key's injection passes; the Bytes value does not.
+            let failure = decider.first_non_value(&bytes).expect("a Bytes key is no value");
+            assert_eq!(failure.test, LocalTest::IdentitySafeDomainValue, "{failure:?}");
+            assert!(
+                matches!(&failure.node, Pattern::DomainValue { sort, .. } if sort_named(sort, "SortBytes")),
+                "{failure:?}"
+            );
+            assert!(
+                matches!(&failure.path[1], NonValueStep::Argument { symbol, .. } if symbol == STORE),
+                "{failure:?}"
+            );
+            assert_eq!(
+                entry(&failure, 2),
+                NonValueStep::Entry {
+                    collection: "SortMap".to_owned(),
+                    entry: 0,
+                    role: EntryRole::Key,
+                    argument: 0,
+                },
+                "{failure:?}"
+            );
+            assert!(
+                matches!(&entry(&failure, 1), NonValueStep::Argument { symbol, index: 0 } if symbol == "inj"),
+                "{failure:?}"
+            );
+
+            // An unevaluated function in a key: the function's application, not the root.
+            let failure = decider.first_non_value(&fkey).expect("f(1) is no value");
+            assert_eq!(failure.test, LocalTest::FreeConstructor, "{failure:?}");
+            assert!(
+                matches!(&failure.node, Pattern::Application { symbol, .. } if symbol.name == "Lblf"),
+                "{failure:?}"
+            );
+            assert!(
+                matches!(entry(&failure, 2), NonValueStep::Entry { role: EntryRole::Key, .. }),
+                "{failure:?}"
+            );
+
+            // The leaf, and nothing above it.
+            let failure = decider.first_non_value(&leaf).expect("010 is no value");
+            assert_eq!(failure.test, LocalTest::IdentitySafeDomainValue, "{failure:?}");
+            assert_eq!(
+                failure.node,
+                Pattern::DomainValue {
+                    sort: k_rust::kore::ast::Sort::Application {
+                        name: "SortInt".to_owned(),
+                        arguments: Vec::new(),
+                    },
+                    value: "010".into(),
+                },
+                "{failure:?}"
+            );
+            assert!(
+                matches!(
+                    entry(&failure, 2),
+                    NonValueStep::Entry { role: EntryRole::Value, argument: 1, .. }
+                ),
+                "{failure:?}"
+            );
+
+            // Two equal keys: the Map node itself, under <store>.
+            let failure = decider.first_non_value(&duplicate).expect("two keys 1");
+            assert_eq!(failure.test, LocalTest::DistinctEntries, "{failure:?}");
+            assert!(
+                matches!(failure.path.last(), Some(NonValueStep::Argument { symbol, .. }) if symbol == STORE),
+                "{failure:?}"
+            );
+
+            // Collections not trusted: the first collection node in pre-order, the store's Map.
+            let distrusted =
+                ObservationDecider::new(definition, solver, TestInitialState::of_test(&initial))
+                    .trusting_collections(false);
+            assert_eq!(distrusted.terminal_value(&put), None);
+            let failure = distrusted.first_non_value(&put).expect("not trusted");
+            assert_eq!(failure.test, LocalTest::TrustedCollections, "{failure:?}");
+            assert!(
+                matches!(failure.path.last(), Some(NonValueStep::Argument { symbol, .. }) if symbol == STORE),
+                "{failure:?}"
+            );
+            Ok::<_, BackendError>(())
+        })
+        .expect("solver");
 }
 
 #[test]

@@ -8,6 +8,11 @@
 //! - [`bridge`] maps adapted executions to kink-pattern paths and collection evidence.
 //! - [`exclusion`] names the runs that are no evidence for any comparison (stack stops, load
 //!   stack stops, contradicted claims, implementation-chosen hooks, allowance refusals).
+//! - [`data`] reads each definition's full critical-pair check once ([`data::DataFacts`]) and
+//!   says which ends of runs on it are data under it ([`data::data_ends`]): none while a finding
+//!   no `assume_joined` name assumes is left; otherwise those the terminal-value walk admits,
+//!   instance-normal overload applications included where k-rust's `is_data` holds (fz26
+//!   KINK-OVERLOAD-VALUE). The runner judges each compared end under both definitions.
 //! - [`consistency`] refuses a mutant whose edit makes two equations of one function disagree
 //!   (k-rust's critical-pair check on the claim-free mutant), reading what the edit changes from
 //!   the compiled definitions, with kink-patch's source reading as a fail-closed cross-check.
@@ -18,6 +23,7 @@ pub mod bridge;
 pub mod census;
 pub mod consistency;
 pub mod coverage;
+pub mod data;
 mod equivalence;
 pub mod exclusion;
 pub mod execution;

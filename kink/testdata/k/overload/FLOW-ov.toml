@@ -1,0 +1,16 @@
+[spec]
+entry = "ov.k"
+main_module = "OV"
+syntax_module = "OV-SYNTAX"
+[[program]]
+id = "empty"
+text = "h()"
+[[program]]
+id = "ids"
+text = "h(a, b)"
+[[program]]
+id = "int"
+text = "h(1)"
+[[program]]
+id = "mixed"
+text = "h(a, 1)"

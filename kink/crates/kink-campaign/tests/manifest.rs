@@ -493,7 +493,8 @@ fn check_manifest(manifest: &CampaignManifest) {
     // (R0c-fix-4 review minor 4): and the definition-exclusion algorithm. Packet CACHE-ID: the
     // member is kink's whole semantics identity, which adds the k-rust revision, patch
     // admission, the execution request, the result schema and the coverage reading. Re-pin
-    // L1-2-land: and the one-sided kill rule.
+    // L1-2-land: and the one-sided kill rule. fz26 KINK-BASELINE-FINDINGS: and the data facts.
+    // fz26 KINK-OVERLOAD-VALUE: and the terminal-value walk.
     keys(
         &value["kink"],
         &[
@@ -505,6 +506,8 @@ fn check_manifest(manifest: &CampaignManifest) {
             "claim_removal",
             "mutant_consistency",
             "mutant_effect",
+            "data_facts",
+            "terminal_value",
             "definition_exclusion",
             "execution_request",
             "result_schema",

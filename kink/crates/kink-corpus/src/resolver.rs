@@ -44,6 +44,13 @@ impl LoadedSource {
     pub fn md_selector(&self) -> Option<&str> {
         self.md_selector.as_deref()
     }
+
+    /// The syntax module k-rust's loader resolved for this load (`load_for_compilation`: the
+    /// source's `syntax_module`, else its default), the module program text is parsed in.
+    #[must_use]
+    pub fn syntax_module(&self) -> &str {
+        &self.syntax_module
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -31,6 +31,14 @@
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
+//! - Every compared end is data under both definitions (fz26 KINK-OVERLOAD-VALUE; kink-native
+//!   [`data_ends`]): a run's terminals are judged under its own definition and facts when the
+//!   run is judged, and each side's terminals ([`TestEvidence::ends`]), pattern bindings and
+//!   one-sided terminals are judged under the other side's before a pair's slots are compared
+//!   ([`judge_across`]); an end that is not data there makes that side's slot `Unknown` for that
+//!   pair only (a one-sided terminal is dropped). Each definition reads the ends with its own
+//!   theory, and a mutant can change a symbol's role (an `anywhere` rule on a baseline
+//!   constructor, an overload member that lowers a baseline normal form).
 //! - A pattern oracle evaluates declared predicates of consecutive configurations.
 //!   Both sides use the baseline signature, evaluation context, definition-independence checks
 //!   and event walk, and link only the test's initial variables; every feasibility and relation
@@ -125,6 +133,7 @@ use kink_native::bridge::{
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
+use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
@@ -133,7 +142,7 @@ use kink_native::execution::{
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
 use kink_native::signature::{DefinitionFacts, definition_facts};
-use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
+use kink_native::step_events::{NonValue, ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
     Baseline, CandidateDisposition, CandidateGeneration, Claim, ClaimSupport, Patch,
@@ -142,9 +151,10 @@ use kink_patch::{
 };
 use kink_pattern::{
     CollectionEvidence, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions,
-    EventVocabulary, ExecutionTerminal, ExecutionTerminalKind, MonitorOptions, PathStop, PathTree,
-    PatternFailure, PatternOutcome, PatternPlan, RelationDecider, SearchPolicy, SymbolSorts,
-    TreeOptions, evaluate_tree_with_stats, evaluate_with,
+    EventVocabulary, ExecutionTerminal, ExecutionTerminalKind, Feasibility, MonitorOptions,
+    PathInput, PathStop, PathTree, PatternFailure, PatternOutcome, PatternPlan, RelationDecider,
+    RelationDecision, SearchPolicy, SymbolSorts, TermRelation, TreeOptions,
+    evaluate_tree_with_stats, evaluate_with,
 };
 
 use crate::campaign::check_manifest;
@@ -273,6 +283,19 @@ pub struct TestEvidence {
     /// What the run reports besides its sides (re-pin adoption A-1). Read by no comparison, fold,
     /// status or score, and not encoded in the campaign report.
     pub notes: RunNotes,
+    /// The terminal values of the run's complete paths, which its state sides are projected from
+    /// (canonical under its own definition, TV-01), as a set: a path set and the state set of the
+    /// same request give the same one; empty when the run gave no sides. A pair
+    /// judges them under the other side's definition before it compares the state slots (fz26
+    /// KINK-OVERLOAD-VALUE, [`judge_across`]). Not encoded in the campaign report.
+    pub ends: BTreeSet<Pattern>,
+    /// For each pattern slot (by its index in the test's oracles), the terms its relation
+    /// decisions read ([`ReadTerms`]): the payloads, bound values and assumptions of every
+    /// relation the side's own decider decided other than by syntactic identity, and of every
+    /// feasibility it decided. The slot's `Match` or `NoMatch` rests on them, decided in this
+    /// side's theory, so a pair judges them under the other side's definition (fz26
+    /// KINK-OVERLOAD-VALUE review S1, [`judge_across`]). Not encoded in the campaign report.
+    pub payloads: BTreeMap<usize, BTreeSet<Pattern>>,
 }
 
 /// What one run reports besides its sides (re-pin adoption A-1): its contradicted-claim records
@@ -294,6 +317,10 @@ pub struct RunNotes {
     /// admission keeps a baseline and makes only its test unknown ([`admit`]). A record on the
     /// run's list alone refuses the baseline, as any other exclusion does.
     pub leaf_contradiction: bool,
+    /// On the mutant's evidence of a pair only: the slots [`judge_across`] made unknown for the
+    /// pair, and why (fz26 KINK-CAUSE-SUBTERM). Empty on every run's own evidence, and on a
+    /// baseline's.
+    pub across: Vec<CrossRefusal>,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -881,10 +908,18 @@ pub struct BaselineSession<'v> {
     reused: usize,
     /// The recording of the last call; reset when a call starts.
     last_call: CallRecording,
+    /// The findings of the full critical-pair check every call reads as assumed (kink-flow's
+    /// `[spec] assume_joined`; fz26 KINK-BASELINE-FINDINGS), by name.
+    assume_joined: Vec<String>,
+    /// The baseline's data facts under [`Self::assume_joined`], with the compiled baseline's
+    /// `kore_sha256` they were computed for: given by the caller ([`Self::with_baseline_data`]) or
+    /// computed by the first call that has a mutant, on its baseline load, and reused by every
+    /// later call.
+    baseline_data: Option<(Sha256Digest, DataFacts)>,
 }
 
 impl<'v> BaselineSession<'v> {
-    /// An empty session for `validator`'s compiled baseline.
+    /// An empty session for `validator`'s compiled baseline, assuming no finding.
     #[must_use]
     pub fn new(validator: &'v NativeValidator) -> Self {
         Self {
@@ -894,7 +929,72 @@ impl<'v> BaselineSession<'v> {
             live: 0,
             reused: 0,
             last_call: CallRecording::default(),
+            assume_joined: Vec::new(),
+            baseline_data: None,
         }
+    }
+
+    /// The session, its calls reading the findings `names` names as assumed (fz26
+    /// KINK-BASELINE-FINDINGS): on the baseline, so that a finding the author names does not
+    /// make every mutant `baseline-findings`, and on each claim-free mutant alike. A name that
+    /// matches no finding of the baseline, more than one, or a decided one refuses every call
+    /// with a mutant ([`DataFacts::refused_names`]).
+    #[must_use]
+    pub fn assuming(mut self, names: Vec<String>) -> Self {
+        self.assume_joined = names;
+        self.baseline_data = None;
+        self
+    }
+
+    /// The session with the baseline's data facts already computed by the caller, so no call
+    /// computes them again. The caller vouches that `facts` are those of the session validator's
+    /// compiled baseline, loaded on kink's route (`Backend::from_definition` of its KORE) for the
+    /// module its campaigns name: they are stamped with that compile's `kore_sha256`, and the
+    /// session cannot tell them from facts of another definition. Facts computed with other
+    /// names than [`Self::assume_joined`] are not used (the session computes its own on its
+    /// first call with a mutant).
+    #[must_use]
+    pub fn with_baseline_data(mut self, facts: DataFacts) -> Self {
+        if facts.assume_joined() == self.assume_joined.as_slice()
+            && let Some((digest, _)) = self.compiled_baseline()
+        {
+            self.baseline_data = Some((digest, facts));
+        }
+        self
+    }
+
+    /// The names the session's calls read as assumed.
+    #[must_use]
+    pub fn assume_joined(&self) -> &[String] {
+        &self.assume_joined
+    }
+
+    /// The baseline's data facts, when a call has computed them or the caller gave them.
+    #[must_use]
+    pub fn baseline_data(&self) -> Option<&DataFacts> {
+        self.baseline_data.as_ref().map(|(_, facts)| facts)
+    }
+
+    /// The baseline's data facts for `compiled` (the call's baseline compile) loaded as
+    /// `runtime`: the session's, or computed on `runtime`'s selected definition and kept.
+    fn data_of(
+        &mut self,
+        compiled: &ValidatedDefinition,
+        runtime: &mut Runtime,
+    ) -> Result<DataFacts, String> {
+        let digest = compiled.kore_sha256();
+        if let Some((stored, facts)) = &self.baseline_data
+            && *stored == digest
+        {
+            return Ok(facts.clone());
+        }
+        let definition = runtime
+            .backend
+            .select_definition(None)
+            .map_err(|error| error.to_string())?;
+        let facts = DataFacts::of(&definition, &self.assume_joined);
+        self.baseline_data = Some((digest, facts.clone()));
+        Ok(facts)
     }
 
     /// What the last call through this session ran (empty before the first call, and for a
@@ -996,6 +1096,8 @@ impl<'v> BaselineSession<'v> {
                         test_id: test.id.clone(),
                         run: SideRun::Failed((*exclusion).into()),
                         notes: RunNotes::default(),
+                        ends: BTreeSet::new(),
+                        payloads: BTreeMap::new(),
                     },
                     (**cache).clone(),
                 ),
@@ -1099,11 +1201,41 @@ pub fn run_campaign_multi_with(
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
+    // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
+    // a name the author gives that the baseline refuses refuses a call with a mutant. Every call
+    // reads it for the ends of the baseline's runs (KINK-OVERLOAD-VALUE: an overload application
+    // is data only under the definition's facts), so a program's class does not depend on whether
+    // the call has a mutant; a call without one that cannot compute them admits no overload end.
+    let baseline_data = session.data_of(&baseline, &mut runtime);
+    runtime.data = baseline_data.as_ref().ok().cloned();
+    let data = if generations
+        .iter()
+        .any(|generation| !generation.candidates().is_empty())
+    {
+        let facts = baseline_data.map_err(|_| admission_failure(BaselineAdmission::Error))?;
+        let refused = facts.refused_names();
+        if !refused.is_empty() {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::InvalidDeclaration,
+                refused
+                    .iter()
+                    .map(|refusal| format!("assume_joined `{}`: {}", refusal.name, refusal.reason))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ));
+        }
+        Ok(facts)
+    } else {
+        Err("a call with no mutant reads no baseline data facts".to_owned())
+    };
     // The baseline's compiled equations, which every mutant's are read against (re-pin
     // R0c-fix-4). A baseline that does not internalize again leaves every mutant unchecked.
     let admission = MutantAdmission {
         equations: CompiledEquations::of(&baseline),
         support,
+        module: campaign.module.to_owned(),
+        assume_joined: session.assume_joined.clone(),
+        data,
     };
     // Test-written predicates do not inherit the definedness premise of backend-built
     // predicates. Refuse unsafe input through the existing declaration admission gate,
@@ -1529,7 +1661,16 @@ fn run_mutant(
     admission: &MutantAdmission,
     observations: &mut BaselineObservations<'_>,
 ) -> MutantExecution {
-    match prepare_mutant(campaign, patch, compiled_baseline, admission) {
+    // fz26 KINK-BASELINE-FINDINGS: no end of a baseline with a finding left is data, so no
+    // comparison on it can kill, and the mutant is unknown before it compiles.
+    let gated = match &admission.data {
+        Ok(facts) if data_ends(facts) == DataEnds::None => Err(MutantRefusal::new(
+            MutantScopeFailure::BaselineFindings,
+            Withdrawal::default(),
+        )),
+        _ => prepare_mutant(campaign, patch, compiled_baseline, admission),
+    };
+    match gated {
         Err(refusal) => {
             let MutantRefusal {
                 failure,
@@ -1646,15 +1787,90 @@ fn mutant_selection(
     })
 }
 
-/// Builds the mutant every test runs on, or its mutant-scope failure with the claims its patch
-/// leaves unbacked (re-pin R0c-fix-2, Sebastien 2026-10-17: a mutant drops the claims its edit
-/// leaves unbacked).
+/// Builds the mutant every test runs on ([`claim_free_mutant`]) and its runtime, or its
+/// mutant-scope failure with the claims its patch leaves unbacked. A preparation failure after
+/// the claim-free mutant is built is the mutant side's (`Infrastructure`).
+fn prepare_mutant(
+    campaign: &Campaign<'_>,
+    patch: &Patch,
+    compiled_baseline: &ValidatedDefinition,
+    admission: &MutantAdmission,
+) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    let ClaimFreeMutant {
+        side,
+        claims,
+        data,
+        loaded,
+    } = claim_free_mutant(
+        campaign.validator,
+        compiled_baseline,
+        patch,
+        admission,
+        &mut |stage| match stage {
+            MutantStage::Backend => stage_log::note(campaign, stage_log::Stage::Backend),
+            MutantStage::Consistency => stage_log::note(campaign, stage_log::Stage::Consistency),
+        },
+    )?;
+    let fail = |failure| MutantRefusal::new(failure, claims.clone());
+    let edit = CompiledEdit::between(compiled_baseline, &side);
+    // The claim-free mutant's backend was loaded once, for its facts, and runs its tests; its
+    // facts judge its ends and, in each pair, the baseline's (KINK-OVERLOAD-VALUE).
+    let mut runtime = Runtime::from_loaded(campaign, &side, loaded)
+        .map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
+    runtime.data = Some(data);
+    Ok((MutantSides { runtime, edit }, claims))
+}
+
+/// A step of [`claim_free_mutant`] that it reports to its caller's stage hook before running it
+/// (the runner's unit tests record where each step runs, re-pin L1-3).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum MutantStage {
+    /// The load of the claim-free mutant on kink's route (`Backend::from_definition`), whose
+    /// selected definition its full critical-pair check and its runs read.
+    Backend,
+    /// The consistency check of the claim-free mutant
+    /// ([`kink_native::consistency::admit_mutant_with`]) and the comparison of its findings with
+    /// the baseline's.
+    Consistency,
+}
+
+/// The claim-free mutant of a patch: the compiled definition every test of the mutant runs on,
+/// the claims the patch leaves unbacked, which its compile has withdrawn, and its full
+/// critical-pair check under the admission's names ([`claim_free_mutant`]).
+pub struct ClaimFreeMutant {
+    pub side: ValidatedDefinition,
+    pub claims: Withdrawal,
+    /// The claim-free mutant's data facts, on the definition its runs execute on.
+    pub data: DataFacts,
+    /// The claim-free mutant's load, which the runner's runtime takes over.
+    loaded: LoadedSide,
+}
+
+impl std::fmt::Debug for ClaimFreeMutant {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ClaimFreeMutant")
+            .field("side", &self.side.kore_sha256())
+            .field("claims", &self.claims)
+            .field("data", &self.data)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The claim-free mutant of `patch`, exactly as the runner builds it for every test of the
+/// mutant, or its mutant-scope failure with the claims its patch leaves unbacked (re-pin
+/// R0c-fix-2, Sebastien 2026-10-17: a mutant drops the claims its edit leaves unbacked).
+/// `validator` is the campaign's (bound to the baseline the patch was derived from),
+/// `compiled_baseline` its baseline compile, `admission` what every mutant of that baseline is
+/// admitted against ([`MutantAdmission::new`]), and `on_stage` is told each [`MutantStage`]
+/// before it runs.
 ///
 /// The mutant as written is validated, admitted and checked for an equivalent compilation first,
 /// with the baseline's claims, so a semantically null edit stays `EquivalentCompilation` and
 /// removing claims never makes a mutant equivalent. Then [`ClaimSupport::withdraw`] removes every
-/// claim the edit leaves unbacked, and the claim-free mutant is compiled and prepared: every
-/// test, ground or symbolic, runs on it. A mutant with an unbacked claim no removal takes away is
+/// claim the edit leaves unbacked, and the claim-free mutant is compiled: every test, ground or
+/// symbolic, runs on it. A mutant with an unbacked claim no removal takes away is
 /// `UnsupportedClaims`; one whose claim-free definition k-rust refuses to compile is
 /// `StrippedClaimCompileFailure`. Both are unknown, never killed.
 ///
@@ -1662,23 +1878,35 @@ fn mutant_selection(
 /// R0c-fix-3, decisions log 2026-10-17 "inconsistent mutants"): every pair of equations of a
 /// symbol whose compiled equations differ from the baseline's or reach one, or that the patch
 /// redefines or reaches by kink-patch's source reading ([`ClaimSupport::effect`]), must join by
-/// k-rust's critical-pair check ([`kink_native::consistency::admit_mutant`], re-pin R0c-fix-4).
-/// A pair not shown to join, or a check that cannot run, refuses the mutant as
-/// `InconsistentMutant`, invalid and outside the score, with the pairs named. It runs on the
-/// mutant only: the baseline's equations stay a trusted premise. A compiled equation of a sentence
-/// the patch touches whose head the source reading does not redefine leaves the claims the edit
-/// unbacks unknown, so the mutant is `UnsupportedClaims`, each such equation recorded as an
-/// unsupported claim with key [`UNREAD_EQUATION_CLAIM`].
-fn prepare_mutant(
-    campaign: &Campaign<'_>,
-    patch: &Patch,
+/// k-rust's critical-pair check ([`kink_native::consistency::admit_mutant_with`], re-pin
+/// R0c-fix-4). A pair not shown to join, or a check that cannot run, refuses the mutant as
+/// `InconsistentMutant`, invalid and outside the score, with the pairs named. A compiled equation
+/// of a sentence the patch touches whose head the source reading does not redefine leaves the
+/// claims the edit unbacks unknown, so the mutant is `UnsupportedClaims`, each such equation
+/// recorded as an unsupported claim with key [`UNREAD_EQUATION_CLAIM`]. The check reads the
+/// claim-free mutant's full critical-pair check ([`DataFacts`]), computed once on the backend its
+/// runs execute on (fz26 KINK-BASELINE-FINDINGS); a mutant that does not load there is
+/// `Infrastructure`. Every finding outside the heads the edit can change must then be the
+/// baseline's (by name and by the unique ids of its equations): such a pair is normalized with the
+/// baseline's equations alone, and kink checks it rather than arguing it, refusing a difference
+/// as `MutantFindings` (unknown); when the check read no head, every finding is compared. A
+/// mutant whose ends are not data while the baseline's are (kink-native `data::data_ends`) is
+/// `MutantFindings` too. Whether the baseline's own findings leave any end data is the runner's
+/// question, not this function's (`BaselineFindings`).
+///
+/// # Errors
+///
+/// The mutant-scope failure that refuses the mutant, with the claims and pairs it names.
+pub fn claim_free_mutant(
+    validator: &NativeValidator,
     compiled_baseline: &ValidatedDefinition,
+    patch: &Patch,
     admission: &MutantAdmission,
-) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    on_stage: &mut dyn FnMut(MutantStage),
+) -> Result<ClaimFreeMutant, Box<MutantRefusal>> {
     let support = &admission.support;
     let unclaimed = |failure| MutantRefusal::new(failure, Withdrawal::default());
-    let side = campaign
-        .validator
+    let side = validator
         .validate(patch)
         .map_err(|rejection| unclaimed(MutantScopeFailure::from(&rejection)))?;
     validate_representation(&side)
@@ -1689,7 +1917,7 @@ fn prepare_mutant(
         Err(_) => return Err(unclaimed(MutantScopeFailure::Infrastructure)),
     }
     // The patch applied during validation, so it applies here too.
-    let baseline = campaign.validator.baseline();
+    let baseline = validator.baseline();
     let (mut claims, effect) = support
         .withdraw(baseline, patch)
         .and_then(|claims| Ok((claims, support.effect(baseline, patch)?)))
@@ -1702,7 +1930,7 @@ fn prepare_mutant(
     }
     let side = match claims.patch() {
         None => side,
-        Some(withdrawing) => match campaign.validator.validate(withdrawing) {
+        Some(withdrawing) => match validator.validate(withdrawing) {
             Ok(side) => side,
             Err(_) => {
                 return Err(MutantRefusal::new(
@@ -1715,17 +1943,33 @@ fn prepare_mutant(
     validate_representation(&side).map_err(|_| {
         MutantRefusal::new(MutantScopeFailure::RepresentationRefused, claims.clone())
     })?;
-    stage_log::note(campaign, stage_log::Stage::Consistency);
+    on_stage(MutantStage::Backend);
+    let infrastructure = |claims: &Withdrawal| {
+        MutantRefusal::new(MutantScopeFailure::Infrastructure, claims.clone())
+    };
+    let loaded = LoadedSide::load(&side, &admission.module).map_err(|_| infrastructure(&claims))?;
+    let baseline_data = admission
+        .data
+        .as_ref()
+        .map_err(|_| infrastructure(&claims))?;
+    let data = DataFacts::of(&loaded.selected, &admission.assume_joined);
+    on_stage(MutantStage::Consistency);
     let admitted = match &admission.equations {
-        Ok(equations) => kink_native::consistency::admit_mutant(equations, &side, &effect),
+        Ok(equations) => kink_native::consistency::admit_mutant_with(
+            equations,
+            &side,
+            &effect,
+            &loaded.selected,
+            &data,
+        ),
         Err(why) => Err(MutantFailure::Inconsistent(
             kink_native::consistency::Inconsistency::Unchecked(format!(
                 "the baseline's equations did not internalize: {why}"
             )),
         )),
     };
-    match admitted {
-        Ok(_) => {}
+    let effect = match admitted {
+        Ok(effect) => effect,
         Err(MutantFailure::UnreadEquations(unread)) => {
             // The patch's effect on the claims is not known: no claim-free definition is known
             // either, so the mutant is refused as unsupported, naming each unread equation.
@@ -1761,39 +2005,90 @@ fn prepare_mutant(
                 inconsistent_pairs: inconsistency.pairs(),
             }));
         }
+    };
+    // fz26 KINK-BASELINE-FINDINGS review S1: when the gate read nothing (no checked head), every
+    // finding is compared, not only those the gate would read for no head; and wherever the
+    // baseline has data the mutant must have it too (part 3: both sides' ends are data).
+    let read_nothing = effect.checked.as_ref().is_some_and(BTreeSet::is_empty);
+    let differs = if read_nothing {
+        data.differs(baseline_data)
+    } else {
+        data.differs_outside(baseline_data, effect.checked.as_ref())
+    };
+    let lost = data_ends(baseline_data) != DataEnds::None && data_ends(&data) == DataEnds::None;
+    if differs || lost {
+        return Err(MutantRefusal::new(
+            MutantScopeFailure::MutantFindings,
+            claims,
+        ));
     }
-    let fail = |failure| MutantRefusal::new(failure, claims.clone());
-    // A preparation failure here is the mutant side's.
-    let edit = CompiledEdit::between(compiled_baseline, &side);
-    let runtime =
-        Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
-    Ok((MutantSides { runtime, edit }, claims))
+    Ok(ClaimFreeMutant {
+        side,
+        claims,
+        data,
+        loaded,
+    })
 }
 
 /// What every mutant of a campaign is admitted against: the baseline's claim support and its
-/// compiled equations (re-pin R0c-fix-4).
-struct MutantAdmission {
+/// compiled equations (re-pin R0c-fix-4), the module the mutants load, the names of the findings
+/// read as assumed, and the baseline's data facts under them (fz26 KINK-BASELINE-FINDINGS).
+pub struct MutantAdmission {
     support: ClaimSupport,
     equations: Result<CompiledEquations, String>,
+    /// The backend's module of every mutant load (the campaign's).
+    module: String,
+    assume_joined: Vec<String>,
+    data: Result<DataFacts, String>,
 }
 
 impl MutantAdmission {
-    #[cfg(test)]
-    fn new(baseline: &kink_patch::Baseline, compiled: &ValidatedDefinition) -> Self {
+    /// The admission of every mutant of `baseline` (a validator's baseline), whose compile is
+    /// `compiled`, each loaded for `module` (KORE-encoded, the campaign's), reading the findings
+    /// `assume_joined` names as assumed: its claim support, its compiled equations, which every
+    /// mutant's are read against, and its data facts, which every mutant's are compared with
+    /// (computed here on `compiled` loaded on kink's route). A baseline whose equations do not
+    /// internalize again leaves every mutant unchecked (`InconsistentMutant`); one that does not
+    /// load leaves every mutant `Infrastructure`.
+    #[must_use]
+    pub fn new(
+        baseline: &kink_patch::Baseline,
+        compiled: &ValidatedDefinition,
+        module: &str,
+        assume_joined: &[String],
+    ) -> Self {
+        let data = LoadedSide::load(compiled, module)
+            .map(|loaded| DataFacts::of(&loaded.selected, assume_joined))
+            .map_err(|_| format!("the baseline does not load for {module}"));
         Self {
             support: ClaimSupport::new(baseline),
             equations: CompiledEquations::of(compiled),
+            module: module.to_owned(),
+            assume_joined: assume_joined.to_vec(),
+            data,
         }
+    }
+
+    /// The baseline's data facts, unless the baseline did not load.
+    #[must_use]
+    pub fn baseline_data(&self) -> Option<&DataFacts> {
+        self.data.as_ref().ok()
+    }
+
+    /// The baseline's claim support.
+    #[must_use]
+    pub const fn support(&self) -> &ClaimSupport {
+        &self.support
     }
 }
 
 /// Why a mutant runs no test: its mutant-scope failure, the claims its patch leaves unbacked (as
 /// far as the preparation got), and the pairs of equations that refuse an inconsistent mutant.
 #[derive(Debug)]
-struct MutantRefusal {
-    failure: MutantScopeFailure,
-    claims: Withdrawal,
-    inconsistent_pairs: Vec<UnjoinedEquations>,
+pub struct MutantRefusal {
+    pub failure: MutantScopeFailure,
+    pub claims: Withdrawal,
+    pub inconsistent_pairs: Vec<UnjoinedEquations>,
 }
 
 impl MutantRefusal {
@@ -1918,6 +2213,16 @@ fn run_tests(
                 },
             );
         }
+        // fz26 KINK-OVERLOAD-VALUE: every end compared below is data under both definitions.
+        let mut one_sided = cache.one_sided;
+        judge_across(
+            test,
+            &mut paired_baseline,
+            &mut mutant,
+            &mut one_sided,
+            observations.runtime,
+            &mut sides.runtime,
+        );
         let run = match (&paired_baseline.run, &mutant.run) {
             // Admission keeps a baseline run that contradicts a claim: the test is unknown.
             (SideRun::Failed(ExecutionFailureKind::ContradictedClaim), _) => {
@@ -1947,7 +2252,7 @@ fn run_tests(
                                         declaration,
                                         baseline,
                                         mutant,
-                                        &cache.one_sided,
+                                        &one_sided,
                                     ) =>
                                 {
                                     OracleOutcome::Distinguish
@@ -2008,13 +2313,350 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
     }
 }
 
-fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Option<&[OracleSide]>) {
+/// Judges the compared ends of one pair under the other side's definition (fz26
+/// KINK-OVERLOAD-VALUE; the own side's judgement is the run's, [`Runtime::judge_with`] and
+/// [`Runtime::step_sides`]). Each definition reads the ends with its own theory, and the two may
+/// differ on any symbol: a mutant can make a baseline constructor an `anywhere` head (`c(1) => d
+/// [anywhere]`, under which the baseline's end `c(1)` and the mutant's `d` are one value), or
+/// add an overload member that lowers a baseline normal form. Two different ends differ in each
+/// definition's initial model only when both are data in both (k-rust-backend `data_term`, "Two
+/// definitions"), so before the slots of `test` are compared:
+/// - the baseline's terminals ([`TestEvidence::ends`]) must be data under the mutant's definition
+///   and the mutant's under the baseline's: each must be its own terminal value there
+///   ([`ObservationDecider::terminal_value`] with that definition's collection trust and
+///   [`data_ends`] of its facts: a free-constructor, injection and domain-value check, and k-rust's
+///   `is_data` on each outermost overload application). A failure makes every state slot of that
+///   side `Unknown`, for this pair only;
+/// - every binding of a pattern side must be definition-independent under the mutant's definition
+///   (the baseline's own bindings and the mutant's were judged under the baseline's by
+///   [`Runtime::step_sides`], whose shared definition is the baseline's); a failure makes that
+///   slot `Unknown`;
+/// - a one-sided terminal of the mutant run must be data under the baseline's definition, or it
+///   is dropped (it can then not distinguish);
+/// - every term a pattern slot's relation decisions read ([`TestEvidence::payloads`], recorded by
+///   [`ReadTerms`]) must be definition-independent under the other side's definition: a slot's
+///   `Match` or `NoMatch` is decided from relations between that side's payloads in that side's
+///   theory alone, so a failure makes that slot `Unknown` (review S1).
+///
+/// A value-holding state slot whose side has no ends is `Unknown` (review N2): the ends are the
+/// terminals it was projected from, and a producer that omits them cannot be judged.
+///
+/// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
+/// end judged under it not data. A failure to reach a definition does too.
+///
+/// Each slot made unknown is recorded in the mutant's evidence ([`RunNotes::across`]), with whose
+/// end it is and why (fz26 KINK-CAUSE-SUBTERM), for the reader's cause; nothing compares it.
+fn judge_across(
+    test: &TestCase,
+    baseline: &mut TestEvidence,
+    mutant: &mut TestEvidence,
+    one_sided: &mut Vec<ExecutionTerminal>,
+    baseline_runtime: &mut Runtime,
+    mutant_runtime: &mut Runtime,
+) {
+    // The terminals a side's state slots compare: none unless some state slot has a value.
+    let compared = |evidence: &TestEvidence| match &evidence.run {
+        SideRun::Sides { sides }
+            if test.oracles.iter().zip(sides).any(|(declaration, side)| {
+                matches!(declaration.projection(), Projection::State(_))
+                    && matches!(side, OracleSide::Normal(_) | OracleSide::SemanticCrash(_))
+            }) =>
+        {
+            evidence.ends.iter().cloned().collect()
+        }
+        _ => Vec::new(),
+    };
+    let bindings = |evidence: &TestEvidence| match &evidence.run {
+        SideRun::Sides { sides } => sides
+            .iter()
+            .filter_map(|side| match side {
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                    bindings: Some(witnesses),
+                })) => Some(witnesses),
+                _ => None,
+            })
+            .flatten()
+            .flatten()
+            .map(|binding| binding.term.clone())
+            .collect::<Vec<_>>(),
+        SideRun::Failed(_) => Vec::new(),
+    };
+    // The terms the relation decisions of a side's value-holding pattern slots read.
+    let payloads = |evidence: &TestEvidence| match &evidence.run {
+        SideRun::Sides { sides } => test
+            .oracles
+            .iter()
+            .zip(sides)
+            .enumerate()
+            .filter(|(_, (declaration, side))| {
+                matches!(declaration.projection(), Projection::Pattern { .. })
+                    && matches!(side, OracleSide::Normal(_))
+            })
+            .flat_map(|(index, _)| evidence.payloads.get(&index).into_iter().flatten().cloned())
+            .collect::<Vec<_>>(),
+        SideRun::Failed(_) => Vec::new(),
+    };
+    // Under the mutant's definition: the baseline's terminals and payloads, and both sides'
+    // bindings.
+    let under_mutant = mutant_runtime.judge_ends(
+        test,
+        &compared(baseline),
+        &[bindings(baseline), bindings(mutant), payloads(baseline)].concat(),
+    );
+    // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
+    let mutant_ends = compared(mutant);
+    let terminals = mutant_ends.len();
+    let under_baseline = baseline_runtime.judge_ends(
+        test,
+        &mutant_ends
+            .into_iter()
+            .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
+            .collect::<Vec<_>>(),
+        &payloads(mutant),
+    );
+    let (mutant_data, one_sided_data) = under_baseline.terminals.split_at(terminals);
+    let mut one_sided_data = one_sided_data.iter().copied();
+    one_sided.retain(|_| one_sided_data.next().unwrap_or(false));
+    let mut across = Vec::new();
+    for (evidence, data, causes, other, baseline_end) in [
+        (
+            &mut *baseline,
+            under_mutant.terminals.as_slice(),
+            under_mutant.terminal_causes.as_slice(),
+            &under_mutant,
+            true,
+        ),
+        (
+            &mut *mutant,
+            mutant_data,
+            &under_baseline.terminal_causes[..terminals],
+            &under_baseline,
+            false,
+        ),
+    ] {
+        let SideRun::Sides { sides } = &mut evidence.run else {
+            continue;
+        };
+        // A value-holding state slot with no ends to judge fails closed (review N2).
+        let states_data = !evidence.ends.is_empty() && data.iter().all(|data| *data);
+        for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
+            // A pattern value whose relation decisions read a term that is not data under the
+            // other side's definition (review S1).
+            let payload_refused = (matches!(declaration.projection(), Projection::Pattern { .. })
+                && matches!(side, OracleSide::Normal(_)))
+            .then(|| evidence.payloads.get(&index))
+            .flatten()
+            .and_then(|read| read.iter().find(|term| !other.independent.contains(term)));
+            // Why the slot is refused, for the reader's cause (fz26 KINK-CAUSE-SUBTERM).
+            let refused = match payload_refused {
+                Some(term) => Some((CrossEnd::Payload, other.cause_of(term))),
+                None => match (declaration.projection(), &*side) {
+                    (
+                        Projection::State(_),
+                        OracleSide::Normal(_) | OracleSide::SemanticCrash(_),
+                    ) if !states_data => Some((
+                        CrossEnd::Terminal,
+                        if evidence.ends.is_empty() {
+                            CrossCause::NoEnds
+                        } else {
+                            causes
+                                .iter()
+                                .flatten()
+                                .next()
+                                .cloned()
+                                .unwrap_or(CrossCause::NotData(None))
+                        },
+                    )),
+                    (
+                        Projection::Pattern { .. },
+                        OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                            bindings: Some(witnesses),
+                        })),
+                    ) => witnesses
+                        .iter()
+                        .flatten()
+                        .find(|binding| !under_mutant.independent.contains(&binding.term))
+                        .map(|binding| (CrossEnd::Binding, under_mutant.cause_of(&binding.term))),
+                    _ => None,
+                },
+            };
+            if let Some((end, cause)) = refused {
+                *side = OracleSide::Unknown;
+                across.push(CrossRefusal {
+                    slot: index,
+                    baseline_end,
+                    end,
+                    cause,
+                });
+            }
+        }
+    }
+    mutant.notes.across = across;
+}
+
+/// What one definition says of the ends of the other side of a pair ([`Runtime::judge_ends`]).
+struct EndJudgement {
+    /// For each terminal judged, in order, whether it is data there.
+    terminals: Vec<bool>,
+    /// The binding terms judged definition-independent there.
+    independent: Vec<Pattern>,
+    /// For each terminal judged, in order, why it is not data there (`None` when it is).
+    terminal_causes: Vec<Option<CrossCause>>,
+    /// Each binding (or payload) term judged not definition-independent there, and why.
+    binding_causes: Vec<(Pattern, CrossCause)>,
+}
+
+impl EndJudgement {
+    /// Why `term`, a binding or payload judged here, is not definition-independent here.
+    fn cause_of(&self, term: &Pattern) -> CrossCause {
+        self.binding_causes
+            .iter()
+            .find(|(judged, _)| judged == term)
+            .map_or(CrossCause::NotData(None), |(_, cause)| cause.clone())
+    }
+}
+
+/// A slot of one pair that [`judge_across`] made unknown, because an end, binding or payload of
+/// one side is not data under the other side's definition, or a state value has no ends to judge
+/// (fz26 KINK-CAUSE-SUBTERM, KINK-OVERLOAD-VALUE review N4): the side's run did end in a value of
+/// its own definition. Kept in the mutant's evidence of the pair ([`RunNotes::across`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CrossRefusal {
+    /// The slot's index in the test's oracles.
+    pub slot: usize,
+    /// Whose end it is: the baseline's or the mutant's.
+    pub baseline_end: bool,
+    /// What of the side was judged.
+    pub end: CrossEnd,
+    /// Why the first such end of the slot is not data there.
+    pub cause: CrossCause,
+}
+
+/// What of a side [`judge_across`] refused ([`CrossRefusal`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CrossEnd {
+    /// A terminal a state slot is projected from ([`TestEvidence::ends`]), judged under the
+    /// other side's definition.
+    Terminal,
+    /// A binding of a pattern slot's match, judged under the mutant's definition (both sides'
+    /// bindings are).
+    Binding,
+    /// A term a pattern slot's relation decisions read ([`TestEvidence::payloads`]), judged under
+    /// the other side's definition.
+    Payload,
+}
+
+/// Why an end is not data under the other side's definition ([`CrossRefusal`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CrossCause {
+    /// A value-holding state slot whose side has no ends to judge (review N2): refused closed.
+    NoEnds,
+    /// That definition admits no end as data: it has no data facts, or a finding of its full
+    /// check is left, or it could not be reached ([`data_ends`] gives [`DataEnds::None`]).
+    NoData,
+    /// The end is not its own terminal value there (a binding: not definition-independent there):
+    /// the first node, in pre-order, that fails its own test there
+    /// ([`ObservationDecider::first_non_value`], [`ObservationDecider::first_dependent`]), or
+    /// `None` when every node passes and the end's canonical form there differs from it.
+    NotData(Option<Box<NonValue>>),
+}
+
+/// The side of one pattern slot ([`Runtime::step_sides`]) and the terms its relation decisions
+/// read ([`TestEvidence::payloads`]).
+type PatternSide = (OracleSide, BTreeSet<Pattern>);
+
+fn replace_patterns(
+    test: &TestCase,
+    evidence: &mut TestEvidence,
+    patterns: Option<&[PatternSide]>,
+) {
     if let SideRun::Sides { sides } = &mut evidence.run {
         for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
             if matches!(declaration.projection(), Projection::Pattern { .. }) {
-                *side = patterns.map_or(OracleSide::Unknown, |patterns| patterns[index].clone());
+                match patterns {
+                    Some(patterns) => {
+                        side.clone_from(&patterns[index].0);
+                        evidence.payloads.insert(index, patterns[index].1.clone());
+                    }
+                    None => {
+                        *side = OracleSide::Unknown;
+                        evidence.payloads.remove(&index);
+                    }
+                }
             }
         }
+    }
+}
+
+/// The relation decider of one pattern slot's evaluation, recording the terms its decisions read
+/// (fz26 KINK-OVERLOAD-VALUE review S1). A pattern slot's `Match` or `NoMatch` rests on the
+/// relations the side's own decider decides between its event payloads and bound values, in that
+/// side's theory (re-pin A-12): with `c(1) => d` made `[anywhere]` in a mutant, the baseline's
+/// payloads `c(1)` and `d` are unequal under the baseline and one value under the mutant. So every
+/// term such a decision reads must be data under the other side's definition too
+/// ([`judge_across`]), as bindings and ends are. Recorded: the two terms and the assumed relations
+/// of every relation decided other than `Indeterminate` and other than `Equal` by syntactic
+/// identity (identical terms are equal in every theory), with the relations an `EqualIf` adds; and
+/// the assumptions of every feasibility decided `Sat` or `Unsat`.
+struct ReadTerms<'d> {
+    inner: &'d dyn RelationDecider,
+    read: std::cell::RefCell<BTreeSet<Pattern>>,
+}
+
+impl<'d> ReadTerms<'d> {
+    fn new(inner: &'d dyn RelationDecider) -> Self {
+        Self {
+            inner,
+            read: std::cell::RefCell::new(BTreeSet::new()),
+        }
+    }
+
+    fn record<'t>(&self, terms: impl IntoIterator<Item = &'t Pattern>) {
+        self.read.borrow_mut().extend(terms.into_iter().cloned());
+    }
+
+    fn read(self) -> BTreeSet<Pattern> {
+        self.read.into_inner()
+    }
+}
+
+fn relation_terms(relations: &[TermRelation]) -> impl Iterator<Item = &Pattern> {
+    relations
+        .iter()
+        .flat_map(|relation| [&relation.left, &relation.right])
+}
+
+impl RelationDecider for ReadTerms<'_> {
+    fn relate(
+        &self,
+        path: &PathInput,
+        assumed: &[TermRelation],
+        left: &Pattern,
+        right: &Pattern,
+    ) -> RelationDecision {
+        let decision = self.inner.relate(path, assumed, left, right);
+        match &decision {
+            RelationDecision::Indeterminate => {}
+            RelationDecision::Equal if left == right => {}
+            RelationDecision::EqualIf(added) => {
+                self.record([left, right]);
+                self.record(relation_terms(assumed));
+                self.record(relation_terms(added));
+            }
+            RelationDecision::Equal | RelationDecision::Unequal => {
+                self.record([left, right]);
+                self.record(relation_terms(assumed));
+            }
+        }
+        decision
+    }
+
+    fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+        let feasibility = self.inner.feasible(path, assumptions);
+        if feasibility != Feasibility::Unknown {
+            self.record(relation_terms(assumptions));
+        }
+        feasibility
     }
 }
 
@@ -2041,24 +2683,64 @@ struct Runtime {
     /// its compiled KORE and from the definition its backend selected for the default module
     /// (the only module a request names), on the thread that runs it (re-pin R0b).
     exclusions: DefinitionExclusions,
+    /// The side's data facts (its full critical-pair check, [`DataFacts`]) on the definition its
+    /// backend selected: the baseline's (the session's), or the claim-free mutant's. They say
+    /// which ends are data under this side's definition ([`data_ends`]), for its own runs and for
+    /// the other side's ends of a pair ([`judge_across`]); `None` when they are not known, which
+    /// admits no overload application and makes every end of the other side not data here.
+    data: Option<DataFacts>,
+}
+
+/// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
+/// module, and the definition that backend selected for it (loaded, its load counts and value
+/// claims final; findings A-08, C-10).
+struct LoadedSide {
+    parsed: k_rust::kore::ast::Definition,
+    backend: Backend,
+    selected: std::sync::Arc<k_rust::k_rust_backend::definition::BackendDefinition>,
+}
+
+impl LoadedSide {
+    fn load(side: &ValidatedDefinition, module: &str) -> Result<Self, Preparation> {
+        let parsed = parse_definition(&side.artifacts().definition_kore)
+            .map_err(|_| Preparation::Infrastructure)?;
+        let mut backend =
+            Backend::from_definition(parsed.clone(), module, BackendOptions::default())
+                .map_err(|_| Preparation::Infrastructure)?;
+        // Selecting the default module loads it if the backend has not yet.
+        let selected = backend
+            .select_definition(None)
+            .map_err(|_| Preparation::Infrastructure)?;
+        Ok(Self {
+            parsed,
+            backend,
+            selected,
+        })
+    }
 }
 
 impl Runtime {
     /// Parses the side's KORE once for its symbol sorts and event-free backend adapter.
     fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
-        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-        let parsed = parse_definition(&side.artifacts().definition_kore)
-            .map_err(|_| Preparation::Infrastructure)?;
-        let symbol_sorts = SymbolSorts::from_definition(&parsed);
         stage_log::note(campaign, stage_log::Stage::Backend);
-        let mut backend =
-            Backend::from_definition(parsed.clone(), campaign.module, BackendOptions::default())
-                .map_err(|_| Preparation::Infrastructure)?;
-        // Selecting the default module loads it if the backend has not yet; its load counts and
-        // value-claim violations are then final (findings A-08, C-10).
-        let selected = backend
-            .select_definition(None)
-            .map_err(|_| Preparation::Infrastructure)?;
+        let loaded = LoadedSide::load(side, campaign.module)?;
+        Self::from_loaded(campaign, side, loaded)
+    }
+
+    /// The runtime of `side` on its load `loaded` ([`LoadedSide::load`] for the campaign's
+    /// module).
+    fn from_loaded(
+        campaign: &Campaign<'_>,
+        side: &ValidatedDefinition,
+        loaded: LoadedSide,
+    ) -> Result<Self, Preparation> {
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let LoadedSide {
+            parsed,
+            backend,
+            selected,
+        } = loaded;
+        let symbol_sorts = SymbolSorts::from_definition(&parsed);
         let exclusions = DefinitionExclusions::of(
             &parsed,
             &selected,
@@ -2082,6 +2764,7 @@ impl Runtime {
             modality: ResultModality::default(),
             one_sided: OneSided::Off,
             exclusions,
+            data: None,
         })
     }
 
@@ -2262,14 +2945,17 @@ impl Runtime {
             None => &self.exclusions,
         };
         let collections_trusted = exclusions.collections_trusted();
+        let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
         let notes = match &executed.execution {
             Ok(execution) if !execution.timed_out() => RunNotes {
                 contradicted_claims: execution.facts().contradicted_claims.clone(),
                 smt_unknowns: execution.facts().smt_unknowns,
                 leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
+                across: Vec::new(),
             },
             _ => RunNotes::default(),
         };
+        let mut ends = BTreeSet::new();
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -2281,7 +2967,8 @@ impl Runtime {
                     solver,
                     TestInitialState::of_test(&test.initial_state),
                 )
-                .trusting_collections(collections_trusted);
+                .trusting_collections(collections_trusted)
+                .judging_data(own, own);
                 let context = BridgeContext {
                     test_id: &test.id,
                     classify: campaign.classify,
@@ -2327,6 +3014,12 @@ impl Runtime {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
                         None => {
                             terminals = one_sided;
+                            ends = bridged
+                                .paths
+                                .iter()
+                                .filter_map(|path| path.execution_terminal.as_ref())
+                                .map(|terminal| terminal.state.clone())
+                                .collect();
                             SideRun::Sides {
                                 sides: test
                                     .oracles
@@ -2351,6 +3044,8 @@ impl Runtime {
                 test_id: test.id.clone(),
                 run,
                 notes,
+                ends,
+                payloads: BTreeMap::new(),
             },
             terminals,
         )
@@ -2368,7 +3063,7 @@ impl Runtime {
         observation: &StepObservation,
         execution: Option<&SteppedExecution>,
         leaves: Option<&mut Runtime>,
-    ) -> Vec<OracleSide> {
+    ) -> Vec<PatternSide> {
         let mut context = self.context.clone();
         context.test_id.clone_from(&test.id);
         let trusted = self.exclusions.collections_trusted()
@@ -2397,20 +3092,21 @@ impl Runtime {
                         with_bindings,
                     } = declaration.projection()
                     else {
-                        return OracleSide::Unknown;
+                        return (OracleSide::Unknown, BTreeSet::new());
                     };
                     let Some(bridged) = &bridged else {
-                        return OracleSide::Unknown;
+                        return (OracleSide::Unknown, BTreeSet::new());
                     };
+                    let relations = ReadTerms::new(decider.relations());
                     let evaluation = slot_evaluation(
                         &context,
                         plan,
                         &bridged.tree,
                         &bridged.collection,
                         observation.vocabulary(),
-                        decider.relations(),
+                        &relations,
                     );
-                    if *with_bindings
+                    let side = if *with_bindings
                         && evaluation.as_ref().is_ok_and(|evaluation| {
                             evaluation.witnesses.iter().any(|witness| {
                                 witness
@@ -2418,38 +3114,115 @@ impl Runtime {
                                     .iter()
                                     .any(|binding| !decider.definition_independent(&binding.term))
                             })
-                        })
-                    {
+                        }) {
                         OracleSide::Unknown
                     } else {
                         pattern_side(&evaluation, *with_bindings)
-                    }
+                    };
+                    (side, relations.read())
                 })
                 .collect::<Vec<_>>()
         };
         let initial = || TestInitialState::of_test(&test.initial_state);
+        let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
         let sides = match leaves {
             None => self.backend.with_solver(None, |definition, solver| {
                 let decider = ObservationDecider::new(definition, solver, initial())
-                    .trusting_collections(trusted);
+                    .trusting_collections(trusted)
+                    .judging_data(own, own);
                 Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
             }),
-            Some(leaves) => self.backend.with_solver(None, |definition, _| {
-                leaves
-                    .backend
-                    .with_solver(None, |leaf_definition, leaf_solver| {
-                        let decider = ObservationDecider::for_leaves_of(
-                            definition,
-                            leaf_definition,
-                            leaf_solver,
-                            initial(),
-                        )
-                        .trusting_collections(trusted);
-                        Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
-                    })
-            }),
+            Some(leaves) => {
+                let leaf_data = leaves.data.as_ref().map_or(DataEnds::None, data_ends);
+                self.backend.with_solver(None, |definition, _| {
+                    leaves
+                        .backend
+                        .with_solver(None, |leaf_definition, leaf_solver| {
+                            let decider = ObservationDecider::for_leaves_of(
+                                definition,
+                                leaf_definition,
+                                leaf_solver,
+                                initial(),
+                            )
+                            .trusting_collections(trusted)
+                            .judging_data(own, leaf_data);
+                            Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
+                        })
+                })
+            }
         };
-        sides.unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
+        sides.unwrap_or_else(|_| vec![(OracleSide::Unknown, BTreeSet::new()); test.oracles.len()])
+    }
+
+    /// Whether each of `terminals`, ends of the other side of a pair, is data under this side's
+    /// definition (its own terminal value there, read with this side's collection trust and
+    /// [`data_ends`] of its facts), and which of `bindings` are definition-independent there
+    /// ([`judge_across`]). Without facts, with a finding left, or when no definition can be
+    /// reached, nothing is.
+    fn judge_ends(
+        &mut self,
+        test: &TestCase,
+        terminals: &[Pattern],
+        bindings: &[Pattern],
+    ) -> EndJudgement {
+        let refused = || EndJudgement {
+            terminals: vec![false; terminals.len()],
+            independent: Vec::new(),
+            terminal_causes: vec![Some(CrossCause::NoData); terminals.len()],
+            binding_causes: bindings
+                .iter()
+                .map(|term| (term.clone(), CrossCause::NoData))
+                .collect(),
+        };
+        if terminals.is_empty() && bindings.is_empty() {
+            return refused();
+        }
+        let ends = self.data.as_ref().map_or(DataEnds::None, data_ends);
+        if ends == DataEnds::None {
+            return refused();
+        }
+        let trusted = self.exclusions.collections_trusted();
+        self.backend
+            .with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                )
+                .trusting_collections(trusted)
+                .judging_data(ends, ends);
+                let terminals = terminals
+                    .iter()
+                    .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                    .zip(terminals)
+                    .collect::<Vec<_>>();
+                let (independent, dependent): (Vec<_>, Vec<_>) = bindings
+                    .iter()
+                    .partition(|term| decider.definition_independent(term));
+                // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
+                Ok::<_, k_rust::backend::BackendError>(EndJudgement {
+                    terminal_causes: terminals
+                        .iter()
+                        .map(|(data, end)| {
+                            (!data).then(|| {
+                                CrossCause::NotData(decider.first_non_value(end).map(Box::new))
+                            })
+                        })
+                        .collect(),
+                    terminals: terminals.iter().map(|(data, _)| *data).collect(),
+                    binding_causes: dependent
+                        .into_iter()
+                        .map(|term| {
+                            (
+                                term.clone(),
+                                CrossCause::NotData(decider.first_dependent(term).map(Box::new)),
+                            )
+                        })
+                        .collect(),
+                    independent: independent.into_iter().cloned().collect(),
+                })
+            })
+            .unwrap_or_else(|_| refused())
     }
 }
 
@@ -3257,6 +4030,8 @@ mod tests {
                             test_id: "t".into(),
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
                             notes: RunNotes::default(),
+                            ends: BTreeSet::new(),
+                            payloads: BTreeMap::new(),
                         },
                         Vec::new()
                     )
@@ -3499,13 +4274,18 @@ mod tests {
                     // refuted and the side is Unknown.
                     let (_, mutant_cache) = sides.runtime.run(&campaign, test);
                     assert_eq!(
-                        observations.runtime.step_sides(
-                            &campaign,
-                            test,
-                            &observations.observation,
-                            mutant_cache.stepped.as_ref(),
-                            None,
-                        ),
+                        observations
+                            .runtime
+                            .step_sides(
+                                &campaign,
+                                test,
+                                &observations.observation,
+                                mutant_cache.stepped.as_ref(),
+                                None,
+                            )
+                            .into_iter()
+                            .map(|(side, _)| side)
+                            .collect::<Vec<_>>(),
                         [OracleSide::Unknown]
                     );
                 } else {
@@ -3711,6 +4491,8 @@ mod tests {
                     ],
                 },
                 notes: RunNotes::default(),
+                ends: BTreeSet::new(),
+                payloads: BTreeMap::new(),
             };
             let before = evidence.clone();
             replace_patterns(&test, &mut evidence, None);
@@ -3723,6 +4505,571 @@ mod tests {
             assert_eq!(after[0], before[0]);
             assert_eq!(after[1], OracleSide::Unknown);
         }
+    }
+
+    /// fz26 KINK-BASELINE-FINDINGS (review R2-S2): a claim-free mutant whose findings outside the
+    /// heads its edit can change differ from the baseline's is `MutantFindings`, checked rather
+    /// than argued. The mutant is hand-built against a forged admission: `counter.k`'s edit of a
+    /// rewrite rule's condition changes no equation (no head is checked), so every finding is
+    /// outside, and the admission's baseline facts are r3-plainq's, whose genuine pair the
+    /// mutant lacks. With the baseline's own facts the same mutant is admitted (the runner's own
+    /// `BaselineFindings` gate is kink-flow's `tests/findings.rs`).
+    #[test]
+    fn a_mutant_whose_findings_differ_from_the_baselines_is_unknown() {
+        use k_rust::kast::{Sort, Term};
+        use kink_patch::{Edit, TermRef};
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let validator = NativeValidator::bind(
+                    input_test_support::load("counter.k"),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let baseline = validator.baseline();
+                let compiled = validator.compile_baseline().unwrap();
+                let at = TermRef::new(input_test_support::rule(baseline, "COUNTER.branch"), [1]);
+                let patch = Patch::new(vec![Edit::ReplaceTerm {
+                    expected: baseline.term(&at).unwrap().clone(),
+                    at,
+                    replacement: Term::Token {
+                        token: "false".into(),
+                        sort: Sort::new("Bool"),
+                    },
+                }])
+                .unwrap();
+                let mut admission = MutantAdmission::new(baseline, &compiled, "COUNTER", &[]);
+                assert!(admission.baseline_data().unwrap().has_data());
+                let mutant =
+                    claim_free_mutant(&validator, &compiled, &patch, &admission, &mut |_| {})
+                        .expect("the baseline's own facts admit the mutant");
+                assert!(mutant.data.has_data());
+
+                let plainq = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR)
+                            .join("../flow/findings/r3-plainq/spec.k"),
+                        "PQ",
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let forged = kink_native::consistency::loaded_definition(
+                    &plainq.compile_baseline().unwrap(),
+                )
+                .unwrap();
+                let facts = DataFacts::of(&forged, &[]);
+                assert_eq!(data_ends(&facts), DataEnds::None);
+                admission.data = Ok(facts);
+                let refusal =
+                    claim_free_mutant(&validator, &compiled, &patch, &admission, &mut |_| {})
+                        .expect_err("the findings differ");
+                assert_eq!(refusal.failure, MutantScopeFailure::MutantFindings);
+                assert_eq!(refusal.failure.status(), MutantStatus::Unknown);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// fz26 KINK-OVERLOAD-VALUE: before a pair's slots are compared, each side's ends are judged
+    /// under the other side's definition (`judge_across`). `testdata/k/overload/anyw.k` has the
+    /// free constructor `c`; `anyw-anywhere.k` adds `[anywhere]` to its rule `c(1) => d`, so `c`
+    /// roots an equation there and `c(1)` is not data. With the plain definition as baseline: the
+    /// baseline's state slot holding `c(1)` and its pattern binding `c(1)` become unknown, while the
+    /// mutant's `d` (a free constructor of both) stays; and the mutant's own binding `c(1)` is
+    /// judged under the mutant's definition too. With the roles reversed, a one-sided terminal of
+    /// the mutant holding `c(1)` is dropped and one holding `d` kept. Every other side is untouched.
+    #[test]
+    fn every_compared_end_is_judged_under_the_other_definition() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let dir = std::path::Path::new(input_test_support::DIR).join("overload");
+                let validator = |file: &str| {
+                    NativeValidator::bind(
+                        input_test_support::load_path(&dir.join(file), "AW"),
+                        k_rust::kompile::CompileOptions::default(),
+                    )
+                };
+                let (plain, anywhere) = (validator("anyw.k"), validator("anyw-anywhere.k"));
+                let state = OracleDeclaration::new(
+                    CrashPolicy::Reject,
+                    Projection::State(StateProjection::WholeTerm),
+                )
+                .unwrap();
+                let vocabulary =
+                    kink_pattern::EventVocabulary::new(vec![kink_pattern::Constructor {
+                        name: "tick".into(),
+                        payload_sorts: vec![],
+                    }])
+                    .unwrap();
+                let plan = PatternPlan::new(
+                    &vocabulary,
+                    vec![],
+                    vec![kink_pattern::PatternArm {
+                        atoms: vec![kink_pattern::Atom {
+                            constructor: "tick".into(),
+                            payload: vec![],
+                        }],
+                        relations: vec![],
+                    }],
+                    None,
+                )
+                .unwrap();
+                let pattern = OracleDeclaration::new(
+                    CrashPolicy::Reject,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: true,
+                    },
+                )
+                .unwrap();
+                // The KORE names of `c` and `d`: the constructors of sort `Foo` of the baseline.
+                let name = |arity: usize| {
+                    let compiled = plain.compile_baseline().unwrap();
+                    let definition =
+                        kink_native::consistency::loaded_definition(&compiled).unwrap();
+                    definition
+                        .symbols()
+                        .values()
+                        .find(|symbol| {
+                            symbol.result_sort
+                                == k_rust::k_rust_backend::term::Sort::simple("SortFoo")
+                                && symbol.argument_sorts.len() == arity
+                                && symbol.name.starts_with("Lbl")
+                        })
+                        .expect("a constructor of Foo")
+                        .name
+                        .to_string()
+                };
+                let c1 = input_test_support::app(
+                    &name(1),
+                    vec![Pattern::DomainValue {
+                        sort: Sort::Application {
+                            name: "SortInt".into(),
+                            arguments: vec![],
+                        },
+                        value: "1".into(),
+                    }],
+                );
+                let d = input_test_support::app(&name(0), vec![]);
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblgo",
+                            vec![Pattern::DomainValue {
+                                sort: Sort::Application {
+                                    name: "SortInt".into(),
+                                    arguments: vec![],
+                                },
+                                value: "1".into(),
+                            }],
+                        ),
+                        "SortPgm",
+                    ),
+                    oracles: vec![state, pattern],
+                }];
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let campaign = Campaign {
+                    validator: &plain,
+                    module: "AW",
+                    observation: &[],
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let runtime = |validator: &NativeValidator| {
+                    let side = validator.compile_baseline().unwrap();
+                    let mut runtime =
+                        Runtime::prepare(&campaign, &side).unwrap_or_else(|_| panic!());
+                    let definition = runtime.backend.select_definition(None).unwrap();
+                    let facts = DataFacts::of(&definition, &[]);
+                    assert!(facts.has_data());
+                    runtime.data = Some(facts);
+                    runtime
+                };
+                let (mut plain_runtime, mut anywhere_runtime) =
+                    (runtime(&plain), runtime(&anywhere));
+                let evidence = |end: &Pattern| TestEvidence {
+                    test_id: "t".into(),
+                    run: SideRun::Sides {
+                        sides: vec![
+                            OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+                                BTreeSet::from([end.clone()]),
+                            ))),
+                            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                                bindings: Some(BTreeSet::from([vec![kink_pattern::Binding {
+                                    name: "X".into(),
+                                    term: end.clone(),
+                                }]])),
+                            })),
+                        ],
+                    },
+                    notes: RunNotes::default(),
+                    ends: BTreeSet::from([end.clone()]),
+                    payloads: BTreeMap::new(),
+                };
+                let sides = |evidence: &TestEvidence| match &evidence.run {
+                    SideRun::Sides { sides } => sides
+                        .iter()
+                        .map(|side| matches!(side, OracleSide::Unknown))
+                        .collect::<Vec<_>>(),
+                    SideRun::Failed(_) => panic!("sides"),
+                };
+                let terminal = |state: &Pattern| ExecutionTerminal {
+                    kind: ExecutionTerminalKind::Stuck,
+                    state: state.clone(),
+                };
+                let test = &tests[0];
+                // The plain baseline against the anywhere mutant.
+                let (mut baseline, mut mutant) = (evidence(&c1), evidence(&d));
+                let mut one_sided = vec![terminal(&c1), terminal(&d)];
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut one_sided,
+                    &mut plain_runtime,
+                    &mut anywhere_runtime,
+                );
+                assert_eq!(sides(&baseline), [true, true], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, false], "{mutant:?}");
+                assert_eq!(one_sided, [terminal(&c1), terminal(&d)]);
+                // fz26 KINK-CAUSE-SUBTERM: the mutant's evidence says which slots were refused,
+                // whose end, and the first node that fails its own test under the mutant's
+                // definition: `c(1)`, whose head is no free constructor there.
+                let refusals = |evidence: &TestEvidence| {
+                    evidence
+                        .notes
+                        .across
+                        .iter()
+                        .map(|refusal| {
+                            let node = match &refusal.cause {
+                                CrossCause::NotData(Some(failure)) => {
+                                    assert_eq!(
+                                        failure.test,
+                                        kink_native::step_events::LocalTest::FreeConstructor
+                                    );
+                                    Some(failure.node.clone())
+                                }
+                                CrossCause::NotData(None) => None,
+                                CrossCause::NoData => Some(Pattern::Top {
+                                    sort: k_rust::kore::ast::Sort::Variable("no-data".into()),
+                                }),
+                                CrossCause::NoEnds => Some(Pattern::Top {
+                                    sort: k_rust::kore::ast::Sort::Variable("no-ends".into()),
+                                }),
+                            };
+                            (refusal.slot, refusal.baseline_end, refusal.end, node)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    refusals(&mutant),
+                    [
+                        (0, true, CrossEnd::Terminal, Some(c1.clone())),
+                        (1, true, CrossEnd::Binding, Some(c1.clone()))
+                    ]
+                );
+                assert!(baseline.notes.across.is_empty());
+                // The mutant's own binding `c(1)` is not data under its own definition.
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&c1));
+                let mut none = Vec::new();
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut none,
+                    &mut plain_runtime,
+                    &mut anywhere_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
+                assert_eq!(
+                    refusals(&mutant),
+                    [(1, false, CrossEnd::Binding, Some(c1.clone()))]
+                );
+                // The anywhere baseline against the plain mutant: one-sided terminals.
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                let mut one_sided = vec![terminal(&c1), terminal(&d)];
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut one_sided,
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, false], "{mutant:?}");
+                assert_eq!(one_sided, [terminal(&d)]);
+                // A side without facts makes every end judged under it not data.
+                plain_runtime.data = None;
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [true, true], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
+                let no_data = Some(Pattern::Top {
+                    sort: k_rust::kore::ast::Sort::Variable("no-data".into()),
+                });
+                assert_eq!(
+                    refusals(&mutant),
+                    [
+                        (0, true, CrossEnd::Terminal, no_data.clone()),
+                        (1, true, CrossEnd::Binding, no_data.clone()),
+                        (1, false, CrossEnd::Binding, no_data)
+                    ]
+                );
+                // Review N2: a value-holding state slot without ends is not compared unjudged.
+                let mut plain_runtime = runtime(&plain);
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                mutant.ends.clear();
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [true, false], "{mutant:?}");
+                assert_eq!(
+                    refusals(&mutant),
+                    [(
+                        0,
+                        false,
+                        CrossEnd::Terminal,
+                        Some(Pattern::Top {
+                            sort: k_rust::kore::ast::Sort::Variable("no-ends".into()),
+                        })
+                    )]
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// fz26 KINK-OVERLOAD-VALUE review S1: a pattern slot's outcome is decided from relations
+    /// between one side's event payloads in that side's theory, so the terms those decisions read
+    /// are judged under the other side's definition too. `testdata/k/overload/tick.k` emits one
+    /// `tick` event per item of `tick(c(1), tick(d, done))`; `tick-anywhere.k` makes `c(1) => d`
+    /// apply anywhere, so the mutant's items are `d` and `d`. The plan `tick(X) ; tick(X)` (a use
+    /// of the bound payload) gives the baseline `NoMatch` (`c(1)` and `d` clash under the
+    /// baseline) and the mutant `Match`, which compares as a kill. Under the mutant's definition
+    /// `c(1)` is not data (`c` roots an equation there), so the baseline's slot is `Unknown` and
+    /// the slot does not distinguish; the mutant's `Match` read only identical payloads.
+    #[test]
+    fn a_pattern_slot_is_judged_on_the_payloads_its_relations_read() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                use input_test_support as support;
+                let dir = std::path::Path::new(support::DIR).join("overload");
+                let validator = |file: &str| {
+                    NativeValidator::bind(
+                        support::load_path(&dir.join(file), "TICK"),
+                        k_rust::kompile::CompileOptions::default(),
+                    )
+                };
+                let (plain, anywhere) = (validator("tick.k"), validator("tick-anywhere.k"));
+                let specs = vec![StepEventSpec {
+                    constructor: "tick".into(),
+                    pre: support::k_config(
+                        support::app(
+                            "Lbltick",
+                            vec![support::var("X", "SortFoo"), support::var("P", "SortPgm")],
+                        ),
+                        "SortPgm",
+                        "R",
+                        "C",
+                    ),
+                    post: None,
+                    payload: vec!["X".into()],
+                }];
+                let vocabulary = StepObservation::vocabulary_of(&specs).unwrap();
+                let clause = |mode| kink_pattern::PayloadClause {
+                    position: 0,
+                    mode,
+                    variable: "X".into(),
+                };
+                let plan = PatternPlan::new(
+                    &vocabulary,
+                    vec![(
+                        "X".into(),
+                        Sort::Application {
+                            name: "SortFoo".into(),
+                            arguments: vec![],
+                        },
+                    )],
+                    vec![kink_pattern::PatternArm {
+                        atoms: vec![
+                            kink_pattern::Atom {
+                                constructor: "tick".into(),
+                                payload: vec![clause(kink_pattern::MatchMode::Bind)],
+                            },
+                            kink_pattern::Atom {
+                                constructor: "tick".into(),
+                                payload: vec![clause(kink_pattern::MatchMode::Use)],
+                            },
+                        ],
+                        relations: vec![kink_pattern::Relation::EventuallyAfter],
+                    }],
+                    None,
+                )
+                .unwrap();
+                let declaration = OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: false,
+                    },
+                )
+                .unwrap();
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: support::initial_state(
+                        support::app(
+                            "Lbltick",
+                            vec![
+                                support::app("Lblc", vec![support::int(1)]),
+                                support::app(
+                                    "Lbltick",
+                                    vec![
+                                        support::app("Lbld", vec![]),
+                                        support::app("Lbldone", vec![]),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        "SortPgm",
+                    ),
+                    oracles: vec![declaration.clone()],
+                }];
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let campaign = Campaign {
+                    validator: &plain,
+                    module: "TICK",
+                    observation: &specs,
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let test = &tests[0];
+                let runtime = |validator: &NativeValidator| {
+                    let side = validator.compile_baseline().unwrap();
+                    let mut runtime =
+                        Runtime::prepare(&campaign, &side).unwrap_or_else(|_| panic!());
+                    let definition = runtime.backend.select_definition(None).unwrap();
+                    let facts = DataFacts::of(&definition, &[]);
+                    assert!(facts.has_data());
+                    runtime.data = Some(facts);
+                    runtime
+                };
+                let (mut baseline_runtime, mut mutant_runtime) =
+                    (runtime(&plain), runtime(&anywhere));
+                let observation =
+                    StepObservation::new(&mut baseline_runtime.backend, specs.clone()).unwrap();
+                // The baseline side, as `run_campaign_multi_with` forms it.
+                let (mut baseline, cache) = baseline_runtime.run(&campaign, test);
+                let patterns = baseline_runtime.step_sides(
+                    &campaign,
+                    test,
+                    &observation,
+                    cache.stepped.as_ref(),
+                    None,
+                );
+                replace_patterns(test, &mut baseline, Some(&patterns));
+                let side = |value| SideRun::Sides {
+                    sides: vec![OracleSide::Normal(OracleValue::Pattern(value))],
+                };
+                assert_eq!(baseline.run, side(PatternValue::NoMatch), "{baseline:?}");
+                assert!(
+                    baseline.payloads[&0].contains(&support::app("Lblc", vec![support::int(1)])),
+                    "{baseline:?}"
+                );
+                // The mutant side, as `run_tests` forms it.
+                let (mut mutant, mutant_cache) = mutant_runtime.run(&campaign, test);
+                let patterns = baseline_runtime.step_sides(
+                    &campaign,
+                    test,
+                    &observation,
+                    mutant_cache.stepped.as_ref(),
+                    Some(&mut mutant_runtime),
+                );
+                replace_patterns(test, &mut mutant, Some(&patterns));
+                assert_eq!(
+                    mutant.run,
+                    side(PatternValue::Match { bindings: None }),
+                    "{mutant:?}"
+                );
+                let SideRun::Sides { sides: before } = &baseline.run else {
+                    panic!()
+                };
+                let SideRun::Sides {
+                    sides: mutant_sides,
+                } = &mutant.run
+                else {
+                    panic!()
+                };
+                // Before: a kill.
+                assert_eq!(
+                    slot_outcome(&declaration, &before[0], &mutant_sides[0]),
+                    OracleOutcome::Distinguish
+                );
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut baseline_runtime,
+                    &mut mutant_runtime,
+                );
+                assert_eq!(
+                    baseline.run,
+                    SideRun::Sides {
+                        sides: vec![OracleSide::Unknown]
+                    }
+                );
+                assert_eq!(mutant.run, side(PatternValue::Match { bindings: None }));
+                // fz26 KINK-CAUSE-SUBTERM: the refusal names the baseline's payload.
+                assert!(
+                    matches!(
+                        mutant.notes.across.as_slice(),
+                        [CrossRefusal {
+                            slot: 0,
+                            baseline_end: true,
+                            end: CrossEnd::Payload,
+                            cause: CrossCause::NotData(Some(_)),
+                        }]
+                    ),
+                    "{:?}",
+                    mutant.notes.across
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     mod kink_tier {
@@ -3777,7 +5124,7 @@ mod tests {
                         validator.validate(&a).unwrap().kore_sha256(),
                         validator.validate(&b).unwrap().kore_sha256()
                     );
-                    let support = MutantAdmission::new(baseline, &compiled);
+                    let support = MutantAdmission::new(baseline, &compiled, "SYMPARTIAL", &[]);
                     let input = input_test_support::initial_state(
                         input_test_support::app(
                             "Lblseq",
@@ -4071,7 +5418,8 @@ mod tests {
                         ]
                     );
                     // The baseline's steps, then each candidate's turn in candidate order, each
-                    // with its own consistency check, backend build and executions.
+                    // with its own backend build (whose loaded definition its full check reads,
+                    // fz26 KINK-BASELINE-FINDINGS), consistency check and executions.
                     let turns = ahead_steps
                         .iter()
                         .enumerate()
@@ -4097,8 +5445,8 @@ mod tests {
                         assert_eq!(
                             own,
                             [
-                                Stage::Consistency,
                                 Stage::Backend,
+                                Stage::Consistency,
                                 Stage::Execute,
                                 Stage::Execute
                             ],

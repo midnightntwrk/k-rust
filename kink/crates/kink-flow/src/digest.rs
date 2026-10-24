@@ -29,9 +29,10 @@ pub const SPEC_DOMAIN: &str = "kink-flow/spec/v1";
 pub const PROGRAM_DOMAIN: &str = "kink-flow/program/v1";
 
 /// The payload of the specification digest: the k-rust revision and solver profile of this
-/// build, how the specification is loaded, and every non-builtin source file the load read
-/// (`files`, kink-corpus `load_source`), as `{name, sha256}` sorted by name. Builtin sources
-/// are fixed by the k-rust revision.
+/// build, how the specification is loaded, every non-builtin source file the load read
+/// (`files`, kink-corpus `load_source`), as `{name, sha256}` sorted by name, and the
+/// `assume_joined` premises when there are any. Builtin sources are fixed by the k-rust
+/// revision.
 pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
     let spec = &manifest.spec;
     let mut files = files
@@ -39,7 +40,7 @@ pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
         .map(|file| (file.name.clone(), file.sha256.to_string()))
         .collect::<Vec<_>>();
     files.sort();
-    json!({
+    let mut payload = json!({
         "k_rust_revision": K_RUST_REVISION,
         "profile": SolverProfile::BUILD.name(),
         "entry": spec.entry,
@@ -51,7 +52,14 @@ pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
             .into_iter()
             .map(|(name, sha256)| json!({"name": name, "sha256": sha256}))
             .collect::<Vec<_>>(),
-    })
+    });
+    // The author's premises (fz26 KINK-BASELINE-FINDINGS): every verdict is relative to them, so
+    // every store keyed on this digest misses when they change. Absent when there are none, so a
+    // specification without premises keeps its digest.
+    if !spec.assume_joined.is_empty() {
+        payload["assume_joined"] = json!(spec.assume_joined);
+    }
+    payload
 }
 
 /// The specification digest of README 5.3.

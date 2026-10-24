@@ -1,0 +1,8 @@
+[[mutation]]
+id = "store-changed"
+note = "the stored value changes (a to bb)"
+
+  [[mutation.edit]]
+  line = 19
+  find = "_ => a </s>"
+  replace = "_ => bb </s>"

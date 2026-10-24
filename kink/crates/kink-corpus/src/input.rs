@@ -3,6 +3,7 @@
 use std::fmt;
 
 use k_rust::{
+    definition::{AttributeKey, Definition, Sentence},
     kast::Sort,
     kompile::{
         CompileOptions,
@@ -34,6 +35,9 @@ pub enum InputError {
     Parse(String),
     Assemble(String),
     Streams(String),
+    /// The program binds `$IO` on a definition with stream cells (`stream-mode`): kink runs
+    /// stream definitions with IO off only (see [`assemble_input_with`]).
+    StreamMode(String),
     MissingVariable(String),
 }
 
@@ -43,6 +47,7 @@ impl fmt::Display for InputError {
             Self::Parse(message)
             | Self::Assemble(message)
             | Self::Streams(message)
+            | Self::StreamMode(message)
             | Self::MissingVariable(message) => f.write_str(message),
         }
     }
@@ -72,6 +77,17 @@ pub fn assemble_input(loaded: &LoadedSource, spec: &TestInputSpec) -> Result<Pat
 /// then compiles the baseline here, as without it. That equality ignores term metadata (spans,
 /// production identity, explicit compiler sorts, origins), so a compile of a definition that
 /// differs from `loaded`'s only there passes the guard (re-pin L1-4 fix 1, review D7).
+///
+/// On a definition with stream cells (a cell declared `stream="stdin"` or `stream="stdout"`) a
+/// program may not bind `IO` (`InputError::StreamMode`, reason `stream-mode`; KINK-CENSUS-RUNLIST,
+/// fz26): kink binds `$IO` to `"off"`. With IO off the stream cells are data, like `$PGM`: the
+/// stdout cell holds the text the program printed and the stdin cell the input not yet read, so
+/// the final configuration states the output, and comparing two runs' ends compares output text
+/// and unread input. With IO on, output would leave the configuration through `#write`, so an
+/// end would no longer state it. The refusal keeps that meaning; soundness does not rest on it,
+/// since an execute request performs no console operation and lists every one a run needs on its
+/// `unsupportedHooks`, which excludes the run. A stream-free definition that declares its own
+/// `$IO` variable may bind it.
 pub fn assemble_input_with(
     loaded: &LoadedSource,
     compiled: Option<&ValidatedDefinition>,
@@ -113,6 +129,15 @@ pub fn assemble_input_with(
         variables,
     );
     assembler.program(&start, &text).map_err(input_error)?;
+    if let Some((name, _)) = spec.variables.iter().find(|(name, _)| is_io(name))
+        && has_stream_cells(&compiled.artifacts().execution_definition)
+    {
+        return Err(InputError::StreamMode(format!(
+            "the program binds {name} on a definition with stream cells: kink runs a stream \
+             definition with $IO = \"off\" only, so that its stream cells state the program's \
+             output and unread input"
+        )));
+    }
     for (name, text) in &spec.variables {
         assembler.bind(name, text).map_err(input_error)?;
     }
@@ -120,6 +145,22 @@ pub fn assemble_input_with(
         .bind_stream_defaults::<ConfigurationError>(false, false, || Ok(Vec::new()))
         .map_err(input_error)?;
     assembler.finish().map_err(input_error)
+}
+
+/// Whether a program variable's name names `$IO` (it may be written with or without its `$`).
+fn is_io(name: &str) -> bool {
+    name.strip_prefix('$').unwrap_or(name) == "IO"
+}
+
+/// Whether `definition` (a compile's execution definition) declares a stream cell: a production
+/// carrying the `stream` attribute, which configuration expansion gives the cell declared with it.
+fn has_stream_cells(definition: &Definition) -> bool {
+    definition.modules.iter().any(|module| {
+        module.local_sentences.iter().any(|sentence| {
+            matches!(&**sentence, Sentence::Production { attributes, .. }
+                if attributes.string(AttributeKey::Stream).is_some())
+        })
+    })
 }
 
 fn input_error(error: ConfigurationError) -> InputError {

@@ -150,8 +150,16 @@
 //! injections, domain values and collections do not depend on any assumable finding. So an
 //! assumed finding can only make fewer terms data than the definition read as if it were
 //! resolved.
+//!
+//! # Names
+//!
+//! Every finding has a name ([`names::finding_name`]), and a client assumes findings by name
+//! ([`names::names_finding`]): the one renderer every client prints and reads, so a name one
+//! client prints (k-rust-fuzz's `definition-findings`) is a name another reads (kink's
+//! `[spec] assume_joined`).
 
 mod instance;
+pub mod names;
 
 use std::collections::BTreeSet;
 
@@ -177,6 +185,9 @@ pub struct DataHeads {
     findings: Vec<Finding>,
     /// The pair findings the client assumed joined ([`BackendDefinition::data_heads_assuming`]).
     assumed: Vec<Finding>,
+    /// What the full check counted ([`crate::confluence::ValueClaims::counts`]), for a client
+    /// that guards the check's completeness.
+    counts: crate::confluence::CheckCounts,
 }
 
 /// One finding of a definition's full critical-pair check (the [module documentation](self),
@@ -341,6 +352,15 @@ impl DataHeads {
     pub fn assumed(&self) -> &[Finding] {
         &self.assumed
     }
+
+    /// What the full critical-pair check counted on the whole definition (its
+    /// [`CheckCounts`](crate::confluence::CheckCounts)): a client reading the findings as a
+    /// report of every pair can check that the check read every executable equation and skipped
+    /// no candidate pair.
+    #[must_use]
+    pub const fn check_counts(&self) -> crate::confluence::CheckCounts {
+        self.counts
+    }
 }
 
 impl BackendDefinition {
@@ -360,18 +380,21 @@ impl BackendDefinition {
     #[must_use]
     pub fn data_heads(&self) -> DataHeads {
         let verdict = self.value_claims_in_scope(crate::confluence::CheckScope::All);
+        let counts = verdict.counts();
         let findings = confluence_findings(self, &verdict);
         if !findings.is_empty() {
             return DataHeads {
                 heads: BTreeSet::new(),
                 findings,
                 assumed: Vec::new(),
+                counts,
             };
         }
         DataHeads {
             heads: self.overload_data_heads(),
             findings,
             assumed: Vec::new(),
+            counts,
         }
     }
 
@@ -405,6 +428,7 @@ impl BackendDefinition {
             heads: names,
             findings: kept,
             assumed: moved,
+            counts: heads.counts,
         }
     }
 

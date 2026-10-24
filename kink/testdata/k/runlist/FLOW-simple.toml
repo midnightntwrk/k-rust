@@ -1,0 +1,35 @@
+# Stock SIMPLE (untyped), unedited: K's pl-tutorial
+# 2_languages/1_simple/1_untyped/simple-untyped.md. Its stream cells hold the text printed and
+# the input not yet read. Its programs are comparable, those whose end holds an overloaded list
+# (main's body in the store holds print's argument list, or the list of a declaration with an
+# initializer) since KINK-OVERLOAD-VALUE.
+[spec]
+entry = "simple-untyped.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+
+[[program]]
+id = "empty"
+text = 'function main() { }'
+
+[[program]]
+id = "decl"
+text = 'function main() { var x; }'
+
+[[program]]
+id = "read-empty"
+text = 'function main() { var x; x = read(); }'
+
+[[program]]
+id = "read-5"
+text = 'function main() { var x; x = read(); }'
+variables = { STDIN = '"5\n"' }
+
+[[program]]
+id = "print"
+text = 'function main() { print(1); }'
+
+[[program]]
+id = "read-print"
+text = 'function main() { var x = read(); print(x); }'
+variables = { STDIN = '"5\n"' }

@@ -1,0 +1,7 @@
+[spec]
+entry = "spec.k"
+main_module = "R4"
+
+[[program]]
+id = "one"
+file = "one.pgm"

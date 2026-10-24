@@ -1,0 +1,8 @@
+[spec]
+entry = "addmember.k"
+main_module = "AM"
+syntax_module = "AM-SYNTAX"
+
+[[program]]
+id = "one"
+text = "go(1)"
