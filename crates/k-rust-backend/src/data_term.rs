@@ -176,6 +176,10 @@ pub struct DataHeads {
     /// What the full check counted ([`crate::confluence::ValueClaims::counts`]), for a client
     /// that guards the check's completeness.
     counts: crate::confluence::CheckCounts,
+    /// The witness equations the full check adopted
+    /// ([`crate::confluence::ValueClaims::witnesses`]), for a client that compares two
+    /// definitions' verdicts.
+    witnesses: Vec<std::sync::Arc<crate::rule::RewriteRule>>,
 }
 
 /// One finding of a definition's full critical-pair check (the [module documentation](self),
@@ -349,6 +353,16 @@ impl DataHeads {
     pub const fn check_counts(&self) -> crate::confluence::CheckCounts {
         self.counts
     }
+
+    /// The witness equations the full critical-pair check adopted
+    /// ([`ValueClaims::witnesses`](crate::confluence::ValueClaims::witnesses); empty when it
+    /// kept its first pass, [`CheckCounts::witness_pass`](crate::confluence::CheckCounts::witness_pass)):
+    /// the findings are those of the check on the executable equations and these. A client
+    /// comparing two definitions' checks compares these too.
+    #[must_use]
+    pub fn witnesses(&self) -> &[std::sync::Arc<crate::rule::RewriteRule>] {
+        &self.witnesses
+    }
 }
 
 impl BackendDefinition {
@@ -369,6 +383,7 @@ impl BackendDefinition {
     pub fn data_heads(&self) -> DataHeads {
         let verdict = self.value_claims_in_scope(crate::confluence::CheckScope::All);
         let counts = verdict.counts();
+        let witnesses = verdict.witnesses().to_vec();
         let findings = confluence_findings(self, &verdict);
         if !findings.is_empty() {
             return DataHeads {
@@ -376,6 +391,7 @@ impl BackendDefinition {
                 findings,
                 assumed: Vec::new(),
                 counts,
+                witnesses,
             };
         }
         DataHeads {
@@ -383,6 +399,7 @@ impl BackendDefinition {
             findings,
             assumed: Vec::new(),
             counts,
+            witnesses,
         }
     }
 
@@ -417,6 +434,7 @@ impl BackendDefinition {
             findings: kept,
             assumed: moved,
             counts: heads.counts,
+            witnesses: heads.witnesses.clone(),
         }
     }
 
