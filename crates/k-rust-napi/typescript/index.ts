@@ -1629,8 +1629,9 @@ export interface FuzzReport {
 
 /**
  * One finding of a definition's full critical-pair check. `genuine`: at a ground instance both
- * equations apply and equate two distinct data terms, so no model satisfies the definition;
- * `undecided`: not shown to join, which may be a limit of the check.
+ * equations apply and the input has two normal forms, so k-rust's result for it depends on the
+ * order it tries the equations; `undecided`: not shown to join, which may be a limit of the
+ * check.
  */
 export interface FuzzDefinitionFinding {
   side: 'baseline' | 'mutant'

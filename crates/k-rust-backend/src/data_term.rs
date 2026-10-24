@@ -86,24 +86,26 @@
 //! # Findings: genuine or undecided
 //!
 //! A finding of the full check ([`Finding`]) is *genuine* only when it comes with a
-//! [`GroundInstance`] (`instance.rs`): a ground, defined instance of the pair's overlap at which
-//! both equations apply (each matches its redex, its `requires` holds, and no equation of its
-//! head with a higher priority applies), and whose two reducts evaluate to two data terms that
-//! are distinct in every model in which the constructor declarations, the injectivity of sort
-//! injections and the builtin hooks hold (terms that differ only by injections from different
-//! source sorts, or that an overload equation may identify, are not). Each step is an instance
-//! of an axiom where it applies, so the definition equates the two terms: no model satisfies
-//! it. Every other finding is *undecided*: not shown to join, which may be a limit of the
-//! checker (a condition its solver-free reader does not decide, a shape its unifier does not
-//! solve) as well as a defect of the definition.
+//! [`GroundInstance`] (`instance.rs`): a ground input that has two normal forms. The instance is
+//! built from normal forms (its maps and sets keyed by distinct ones), both equations apply
+//! there by the evaluator's own rule (each matches its redex, its `requires` evaluates to true,
+//! and no equation of its head with a higher priority applies, an undecided one counting as
+//! applying), and the two reducts evaluate to different normal forms, read on k-rust's internal
+//! normal form as everywhere in this module. Evaluation of that input is then not uniquely
+//! determined: `M_NF` is not a model of the definition, and k-rust's result for the input
+//! depends on the order in which it tries the equations. This is not a claim that no model
+//! satisfies the definition (no KORE axiom keeps, for instance, injections from different
+//! source sorts apart). Every other finding is *undecided*: not shown to join, which may be a
+//! limit of the checker (a condition its solver-free reader does not decide, a shape its
+//! unifier does not solve) as well as a defect of the definition.
 //!
 //! # Assumed pairs
 //!
 //! A client may name pairs the definition is to be read as joining
 //! ([`BackendDefinition::data_heads_assuming`]). The data judgement is then about that reading
 //! of the definition, not about the definition as written: a premise the client states wherever
-//! the judgement is reported. Which inputs reach the pair does not enter: the judgement is about
-//! the definition's models, and a genuine pair has none whatever the inputs. The assumed
+//! the judgement is reported. Which inputs reach the pair does not enter: the judgement reads the
+//! definition by `M_NF`, which a genuine pair makes no model whatever the inputs. The assumed
 //! findings no longer withdraw every datum. The overload data heads and the instance-normal scan still read the definition's load
 //! verdict (`ValueClaims`), which withdraws the claims an assumed pair's taint closure reaches;
 //! so an assumed pair can only make fewer terms data than a definition in which it joins.
@@ -146,9 +148,8 @@ pub enum Finding {
     /// An equation the evaluator does not apply to every subject it describes
     /// ([`UnjoinedReason::describes_one_equation`](crate::confluence::UnjoinedReason::describes_one_equation)).
     Equation(UnjoinedPair),
-    /// A pair of executable equations the check does not join, with a ground instance on which
-    /// the two reducts evaluate to different constructor terms when one was found (a genuine
-    /// finding); otherwise undecided.
+    /// A pair of executable equations the check does not join, with a ground input that has two
+    /// normal forms when one was found (a genuine finding); otherwise undecided.
     Pair {
         pair: UnjoinedPair,
         instance: Option<GroundInstance>,

@@ -578,8 +578,8 @@ fn pair_entry(
         position: Some(position_text(&pair.position)),
         reason: match &instance {
             Some(instance) => format!(
-                "at {} the two equations equate {} and {}, distinct data terms, so no \
-                 model satisfies the definition",
+                "at {} both equations apply and the input has two normal forms, {} and {}: \
+                 k-rust's result for it depends on the order it tries the equations",
                 instance.overlap, instance.values[0], instance.values[1]
             ),
             None => format!("not shown to join: {}", pair.reason),

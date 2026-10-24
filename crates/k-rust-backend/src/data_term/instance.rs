@@ -1,37 +1,34 @@
-//! The bounded search for a ground instance of an unjoined pair on which the definition's
-//! equations give two different constructor values (the parent module's "Findings: genuine or
-//! undecided").
+//! The bounded search for a ground input with two normal forms: an instance of an unjoined
+//! pair's overlap at which both equations apply and whose two reducts evaluate to different
+//! normal forms (the parent module's "Findings: genuine or undecided").
 //!
 //! Each variable of the pair's overlap, reducts and conditions ([`UnjoinedPair::overlap`],
 //! [`UnjoinedPair::sides`], [`UnjoinedPair::conditions`]) gets a few small ground terms of its
 //! sort ([`Search::candidates`]): domain values (`0`, `1`, `-1` for an integer sort, `false` and
 //! `true`, `""` and `"a"` for a string sort), nullary free constructors, empty and one-element
 //! collections, free-constructor applications over such terms, and injections of a subsort's
-//! terms. The assignments are tried in a fixed order, at most [`INSTANCES`] per pair. One is an
-//! instance when, under it:
+//! terms, all normal forms. The assignments are tried in a fixed order, at most [`INSTANCES`]
+//! per pair. One is an instance when, under it:
 //!
-//! - the overlap's instance is defined: every map and set in it holds distinct keys and
-//!   elements (a left-hand side matches only a defined subject);
-//! - both equations apply there, each at its own redex (the overlap's instance, and for an
-//!   inner pair its subterm at the pair's position): its left-hand side matches the redex, its
-//!   `requires` evaluates to `true`, it has no `ensures`, and no executable equation of the same
-//!   head in a group of higher priority (`priority`, `owise` the lowest) matches the redex with
-//!   its `requires` true or undecided, since every equation holds only under that priority
-//!   antecedent (`docs/compatibility.md`, the priority reading of `M_NF`);
-//! - each reduct evaluates, unconditionally and without a stop, to a ground term built only from
-//!   free constructors, injections, domain values and rest-free collections with distinct keys
-//!   and elements;
-//! - the two values are *surely distinct* ([`surely_distinct`]): distinct in every model in
-//!   which the definition's constructor declarations, the sort injections' injectivity and the
-//!   builtin hooks hold. Two terms that differ only by the source sorts of injections, or that
-//!   an overload equation may identify, are not;
+//! - the overlap's instance is built from normal forms: every map and set in it is keyed by
+//!   distinct normal forms (no repeated key or element, k-rust's internal normal form compared);
+//! - both equations apply there by the evaluator's own rule, each at its own redex (the
+//!   overlap's instance, and for an inner pair its subterm at the pair's position): its
+//!   left-hand side matches the redex, its `requires` evaluates to `true`, it has no `ensures`,
+//!   and no executable equation of the same head in a group of higher priority (`priority`,
+//!   `owise` the lowest) matches the redex with its `requires` true or undecided;
+//! - each reduct evaluates, unconditionally and without a stop, to a ground normal form built
+//!   only from free constructors, injections, domain values and rest-free collections with
+//!   distinct keys and elements;
+//! - the two normal forms differ (on k-rust's internal normal form, whose injections compose);
 //! - no evaluation noted an implementation-chosen value or a contradicted claim.
 //!
-//! Each equation applies at its redex, so the redex equals its reduct in every model, and the
-//! evaluation of a reduct applies equations (respecting their priorities) and hooks only, so
-//! the reduct equals its value in every model. The overlap's instance therefore equals both
-//! values, which no model keeps apart from each other: no model satisfies the definition. The
-//! search decides nothing when it finds no instance: the finding stays undecided.
+//! Then the input has two normal forms, one through each equation: its evaluation is not
+//! uniquely determined, so `M_NF` is not a model of the definition (the parent module, "What a
+//! data term denotes"), and k-rust's result for that input depends on the order in which it
+//! tries the equations. This is no claim about every model of the definition: KORE keeps, for
+//! instance, injections from different source sorts apart by no axiom. The search decides
+//! nothing when it finds no instance: the finding stays undecided.
 
 use std::collections::BTreeSet;
 
@@ -68,8 +65,9 @@ const EVALUATION_POLLS: u64 = 200_000;
 /// The equation iterations one evaluation may take.
 const EVALUATION_ITERATIONS: usize = 256;
 
-/// A ground instance of an unjoined pair's overlap on which the two reducts evaluate to two
-/// different constructor terms (the parent module's "Findings: genuine or undecided").
+/// A ground instance of an unjoined pair's overlap at which both equations apply and the two
+/// reducts evaluate to two different normal forms (the parent module's "Findings: genuine or
+/// undecided").
 #[derive(Clone, Debug)]
 pub struct GroundInstance {
     /// Each variable of the overlap, the reducts and the conditions, with its ground value, in
@@ -166,20 +164,7 @@ impl<'d> Search<'d> {
     ) -> Option<GroundInstance> {
         let substitution = assignment.iter().cloned().collect::<Substitution>();
         let instance = substitute(overlap, &substitution);
-        if !well_formed_collections(self.definition, &instance) {
-            return None;
-        }
-        // Every comparison the evaluation makes between the instance's data terms (a map lookup,
-        // `==K`, a match against a constant of the equations) reads them as distinct or equal;
-        // only terms kept apart in every model of the stated premises may be read as distinct.
-        let mut read = vec![
-            instance.clone(),
-            substitute(first, &substitution),
-            substitute(second, &substitution),
-        ];
-        conditions.visit_terms(&mut |term| read.push(substitute(term, &substitution)));
-        let fixed = self.matched_constants(pair, &read);
-        if !self.apart(&read, &fixed) {
+        if !well_formed_collections(&instance) {
             return None;
         }
         let (values, diagnostics) = diagnostic::collect(|| {
@@ -203,8 +188,7 @@ impl<'d> Search<'d> {
             Some((left, right))
         });
         let (left, right) = values?;
-        if !surely_distinct(self.definition, &left, &right)
-            || !self.apart(&[left.clone(), right.clone()], &[])
+        if left == right
             || diagnostics
                 .iter()
                 .any(diagnostic::BackendDiagnostic::is_path_fact)
@@ -216,77 +200,6 @@ impl<'d> Search<'d> {
             overlap: instance,
             values: (left, right),
         })
-    }
-
-    /// Whether every two different ground data terms of one sort that the search reads are
-    /// surely distinct ([`surely_distinct`]): any two subterms of `terms` (the instance, its
-    /// reducts and conditions, or the values), and a subterm of `terms` beside a constant of
-    /// `fixed` (the ground data subterms of the left-hand sides and `requires` whose matching the
-    /// search reads, [`Self::matched_constants`]). Otherwise some model of the premises
-    /// identifies them, and a step that told them apart (a map lookup, `==K`, `in_keys`, a match
-    /// refuted by a constant) proves nothing in that model. Map keys and set elements obey the
-    /// same rule ([`well_formed_collections`]).
-    fn apart(&self, terms: &[Term], fixed: &[Term]) -> bool {
-        let read = self.ground_data(terms);
-        let constants = self.ground_data(fixed);
-        read.iter().all(|(sort, terms)| {
-            terms.iter().enumerate().all(|(index, left)| {
-                terms[index + 1..]
-                    .iter()
-                    .chain(constants.get(sort).into_iter().flatten())
-                    .all(|right| left == right || surely_distinct(self.definition, left, right))
-            })
-        })
-    }
-
-    /// The ground data subterms of `terms` (built from free constructors, injections, domain
-    /// values and rest-free collections), by sort, each once.
-    fn ground_data(&self, terms: &[Term]) -> FxHashMap<Sort, Vec<Term>> {
-        let mut by_sort: FxHashMap<Sort, Vec<Term>> = FxHashMap::default();
-        let mut pending = terms.to_vec();
-        while let Some(term) = pending.pop() {
-            pending.extend(subterms(&term));
-            if term.attributes().variables.is_empty()
-                && self.definition.built_from_data(&term, &BTreeSet::new())
-            {
-                let seen = by_sort.entry(term.sort()).or_default();
-                if !seen.contains(&term) {
-                    seen.push(term);
-                }
-            }
-        }
-        by_sort
-    }
-
-    /// The left-hand sides and `requires` of the equations whose matching the search reads: the
-    /// pair's two, every executable equation of their heads (a higher-priority one is read as
-    /// refuted when its match fails), and every executable equation of each symbol applied in
-    /// `read` (the evaluation of the reducts tries them).
-    fn matched_constants(&self, pair: &UnjoinedPair, read: &[Term]) -> Vec<Term> {
-        let mut indexes = vec![term_index(&pair.first.lhs), term_index(&pair.second.lhs)];
-        let mut pending = read.to_vec();
-        while let Some(term) = pending.pop() {
-            pending.extend(subterms(&term));
-            if let TermKind::Application { .. } = term.kind() {
-                let index = term_index(&term);
-                if !indexes.contains(&index) {
-                    indexes.push(index);
-                }
-            }
-        }
-        let mut constants = Vec::new();
-        for index in &indexes {
-            let Some(groups) = self.definition.function_theory().get(index) else {
-                continue;
-            };
-            for rule in groups.values().flatten() {
-                constants.push(rule.lhs.clone());
-                rule.requires.iter().for_each(|predicate| {
-                    predicate.visit_terms(&mut |term| constants.push(term.clone()))
-                });
-            }
-        }
-        constants
     }
 
     /// Whether `conditions` under `substitution` evaluates to `true`, each term's definedness
@@ -567,17 +480,15 @@ fn symbolic(rule: &RewriteRule) -> bool {
     }
 }
 
-/// Whether every map and set in `term` holds keys and elements that are pairwise surely
-/// distinct ([`surely_distinct`], the same reading as the values'): otherwise some model of the
-/// premises identifies two of them, the collection is `\bottom` there, and no equation applies at
-/// it.
-fn well_formed_collections(definition: &BackendDefinition, term: &Term) -> bool {
+/// Whether every map and set in `term` is keyed by distinct normal forms: no key or element
+/// occurs twice (on k-rust's internal normal form). Otherwise the collection is `\bottom`, no
+/// normal form, and no equation applies at it.
+fn well_formed_collections(term: &Term) -> bool {
     let distinct = |items: &[&Term]| {
-        items.iter().enumerate().all(|(index, left)| {
-            items[index + 1..]
-                .iter()
-                .all(|right| surely_distinct(definition, left, right))
-        })
+        items
+            .iter()
+            .enumerate()
+            .all(|(index, left)| !items[index + 1..].contains(left))
     };
     let collections_apart = match term.kind() {
         TermKind::Map { entries, .. } => {
@@ -586,10 +497,7 @@ fn well_formed_collections(definition: &BackendDefinition, term: &Term) -> bool 
         TermKind::Set { elements, .. } => distinct(&elements.iter().collect::<Vec<_>>()),
         _ => true,
     };
-    collections_apart
-        && subterms(term)
-            .iter()
-            .all(|subterm| well_formed_collections(definition, subterm))
+    collections_apart && subterms(term).iter().all(well_formed_collections)
 }
 
 /// The immediate subterms of `term`.
@@ -652,89 +560,6 @@ fn inner_redex(lhs: &Term, instance: &Term, position: &[usize]) -> Option<Term> 
         (pattern, term) = next;
     }
     Some(term)
-}
-
-/// Whether the ground terms `left` and `right`, built from free constructors, injections,
-/// domain values and collections, are distinct in every model in which the constructor
-/// declarations (distinct constructors of one sort differ, each constructor is injective), the
-/// injectivity of each sort injection and the builtin hooks hold. Conservative: two injections
-/// from different source sorts are not separated by any axiom (an overload equation may even
-/// identify them), nor are an injection and a constructor of the target sort, nor maps and sets
-/// whose elements would have to be paired up; such terms are not counted distinct.
-pub(super) fn surely_distinct(definition: &BackendDefinition, left: &Term, right: &Term) -> bool {
-    match (left.kind(), right.kind()) {
-        // Distinct values of a hooked sort are distinct builtin values; a sort with domain
-        // values but no hook (a token sort) states no such axiom.
-        (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => {
-            left.sort() == right.sort()
-                && left != right
-                && crate::confluence::symbols::fixed_carrier(definition, &left.sort())
-        }
-        (
-            TermKind::Injection {
-                source: left_source,
-                term: left_term,
-                ..
-            },
-            TermKind::Injection {
-                source: right_source,
-                term: right_term,
-                ..
-            },
-        ) => left_source == right_source && surely_distinct(definition, left_term, right_term),
-        (
-            TermKind::Application {
-                symbol: left_symbol,
-                arguments: left_arguments,
-                ..
-            },
-            TermKind::Application {
-                symbol: right_symbol,
-                arguments: right_arguments,
-                ..
-            },
-        ) => {
-            let constructor = |symbol: &crate::term::Symbol| {
-                symbol.attributes.head_role() == HeadRole::FreeConstructor
-            };
-            if !constructor(left_symbol) || !constructor(right_symbol) {
-                return false;
-            }
-            if left_symbol.name != right_symbol.name {
-                // Two free constructors of one sort: no confusion. An overloaded one may be
-                // identified with another through its family's overload equations only under
-                // an injection, which the case above does not separate.
-                return left_symbol.result_sort == right_symbol.result_sort
-                    && !definition.overloads().is_overloaded(&left_symbol.name)
-                    && !definition.overloads().is_overloaded(&right_symbol.name);
-            }
-            left_arguments.len() == right_arguments.len()
-                && left_arguments
-                    .iter()
-                    .zip(right_arguments)
-                    .any(|(left, right)| surely_distinct(definition, left, right))
-        }
-        (
-            TermKind::List {
-                definition: left_list,
-                heads: left_heads,
-                rest: None,
-            },
-            TermKind::List {
-                definition: right_list,
-                heads: right_heads,
-                rest: None,
-            },
-        ) => {
-            left_list == right_list
-                && (left_heads.len() != right_heads.len()
-                    || left_heads
-                        .iter()
-                        .zip(right_heads.iter())
-                        .any(|(left, right)| surely_distinct(definition, left, right)))
-        }
-        _ => false,
-    }
 }
 
 /// The empty collection of `metadata`'s sort.

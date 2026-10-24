@@ -861,12 +861,11 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
-/// FZ-POLISH review B1 (b) and S1: R3-S1's pair equates `a` with `bb`, which are injected into
-/// `AB` from different sorts: no axiom keeps them apart, so the theory stays consistent and the
-/// finding is undecided. The finding names both equations by their written positions (no 64-hex
-/// id, no KORE name) and carries the name `assume-joined` takes.
+/// FZ-POLISH review round 3: R3-S1's pair is genuine: at `q(0)` both equations apply and the
+/// input has two normal forms, `a` and `bb`. The finding names both equations by their written
+/// positions (no 64-hex id, no KORE name), and carries the name `assume-joined` takes.
 #[test]
-fn a_pair_equating_injections_from_different_sorts_is_undecided() {
+fn a_pair_whose_input_has_two_normal_forms_is_genuine() {
     let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
     let baseline = report
         .definition_findings
@@ -876,8 +875,19 @@ fn a_pair_equating_injections_from_different_sorts_is_undecided() {
     let [finding] = baseline[..] else {
         panic!("one baseline finding: {:?}", report.definition_findings);
     };
-    assert_eq!(finding.verdict, FindingVerdict::Undecided, "{finding:?}");
-    assert!(finding.instance.is_none());
+    assert_eq!(finding.verdict, FindingVerdict::Genuine, "{finding:?}");
+    let instance = finding.instance.as_ref().expect("the instance");
+    assert_eq!(instance.overlap, "q ( 0 )", "{instance:?}");
+    let mut values = instance.values.clone();
+    values.sort();
+    assert_eq!(values, ["a", "bb"]);
+    assert!(
+        finding
+            .reason
+            .ends_with("k-rust's result for it depends on the order it tries the equations"),
+        "{}",
+        finding.reason
+    );
     assert_eq!(finding.kind, FindingKind::Pair);
     assert_eq!(finding.position.as_deref(), Some("root"));
     for equation in &finding.equations {
@@ -902,7 +912,7 @@ fn assert_readable(text: &str) {
     );
 }
 
-/// FZ-POLISH review B1 (a): OWISE's two `owise` equations equate the constructors `a` and `bb`
+/// FZ-POLISH review B1 (a): OWISE's two `owise` equations give the constructors `a` and `bb`
 /// of one sort where both apply. The finding is genuine, and its instance is `g(1)`: at `g(0)`
 /// the priority-50 equation applies, so the owise equations do not. The reason says what the
 /// instance shows.
@@ -925,10 +935,10 @@ fn a_genuine_instance_is_one_where_both_equations_apply() {
         assert!(
             finding
                 .reason
-                .starts_with("at g ( 1 ) the two equations equate ")
-                && finding
-                    .reason
-                    .ends_with("distinct data terms, so no model satisfies the definition"),
+                .starts_with("at g ( 1 ) both equations apply and the input has two normal forms")
+                && finding.reason.ends_with(
+                    "k-rust's result for it depends on the order it tries the equations"
+                ),
             "{}",
             finding.reason
         );
@@ -937,15 +947,14 @@ fn a_genuine_instance_is_one_where_both_equations_apply() {
 }
 
 /// FZ-POLISH review S2: R3-PROPAGATE's overload-axiom pairs have reducts that differ only by the
-/// source sorts of injections; they are undecided, and their texts are written apart (with the
-/// sorts) instead of reading alike. Review S3: compiler-generated overload axioms are named
+/// source sorts of injections; their texts are written apart (with the sorts) instead of reading
+/// alike. Review S3: compiler-generated overload axioms are named
 /// (`overload:GREATER:LESSER`), so the pairs can be assumed joined.
 #[test]
 fn reducts_that_differ_only_by_injection_sorts_are_written_apart_and_named() {
     let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
     assert!(!report.definition_findings.is_empty());
     for finding in &report.definition_findings {
-        assert_eq!(finding.verdict, FindingVerdict::Undecided, "{finding:?}");
         if let [left, right] = &finding.reducts[..] {
             assert_ne!(left, right, "{finding:?}");
         }

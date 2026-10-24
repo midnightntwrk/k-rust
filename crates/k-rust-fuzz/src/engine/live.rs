@@ -613,14 +613,14 @@ impl LiveCases {
             }
             let entries = crate::findings::report(role, heads, text.as_ref());
             // A pair the campaign assumes joined although the check shows it does not join: the
-            // verdicts then hold for a reading of the definition that no model satisfies.
+            // verdicts then hold for a reading its evaluation does not have.
             for entry in entries
                 .iter()
                 .filter(|entry| entry.assumed && entry.verdict == FindingVerdict::Genuine)
             {
                 stated.warnings.push(format!(
                     "assume-joined ({side_name}): `{}` is genuine: {}; the verdicts hold only for \
-                     the definition read as if this pair joined, which no model satisfies, not \
+                     the definition read as if this pair joined, not \
                      for the definition as written",
                     entry.name.as_deref().unwrap_or_default(),
                     entry.reason

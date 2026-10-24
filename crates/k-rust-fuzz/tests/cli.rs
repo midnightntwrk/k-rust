@@ -662,10 +662,10 @@ literal = "3"
     assert!(summary.contains("cases: 0"), "{summary}");
     assert!(summary.contains("no kill can be established"), "{summary}");
     assert!(
-        summary.contains("baseline critical-pair findings: 0 genuine, 1 undecided"),
+        summary.contains("baseline critical-pair findings: 1 genuine, 0 undecided"),
         "{summary}"
     );
-    assert!(summary.contains("[undecided]"), "{summary}");
+    assert!(summary.contains("[genuine]"), "{summary}");
     assert!(summary.contains("name: b.k:"), "{summary}");
     assert!(!summary.contains("Lbl"), "{summary}");
     let (_, report) = json_run(&directory, &[&base[..], &["--json"]].concat());

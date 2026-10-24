@@ -589,66 +589,88 @@ fn an_instance_with_a_repeated_map_key_is_not_genuine() {
     assert!(genuine.is_empty(), "{genuine:?}");
 }
 
-/// FZ-POLISH review B1 (b) and S1: `q(_) => a` beside `q(_) => bb`, with `a` and `bb` of the
-/// sorts `A` and `B` below `AB`, equate `inj{A,AB}(a)` with `inj{B,AB}(bb)`, which no axiom
-/// keeps apart: the theory stays consistent, so the finding is undecided. With `a` and `bb`
-/// constructors of one sort it is genuine.
+/// FZ-POLISH review round 3: `q(_) => a` beside `q(_) => bb`, with `a` and `bb` of the sorts `A`
+/// and `B` below `AB`: at `q(0)` both equations apply and the input has two normal forms,
+/// `inj{A,AB}(a)` and `inj{B,AB}(bb)` (different on k-rust's internal normal form, whatever a
+/// model may identify), so the finding is genuine; with `a` and `bb` of one sort as well.
 #[test]
-fn values_only_injections_from_different_sorts_separate_are_not_distinct() {
-    let apart = definition(
+fn values_injected_from_different_sorts_are_two_normal_forms() {
+    for declarations in [
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]
+  syntax AB ::= A | B"#,
+        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]"#,
+    ] {
+        let definition = definition(
+            &format!(
+                "{declarations}
+  syntax AB ::= q(Int) [function, total, symbol(q)]
+  rule [a]: q(_) => a
+  rule [b]: q(_) => bb"
+            ),
+            false,
+        );
+        let (reported, genuine) = genuine_between(&definition, "a", "b");
+        assert!(reported, "{declarations}");
+        assert_eq!(genuine.len(), 1, "{declarations}: {genuine:?}");
+    }
+}
+
+/// FZ-POLISH review rounds 2 and 3 (`r2-mapkeys`): `mk((a |-> _) (bb |-> _)) => 1` beside
+/// `mk(_:Map) => 0`. The instance's map is keyed by the distinct normal forms `inj{A,KItem}(a)`
+/// and `inj{B,KItem}(bb)`, both equations apply there, and the input has the two normal forms 1
+/// and 0: genuine, whether `a` and `bb` share a sort or not.
+#[test]
+fn an_instance_keyed_by_distinct_normal_forms_is_genuine() {
+    for declarations in [
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]"#,
+        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]"#,
+    ] {
+        let definition = definition_importing(
+            "  imports MAP",
+            &format!(
+                "{declarations}
+  syntax Int ::= mk(Map) [function, symbol(mk)]
+  rule [a]: mk((a |-> _:Int) (bb |-> _:Int)) => 1
+  rule [b]: mk(_:Map) => 0"
+            ),
+            false,
+        );
+        let (reported, genuine) = genuine_between(&definition, "a", "b");
+        assert!(reported, "{declarations}");
+        assert_eq!(genuine.len(), 1, "{declarations}: {genuine:?}");
+    }
+}
+
+/// FZ-POLISH review round 3 (`r3-indirect`): `p(X) => g(X)` beside `p(_) => 1`, where
+/// `g(X) => h(X)`, `h(a) => 1` and `h(_) => 0 [owise]`, and `q(X) => e(X)` beside
+/// `q(_) => true`, where `e(X) => X ==K a`. At `p(bb)` the input has the normal forms 0 and 1,
+/// at `q(bb)` false and true: genuine, as k-rust's evaluation reads them.
+#[test]
+fn an_input_with_two_normal_forms_through_other_equations_is_genuine() {
+    let definition = definition(
         r#"  syntax A ::= "a" [symbol(a)]
   syntax B ::= "bb" [symbol(bb)]
   syntax AB ::= A | B
-  syntax AB ::= q(Int) [function, total, symbol(q)]
-  rule [a]: q(_) => a
-  rule [b]: q(_) => bb"#,
+  syntax Int ::= h(AB) [function, total, symbol(h)]
+  rule h(a) => 1
+  rule h(_) => 0 [owise]
+  syntax Int ::= g(AB) [function, total, symbol(g)]
+  rule g(X) => h(X)
+  syntax Int ::= p(AB) [function, total, symbol(p)]
+  rule [p1]: p(X) => g(X)
+  rule [p2]: p(_) => 1
+  syntax Bool ::= e(AB) [function, total, symbol(e)]
+  rule e(X) => X ==K a
+  syntax Bool ::= qq(AB) [function, total, symbol(qq)]
+  rule [q1]: qq(X) => e(X)
+  rule [q2]: qq(_) => true"#,
         false,
     );
-    let (reported, genuine) = genuine_between(&apart, "a", "b");
-    assert!(reported);
-    assert!(genuine.is_empty(), "{genuine:?}");
-    let together = definition(
-        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]
-  syntax AB ::= q(Int) [function, total, symbol(q)]
-  rule [a]: q(_) => a
-  rule [b]: q(_) => bb"#,
-        false,
-    );
-    let (reported, genuine) = genuine_between(&together, "a", "b");
-    assert!(reported);
-    assert_eq!(genuine.len(), 1, "{genuine:?}");
-}
-
-/// FZ-POLISH review round 2, R2-B1 (`r2-mapkeys`): `mk((a |-> _) (bb |-> _)) => 1` beside
-/// `mk(_:Map) => 0`, with `a : A` and `bb : B`. The instance's map is defined only where the keys
-/// `inj{A,KItem}(a)` and `inj{B,KItem}(bb)` differ, which no axiom states (the same reading that
-/// does not count such values distinct), so the finding is undecided. With `a` and `bb` of one
-/// sort, and values of that sort too (a K map holds `KItem`s, so `Int` values would be injected
-/// from another sort than the keys, which the same reading does not keep apart from them), the
-/// map's entries are kept apart and the finding is genuine.
-#[test]
-fn an_instance_whose_map_keys_are_not_surely_distinct_is_not_genuine() {
-    let apart = definition_importing(
-        "  imports MAP",
-        r#"  syntax A ::= "a" [symbol(a)]
-  syntax B ::= "bb" [symbol(bb)]
-  syntax Int ::= mk(Map) [function, symbol(mk)]
-  rule [a]: mk((a |-> _:Int) (bb |-> _:Int)) => 1
-  rule [b]: mk(_:Map) => 0"#,
-        false,
-    );
-    let (reported, genuine) = genuine_between(&apart, "a", "b");
-    assert!(reported);
-    assert!(genuine.is_empty(), "{genuine:?}");
-    let together = definition_importing(
-        "  imports MAP",
-        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]
-  syntax Int ::= mk(Map) [function, symbol(mk)]
-  rule [a]: mk((a |-> _:AB) (bb |-> _:AB)) => 1
-  rule [b]: mk(_:Map) => 0"#,
-        false,
-    );
-    let (reported, genuine) = genuine_between(&together, "a", "b");
-    assert!(reported);
-    assert_eq!(genuine.len(), 1, "{genuine:?}");
+    for (first, second) in [("p1", "p2"), ("q1", "q2")] {
+        let (reported, genuine) = genuine_between(&definition, first, second);
+        assert!(reported, "{first}");
+        assert_eq!(genuine.len(), 1, "{first}: {genuine:?}");
+    }
 }

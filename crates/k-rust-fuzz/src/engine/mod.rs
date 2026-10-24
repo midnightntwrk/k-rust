@@ -790,8 +790,9 @@ fn not_comparable(
         statement: format!(
             "{consequence}. The full critical-pair check of {named} equations reports pairs \
              it does not show to join (listed in the report's definition-findings: a genuine \
-             one comes with a ground instance at which the two equations equate distinct data \
-             terms, so no model satisfies the definition; an undecided one may be a limit of \
+             one comes with a ground instance at which both equations apply and the input has \
+             two normal forms, so k-rust's result for it depends on the order it tries the \
+             equations; an undecided one may be a limit of \
              the check). Fix a genuine pair in the definition. Naming a pair with \
              `assume-joined` makes the campaign judge the definition read as if that pair \
              joined: its verdicts then hold for that reading, not for the definition as \

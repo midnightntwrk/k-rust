@@ -696,7 +696,7 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
                 if let Some(instance) = &finding.instance {
                     let _ = writeln!(
                         text,
-                        "    instance: at {} the two equations equate {}",
+                        "    instance: at {} both equations apply; its two normal forms: {}",
                         instance.overlap,
                         instance.values.join(" and ")
                     );
