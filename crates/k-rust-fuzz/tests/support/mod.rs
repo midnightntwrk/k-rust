@@ -1110,13 +1110,23 @@ pub static ANY_STATE_HITS: [AnyStateHit; 4] = [
     },
 ];
 
-// The comparable-end fixture (FZ-COMPARABLE-A and -Q, P7-ADDENDUM section 4).
+// The comparable-end fixtures (FZ-COMPARABLE-A and -Q, P7-ADDENDUM section 4): ends of a
+// definition with data, and diagnosed ends of one without.
 fixture!(
     COMPARABLE,
     "comparable/comparable.k",
     "COMPARABLE",
     &[
         program!("comparable/start.pgm"),
+        program!("comparable/stay.pgm"),
+        program!("comparable/stay-zero.pgm"),
+    ]
+);
+fixture!(
+    COMPARABLE_COND,
+    "comparable/cond.k",
+    "COMPARABLE-COND",
+    &[
         program!("comparable/cond.pgm"),
         program!("comparable/cond-zero.pgm"),
         program!("comparable/both.pgm"),
@@ -1124,15 +1134,16 @@ fixture!(
 );
 
 /// One named program and what its all-paths run says about comparability (FZ-COMPARABLE-A,
-/// P7-ADDENDUM section 4, conditions P1, P2, P4 and P5): `conditions` are the report names of
+/// P7-ADDENDUM section 4, conditions P1 to P5): `conditions` are the report names of
 /// the conditions that fail, in the report's order, empty when the run is comparable. `pattern`
 /// matches a clean end of the program's run on one path (`at: final`), so that a campaign on
 /// the program as written, without holes, finds a witness that carries the judgement.
 ///
 /// Every entry that is comparable here must be `comparable` in kink-flow's results of the same
 /// program (FZ-KINK-XTEST (c)): the fuzz reads the k-rust facts kink's comparability rests on,
-/// so it may refuse more than kink (a vacuous leaf, `smtUnknowns`), never less. `tests/
-/// comparable.rs` checks each entry against the fuzz.
+/// so it may refuse more than kink (a vacuous leaf, `smtUnknowns`), never less, except on P3,
+/// which the fuzz judges by k-rust's `is_data` and kink by its own TV-01 (FZ-COMPARABLE-B).
+/// `tests/comparable.rs` checks each entry against the fuzz.
 pub struct ComparableEnd {
     /// The fixture.
     pub fixture: &'static Fixture,
@@ -1155,7 +1166,7 @@ impl std::fmt::Debug for ComparableEnd {
 }
 
 /// The named comparable and non-comparable programs ([`ComparableEnd`]).
-pub static COMPARABLE_ENDS: [ComparableEnd; 7] = [
+pub static COMPARABLE_ENDS: [ComparableEnd; 9] = [
     // Deterministic, one clean end.
     ComparableEnd {
         fixture: &IMP,
@@ -1170,10 +1181,10 @@ pub static COMPARABLE_ENDS: [ComparableEnd; 7] = [
         pattern: "<out> 3 </out>",
         conditions: &[],
     },
-    // `f(0)` evaluates: no diagnostic.
+    // `g(0)` evaluates to the value 1.
     ComparableEnd {
         fixture: &COMPARABLE,
-        program: "comparable/cond-zero.pgm",
+        program: "comparable/stay-zero.pgm",
         pattern: "<out> 1 </out>",
         conditions: &[],
     },
@@ -1184,19 +1195,34 @@ pub static COMPARABLE_ENDS: [ComparableEnd; 7] = [
         pattern: "<out> 5 </out>",
         conditions: &["work-bound"],
     },
-    // The one end carries the `undecided-condition` of `f-pos`.
+    // The one end carries the `undecided-condition` of `f-some`; `f-some` leaves the
+    // definition without data.
     ComparableEnd {
-        fixture: &COMPARABLE,
+        fixture: &COMPARABLE_COND,
         program: "comparable/cond.pgm",
         pattern: "<k> .K </k>",
-        conditions: &["undecided-condition"],
+        conditions: &["undecided-condition", "end-not-data"],
     },
     // The clean end has a sibling that carries it.
     ComparableEnd {
-        fixture: &COMPARABLE,
+        fixture: &COMPARABLE_COND,
         program: "comparable/both.pgm",
         pattern: "<out> 3 </out>",
-        conditions: &["undecided-condition"],
+        conditions: &["undecided-condition", "end-not-data"],
+    },
+    // The one end holds the irreducible `g(3)`, clean and undiagnosed but not data (P3).
+    ComparableEnd {
+        fixture: &COMPARABLE,
+        program: "comparable/stay.pgm",
+        pattern: "<k> .K </k>",
+        conditions: &["end-not-data"],
+    },
+    // `f(0)` evaluates, with no diagnostic, but the definition has no data.
+    ComparableEnd {
+        fixture: &COMPARABLE_COND,
+        program: "comparable/cond-zero.pgm",
+        pattern: "<out> 1 </out>",
+        conditions: &["end-not-data"],
     },
     // The load contradicts `td`'s `total` claim.
     ComparableEnd {
@@ -1218,7 +1244,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 93] = [
+pub static ALL: [&Fixture; 94] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1312,4 +1338,5 @@ pub static ALL: [&Fixture; 93] = [
     &R2_SPOOF,
     &R2_SPOOF_M,
     &COMPARABLE,
+    &COMPARABLE_COND,
 ];

@@ -235,9 +235,10 @@ const REACHED_END_NOT_DATA_REMEDY: &str = concat!(
 /// The remedy of [`UnjudgedReason::EndNotComparable`].
 const END_NOT_COMPARABLE_REMEDY: &str = concat!(
     "the target was reached, but the witness program's run of every path is not one kink can ",
-    "compare (it is cut, stops abnormally, is undecided, or carries a diagnostic or a ",
-    "definition fact the reason names), so the hit is refused; a program or hole range whose ",
-    "every path ends cleanly can be a hit, or accept such hits (campaign key ",
+    "compare (it is cut, stops abnormally, is undecided, ends in a term that is not data, or ",
+    "carries a diagnostic or a definition fact the reason names), so the hit is refused; a ",
+    "program or hole range whose every path ends cleanly in data can be a hit, or accept such ",
+    "hits (campaign key ",
     "`comparable = false`, command line `--no-comparable`, library `Target::comparable`)",
 );
 

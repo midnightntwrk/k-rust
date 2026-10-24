@@ -604,17 +604,25 @@ impl CaseRequestShape {
     }
 
     /// This shape for the program's own run of every path (`crate::target::Target::comparable`):
-    /// strategy `all`, a path set, the same bounds and options, and nothing the target asked
-    /// for (no terminal rule, no trace, no condition entries, no counts, no data judgement).
+    /// strategy `all`, a path set, the same bounds and options, the data judgement (P3), and
+    /// nothing the target asked for (no terminal rule, no trace, no condition entries, no
+    /// counts). A campaign that bounds only the depth sets no work bound on its cases; this run
+    /// gets [`crate::spec::DEFAULT_MAX_WORK`] then, so that it explores every path of a
+    /// nondeterministic program within a bounded work and not to the depth bound alone (INT9
+    /// review S2). A bound the run meets makes it not comparable, never a hit.
     pub(crate) fn every_path(&self) -> Self {
         let mut shape = self.clone();
         shape.request.strategy = ExecutionStrategy::All;
         shape.request.result_modality = ResultModalityOutput::PathSet;
+        shape.request.max_work = shape
+            .request
+            .max_work
+            .or(Some(crate::spec::DEFAULT_MAX_WORK));
         shape.request.terminal_rules = Vec::new();
         shape.request.trace = false;
         shape.request.collect_conditions = None;
         shape.request.collect_counts = false;
-        shape.data_end = false;
+        shape.data_end = true;
         shape
     }
 }

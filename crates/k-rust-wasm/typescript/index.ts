@@ -1620,6 +1620,7 @@ export type FuzzComparableCondition =
   | 'undecided-condition'
   | 'undecided-predicate'
   | 'unsupported-hook-unevaluated'
+  | 'end-not-data'
   | 'smt-unknowns'
   | 'stack-stops'
   | 'implementation-chosen-value'

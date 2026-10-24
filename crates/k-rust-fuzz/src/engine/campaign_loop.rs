@@ -271,7 +271,9 @@ impl FiniteDomain {
 /// `Budget::Work` an execution starts only while the work spent is below the budget, except the
 /// confirmation of a candidate, which always runs so that a found candidate is never left
 /// unconfirmed. A case whose confirmation fails or disagrees is an engine defect and is counted
-/// `unsupported`, never `hit` (ARCHITECTURE 7).
+/// `unsupported`, never `hit` (ARCHITECTURE 7). The run of every path that judges a witness
+/// case's comparability outside its case ([`CaseRunner::comparability`]) is charged after
+/// shrinking, when no execution is left for the budget to stop.
 pub(crate) fn run_loop(
     runner: &mut dyn CaseRunner,
     schedule: &mut Schedule,
@@ -567,7 +569,7 @@ fn finish_witness(
             krun_command: first.krun_command.clone(),
             mutant_krun_command: first.mutant_krun_command.clone(),
             clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
-            first: witness_case(first),
+            first: judged_case(runner, state, &values, first, cancel),
             shrunk: None,
         };
     }
@@ -635,7 +637,8 @@ fn finish_witness(
                 detail.krun_command.clone(),
                 detail.mutant_krun_command.clone(),
             );
-            (Some(witness_case(detail)), commands.0, commands.1)
+            let judged = judged_case(runner, state, &shrunk, detail, cancel);
+            (Some(judged), commands.0, commands.1)
         }
         _ => (
             None,
@@ -645,12 +648,33 @@ fn finish_witness(
     };
     Witness {
         label: settings.label,
-        first: witness_case(first),
+        first: judged_case(runner, state, &values, first, cancel),
         shrunk,
         clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
         krun_command,
         mutant_krun_command,
     }
+}
+
+/// The witness case a confirmed hit's `detail` with `values` reports, with the comparable
+/// judgement its case did not make ([`CaseRunner::comparability`]). That judgement's run is
+/// part of no case, and it runs after shrinking: its work goes to the campaign's total alone,
+/// so it moves no case's class, determinism or coverage, the case count or shrinking.
+fn judged_case(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    values: &[Value],
+    detail: HitDetail,
+    cancel: Option<&CancellationToken>,
+) -> WitnessCase {
+    let mut case = witness_case(detail);
+    if case.comparable.is_none()
+        && let Some((comparable, work)) = runner.comparability(values, cancel)
+    {
+        state.charge_extra(work);
+        case.comparable = Some(comparable);
+    }
+    case
 }
 
 /// The witness case a confirmed hit's detail reports.

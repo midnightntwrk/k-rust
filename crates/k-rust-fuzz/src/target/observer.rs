@@ -375,11 +375,14 @@ pub(crate) struct JudgedRun {
     /// target. The climb's score of an observer target (ARCHITECTURE 6.4).
     pub(crate) progress: Option<u32>,
     /// For a rule or pattern hit, whether the program's run of every path is comparable
-    /// (`super::comparable`); `None` for every other judgement and target, and for a hit that
-    /// `comparable-end` refused.
+    /// (`super::comparable`), when the case judged it: from its own run of every path, or under
+    /// `comparable-end`; `None` for every other judgement and target, for a hit that
+    /// `comparable-end` refused, and for a hit judged outside the case
+    /// (`ResolvedTarget::comparability`).
     pub(crate) comparable: Option<Comparability>,
-    /// The program's run of every path that judged comparability, when the case's own run did
-    /// not run every path or stopped at the target's rule; the case counts its work.
+    /// Under `comparable-end`, the program's run of every path that judged comparability, when
+    /// the case's own run did not run every path or stopped at the target's rule; the case
+    /// counts its work, load records and determinism.
     pub(crate) every_path: Option<CaseResult>,
 }
 

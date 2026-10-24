@@ -937,7 +937,12 @@ fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
 /// - a target whose hit rests on run-level facts (the coverage modes, D18) or on a set of ends
 ///   (differential): no run-level fact off every leaf (D16);
 /// - a rule or pattern target with `run-to-completion` and `data-end`: the end is data
-///   ([`crate::Target::data_end`]).
+///   ([`crate::Target::data_end`]);
+/// - a rule or pattern target with `comparable-end`: the program's run of every path is
+///   comparable (`comparable-end`, [`crate::Target::comparable`]), and a pattern target with
+///   `query-confirmable`: the hit run passes it (`query-confirmable`,
+///   [`crate::Target::query_confirmable`]). The report holds only the target's digest, so these
+///   facts are what tells a witness checked under an option from one that was not.
 fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
     let mut facts: Vec<&str> = vec![
         "halt-stuck-or-target-terminal",
@@ -981,6 +986,16 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
     }
     if spec.target.requires_data_end() {
         facts.push("end-data");
+    }
+    let rule_or_pattern = matches!(
+        spec.target.kind,
+        TargetKind::Rule(_) | TargetKind::Pattern(_)
+    );
+    if spec.target.comparable && rule_or_pattern {
+        facts.push("comparable-end");
+    }
+    if spec.target.query_confirmable && matches!(spec.target.kind, TargetKind::Pattern(_)) {
+        facts.push("query-confirmable");
     }
     facts.into_iter().map(str::to_owned).collect()
 }

@@ -31,8 +31,8 @@ use crate::{
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{
-        DefinitionRole, FindingVerdict, HoleValue, IncidentalCase, KillKind, NormalEnds, Reaching,
-        RejectionReason, TargetRule, WitnessSide,
+        Comparability, DefinitionRole, FindingVerdict, HoleValue, IncidentalCase, KillKind,
+        NormalEnds, Reaching, RejectionReason, TargetRule, WitnessSide,
     },
     score,
     spec::{BackendRoute, CampaignSpec, CaseOptions, CompiledDefinition, PathMode, ProgramInput},
@@ -850,8 +850,8 @@ impl LiveCases {
         let side = &mut self.baseline;
         // `run_and_judge` is `run` then `judge` for rule and pattern targets; an observer target
         // also walks its observer over the observed run (FZ-10). The program's run of every path
-        // that judged a hit's comparability, when the case made one, counts in the case's work,
-        // load records and determinism (`target::comparable`).
+        // that judged a hit's comparability under `comparable-end`, when the case made one,
+        // counts in the case's work, load records and determinism (`target::comparable`).
         let target::JudgedRun {
             result,
             judgement: judged,
@@ -1875,6 +1875,23 @@ impl CaseRunner for LiveRunner<'_> {
 
     fn incidental_kept(&mut self, class: OutcomeClass) {
         self.cases.incidental_kept.push(class);
+    }
+
+    fn comparability(
+        &mut self,
+        values: &[Value],
+        cancel: Option<&CancellationToken>,
+    ) -> Option<(Comparability, u64)> {
+        let cases = &mut self.cases;
+        let Judge::Target(target) = &cases.judge else {
+            return None;
+        };
+        let prepared = cases
+            .baseline
+            .prepare(&mut self.assemblers.baseline, &cases.spec.program, values)
+            .ok()?;
+        let side = &mut cases.baseline;
+        target.comparability(&mut side.executor, &prepared.assembled, &side.shape, cancel)
     }
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {
