@@ -761,14 +761,17 @@ pub struct DefinitionFinding {
     pub side: DefinitionRole,
     /// `genuine` when a ground instance is exhibited at which both equations apply and the input
     /// has two normal forms, so k-rust's result for that input depends on the order in which it
-    /// tries the equations; `undecided` otherwise: not shown to join, which may be a limit of the
-    /// check as well as an input with two normal forms.
+    /// tries the equations; `decided` for a precondition row that states an equation rewrites a
+    /// constructor-, injection- or collection-headed term (a fact about the definition as
+    /// written, which no assumption removes); `undecided` otherwise: not shown to join, which may
+    /// be a limit of the check as well as an input with two normal forms.
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,
     /// The name `assume-joined` takes: `FIRST,SECOND@POSITION` for a pair, `hook:EQUATION` or
     /// `equation:EQUATION` for a finding about one equation, `precondition:EQUATION` (or
-    /// `precondition:KIND:LABELS`) for a precondition row.
+    /// `precondition:KIND:LABELS`) for a precondition row. `assume-joined` refuses the name of a
+    /// `decided` finding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The equations, each by its written position `FILE:LINE:COLUMN` (else its label, its
@@ -808,6 +811,12 @@ pub enum FindingVerdict {
     Genuine,
     /// Not shown to join; possibly a limit of the check.
     Undecided,
+    /// A fact the check decides about the definition as written, not a limit of it: an
+    /// equation rewrites a term headed by a constructor, an injection or a collection (a
+    /// precondition row), which the data judgement reads as free, so such terms are not normal
+    /// forms and no end of the definition is data. It cannot be assumed (`assume-joined`): fix
+    /// the equation.
+    Decided,
 }
 
 /// [`DefinitionFinding::kind`].

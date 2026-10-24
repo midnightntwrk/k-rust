@@ -1255,8 +1255,8 @@ export interface FuzzCaseOptions {
    * Findings of the definitions' critical-pair checks the data judgement reads as resolved (a
    * pair as joined, an equation as agreeing with its hook), each named as the report's
    * `definition-findings` name it (`FIRST,SECOND@POSITION`, `hook:EQUATION`,
-   * `equation:EQUATION`, `precondition:...`). Every verdict then holds only under them. Absent:
-   * none.
+   * `equation:EQUATION`, `precondition:...`); a `decided` finding is refused. Every verdict then
+   * holds only under them. Absent: none.
    */
   'assume-joined'?: string[]
 }
@@ -1681,12 +1681,13 @@ export interface FuzzReport {
 /**
  * One finding of a definition's full critical-pair check. `genuine`: at a ground instance both
  * equations apply and the input has two normal forms, so k-rust's result for it depends on the
- * order it tries the equations; `undecided`: not shown to join, which may be a limit of the
- * check.
+ * order it tries the equations; `decided`: an equation rewrites a constructor-, injection- or
+ * collection-headed term, so such terms are not normal forms (a fact about the definition, which
+ * `assume-joined` refuses); `undecided`: not shown to join, which may be a limit of the check.
  */
 export interface FuzzDefinitionFinding {
   side: 'baseline' | 'mutant'
-  verdict: 'genuine' | 'undecided'
+  verdict: 'genuine' | 'undecided' | 'decided'
   kind: 'pair' | 'equation' | 'precondition'
   /** The name `assume-joined` takes for this finding. */
   name?: string

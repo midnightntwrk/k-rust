@@ -801,16 +801,19 @@ fn not_comparable(
     Some(CampaignOutcome::NotComparable {
         sides: without_data.to_vec(),
         statement: format!(
-            "{consequence}. The full critical-pair check of {named} equations reports pairs \
-             it does not show to join (listed in the report's definition-findings: a genuine \
-             one comes with a ground instance at which both equations apply and the input has \
-             two normal forms, so k-rust's result for it depends on the order it tries the \
-             equations; an undecided one may be a limit of \
-             the check). Fix a genuine pair in the definition. Naming a finding with \
-             `assume-joined` (by its name in definition-findings) makes the campaign judge the \
-             definition read as if that finding did not hold (a pair joined, an equation agreed \
-             with its hook): its verdicts then hold for that reading, not for the definition as \
-             written, whatever inputs reach it. No case was run."
+            "{consequence}. The full critical-pair check of {named} equations reports \
+             findings (listed in the report's definition-findings). A genuine pair comes with a \
+             ground instance at which both equations apply and the input has two normal forms, \
+             so k-rust's result for it depends on the order it tries the equations; a decided \
+             finding is an equation that rewrites a constructor-, injection- or \
+             collection-headed term, so such terms are not normal forms; an undecided one (a \
+             pair, an equation not shown to agree with its hook, an overload row) may be a limit \
+             of the check. Fix a genuine or decided finding in the definition. Naming an \
+             undecided or genuine finding with `assume-joined` (by its name in \
+             definition-findings) makes the campaign judge the definition read as if that \
+             finding did not hold (a pair joined, an equation agreed with its hook): its \
+             verdicts then hold for that reading, not for the definition as written, whatever \
+             inputs reach it; a decided finding cannot be assumed. No case was run."
         ),
     })
 }

@@ -106,6 +106,8 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | OWISE | `owise/b.k`, `owise/go.pgm` | `OW` (`OW-SYNTAX`) | `g(X) => c requires X <=Int 0` beside two `owise` equations to `a` and `bb`. Stores `g(N)`. | FZ-POLISH review B1 |
 | | `owise/m.k` | | Stores `g(N +Int 0)`. | `not-comparable`, no case; the owise pair is genuine at `g(1)`, never `g(0)` |
 | | `owise/x.k` | | The labels `ow1`, `ow2` on `g(_) => c` and `g(_) => bb`. | an unprefixed assume-joined name by labels matches different pairs on the two sides: refused |
+| LIST_ROW | `list-row/b.k`, `list-row/go.pgm` | `LR` (`LR-SYNTAX`) | `rule ListItem(1) => ListItem(2)`: an equation that rewrites a collection-headed term, a precondition row the check decides. Stores `ListItem(1)`. | INT8 follow-ups review B1 |
+| | `list-row/m.k` | | Stores `ListItem(2)`. | `not-comparable`, no case; the rows are `decided` and `--assume-joined` refuses their names (a false kill when they were accepted) |
 
 ## Not covered here
 

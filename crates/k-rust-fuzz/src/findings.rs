@@ -22,16 +22,21 @@
 //! `precondition:KIND` followed by the K labels it names (`precondition:no-least-common-overload:A:B`).
 //! `EQUATION` is a rule part as above. One `hook:` name covers every hook pair of its equation
 //! (one per equation of the hook's written meaning): assuming it reads the equation as agreeing
-//! with the hook.
+//! with the hook; likewise one `precondition:EQUATION` names every row of that equation.
+//!
+//! A decided precondition row ([`Finding::is_decided`]: an equation headed by a constructor or an
+//! injection, or indexed at a collection or a bare variable) is named too, but its name is
+//! refused: the equation rewrites terms the data judgement reads as free, so they are not normal
+//! forms, a fact about the definition as written that no assumption removes.
 
 use std::collections::BTreeSet;
 
 use k_rust::{
     k_rust_backend::{
-        confluence::{UnjoinedPair, UnjoinedReason, ViolationKind},
+        confluence::{UnjoinedPair, UnjoinedReason, Violation, ViolationKind},
         data_term::{DataHeads, Finding},
         externalize,
-        rule::{Predicate, RewriteRule, RuleOrigin},
+        rule::{Predicate, RewriteRule, RuleOrigin, TermIndex},
         substitution::{Substitution, substitute},
         term::Term,
     },
@@ -291,9 +296,50 @@ pub(crate) fn names_finding(given: &str, finding: &Finding) -> bool {
     }
 }
 
-/// Whether one of `assumed` (side prefixes already removed) names `finding`.
+/// Whether one of `assumed` (side prefixes already removed) names `finding`. A decided finding
+/// ([`Finding::is_decided`]) is never assumed: its name is refused at setup
+/// ([`decided_named`]).
 pub(crate) fn assumed(assumed: &[String], finding: &Finding) -> bool {
-    assumed.iter().any(|given| names_finding(given, finding))
+    !finding.is_decided() && assumed.iter().any(|given| names_finding(given, finding))
+}
+
+/// The printed name of a decided finding of `heads` that `given` (without a side prefix) names,
+/// if any: such a name is refused, since the finding is a fact about the definition as written.
+pub(crate) fn decided_named(given: &str, heads: &DataHeads) -> Option<String> {
+    heads
+        .findings()
+        .iter()
+        .filter(|finding| finding.is_decided() && names_finding(given, finding))
+        .find_map(finding_name)
+}
+
+/// What a decided precondition row states (the row withdraws claims: an equation rewrites terms
+/// the data judgement reads as free): the equation, the terms it rewrites, and that those terms
+/// are not normal forms, so no end of the definition is data.
+fn decided_reason(violation: &Violation) -> String {
+    let rule = violation.rule.as_ref().map_or_else(
+        || "an equation".to_owned(),
+        |rule| format!("`{}`", equation(rule)),
+    );
+    let rewrites = match &violation.kind {
+        ViolationKind::ConstructorHeaded(symbol) => {
+            let symbol = label(symbol);
+            format!("a term headed by the constructor `{symbol}`, so `{symbol}` terms are")
+        }
+        ViolationKind::InjectionHeaded => "a sort injection, so injected terms are".to_owned(),
+        ViolationKind::IndexedAt(TermIndex::Variable) => {
+            "any term (it is indexed at a bare variable), so its subjects are".to_owned()
+        }
+        ViolationKind::IndexedAt(index) => {
+            format!("a {index:?}-headed term, so {index:?} terms are")
+        }
+        other => return other.to_string(),
+    };
+    format!(
+        "{rule} rewrites {rewrites} not normal forms: no end of this definition is data (a fact \
+         about the definition as written, which assume-joined cannot remove; change that \
+         equation)"
+    )
 }
 
 /// How a pair's equations are identified across definitions: each by its unique id, else its
@@ -383,6 +429,8 @@ fn entry(
 ) -> DefinitionFinding {
     let verdict = if finding.is_genuine() {
         FindingVerdict::Genuine
+    } else if finding.is_decided() {
+        FindingVerdict::Decided
     } else {
         FindingVerdict::Undecided
     };
@@ -394,7 +442,11 @@ fn entry(
             name: finding_name(finding),
             equations: violation.rule.iter().map(|rule| equation(rule)).collect(),
             position: None,
-            reason: violation.kind.to_string(),
+            reason: if finding.is_decided() {
+                decided_reason(violation)
+            } else {
+                violation.kind.to_string()
+            },
             overlap: None,
             reducts: Vec::new(),
             conditions: None,

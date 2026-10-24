@@ -24,11 +24,11 @@ use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
-    IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND,
-    OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER,
-    R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE,
-    R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M, R4_HOOKITE, R4_HOOKITE_M, R4_PARTNORULE, R4_PARTNORULE_M,
-    REPLACE_PRIORITY, REPLACE_PRIORITY_M, RERUN, RERUN_DROP,
+    IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, LIST_ROW, LIST_ROW_M, MAC, MAC_KILL, OV,
+    OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW,
+    R2_ANYW_M, R2_OVER, R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ,
+    R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M, R4_HOOKITE, R4_HOOKITE_M,
+    R4_PARTNORULE, R4_PARTNORULE_M, REPLACE_PRIORITY, REPLACE_PRIORITY_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -1493,9 +1493,9 @@ fn an_assumed_hook_finding_lets_the_cases_run_under_the_stated_premise() {
     );
 }
 
-/// R2-S1's premise violation (an unused overload placed across `K`) is a precondition row, the
-/// other kind of finding that keeps a definition without data: it is named `precondition:...`
-/// in `definition-findings`, and those names, assumed, let the cases run (INT8).
+/// R2-S1's premise violation (an unused overload placed across `K`) is an overload precondition
+/// row, which can be assumed: it is named `precondition:...` in `definition-findings`, and those
+/// names, assumed, let the cases run (INT8).
 #[test]
 fn an_assumed_precondition_row_lets_the_cases_run() {
     let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
@@ -1508,6 +1508,13 @@ fn an_assumed_precondition_row_lets_the_cases_run() {
         !preconditions.is_empty(),
         "{:?}",
         report.definition_findings
+    );
+    // An overload row, which can be assumed: not a decided row.
+    assert!(
+        preconditions
+            .iter()
+            .all(|finding| finding.verdict == FindingVerdict::Undecided),
+        "{preconditions:?}"
     );
     let mut names = report
         .definition_findings
@@ -1546,6 +1553,39 @@ fn an_assumed_precondition_row_lets_the_cases_run() {
             .definition_findings
             .iter()
             .all(|finding| finding.assumed)
+    );
+}
+
+/// INT8 follow-ups review B1: `rule ListItem(1) => ListItem(2)` on both sides rewrites a
+/// collection-headed term, which the data judgement reads as free. That is a decided fact about
+/// the definition as written (`ListItem(1)` is no normal form), not a limit of the check: the
+/// rows are `decided`, and their names are refused, since no assumption about the definition as
+/// written makes such terms normal forms. Accepting them gave a false kill (`ListItem(1)`
+/// against `ListItem(2)`, which both theories equate).
+#[test]
+fn a_decided_precondition_row_cannot_be_assumed() {
+    let report = r2_report(&LIST_ROW, &LIST_ROW_M, "list-row/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+    for finding in &report.definition_findings {
+        assert_eq!(finding.kind, FindingKind::Precondition, "{finding:?}");
+        assert_eq!(finding.verdict, FindingVerdict::Decided, "{finding:?}");
+        assert!(
+            finding.reason.contains("not normal forms") && !finding.reason.contains("limit"),
+            "{finding:?}"
+        );
+    }
+    let mut spec = spec_on(&LIST_ROW, &LIST_ROW_M, "list-row/go.pgm", None);
+    spec.options.assume_joined = vec![
+        "baseline:precondition:b.k:11:3".into(),
+        "mutant:precondition:m.k:11:3".into(),
+    ];
+    let refused = Campaign::new(spec);
+    assert!(refused.is_err(), "accepted: a false kill follows");
+    let error = refused.err().expect("refused").to_string();
+    assert!(
+        error.contains("cannot be assumed") && error.contains("change that equation"),
+        "{error}"
     );
 }
 

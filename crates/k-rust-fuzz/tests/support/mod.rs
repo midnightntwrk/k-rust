@@ -775,6 +775,13 @@ pub const R4_HOOKITE_PROGRAMS: &[Program] = &[program!("r4-hookite/go.pgm")];
 fixture!(R4_HOOKITE, "r4-hookite/b.k", "HI", R4_HOOKITE_PROGRAMS);
 fixture!(R4_HOOKITE_M, "r4-hookite/m.k", "HI", R4_HOOKITE_PROGRAMS);
 
+/// INT8 follow-ups review B1: `rule ListItem(1) => ListItem(2)` on both sides, a precondition row
+/// (`IndexedAt(List)`) the check decides; the baseline stores `ListItem(1)`, the mutant
+/// `ListItem(2)`, which each theory equates.
+pub const LIST_ROW_PROGRAMS: &[Program] = &[program!("list-row/go.pgm")];
+fixture!(LIST_ROW, "list-row/b.k", "LR", LIST_ROW_PROGRAMS);
+fixture!(LIST_ROW_M, "list-row/m.k", "LR", LIST_ROW_PROGRAMS);
+
 /// FZ-CONFLUENCE review A (B1): `replace` (no builtin step) given a higher-priority equation, so
 /// that `replaceAll`'s domains.md equation, through `replace`, disagrees with the builtin; each
 /// baseline stores `"cb"` and its mutant `"ab"`, which its theory equates.
@@ -1038,7 +1045,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 89] = [
+pub static ALL: [&Fixture; 91] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1124,6 +1131,8 @@ pub static ALL: [&Fixture; 89] = [
     &OWISE_X,
     &R4_HOOKITE,
     &R4_HOOKITE_M,
+    &LIST_ROW,
+    &LIST_ROW_M,
     &REPLACE_PRIORITY,
     &REPLACE_PRIORITY_M,
     &R2_SPOOF,

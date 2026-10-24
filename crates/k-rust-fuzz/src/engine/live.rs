@@ -10,7 +10,10 @@ use std::{
 
 use k_rust::{
     backend::{Backend, CancellationToken, HaltReasonOutput, StopCause},
-    k_rust_backend::{data_term::DataHeads, definition::BackendDefinition},
+    k_rust_backend::{
+        data_term::{DataHeads, Finding},
+        definition::BackendDefinition,
+    },
     kore::ast::Pattern as KorePattern,
 };
 
@@ -532,9 +535,10 @@ impl LiveCases {
     ///
     /// # Errors
     ///
-    /// [`CampaignError::InvalidOptions`] when `CaseOptions::assume_joined` names a pair while
-    /// the campaign reads no data end, or a name matches no pair finding of either definition,
-    /// or pairs of more than one equation pair of one definition.
+    /// [`CampaignError::InvalidOptions`] when `CaseOptions::assume_joined` names a finding while
+    /// the campaign reads no data end, or a name matches no finding of either definition, a
+    /// decided finding, more than one finding of one definition, or different findings on the
+    /// two.
     pub(crate) fn definition_findings(&mut self) -> Result<DefinitionFindings, CampaignError> {
         let assume_joined = self.spec.options.assume_joined.clone();
         let mut sides = vec![(DefinitionRole::Baseline, &mut self.baseline)];
@@ -576,46 +580,12 @@ impl LiveCases {
                     continue;
                 }
             };
-            for (given, found) in assume_joined.iter().zip(&mut matched) {
-                let (prefix, rest) = crate::findings::side_of(given);
-                if prefix.is_some_and(|prefix| prefix != role) {
-                    continue;
-                }
-                let pairs = crate::findings::named_findings(rest, heads);
-                if pairs.len() > 1 {
-                    let candidates = pairs
-                        .iter()
-                        .map(|(_, written)| written.clone())
-                        .collect::<Vec<_>>()
-                        .join("; ");
-                    return Err(CampaignError::InvalidOptions {
-                        message: format!(
-                            "assume-joined names `{given}`, which matches more than one finding \
-                             of the {side_name} ({candidates}); give more of each file's path"
-                        ),
-                    });
-                }
-                found.extend(
-                    pairs
-                        .into_iter()
-                        .map(|(identities, written)| (role, identities, written)),
-                );
-            }
+            match_assumed(&assume_joined, role, heads, &mut matched)?;
             if !heads.confluent() {
                 stated.without_data.push(role);
-                let genuine = heads
-                    .findings()
-                    .iter()
-                    .filter(|finding| finding.is_genuine())
-                    .count();
-                let total = heads.findings().len();
-                stated.warnings.push(format!(
-                    "definition-not-confluent ({side_name}): its full critical-pair check reports \
-                     {total} finding{} not assumed joined ({genuine} genuine, {} undecided), so \
-                     no end of it is data; each is listed in the report's definition-findings",
-                    if total == 1 { "" } else { "s" },
-                    total - genuine
-                ));
+                stated
+                    .warnings
+                    .push(not_confluent_warning(side_name, heads));
             }
             let entries = crate::findings::report(role, heads, text.as_ref());
             // A pair the campaign assumes joined although the check shows it does not join: the
@@ -1085,6 +1055,89 @@ impl LiveCases {
         }
         Ok(run)
     }
+}
+
+/// The findings each name of `assume_joined` matches on the definition `role` with `heads`,
+/// added to `matched` (in the order of `assume_joined`).
+///
+/// # Errors
+///
+/// [`CampaignError::InvalidOptions`] when a name matches a decided finding, which cannot be
+/// assumed, or more than one finding of the definition.
+fn match_assumed(
+    assume_joined: &[String],
+    role: DefinitionRole,
+    heads: &DataHeads,
+    matched: &mut [Vec<(DefinitionRole, Vec<String>, String)>],
+) -> Result<(), CampaignError> {
+    let side_name = match role {
+        DefinitionRole::Baseline => "baseline",
+        DefinitionRole::Mutant => "mutant",
+    };
+    for (given, found) in assume_joined.iter().zip(matched) {
+        let (prefix, rest) = crate::findings::side_of(given);
+        if prefix.is_some_and(|prefix| prefix != role) {
+            continue;
+        }
+        if let Some(decided) = crate::findings::decided_named(rest, heads) {
+            return Err(CampaignError::InvalidOptions {
+                message: format!(
+                    "assume-joined names `{given}`, which matches `{decided}` of the \
+                     {side_name}, a precondition row that cannot be assumed: its equation \
+                     rewrites terms the data judgement reads as free (constructor-, injection- \
+                     or collection-headed), so no assumption about the definition as written \
+                     makes them normal forms; change that equation"
+                ),
+            });
+        }
+        let pairs = crate::findings::named_findings(rest, heads);
+        if pairs.len() > 1 {
+            let candidates = pairs
+                .iter()
+                .map(|(_, written)| written.clone())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(CampaignError::InvalidOptions {
+                message: format!(
+                    "assume-joined names `{given}`, which matches more than one finding of the \
+                     {side_name} ({candidates}); give more of each file's path"
+                ),
+            });
+        }
+        found.extend(
+            pairs
+                .into_iter()
+                .map(|(identities, written)| (role, identities, written)),
+        );
+    }
+    Ok(())
+}
+
+/// The warning for a definition (`side_name`) whose check reports findings not assumed joined,
+/// so no end of it is data, counting them by verdict.
+fn not_confluent_warning(side_name: &str, heads: &DataHeads) -> String {
+    let count = |predicate: fn(&Finding) -> bool| {
+        heads
+            .findings()
+            .iter()
+            .filter(|finding| predicate(finding))
+            .count()
+    };
+    let genuine = count(Finding::is_genuine);
+    let decided = count(Finding::is_decided);
+    let total = heads.findings().len();
+    format!(
+        "definition-not-confluent ({side_name}): its full critical-pair check reports {total} \
+         finding{} not assumed joined ({genuine} genuine, {} undecided{}), so no end of it is \
+         data; each is listed in the report's definition-findings",
+        if total == 1 { "" } else { "s" },
+        total - genuine - decided,
+        if decided == 0 {
+            String::new()
+        } else {
+            format!(", {decided} decided")
+        }
+    )
 }
 
 /// The names of `assume_joined` against the pair each matched on each definition (`matched`,

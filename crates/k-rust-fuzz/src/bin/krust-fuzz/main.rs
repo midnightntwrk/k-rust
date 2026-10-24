@@ -140,7 +140,7 @@ struct Args {
     /// an equation as agreeing with its hook), as the report's definition-findings name it
     /// (`FIRST,SECOND@POSITION`, `hook:EQUATION`, `equation:EQUATION`, `precondition:...`);
     /// repeatable, added to the campaign file's `assume-joined`. Every verdict then holds only
-    /// under the assumption.
+    /// under the assumption. A `decided` finding cannot be assumed.
     #[arg(long, value_name = "NAME")]
     assume_joined: Vec<String>,
 
@@ -719,6 +719,33 @@ fn best_score_line(best: &BestScore) -> String {
     )
 }
 
+/// One finding of the summary's critical-pair findings: its name, reason, overlap, reducts,
+/// conditions and ground instance, each when it has one.
+fn write_finding(text: &mut String, finding: &k_rust_fuzz::report::DefinitionFinding) {
+    use std::fmt::Write as _;
+    if let Some(name) = &finding.name {
+        let _ = writeln!(text, "    name: {name}");
+    }
+    let _ = writeln!(text, "    {}", finding.reason);
+    if let Some(overlap) = &finding.overlap {
+        let _ = writeln!(text, "    overlap: {overlap}");
+    }
+    if !finding.reducts.is_empty() {
+        let _ = writeln!(text, "    reducts: {}", finding.reducts.join("  vs  "));
+    }
+    if let Some(conditions) = &finding.conditions {
+        let _ = writeln!(text, "    when: {conditions}");
+    }
+    if let Some(instance) = &finding.instance {
+        let _ = writeln!(
+            text,
+            "    instance: at {} both equations apply; its two normal forms: {}",
+            instance.overlap,
+            instance.values.join(" and ")
+        );
+    }
+}
+
 /// The finding groups the summary shows per definition; the report lists every finding.
 const SHOWN_FINDING_GROUPS: usize = 5;
 
@@ -737,7 +764,7 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
         if findings.is_empty() {
             continue;
         }
-        // Groups by equation pair, in the report's order, genuine groups first.
+        // Groups by equation pair, in the report's order, genuine groups first, then decided ones.
         let mut groups: Vec<(&[String], Vec<&DefinitionFinding>)> = Vec::new();
         for finding in &findings {
             match groups
@@ -753,7 +780,12 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
                 .iter()
                 .any(|finding| finding.verdict == FindingVerdict::Genuine)
         };
-        groups.sort_by_key(|(_, members)| !genuine(members));
+        let decided = |members: &[&DefinitionFinding]| {
+            members
+                .iter()
+                .any(|finding| finding.verdict == FindingVerdict::Decided)
+        };
+        groups.sort_by_key(|(_, members)| (!genuine(members), !decided(members)));
         let count = |verdict, assumed: bool| {
             findings
                 .iter()
@@ -763,10 +795,14 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
         let assumed = findings.iter().filter(|finding| finding.assumed).count();
         let _ = writeln!(
             text,
-            "{} critical-pair findings: {} genuine, {} undecided{}",
+            "{} critical-pair findings: {} genuine, {} undecided{}{}",
             serde_name(&side),
             count(FindingVerdict::Genuine, false),
             count(FindingVerdict::Undecided, false),
+            match count(FindingVerdict::Decided, false) {
+                0 => String::new(),
+                decided => format!(", {decided} decided"),
+            },
             if assumed == 0 {
                 String::new()
             } else {
@@ -779,6 +815,8 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
         for (equations, members) in groups.iter().take(SHOWN_FINDING_GROUPS) {
             let verdict = if genuine(members) {
                 "genuine"
+            } else if decided(members) {
+                "decided"
             } else {
                 "undecided"
             };
@@ -794,27 +832,7 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
                 .collect::<Vec<_>>();
             let _ = writeln!(text, "  [{verdict}{assumed}] {}", short.join(" and "));
             for finding in members {
-                if let Some(name) = &finding.name {
-                    let _ = writeln!(text, "    name: {name}");
-                }
-                let _ = writeln!(text, "    {}", finding.reason);
-                if let Some(overlap) = &finding.overlap {
-                    let _ = writeln!(text, "    overlap: {overlap}");
-                }
-                if !finding.reducts.is_empty() {
-                    let _ = writeln!(text, "    reducts: {}", finding.reducts.join("  vs  "));
-                }
-                if let Some(conditions) = &finding.conditions {
-                    let _ = writeln!(text, "    when: {conditions}");
-                }
-                if let Some(instance) = &finding.instance {
-                    let _ = writeln!(
-                        text,
-                        "    instance: at {} both equations apply; its two normal forms: {}",
-                        instance.overlap,
-                        instance.values.join(" and ")
-                    );
-                }
+                write_finding(text, finding);
             }
         }
         if groups.len() > SHOWN_FINDING_GROUPS {

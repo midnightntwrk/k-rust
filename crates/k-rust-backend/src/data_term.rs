@@ -103,15 +103,27 @@
 //!
 //! A client may name findings the definition is to be read without
 //! ([`BackendDefinition::data_heads_assuming`]): a pair as joining, an equation at an evaluated
-//! hook as agreeing with the hook, another per-equation report as applying as written, a
-//! precondition row as met. Any finding keeps the definition without data, so each can be
-//! assumed. The data judgement is then about that reading
-//! of the definition, not about the definition as written: a premise the client states wherever
-//! the judgement is reported. Which inputs reach the pair does not enter: the judgement reads the
-//! definition by `M_NF`, which a genuine pair makes no model whatever the inputs. The assumed
-//! findings no longer withdraw every datum. The overload data heads and the instance-normal scan still read the definition's load
-//! verdict (`ValueClaims`), which withdraws the claims an assumed pair's taint closure reaches;
-//! so an assumed pair can only make fewer terms data than a definition in which it joins.
+//! hook as agreeing with the hook, another per-equation report as applying as written, an
+//! overload precondition row (`OverloadShape`, `NoLeastCommonOverload`, `PinnedByInjectiveTotal`)
+//! as met. The data judgement is then about that reading of the definition, not about the
+//! definition as written: a premise the client states wherever the judgement is reported. Which
+//! inputs reach the finding does not enter: the judgement reads the definition by `M_NF`, which a
+//! genuine pair makes no model whatever the inputs.
+//!
+//! A decided finding ([`Finding::is_decided`]) cannot be assumed: an equation headed by a
+//! constructor or an injection, or indexed at a collection or a bare variable, rewrites terms
+//! that [`BackendDefinition::is_data`] reads as free without consulting the load verdict, so they
+//! are not normal forms, and no premise that keeps the equation an axiom makes them so.
+//!
+//! Every finding that can be assumed bears on data only through the load verdict
+//! (`ValueClaims`), which still withholds what it taints. The overload data heads and the
+//! instance-normal scan read that verdict, which withdraws the claims an assumed pair's or hook
+//! equation's taint closure reaches; an overload head whose equations are not canonical overload
+//! equations is never a data head, whatever is assumed of an overload row; and the heads a
+//! pinned injective symbol pins keep their withheld claims. Free-constructor applications,
+//! injections, domain values and collections do not depend on any assumable finding. So an
+//! assumed finding can only make fewer terms data than the definition read as if it were
+//! resolved.
 
 mod instance;
 
@@ -172,6 +184,17 @@ impl Finding {
                 ..
             }
         )
+    }
+
+    /// Whether the finding is a fact the check decides about the definition as written: a
+    /// precondition row that withdraws claims ([`ViolationKind::withdraws`](crate::confluence::ViolationKind::withdraws): an executable
+    /// equation headed by a constructor or an injection, or indexed at a collection or a bare
+    /// variable). The equation rewrites terms the data judgement reads as free, so those terms
+    /// are not normal forms; no assumption about the definition as written changes that, so
+    /// [`BackendDefinition::data_heads_assuming`] never moves such a finding.
+    #[must_use]
+    pub fn is_decided(&self) -> bool {
+        matches!(self, Self::Precondition(violation) if violation.kind.withdraws())
     }
 
     /// The pair, for a pair finding.
@@ -306,7 +329,8 @@ impl BackendDefinition {
     /// `assumed` holds read as resolved (the [module documentation](self), "Assumed pairs"): a
     /// pair as joining, an equation as agreeing with its hook or applied to every subject it
     /// describes, a precondition row as met. Such findings move to [`DataHeads::assumed`], and
-    /// when no other finding is left the definition has data, with its overload data heads.
+    /// when no other finding is left the definition has data, with its overload data heads. A
+    /// decided finding ([`Finding::is_decided`]) is never moved, whatever `assumed` says.
     #[must_use]
     pub fn data_heads_assuming(
         &self,
@@ -316,7 +340,7 @@ impl BackendDefinition {
         let mut kept = Vec::new();
         let mut moved = heads.assumed.clone();
         for finding in &heads.findings {
-            if assumed(finding) {
+            if !finding.is_decided() && assumed(finding) {
                 moved.push(finding.clone());
             } else {
                 kept.push(finding.clone());
