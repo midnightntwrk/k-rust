@@ -665,6 +665,9 @@ impl Rendering<'_> {
             0 => format!("notBool{{}}({atom})"),
             1 => format!("eqBool{{}}({atom}, {})", dv(polarity)),
             2 => format!("neBool{{}}({atom}, {})", dv(!polarity)),
+            // Forms 3 and 4 are kept, but the reader does not read `==K`/`=/=K` yet
+            // (`conditions.rs`, "membership literals"): a literal in them is never read, so
+            // they exercise only that the oracle stays sound, not the K-equality reading.
             3 => format!(
                 "eqK{{}}({}, {})",
                 sequence(&atom, "Bool"),

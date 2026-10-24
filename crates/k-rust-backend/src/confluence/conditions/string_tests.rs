@@ -1,7 +1,8 @@
 //! The equality classes and the literal substitution (module documentation, "equality
 //! classes") against brute force over strings: random conjunctions of `STRING.eq` and
-//! `STRING.ne` atoms, `==K` between one-element `K` sequences of injected strings (peeled to the
-//! strings), ML equalities and length comparisons, over two string variables, judged on every
+//! `STRING.ne` atoms, `==K` between one-element `K` sequences of injected strings (which the
+//! reader itself does not peel to the strings yet: `sequence_item`), ML equalities and length
+//! comparisons, over two string variables, judged on every
 //! assignment of short strings by the backend's own ground evaluation. A conjunction the reader
 //! refutes (by its literals, classes or bounds, or after substituting a class's literal and
 //! simplifying again, as `Context::conditions` does) must have no satisfying assignment, and every
