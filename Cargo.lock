@@ -1271,6 +1271,8 @@ name = "k2lean"
 version = "0.1.0"
 dependencies = [
  "k-rust-kore",
+ "num-bigint",
+ "num-traits",
  "serde",
  "serde_json",
  "toml",

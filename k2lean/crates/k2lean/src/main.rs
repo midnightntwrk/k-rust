@@ -449,15 +449,21 @@ fn main() {
                     &with_hooks(rules::emit_determinism(&top, ns, &unfold), ns, &fgen.params),
                 );
             }
-            // determinism along the rule index, modulo the overlapping pairs (`det2`): with
-            // `--det2`, and always in the arity-indexed universe, where the proof by cases on
-            // pairs of rules (the default's) does not finish
+            // determinism along the rule index, modulo the overlapping pairs (`det2`), for every
+            // definition whose rules match once: the default (`--det2` is accepted and changes
+            // nothing); `--det-pairs` keeps the proof by cases on pairs of rules, except in the
+            // arity-indexed universe, where that proof does not finish
             let mut det_overlaps = 0;
-            if arity || a.rest.iter().any(|x| x == "--det2") {
+            let mut det_unwitnessed = 0;
+            let mut det_witnessed = Vec::new();
+            let det_pairs = a.rest.iter().any(|x| x == "--det-pairs");
+            if arity || !det_pairs {
                 if multi {
-                    eprintln!(
-                        "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
-                    );
+                    if a.rest.iter().any(|x| x == "--det2") {
+                        eprintln!(
+                            "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
+                        );
+                    }
                 } else {
                     let d = det2::emit(
                         &def,
@@ -472,15 +478,18 @@ fn main() {
                         &fgen.fns,
                         &det2::Opts::from_args(&a.rest, arity),
                     );
-                    write(
-                        &out.join(ns).join("Determinism.lean"),
-                        &with_hooks(d.text, ns, &fgen.params),
-                    );
+                    // the lemma modules of an earlier generation may be more than this one's
+                    let _ = std::fs::remove_dir_all(out.join(ns).join("Determinism"));
+                    for (path, text) in d.files {
+                        write(&out.join(path), &with_hooks(text, ns, &fgen.params));
+                    }
                     eprintln!(
                         "determinism: {} overlapping pairs\n{}",
                         d.overlaps, d.report
                     );
                     det_overlaps = d.overlaps;
+                    det_unwitnessed = d.unwitnessed;
+                    det_witnessed = d.witnessed.clone();
                 }
             }
             // the per-rule preservation principle, and the initial configuration
@@ -735,6 +744,8 @@ fn main() {
                     &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
                     ns,
                     det_overlaps,
+                    det_unwitnessed,
+                    &det_witnessed,
                 ),
             );
             write(
