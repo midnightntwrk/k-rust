@@ -129,11 +129,22 @@ pub fn lower_descriptor_bundle(
                 DescriptorPayload::FixedConfiguration(_)
             )
         })
-        .count();
-    if configurations != 1 {
+        .collect::<Vec<_>>();
+    if configurations.len() != 1 {
+        // A second configuration is the one to remove or merge; none has nothing to point at.
+        let range = |index: usize| {
+            configurations
+                .get(index)
+                .and_then(|descriptor| self::origin::item_range(descriptor))
+                .map(Box::new)
+        };
         return Err(DescriptorLoweringError::ConfigurationCount {
-            count: configurations,
-            range: None,
+            names: configurations
+                .iter()
+                .map(|descriptor| descriptor.id().item_name().to_owned())
+                .collect(),
+            range: range(1),
+            first: range(0),
         });
     }
 

@@ -369,7 +369,7 @@ fn locate_at_host(
         contexts,
         &mut BTreeMap::new(),
     ) {
-        Ok((provenance, ..)) => error.with_provenance(&provenance),
+        Ok((provenance, ..)) => error.with_provenance(&provenance).with_item(id),
         Err(_) => error,
     }
 }
@@ -433,7 +433,7 @@ fn resolve_pending_descriptors(
         let payload = match payload {
             Ok(value) => value,
             Err(error) => {
-                let error = error.with_provenance(&provenance);
+                let error = error.with_provenance(&provenance).with_item(&pending.id);
                 loop_failure = Some(("collector.resolve.payload", error));
                 break;
             }
@@ -485,6 +485,7 @@ fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionEr
         error,
         at,
         provenance,
+        id,
     } = failure;
     let (kind, message) = match error {
         krs_ir::DescriptorError::Grammar(error) => (
@@ -506,6 +507,7 @@ fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionEr
         None => error,
     }
     .with_provenance(&provenance)
+    .with_item(&id)
 }
 
 fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {

@@ -51,10 +51,12 @@ pub enum DescriptorLoweringError {
     },
     /// Lowering requires exactly one selected configuration descriptor.
     ConfigurationCount {
-        /// The number of configurations selected.
-        count: usize,
-        /// The exact authored range of the error's subject, when it has one.
+        /// The names of the configurations selected, in descriptor order.
+        names: Vec<String>,
+        /// The exact authored range of the second configuration, when there are several.
         range: Option<Box<SourceRange>>,
+        /// The exact authored range of the first configuration, when there are several.
+        first: Option<Box<SourceRange>>,
     },
     /// A stable reference names no selected descriptor.
     DanglingReference {
@@ -735,6 +737,44 @@ impl DescriptorLoweringError {
         self
     }
 
+    /// The item the error is about, when the error names one: an error without a range names its
+    /// item instead, so a tool can still group it.
+    fn subject_item(&self) -> Option<&StableItemId> {
+        match self {
+            Self::InvalidSpecModule { item, .. }
+            | Self::InvalidSortTest { item, .. }
+            | Self::BitTemplateSort { item, .. }
+            | Self::IncompatibleBinder { item, .. }
+            | Self::CollectionElementSort { item, .. }
+            | Self::UntypedCollection { item, .. }
+            | Self::InvalidPatternAs { item, .. }
+            | Self::InvalidRecordUpdate { item, .. }
+            | Self::InvalidPatternOr { item, .. }
+            | Self::InvalidOperator { item, .. }
+            | Self::InvalidMatches { item, .. }
+            | Self::InvalidLet { item, .. }
+            | Self::MlPlacement { item, .. }
+            | Self::InvalidMlPredicate { item, .. }
+            | Self::InvalidLocalRewrite { item, .. }
+            | Self::InvalidFunctionContext { item, .. }
+            | Self::InvalidParametricProduction { item, .. }
+            | Self::ParametricInstance { item, .. }
+            | Self::NativeInstance { item, .. }
+            | Self::InvalidTokenSort { item, .. }
+            | Self::TokenCollision { item, .. }
+            | Self::InvalidSyntaxList { item, .. }
+            | Self::InvalidListNotation { item, .. }
+            | Self::AmbiguousListPattern { item, .. }
+            | Self::InvalidConsList { item, .. }
+            | Self::BuiltinSortNameCollision { id: item, .. }
+            | Self::DanglingReference { id: item, .. }
+            | Self::ReferenceKindMismatch { id: item, .. }
+            | Self::ParserReferenceDisagreement { id: item, .. }
+            | Self::InvalidTerm { id: item, .. } => Some(item),
+            _ => None,
+        }
+    }
+
     /// A wrapper error naming the cell `name`, which takes `wrapper` (`None` for a group).
     pub(crate) fn cell_wrapper(
         name: &str,
@@ -788,12 +828,18 @@ impl fmt::Display for DescriptorLoweringError {
                 builtin.k_name(),
                 builtin.marker_name()
             ),
-            Self::ConfigurationCount { count: 0, .. } => formatter.write_str(
+            Self::ConfigurationCount { names, .. } if names.is_empty() => formatter.write_str(
                 "the definition has no `#[k::configuration]`; every definition declares its state with exactly one",
             ),
-            Self::ConfigurationCount { count, .. } => write!(
+            Self::ConfigurationCount { names, .. } => write!(
                 formatter,
-                "the definition declares {count} configurations; a definition has exactly one"
+                "the definition declares {} configurations, {}; a definition has exactly one",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             Self::ReferenceKindMismatch {
                 id,
@@ -1062,7 +1108,11 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .cloned()
                 .map_or(Location::None, Location::Source),
         };
-        let diagnostic = Diagnostic::error(code, self.to_string(), location);
+        let unlocated = matches!(location, Location::None);
+        let mut diagnostic = Diagnostic::error(code, self.to_string(), location);
+        if unlocated && let Some(item) = self.subject_item() {
+            diagnostic = diagnostic.with_item(item.to_string());
+        }
         match self {
             Self::OverlappingRules { first, second, .. } => diagnostic
                 .with_note(format!("first rule: {first}"))
@@ -1090,6 +1140,12 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
                 diagnostic.with_note(format!("rule: {rule}"))
             }
+            Self::ConfigurationCount {
+                first: Some(first), ..
+            } => diagnostic.with_secondary(
+                krs_diagnostic::Label::new(Location::Source((**first).clone()))
+                    .with_message("the first configuration"),
+            ),
             Self::IncompatibleBinder {
                 occurrence, help, ..
             } => {

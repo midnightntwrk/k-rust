@@ -529,6 +529,8 @@ pub struct DescriptorFailure {
     pub at: Option<ProvenanceKey>,
     /// The descriptor's provenance, which resolves `at`.
     pub provenance: DescriptorProvenance,
+    /// The descriptor's identity.
+    pub id: StableItemId,
 }
 
 /// A context-free descriptor contract failure.
@@ -621,6 +623,7 @@ impl Descriptor {
                 error,
                 at,
                 provenance: descriptor.provenance,
+                id: descriptor.id,
             }));
         }
         let expected = descriptor.payload.item_kind();
@@ -628,12 +631,13 @@ impl Descriptor {
         if actual != expected {
             return Err(Box::new(DescriptorFailure {
                 error: DescriptorError::WrongKind {
-                    id: Box::new(descriptor.id),
+                    id: Box::new(descriptor.id.clone()),
                     expected,
                     actual,
                 },
                 at: None,
                 provenance: descriptor.provenance,
+                id: descriptor.id,
             }));
         }
         Ok(descriptor)

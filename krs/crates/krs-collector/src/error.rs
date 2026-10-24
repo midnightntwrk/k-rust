@@ -81,6 +81,7 @@ pub struct CollectionError {
     source_range: Option<Box<SourceRange>>,
     input_range: Option<ByteRange>,
     reference_key: Option<ProvenanceKey>,
+    item: Option<String>,
 }
 
 impl CollectionError {
@@ -91,7 +92,14 @@ impl CollectionError {
             source_range: None,
             input_range: None,
             reference_key: None,
+            item: None,
         }
+    }
+
+    /// Names the item the error is about, which a diagnostic without a range reports instead.
+    pub(crate) fn with_item(mut self, item: &krs_ir::StableItemId) -> Self {
+        self.item = Some(item.to_string());
+        self
     }
 
     pub(crate) fn with_source_range(mut self, range: SourceRange) -> Self {
@@ -216,13 +224,17 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::AmbiguousAnchor => codes::collect::AMBIGUOUS_ANCHOR,
             CollectionErrorKind::ProvenanceMismatch => codes::collect::PROVENANCE_MISMATCH,
         };
-        Diagnostic::error(
+        let diagnostic = Diagnostic::error(
             code,
             self.detail.clone(),
             self.source_range
                 .clone()
                 .map_or(Location::None, |range| Location::Source(*range)),
-        )
+        );
+        match (&self.source_range, &self.item) {
+            (None, Some(item)) => diagnostic.with_item(item.clone()),
+            _ => diagnostic,
+        }
     }
 }
 

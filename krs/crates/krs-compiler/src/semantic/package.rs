@@ -226,11 +226,13 @@ fn lower_module_descriptor(
             )?);
         }
         DescriptorPayload::FixedConfiguration(value) => {
+            // The definition-wide count admits one configuration, so a second here is a broken
+            // contract of the lowering, not the author's.
             if sentences.configuration.is_some() {
-                return Err(DescriptorLoweringError::ConfigurationCount {
-                    count: 2,
-                    range: None,
-                });
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "configuration",
+                    "a package module received a second configuration after the definition was checked to have one",
+                ));
             }
             sentences.configuration = Some(lower_fixed_configuration_descriptor(
                 descriptor,
