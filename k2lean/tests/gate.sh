@@ -321,7 +321,7 @@ inv_reset() { # DIR: GATE_RETRY_OPEN also retries the open invariant cases
 phase "invariant krsimp"
 [ -f "$GEN/krsimp/KrsImp/Invariants.lean" ] && { inv_reset krsimp; invcases krsimp KrsImp; }
 phase "lib kimpinv"
-# kimp with the K function `envOk` (demos/k/kimp-inv/imp-inv.k): only what Invariants.lean needs
+# kimp with the K functions `envOk` and `storeNoIds` (demos/k/kimp-inv/imp-inv.k): only what Invariants.lean needs
 # (its Equations, for the K equations it unfolds), not Adequacy or Determinism
 if [ -f "$KO/kimp-inv/definition.kore" ]; then
   mkdir -p "$GEN/kimpinv"; touch "$GEN/kimpinv/open-obligations.txt"
@@ -544,7 +544,7 @@ if [ "$TIER" = heavy ]; then
   spec "$OWN/imp-ifs-uint64-spec.k" IMP-IFS-UINT64-SPEC imp-ifs-uint64-spec
   spec "$OWN/imp-two-sum-aux-spec.k" IMP-TWO-SUM-AUX-SPEC imp-two-sum-aux-spec
   spec "$OWN/imp-div0-spec.k" IMP-DIV0-SPEC imp-div0-spec
-  # claims that hold only under kimpinv's invariant `envOk` (demos/k/kimp-inv): over kimp they are
+  # claims that hold only under kimpinv's invariant, by its part `envOk` (demos/k/kimp-inv): over kimp they are
   # false (refuted in demos/claims/hand/Hand.lean), over kimpinv with --assume-invariant they hold
   "$KRUST" kcompile "$OWN/imp-inv-spec.k" --main-module IMP-INV-SPEC --definition-module IMP-INV-VERIFICATION --for-proving \
     --output-directory "$KO/imp-inv-spec" --builtin-directory "$BUILTIN" -I "$KIMP" -I "$D/k/kimp-inv" -w none \
@@ -597,8 +597,8 @@ if [ "$TIER" = heavy ]; then
     else bad "build claims" "$L/build-claims.log"; fi
   else bad "claims gen" "$L/claims-gen.log"; fi
 
-  # claims under a preserved invariant (`--assume-invariant`): the kind 1 invariant `envOk` of
-  # kimpinv, whose library the light tier builds only as far as Invariants.lean; the claims need the
+  # claims under a preserved invariant (`--assume-invariant`): the kind 1 invariant of kimpinv
+  # (`envOk` and `storeNoIds`), whose library the light tier builds only as far as Invariants.lean; the claims need the
   # rest (Rules, Adequacy, Determinism)
   phase "kimpinv claims"
   OUTI=$GEN/kimpinv-claims

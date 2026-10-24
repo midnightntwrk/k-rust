@@ -137,6 +137,9 @@ Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each mo
 | kimp's expressions without variables or division (`ExprEval`) | 15 of 15 obligations closed, `holds` unconditional | 2.5 to 3.9 s |
 | with `_/_` (`ExprDiv`) | its obligation does not close (4 goals left at `i / j`), and is false (`Hand.expr_div_false` at `1 / 0`) | under 1 s |
 
+kimpinv's invariant now also conjoins `storeNoIds` (no store value is an `Id`), so the two claims assume both parts, though their truth needs only `envOk`.
+On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both generically in the same 10 and 47 configurations.
+
 ## 4. Commands
 
 | command | does |

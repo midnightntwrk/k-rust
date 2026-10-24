@@ -42,7 +42,7 @@ With a theorem `init_holds : P (init pgm env)` about the generated initial confi
 A K claim `φ ⇒ ψ` is a reachability statement about the paths from `φ`; "`P` holds at every reachable configuration" is a safety property, which a claim does not express.
 A preserved invariant can be assumed inside a claim proof: `lean/claims/KClaims/Invariant.lean` has `AF.step_inv`, `AF.coind_inv`, `AF.circularity_inv` and their `EF` forms, which carry `P` to every state of the proof.
 `k2lean claims --assume-invariant Invariant --invariant-unfold NS/Invariants.lean`, over a library generated with `gen --invariant`, states every claim for the configurations satisfying the kind 1 invariant and proves it with `P` carried along (`README.md`, "Claims"; `docs/design.md`, §3.2).
-A claim false in general can then hold: `demos/claims/specs/imp-inv-spec.k` copies a store value `V` of any sort, which kimp evaluates when it is not a value, and under kimpinv's `envOk` (every store value is a `Value`) both of its claims are proved generically (`generated/kimpinv-claims`, heavy gate).
+A claim false in general can then hold: `demos/claims/specs/imp-inv-spec.k` copies a store value `V` of any sort, which kimp evaluates when it is not a value, and under kimpinv's invariant, whose part `envOk` says that every store value is a `Value`, both of its claims are proved generically (`generated/kimpinv-claims`, heavy gate).
 
 ### 1.4 The two kinds
 
