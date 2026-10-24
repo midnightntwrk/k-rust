@@ -1,5 +1,6 @@
 import KPrelude.Invariant
 import KPrelude.InvAttr
+import KPrelude.Hooks
 
 /-!
 # `k2l_preserve`: one case per rule, closed generically or left tagged by the rule
@@ -26,11 +27,16 @@ On each goal it runs, in order, until one closes the goal completely:
    lemma's premises by the hypotheses or by simp; a goal no lemma applies to is normalized by the
    unfolding set and attacked again (at most twice on a path: `Q (k, v)` of a rebuilt element
    unfolds to goals on the collections inside it);
-4. *simp*: `simp_all` with the unfolding set.
+4. *simp*: `simp_all` with the unfolding set;
+5. *arithmetic*: rewrite the hypotheses and the goal with the unfolding set and the
+   `@[k2l_arith]` lemmas, which state the `Int` and `Bool` hooks in Lean's arithmetic
+   (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`), then `omega`. The same
+   step ends the leaf discharger of 3, so a conjunct such as the count test `0 ≤ N + 1` of a
+   rebuilt map entry, from the matched entry's `0 ≤ N`, is closed there.
 
-Before 2–4, the hypotheses that were in context before `k2l_preserve` (and are not named in its
+Before 2–5, the hypotheses that were in context before `k2l_preserve` (and are not named in its
 simp list) are cleared, so that `simp [*]` and `simp_all` see only the rule's own hypotheses;
-a residual goal has them back. Also before 2–4, a hypothesis `proj_A_B y = some x` of the rule (a sort projection, from a sorted
+a residual goal has them back. Also before 2–5, a hypothesis `proj_A_B y = some x` of the rule (a sort projection, from a sorted
 variable of the rule) is rewritten to `y = inj_B_A x` by the generated lemma `proj_eq_some_A_B`
 when it exists, and substituted.
 
@@ -371,6 +377,8 @@ syntax (name := k2lPreserve) "k2l_preserve"
 /-- The closers of one rule's goal `P lhs → P rhs`, as `k2l_preserve` builds them. -/
 structure Closers where
   unfoldBoth : TSyntax `tactic
+  /-- The unfolding set and `k2l_arith` everywhere, then `omega`. -/
+  arith : TSyntax `tactic
   /-- `simp only` with the unfolding set, on the goal. -/
   norm : TSyntax `tactic
   /-- The unfolding set, for `simp only … at h`. -/
@@ -424,6 +432,9 @@ def closeRule (k : Closers) : TacticM Bool := do
   -- 4. simp
   unless ok do
     ok ← closes (← `(tactic| (intro h; $(k.simpAllU); done)))
+  -- 5. arithmetic
+  unless ok do
+    ok ← closes (← `(tactic| (intro h; $(k.arith))))
   unless ok do s0.restore
   return ok
 
@@ -500,9 +511,11 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
   let Ustar : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpStar| *)).raw⟩
   let coll ← labelled `k2l_coll
   let unfoldBoth ← `(tactic| (try simp only [$U,*] at h ⊢))
+  let Ua : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩
+  let arith ← `(tactic| ((try simp only [$Ua,*] at *); omega))
   let disch ← `(tactic| first
     | assumption | rfl | decide
-    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done))
+    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done) | $arith:tactic)
   let simpU ← `(tactic| simp only [$Ustar,*])
   let Ul : Array (TSyntax [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma]) :=
     U.map (⟨·.raw⟩)
@@ -518,7 +531,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
       if ← isProp d.type then acc := acc.push d.fvarId
     return acc
   let norm ← `(tactic| simp only [$U,*])
-  let k : Closers := { unfoldBoth, norm, U, disch, simpU, simpAllU, coll, heads, fuel, ambient }
+  let k : Closers := { unfoldBoth, arith, norm, U, disch, simpU, simpAllU, coll, heads, fuel, ambient }
   -- per-case mode: one rule's case `Step.Case.r P`, as `Step.preserves_of` asks for it
   if let some (n, r, _) := case? then
     if handNs.isSome then
@@ -602,15 +615,25 @@ syntax (name := k2lCollClose) "k2l_coll_close"
   let presArg : SimpArg := ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_pres)).raw⟩
   let U := U0.push presArg
   let Ustar : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpStar| *)).raw⟩
+  let Ua : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩
   let disch ← `(tactic| first
     | assumption | rfl | decide
-    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done))
+    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done)
+    | ((try simp only [$Ua,*] at *); omega))
   let coll ← labelled `k2l_coll
   let norm ← `(tactic| simp only [$U,*])
   unless ← collClose disch coll norm 2 3 do
     throwError "k2l_coll_close: failed"
 
 end K2LPreserve
+
+/- The `Int` and `Bool` hooks in Lean's arithmetic and logic, for `omega` (closer 5). Each hook is
+a definition whose body is the Lean operation (`KPrelude.Hooks`), so these are its unfoldings;
+the partial hooks (`/Int`, `%Int`, shifts, powers) are `Option`-valued and are not unfolded. -/
+attribute [k2l_arith] IntHook.add IntHook.sub IntHook.mul IntHook.neg IntHook.lt IntHook.le IntHook.gt
+  IntHook.ge IntHook.eq IntHook.ne BoolHook.not BoolHook.and BoolHook.or BoolHook.implies
+  KEqHook.eq KEqHook.ne decide_eq_true_eq decide_eq_false_iff_not Bool.not_eq_true'
+  Bool.and_eq_true Bool.or_eq_true Bool.not_eq_eq_eq_not Bool.not_true
 
 /- Generic normalization used when computing an invariant through a rule's right-hand side. -/
 attribute [k2l_pres] Option.map_some Option.map_none Option.bind_some Option.bind_none
