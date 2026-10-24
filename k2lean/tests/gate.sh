@@ -22,7 +22,7 @@
 #   k2lean/tests/gate.sh heavy    light, then SIMPLE (acceptance against krust), the SIMPLE
 #                                 invariants (the kind 1 `holdsOk@holds`, lifted over the <thread>
 #                                 cell map, of simpleinv, demos/k/simple-inv, and "every store value
-#                                 is a Val" as a cell function, simplestore, and as a function of
+#                                 is a Val or undefined" as a cell function, simplestore, and as a function of
 #                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv) and
 #                                 kimp-claims (claims.toml, krust kprove, kc_auto
 #                                 statistics, three replays)
@@ -509,7 +509,7 @@ if [ "$TIER" = heavy ]; then
       eqns simpleinv KSimpleInv && invcases simpleinv KSimpleInv
     else bad "gen simpleinv" "$L/gen-simpleinv.log"; fi
     diffs simpleinv
-    # "every store value is a Val" as a cell function (simplestore) and as a function of SIMPLE's
+    # "every store value is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's
     # top cell `<T>` (simplet), over the same definition: they start from simpleinv's build
     for d in simplestore simplet; do
       phase "lib $d"

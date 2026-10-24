@@ -99,7 +99,7 @@ libs_gen() {
     simpleinv) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
             --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
             --open-obligations "$o/open-obligations.txt" --invariant holdsOk@holds ;;
-    # the same definition with "every store value is a Val", as a function of the `<store>` cell's
+    # the same definition with "every store value is a Val or undefined", as a function of the `<store>` cell's
     # content and as a function of SIMPLE's top cell `<T>`
     simplestore|simplet) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
             --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \

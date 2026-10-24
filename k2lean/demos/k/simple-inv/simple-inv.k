@@ -4,7 +4,8 @@
 //   every value in every thread's `<holds>` is an `Int` that is at least 0. k2lean lifts
 //   `holdsOk@holds` over SIMPLE's `<thread>` cell map: for every thread, `holdsOk` of its
 //   `<holds>` is `true`.
-// - storeOk@store and tStoreOk@T: every value of the store is a `Val`, as a function of the
+// - storeOk@store and tStoreOk@T: every value of the store is a `Val` or `undefined` (the value
+//   of a declared variable or array element before its first assignment), as a function of the
 //   `<store>` cell's content and as a function of SIMPLE's top cell `<T>`, whose one equation
 //   matches `<store>` among `<T>`'s cells.
 requires "simple-untyped.md"
@@ -33,5 +34,5 @@ module SIMPLE-INV
   rule tStoreOk(<T> <store> S </store> ... </T>) => allVals(values(S))
 
   rule allVals(.List) => true
-  rule allVals(ListItem(V) L) => isVal(V) andBool allVals(L)
+  rule allVals(ListItem(V) L) => (isVal(V) orBool V ==K undefined) andBool allVals(L)
 endmodule
