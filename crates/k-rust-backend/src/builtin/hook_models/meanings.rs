@@ -237,7 +237,7 @@ fn written(definition: &BackendDefinition, hook: &str) -> Vec<std::sync::Arc<Rew
         .map(|(index, sort)| format!("Z{index}:{sort}{{}}"))
         .collect::<Vec<_>>();
     let lhs = term(definition, &application(definition, hook, &variables));
-    match hooks::meaning(&HookSymbols::of(definition), hook, &lhs) {
+    match hooks::meaning(&HookSymbols::of(definition), hook, &lhs, None) {
         Meaning::Built(rules) => rules,
         Meaning::Unwritten => panic!("{hook} has no written meaning"),
         Meaning::Unbuildable => panic!("{hook}'s written meaning cannot be built in the prelude"),
@@ -477,6 +477,19 @@ meaning_test!(
 );
 meaning_test!(the_meaning_of_set_union_is_union, "SET.union");
 
+/// `replaceAll`'s meaning where no `replace` qualifies for the lemma: its two cases written by
+/// `findString`, `substrString`, `lengthString` and `+String`, against the builtin.
+#[test]
+fn the_meaning_of_string_replace_all_without_the_lemma_is_its_two_cases() {
+    let definition = prelude();
+    let (checked, failures) = hooks::without_replace_lemma(|| {
+        assert_eq!(written(&definition, "STRING.replaceAll").len(), 2);
+        failures(&definition, "STRING.replaceAll")
+    });
+    assert!(checked > 0);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// Every hook of the table has a property test above.
 #[test]
 fn every_written_meaning_has_its_property_test() {
@@ -577,7 +590,7 @@ fn every_builtin_step_on_variables_is_an_instance_of_a_written_meaning() {
 /// `owise`), on the edge values of `replaceAll`'s tests: multibyte strings and self-overlapping
 /// patterns (`"aaa"` with `"aa"`).
 #[test]
-fn the_replace_all_lemma_agrees_with_the_builtin_through_domains_replace() {
+fn the_replace_all_lemma_agrees_with_the_builtin_through_the_replace_rows() {
     let definition = prelude();
     let named = |hook: &str| {
         definition

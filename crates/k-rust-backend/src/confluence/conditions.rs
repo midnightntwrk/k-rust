@@ -988,7 +988,9 @@ fn linear_constraint(
                 (None, Some(value)) => (left.clone(), value),
                 (None, None) if is_int(left) && is_int(right) => {
                     let form = linear(definition, left).add(linear(definition, right), -1);
-                    let shows = left.attributes().ceil_free() || right.attributes().ceil_free();
+                    let shows = left.attributes().ceil_free()
+                        || right.attributes().ceil_free()
+                        || super::switches::active().misread_equals_definedness;
                     return Some((form, Relation::Equal, shows));
                 }
                 _ => return None,

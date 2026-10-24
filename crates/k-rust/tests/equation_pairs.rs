@@ -736,3 +736,43 @@ fn a_redefined_replace_leaves_the_replace_all_equation_unshown() {
         "{replace_all:?}"
     );
 }
+
+/// Review A round 2: the guard on `replaceAll`'s lemma reads the content of `replace`'s
+/// equations, not where they came from. A user's `replace`-hooked symbol with exactly
+/// domains.md's two rows qualifies (it is the same function), so an equation stating the lemma
+/// with it joins; with row A's `Count -Int 1` changed to `Count -Int 2`, or row B's `requires`
+/// dropped, it does not, and the equation that reads it is reported.
+#[test]
+fn the_replace_all_lemma_is_guarded_by_the_content_of_the_replace_rows() {
+    let rows = |step: &str, guard: &str| {
+        format!(
+            r#"  syntax String ::= myReplace(String, String, String, Int) [function, hook(STRING.replace)]
+                  | myReplaceAll(String, String, String) [function, hook(STRING.replaceAll)]
+  rule myReplace(Source:String, ToReplace:String, Replacement:String, Count:Int) =>
+       substrString(Source, 0, findString(Source, ToReplace, 0)) +String Replacement +String
+       myReplace(substrString(Source, findString(Source, ToReplace, 0) +Int lengthString(ToReplace), lengthString(Source)), ToReplace, Replacement, Count -Int {step})
+        requires Count >Int 0 andBool findString(Source, ToReplace, 0) >=Int 0
+  rule myReplace(Source:String, _, _, Count) => Source {guard} [owise]
+  rule [mine]: myReplaceAll(S, T, R) => myReplace(S, T, R, countAllOccurrences(S, T))"#
+        )
+    };
+    for (step, guard, joins) in [
+        ("1", "requires Count >=Int 0", true),
+        ("2", "requires Count >=Int 0", false),
+        ("1", "", false),
+    ] {
+        let definition = definition(&rows(step, guard), false);
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let findings = hook_findings(&all, "mine");
+        assert_eq!(findings.is_empty(), joins, "{step} {guard:?}: {findings:?}");
+        // domains.md's own `replace` still qualifies, so its `replaceAll` equation joins.
+        assert!(
+            all.unjoined()
+                .iter()
+                .filter(|pair| pair.hook.is_some())
+                .all(|pair| pair.first.attributes.label.as_deref() == Some("PAIRS.mine")),
+            "{step} {guard:?}: {:#?}",
+            all.unjoined()
+        );
+    }
+}

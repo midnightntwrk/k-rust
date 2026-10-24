@@ -23,9 +23,9 @@ use support::{
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
     KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
-    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, R4_HOOKITE, R4_HOOKITE_M, REPLACE_PRIORITY, REPLACE_PRIORITY_M,
-    RERUN, RERUN_DROP,
+    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ,
+    R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_HOOKITE, R4_HOOKITE_M, REPLACE_PRIORITY,
+    REPLACE_PRIORITY_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -877,6 +877,18 @@ fn an_equation_agreeing_with_its_hook_only_through_the_definition_has_no_data() 
         &REPLACE_PRIORITY_M,
         "replace-priority/go.pgm",
     );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_only_unsupported(&report);
+    assert_not_confluent(&report, &["baseline", "mutant"]);
+}
+
+/// FZ-CONFLUENCE review A round 2 (R2-B1): a `replace`-hooked symbol named and placed like
+/// domains.md's, with false rows, does not qualify for `replaceAll`'s lemma (the guard reads the
+/// rows' content), so the false `myReplaceAll` equation is reported: never a kill (f202abd30's
+/// origin guard killed it).
+#[test]
+fn a_replace_spoofing_domains_origin_is_not_read_as_domains_replace() {
+    let report = r2_report(&R2_SPOOF, &R2_SPOOF_M, "r2-spoof/go.pgm");
     assert!(report.witness().is_none(), "{:?}", report.outcome);
     assert_only_unsupported(&report);
     assert_not_confluent(&report, &["baseline", "mutant"]);

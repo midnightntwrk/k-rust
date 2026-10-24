@@ -117,6 +117,9 @@ pub(crate) struct Switches {
     pub(crate) misread_min_max: bool,
     /// Conditions: give each member of an equality class the literal of another class.
     pub(crate) misplace_class_literal: bool,
+    /// Conditions: read an ML `\equals` between integer terms as showing its atoms defined, also
+    /// when neither side is `ceil_free` (both sides undefined satisfy it).
+    pub(crate) misread_equals_definedness: bool,
 }
 
 #[cfg(test)]
@@ -166,6 +169,7 @@ thread_local! {
             misread_disjunction: false,
             misread_min_max: false,
             misplace_class_literal: false,
+            misread_equals_definedness: false,
         })
     };
 }

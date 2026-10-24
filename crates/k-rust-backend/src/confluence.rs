@@ -877,8 +877,10 @@ impl UnjoinedPair {
     /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
     /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
     /// hold whether or not the definition makes claims. A hook pair ([`Self::hook`]) is reported
-    /// at load only when it withdraws a claim (the load classifies the hook pairs of relevant
-    /// equations only); the full check lists every one in [`ValueClaims::unjoined`].
+    /// at load only when it withdraws a claim: the load classifies the hook pairs of relevant
+    /// equations only, by the owner's gate decision on FZ-CONFLUENCE (2026-10-24: "hook
+    /// disagreements are not named at load; `UnmodelledHook` always is"); the full check lists
+    /// every one in [`ValueClaims::unjoined`].
     #[must_use]
     pub fn reported(&self) -> bool {
         self.relevant() || self.reason.describes_one_equation() || self.in_argument()
@@ -2350,7 +2352,11 @@ fn check_detached(
             hook_census.unevaluated += 1;
             continue;
         }
-        match hooks::meaning(&hook_symbols, &hook, &equation.rule.lhs) {
+        let rhs = match &equation.rule.rhs {
+            RuleRhs::Term(term) => Some(term),
+            _ => None,
+        };
+        match hooks::meaning(&hook_symbols, &hook, &equation.rule.lhs, rhs) {
             hooks::Meaning::Built(rules) => meanings.push((position, hook, rules)),
             hooks::Meaning::Unwritten | hooks::Meaning::Unbuildable => {
                 hook_census.unmodelled += 1;

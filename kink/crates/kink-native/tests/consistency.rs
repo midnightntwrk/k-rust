@@ -225,7 +225,11 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// when it withdraws a claim (as the load classifies only relevant equations' hook pairs), and the
 /// literal substitution moved into `conditions.rs` (`refuted_by_literals`). No stage, count or
 /// early return kink reads changes.
-const CONFLUENCE_RS: &str = "502e6d919e721ed174c252597fed2641436f640b4df7a2a0f97043a723b5da6a";
+///
+/// Re-pin FZ-CONFLUENCE review A round 2: 502e6d91 -> 7bddeac5. The hook stage passes the
+/// equation's right-hand side to `hooks::meaning` (which of several equal `replace` symbols the
+/// `replaceAll` lemma names), and `reported()`'s documentation cites the gate decision.
+const CONFLUENCE_RS: &str = "7bddeac58867ebb80f2f89580de98a3cd61f53f1bf9df2b431980cfeeeeaa36e";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

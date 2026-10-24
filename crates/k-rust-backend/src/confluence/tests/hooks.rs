@@ -158,12 +158,11 @@ fn the_load_pairs_only_relevant_equations_with_their_hooks() {
     assert_eq!(all(&definition).unjoined().len(), 1);
 }
 
-/// FUN's prelude holds every equation of `domains.md` at a hooked symbol, with the source
-/// locations stripped: each one at an evaluated hook joins every equation of its hook's meaning,
-/// but `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))`. Its `replace`
-/// equations cannot be identified as domains.md's by origin here, so the guarded lemma that would
-/// join it is absent (`hooks::domains_replace`), and it is named against both equations of the
-/// meaning written by evaluated builtins.
+/// FUN's prelude holds every equation of `domains.md` at a hooked symbol (with the source
+/// locations stripped): each one at an evaluated hook joins every equation of its hook's
+/// meaning. `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))` joins the
+/// guarded lemma: the guard reads the content of `replace`'s equations, which are domains.md's two
+/// rows here, not where they came from.
 #[test]
 fn the_preludes_hooked_equations_join_their_hooks_meanings() {
     let definition = prelude();
@@ -174,27 +173,15 @@ fn the_preludes_hooked_equations_join_their_hooks_meanings() {
         .filter(|pair| {
             pair.hook.is_some() || matches!(pair.reason, UnjoinedReason::UnmodelledHook(_))
         })
-        .map(|pair| {
-            (
-                pair.hook.as_deref().map(str::to_owned),
-                pair.second.attributes.label.clone(),
-            )
-        })
         .collect::<Vec<_>>();
-    let replace_all = Some("STRING.replaceAll".to_owned());
+    assert!(named.is_empty(), "{named:#?}");
     assert_eq!(
-        named,
-        [
-            (
-                replace_all.clone(),
-                Some("STRING.replaceAll meaning 1".to_owned())
-            ),
-            (replace_all, Some("STRING.replaceAll meaning 2".to_owned())),
-        ]
+        crate::confluence::hooks::replace_symbols(&definition).len(),
+        1
     );
     let counts = claims.counts();
     assert!(counts.hook.pairs > 0, "{counts:?}");
-    assert_eq!(counts.hook.not_joined, 2);
+    assert_eq!(counts.hook.not_joined, 0);
     assert_eq!(counts.hook.unmodelled, 0);
 }
 
@@ -207,8 +194,8 @@ fn prelude() -> BackendDefinition {
 /// Review A, B1: a written meaning is a fixed identity of a builtin, so besides the hooked symbol
 /// itself it names only constructors, literals and symbols whose hook the evaluator applies,
 /// never a symbol whose meaning the definition's equations supply (`STRING.replace`), except
-/// domains.md's own `replace` while it is read by exactly domains.md's equations
-/// (`hooks::domains_replace`; in this fixture, whose locations are stripped, it is not).
+/// a `replace` whose equations are exactly domains.md's two rows by content
+/// (`hooks::replace_symbols`), which the guarded lemma of `replaceAll` names.
 #[test]
 fn every_written_meaning_names_only_evaluated_builtins() {
     use crate::{
@@ -242,8 +229,8 @@ fn every_written_meaning_names_only_evaluated_builtins() {
             })
             .collect();
         let lhs = Term::application(std::sync::Arc::clone(symbol), sort_arguments, arguments);
-        let guarded = crate::confluence::hooks::domains_replace(&definition);
-        let Meaning::Built(rules) = meaning(&symbols, hook, &lhs) else {
+        let guarded = crate::confluence::hooks::replace_symbols(&definition);
+        let Meaning::Built(rules) = meaning(&symbols, hook, &lhs, None) else {
             panic!("{hook} has no written meaning in the prelude");
         };
         for rule in rules {
@@ -259,9 +246,7 @@ fn every_written_meaning_names_only_evaluated_builtins() {
             for term in terms {
                 term.visit_symbols(&mut |used| {
                     let fixed = used.name == symbol.name
-                        || guarded
-                            .as_ref()
-                            .is_some_and(|replace| replace.name == used.name)
+                        || guarded.iter().any(|replace| replace.name == used.name)
                         || used.attributes.head_role() == HeadRole::FreeConstructor
                         || matches!(term.kind(), TermKind::DomainValue { .. })
                         || used

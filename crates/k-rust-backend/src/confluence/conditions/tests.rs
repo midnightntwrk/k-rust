@@ -167,6 +167,8 @@ enum Conjunct {
     },
     /// `\or` of two conjuncts.
     Either(Box<Conjunct>, Box<Conjunct>),
+    /// The ML `\equals(left, right)` of two operands, which holds also where both are undefined.
+    Same(Operand, Operand),
 }
 
 impl Conjunct {
@@ -207,6 +209,10 @@ impl Conjunct {
             Self::Either(left, right) => {
                 Predicate::Or(vec![left.predicate(definition), right.predicate(definition)].into())
             }
+            Self::Same(left, right) => Predicate::Equals(
+                term(definition, &left.kore()),
+                term(definition, &right.kore()),
+            ),
         }
     }
 
@@ -238,6 +244,7 @@ impl Conjunct {
                 (Some(left), Some(right)) if holds(operator, left, right)
             ),
             Self::Either(left, right) => left.satisfied(assignment) || right.satisfied(assignment),
+            Self::Same(left, right) => left.value(assignment) == right.value(assignment),
         }
     }
 }
@@ -567,8 +574,9 @@ pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) ->
         let operand = |next: &mut dyn FnMut(usize) -> usize| match next(9) {
             0 => Operand::Literal(i64::try_from(next(5)).unwrap() - 2),
             1 | 2 => Operand::Shifted(next(3), i64::try_from(next(5)).unwrap() - 2),
-            // One quotient, `X /Int Y`, so that conjuncts meet on it.
-            3 | 4 => Operand::Quotient(0, 1),
+            // Two quotients by `Y`, `X /Int Y` and `Z /Int Y`, so that conjuncts meet on them
+            // and both are undefined at once.
+            3 | 4 => Operand::Quotient(if next(2) == 0 { 0 } else { 2 }, 1),
             5 => Operand::Abs(next(3)),
             6 => match next(2) {
                 0 => Operand::Min(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
@@ -579,7 +587,12 @@ pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) ->
         let count = 2 + next(3);
         let conjunct = |next: &mut dyn FnMut(usize) -> usize| {
             let operator = OPERATORS[next(OPERATORS.len())];
-            match next(5) {
+            match next(6) {
+                // Half of them between the two quotients, both partial at `Y = 0`.
+                5 if next(2) == 0 => {
+                    Conjunct::Same(Operand::Quotient(0, 1), Operand::Quotient(2, 1))
+                }
+                5 => Conjunct::Same(operand(next), operand(next)),
                 0 | 1 => Conjunct::Negated {
                     operator,
                     left: operand(next),
@@ -651,6 +664,21 @@ fn a_misread_disjunction_is_caught_by_the_property_test() {
 fn a_misread_min_max_is_caught_by_the_property_test() {
     let switches = crate::confluence::switches::Switches {
         misread_min_max: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7 (review B round 2): reading an ML `\equals` of two partial terms as showing them defined
+/// refutes `\equals(X /Int Y, Z /Int Y)` beside `\not(X /Int Y ==Int Z /Int Y)`, which holds at
+/// `Y = 0`; the property test sees it.
+#[test]
+fn a_misread_equals_definedness_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_equals_definedness: true,
         ..Default::default()
     };
     let failures = crate::confluence::switches::with(switches, || {

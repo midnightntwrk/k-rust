@@ -29,7 +29,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use k_rust_kore::names::{BuiltinSort, DEFAULT_RULE_PRIORITY, OWISE_RULE_PRIORITY};
+use k_rust_kore::names::BuiltinSort;
 
 use crate::{
     definition::BackendDefinition,
@@ -117,7 +117,14 @@ pub(crate) const WRITTEN: [&str; 22] = [
 
 /// The written meaning of `hook` at the symbol of `lhs`, the left-hand side of an executable
 /// equation rooted at a symbol carrying `hook`.
-pub(crate) fn meaning(symbols: &HookSymbols<'_>, hook: &str, lhs: &Term) -> Meaning {
+/// `rhs`, the paired equation's right-hand side when it has a term, decides only which of several
+/// equal choices the meaning names (the `replace` symbol of `replaceAll`'s lemma).
+pub(crate) fn meaning(
+    symbols: &HookSymbols<'_>,
+    hook: &str,
+    lhs: &Term,
+    rhs: Option<&Term>,
+) -> Meaning {
     if !WRITTEN.contains(&hook) {
         return Meaning::Unwritten;
     }
@@ -138,6 +145,7 @@ pub(crate) fn meaning(symbols: &HookSymbols<'_>, hook: &str, lhs: &Term) -> Mean
         arguments: arguments.iter().map(Term::sort).collect(),
         result: root.sort(),
         rules: Vec::new(),
+        rhs,
     };
     match builder.build() {
         Some(()) => Meaning::Built(builder.rules.into_iter().map(Arc::new).collect()),
@@ -154,6 +162,8 @@ struct Builder<'s, 'd> {
     arguments: Vec<Sort>,
     result: Sort,
     rules: Vec<RewriteRule>,
+    /// The paired equation's right-hand side ([`meaning`]).
+    rhs: Option<&'s Term>,
 }
 
 impl Builder<'_, '_> {
@@ -475,8 +485,18 @@ impl Builder<'_, '_> {
     /// after it (non-overlapping), with valid `substr` indices. Only evaluated builtins and the
     /// hooked symbol itself occur.
     fn replace_all(&mut self) -> Option<()> {
-        if let Some(replace) = domains_replace(self.definition()) {
-            return self.replace_all_lemma(replace);
+        // Every qualifying `replace` denotes one function; the lemma names the one the paired
+        // equation names, if any, so that an equation stating the lemma joins it.
+        let candidates = replace_symbols(self.definition());
+        let named = |candidate: &&Arc<Symbol>| {
+            self.rhs.is_some_and(|rhs| {
+                let mut found = false;
+                rhs.visit_symbols(&mut |symbol| found |= symbol.name == candidate.name);
+                found
+            })
+        };
+        if let Some(replace) = candidates.iter().find(named).or(candidates.first()) {
+            return self.replace_all_lemma(Arc::clone(replace));
         }
         let (source, target, replacement) = (
             self.variable("S", 0)?,
@@ -515,8 +535,8 @@ impl Builder<'_, '_> {
     }
 
     /// `replaceAll(S, T, R) = replace(S, T, R, countAllOccurrences(S, T)) requires T =/=String ""`,
-    /// where `replace` is domains.md's own symbol read by exactly domains.md's two equations
-    /// ([`domains_replace`]). Then `replace` is a fixed function the definition cannot change,
+    /// where `replace` is a symbol whose equations are exactly domains.md's two rows by content
+    /// ([`replace_symbols`]). Then `replace` is a fixed function the definition cannot change,
     /// and the equation is an identity of the builtin, by induction on `n = count(S, T)` for a
     /// nonempty `T`: `n > 0` exactly when `find(S, T, 0) >= 0`; when `n > 0` the first row
     /// (`requires Count >Int 0 andBool find >=Int 0`) applies, giving the prefix before the first
@@ -590,46 +610,236 @@ impl Builder<'_, '_> {
     }
 }
 
-/// The KORE name domains.md's `replace` production gets (module `STRING-COMMON`).
-const DOMAINS_REPLACE: &str = "Lblreplace'LParUndsCommUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String'Unds'Int";
+#[cfg(test)]
+thread_local! {
+    static WITHOUT_LEMMA: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
-/// domains.md's `replace` symbol, when the definition reads it by exactly domains.md's two
-/// equations, so that its meaning is fixed: the symbol is the one domains.md declares (its name is
-/// the label of domains.md's production in module `STRING-COMMON`; `STRING.replace` has no
-/// builtin, so its hook identifies nothing), and its equations, at every priority and `symbolic`
-/// ones included, are exactly domains.md's rows 1911 (priority 50) and 1915 (`owise`), by origin
-/// (each equation's one written sentence has the source `domains.md` and that line; a compiled
-/// definition records every axiom in its main module, so the module says nothing) and by priority. `None` otherwise: another equation for it, at any priority, makes it whatever the
-/// definition says.
-pub(crate) fn domains_replace(definition: &BackendDefinition) -> Option<Arc<Symbol>> {
-    let symbol = definition.symbols().get(DOMAINS_REPLACE)?;
-    if symbol.attributes.hook.as_deref() != Some("STRING.replace") {
-        return None;
+/// Test builds: runs `run` with no `replace` symbol qualifying for `replaceAll`'s lemma, so that
+/// the meaning written by evaluated builtins is built wherever the lemma would be.
+#[cfg(test)]
+pub(crate) fn without_replace_lemma<R>(run: impl FnOnce() -> R) -> R {
+    let previous = WITHOUT_LEMMA.replace(true);
+    let result = run();
+    WITHOUT_LEMMA.set(previous);
+    result
+}
+
+/// A pattern of the two `replace` rows the guarded lemma rests on ([`replace_symbols`]), as the
+/// compiler emits them.
+enum Row {
+    /// The `replace` symbol being checked.
+    Replace(Vec<Row>),
+    /// An application of a symbol whose hook the evaluator applies (`builtin::evaluates`), with
+    /// that hook, the argument sorts of its arguments and the builtin result sort `result`.
+    Builtin(&'static str, BuiltinSort, Vec<Row>),
+    /// A variable, numbered: equal numbers are one variable, different numbers different ones.
+    Variable(usize),
+    /// An integer literal.
+    Integer(i64),
+}
+
+/// Whether `term` matches `pattern`, the variables renamed consistently and injectively
+/// (`bound`); `replace` is the symbol being checked.
+fn matches_row(
+    definition: &BackendDefinition,
+    replace: &Symbol,
+    pattern: &Row,
+    term: &Term,
+    bound: &mut BTreeMap<usize, Variable>,
+) -> bool {
+    match (pattern, term.kind()) {
+        (Row::Variable(index), TermKind::Variable(variable)) => match bound.get(index) {
+            Some(known) => known == variable,
+            None => {
+                if bound.values().any(|known| known == variable) {
+                    return false;
+                }
+                bound.insert(*index, variable.clone());
+                true
+            }
+        },
+        (Row::Integer(value), TermKind::DomainValue { sort, value: text }) => {
+            *sort == Sort::builtin(BuiltinSort::Int)
+                && definition.domain_kind(sort) == Some(DomainKind::Int)
+                && text.as_utf8().ok() == Some(value.to_string().as_str())
+        }
+        (
+            Row::Replace(rows),
+            TermKind::Application {
+                symbol, arguments, ..
+            },
+        ) => {
+            symbol.name == replace.name
+                && rows.len() == arguments.len()
+                && rows
+                    .iter()
+                    .zip(arguments)
+                    .all(|(row, argument)| matches_row(definition, replace, row, argument, bound))
+        }
+        (
+            Row::Builtin(hook, result, rows),
+            TermKind::Application {
+                symbol, arguments, ..
+            },
+        ) => {
+            symbol.attributes.hook.as_deref() == Some(*hook)
+                && crate::builtin::evaluates(hook)
+                && symbol.sort_variables.is_empty()
+                && symbol.result_sort == Sort::builtin(*result)
+                && symbol.argument_sorts == arguments.iter().map(Term::sort).collect::<Vec<_>>()
+                && rows.len() == arguments.len()
+                && rows
+                    .iter()
+                    .zip(arguments)
+                    .all(|(row, argument)| matches_row(definition, replace, row, argument, bound))
+        }
+        _ => false,
     }
-    let rules = definition
-        .function_theory()
-        .get(&crate::rule::TermIndex::Symbol(symbol.name.clone()))?
-        .values()
-        .flatten()
-        .collect::<Vec<_>>();
-    let row = |rule: &RewriteRule| -> Option<usize> {
-        let [origin] = rule.attributes.origins.as_slice() else {
-            return None;
+}
+
+/// A `replace` symbol of the definition (one carrying the hook `STRING.replace` with the
+/// signature `String String String Int -> String`, a declared function; the hook is only a
+/// pre-filter: `STRING.replace` has no builtin, so its meaning is its equations) whose executable
+/// equations, at every priority, `symbolic` and `anywhere` ones included, are exactly the two rows
+/// below, up to a renaming of their variables, each helper an evaluated builtin at the builtin
+/// sorts, and row A at a strictly higher priority than row B:
+///
+/// - row A: `replace(S, T, R, C) = substrString(S, 0, findString(S, T, 0)) +String R +String
+///   replace(substrString(S, findString(S, T, 0) +Int lengthString(T), lengthString(S)), T, R,
+///   C -Int 1) requires C >Int 0 andBool findString(S, T, 0) >=Int 0`;
+/// - row B: `replace(S, _, _, C) = S requires C >=Int 0`.
+///
+/// These are domains.md's rows as the compiler emits them, but the evidence is their content: the
+/// induction behind the lemma (`Builder::replace_all_lemma`) reads only what the two rows say
+/// and that row B applies only where row A does not, which any strict priority order of A over B
+/// gives (with equal priorities both would apply where `C > 0` and an occurrence exists). A
+/// definition whose own `replace` says exactly the same gets the lemma too. Empty when no symbol
+/// qualifies: `replace` then means whatever the definition's equations say.
+pub(crate) fn replace_symbols(definition: &BackendDefinition) -> Vec<Arc<Symbol>> {
+    #[cfg(test)]
+    if WITHOUT_LEMMA.get() {
+        return Vec::new();
+    }
+    use Row::{Builtin, Integer, Replace, Variable};
+    let string = Sort::builtin(BuiltinSort::String);
+    let int = Sort::builtin(BuiltinSort::Int);
+    let (s, t, r, c) = (
+        || Variable(0),
+        || Variable(1),
+        || Variable(2),
+        || Variable(3),
+    );
+    let found = || Builtin("STRING.find", BuiltinSort::Int, vec![s(), t(), Integer(0)]);
+    let row_a_lhs = Replace(vec![s(), t(), r(), c()]);
+    let row_a_rhs = Builtin(
+        "STRING.concat",
+        BuiltinSort::String,
+        vec![
+            Builtin(
+                "STRING.concat",
+                BuiltinSort::String,
+                vec![
+                    Builtin(
+                        "STRING.substr",
+                        BuiltinSort::String,
+                        vec![s(), Integer(0), found()],
+                    ),
+                    r(),
+                ],
+            ),
+            Replace(vec![
+                Builtin(
+                    "STRING.substr",
+                    BuiltinSort::String,
+                    vec![
+                        s(),
+                        Builtin(
+                            "INT.add",
+                            BuiltinSort::Int,
+                            vec![
+                                found(),
+                                Builtin("STRING.length", BuiltinSort::Int, vec![t()]),
+                            ],
+                        ),
+                        Builtin("STRING.length", BuiltinSort::Int, vec![s()]),
+                    ],
+                ),
+                t(),
+                r(),
+                Builtin("INT.sub", BuiltinSort::Int, vec![c(), Integer(1)]),
+            ]),
+        ],
+    );
+    let row_a_requires = Builtin(
+        "BOOL.and",
+        BuiltinSort::Bool,
+        vec![
+            Builtin("INT.gt", BuiltinSort::Bool, vec![c(), Integer(0)]),
+            Builtin("INT.ge", BuiltinSort::Bool, vec![found(), Integer(0)]),
+        ],
+    );
+    let row_b_lhs = Replace(vec![s(), t(), r(), c()]);
+    let row_b_rhs = s();
+    let row_b_requires = Builtin("INT.ge", BuiltinSort::Bool, vec![c(), Integer(0)]);
+    // `rule` is `lhs = rhs requires condition` with nothing else, up to renaming.
+    let is_row = |replace: &Symbol, rule: &RewriteRule, lhs: &Row, rhs: &Row, condition: &Row| {
+        let RuleRhs::Term(right) = &rule.rhs else {
+            return false;
         };
-        let position = origin.written_position()?;
-        let mut parts = position.rsplitn(3, ':');
-        let (_column, line, source) = (parts.next()?, parts.next()?, parts.next()?);
-        (source == "domains.md" || source.ends_with("/domains.md"))
-            .then(|| line.parse().ok())
-            .flatten()
+        let [Predicate::Equals(required, truth)] = rule.requires.iter().collect::<Vec<_>>()[..]
+        else {
+            return false;
+        };
+        let truth_holds = matches!(truth.kind(), TermKind::DomainValue { sort, value }
+            if *sort == Sort::builtin(BuiltinSort::Bool) && value.as_bytes() == b"true");
+        let mut bound = BTreeMap::new();
+        rule.ensures.is_empty()
+            && rule.existentials.is_empty()
+            && truth_holds
+            && matches_row(definition, replace, lhs, &rule.lhs, &mut bound)
+            && matches_row(definition, replace, rhs, right, &mut bound)
+            && matches_row(definition, replace, condition, required, &mut bound)
     };
-    let mut rows = rules
-        .iter()
-        .map(|rule| Some((row(rule)?, rule.attributes.priority)))
-        .collect::<Option<Vec<_>>>()?;
-    rows.sort_unstable();
-    (rows == [(1911, DEFAULT_RULE_PRIORITY), (1915, OWISE_RULE_PRIORITY)])
-        .then(|| Arc::clone(symbol))
+    definition
+        .symbols()
+        .values()
+        .filter_map(|symbol| {
+            if symbol.attributes.hook.as_deref() != Some("STRING.replace")
+                || !matches!(
+                    symbol.attributes.symbol_type,
+                    crate::term::SymbolType::Function(_)
+                )
+                || !symbol.sort_variables.is_empty()
+                || symbol.argument_sorts != [string, string, string, int]
+                || symbol.result_sort != string
+            {
+                return None;
+            }
+            let rules = definition
+                .function_theory()
+                .get(&crate::rule::TermIndex::Symbol(symbol.name.clone()))?
+                .values()
+                .flatten()
+                .collect::<Vec<_>>();
+            let [first, second] = rules[..] else {
+                return None;
+            };
+            let row_a =
+                |rule: &RewriteRule| is_row(symbol, rule, &row_a_lhs, &row_a_rhs, &row_a_requires);
+            let row_b =
+                |rule: &RewriteRule| is_row(symbol, rule, &row_b_lhs, &row_b_rhs, &row_b_requires);
+            let (a, b) = if row_a(first) && row_b(second) {
+                (first, second)
+            } else if row_a(second) && row_b(first) {
+                (second, first)
+            } else {
+                return None;
+            };
+            // A lower number is tried first: row A strictly before row B.
+            (a.attributes.priority < b.attributes.priority).then(|| Arc::clone(symbol))
+        })
+        .collect()
 }
 
 /// The hook of the symbol an executable equation is rooted at, when that symbol carries one.
