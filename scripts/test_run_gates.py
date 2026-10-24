@@ -94,13 +94,16 @@ class KrsSelectionTest(unittest.TestCase):
         for path, expected in [
             ("docs-site/src/pages/krs/language.mdx", []),
             ("krs/crates/krs-fmt/src/lib.rs", ["krs-light", "krs-ports-emit"]),
-            ("krs/crates/krs-compiler/src/lib.rs", ["krs-light", "krs-ports-emit"]),
-            ("krs/crates/krs-cli/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-imp"]),
-            ("krs/crates/krs-macros/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-ports-rust"]),
+            ("krs/crates/krs-compiler/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-class"]),
+            ("krs/crates/krs-cli/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-class", "krs-imp"]),
+            ("krs/crates/krs-macros/src/lib.rs",
+             ["krs-light", "krs-ports-emit", "krs-class", "krs-ports-rust"]),
             ("krs/crates/krs-k-rust/src/lib.rs", ["krs-light", "krs-ports-emit", *ports]),
             ("krs/tests/kevm/pins.toml", ["krs-light", "krs-ports-emit", "krs-kevm"]),
             ("krs/tests/ports-emit/pins.toml", ["krs-light", "krs-ports-emit", "krs-ports-rust"]),
             ("krs/crates/krs-expand-wasm/src/lib.rs", ["krs-light"]),
+            ("krs/crates/krs-test-support/src/class_matrix.rs", ["krs-light", "krs-class"]),
+            ("krs/tests/class-matrix/pending.toml", ["krs-light", "krs-class"]),
         ]:
             with self.subTest(path=path):
                 self.assertEqual(self.krs(path), expected)

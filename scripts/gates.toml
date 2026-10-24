@@ -463,6 +463,23 @@ paths = [
   '^krs/tests/(imp|kevm|kmir|kwasm|ports-emit)/',
 ]
 
+# The class tests' full tier (krs/crates/krs-cli/tests/class_matrix.rs): every case the generator in
+# krs-test-support writes (one construct in one slot of an accepted base) through Cargo, rustc, the
+# collector, and emit-k's lowering, against the table-free invariants and
+# krs/tests/class-matrix/expected.toml, with the known failures in pending.toml. It observes the
+# code from the macros to the emitted K, and the generator and its table; not krust, the native
+# code, or formatting.
+[[gate]]
+name = "krs-class"
+run = "certification"
+command = "scripts/krs-class.sh"
+paths = [
+  "@krs-front",
+  '^krs/crates/(krs-collector|krs-compiler|krs-cli|krs-ir|krs-ir-levels|krs-test-support)/',
+  '^krs/tests/class-matrix/',
+  '^scripts/krs-class\.sh$',
+]
+
 # The four port gates with `--artifacts-only`: their Rust checks (Clippy, tests, the MSRV check,
 # rust-analyzer) and emitted artifacts. Those checks see the macro output, which krs-ports-emit pins
 # only up to spans inside a segment, the facade crate, and the dependency versions, so a moved

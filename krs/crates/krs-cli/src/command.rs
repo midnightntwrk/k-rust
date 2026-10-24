@@ -26,6 +26,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod agreement;
+mod collected;
 mod collector;
 mod counters;
 mod exec;
@@ -121,6 +122,7 @@ pub enum Command {
     Prove(ProveRequest),
 }
 
+pub use collected::{CollectedDefinition, EmittedDefinition, collect_descriptors};
 pub use exec::{
     ColorChoice, ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
 };
@@ -346,28 +348,10 @@ fn execute_with_sources(
     let metadata = timings.try_span("cargo.metadata.input", |_| {
         cargo_metadata(&request.manifest_path)
     })?;
-    let host_target = timings.try_span("host.discover", |_| rustc_host_target())?;
-
-    let runtime = timings.try_span("cargo.metadata.runtime", |_| discover_runtime())?;
-    let plan = timings.try_span("collector.plan", |_| {
-        let plan = CollectorPlan::resolve_definition(
-            &metadata,
-            &DefinitionRequest {
-                root: request.root.clone(),
-                dependencies: request.dependencies.clone(),
-                host_target,
-                cfg: request.cfg.clone(),
-            },
-            runtime,
-        )?;
-        Ok::<_, CommandError>(match request.registration {
-            RegistrationMode::Inventory => plan,
-            RegistrationMode::Explicit => plan.with_explicit_registration()?,
-        })
-    })?;
+    let plan = plan_collector(request, &metadata, timings)?;
     *sources = crate::DiagnosticSources::from_plan(&plan);
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
-    let executable = build_collector_measured(&collector_directory, &plan, measurement)?;
+    let executable = build_collector_measured(&collector_directory, &plan, None, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
     let reuse =
         !request.no_reuse && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"));
@@ -432,6 +416,32 @@ fn execute_with_sources(
     outcome
         .map(|value| value.outcome)
         .map_err(|error| error.warned(warnings))
+}
+
+/// The collector plan of `request`'s definition facets in the package graph `metadata`.
+fn plan_collector(
+    request: &CommandRequest,
+    metadata: &crate::CargoMetadata,
+    timings: &mut Timings,
+) -> Result<CollectorPlan, CommandError> {
+    let host_target = timings.try_span("host.discover", |_| rustc_host_target())?;
+    let runtime = timings.try_span("cargo.metadata.runtime", |_| discover_runtime())?;
+    timings.try_span("collector.plan", |_| {
+        let plan = CollectorPlan::resolve_definition(
+            metadata,
+            &DefinitionRequest {
+                root: request.root.clone(),
+                dependencies: request.dependencies.clone(),
+                host_target,
+                cfg: request.cfg.clone(),
+            },
+            runtime,
+        )?;
+        Ok::<_, CommandError>(match request.registration {
+            RegistrationMode::Inventory => plan,
+            RegistrationMode::Explicit => plan.with_explicit_registration()?,
+        })
+    })
 }
 
 /// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings ([`definition_warnings`]), the trusted claims `prove` assumes, and the stage-cache warning to its outcome or its failure.
@@ -512,6 +522,16 @@ fn prepare(
             count_bundle(&mut measurement.counters, &bundle, bytes);
             bundle
         })?;
+    prepare_bundle(bundle, profile, measurement)
+}
+
+/// Lower a decoded bundle as every command does: the raw-K policy, the semantic theory, the
+/// Definition IR, and the warnings of each.
+fn prepare_bundle(
+    bundle: DescriptorBundle,
+    profile: Option<krs_ir::RawKProfile>,
+    measurement: &mut Measurement,
+) -> Result<PreparedDefinition, CommandError> {
     let raw_k =
         krs_compiler::raw_k_policy(&bundle, profile).map_err(CommandError::DescriptorLowering)?;
     // A failure from here on reports the raw-K warnings already established.

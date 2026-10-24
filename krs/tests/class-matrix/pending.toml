@@ -187,3 +187,1351 @@ step = "S4"
 finding = "unassigned"
 deviation = "10 pairs only overlap holds; 0 pairs only coverage holds"
 step = "S4"
+
+# Lane "full" (U3): the full tier, `krs/crates/krs-cli/tests/class_matrix.rs` (K2 through rustc,
+# the collector and lowering; K1 after lowering, keyed `k1/CASE`). Its findings:
+# - B2: an initializer value of the wrong kind of cell is rustc E0308 at the generated types of
+#   `#[k::init]`, not at the value;
+# - B3: `Some(..)`/`None` in a readable result on a cell that is not optional is rustc E0277 on a
+#   hidden facade trait at the whole block;
+# - B4: `k: x`, or `{ y -> x, .. }` on a cell that is not a Map, is an unlocated `unsupported-shape`;
+# - B6: a `cells!` wrapper that disagrees with the cell's kind (`KCell` on a leaf, `Cell` on the
+#   computation or a group) is an unlocated `parser-reference-disagreement` or `invalid-term`;
+# - N22: a module-level `use Cmd::*;` does not reach the term positions (rustc E0573);
+# - N26: two literals in one initializer term give one semantic key twice;
+# - N27: an initializer value of a strict subsort of its cell's sort is refused by the IR
+#   validator, unlocated;
+# - S0-1: `Some(x)`/`None` in a result on the optional cell, when the subject binds the whole cell,
+#   is rustc E0277 at the whole block;
+# - S0-4: an initializer that reads a configuration variable twice is rustc E0382;
+# - X1: initializer fields out of declaration order are an unlocated collector error;
+# - X2: an initializer that leaves a declared configuration variable unused is an unlocated IR
+#   validation error.
+# `y @ Cmd::Hold(_)` outside a subject is refused at the front with one KRS error, which the fast
+# tier sees; rustc's parser adds a second, uncoded error, so those cases are keyed `full/CASE`.
+
+["cells/result/env/None"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/env/Some(k::configuration::Cell(x))"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/env/k::configuration::Cell(x)"]
+finding = "unassigned"
+deviation = "krs::analysis::incompatible-binder @ item"
+
+["cells/result/env/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/env/k::configuration::KCell(x)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/env/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/env/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/None"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/frame/k::configuration::Cell(0)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/k::configuration::Cell([x, y])"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/k::configuration::Cell(k::map![x -> y])"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/k::configuration::Cell(x)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/k::configuration::KCell(x)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/frame/x"]
+finding = "unassigned"
+deviation = "krs::analysis::incompatible-binder @ item"
+
+["cells/result/job/None"]
+finding = "unassigned"
+deviation = "krs::analysis::collection-entry @ item"
+
+["cells/result/job/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::collection-entry @ item"
+
+["cells/result/job/x"]
+finding = "unassigned"
+deviation = "krs::analysis::collection-entry @ item"
+
+["cells/result/k/None"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/k/Some(k::configuration::Cell(x))"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/k/k::configuration::Cell(0)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/k/k::configuration::Cell([x, y])"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/k/k::configuration::Cell(k::map![x -> y])"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/k/k::configuration::Cell(x)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/k/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/k/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/pc/None"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/pc/Some(k::configuration::Cell(x))"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/pc/k::configuration::Cell(k::map![x -> y])"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/pc/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/pc/k::configuration::KCell(x)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/pc/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/pc/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/stack/None"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/stack/Some(k::configuration::Cell(x))"]
+finding = "unassigned"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/result/stack/k::configuration::Cell(k::map![x -> y])"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/stack/k::configuration::Cell(x)"]
+finding = "unassigned"
+deviation = "krs::analysis::incompatible-binder @ item"
+
+["cells/result/stack/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/stack/k::configuration::KCell(x)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/result/stack/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/result/stack/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/counter/_"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/counter/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/counter/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/counter/k::configuration::KCell(x, ..)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/counter/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/counter/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/env/_"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/env/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/env/k::configuration::KCell(x, ..)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/env/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/env/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::Cell(0)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::Cell([x, ..])"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::Cell(_)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::Cell(x)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/frame/k::configuration::KCell(x, ..)"]
+finding = "B6"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/job/_"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::Cell(0)"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::Cell([x, ..])"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::Cell(_)"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::Cell(x)"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::KCell()"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::configuration::KCell(x, ..)"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/job/x"]
+finding = "unassigned"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["cells/subject/k/_"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/k/k::configuration::Cell(0)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/k/k::configuration::Cell([x, ..])"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/k/k::configuration::Cell(_)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/k/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/k/k::configuration::Cell(x)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/k/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/k/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/pc/_"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/pc/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/pc/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/pc/k::configuration::KCell(x, ..)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/pc/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/pc/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/stack/_"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/stack/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/stack/k::configuration::KCell()"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/stack/k::configuration::KCell(x, ..)"]
+finding = "B6"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+
+["cells/subject/stack/k::fragment![crate::Frame { ret: x }]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["cells/subject/stack/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["claim/result/counter/None"]
+finding = "S0-1"
+deviation = "E0277 @ item"
+step = "S5"
+
+["claim/result/counter/Some(x)"]
+finding = "S0-1"
+deviation = "E0277 @ item"
+step = "S5"
+
+["claim/result/env/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/env/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/env/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["claim/result/frame/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/frame/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/frame/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["claim/result/job/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/job/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/job/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["claim/result/k/[.., Job { payload: 0, .. }]"]
+finding = "unassigned"
+deviation = "krs::collect::invalid-configuration @ item"
+
+["claim/result/pc/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/pc/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/stack/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/stack/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/stack/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["claim/subject/counter/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["claim/subject/frame/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["claim/subject/job/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["claim/subject/k/x"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["claim/subject/k/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["claim/subject/pc/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["claim/subject/stack/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["import/claim/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/claim/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/claim/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/claim/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/constant/value/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/guard/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/guard/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/init/item-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/init/item/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/local-rule/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/local-rule/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/list-element/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/list-element/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/map-key/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/map-key/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result-list-element/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result-list-element/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/guard/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/guard/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/shorthand/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/shorthand/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["init/counter/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/Frame { ret: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/counter/Job { payload: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/counter/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/Frame { ret: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/env/Job { payload: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/env/Some(0)"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/env/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/pgm"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/frame/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/Job { payload: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/frame/Some(0)"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/frame/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/Frame { ret: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/job/Some(0)"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/job/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/Frame { ret: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/k/Job { payload: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/k/Some(0)"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/k/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/k::k![0]"]
+finding = "X2"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S1"
+
+["init/k/k::k![]"]
+finding = "X2"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S1"
+
+["init/k/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/order/pc-first"]
+finding = "X1"
+deviation = "uncoded @ unlocated"
+
+["init/order/queue-first"]
+finding = "X1"
+deviation = "uncoded @ unlocated"
+
+["init/order/reversed"]
+finding = "X1"
+deviation = "uncoded @ unlocated"
+
+["init/pc/Frame { ret: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/pc/Job { payload: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/pc/Some(0)"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/pc/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/k::map![0 -> 1]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["init/pc/k::map![]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["init/pc/pgm"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/stack/Frame { ret: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/stack/Job { payload: 0 }"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/stack/Some(0)"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/stack/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/stack/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/stack/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/stack/k::map![0 -> 1]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["init/stack/k::map![]"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["init/stack/pgm"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/typed/any/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/any/Cmd::Go()"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/any/Val::Unit()"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/boxed/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/boxed/any"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/typed/leaf/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/leaf/any"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/typed/list/any"]
+finding = "S0-4"
+deviation = "E0382 @ item"
+
+["init/typed/map/any"]
+finding = "S0-4"
+deviation = "E0382 @ item"
+
+["init/typed/opt/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/opt/any"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/typed/slot/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/slot/any"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["init/typed/stmt/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/stmt/Val::Unit()"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+step = "S4"
+
+["init/typed/stmt/any"]
+finding = "unassigned"
+deviation = "E0308 @ spelling"
+
+["k1/terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "the semantic key sem.term-literal is not injective"
+
+["k1/terms/init/item/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "the semantic key sem.term-literal is not injective"
+
+["readable/result/counter/None"]
+finding = "S0-1"
+deviation = "E0277 @ item"
+step = "S5"
+
+["readable/result/counter/Some(x)"]
+finding = "S0-1"
+deviation = "E0277 @ item"
+step = "S5"
+
+["readable/result/env/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/env/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/env/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["readable/result/frame/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/frame/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/frame/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["readable/result/job/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/job/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/job/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["readable/result/k/[.., Job { payload: 0, .. }]"]
+finding = "unassigned"
+deviation = "krs::collect::invalid-configuration @ item"
+
+["readable/result/pc/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/pc/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/stack/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/stack/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/stack/x"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-term @ unlocated"
+
+["readable/subject/counter/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["readable/subject/frame/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["readable/subject/job/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["readable/subject/k/x"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["readable/subject/k/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["readable/subject/pc/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["readable/subject/stack/{ y -> x, .. }"]
+finding = "B4"
+deviation = "krs::analysis::unsupported-shape @ unlocated"
+
+["full/terms/constant/value/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+
+["terms/equation/guard/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["full/terms/equation/result/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling"
+
+["terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
+["terms/init/item/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
+["terms/local-rule/subject/Cmd::Go() | Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
+["terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/local-rule/subject/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
+["terms/rule/guard/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/rule/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["full/terms/rule/result/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/shorthand/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["full/terms/shorthand/result/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::missing-argument @ item"
+
+["terms/simplification/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["full/terms/simplification/result/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling"
+
+["terms/simplification/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/table/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/table/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"
+
+["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "unassigned"
+deviation = "uncoded @ unlocated"

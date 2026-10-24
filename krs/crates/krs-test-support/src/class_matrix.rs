@@ -163,12 +163,21 @@ impl BaseText {
 
     /// The base up to its initializer, with `commands` declared.
     fn up_to_initializer(&self, commands: &[&Command]) -> String {
+        self.declaring(commands).0
+    }
+
+    /// The base up to its initializer, with `commands` declared, and the range of each
+    /// command's declaration in it.
+    fn declaring(&self, commands: &[&Command]) -> (String, Vec<Range<usize>>) {
         let mut text = String::from(self.before_commands);
+        let mut declarations = Vec::with_capacity(commands.len());
         for command in commands {
+            let start = text.len();
             command.declare(&mut text);
+            declarations.push(start..text.len());
         }
         text.push_str(self.after_commands);
-        text
+        (text, declarations)
     }
 }
 
@@ -395,11 +404,15 @@ pub struct Placed<'a> {
     pub spelling: Range<usize>,
     /// The slot's unit that holds the construct.
     pub entry: Range<usize>,
+    /// The declaration of the case's command constructor in its base's command family, for a
+    /// shared case.
+    pub command: Option<Range<usize>>,
 }
 
 impl Placed<'_> {
     /// The narrowest of the case's ranges that contains `range`: `spelling`, `entry`, or
-    /// `item`; `outside` when none does.
+    /// `item`, then `command` for the declaration of its command constructor; `outside` when
+    /// none does.
     #[must_use]
     pub fn region(&self, range: &Range<usize>) -> &'static str {
         let contains = |outer: &Range<usize>| outer.start <= range.start && range.end <= outer.end;
@@ -409,9 +422,18 @@ impl Placed<'_> {
             "entry"
         } else if contains(&self.item) {
             "item"
+        } else if self.command.as_ref().is_some_and(contains) {
+            "command"
         } else {
             "outside"
         }
+    }
+
+    /// Whether `range` lies in what the case adds to its base: its item, or its command's
+    /// declaration.
+    #[must_use]
+    pub fn owns(&self, range: &Range<usize>) -> bool {
+        self.region(range) != "outside"
     }
 }
 
@@ -438,18 +460,24 @@ pub fn render<'a>(cases: &[&'a Case]) -> Rendered<'a> {
         .iter()
         .filter_map(|case| case.command())
         .collect::<Vec<_>>();
+    let (mut source, declarations) = base.declaring(&commands);
+    let mut declarations = declarations.into_iter();
     if first.replaces_initializer() {
-        let start = base.up_to_initializer(&commands).len();
+        let start = source.len();
+        source.push_str(&first.item);
+        source.push_str(base.after_initializer);
         return Rendered {
-            source: base.assemble(&commands, Some(&first.item)),
-            cases: vec![place(first, start)],
+            source,
+            cases: vec![place(first, start, None)],
         };
     }
-    let mut source = base.assemble(&commands, None);
+    source.push_str(base.initializer);
+    source.push_str(base.after_initializer);
     let mut placed = Vec::with_capacity(cases.len());
     for case in cases {
         source.push('\n');
-        placed.push(place(case, source.len()));
+        let command = case.command().and_then(|_| declarations.next());
+        placed.push(place(case, source.len(), command));
         source.push_str(&case.item);
     }
     Rendered {
@@ -458,13 +486,14 @@ pub fn render<'a>(cases: &[&'a Case]) -> Rendered<'a> {
     }
 }
 
-fn place(case: &Case, start: usize) -> Placed<'_> {
+fn place(case: &Case, start: usize, command: Option<Range<usize>>) -> Placed<'_> {
     let shift = |range: &Range<usize>| start + range.start..start + range.end;
     Placed {
         case,
         item: start..start + case.item.len(),
         spelling: shift(&case.spelling),
         entry: shift(&case.entry),
+        command,
     }
 }
 

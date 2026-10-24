@@ -142,11 +142,12 @@ fn scratch_file(prefix: &str) -> Result<tempfile::NamedTempFile, CommandError> {
 pub(super) fn build_collector_measured(
     collector_directory: &Path,
     plan: &CollectorPlan,
+    target: Option<&Path>,
     measurement: &mut Measurement,
 ) -> Result<PathBuf, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
     // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let mut build = crate::cargo::command();
+    let mut build = crate::cargo::command_in(target);
     build
         .current_dir(collector_directory)
         .args(["build", "--manifest-path"])

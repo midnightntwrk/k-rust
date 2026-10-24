@@ -12,3 +12,40 @@ construct, and that both files parse:
 ```sh
 cargo test -p krs-test-support --test class_matrix
 ```
+
+## The full tier: gate `krs-class`
+
+`scripts/krs-class.sh` runs every case through Cargo, rustc, the collector, and `emit-k`'s lowering
+(`krs/crates/krs-cli/tests/class_matrix.rs`). The rule-level cases of one base share batch packages,
+one command constructor per case; a rustc or collector error is attributed to the case whose text
+holds it, a failure no case owns is bisected, and once a batch collects, each case is lowered from
+the descriptors of the base and its own. A case is judged by
+
+- K2: when refused, exactly one error, with a registered KRS code that `[internal]` does not list,
+  located inside the case's entry, without a panic or an internal error; and the table's outcome
+  where the table covers the case (until the table is reviewed, an uncovered case is only counted);
+- K1, once collected: every anchor of the case's descriptors lies inside the case's text, and no
+  semantic key is found twice during lowering.
+
+Run one shard (`readable`, `cells`, `init`, `terms`, `import`), and choose the worker count yourself
+when the default (from the load and the available memory) does not suit:
+
+```sh
+scripts/krs-class.sh --shard cells --workers 4
+```
+
+To iterate on a few cases, run the test directly with a glob over case IDs, and write one TSV line
+per case and verdict to a directory:
+
+```sh
+KRS_CLASS_FILTER='readable/result/pc/*' KRS_CLASS_OUT=/tmp/class \
+  cargo test -p krs-cli --no-default-features --test class_matrix -- --ignored readable
+```
+
+## Pending entries
+
+A case that deviates fails the suite until `pending.toml` records it, keyed by the test and the case
+(`k2/readable/result/pc/None`), with the finding that owns it (`unassigned` while none does) and the
+deviation exactly as the harness prints it. `KRS_CLASS_OUT` writes the entries of every unrecorded
+deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review. A pending case that
+conforms, or deviates differently, also fails: remove its entry, or record the new deviation.

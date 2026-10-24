@@ -11,7 +11,9 @@ use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest,
 use krs_test_support::class_matrix::invariants::{
     Observed, ObservedDiagnostic, Severity, Violation, signature, violations,
 };
-use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
+use krs_test_support::class_matrix::pending::{
+    Judgement, Observation, Pending, UNASSIGNED, case_of,
+};
 use krs_test_support::class_matrix::table::{At, Expected, Glob, Table, TableError};
 use krs_test_support::class_matrix::{
     self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, render,
@@ -517,6 +519,19 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
     assert_eq!(
         tally.by_step,
         BTreeMap::from([("S5".to_owned(), 1), ("no step".to_owned(), 1)])
+    );
+
+    // The full tier's prefixed entries name their case; a lattice entry names none.
+    let prefixed = Pending::parse(
+        "[\"k1/a\"]\nfinding = \"F\"\ndeviation = \"d\"\n\n\
+         [\"full/b\"]\nfinding = \"F\"\ndeviation = \"d\"\n\n\
+         [\"lattice/c\"]\nfinding = \"F\"\ndeviation = \"d\"\n",
+    )
+    .expect("the entries parse");
+    assert_eq!(prefixed.stale(&["a"]), vec!["full/b"]);
+    assert_eq!(
+        ["k1/a", "full/b", "lattice/c", "d"].map(case_of),
+        [Some("a"), Some("b"), None, Some("d")]
     );
 
     let errors = Pending::parse(

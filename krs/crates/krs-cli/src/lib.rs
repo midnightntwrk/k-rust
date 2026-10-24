@@ -23,9 +23,10 @@ mod process;
 mod render;
 
 pub use command::{
-    ColorChoice, Command, CommandError, CommandKind, CommandOutcome, CommandRequest, MessageFormat,
-    ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
-    execute_command, execute_command_measured, execute_command_reported,
+    CollectedDefinition, ColorChoice, Command, CommandError, CommandKind, CommandOutcome,
+    CommandRequest, EmittedDefinition, MessageFormat, ParseRequest, ProgramSource, ProveRequest,
+    RunRequest, SearchRequest, TermOutput, collect_descriptors, execute_command,
+    execute_command_measured, execute_command_reported,
 };
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticReports,

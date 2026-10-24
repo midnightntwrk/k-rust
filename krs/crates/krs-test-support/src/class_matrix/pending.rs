@@ -25,6 +25,14 @@
 //! An entry whose ID starts with [`LATTICE`] is not a case: it records one disagreement of K4,
 //! the sort judges' test (`lattice/DEFINITION/JUDGE~JUDGE/CLASS`), which judges those entries
 //! under the same rules.
+//!
+//! Both tiers read a case's entry, so for a case the front refuses they must observe it alike.
+//! Two prefixes name a case's entries that only the full tier reads:
+//! - [`KEYS`], `k1/CASE`: K1's verdict after lowering, on the semantic keys and anchors of the
+//!   collected case;
+//! - [`FULL`], `full/CASE`: the full tier's deviation of a case that the front refuses and the
+//!   full tier observes otherwise (rustc adds an error to the front's, say). The full tier reads
+//!   it in place of `CASE`'s entry.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -36,6 +44,26 @@ pub const UNASSIGNED: &str = "unassigned";
 
 /// The ID prefix of the entries that record a disagreement among sort judges, not a case.
 pub const LATTICE: &str = "lattice/";
+
+/// The ID prefix of the full tier's K1 entries, `k1/CASE`.
+pub const KEYS: &str = "k1/";
+
+/// The ID prefix of a case's entry that only the full tier reads, `full/CASE`.
+pub const FULL: &str = "full/";
+
+/// The case an entry's ID names: the ID itself, or the ID after [`KEYS`] or [`FULL`]; `None` for
+/// a [`LATTICE`] entry, which names no case.
+#[must_use]
+pub fn case_of(id: &str) -> Option<&str> {
+    if id.starts_with(LATTICE) {
+        return None;
+    }
+    Some(
+        id.strip_prefix(KEYS)
+            .or_else(|| id.strip_prefix(FULL))
+            .unwrap_or(id),
+    )
+}
 
 /// One pending case.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -195,14 +223,15 @@ impl Pending {
         }
     }
 
-    /// The pending case IDs that name no case of `ids`: an entry for a case the generator no
-    /// longer produces must leave the list. [`LATTICE`] entries are no cases and are not listed.
+    /// The pending IDs whose case ([`case_of`]) is no case of `ids`: an entry for a case the
+    /// generator no longer produces must leave the list. [`LATTICE`] entries are no cases and are
+    /// not listed.
     #[must_use]
     pub fn stale<'a>(&'a self, ids: &[&str]) -> Vec<&'a str> {
         self.entries
             .keys()
             .map(String::as_str)
-            .filter(|id| !id.starts_with(LATTICE) && !ids.contains(id))
+            .filter(|id| case_of(id).is_some_and(|case| !ids.contains(&case)))
             .collect()
     }
 
