@@ -19,3 +19,4 @@ import KPrelude.Logic
 import KPrelude.Termination
 import KPrelude.Determinism
 import KPrelude.Soundness
+import KPrelude.Scaffold
