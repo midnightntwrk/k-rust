@@ -2123,10 +2123,20 @@ impl Context<'_> {
     /// Such a pair withdraws no value claim, in either scope. The claims are statements about
     /// `M_NF`, where the sort is empty and the pair has no instance, and the closure's model `M'`
     /// is built from a model in which that sort may be empty (`docs/compatibility.md`, "Anywhere
-    /// rules"). Every use of a claim on evaluation is sound under that reading: a claim is made
-    /// only of an application whose arguments are instance-normal (`instance_normal.rs`), a
-    /// ground instance-normal term is a normal form, and no ground term of the sort is one. The
-    /// prover also uses claims (it
+    /// rules"). Every use of a claim on evaluation is sound under that reading, by what the two
+    /// certificates a claim rests on check. The instance-normal scan (`instance_normal.rs`)
+    /// claims an application whose arguments are instance-normal; a ground instance-normal term
+    /// is a normal form, and no ground term of the sort is one. The simplifier's
+    /// [`crate::term::head::NormalFormCertificate`] (`simplify::cacheable_equation_head`) claims
+    /// a ground application of an equation head or an overloaded symbol when equation selection
+    /// is complete, every function and simplification equation it offers fails to match it, and
+    /// every argument carries the `evaluated` mark; that mark is carried by free-constructor
+    /// applications, domain values, injections and collections of terms that carry it, and by
+    /// applications holding the certificate. Those are built from symbols whose stuck
+    /// application is not `\bottom` (`symbols.rs`, `Class::stuck_is_bottom`), the symbols a
+    /// sort's normal forms are read from, except an overloaded declared partial function, which
+    /// the certificate also accepts: so no ground term of the sort carries the mark unless such a
+    /// function produces the sort. The prover also uses claims (it
     /// decomposes and refutes equation-head applications by their instance-normal tokens when it
     /// unifies a claim or a rule with a symbolic state, `unification.rs`, `proof.rs`,
     /// `rewrite/recover.rs`), and its results rest on that reading too: from a model with an
