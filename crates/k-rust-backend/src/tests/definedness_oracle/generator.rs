@@ -913,6 +913,33 @@ pub(super) fn stuck_total_branch(definition: Definition) -> (Definition, Vec<Pat
     (definition, seeds)
 }
 
+/// The FZ-DATAEND review's round-4 repro `r4-empty` in the oracle's language: a sort `Em` with
+/// no symbol, and the total function `fEm : Em -> A` with `fEm(X:Em) = c` beside
+/// `fEm(X:Em) = d` when `clash`, otherwise beside `fEm(X:Em) = idEm(c)` with the total
+/// `idEm(X:A) = X`; and the equation head `hEm : Em -> A` with the one equation
+/// `hEm(X:Em) = c`. `definition` declares the constructors `c` and `d` of `A`. No term evaluation
+/// reaches `Em`, but every model has an element of it, where `fEm`'s equations hold, so
+/// the clashing pair equates `c` with `d` in every model; the definition's `D+` gives
+/// `fEm(*_Em)` the normal forms `c` and `d`.
+pub(super) fn empty_sort(definition: Definition, clash: bool) -> (Definition, Vec<Pat>) {
+    let element = || var("VarX", "Em");
+    let mut definition = definition
+        .total_function("fEm", &["Em"], "A")
+        .head("hEm", &["Em"], "A")
+        .equation(app("fEm", vec![element()]), cons("c"))
+        .equation(app("hEm", vec![element()]), cons("c"));
+    definition = if clash {
+        definition.equation(app("fEm", vec![element()]), cons("d"))
+    } else {
+        definition
+            .total_function("idEm", &["A"], "A")
+            .equation(app("idEm", vec![var("VarY", "A")]), var("VarY", "A"))
+            .equation(app("fEm", vec![element()]), app("idEm", vec![cons("c")]))
+    };
+    definition.sorts.push("Em".into());
+    (definition, Vec::new())
+}
+
 /// One fixed definition per feature class, so that every class is present in every run.
 #[allow(clippy::too_many_lines, reason = "one template per feature class")]
 pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
@@ -1142,6 +1169,14 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
     }
     let (definition, seeds) = stuck_total_branch(base());
     templates.push(("template stuck total branch".into(), definition, seeds));
+    for clash in [true, false] {
+        let (definition, seeds) = empty_sort(base(), clash);
+        templates.push((
+            format!("template empty sort (clash {clash})"),
+            definition,
+            seeds,
+        ));
+    }
     // No equation head: functions and lists only.
     templates.push((
         "template no head".into(),

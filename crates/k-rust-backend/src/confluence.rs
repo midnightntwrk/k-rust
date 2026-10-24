@@ -2072,6 +2072,9 @@ impl Context<'_> {
             let uninhabited = self.uninhabited_sort(first, &second, &unifier);
             if uninhabited.is_some() {
                 self.tally(candidate, Tally::Uninhabited);
+                if switches::active().separate_uninhabited {
+                    continue 'unifiers;
+                }
             }
             let unjoined: UnjoinedPair = 'classified: {
                 let (equalities, conjunction, open) = match self

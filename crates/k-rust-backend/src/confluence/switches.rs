@@ -66,6 +66,10 @@ pub(crate) struct Switches {
     /// non-joined reason then names; such a pair withdraws no claim, so the switch keeps the
     /// claims its closure would withdraw).
     pub(crate) drop_supersort_inhabitation: bool,
+    /// Set aside every overlap over a sort with no normal form, as neither refuted, joined nor
+    /// listed (vacuity restored: the check before FZ-EMPTYSORT, which read the equations in the
+    /// normal-form model, where such a sort is empty, while every model has an element of it).
+    pub(crate) separate_uninhabited: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
     pub(crate) stuck_total_is_bottom: bool,
@@ -150,6 +154,7 @@ thread_local! {
             admit_certificates: false,
             root_read_overloaded_patterns: false,
             drop_supersort_inhabitation: false,
+            separate_uninhabited: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,

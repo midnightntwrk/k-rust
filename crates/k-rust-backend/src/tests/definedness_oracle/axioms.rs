@@ -1675,7 +1675,17 @@ pub(super) fn check_definition(label: &str, definition: &Definition, rng: &mut R
     let mut reversed = definition.clone();
     reversed.equations.reverse();
     match (backend(definition), backend(&reversed)) {
-        (Ok(loaded), Ok(reordered)) => check_axioms(label, &loaded, Some(&reordered), rng),
+        (Ok(loaded), Ok(reordered)) => {
+            let mut tally = check_axioms(label, &loaded, Some(&reordered), rng);
+            // The sorts with an element in every model are the oracle's on this definition too
+            // (`checks::inhabitation_failures`), collections included.
+            for failure in super::checks::inhabitation_failures(definition, &loaded) {
+                tally
+                    .failures
+                    .push(format!("{label}: {}: {failure}", super::checks::JUNK));
+            }
+            tally
+        }
         (Err(error), _) | (_, Err(error)) => AxiomTally {
             definitions: 1,
             rejected: 1,

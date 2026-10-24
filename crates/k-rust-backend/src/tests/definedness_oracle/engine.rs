@@ -709,6 +709,50 @@ impl<'d> Universe<'d> {
         defined && self.normalize(id).forms.contains(&BOTTOM)
     }
 
+    /// The term `id` rebuilt in `into`, a universe of a definition that declares every symbol and
+    /// sort `id` holds under the same names (the definition and its `D+`, say).
+    pub(super) fn transfer(&self, id: Id, into: &mut Universe<'_>) -> Id {
+        match &self.nodes[id as usize] {
+            Node::Bottom => BOTTOM,
+            Node::Int(value) => into.int(*value),
+            Node::Bool(value) => into.boolean(*value),
+            Node::App(symbol, children) => {
+                let children = children
+                    .iter()
+                    .map(|child| self.transfer(*child, into))
+                    .collect();
+                let symbol = into.symbol_id(&self.definition.symbols[*symbol as usize].name);
+                into.node(Node::App(symbol, children))
+            }
+            Node::Inj(from, to, child) => {
+                let child = self.transfer(*child, into);
+                let (from, to) = (
+                    into.sort_id(self.sort_name(*from)),
+                    into.sort_id(self.sort_name(*to)),
+                );
+                into.node(Node::Inj(from, to, child))
+            }
+            Node::List(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| self.transfer(*element, into))
+                    .collect();
+                into.node(Node::List(elements))
+            }
+        }
+    }
+
+    /// Whether `id` holds an application of a symbol whose name satisfies `named`.
+    pub(super) fn holds_symbol(&self, id: Id, named: &impl Fn(&str) -> bool) -> bool {
+        match &self.nodes[id as usize] {
+            Node::App(symbol, _) if named(&self.definition.symbols[*symbol as usize].name) => true,
+            node => self
+                .children_of(node)
+                .into_iter()
+                .any(|child| self.holds_symbol(child, named)),
+        }
+    }
+
     /// The KORE text of `id`.
     pub(super) fn kore(&self, id: Id) -> String {
         match &self.nodes[id as usize] {
