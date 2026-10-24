@@ -351,5 +351,10 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
     {
         differences.push("where or how the target was reached differs".to_owned());
     }
+    // Whether the program's run of every path is comparable is a fact of the witness case too
+    // (FZ-COMPARABLE-A); absent from a witness recorded before it existed, which is not compared.
+    if recorded.comparable.is_some() && replayed.comparable != recorded.comparable {
+        differences.push("whether the run of every path is comparable differs".to_owned());
+    }
     differences
 }

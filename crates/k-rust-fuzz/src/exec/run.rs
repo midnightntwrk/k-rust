@@ -26,7 +26,7 @@ use k_rust::{
 
 use super::{
     Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
-    LOAD_STACK_STOP, LeafReport, NormalEndKind, UncleanReason, UnjudgedReason,
+    LOAD_STACK_STOP, LeafDiagnostic, LeafReport, NormalEndKind, UncleanReason, UnjudgedReason,
 };
 use crate::{
     assemble::ProgramAssembly,
@@ -888,6 +888,12 @@ impl Executor {
     /// The internal judgement's reasons for `state` as a `stuck` leaf, for tests of the
     /// clean-leaf rule on states no run produces.
     pub(super) fn judge_stuck_state(&mut self, state: KorePattern) -> Vec<UncleanReason> {
+        self.judge_stuck_leaf(state).0
+    }
+
+    /// [`Self::judge_stuck_state`], with whether the state holds a term-level `\and`
+    /// ([`LeafReport::term_conjunction`]).
+    pub(super) fn judge_stuck_leaf(&mut self, state: KorePattern) -> (Vec<UncleanReason>, bool) {
         let leaf = LeafReport {
             halt: HaltReasonOutput::Stuck,
             depth: 0,
@@ -897,6 +903,8 @@ impl Executor {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            diagnostics: Vec::new(),
+            term_conjunction: false,
         };
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -913,7 +921,8 @@ impl Executor {
         let mut internal = judge
             .judge_internally(&mut self.backend, std::slice::from_ref(&leaf))
             .expect("the judgement runs");
-        internal.pop().expect("one leaf").reasons
+        let internal = internal.pop().expect("one leaf");
+        (internal.reasons, internal.term_conjunction)
     }
 }
 
@@ -951,8 +960,13 @@ pub(crate) type ConfigurationPlan =
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ConfigurationVerdict {
     /// It is decided (no constraint, no variable), ceil-free, and matches with empty
-    /// constraints: the target is reached there.
-    Reaches,
+    /// constraints: the target is reached there. `term_conjunction`: its term holds a
+    /// term-level `\and` (of equal sides, since it is ceil-free), which kink's query refuses
+    /// ([`super::comparable::query_conditions`], Q4').
+    Reaches {
+        /// The configuration's term holds a term-level `\and`.
+        term_conjunction: bool,
+    },
     /// The matcher refuted it.
     Refuted,
     /// It cannot be decided: it matches but is not ceil-free (it may denote nothing), the match
@@ -1022,6 +1036,8 @@ struct Internal {
     data_end: Option<bool>,
     /// Solver `unknown`s the leaf's matching met, in either evaluation mode (review 2, NI-2).
     smt_unknowns: usize,
+    /// [`LeafReport::term_conjunction`].
+    term_conjunction: bool,
 }
 
 impl Judge<'_> {
@@ -1158,7 +1174,9 @@ impl Judge<'_> {
         let verdict = self.match_leaf(definition, solver, matcher, &pattern, &mut internal)?;
         *unknowns = unknowns.saturating_add(internal.smt_unknowns);
         Ok(match verdict {
-            MatchVerdict::Matched if attributes.ceil_free() => ConfigurationVerdict::Reaches,
+            MatchVerdict::Matched if attributes.ceil_free() => ConfigurationVerdict::Reaches {
+                term_conjunction: holds_term_conjunction(&pattern.term),
+            },
             MatchVerdict::Matched => ConfigurationVerdict::Unresolved(UnjudgedReason::NotCeilFree),
             MatchVerdict::NotMatched => ConfigurationVerdict::Refuted,
             MatchVerdict::Undecided => {
@@ -1242,6 +1260,8 @@ impl Judge<'_> {
                 matches: vec![false; self.matchers.len()],
                 rewrites: established_rewrites(leaf),
                 data_end: None,
+                diagnostics: LeafDiagnostic::of_leaf(leaf),
+                term_conjunction: false,
             });
         }
         let mut internal = match self.judge_internally(backend, &leaves) {
@@ -1278,6 +1298,7 @@ impl Judge<'_> {
             leaf.natural_end = leaf.is_clean() && internal.normal_end;
             leaf.matches = internal.matches;
             leaf.data_end = internal.data_end;
+            leaf.term_conjunction = internal.term_conjunction;
         }
         let run_facts_off_leaves = run_facts_off_leaves(result);
         let mut load_records = load_records(result);
@@ -1433,6 +1454,7 @@ impl Judge<'_> {
         if !decided || !end_like {
             return Ok(internal);
         }
+        internal.term_conjunction = holds_term_conjunction(&pattern.term);
         if let Some(heads) = self.data_heads {
             internal.data_end = Some(definition.is_data(&pattern.term, heads));
         }
@@ -1645,6 +1667,33 @@ fn partial_application(term: &Term) -> Option<String> {
         TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
     children.into_iter().find_map(partial_application)
+}
+
+/// Whether `term` holds a term-level `\and` anywhere (`k_rust_backend::term::TermKind::And`),
+/// with equal sides or not.
+fn holds_term_conjunction(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::And(..) => true,
+        TermKind::Application { arguments, .. } => arguments.iter().any(holds_term_conjunction),
+        TermKind::Injection { term, .. } => holds_term_conjunction(term),
+        TermKind::Map { entries, rest, .. } => {
+            entries
+                .iter()
+                .any(|(key, value)| holds_term_conjunction(key) || holds_term_conjunction(value))
+                || rest.as_ref().is_some_and(holds_term_conjunction)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(holds_term_conjunction)
+                || rest.as_ref().is_some_and(|(middle, tails)| {
+                    holds_term_conjunction(middle) || tails.iter().any(holds_term_conjunction)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(holds_term_conjunction)
+                || rest.as_ref().is_some_and(holds_term_conjunction)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
 }
 
 /// The verdict on two cells together: refuted when either is, undecided when either is,

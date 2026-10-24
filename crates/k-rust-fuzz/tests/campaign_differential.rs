@@ -76,6 +76,8 @@ fn spec_on(
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         options: CaseOptions::default(),
         proposers: ProposerConfig {

@@ -329,6 +329,8 @@ fn leaf(halt: HaltReasonOutput, unclean: Vec<UncleanReason>, natural_end: bool) 
         matches: Vec::new(),
         rewrites: Vec::new(),
         data_end: None,
+        diagnostics: Vec::new(),
+        term_conjunction: false,
     }
 }
 
@@ -542,6 +544,8 @@ fn rule_target(id: &str, mode: RuleMode, run_to_completion: bool) -> ResolvedTar
             run_to_completion,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         resolved: Resolved::Rule {
             id: id.to_owned(),
@@ -734,6 +738,8 @@ fn pattern_target(run_to_completion: bool) -> ResolvedTarget {
             run_to_completion,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         resolved: Resolved::PatternFinal,
         matchers: Vec::new(),
@@ -779,6 +785,8 @@ fn a_differential_target_is_not_judged_here() {
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         resolved: Resolved::Differential,
         matchers: Vec::new(),
@@ -1046,6 +1054,8 @@ fn the_pattern_body_count_ignores_the_targets_own_verdict() {
             run_to_completion: false,
             negated_property: true,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         resolved: Resolved::PatternFinal,
         matchers: Vec::new(),

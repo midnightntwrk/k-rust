@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    exec::{NormalEndKind, OutcomeClass, UnjudgedReason},
+    exec::{ComparableCondition, NormalEndKind, OutcomeClass, UnjudgedReason},
     holes::HoleLocation,
     spec::{Budget, CaseOptions, PathMode, ProposerConfig},
     target::RuleName,
@@ -1085,6 +1085,23 @@ pub struct WitnessCase {
     /// leaf's configuration in `sides`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steps: Option<u64>,
+    /// For a rule or pattern witness, whether the program's run of every path is one kink can
+    /// compare (`crate::Target::comparable`, P7-ADDENDUM section 4): with the `comparable-end`
+    /// option it holds on every witness. Absent for every other target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comparable: Option<Comparability>,
+}
+
+/// Whether a witness program's run of every path is one kink can compare
+/// ([`WitnessCase::comparable`]; `crate::exec::comparable::end_conditions`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct Comparability {
+    /// It is: no condition fails.
+    pub holds: bool,
+    /// The conditions that fail, in [`ComparableCondition`]'s order, each once; empty exactly
+    /// when [`Self::holds`].
+    pub reasons: Vec<ComparableCondition>,
 }
 
 /// Where a witness case reached its target.
@@ -1526,6 +1543,7 @@ mod tests {
             },
             kill: None,
             steps: Some(12),
+            comparable: None,
         };
         FuzzReport {
             schema: REPORT_SCHEMA.into(),

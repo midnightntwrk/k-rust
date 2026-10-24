@@ -730,6 +730,8 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end,
+            diagnostics: Vec::new(),
+            term_conjunction: false,
         }
     }
 
@@ -744,6 +746,8 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            diagnostics: Vec::new(),
+            term_conjunction: false,
         }
     }
 
@@ -1209,6 +1213,10 @@ mod tests {
                 reasons::incomplete(side).is_none(),
                 "{side:?}"
             );
+            // A comparable run (FZ-COMPARABLE-A) is complete: comparability refuses more.
+            if crate::exec::comparable::end_conditions(side).is_empty() {
+                assert!(complete_ends(side).is_some(), "{side:?}");
+            }
         }
         // A baseline whose one path is a clean undefined step is complete with the empty set:
         // any mutant end is added.

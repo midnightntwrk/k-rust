@@ -8,6 +8,7 @@
 //! property failure (ARCHITECTURE 4).
 
 mod any_state;
+mod comparable;
 pub(crate) mod differential;
 #[cfg(test)]
 mod fixture_tests;
@@ -21,6 +22,7 @@ use std::{collections::BTreeMap, fmt};
 use k_rust::backend::{CompiledRuleKind, CompiledRuleOutput, HaltReasonOutput};
 use serde::{Deserialize, Serialize};
 
+pub(crate) use observer::JudgedRun;
 pub use observer::{
     ConfigurationView, Observer, ObserverHandle, ObserverTarget, ObserverVerdict, contains_symbol,
 };
@@ -39,6 +41,10 @@ use crate::{
 };
 
 /// A campaign's target (ARCHITECTURE 4.1).
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent option of the serialized target, a campaign key"
+)]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Target {
@@ -64,6 +70,34 @@ pub struct Target {
         skip_serializing_if = "is_data_end_default"
     )]
     pub data_end: bool,
+    /// For a rule or pattern target (`comparable-end`): a hit also requires that the witness
+    /// program's run of every path is one kink can compare (P7-ADDENDUM section 4, conditions
+    /// P1, P2, P4 and P5; [`crate::exec::comparable::end_conditions`]): complete, every leaf an
+    /// end or an undefined step, decided, with no diagnostic of any kind on any leaf, and no
+    /// stack stop, chosen value, contradicted claim, allowance refusal or unsupported hook in the
+    /// run or the definition's load. That run is the hit case's own when it ran every path with
+    /// no terminal rule; otherwise one more run of every path, counted in the case's work. A hit
+    /// that fails is `unsupported`, with the reason `end-not-comparable:CONDITION`
+    /// ([`crate::exec::UnjudgedReason::EndNotComparable`]). Without the option, the witness of a
+    /// rule or pattern target still carries the judgement
+    /// ([`crate::report::WitnessCase::comparable`]). `false` by default (absent from a
+    /// serialized target when `false`); ignored by the differential and observer targets.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub comparable: bool,
+    /// For a pattern target (`query-confirmable`): a hit also requires that no leaf of the run
+    /// carries a diagnostic of any kind, that the run's lists hold no fact (a chosen value or
+    /// contradicted claim on no leaf, an allowance refusal, an unsupported hook, a stop for lack
+    /// of stack, also in the definition's load), and that the matched state holds no term-level
+    /// `\and` (P7-ADDENDUM section 4, conditions Q2', Q4', Q5';
+    /// [`crate::exec::comparable::query_conditions`]). The run is read whole because kink's
+    /// search absorbs the facts of converging paths into a matching state. This is necessary
+    /// for kink's query to confirm the hit, not sufficient: kink's search stops at its first
+    /// match (Q6'), which the fuzz cannot decide. A hit that fails is `unsupported`, with the
+    /// reason `query-not-confirmable:CONDITION`
+    /// ([`crate::exec::UnjudgedReason::QueryNotConfirmable`]). `false` by default (absent from
+    /// a serialized target when `false`); ignored by every other target kind.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub query_confirmable: bool,
 }
 
 /// [`Target::data_end`]'s default.
@@ -77,6 +111,14 @@ const fn data_end_default() -> bool {
 )]
 const fn is_data_end_default(data_end: &bool) -> bool {
     *data_end
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Target {
@@ -672,11 +714,16 @@ impl ResolvedTarget {
         } else {
             None
         };
-        Ok(Judgement {
+        let judgement = Judgement {
             class,
             hit_site,
             blocked,
             reason,
-        })
+        };
+        let term_conjunction = match hit_site {
+            Some(HitSite::Leaf(index)) => result.leaves[index].term_conjunction,
+            Some(HitSite::Run) | None => false,
+        };
+        Ok(self.confirmable(judgement, result, term_conjunction))
     }
 }

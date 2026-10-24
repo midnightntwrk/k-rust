@@ -11,6 +11,7 @@
 //! so that every target kind shares one precedence: the target's judge decides which leaves
 //! reach it, and `classify` decides what that makes the case.
 
+pub mod comparable;
 pub mod reasons;
 pub(crate) mod run;
 #[cfg(test)]
@@ -27,6 +28,7 @@ use k_rust::{
 };
 use serde::{Deserialize, Serialize};
 
+pub use comparable::{ComparableCondition, LeafDiagnostic};
 pub use reasons::UnjudgedReason;
 pub(crate) use run::{
     CompiledPattern, ConfigurationVerdict, Executor, LeafMatcher, NormalEnd, PatternCompiler,
@@ -332,6 +334,15 @@ pub struct LeafReport {
     /// the data-end requirement of rule and pattern targets, [`crate::Target::data_end`]).
     /// `None` otherwise.
     pub data_end: Option<bool>,
+    /// The kinds of every diagnostic the leaf carries, and its `contradictedTotal`, sorted,
+    /// each once, whether or not the clean-leaf rule counts them: kink makes any diagnosed leaf
+    /// incomplete ([`comparable`], P7-ADDENDUM section 4, P1).
+    pub diagnostics: Vec<LeafDiagnostic>,
+    /// The leaf is a decided end (`stuck`, `trivial` or `terminal`, internalized with no
+    /// constraint and no variable) whose term holds a term-level `\and` anywhere, which kink's
+    /// query refuses even with equal sides ([`comparable::query_conditions`], Q4'); one of
+    /// different sides also makes the leaf not ceil-free. `false` on every other leaf.
+    pub term_conjunction: bool,
 }
 
 impl LeafReport {
@@ -588,8 +599,23 @@ impl CaseRequestShape {
 
     /// Whether the request names terminal rules, so that a `terminal` halt is the target's
     /// own stop.
-    fn has_terminal_rules(&self) -> bool {
+    pub(crate) fn has_terminal_rules(&self) -> bool {
         !self.request.terminal_rules.is_empty()
+    }
+
+    /// This shape for the program's own run of every path (`crate::target::Target::comparable`):
+    /// strategy `all`, a path set, the same bounds and options, and nothing the target asked
+    /// for (no terminal rule, no trace, no condition entries, no counts, no data judgement).
+    pub(crate) fn every_path(&self) -> Self {
+        let mut shape = self.clone();
+        shape.request.strategy = ExecutionStrategy::All;
+        shape.request.result_modality = ResultModalityOutput::PathSet;
+        shape.request.terminal_rules = Vec::new();
+        shape.request.trace = false;
+        shape.request.collect_conditions = None;
+        shape.request.collect_counts = false;
+        shape.data_end = false;
+        shape
     }
 }
 

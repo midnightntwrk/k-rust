@@ -38,6 +38,8 @@ fn any_state(pattern: &str, run_to_completion: bool) -> Target {
         run_to_completion,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     }
 }
 

@@ -100,6 +100,9 @@ pub struct TargetFile {
     /// Under `run-to-completion`, a rule or pattern hit's end must also be data; `true` by
     /// default.
     pub data_end: Option<bool>,
+    /// A rule or pattern hit must also have a comparable run of every path
+    /// (`comparable-end`); `false` by default.
+    pub comparable: Option<bool>,
 }
 
 /// The `[options]` table (library `CaseOptions`).
@@ -246,6 +249,7 @@ pub struct Overrides {
     pub run_to_completion: Option<bool>,
     pub negated_property: Option<bool>,
     pub data_end: Option<bool>,
+    pub comparable: Option<bool>,
     pub assume_joined: Vec<String>,
     pub all_paths: Option<bool>,
     pub max_depth: Option<u64>,
@@ -738,6 +742,14 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
                 .into(),
         );
     }
+    let comparable = flags.comparable.or(file.comparable);
+    if comparable.is_some() && !matches!(kind, TargetKind::Rule(_) | TargetKind::Pattern(_)) {
+        return Err(
+            "--comparable, --no-comparable (or the file's `comparable`) apply only to a rule or \
+             a pattern target"
+                .into(),
+        );
+    }
     match (&kind, has_mutant) {
         (TargetKind::Differential(_), false) => {
             return Err("the differential target needs a mutant: pass --mutant DIR".into());
@@ -762,6 +774,8 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
             .or(file.negated_property)
             .unwrap_or(false),
         data_end: data_end.unwrap_or(true),
+        comparable: comparable.unwrap_or(false),
+        query_confirmable: false,
     })
 }
 

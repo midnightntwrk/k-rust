@@ -61,7 +61,7 @@ use crate::{
         self, Abort, CaseRequestShape, CaseResult, DeterminismBreak, Executor, OutcomeClass,
         UnjudgedReason,
     },
-    report::EngineDefect,
+    report::{Comparability, EngineDefect},
 };
 
 #[cfg(test)]
@@ -374,6 +374,13 @@ pub(crate) struct JudgedRun {
     /// on any path of the run before a hit; `None` when it answered none, and for every other
     /// target. The climb's score of an observer target (ARCHITECTURE 6.4).
     pub(crate) progress: Option<u32>,
+    /// For a rule or pattern hit, whether the program's run of every path is comparable
+    /// (`super::comparable`); `None` for every other judgement and target, and for a hit that
+    /// `comparable-end` refused.
+    pub(crate) comparable: Option<Comparability>,
+    /// The program's run of every path that judged comparability, when the case's own run did
+    /// not run every path or stopped at the target's rule; the case counts its work.
+    pub(crate) every_path: Option<CaseResult>,
 }
 
 impl ResolvedTarget {
@@ -436,6 +443,8 @@ impl ResolvedTarget {
                     judgement,
                     hit_step,
                     progress,
+                    comparable: None,
+                    every_path: None,
                 })
             }
             Resolved::PatternAnyState => {
@@ -448,21 +457,30 @@ impl ResolvedTarget {
                         Ok((judgement, hit_step)) => (Ok(judgement), hit_step),
                         Err(defect) => (Err(defect), None),
                     };
+                let (judgement, comparable, every_path) =
+                    self.judge_comparable(executor, initial, shape, cancel, &result, judgement)?;
+                let hit = matches!(&judgement, Ok(judged) if judged.class == OutcomeClass::Hit);
                 Ok(JudgedRun {
                     result,
                     judgement,
-                    hit_step,
+                    hit_step: hit_step.filter(|_| hit),
                     progress: None,
+                    comparable,
+                    every_path,
                 })
             }
             Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
                 let result = executor.run(initial, shape, &self.matchers(), cancel)?;
                 let judgement = self.judge_run(&result, shape.all_paths());
+                let (judgement, comparable, every_path) =
+                    self.judge_comparable(executor, initial, shape, cancel, &result, judgement)?;
                 Ok(JudgedRun {
                     result,
                     judgement,
                     hit_step: None,
                     progress: None,
+                    comparable,
+                    every_path,
                 })
             }
         }

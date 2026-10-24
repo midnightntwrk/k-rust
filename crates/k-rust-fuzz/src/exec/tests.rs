@@ -246,6 +246,24 @@ fn a_leaf_holding_a_conjunction_of_two_different_terms_is_not_ceil_free() {
     );
 }
 
+/// A decided end whose term holds a term-level `\and`, even of equal sides, says so: kink's query
+/// refuses such a state (FZ-COMPARABLE-Q, Q4'), though k-rust reads `1 /\ 1` as `1`.
+#[test]
+fn a_decided_end_holding_a_term_conjunction_says_so() {
+    let result = imp().run(DIV_IMP);
+    let leaf = only_leaf(&result);
+    assert!(!leaf.term_conjunction);
+    let end = KorePrinter::compact().print_pattern(&leaf.state);
+    let mut executor = imp().executor(&CaseOptions::default());
+    let equal = r#"\and{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#;
+    let item = format!("kseq{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({equal}), dotk{{}}())");
+    let state = parse_pattern(&end.replace("dotk{}()", &item)).expect("the edited state");
+    let (reasons, conjunction) = executor.judge_stuck_leaf(state);
+    assert!(conjunction, "{reasons:?}");
+    let (_, conjunction) = executor.judge_stuck_leaf(leaf.state.clone());
+    assert!(!conjunction);
+}
+
 #[test]
 fn a_natural_looking_end_holding_a_partial_application_is_not_ceil_free() {
     // With the default work bound every leaf carries every run fact; without a budget only
@@ -754,6 +772,8 @@ fn leaf(halt: HaltReasonOutput, unclean: &[UncleanReason], natural_end: bool) ->
         matches: Vec::new(),
         rewrites: Vec::new(),
         data_end: None,
+        diagnostics: Vec::new(),
+        term_conjunction: false,
     }
 }
 

@@ -185,6 +185,8 @@ fn violation(pattern: &str) -> Target {
         run_to_completion: false,
         negated_property: true,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     }
 }
 
@@ -246,6 +248,8 @@ fn golden_reports() -> Vec<FuzzReport> {
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         };
         spec.options.paths = PathMode::AllPaths;
         spec
@@ -366,6 +370,8 @@ fn dictionary_campaigns(coin: &CampaignSpec) -> Vec<(CampaignSpec, Budget)> {
             run_to_completion: false,
             negated_property: false,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         };
         with_dictionary(
             spec,
@@ -436,6 +442,8 @@ fn climb_campaign() -> CampaignSpec {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     };
     spec.proposers.weights = [(ProposerKind::Blind, 1), (ProposerKind::Climb, 1)]
         .into_iter()
@@ -475,6 +483,8 @@ fn corpus_campaign() -> CampaignSpec {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     };
     spec.proposers.weights = [(ProposerKind::Blind, 1), (ProposerKind::Corpus, 1)]
         .into_iter()
@@ -513,6 +523,8 @@ fn solve_campaigns() -> Vec<(CampaignSpec, Budget)> {
         run_to_completion: false,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     };
     spec.proposers.weights = [(ProposerKind::Blind, 1), (ProposerKind::Solve, 1)]
         .into_iter()

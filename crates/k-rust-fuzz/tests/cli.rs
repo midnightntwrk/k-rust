@@ -385,6 +385,8 @@ fn the_command_line_runs_the_library_campaign() {
             run_to_completion: false,
             negated_property: true,
             data_end: true,
+            comparable: false,
+            query_confirmable: false,
         },
         options: CaseOptions {
             safety_limit_ms: Some(60_000),
@@ -1453,6 +1455,56 @@ fn an_unlabelled_rule_is_targeted_by_source_line_or_unique_id() {
         )),
         "{stdout}"
     );
+}
+
+/// FZ-COMPARABLE-A: TRIAL2's hits on kink's IMP (rules 47 and 52) stay hits under
+/// `--comparable`, and their witnesses carry a comparable judgement that holds: the programs are
+/// deterministic and their runs end cleanly with no diagnostic.
+#[test]
+fn imp_rule_hits_stay_hits_under_comparable_end() {
+    let neg = kink_imp_campaign(
+        "clamp.imp",
+        "imp.k:47",
+        [("X", "x = 7;", "7"), ("LO", "lo = 3;", "3")],
+    );
+    let and = kink_imp_campaign(
+        "guard.imp",
+        "imp.k:52",
+        [("X", "x = 5;", "5"), ("Y", "y = 8;", "8")],
+    );
+    let directory = kink_imp_workspace(
+        "rule-comparable",
+        &[
+            ("clamp.imp", CLAMP),
+            ("guard.imp", GUARD),
+            ("neg.toml", &neg),
+            ("and.toml", &and),
+        ],
+    );
+    for campaign in ["neg.toml", "and.toml"] {
+        let output = krust_fuzz(
+            &directory,
+            &["--campaign", campaign, "--comparable", "--json"],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{campaign}: {}",
+            text(&output.stderr)
+        );
+        let report = json_value(&output);
+        assert_eq!(report["outcome"]["status"], "witness-found", "{report}");
+        let witness = &report["outcome"]["witness"];
+        for case in [&witness["first"], &witness["shrunk"]] {
+            if !case.is_null() {
+                assert_eq!(
+                    case["comparable"],
+                    serde_json::json!({"holds": true, "reasons": []}),
+                    "{campaign}: {report}"
+                );
+            }
+        }
+    }
 }
 
 /// A replay compares the target rule by its id only (FZ-RULEREF review I2): its name is read

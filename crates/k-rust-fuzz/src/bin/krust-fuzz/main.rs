@@ -142,6 +142,16 @@ struct Args {
     #[arg(long, overrides_with = "data_end")]
     no_data_end: bool,
 
+    /// A rule or pattern hit must also have a run of every path that kink can compare: complete,
+    /// decided, with no diagnostic on any leaf and no stop, chosen value, contradicted claim,
+    /// allowance refusal or unsupported hook in the run or the definition's load.
+    #[arg(long, overrides_with = "no_comparable")]
+    comparable: bool,
+
+    /// Accept a rule or pattern hit whose run of every path is not comparable (the default).
+    #[arg(long, overrides_with = "comparable")]
+    no_comparable: bool,
+
     /// Read the finding NAME of a definition's critical-pair check as resolved (a pair as joined,
     /// an equation as agreeing with its hook), as the report's definition-findings name it
     /// (`FIRST,SECOND@POSITION`, `hook:EQUATION`, `equation:EQUATION`, `precondition:...`);
@@ -232,7 +242,8 @@ struct Args {
         conflicts_with_all = [
             "campaign", "sort", "config_vars", "reach_rule", "rule_mode", "pattern", "at",
             "differential", "run_to_completion", "no_run_to_completion", "negated_property",
-            "no_negated_property", "data_end", "no_data_end", "assume_joined", "all_paths",
+            "no_negated_property", "data_end", "no_data_end", "comparable", "no_comparable",
+            "assume_joined", "all_paths",
             "one_path",
             "max_depth", "max_work",
             "normal_end", "cases", "work", "seed", "rejection_cap", "safety_limit",
@@ -374,6 +385,7 @@ fn run(args: Args) -> Result<u8, String> {
         run_to_completion: switch(args.run_to_completion, args.no_run_to_completion),
         negated_property: switch(args.negated_property, args.no_negated_property),
         data_end: switch(args.data_end, args.no_data_end),
+        comparable: switch(args.comparable, args.no_comparable),
         assume_joined: args.assume_joined,
         all_paths: switch(args.all_paths, args.one_path),
         max_depth: args.max_depth,
@@ -1152,6 +1164,7 @@ mod tests {
             },
             kill: Some(KillKind::AddedEnd),
             steps: Some(3),
+            comparable: None,
         };
         let mut text = String::new();
         write_differential(&mut text, &case, KillKind::AddedEnd, None);

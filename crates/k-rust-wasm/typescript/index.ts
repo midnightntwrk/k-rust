@@ -1242,6 +1242,18 @@ export interface FuzzTarget {
    * match.
    */
   'data-end'?: boolean
+  /**
+   * A rule or pattern hit must also have a run of every path that kink can compare: complete,
+   * decided, no diagnostic on any leaf, no stop, chosen value, contradicted claim, allowance
+   * refusal or unsupported hook in the run or the load. `false` when absent.
+   */
+  comparable?: boolean
+  /**
+   * A pattern hit must also carry no diagnostic anywhere in its run, no run fact, and no term-level
+   * `\and` in the matched state: necessary for kink's query to confirm it, not sufficient. `false`
+   * when absent.
+   */
+  'query-confirmable'?: boolean
 }
 
 export type FuzzPathMode = 'one-path' | 'all-paths'
@@ -1505,6 +1517,8 @@ export interface FuzzWitnessCase {
   reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }
   kill?: 'added-end' | 'removed-end'
   steps?: number
+  /** For a rule or pattern witness: whether the program's run of every path is comparable. */
+  comparable?: { holds: boolean; reasons: FuzzComparableCondition[] }
 }
 
 export interface FuzzWitness {
@@ -1580,6 +1594,34 @@ export type FuzzUnjudgedReason =
   | 'baseline-end-not-data'
   | 'unconfirmed'
   | 'engine-defect'
+  | `end-not-comparable:${FuzzComparableCondition}`
+  | `query-not-confirmable:${FuzzComparableCondition}`
+
+/** A condition kink's comparability or query hit rests on that a run fails, in report order. */
+export type FuzzComparableCondition =
+  | 'run-failed'
+  | 'clock'
+  | 'work-bound'
+  | 'depth-bound'
+  | 'halt'
+  | 'undecided-state'
+  | 'not-ceil-free'
+  | 'internalization-failed'
+  | 'term-conjunction'
+  | 'undefined-initial-instances'
+  | 'simplification-budget-exhausted'
+  | 'rule-condition-unsimplified'
+  | 'rule-condition-failed'
+  | 'undecided-condition'
+  | 'undecided-predicate'
+  | 'unsupported-hook-unevaluated'
+  | 'smt-unknowns'
+  | 'stack-stops'
+  | 'implementation-chosen-value'
+  | 'contradicted-claim'
+  | 'run-fact-off-leaves'
+  | 'allowance-refusal'
+  | 'unsupported-hook'
 
 /** Which normal end a definition's classes rest on. */
 export type FuzzNormalEndKind = 'single-k' | 'every-k' | 'pattern'

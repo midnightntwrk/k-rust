@@ -148,6 +148,8 @@ fn observer(
         run_to_completion,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     }
 }
 
@@ -328,6 +330,8 @@ fn a_rule_target_is_run_and_judged_by_the_same_entry_point() {
         run_to_completion: true,
         negated_property: false,
         data_end: true,
+        comparable: false,
+        query_confirmable: false,
     };
     let mut coin = Harness::new(COIN.compiled(), one_path());
     let resolved = coin.resolve(&target).expect("the rule resolves");

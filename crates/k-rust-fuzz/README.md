@@ -123,6 +123,13 @@ A configuration that cannot be decided (it matches but is not ceil-free, its mat
 The witness's `reaching.step` is the step of the first reaching configuration on the hit leaf's path, counted in rewrite steps from the initial configuration (0 for the initial configuration itself); `steps` is the leaf's own depth, since the run goes on to its end. `totals.pattern-body-matches` is counted at `final` only.
 An any-state case costs more than a `final` one: observed execution keeps two configurations per step and an event for every equation it applies, and each configuration before the first reach is internalized and matched once (twice when the pattern evaluates a function or has a `requires`, which is matched in both evaluation modes). Observed execution dominates: on IMP's `loop.imp` (306 steps) a case takes about 4 ms at `final`, 176 ms through observed execution with every event, and 237 ms at `any-state` (best of 7 on a loaded machine; 12 times `final` on COIN's `count(200)`); the observer target pays the same observed execution.
 
+## Comparable ends and confirmable queries
+
+Two options of a rule or pattern target ask for a witness that kink can use (P7-ADDENDUM section 4); both read facts k-rust already reports, and neither runs kink's own rules (its census exclusions and TV-01 reach a witness through kink itself).
+
+- `comparable-end` (the campaign file's `comparable = true`, `--comparable`, `Target::comparable` in the library): a hit also needs the witness program's run of every path to be one kink can compare. It must be complete (every leaf a `stuck` end or an undefined step, no bound, timeout, stop or undecided halt; a run with no `work-bound` leaf is the unbudgeted run's result), every leaf decided (ground, no constraint, ceil-free), no diagnostic of any kind on any leaf (kink makes a diagnosed leaf incomplete, so an `undecided-condition` the clean-leaf rule ignores counts here), and no stop for lack of stack, chosen value, contradicted claim, allowance refusal or unsupported hook in the run or in the definition's load (load records, which taint no leaf of the fuzz's own verdicts, count here). `smtUnknowns` refuses it too, as the determinism contract does. That run is the hit case's own when the campaign runs all paths and the target sets no terminal rule (a `fired` rule target without `run-to-completion` stops at its rule); otherwise the hit case makes one more run of every path, a path set with the campaign's bounds, whose work it counts. A hit that fails is `unsupported`, counted under `end-not-comparable:CONDITION` with the first condition that fails (`work-bound`, `undecided-condition`, `contradicted-claim`, ...). Without the option, every rule or pattern witness case carries the judgement as `comparable = {holds, reasons}`. On these conditions the fuzz may refuse more than kink (a vacuous leaf, `smtUnknowns`), never less; kink's own rules may still refuse a comparable witness.
+- `query-confirmable` (`Target::query_confirmable` in the library only): a pattern hit, at `final` or `any-state`, also needs no diagnostic of any kind on any leaf of the run, no fact in the run's lists (a chosen value or contradicted claim on no leaf, an allowance refusal, an unsupported hook, a stop for lack of stack, also in the load), and no term-level `\and` in the matched state, which kink's query refuses even with equal sides. The run is read whole because kink's search absorbs the facts of converging paths into a matching state. This is necessary for kink's query to confirm the hit, not sufficient: kink's search stops at its first match, which may be another, undecided state. A hit that fails is `unsupported`, counted under `query-not-confirmable:CONDITION`.
+
 ## Differential target
 
 A differential campaign (a mutant beside the definition) looks for an input on which the two definitions' sets of ends differ (ARCHITECTURE 4.3).
@@ -239,7 +246,7 @@ The program's path as written names it, as `krust krun` names a program: span ho
 The start sort defaults to the sort of `$PGM`.
 
 The campaign file holds the `[[hole]]` declarations of [Hole declarations](#hole-declarations) and, optionally, everything else; paths in the file are relative to its directory.
-Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--data-end`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
+Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--data-end`, `--no-comparable`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
 `--rule-mode` and `mode` are refused unless the target is a rule, `--at` and `at` unless it is a pattern, and `--mutant` selects the differential target only when no other target is named (a mutant with a rule or pattern target is refused).
 A pattern the campaign refuses (it does not parse, or its `requires` reads a variable its configuration does not bind) is named by where it came from (`--pattern`, `--normal-end`, or the key and table of the campaign file), with positions as lines and columns of the pattern's own text; the library's `TargetProblem::Pattern` and `CampaignError::NormalEndPattern` give the same positions.
 
@@ -253,6 +260,7 @@ rule = "IMP.overflow"         # --reach-rule: FILE:LINE, a unique id or a label;
 # pattern = '<k> .K </k> ...' # --pattern, in krun's --pattern syntax with `requires`; `at` (--at) is final or any-state
 # run-to-completion = true    # --run-to-completion; negated-property (--negated-property)
 # data-end = false            # --no-data-end: accept a run-to-completion hit whose end is not data
+# comparable = true           # --comparable: a hit's program must have a run of every path kink can compare
 
 [options]                     # paths = "all-paths" (--all-paths), max-depth, max-work, normal-end-pattern,
 safety-limit-seconds = 60     # shrink, smt-timeout-ms, smt-retry-limit; no-safety-limit = true (--no-safety-limit)

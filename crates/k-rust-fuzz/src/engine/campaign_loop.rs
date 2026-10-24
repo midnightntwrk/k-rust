@@ -663,6 +663,7 @@ fn witness_case(detail: HitDetail) -> WitnessCase {
         reaching: detail.reaching,
         kill: detail.kill,
         steps: detail.steps,
+        comparable: detail.comparable,
     }
 }
 
