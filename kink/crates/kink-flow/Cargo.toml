@@ -17,6 +17,8 @@ unimplemented = "deny"
 
 [dependencies]
 k-rust = { path = "../../../crates/k-rust", default-features = false }
+# The fuzz library for `kink-flow fuzz` (fz26 P7-KINKFLOW): its portable build, as k-rust's above.
+k-rust-fuzz = { path = "../../../crates/k-rust-fuzz", default-features = false }
 kink-campaign.workspace = true
 kink-corpus.workspace = true
 kink-native.workspace = true

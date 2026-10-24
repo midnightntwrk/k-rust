@@ -14,11 +14,14 @@
 //! records timings and leaf censuses, orders the kill search cheapest killer first and lists
 //! the rules no mutation targets. F-18 adds the per-input pattern checks: `PATTERNS.toml`, the
 //! lowering of a K pattern and its evaluation by k-rust's search ([`pattern`]), and the `query`
-//! command with its cache of definitive answers ([`query`]).
+//! command with its cache of definitive answers ([`query`]). fz26 P7-KINKFLOW T3a adds the
+//! `fuzz` command: a k-rust-fuzz campaign on kink's own sides that looks for hole values of a
+//! template that kill a mutation, printed as a `[[program]]` fragment ([`fuzz`]).
 
 pub mod admit;
 pub mod cli;
 pub mod digest;
+pub mod fuzz;
 pub mod hints;
 pub mod manifest;
 pub mod memo;

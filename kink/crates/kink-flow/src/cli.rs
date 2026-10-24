@@ -6,6 +6,7 @@
 
 use crate::{
     admit::{FlowAdmission, admit},
+    fuzz::{FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
     mutation::MutationList,
@@ -33,7 +34,10 @@ pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FL
                          FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] \
                          [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
-                         [--only ID]... [--verify] [--cache DIR]";
+                         [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
+                         TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml \
+                         [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
+                         [--assume-joined NAME]... [--one-path] --no-confirm";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -127,6 +131,45 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 Some(result) => result,
                 None => {
                     eprintln!("kink-flow: the query thread panicked");
+                    return EXIT_CORPUS;
+                }
+            }
+        }
+        Ok([command, manifest, templates, rest @ ..]) if command == "fuzz" => {
+            let manifest = PathBuf::from(manifest);
+            let templates = PathBuf::from(templates);
+            for file in [&manifest, &templates] {
+                if !file.is_file() {
+                    return usage(&format!("{} is not a file", file.display()));
+                }
+            }
+            let request = match fuzz_options(rest) {
+                Ok(request) => request,
+                Err(message) => return usage(&message),
+            };
+            if !request.mutations.is_file() {
+                return usage(&format!("{} is not a file", request.mutations.display()));
+            }
+            if let Ok(list) = TemplateList::read(&templates)
+                && list.get(&request.template).is_none()
+            {
+                return usage(&format!(
+                    "--template {}: no template has this id",
+                    request.template
+                ));
+            }
+            if let Ok(list) = MutationList::read(&request.mutations)
+                && !list.mutations.iter().any(|m| m.id == request.mutation)
+            {
+                return usage(&format!(
+                    "--kill {}: no mutation has this id",
+                    request.mutation
+                ));
+            }
+            match on_stack(move || fuzz(&manifest, &templates, &request)) {
+                Some(result) => result,
+                None => {
+                    eprintln!("kink-flow: the fuzz thread panicked");
                     return EXIT_CORPUS;
                 }
             }
@@ -256,6 +299,158 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
         }
     }
     Ok(options)
+}
+
+/// A parsed `kink-flow fuzz` command line (after FLOW.toml and TEMPLATES.toml).
+#[derive(Clone, Debug)]
+pub struct FuzzRequest {
+    pub template: String,
+    pub mutation: String,
+    pub mutations: PathBuf,
+    pub options: FuzzOptions,
+}
+
+fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
+    let value = value.ok_or_else(|| format!("{flag} needs a number"))?;
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("{flag} {value:?}: expected a nonnegative integer"))
+}
+
+fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
+    let mut options = FuzzOptions::default();
+    let (mut template, mut mutation, mut mutations) = (None, None, None);
+    let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
+    let (mut one_path, mut no_confirm) = (false, false);
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--template" if template.is_none() => {
+                template = Some(args.next().ok_or("--template needs a template id")?.clone());
+            }
+            "--kill" if mutation.is_none() => {
+                mutation = Some(args.next().ok_or("--kill needs a mutation id")?.clone());
+            }
+            "--mutations" if mutations.is_none() => {
+                mutations = Some(PathBuf::from(
+                    args.next().ok_or("--mutations needs a file")?,
+                ));
+            }
+            "--reach" | "--pattern" => {
+                return Err(format!(
+                    "{arg}: the reach and pattern jobs are not built yet; use --kill"
+                ));
+            }
+            "--attempts" => {
+                return Err(
+                    "--attempts: retries come with confirmation, which is not built yet".into(),
+                );
+            }
+            "--cases" if budget.is_none() => {
+                let cases = number("--cases", args.next())?;
+                if cases == 0 {
+                    return Err("--cases 0: give at least one case".into());
+                }
+                budget = Some(k_rust_fuzz::Budget::Cases(cases));
+            }
+            "--work" if budget.is_none() => {
+                let work = number("--work", args.next())?;
+                if work == 0 {
+                    return Err("--work 0: give a positive work budget".into());
+                }
+                budget = Some(k_rust_fuzz::Budget::Work(work));
+            }
+            "--seed" if seed.is_none() => seed = Some(number("--seed", args.next())?),
+            "--max-work" if max_work.is_none() => {
+                let work = number("--max-work", args.next())?;
+                if work == 0 {
+                    return Err("--max-work 0: give a positive bound".into());
+                }
+                max_work = Some(work);
+            }
+            "--time-limit-ms" if time_limit.is_none() => {
+                time_limit = Some(number("--time-limit-ms", args.next())?);
+            }
+            "--assume-joined" => {
+                let name = args
+                    .next()
+                    .ok_or("--assume-joined needs a finding's name")?;
+                if name.trim().is_empty() {
+                    return Err("--assume-joined needs a nonempty name".into());
+                }
+                if !options.assume_joined.contains(name) {
+                    options.assume_joined.push(name.clone());
+                }
+            }
+            "--one-path" if !one_path => one_path = true,
+            "--no-confirm" if !no_confirm => no_confirm = true,
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    let template = template.ok_or("give --template ID")?;
+    let mutation = mutation.ok_or("give the job: --kill MUTATION --mutations MUTATIONS.toml")?;
+    let mutations = mutations.ok_or("--kill needs --mutations MUTATIONS.toml")?;
+    if !no_confirm {
+        return Err(
+            "confirmation by kink's own run is not built yet: pass --no-confirm, then append the \
+             printed fragment and run `kink-flow run`"
+                .into(),
+        );
+    }
+    if let Some(budget) = budget {
+        options.budget = budget;
+    }
+    options.seed = seed.unwrap_or(0);
+    options.max_work = max_work;
+    options.time_limit_ms = time_limit;
+    if one_path {
+        options.paths = k_rust_fuzz::PathMode::OnePath;
+    }
+    Ok(FuzzRequest {
+        template,
+        mutation,
+        mutations,
+        options,
+    })
+}
+
+/// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations
+/// MUTATIONS.toml [options] --no-confirm`: the fuzz document ([`crate::fuzz`]) and the exit
+/// status: [`EXIT_OK`] when the job was done (a witness printed as a `[[program]]` fragment, or
+/// none within the budget or the time limit); [`EXIT_CORPUS`] when an input, the template or the
+/// mutation is refused, the campaign is `not-comparable`, or a run failed.
+pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value, u8) {
+    let manifest = match FlowManifest::read(manifest) {
+        Ok(manifest) => manifest,
+        Err(error) => return (crate::fuzz::input_refused("FLOW.toml", &error), EXIT_CORPUS),
+    };
+    let templates = match TemplateList::read(templates) {
+        Ok(templates) => templates,
+        Err(error) => {
+            return (
+                crate::fuzz::input_refused("TEMPLATES.toml", &error),
+                EXIT_CORPUS,
+            );
+        }
+    };
+    let list = match MutationList::read(&request.mutations) {
+        Ok(list) => list,
+        Err(error) => {
+            return (
+                crate::fuzz::input_refused("MUTATIONS.toml", &error),
+                EXIT_CORPUS,
+            );
+        }
+    };
+    let (document, ok) = crate::fuzz::kill(
+        &manifest,
+        &templates,
+        &request.template,
+        &list,
+        &request.mutation,
+        &request.options,
+    );
+    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
 }
 
 fn report_options(args: &[String]) -> Result<ReportOptions, String> {
