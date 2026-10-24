@@ -66,6 +66,12 @@
 //!   partial subterms are integer quotients and remainders by divisors another conjunct states
 //!   nonzero (`X /Int Y` beside `\not(\equals(Y, 0))`, the definedness the simplifier states for
 //!   a condition as a sibling conjunct);
+//! - **disjunctions**: a conjunct `\or(d1, ..., dk)`, `a orBool b` or `a orElseBool b` required
+//!   true, or `a andBool b` or `a andThenBool b` required false (not under `\not`), holds only
+//!   where one of its disjuncts holds (`a` or `b` true, respectively false), so the conjunction is
+//!   refuted when, for every choice of one disjunct per such conjunct, the choices with the other
+//!   conjuncts are refuted by the rules above; at most three such conjuncts and 16 choices are
+//!   split, beyond that the disjunctions are not read;
 //! - **equality classes**: the terms the conjuncts require equal form classes: the operands of an
 //!   equality atom (`INT.eq`, `KEQUAL.eq`, `BOOL.eq`, `STRING.eq`, or a negated `ne`) required
 //!   true, and the two sides of an ML `\equals(t, u)` neither of which is a Boolean literal. Such
@@ -112,6 +118,91 @@ enum Atom {
 /// that holds wherever it is defined, or by the integer bounds of one key, the domain kinds of
 /// their sorts read in `definition`.
 pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
+    contradictory_without_cases(definition, conjuncts) || cases_contradictory(definition, conjuncts)
+}
+
+/// The most disjunctive conjuncts, and the most combinations of their disjuncts, that
+/// [`cases_contradictory`] splits on.
+const DISJUNCTIONS: usize = 3;
+const DISJUNCT_CASES: usize = 16;
+
+/// The disjuncts of a conjunct that holds only where one of them does: an ML `\or`, or a
+/// connective required true or false not under `\not` (`a orBool b` or `a orElseBool b`
+/// required true holds only where `a` or `b` is `true`; `a andBool b` or `a andThenBool b`
+/// required false, also written `notBool (a andBool b)`, only where one is `false`).
+fn disjuncts(definition: &BackendDefinition, conjunct: &Predicate) -> Option<Vec<Predicate>> {
+    if let Predicate::Or(items) = conjunct {
+        return Some(items.to_vec());
+    }
+    if matches!(conjunct, Predicate::Not(_)) {
+        return None;
+    }
+    let (mut term, mut polarity) = literal(definition, conjunct)?;
+    while let Some(("BOOL.not", [inner])) = hooked(&term) {
+        let inner = inner.clone();
+        term = inner;
+        polarity = !polarity;
+    }
+    let (value, [left, right]) = (match hooked(&term)? {
+        ("BOOL.or" | "BOOL.orElse", operands) if polarity => Some((true, operands)),
+        ("BOOL.and" | "BOOL.andThen", operands) if !polarity => Some((false, operands)),
+        _ => None,
+    })?
+    else {
+        return None;
+    };
+    let side = |operand: &Term| {
+        let literal = definition
+            .domain_value(operand.sort(), if value { "true" } else { "false" })
+            .ok()?;
+        Some(Predicate::Equals(operand.clone(), literal))
+    };
+    Some(vec![side(left)?, side(right)?])
+}
+
+/// Whether the conjuncts are contradictory by cases: for at most [`DISJUNCTIONS`] disjunctive
+/// conjuncts and [`DISJUNCT_CASES`] combinations of their disjuncts, every combination with the
+/// other conjuncts is contradictory ([`contradictory_without_cases`]). A disjunctive conjunct
+/// holds only where one of its disjuncts does, so the conjunction holds only where one of the
+/// combinations does.
+fn cases_contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
+    let mut split = Vec::new();
+    let mut rest = Vec::new();
+    for conjunct in conjuncts {
+        match disjuncts(definition, conjunct) {
+            Some(disjuncts) if split.len() < DISJUNCTIONS => split.push(disjuncts),
+            _ => rest.push(conjunct.clone()),
+        }
+    }
+    let cases = split.iter().map(Vec::len).product::<usize>();
+    if split.is_empty() || cases > DISJUNCT_CASES {
+        return false;
+    }
+    let misread = super::switches::active().misread_disjunction;
+    let mut refuted = 0;
+    for case in 0..cases {
+        let mut conjunction = rest.clone();
+        let mut index = case;
+        for disjuncts in &split {
+            let mut chosen = BTreeSet::new();
+            super::flatten(disjuncts[index % disjuncts.len()].clone(), &mut chosen);
+            conjunction.extend(chosen);
+            index /= disjuncts.len();
+        }
+        if conjunction.contains(&Predicate::False)
+            || contradictory_without_cases(definition, &conjunction)
+        {
+            refuted += 1;
+            if misread {
+                return true;
+            }
+        }
+    }
+    refuted == cases
+}
+
+/// [`contradictory`] without splitting disjunctions.
+fn contradictory_without_cases(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
     let mut seen = FxHashMap::<Atom, bool>::default();
     // A literal under `\not` holds also where its term is undefined: it is read only where the
     // term is `ceil_free` or a literal not under `\not` requires the same atom (which shows it

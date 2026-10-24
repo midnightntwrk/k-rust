@@ -554,3 +554,27 @@ fn an_undecided_list_equation_is_deferred_and_the_conditions_refute_the_rest() {
         )]
     );
 }
+
+/// Class E of the WASM pairs: a disjunction in a condition is split into its cases, and the pair
+/// is refuted when every case is (`S <Int 0 orBool E <Int S` beside `0 <=Int S andBool S <=Int
+/// E`); when one case is satisfiable (`E <Int S` beside `0 <=Int S`), it stays a genuine overlap.
+#[test]
+fn a_disjunction_is_refuted_when_each_of_its_cases_is() {
+    let declaration = "  syntax Int ::= gr(Int, Int) [function, symbol(gr)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gr(S, E) => 1 requires S <Int 0 orBool E <Int S
+  rule [b]: gr(S, E) => 2 requires 0 <=Int S andBool S <=Int E"
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gr(S, E) => 1 requires S <Int 0 orBool E <Int S
+  rule [b]: gr(S, E) => 2 requires 0 <=Int S"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}

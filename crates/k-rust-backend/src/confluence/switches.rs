@@ -110,6 +110,9 @@ pub(crate) struct Switches {
     /// Unifier: accept a relaxed solution (an equation of an undecided shape dropped) as fine,
     /// without refuting the conditions at it.
     pub(crate) defer_without_refutation: bool,
+    /// Conditions: refute a conjunction when one case of its disjunctions is contradictory,
+    /// instead of every case.
+    pub(crate) misread_disjunction: bool,
 }
 
 #[cfg(test)]
@@ -156,6 +159,7 @@ thread_local! {
             drop_dbm_definedness_guard: false,
             misread_range_fact: false,
             defer_without_refutation: false,
+            misread_disjunction: false,
         })
     };
 }

@@ -143,6 +143,8 @@ enum Conjunct {
         left: Operand,
         right: Operand,
     },
+    /// `\or` of two conjuncts.
+    Either(Box<Conjunct>, Box<Conjunct>),
 }
 
 impl Conjunct {
@@ -180,6 +182,9 @@ impl Conjunct {
                 }
                 .predicate(definition),
             )),
+            Self::Either(left, right) => {
+                Predicate::Or(vec![left.predicate(definition), right.predicate(definition)].into())
+            }
         }
     }
 
@@ -210,6 +215,7 @@ impl Conjunct {
                 (left.value(assignment), right.value(assignment)),
                 (Some(left), Some(right)) if holds(operator, left, right)
             ),
+            Self::Either(left, right) => left.satisfied(assignment) || right.satisfied(assignment),
         }
     }
 }
@@ -543,22 +549,29 @@ pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) ->
             _ => Operand::Variable(next(3)),
         };
         let count = 2 + next(3);
+        let conjunct = |next: &mut dyn FnMut(usize) -> usize| {
+            let operator = OPERATORS[next(OPERATORS.len())];
+            match next(5) {
+                0 | 1 => Conjunct::Negated {
+                    operator,
+                    left: operand(next),
+                    right: operand(next),
+                },
+                _ => Conjunct::Literal {
+                    operator,
+                    left: operand(next),
+                    right: operand(next),
+                    negations: next(2),
+                    polarity: next(2) == 0,
+                },
+            }
+        };
         let conjuncts = (0..count)
             .map(|_| {
-                let operator = OPERATORS[next(OPERATORS.len())];
-                match next(5) {
-                    0 | 1 => Conjunct::Negated {
-                        operator,
-                        left: operand(&mut next),
-                        right: operand(&mut next),
-                    },
-                    _ => Conjunct::Literal {
-                        operator,
-                        left: operand(&mut next),
-                        right: operand(&mut next),
-                        negations: next(2),
-                        polarity: next(2) == 0,
-                    },
+                if next(4) == 0 {
+                    Conjunct::Either(Box::new(conjunct(&mut next)), Box::new(conjunct(&mut next)))
+                } else {
+                    conjunct(&mut next)
                 }
             })
             .collect::<Vec<_>>();
@@ -581,6 +594,20 @@ fn random_linear_conjunctions_agree_with_brute_force_by_default() {
 fn a_dropped_difference_definedness_guard_is_caught_by_the_property_test() {
     let switches = crate::confluence::switches::Switches {
         drop_dbm_definedness_guard: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: refuting a disjunction when one of its cases is contradictory refutes satisfiable
+/// conjunctions, which the property test sees.
+#[test]
+fn a_misread_disjunction_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_disjunction: true,
         ..Default::default()
     };
     let failures = crate::confluence::switches::with(switches, || {
