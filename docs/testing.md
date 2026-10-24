@@ -51,7 +51,7 @@ The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots 
 A change that breaks KRS fixes KRS in the same change: there is no k-rust pin to move.
 Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare its emitted K and its route through these crates with Java K results; `scripts/gates.toml` names them:
 
-- `krs-light` (certification, owed by a change to krust's sources or to KRS): every gate but the browser and heavy ones, four at a time (`KRS_LIGHT_JOBS`).
+- `krs-light` (certification, owed by a change to krust's sources or to KRS): every gate but the browser and heavy ones, as many at a time as the available memory has room for at 3 GiB each (`KRS_LIGHT_JOBS` overrides).
   The gates build their tools (`krs`, `krs-gate`), the packages they check, and the collectors `krs` generates for those packages in the workspace's `target/`, so a change to these crates rebuilds each once; the run then removes the collectors of the gates' temporary packages from that target.
   On 2026-10-20, on a 32-core host under a load of about 30 from other work, it took about four minutes after a change to these crates or to KRS, three with nothing changed, and nine from an empty target;
   most of that is the gates' several hundred `krs` invocations, each of which runs Cargo to build or check a collector;
@@ -67,8 +67,8 @@ Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare
   On 2026-10-25, under a load of about 50 from other work, the whole tier took 21 minutes on one worker (the script then sized workers by CPU load; it now sizes them by available memory, 3 GiB each), with a peak RSS of 2.7 GiB and 30 GB of scratch at its end (removed); under a load of about 10, before K3, K4, and K5 were added, five workers ran the five case shards in 200 s.
   Its `k4` shard compares KRS's five sort judges with k-rust's subsort relations (`compute_subsorts`, `compute_disambiguation_subsorts`) of each generated base's emitted definition, as k-rust adapts and loads it.
   `krs/tests/class-matrix/expected.toml` decides the cases it covers, and `pending.toml` lists the cases known not to conform, each with its finding and its exact deviation; `krs/tests/class-matrix/README.md` says how to run one shard and how to record a deviation.
-- `krs-ports-rust` (heavy, at a host UID): the four port gates with `--artifacts-only`, which add the ports' Clippy, tests, MSRV check, and rust-analyzer probes.
-- `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, one at a time, through their native compile, behavior corpus, and proofs.
+- `krs-ports-rust` (heavy, at a host UID): the four port gates with `--artifacts-only`, which add the ports' Clippy, tests, MSRV check, and rust-analyzer probes, as many at a time as the available memory has room for at 8 GiB each (`KRS_PORTS_JOBS` overrides).
+- `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, through their native compile, behavior corpus, and proofs; run several at once only when the available memory has room for them.
 - `krs-tour-pages` (certification, owed by a change to one of the three site pages whose proof claims `tour-proof-evidence` checks against KRS's pinned results): that gate alone (`krs/tests/gates.sh tour-pages`).
   No other KRS gate reads `docs-site/`, so an edit to any other page owes no KRS gate; the site's own checks are in `docs-site/README.md`.
 

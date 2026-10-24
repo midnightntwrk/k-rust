@@ -43,7 +43,7 @@ Each mutation must give exactly one diagnostic, an error, under `krs check --mes
 and under plain `cargo check`; its entry is keyed by the mutation, `entry/attribute/cell`.
 
 Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `k4`, `k5`), and choose the worker count yourself
-when the default (from the load and the available memory) does not suit:
+when the default (from the available memory, 3 GiB per worker) does not suit:
 
 ```sh
 scripts/krs-class.sh --shard cells --workers 4
