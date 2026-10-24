@@ -178,6 +178,14 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// its definedness) where it stated that case as a limit: 1100-1107 `a83fde62` -> `3af0cfea`.
 /// No verdict of the check changes.
 ///
+/// fz26 phase-8 FZ-MAPKEY: line 1102 (how a pair is unified) gains, on the same line, that two
+/// maps are unified at every key written alike on both sides, value with value and rest with
+/// rest, and clash when one has no rest and fewer entries than the other: a map binds a key
+/// once, and `n` explicit entries are `n` distinct keys, exactly `n` without a rest. The unifier
+/// only decides more map equations, so more overlaps are separated or refuted and a mutant whose
+/// map-keyed equations that separates is admitted (`MUTANT_CONSISTENCY_VERSION` is bumped at
+/// integration). No line moves: 1100-1107 `3af0cfea` -> `7deefbc9`.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -192,7 +200,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "3af0cfea8f92b5217b8b2fcc71ff542e890dbd5552876e186845d15b52f66947",
+        "7deefbc90a10b40ac6a2b5e54f1d8b59a52d2a7e11137afffebd0cffefdb2610",
     ),
     (
         "docs/compatibility.md",

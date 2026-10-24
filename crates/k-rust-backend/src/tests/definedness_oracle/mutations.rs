@@ -436,3 +436,31 @@ axiom_mutation!(
     the_axiom_harness_sees_overloaded_patterns_read_by_their_root,
     root_read_overloaded_patterns
 );
+
+// The map rule's decisions (`unify.rs`, `Unifier::maps`), each against the `same_key_maps`
+// pair whose real overlap its defect hides (`generator::same_key_maps`): `sk` for keys
+// decomposed when only unifiable and for a last resort that clashes, `sa` for a size test that
+// ignores rests, `one` for a rest counted as an entry, `sb` for a clash of a side left without
+// entries whatever its rest. A rest binding that drops the other side's rest (`sc`) differs
+// only at a map of three entries, which the harness's value pool did not reach: it and the
+// opaque-rest clash are caught by the unit checks (`confluence::tests`).
+axiom_mutation!(
+    the_axiom_harness_sees_decomposed_unifiable_keys,
+    decompose_unifiable_keys
+);
+axiom_mutation!(
+    the_axiom_harness_sees_a_last_resort_that_clashes,
+    last_resort_clashes
+);
+axiom_mutation!(
+    the_axiom_harness_sees_a_size_test_that_ignores_rests,
+    size_clash_ignores_rest
+);
+axiom_mutation!(
+    the_axiom_harness_sees_rests_counted_as_entries,
+    size_counts_rest
+);
+axiom_mutation!(
+    the_axiom_harness_sees_an_empty_side_clashed_whatever_its_rest,
+    empty_clash_ignores_rest
+);

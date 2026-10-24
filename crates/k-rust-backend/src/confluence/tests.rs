@@ -5,7 +5,7 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use std::sync::Arc;
 
 use super::{
-    PollBudgetRecord, UnjoinedReason,
+    PollBudgetRecord, UnjoinedReason, switches,
     unify::{Families, Unifier, UnresolvedShape},
 };
 use crate::{
@@ -439,6 +439,210 @@ fn maps_on_both_sides_are_not_decided() {
         .map(|unifiers| unifiers.len()),
         Ok(1)
     );
+}
+
+/// Extra symbols for the map tests: a key bound after the map (`#removeZeros`' order), an
+/// injection branch beside a postponed map, and an opaque map rest.
+const MAP_EXTRA: &str = r"
+    symbol km2{}(SortKey{}, SortMap{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+    symbol h3{}(SortT{}, SortKey{}, SortMap{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+    symbol fm{}() : SortMap{} [function{}()]
+";
+
+fn unify_relaxed_for_tests(
+    definition: &BackendDefinition,
+    left: &str,
+    right: &str,
+) -> Result<Vec<(Substitution, Option<UnresolvedShape>)>, UnresolvedShape> {
+    let families = Families::of(definition);
+    let mut fresh = 0;
+    let nothing_normal = |_: &Term| false;
+    Unifier {
+        definition,
+        families: &families,
+        lifting: false,
+        known_normal: &nothing_normal,
+        fresh: &mut fresh,
+        branches: 0,
+        defer: true,
+    }
+    .unify_all_relaxed(vec![(term(definition, left), term(definition, right))])
+}
+
+/// The decided answers of the map rule, as `(left, right, number of unifiers)`; each must hold,
+/// and each unifier make the two terms equal.
+const MAP_DECISIONS: [(&str, &str, usize); 7] = [
+    // A key written alike: value with value, rest with rest.
+    (
+        "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+        "mapConcat{}(mapItem{}(K:SortKey{}, W:SortValue{}), N:SortMap{})",
+        1,
+    ),
+    // Size test: an empty map against an entry.
+    (
+        "mapUnit{}()",
+        "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+        0,
+    ),
+    // Size test: closed maps of sizes 1 and 2.
+    (
+        "mapItem{}(K:SortKey{}, V:SortValue{})",
+        "mapConcat{}(mapItem{}(J:SortKey{}, W:SortValue{}), mapItem{}(L:SortKey{}, X:SortValue{}))",
+        0,
+    ),
+    // Size test: a closed map with fewer entries than a map with a rest (P7-KEVM-S2B).
+    (
+        "mapItem{}(K:SortKey{}, V:SortValue{})",
+        "mapConcat{}(mapItem{}(A:SortKey{}, B:SortValue{}), mapConcat{}(mapItem{}(C:SortKey{}, D:SortValue{}), M:SortMap{}))",
+        0,
+    ),
+    // The variable rest of the side left without entries is the other side, its rest included.
+    (
+        "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+        "mapConcat{}(mapItem{}(K:SortKey{}, W:SortValue{}), mapConcat{}(mapItem{}(J:SortKey{}, X:SortValue{}), N:SortMap{}))",
+        1,
+    ),
+    // The key is bound by an argument unified after the map.
+    (
+        "km2{}(K:SortKey{}, mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{}))",
+        "km2{}(J:SortKey{}, mapConcat{}(mapItem{}(J:SortKey{}, W:SortValue{}), N:SortMap{}))",
+        1,
+    ),
+    // A postponed map survives the injection branch (two maximal common subsorts C and D).
+    (
+        "h3{}(inj{SortA{}, SortT{}}(X:SortA{}), K:SortKey{}, mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{}))",
+        "h3{}(inj{SortB{}, SortT{}}(Y:SortB{}), J:SortKey{}, mapConcat{}(mapItem{}(J:SortKey{}, W:SortValue{}), N:SortMap{}))",
+        2,
+    ),
+];
+
+/// The failures of the map rule's unit checks: the decided answers, an opaque rest and keys
+/// not written alike staying `Collection` (in both modes), and a repeated key.
+fn map_rule_failures() -> Vec<String> {
+    let definition = definition(MAP_EXTRA);
+    let mut failures = Vec::new();
+    for (left, right, expected) in MAP_DECISIONS {
+        match unify(&definition, false, left, right) {
+            Ok(unifiers) if unifiers.len() == expected => {
+                let (l, r) = (term(&definition, left), term(&definition, right));
+                if unifiers
+                    .iter()
+                    .any(|unifier| substitute(&l, unifier) != substitute(&r, unifier))
+                {
+                    failures.push(format!("{left} = {right}: a solution is no unifier"));
+                }
+            }
+            other => failures.push(format!("{left} = {right}: {other:?}, expected {expected}")),
+        }
+    }
+    // The rest binding is the most general one: `M` is bound to the other side's remaining
+    // entry and its rest, not to a narrower map.
+    let (left, right, _) = MAP_DECISIONS[4];
+    if let Ok(unifiers) = unify(&definition, false, left, right) {
+        let expected = term(
+            &definition,
+            "mapConcat{}(mapItem{}(J:SortKey{}, X:SortValue{}), N:SortMap{})",
+        );
+        if unifiers
+            .iter()
+            .any(|unifier| binding(unifier, "M") != Some(&expected))
+        {
+            failures.push(format!("{left} = {right}: `M` not bound to `J |-> X N`"));
+        }
+    }
+    let opaque = unify(
+        &definition,
+        false,
+        "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), fm{}())",
+        "mapConcat{}(mapItem{}(K:SortKey{}, W:SortValue{}), mapConcat{}(mapItem{}(J:SortKey{}, X:SortValue{}), N:SortMap{}))",
+    );
+    if opaque != Err(UnresolvedShape::Collection) {
+        failures.push(format!("opaque rest: {opaque:?}"));
+    }
+    // A closed entry against an entry and a rest: no size clash, keys apart (P7-KEVM-S2B).
+    let one = unify(
+        &definition,
+        false,
+        "mapItem{}(K:SortKey{}, V:SortValue{})",
+        "mapConcat{}(mapItem{}(J:SortKey{}, W:SortValue{}), M:SortMap{})",
+    );
+    if one != Err(UnresolvedShape::Collection) {
+        failures.push(format!("closed entry against entry and rest: {one:?}"));
+    }
+    let apart = (
+        "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), M:SortMap{})",
+        "mapConcat{}(mapItem{}(J:SortKey{}, W:SortValue{}), N:SortMap{})",
+    );
+    let exact = unify(&definition, false, apart.0, apart.1);
+    if exact != Err(UnresolvedShape::Collection) {
+        failures.push(format!("keys apart, exact: {exact:?}"));
+    }
+    match unify_relaxed_for_tests(&definition, apart.0, apart.1) {
+        Ok(solutions)
+            if solutions.len() == 1 && solutions[0].1 == Some(UnresolvedShape::Collection) => {}
+        other => failures.push(format!("keys apart, deferring: {other:?}")),
+    }
+    // A key repeated in one pattern: the pattern has no instance, any answer is complete, and
+    // every solution must still be a unifier.
+    let repeated = (
+        "mapConcat{}(mapItem{}(K:SortKey{}, V:SortValue{}), mapItem{}(K:SortKey{}, W:SortValue{}))",
+        "mapConcat{}(mapItem{}(K:SortKey{}, X:SortValue{}), M:SortMap{})",
+    );
+    if let Ok(unifiers) = unify(&definition, false, repeated.0, repeated.1) {
+        let (l, r) = (term(&definition, repeated.0), term(&definition, repeated.1));
+        if unifiers
+            .iter()
+            .any(|unifier| substitute(&l, unifier) != substitute(&r, unifier))
+        {
+            failures.push("repeated key: a solution is no unifier".into());
+        }
+    }
+    failures
+}
+
+#[test]
+fn maps_are_decided_by_size_shared_keys_and_rests() {
+    assert_eq!(map_rule_failures(), Vec::<String>::new());
+}
+
+/// Each map switch fails the unit checks or is left to the axiom harness (`mutations.rs`).
+#[test]
+fn the_map_unit_checks_see_their_switches() {
+    for (name, switches) in [
+        (
+            "rest_binding_drops_rest",
+            switches::Switches {
+                rest_binding_drops_rest: true,
+                ..switches::Switches::default()
+            },
+        ),
+        (
+            "raw_rest_clashes",
+            switches::Switches {
+                raw_rest_clashes: true,
+                ..switches::Switches::default()
+            },
+        ),
+        (
+            "last_resort_clashes",
+            switches::Switches {
+                last_resort_clashes: true,
+                ..switches::Switches::default()
+            },
+        ),
+        (
+            "size_counts_rest",
+            switches::Switches {
+                size_counts_rest: true,
+                ..switches::Switches::default()
+            },
+        ),
+    ] {
+        assert!(
+            !switches::with(switches, map_rule_failures).is_empty(),
+            "{name} went unnoticed by the map unit checks"
+        );
+    }
 }
 
 /// An anywhere equation of `w` from `pattern` to `right` (a pattern of the naturals).
