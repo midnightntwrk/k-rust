@@ -1452,6 +1452,7 @@ impl<'d> Context<'d> {
             known_normal,
             fresh: &mut self.fresh,
             branches: 0,
+            defer: false,
         }
     }
 
@@ -1465,6 +1466,24 @@ impl<'d> Context<'d> {
     ) -> Result<Vec<Substitution>, UnresolvedShape> {
         let mut unifier = self.unifier(lifting, known_normal);
         let result = unifier.unify(left, right);
+        let branches = unifier.branches;
+        self.counts.unifier_branches += branches;
+        measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
+        result
+    }
+
+    /// Unify with deferral ([`Unifier::unify_all_relaxed`]), counting the branches: each
+    /// solution with the shape of an equation it dropped, if any.
+    fn unify_relaxed(
+        &mut self,
+        lifting: bool,
+        known_normal: &dyn Fn(&Term) -> bool,
+        left: &Term,
+        right: &Term,
+    ) -> Result<Vec<(Substitution, Option<UnresolvedShape>)>, UnresolvedShape> {
+        let mut unifier = self.unifier(lifting, known_normal);
+        unifier.defer = true;
+        let result = unifier.unify_all_relaxed(vec![(left.clone(), right.clone())]);
         let branches = unifier.branches;
         self.counts.unifier_branches += branches;
         measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
@@ -1689,6 +1708,7 @@ pub(crate) fn unify_for_tests(
         known_normal: &nothing_normal,
         fresh: &mut fresh,
         branches: 0,
+        defer: false,
     }
     .unify(left, right)
 }
@@ -1898,18 +1918,26 @@ impl Context<'_> {
         aliases(&first.lhs, &mut equations);
         let unifiers = {
             let mut unifier = self.unifier(candidate.lifting, &nothing_normal);
-            let result = unifier.unify_all(equations);
+            unifier.defer = true;
+            let result = unifier.unify_all_relaxed(equations);
             let branches = unifier.branches;
             self.counts.unifier_branches += branches;
             measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
             #[cfg(test)]
             RECORDED.with_borrow_mut(|recorded| {
                 if let Some(recorded) = recorded {
+                    // A relaxed solution is no unifier: the overlap is recorded undecided.
+                    let unifiers = result.clone().and_then(|solutions| {
+                        match solutions.iter().find_map(|(_, deferred)| deferred.clone()) {
+                            Some(shape) => Err(shape),
+                            None => Ok(solutions.into_iter().map(|(unifier, _)| unifier).collect()),
+                        }
+                    });
                     recorded.push(RecordedOverlap {
                         first: Arc::clone(first),
                         second: Arc::clone(&second),
                         position: candidate.position.clone(),
-                        unifiers: result.clone(),
+                        unifiers,
                     });
                 }
             });
@@ -1918,7 +1946,26 @@ impl Context<'_> {
                 Err(shape) => return not_joined(UnjoinedReason::Unresolved(shape)),
             }
         };
-        for unifier in unifiers {
+        // A relaxed solution (the unifier dropped an equation it does not decide) covers every
+        // instance of the overlap it stands for: when the conditions hold on none of its
+        // instances they hold on none of the overlap's; otherwise the pair is undecided.
+        let mut decided = Vec::new();
+        for (unifier, deferred) in unifiers {
+            let Some(shape) = deferred else {
+                decided.push(unifier);
+                continue;
+            };
+            if switches::active().defer_without_refutation {
+                continue;
+            }
+            if self.refuted(&[first.as_ref(), second.as_ref()], &unifier) {
+                self.tally(candidate, Tally::Overlap);
+                self.tally(candidate, Tally::Refuted);
+                continue;
+            }
+            return not_joined(UnjoinedReason::Unresolved(shape));
+        }
+        for unifier in decided {
             if candidate.counted == Counted::Group && self.vacuous(first, &second, &unifier) {
                 self.tally(candidate, Tally::Separated);
                 continue;

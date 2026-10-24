@@ -107,6 +107,9 @@ pub(crate) struct Switches {
     pub(crate) drop_dbm_definedness_guard: bool,
     /// Conditions: read the lengths, sizes and absolute values as at least 1.
     pub(crate) misread_range_fact: bool,
+    /// Unifier: accept a relaxed solution (an equation of an undecided shape dropped) as fine,
+    /// without refuting the conditions at it.
+    pub(crate) defer_without_refutation: bool,
 }
 
 #[cfg(test)]
@@ -152,6 +155,7 @@ thread_local! {
             substitute_without_class: false,
             drop_dbm_definedness_guard: false,
             misread_range_fact: false,
+            defer_without_refutation: false,
         })
     };
 }

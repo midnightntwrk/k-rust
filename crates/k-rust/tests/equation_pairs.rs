@@ -57,6 +57,7 @@ fn definition(declarations: &str, with_head: bool) -> std::sync::Arc<BackendDefi
   imports BOOL
   imports STRING
   imports K-EQUAL
+  imports LIST
   syntax MyTok ::= r"[a-z][a-z0-9]*" [token]
 {head}
   syntax Prog ::= go(MyTok) [symbol(go)] | val(Int) [symbol(val)]
@@ -524,5 +525,32 @@ fn comparisons_over_shared_atoms_are_refuted_by_their_differences() {
   rule [b]: un(S, N) => 2 requires lengthString(S) +Int 2 >Int N"#
         )),
         [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// Class D of the WASM pairs: the unifier does not decide a list with fixed elements at both ends,
+/// so it drops that equation, solves the rest, and the pair is refuted when the conditions fail at
+/// every relaxed solution (`I = 0` beside `I <Int 0`); where they may hold (`I <=Int 0`), the pair
+/// stays undecided.
+#[test]
+fn an_undecided_list_equation_is_deferred_and_the_conditions_refute_the_rest() {
+    let declaration = "  syntax Int ::= gl(List, Int) [function, symbol(gl)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gl(ListItem(V:Int) _:List, 0) => V
+  rule [b]: gl(_:List ListItem(V:Int), I) => V +Int 1 requires I <Int 0"
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gl(ListItem(V:Int) _:List, 0) => V
+  rule [b]: gl(_:List ListItem(V:Int), I) => V +Int 1 requires I <=Int 0"
+        )),
+        [UnjoinedReason::Unresolved(
+            k_rust_backend::confluence::UnresolvedShape::Collection
+        )]
     );
 }

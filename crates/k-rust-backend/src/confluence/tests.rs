@@ -130,6 +130,7 @@ fn unify(
         known_normal: &nothing_normal,
         fresh: &mut fresh,
         branches: 0,
+        defer: false,
     }
     .unify(&term(definition, left), &term(definition, right))
 }
@@ -371,6 +372,7 @@ fn a_known_normal_greater_application_is_not_an_injection_of_a_lesser_one() {
         known_normal: &known_normal,
         fresh: &mut fresh,
         branches: 0,
+        defer: false,
     }
     .unify(
         &normal,
