@@ -24,7 +24,8 @@
 #                                 cell map, of simpleinv, demos/k/simple-inv, and "every store value
 #                                 is a Val or undefined" as a cell function, simplestore, and as a function of
 #                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv), kimp-claims
-#                                 (claims.toml, krust kprove, kc_auto statistics, three replays),
+#                                 (claims.toml, krust kprove, kc_auto statistics, three replays, two induction
+#                                 skeletons),
 #                                 kimpinv-claims (claims under kimpinv's invariant) and the demo
 #                                 ImpRelClaims (a kimp claim transferred to KRS IMP along the
 #                                 bisimulation)
@@ -561,6 +562,7 @@ if [ "$TIER" = heavy ]; then
       --spec "$KO/imp-simple-spec/definition.kore" --spec "$KO/imp-sum-spec/definition.kore" \
       --spec "$KO/imp-ifs-uint64-spec/definition.kore" --spec "$KO/imp-two-sum-aux-spec/definition.kore" --spec "$KO/imp-div0-spec/definition.kore" \
       --spec "$KO/imp-inv-spec/definition.kore" \
+      --induction "$T/demos/claims/kimp-expr-eval.toml" --induction "$T/demos/claims/kimp-expr-div.toml" \
       --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp --kclaims-path ../../lean/claims \
       --open "$T/demos/claims/kimp-open.txt" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then

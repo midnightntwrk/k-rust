@@ -3,6 +3,7 @@ import KImpClaims.ImpSumSpec
 import KImpClaims.ImpTwoSumAuxSpec
 import KImpClaims.ImpDiv0Spec
 import KImpClaims.ImpInvSpec
+import KImpClaims.ExprDiv
 
 /-! Hand-written: the claims of `demos/claims/kimp-open.txt`.
 
@@ -18,7 +19,10 @@ import KImpClaims.ImpInvSpec
 * `copy_false`, `copy_loop_false`: the claims of `imp-inv-spec.k` over every configuration. With
   `$x` bound to the expression `1 + 2`, the lookup puts `1 + 2` on `<k>`, which evaluates to `3`, so
   `$y` ends up bound to `3`, not to `1 + 2`. Under the invariant that store values are `Value`s
-  they hold (`generated/kimpinv-claims`, `k2lean claims --assume-invariant`). -/
+  they hold (`generated/kimpinv-claims`, `k2lean claims --assume-invariant`).
+* `expr_div_false`: the obligation of `_/_` in `kimp-expr-div.toml` is false, at `1 / 0`, which has
+  no successor; as a reachability claim it is turned into an all-path one (`Step` is
+  deterministic) and refuted like `div0_seven_false`. -/
 
 set_option maxHeartbeats 0
 
@@ -71,7 +75,16 @@ theorem copy_loop_false : ¬ ImpInvSpec.Claim.«copy-loop» := by
   have h0 := h .dotk 0 1 onePlusTwo _ _ rfl rfl rfl
   kc_refute h0
 
+theorem expr_div_false : ¬ ExprDiv.Obl.«AExp._/_» := by
+  intro h
+  have lit : ∀ i : Int, ∀ c Q, ExprDiv.Inst .AExp (SortExpr.inj_Int i) c Q → Reach Step Q c :=
+    fun i => ExprDiv.Inst.of_forall fun _ _ _ => Reach.here ⟨i, rfl⟩
+  have h0 := h _ _ (.«AExp.val» 1) (.«AExp.val» 0) (lit 1) (lit 0) .dotk (.«<env>» .nil)
+    (.«<generatedCounter>» 0)
+  have h1 := (AF_iff_EF_of_det (R := Step) (fun _ _ _ h₁ h₂ => Step.deterministic h₁ h₂)).2 h0.toEF
+  kc_refute h1
+
 #k2l_assert_axioms two_sum_spec two_sum_spec' bmc_loop_concrete_false bmc_loop_symbolic_false
-  div0_seven_false div0_any_int_false copy_false copy_loop_false
+  div0_seven_false div0_any_int_false copy_false copy_loop_false expr_div_false
 
 end KImpClaims.Hand

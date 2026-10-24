@@ -1,0 +1,14 @@
+# Integer expressions with division (`k2lean claims --induction`): not a terminating sublanguage,
+# since `X / 0` has no successor (`X /Int 0` is undefined). Its obligation `AExp._/_` is in the
+# open list and refuted in hand/Hand.lean (`Hand.expr_div_false`); `holds` takes it as a hypothesis.
+name = "ExprDiv"
+sort = "SortExpr"
+
+[[class]]
+name = "AExp"
+value = "SortInt"
+
+[[ctor]]
+class = "AExp"
+ctor = "_/_"
+args = ["AExp", "AExp"]

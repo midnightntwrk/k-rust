@@ -47,6 +47,7 @@ struct Args {
     open: Option<PathBuf>,
     hand: Vec<String>,
     inv: Option<Inv>,
+    induction: Vec<PathBuf>,
 }
 
 /// `--assume-invariant NAME`: the claims are stated and proved for the configurations satisfying
@@ -124,6 +125,7 @@ fn parse(args: &[String]) -> Args {
         open: None,
         hand: vec![],
         inv: None,
+        induction: vec![],
     };
     let (mut inv_name, mut inv_preserved, mut inv_module, mut inv_unfold) =
         (None, None, None, None);
@@ -150,6 +152,8 @@ fn parse(args: &[String]) -> Args {
             "--invariant-preserved" => inv_preserved = Some(v()),
             "--invariant-module" => inv_module = Some(v()),
             "--invariant-unfold" => inv_unfold = Some(PathBuf::from(v())),
+            // a structural-induction skeleton over a syntax sort (TOML, `induction` below)
+            "--induction" => a.induction.push(v().into()),
             other => panic!("claims: unknown argument {other}"),
         }
     }
@@ -897,6 +901,29 @@ pub fn main(args: &[String]) {
             proved_all.extend(proved);
         }
     }
+    for path in &a.induction {
+        let spec = induction::read(path, &m).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let (text, proved, opened) = induction::emit(ns, &a.sem, &spec, &m, &fns, &top, &open)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        write(a.out.join(ns).join(format!("{}.lean", spec.name)), &text);
+        eprintln!(
+            "induction {}: {} obligations, {} generic proofs, open {:?}",
+            spec.name,
+            spec.obligations.len(),
+            spec.obligations.len() - opened.len(),
+            opened
+        );
+        let _ = writeln!(
+            report,
+            "[[induction]]\nname = {:?}\nsort = {:?}\nobligations = {}\nopen = {:?}\n",
+            spec.name,
+            spec.sort,
+            spec.obligations.len(),
+            opened
+        );
+        modules.push(spec.name.clone());
+        proved_all.extend(proved);
+    }
     write(
         a.out.join(ns).join("Basic.lean"),
         &basic(
@@ -1446,6 +1473,458 @@ fn replay(args: &[String]) {
         dt.as_secs_f64(),
         ex.rpc.calls
     );
+}
+
+// ---------------------------------------------------------------- induction skeletons
+//
+// `k2lean claims --induction FILE`: termination of a sublanguage, by structural induction over a
+// syntax sort. FILE (TOML) names the sublanguage:
+//
+//   name = "ExprEval"            the Lean module (`NS/ExprEval.lean`) and namespace
+//   sort = "SortExpr"            the syntax sort the induction runs over
+//   [[class]]                    a class of the sublanguage and the sort of its values
+//   name = "AExp"
+//   value = "SortInt"
+//   [[ctor]]                     one typing of a constructor of `sort`: its class and its
+//   class = "AExp"               arguments' classes (a constructor may have several typings)
+//   ctor = "_+_"
+//   args = ["AExp", "AExp"]
+//
+// The generated module states, for the configuration `cfg e K …` with `e` (injected into `KItem`)
+// at the head of the `<k>` cell, the continuation `K` and every other cell arbitrary:
+//
+// * `Sub cl e`, the sublanguage, an inductive predicate: a value of the class's sort, or a listed
+//   constructor applied to arguments of the listed classes;
+// * one obligation per listed typing: if the arguments are in their classes and each argument,
+//   in any continuation, reaches a value of its class (the induction hypotheses, as claims the
+//   tactic may apply anywhere), then the constructor's term reaches a value of its class
+//   (`Reach`: some finite path, total correctness), closed by `kc_auto … split` unless listed in
+//   `--open` as `NAME.CLASS.CTOR`;
+// * `holds`: every expression of the sublanguage reaches a value of its class, by induction on
+//   `Sub`, with the open obligations as hypotheses.
+
+mod induction {
+    use super::*;
+
+    pub struct Spec {
+        pub name: String,
+        pub sort: String,
+        /// (class, value sort)
+        pub classes: Vec<(String, String)>,
+        pub obligations: Vec<Obl>,
+    }
+
+    pub struct Obl {
+        pub class: String,
+        /// the Lean name component (`AExp._+_`, `BExp._==_.1` for a second typing)
+        pub name: String,
+        pub sym: String,
+        pub args: Vec<String>,
+        pub klabel: String,
+    }
+
+    fn strs(v: &toml::Value, key: &str) -> Result<String, String> {
+        v.get(key)
+            .and_then(|x| x.as_str())
+            .map(|x| x.to_string())
+            .ok_or(format!("missing string `{key}`"))
+    }
+
+    pub fn read(path: &PathBuf, m: &Model) -> Result<Spec, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let t: toml::Table = text.parse().map_err(|e: toml::de::Error| e.to_string())?;
+        let tv = toml::Value::Table(t);
+        let name = strs(&tv, "name")?;
+        let sort = strs(&tv, "sort")?;
+        let info = m
+            .sorts
+            .get(&sort)
+            .ok_or(format!("sort {sort} is not in the definition"))?;
+        let mut classes = vec![];
+        for c in tv
+            .get("class")
+            .and_then(|x| x.as_array())
+            .ok_or("no [[class]]")?
+        {
+            let (n, v) = (strs(c, "name")?, strs(c, "value")?);
+            if !m.sorts.contains_key(&v) {
+                return Err(format!(
+                    "class {n}: value sort {v} is not in the definition"
+                ));
+            }
+            if names::ident(&n) != n {
+                return Err(format!("class name {n} is not a plain identifier"));
+            }
+            classes.push((n, v));
+        }
+        let mut obligations: Vec<Obl> = vec![];
+        for c in tv
+            .get("ctor")
+            .and_then(|x| x.as_array())
+            .ok_or("no [[ctor]]")?
+        {
+            let class = strs(c, "class")?;
+            if !classes.iter().any(|(n, _)| *n == class) {
+                return Err(format!("unknown class {class}"));
+            }
+            let want = strs(c, "ctor")?;
+            let args: Vec<String> = c
+                .get("args")
+                .and_then(|x| x.as_array())
+                .ok_or("ctor without `args`")?
+                .iter()
+                .map(|x| {
+                    x.as_str()
+                        .map(|s| s.to_string())
+                        .ok_or("args are class names")
+                })
+                .collect::<Result<_, _>>()?;
+            let sym = info
+                .own
+                .iter()
+                .find(|sym| {
+                    let ci = &m.ctors[*sym];
+                    ci.lean.trim_start_matches('«').trim_end_matches('»') == want
+                        || ci.klabel == want
+                })
+                .ok_or(format!("{sort} has no constructor {want}"))?
+                .clone();
+            let ci = &m.ctors[&sym];
+            if ci.args.len() != args.len() {
+                return Err(format!(
+                    "{want} has {} arguments, the typing {}",
+                    ci.args.len(),
+                    args.len()
+                ));
+            }
+            for (a, cl) in ci.args.iter().zip(&args) {
+                if *a != sort {
+                    return Err(format!("{want}: an argument of sort {a}, not {sort}"));
+                }
+                if !classes.iter().any(|(n, _)| n == cl) {
+                    return Err(format!("{want}: unknown class {cl}"));
+                }
+            }
+            let base = format!("{class}.{want}");
+            let k = obligations
+                .iter()
+                .filter(|o| o.name == base || o.name.starts_with(&format!("{base}.")))
+                .count();
+            let name = if k == 0 { base } else { format!("{base}.{k}") };
+            obligations.push(Obl {
+                class,
+                name,
+                sym,
+                args,
+                klabel: ci.klabel.clone(),
+            });
+        }
+        Ok(Spec {
+            name,
+            sort,
+            classes,
+            obligations,
+        })
+    }
+
+    fn sv(s: &str) -> crate::ir::S {
+        crate::ir::S::App(s.to_string(), vec![])
+    }
+
+    fn var(n: &str, s: &str) -> P {
+        P::Var(n.to_string(), sv(s))
+    }
+
+    fn inj(from: &str, to: &str, p: P) -> P {
+        P::App("inj".into(), vec![sv(from), sv(to)], vec![p])
+    }
+
+    /// The configuration with `item` at the head of `<k>` followed by `K`, and the other cells of
+    /// the top cell as the variables `x1 …`: `(pattern, the other cells' (name, sort))`.
+    fn config(m: &Model, top: &str, item: P) -> Result<(P, Vec<(String, String)>), String> {
+        let tinfo = &m.sorts[top];
+        let [tsym] = tinfo.own.as_slice() else {
+            return Err(format!("{top} has {} constructors", tinfo.own.len()));
+        };
+        let targs = &m.ctors[tsym].args;
+        let mut args = vec![];
+        let mut cells = vec![];
+        let mut found = false;
+        for (i, a) in targs.iter().enumerate() {
+            let ainfo = &m.sorts[a];
+            let kseq = || {
+                P::App(
+                    "kseq".into(),
+                    vec![],
+                    vec![item.clone(), var("VarK", "SortK")],
+                )
+            };
+            if let [csym] = ainfo.own.as_slice()
+                && m.ctors[csym].args == ["SortK".to_string()]
+                && !found
+                && a == "SortKCell"
+            {
+                args.push(P::App(csym.clone(), vec![], vec![kseq()]));
+                found = true;
+            } else {
+                let n = format!("VarX{}", i + 1);
+                args.push(var(&n, a));
+                cells.push((n, a.clone()));
+            }
+        }
+        if !found {
+            return Err(format!("the <k> cell is not a child of {top}"));
+        }
+        Ok((P::App(tsym.clone(), vec![], args), cells))
+    }
+
+    pub fn emit(
+        ns: &str,
+        sem: &str,
+        spec: &Spec,
+        m: &Model,
+        fns: &Fns,
+        top: &str,
+        open: &BTreeSet<String>,
+    ) -> Result<(String, Vec<String>, Vec<String>), String> {
+        let sort = &spec.sort;
+        let mut low = Lower::new(
+            m,
+            fns,
+            &[
+                "Sub", "Inst", "Target", "Obl", "cfg", "holds", "Step", "d", "cl",
+            ],
+        );
+        let name_of = |low: &mut Lower, kv: &str, base: &str, ty: &str| {
+            let n = low.param(base, ty);
+            low.vars.insert(kv.to_string(), n.clone());
+            n
+        };
+        let e = name_of(&mut low, "VarE", "e", sort);
+        let k = name_of(&mut low, "VarK", "k", "SortK");
+        let (cfg_p, cells) = config(m, top, inj(sort, "SortKItem", var("VarE", sort)))?;
+        let mut cell_vars = vec![];
+        for (kv, s) in &cells {
+            cell_vars.push((
+                name_of(&mut low, kv, &format!("x{}", cell_vars.len() + 1), s),
+                s.clone(),
+            ));
+        }
+        let cfg_l = low.expr(&cfg_p, top)?.render();
+        let cell_bind: String = cell_vars
+            .iter()
+            .map(|(n, t)| format!(" ({n} : {t})"))
+            .collect();
+        let cell_args: String = cell_vars.iter().map(|(n, _)| format!(" {n}")).collect();
+        let mut targets = vec![];
+        for (cl, vs) in &spec.classes {
+            let v = name_of(&mut low, &format!("VarV{cl}"), "v", vs);
+            let (tp, _) = config(m, top, inj(vs, "SortKItem", var(&format!("VarV{cl}"), vs)))?;
+            let tl = low.expr(&tp, top)?.render();
+            let leaf = low
+                .expr(&inj(vs, sort, var(&format!("VarV{cl}"), vs)), sort)?
+                .render();
+            targets.push((cl.clone(), v, vs.clone(), tl, leaf));
+        }
+        if !low.steps.is_empty() {
+            return Err("the configuration needs a partial function".into());
+        }
+        let mut s = String::new();
+        let _ = writeln!(s, "import {ns}.Basic\n");
+        let _ = writeln!(
+            s,
+            "/-! Generated by `k2lean claims --induction`; do not edit.\n\n\
+             Termination of a sublanguage of `{sort}`: every expression of `Sub` reaches a value of its\n\
+             class, from any continuation and any other cells (`holds`, by induction on `Sub`). Each\n\
+             constructor typing is one obligation (`Obl.<class>.<ctor>`), whose induction hypotheses say\n\
+             that its arguments reach values, in any continuation; the claims tactic applies them\n\
+             where the arguments are evaluated. `Reach` is a finite path: total correctness. -/\n"
+        );
+        let _ = writeln!(
+            s,
+            "set_option maxHeartbeats 0\nset_option maxRecDepth 100000\nset_option linter.unusedVariables false\nset_option kc.stats true\n"
+        );
+        let _ = writeln!(
+            s,
+            "namespace {ns}.{}\n\nopen {sem} KPrelude KClaims\n",
+            spec.name
+        );
+        let _ = writeln!(
+            s,
+            "/-- The classes of the sublanguage. -/\ninductive Cls where"
+        );
+        for (cl, _) in &spec.classes {
+            let _ = writeln!(s, "  | {cl}");
+        }
+        let _ = writeln!(s);
+        let _ = writeln!(
+            s,
+            "/-- The configuration with `{e}` at the head of `<k>`. -/\ndef cfg ({e} : {sort}) ({k} : SortK){cell_bind} : {top} :=\n  {cfg_l}\n"
+        );
+        let _ = writeln!(
+            s,
+            "/-- The configurations where `<k>` holds a value of class `cl`, then `{k}`, and the other cells are\nunchanged. -/\ndef Target (cl : Cls) ({k} : SortK){cell_bind} (d : {top}) : Prop :=\n  match cl with"
+        );
+        for (cl, v, vs, tl, _) in &targets {
+            let _ = writeln!(s, "  | .{cl} => ∃ ({v} : {vs}), d = {tl}");
+        }
+        let _ = writeln!(s);
+        let _ = writeln!(
+            s,
+            "/-- The instances of the claim \"`{e}` reaches a value of class `cl`\". -/\ndef Inst (cl : Cls) ({e} : {sort}) (c : {top}) (Q : {top} → Prop) : Prop :=\n  ∃ ({k} : SortK){cell_bind}, c = cfg {e} {k}{cell_args} ∧ Q = Target cl {k}{cell_args}\n"
+        );
+        let _ = writeln!(
+            s,
+            "theorem Inst.of_forall {{cl : Cls}} {{{e} : {sort}}} (h : ∀ ({k} : SortK){cell_bind}, KClaims.Reach Step (Target cl {k}{cell_args}) (cfg {e} {k}{cell_args})) :\n    ∀ c Q, Inst cl {e} c Q → KClaims.Reach Step Q c := by\n  rintro c Q ⟨{k},{} rfl, rfl⟩\n  exact h {k}{cell_args}\n",
+            cell_vars
+                .iter()
+                .map(|(n, _)| format!(" {n},"))
+                .collect::<String>()
+        );
+        // the sublanguage
+        let _ = writeln!(
+            s,
+            "/-- The sublanguage: values of each class, and the listed constructor typings. -/\ninductive Sub : Cls → {sort} → Prop"
+        );
+        for (cl, v, vs, _, leaf) in &targets {
+            let _ = writeln!(
+                s,
+                "  | {} ({v} : {vs}) : Sub .{cl} ({leaf})",
+                names::ident(&format!("{cl}.val"))
+            );
+        }
+        let mut terms = vec![];
+        for o in &spec.obligations {
+            let mut lo = Lower::new(m, fns, &[]);
+            let mut avs = vec![];
+            for (i, _) in o.args.iter().enumerate() {
+                let n = lo.param(&format!("a{i}"), sort);
+                lo.vars.insert(format!("VarA{i}"), n.clone());
+                avs.push(n);
+            }
+            let p = P::App(
+                o.sym.clone(),
+                vec![],
+                (0..o.args.len())
+                    .map(|i| var(&format!("VarA{i}"), sort))
+                    .collect(),
+            );
+            let t = lo.expr(&p, sort)?.render();
+            let binders: String = avs.iter().map(|a| format!("{{{a} : {sort}}} ")).collect();
+            let prem: String = avs
+                .iter()
+                .zip(&o.args)
+                .map(|(a, c)| format!("Sub .{c} {a} → "))
+                .collect();
+            let _ = writeln!(
+                s,
+                "  | {} {binders}: {prem}Sub .{} ({t})",
+                names::ident(&o.name),
+                o.class
+            );
+            terms.push((avs, t));
+        }
+        let _ = writeln!(s);
+        let mut proved = vec![];
+        let mut opened = vec![];
+        for (o, (avs, t)) in spec.obligations.iter().zip(&terms) {
+            let on = names::ident(&o.name);
+            let abind: String = avs.iter().map(|a| format!(" ({a} : {sort})")).collect();
+            let prem: String = avs
+                .iter()
+                .zip(&o.args)
+                .map(|(a, c)| format!(" Sub .{c} {a} →"))
+                .collect();
+            let ihs: String = avs
+                .iter()
+                .zip(&o.args)
+                .map(|(a, c)| {
+                    format!("(∀ c Q, Inst .{c} {a} c Q → KClaims.Reach Step Q c) →\n    ")
+                })
+                .collect();
+            let _ = writeln!(
+                s,
+                "/-- `{}` (`{}`) in class `{}`, from its arguments' induction hypotheses. -/\ndef Obl.{on} : Prop :=\n  ∀{abind},{prem}\n    {ihs}∀ ({k} : SortK){cell_bind}, KClaims.Reach Step (Target .{} {k}{cell_args}) (cfg ({t}) {k}{cell_args})\n",
+                o.name, o.klabel, o.class, o.class
+            );
+            let key = format!("{}.{}", spec.name, o.name);
+            if open.contains(&key) {
+                let _ = writeln!(s, "-- `{key}`: no generic proof (open list).\n");
+                opened.push(key);
+                continue;
+            }
+            let hs: Vec<String> = (0..avs.len()).map(|i| format!("h{i}")).collect();
+            let is: Vec<String> = (0..avs.len()).map(|i| format!("ih{i}")).collect();
+            let intro: Vec<String> = avs
+                .iter()
+                .cloned()
+                .chain(hs.clone())
+                .chain(is.clone())
+                .chain(std::iter::once(k.clone()))
+                .chain(cell_vars.iter().map(|(n, _)| n.clone()))
+                .collect();
+            let using = if is.is_empty() {
+                String::new()
+            } else {
+                format!(" using [{}]", is.join(", "))
+            };
+            let _ = writeln!(
+                s,
+                "theorem Obl.{on}.holds : Obl.{on} := by\n  intro {}\n  kc_norm\n  kc_auto{using} split\n",
+                intro.join(" ")
+            );
+            proved.push(format!("{ns}.{}.Obl.{on}.holds", spec.name));
+        }
+        // the theorem
+        let hyps: String = opened
+            .iter()
+            .map(|key| {
+                let o = key.strip_prefix(&format!("{}.", spec.name)).unwrap();
+                format!(" (o_{} : Obl.{})", sanitize(o), names::ident(o))
+            })
+            .collect();
+        let _ = writeln!(
+            s,
+            "/-- Every expression of the sublanguage reaches a value of its class (the open obligations, if\nany, are hypotheses). -/\ntheorem holds{hyps} {{cl : Cls}} {{{e} : {sort}}} (h : Sub cl {e}) :\n    ∀ ({k} : SortK){cell_bind}, KClaims.Reach Step (Target cl {k}{cell_args}) (cfg {e} {k}{cell_args}) := by\n  induction h with"
+        );
+        for (cl, v, _, _, _) in &targets {
+            let _ = writeln!(
+                s,
+                "  | {} {v} =>\n    intro {k}{cell_args}\n    refine KClaims.Reach.here ?_\n    exact ⟨{v}, rfl⟩",
+                names::ident(&format!("{cl}.val"))
+            );
+        }
+        for (o, (avs, _)) in spec.obligations.iter().zip(&terms) {
+            let hs: Vec<String> = (0..avs.len()).map(|i| format!("h{i}")).collect();
+            let is: Vec<String> = (0..avs.len()).map(|i| format!("ih{i}")).collect();
+            let key = format!("{}.{}", spec.name, o.name);
+            let pf = if opened.contains(&key) {
+                format!("o_{}", sanitize(&o.name))
+            } else {
+                format!("Obl.{}.holds", names::ident(&o.name))
+            };
+            let args: String = avs
+                .iter()
+                .map(|_| " _".to_string())
+                .chain(hs.iter().map(|h| format!(" {h}")))
+                .chain(is.iter().map(|i| format!(" (Inst.of_forall {i})")))
+                .collect();
+            let _ = writeln!(
+                s,
+                "  | @{} {} {} {} =>\n    exact {pf}{args}",
+                names::ident(&o.name),
+                avs.join(" "),
+                hs.join(" "),
+                is.join(" ")
+            );
+        }
+        let _ = writeln!(s);
+        if opened.is_empty() {
+            proved.push(format!("{ns}.{}.holds", spec.name));
+        }
+        let _ = writeln!(s, "end {ns}.{}", spec.name);
+        Ok((s, proved, opened))
+    }
 }
 
 #[cfg(test)]

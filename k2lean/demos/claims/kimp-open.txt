@@ -1,5 +1,5 @@
 # Claims of the kimp specs that get no generic proof (`k2lean claims --open`).
-# Format: <K module>.<label>.
+# Format: <K module>.<label>, or <induction name>.<class>.<constructor> for an obligation of `--induction`.
 # Each is either proved by hand in `demos/claims/hand/Hand.lean` or false.
 IMP-SUM-SPEC.two-sum-spec          # true; no claim re-matches after one iteration (imp-two-sum-aux-spec.k); Hand.two_sum_spec
 IMP-SIMPLE-SPEC.bmc-loop-concrete  # false: ?N = -1; Hand.bmc_loop_concrete_false
@@ -8,3 +8,4 @@ IMP-DIV0-SPEC.div0-seven           # false: `5 / 0` has no successor (undefined 
 IMP-DIV0-SPEC.div0-any-int         # false for the same reason; Hand.div0_any_int_false
 IMP-INV-SPEC.copy                  # false over all configurations: a store value that is not a Value is evaluated; Hand.copy_false
 IMP-INV-SPEC.copy-loop             # false for the same reason; Hand.copy_loop_false (true under the invariant: generated/kimpinv-claims)
+ExprDiv.AExp._/_                   # false: `1 / 0` has no successor; Hand.expr_div_false

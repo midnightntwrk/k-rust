@@ -27,8 +27,8 @@ recorded outputs with the default encoding's, which they must equal):
   negative  KRS IMP with an ill-typed `assign`: the generated proof of the declared cell type must
             still fail, with exactly the baseline's open cases, and an error line naming each
   simple    cases and Lean = krust verdicts equal to the baseline
-  claims    stated claims (kimp's, and kimpinv's under its invariant) and theorems under the guard
-            equal to the baseline
+  claims    stated claims (kimp's, and kimpinv's under its invariant), induction obligations and theorems
+            under the guard equal to the baseline
   outputs   recorded outputs (goldens.toml, kimp-test.out, acceptance tables, claims files)
             equal to expected/, after the normalization each one names (search times, replay
             seconds and the order of logged lines are not compared)
@@ -306,6 +306,7 @@ def measure(work, tier):
                        "claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
                        "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
                        "inv_stated": len(re.findall(r"^stated = true", ci, re.M)) if ci else None,
+                       "induction_obligations": sum(int(x) for x in re.findall(r"^obligations = (\d+)", ct, re.M)) if ct else None,
                        "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
                        "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
                        "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}

@@ -1,0 +1,90 @@
+# The termination of kimp's loop-free arithmetic and Boolean expressions without variables or
+# division (`k2lean claims --induction`): every such expression, at the head of `<k>`, reaches a
+# value of its type, whatever the continuation and the store. Division is left out because
+# `X / 0` has no successor (`X /Int 0` is undefined), variables because their value is the
+# store's, and `(_)` is not a constructor (a bracket).
+name = "ExprEval"
+sort = "SortExpr"
+
+[[class]]
+name = "AExp"
+value = "SortInt"
+
+[[class]]
+name = "BExp"
+value = "SortBool"
+
+[[ctor]]
+class = "AExp"
+ctor = "-_"
+args = ["AExp"]
+
+[[ctor]]
+class = "AExp"
+ctor = "_*_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "AExp"
+ctor = "_+_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "AExp"
+ctor = "_-_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "!_"
+args = ["BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_>=_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_>_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_<=_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_<_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_==_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_==_"
+args = ["BExp", "BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_!=_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_!=_"
+args = ["BExp", "BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_&&_"
+args = ["BExp", "BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_||_"
+args = ["BExp", "BExp"]
