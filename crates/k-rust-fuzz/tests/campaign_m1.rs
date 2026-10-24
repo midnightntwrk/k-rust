@@ -411,9 +411,9 @@ fn a_proposer_this_milestone_does_not_provide_is_refused() {
     }
 }
 
-/// A pattern whose `requires` reads a variable its configuration does not bind matches a leaf
-/// only under a condition on that variable, which is never a hit, so the campaign is refused
-/// with the variable's name (FZ-POLISH S3). A variable the configuration binds and a pattern
+/// A pattern whose `requires` reads a variable its configuration does not bind is refused with
+/// the variable's name (FZ-POLISH S3): such a variable is almost always a misspelling, and the
+/// engine decides a condition on it only when it is trivially true or false. A variable the configuration binds and a pattern
 /// without `requires` are accepted.
 #[test]
 fn a_pattern_whose_requires_reads_an_unbound_variable_is_refused() {
@@ -433,6 +433,11 @@ fn a_pattern_whose_requires_reads_an_unbound_variable_is_refused() {
                     message.contains(&format!("`{unbound}`")) && message.contains("requires"),
                     "{message}"
                 );
+                // The reason stated is the honest one (review round 1): a condition that does
+                // not depend on the variable (`R ==Int R`) can hold, so no claim that no case
+                // could reach the pattern.
+                assert!(message.contains("almost always a misspelling"), "{message}");
+                assert!(!message.contains("no case could reach"), "{message}");
             }
             Err(other) => panic!("{pattern}: {other}"),
             Ok(_) => panic!("{pattern}: accepted"),

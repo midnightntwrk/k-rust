@@ -75,12 +75,14 @@ impl PatternCompiler {
     /// Compile `pattern` (`requires` allowed) with the program grammar `grammar`.
     ///
     /// A pattern whose `requires` reads a variable that its configuration does not bind is
-    /// refused ([`unbound_condition_variables`]): a leaf matches its configuration with every
-    /// variable of the configuration given a value, and the condition then still depends on
-    /// the unbound variable, so the match holds only under a constraint on it, which the leaf
-    /// judgement classes as undecided (no hit, no miss) on every leaf. No case could reach such
-    /// a pattern. (`krust krun --pattern` answers such a match with the remaining condition in
-    /// its result instead.)
+    /// refused ([`unbound_condition_variables`]). Such a variable is almost always a
+    /// misspelling (of a variable the configuration names, or of a key), and a leaf's match
+    /// then leaves a condition over it, which the leaf judgement decides only when it
+    /// simplifies to true or false without the variable (`R ==Int R`, `... orBool true`) and
+    /// classes as undecided (`unsupported`) otherwise. The refusal is a rule of use, not a
+    /// fact that no leaf could match: it refuses a few patterns some leaves would match.
+    /// (`krust krun --pattern` answers such a match with the remaining condition in its result
+    /// instead.)
     ///
     /// # Errors
     ///
@@ -112,9 +114,10 @@ impl PatternCompiler {
             };
             return Err(format!(
                 "its `requires` reads the {noun} {names}, which the pattern's configuration does \
-                 not bind: a leaf would match only under a condition on {verb}, which decides no \
-                 case, so no case could reach the pattern; bind {verb} in the configuration or \
-                 remove {verb} from the condition"
+                 not bind; such a variable is almost always a misspelling (of a variable the \
+                 configuration names, or of a key), and a condition on {verb} is decided only \
+                 when it is trivially true or false, so the pattern is refused: bind {verb} in \
+                 the configuration or remove {verb} from the condition"
             ));
         }
         Ok(CompiledPattern { search })
