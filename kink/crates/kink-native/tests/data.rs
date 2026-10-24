@@ -294,7 +294,7 @@ fn an_overload_application_is_data_only_where_it_is_instance_normal() {
 /// fz26 KINK-OVERLOAD-VALUE consumes k-rust's data judgement rather than re-implementing it, so
 /// the passages its soundness rests on are pinned by digest:
 /// - `data_term`'s module documentation from "The class" through "Two definitions" (what a data
-///   term is, why two differ in each definition's initial model under A1 and A2, and that ends
+///   term is, why two differ in each definition's initial model under A1+ and A2, and that ends
 ///   compared across two definitions must be data in both, each judged by its own);
 /// - `data_heads` (a finding leaves no head), the selection of the overload data heads
 ///   (`overload_data_heads`, `canonical_overload_equation`), `is_data_walk` (no data without a
@@ -314,6 +314,11 @@ fn an_overload_application_is_data_only_where_it_is_instance_normal() {
 /// own docs quote `M+` and A1+ since KINK-WITNESS. `data_heads` was re-pinned after KINK-WITNESS,
 /// which also copies the check's adopted witnesses into `DataHeads`; the heads and findings it
 /// returns are unchanged.
+///
+/// fz26 INT9-FIX-DOCS (review CHKB-1): "Two definitions" now says that two different data terms
+/// differ in each definition's initial model by the argument above under A1+ and A2, where it
+/// said A1 and A2; the argument it points to already read `M+` under A1+, so the sentence names
+/// the premise that argument needs. Only the module documentation is re-pinned (`doc`).
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -367,7 +372,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
         [
             (
                 "doc",
-                "57fa95d0a87db46f6aff83aef586f8741025c05f68ed9f1ed6e5d0d7b3fe1a58"
+                "9fffe792904b8041ce4c17acc5987a2015f0fa4b782bb3669ef9b536e98b5519"
             ),
             (
                 "data_heads",
