@@ -29,6 +29,9 @@ lake-manifest.json
 /demos/ImpUnroll/refine.toml
 /demos/RaceConf/RaceConf/Confluence.lean
 /demos/RaceConf/confluence.toml
+/demos/ImpNI/ImpNI/Tr.lean
+/demos/ImpNI/ImpNI/NI.lean
+/demos/ImpNI/noninterference.toml
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean

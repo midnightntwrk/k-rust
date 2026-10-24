@@ -47,16 +47,16 @@ fn write_file(path: &str, text: &str) {
     std::fs::write(p, text).unwrap_or_else(|e| fail(&format!("cannot write {path}: {e}")));
 }
 
-struct Lib {
-    def: Def,
-    m: Model,
-    rules: Vec<Rule>,
-    prios: Vec<i64>,
-    ranked: bool,
-    top: String,
+pub(crate) struct Lib {
+    pub def: Def,
+    pub m: Model,
+    pub rules: Vec<Rule>,
+    pub prios: Vec<i64>,
+    pub ranked: bool,
+    pub top: String,
 }
 
-fn load(kore: &str) -> Lib {
+pub(crate) fn load(kore: &str) -> Lib {
     let text = std::fs::read_to_string(kore).unwrap_or_else(|e| fail(&format!("{kore}: {e}")));
     let def = ir::load(&text).unwrap_or_else(|e| fail(&format!("{kore}: {e:?}")));
     let m = Model::build(&def).unwrap_or_else(|e| fail(&e));
@@ -341,7 +341,13 @@ fn map_cells(r: &Rule) -> BTreeSet<String> {
 }
 
 /// The observation: the path to each named cell in a rule's left-hand side, as a match pattern.
-fn obs_def(lib: &Lib, name: &str, cells: &[String]) -> String {
+pub(crate) fn proj_def(
+    lib: &Lib,
+    name: &str,
+    def: &str,
+    cells: &[String],
+    content: Option<&str>,
+) -> String {
     let mut pats: Vec<(String, String)> = vec![]; // (cell type, path)
     // the pattern of the top configuration with `x{i}` at each observed cell
     fn find(l: &L, cell: &str, path: &mut Vec<usize>) -> Option<String> {
@@ -378,9 +384,18 @@ fn obs_def(lib: &Lib, name: &str, cells: &[String]) -> String {
         paths.push(p);
     }
     // build the pattern: walk the shape, keeping constructors on the paths, `_` elsewhere
-    fn pat(l: &L, paths: &[(usize, Vec<usize>)], depth: usize, ns: &str) -> String {
+    fn pat(
+        l: &L,
+        paths: &[(usize, Vec<usize>)],
+        depth: usize,
+        ns: &str,
+        content: bool,
+    ) -> String {
         if let Some((i, _)) = paths.iter().find(|(_, p)| p.len() == depth) {
-            return format!("x{i}");
+            return match (content, l) {
+                (true, L::App(h, _)) => format!("({ns}.{h} x{i})"),
+                _ => format!("x{i}"),
+            };
         }
         match l {
             L::App(h, a) => {
@@ -396,7 +411,7 @@ fn obs_def(lib: &Lib, name: &str, cells: &[String]) -> String {
                         if sub.is_empty() {
                             "_".to_string()
                         } else {
-                            pat(x, &sub, depth + 1, ns)
+                            pat(x, &sub, depth + 1, ns, content)
                         }
                     })
                     .collect();
@@ -407,8 +422,11 @@ fn obs_def(lib: &Lib, name: &str, cells: &[String]) -> String {
     }
     let shape = shape.unwrap();
     let indexed: Vec<(usize, Vec<usize>)> = paths.into_iter().enumerate().collect();
-    let p = pat(&shape, &indexed, 0, name);
-    let tys: Vec<String> = pats.iter().map(|(t, _)| format!("{name}.{t}")).collect();
+    let p = pat(&shape, &indexed, 0, name, content.is_some());
+    let tys: Vec<String> = match content {
+        Some(t) => vec![format!("{name}.{t}"); cells.len()],
+        None => pats.iter().map(|(t, _)| format!("{name}.{t}")).collect(),
+    };
     let xs: Vec<String> = (0..cells.len()).map(|i| format!("x{i}")).collect();
     let (ty, val) = if cells.len() == 1 {
         (tys[0].clone(), xs[0].clone())
@@ -417,7 +435,7 @@ fn obs_def(lib: &Lib, name: &str, cells: &[String]) -> String {
     };
     let cells_doc: Vec<String> = cells.iter().map(|c| format!("`<{c}>`")).collect();
     format!(
-        "/-- The observation: the cell{} {}. -/\ndef obs : {name}.{} → {ty}\n  | {p} => {val}\n",
+        "/-- The projection to the cell{} {}. -/\ndef {def} : {name}.{} → {ty}\n  | {p} => {val}\n",
         if cells.len() == 1 { "" } else { "s" },
         cells_doc.join(", "),
         lib.top
@@ -614,7 +632,7 @@ are the hand module's (`hand.pair.r₁.r₂`). -/\n",
     )
     .unwrap();
     writeln!(o, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
-    o.push_str(&obs_def(&lib, &name, &cells));
+    o.push_str(&proj_def(&lib, &name, "obs", &cells, None));
     o.push('\n');
     let args_of = |r: &Rule| rules::ctor_args(&r.step);
     let mut guard = vec![];

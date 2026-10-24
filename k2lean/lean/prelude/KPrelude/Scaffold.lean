@@ -313,11 +313,12 @@ section NonInterference
 variable {α : Type u} {S : α → α → Prop} {Final : α → Prop} {Rel : α → α → Prop}
 
 /-- `Rel` relates pairs of states of two runs of `S` such that, unless both are final, one side
-that is not final can be advanced by any of its steps without leaving `Rel` (a stuck side has no
-step, so it is advanced vacuously: it never reaches a final state). -/
+that is not final, or both, can be advanced by any of their steps without leaving `Rel` (a stuck
+side has no step, so it is advanced vacuously: it never reaches a final state). -/
 structure ProductInv (S : α → α → Prop) (Final : α → Prop) (Rel : α → α → Prop) : Prop where
   move : ∀ {c₁ c₂}, Rel c₁ c₂ → ¬ (Final c₁ ∧ Final c₂) →
-    (¬ Final c₁ ∧ ∀ c₁', S c₁ c₁' → Rel c₁' c₂) ∨ (¬ Final c₂ ∧ ∀ c₂', S c₂ c₂' → Rel c₁ c₂')
+    (¬ Final c₁ ∧ ∀ c₁', S c₁ c₁' → Rel c₁' c₂) ∨ (¬ Final c₂ ∧ ∀ c₂', S c₂ c₂' → Rel c₁ c₂') ∨
+    (¬ Final c₁ ∧ ¬ Final c₂ ∧ ∀ c₁' c₂', S c₁ c₁' → S c₂ c₂' → Rel c₁' c₂')
 
 /-- Two runs from related states that both end in final states end in related states. -/
 theorem ProductInv.final (h : ProductInv S Final Rel) (hfin : ∀ {c c'}, Final c → ¬ S c c') :
@@ -330,20 +331,41 @@ theorem ProductInv.final (h : ProductInv S Final Rel) (hfin : ∀ {c c'}, Final 
     induction h₂ with
     | refl => exact hr
     | step hs _ ih =>
-      rcases h.move hr (fun ⟨_, f⟩ => hfin f hs) with ⟨n₁, _⟩ | ⟨_, hm⟩
+      rcases h.move hr (fun ⟨_, f⟩ => hfin f hs) with ⟨n₁, _⟩ | ⟨_, hm⟩ | ⟨n₁, _⟩
       · exact absurd hf₁ n₁
       · exact ih hf₂ (hm _ hs)
+      · exact absurd hf₁ n₁
   | step hs₁ rest₁ ih₁ =>
     intro c₂ f₂ h₂ hf₂ hr
     induction h₂ with
     | refl =>
-      rcases h.move hr (fun ⟨f, _⟩ => hfin f hs₁) with ⟨_, hm⟩ | ⟨n₂, _⟩
+      rcases h.move hr (fun ⟨f, _⟩ => hfin f hs₁) with ⟨_, hm⟩ | ⟨n₂, _⟩ | ⟨_, n₂, _⟩
       · exact ih₁ hf₁ (.refl _) hf₂ (hm _ hs₁)
       · exact absurd hf₂ n₂
+      · exact absurd hf₂ n₂
     | step hs₂ rest₂ ih₂ =>
-      rcases h.move hr (fun ⟨f, _⟩ => hfin f hs₁) with ⟨_, hm⟩ | ⟨_, hm⟩
+      rcases h.move hr (fun ⟨f, _⟩ => hfin f hs₁) with ⟨_, hm⟩ | ⟨_, hm⟩ | ⟨_, _, hm⟩
       · exact ih₁ hf₁ (.step hs₂ rest₂) hf₂ (hm _ hs₁)
       · exact ih₂ hf₂ (hm _ hs₂)
+      · exact ih₁ hf₁ rest₂ hf₂ (hm _ _ hs₁ hs₂)
+
+/-- A product invariant from three modes of `Rel`: in `Sync` both sides step together, in `Left`
+the left side steps alone, in `Right` the right side; `cover` says which mode a related pair is
+in when not both are final. Each mode's obligation is one statement per rule of the stepping
+side (`k2lean noninterference`). -/
+theorem ProductInv.of_modes {Sync Left Right : α → α → Prop}
+    (sync : ∀ {c₁ c₂ c₁' c₂'}, Sync c₁ c₂ → S c₁ c₁' → S c₂ c₂' → Rel c₁' c₂')
+    (left : ∀ {c₁ c₂ c₁'}, Left c₁ c₂ → S c₁ c₁' → Rel c₁' c₂)
+    (right : ∀ {c₁ c₂ c₂'}, Right c₁ c₂ → S c₂ c₂' → Rel c₁ c₂')
+    (cover : ∀ {c₁ c₂}, Rel c₁ c₂ → ¬ (Final c₁ ∧ Final c₂) →
+      (Left c₁ c₂ ∧ ¬ Final c₁) ∨ (Right c₁ c₂ ∧ ¬ Final c₂) ∨
+      (Sync c₁ c₂ ∧ ¬ Final c₁ ∧ ¬ Final c₂)) :
+    ProductInv S Final Rel where
+  move hr hn := by
+    rcases cover hr hn with ⟨hl, n⟩ | ⟨hr', n⟩ | ⟨hs, n₁, n₂⟩
+    · exact Or.inl ⟨n, fun _ h => left hl h⟩
+    · exact Or.inr (Or.inl ⟨n, fun _ h => right hr' h⟩)
+    · exact Or.inr (Or.inr ⟨n₁, n₂, fun _ _ h₁ h₂ => sync hs h₁ h₂⟩)
 
 end NonInterference
 

@@ -23,6 +23,7 @@ mod lower;
 mod model;
 mod multi;
 mod names;
+mod noninterference;
 mod overload;
 mod pairs;
 mod preserves;
@@ -218,6 +219,9 @@ fn main() {
     }
     if raw.first().map(|s| s.as_str()) == Some("confluence") {
         return confluence::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("noninterference") {
+        return noninterference::main(&raw[1..]);
     }
     if raw.first().map(|s| s.as_str()) == Some("refine") {
         return refine::main(&raw[1..]);

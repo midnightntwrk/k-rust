@@ -15,7 +15,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, kimp-unroll, imp-typing, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, kimp-unroll, imp-typing, imp-sec, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -27,6 +27,7 @@ libs_kcompile() {
     kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
     kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
     imp-typing) f=$DEMOS/k/imp-typing.k m=IMP-TYPING s=IMP-TYPING-SYNTAX inc=$KIMP ;;
+    imp-sec) f=$DEMOS/k/imp-sec.k m=IMP-SEC s=IMP-SEC-SYNTAX inc=$KIMP ;;
     kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
     ovl) f=$DEMOS/k/overlap.k m=OVERLAP s=OVERLAP-SYNTAX inc=$DEMOS/k ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
@@ -51,7 +52,7 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; kunroll) echo KUnroll ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; kunroll) echo KUnroll ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;; impsec) echo KImpSec ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;; race) echo Race ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
@@ -106,6 +107,9 @@ libs_gen() {
             --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
     kunroll) "$G" gen --kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json" \
             --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    impsec) "$G" gen --kore "$(kore_dir imp-sec)/definition.kore" --runtime "$(kore_dir imp-sec)/runtime.json" \
+            --out "$o" --name KImpSec --prelude ../../lean/prelude \
+            --open-obligations "$o/open-obligations.txt" --extra-fns lev,sec,conf ;;
     imptypes) "$G" gen --kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json" \
             --out "$o" --name KImpTypes --prelude ../../lean/prelude \
             --open-obligations "$o/open-obligations.txt" --extra-fns typeOf,wt ;;
@@ -201,6 +205,7 @@ libs_relate() {
     ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
+    ImpNI) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr") ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
     # a fixture related to itself (libraries peano and peanob, cellmap and cellmapb)
@@ -253,5 +258,18 @@ libs_confluence() {
     SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --report-only true \
         --report "$2" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_noninterference NS: the noninterference scaffold of demo NS (ImpNI: kimp, with the checker
+# demos/k/imp-sec.k in the hand module NS/Hand.lean; needs libs_relate NS for the translation of
+# programs), `NS/NI.lean`, and its report `NS/noninterference.toml`.
+libs_noninterference() {
+  case $1 in
+    ImpNI) "$G" noninterference --kore "$(kore_dir kimp)/definition.kore" --name KImp --ns ImpNI \
+        --store-cell env --program-sort SortStmt --params "(G : KImpSec.SortMap)" \
+        --secure "secure G" --low-eq "lowEq G" \
+        --out "$DEMOS/ImpNI/ImpNI/NI.lean" --report "$DEMOS/ImpNI/noninterference.toml" ;;
+    *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }
