@@ -50,7 +50,7 @@ pub use oracle::{
 };
 pub use runner::{
     AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
-    CampaignRun, ClaimFreeMutant, CrossCause, CrossRefusal, LeafCensus, MutantAdmission,
+    CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, LeafCensus, MutantAdmission,
     MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, OneSided, OracleDeclaration,
     Projection, RunNotes, RunOptions, RunRecording, RunStop, SideRun, StateProjection, Tally,
     TestCase, TestEvidence, WorkBudget, claim_free_mutant, mutant_compiles, pattern_side,

@@ -151,9 +151,10 @@ use kink_patch::{
 };
 use kink_pattern::{
     CollectionEvidence, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions,
-    EventVocabulary, ExecutionTerminal, ExecutionTerminalKind, MonitorOptions, PathStop, PathTree,
-    PatternFailure, PatternOutcome, PatternPlan, RelationDecider, SearchPolicy, SymbolSorts,
-    TreeOptions, evaluate_tree_with_stats, evaluate_with,
+    EventVocabulary, ExecutionTerminal, ExecutionTerminalKind, Feasibility, MonitorOptions,
+    PathInput, PathStop, PathTree, PatternFailure, PatternOutcome, PatternPlan, RelationDecider,
+    RelationDecision, SearchPolicy, SymbolSorts, TermRelation, TreeOptions,
+    evaluate_tree_with_stats, evaluate_with,
 };
 
 use crate::campaign::check_manifest;
@@ -288,6 +289,13 @@ pub struct TestEvidence {
     /// judges them under the other side's definition before it compares the state slots (fz26
     /// KINK-OVERLOAD-VALUE, [`judge_across`]). Not encoded in the campaign report.
     pub ends: BTreeSet<Pattern>,
+    /// For each pattern slot (by its index in the test's oracles), the terms its relation
+    /// decisions read ([`ReadTerms`]): the payloads, bound values and assumptions of every
+    /// relation the side's own decider decided other than by syntactic identity, and of every
+    /// feasibility it decided. The slot's `Match` or `NoMatch` rests on them, decided in this
+    /// side's theory, so a pair judges them under the other side's definition (fz26
+    /// KINK-OVERLOAD-VALUE review S1, [`judge_across`]). Not encoded in the campaign report.
+    pub payloads: BTreeMap<usize, BTreeSet<Pattern>>,
 }
 
 /// What one run reports besides its sides (re-pin adoption A-1): its contradicted-claim records
@@ -1089,6 +1097,7 @@ impl<'v> BaselineSession<'v> {
                         run: SideRun::Failed((*exclusion).into()),
                         notes: RunNotes::default(),
                         ends: BTreeSet::new(),
+                        payloads: BTreeMap::new(),
                     },
                     (**cache).clone(),
                 ),
@@ -2323,7 +2332,14 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
 ///   [`Runtime::step_sides`], whose shared definition is the baseline's); a failure makes that
 ///   slot `Unknown`;
 /// - a one-sided terminal of the mutant run must be data under the baseline's definition, or it
-///   is dropped (it can then not distinguish).
+///   is dropped (it can then not distinguish);
+/// - every term a pattern slot's relation decisions read ([`TestEvidence::payloads`], recorded by
+///   [`ReadTerms`]) must be definition-independent under the other side's definition: a slot's
+///   `Match` or `NoMatch` is decided from relations between that side's payloads in that side's
+///   theory alone, so a failure makes that slot `Unknown` (review S1).
+///
+/// A value-holding state slot whose side has no ends is `Unknown` (review N2): the ends are the
+/// terminals it was projected from, and a producer that omits them cannot be judged.
 ///
 /// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
 /// end judged under it not data. A failure to reach a definition does too.
@@ -2365,11 +2381,27 @@ fn judge_across(
             .collect::<Vec<_>>(),
         SideRun::Failed(_) => Vec::new(),
     };
-    // Under the mutant's definition: the baseline's terminals, and both sides' bindings.
+    // The terms the relation decisions of a side's value-holding pattern slots read.
+    let payloads = |evidence: &TestEvidence| match &evidence.run {
+        SideRun::Sides { sides } => test
+            .oracles
+            .iter()
+            .zip(sides)
+            .enumerate()
+            .filter(|(_, (declaration, side))| {
+                matches!(declaration.projection(), Projection::Pattern { .. })
+                    && matches!(side, OracleSide::Normal(_))
+            })
+            .flat_map(|(index, _)| evidence.payloads.get(&index).into_iter().flatten().cloned())
+            .collect::<Vec<_>>(),
+        SideRun::Failed(_) => Vec::new(),
+    };
+    // Under the mutant's definition: the baseline's terminals and payloads, and both sides'
+    // bindings.
     let under_mutant = mutant_runtime.judge_ends(
         test,
         &compared(baseline),
-        &[bindings(baseline), bindings(mutant)].concat(),
+        &[bindings(baseline), bindings(mutant), payloads(baseline)].concat(),
     );
     // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
     let mutant_ends = compared(mutant);
@@ -2380,65 +2412,80 @@ fn judge_across(
             .into_iter()
             .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
             .collect::<Vec<_>>(),
-        &[],
+        &payloads(mutant),
     );
     let (mutant_data, one_sided_data) = under_baseline.terminals.split_at(terminals);
     let mut one_sided_data = one_sided_data.iter().copied();
     one_sided.retain(|_| one_sided_data.next().unwrap_or(false));
     let mut across = Vec::new();
-    for (evidence, data, causes, baseline_end) in [
+    for (evidence, data, causes, other, baseline_end) in [
         (
             &mut *baseline,
             under_mutant.terminals.as_slice(),
             under_mutant.terminal_causes.as_slice(),
+            &under_mutant,
             true,
         ),
         (
             &mut *mutant,
             mutant_data,
             &under_baseline.terminal_causes[..terminals],
+            &under_baseline,
             false,
         ),
     ] {
         let SideRun::Sides { sides } = &mut evidence.run else {
             continue;
         };
-        let states_data = data.iter().all(|data| *data);
-        for (slot, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
-            // Why the slot is refused: the first refused terminal, or binding, and its cause.
-            let refused = match (declaration.projection(), &*side) {
-                (Projection::State(_), OracleSide::Normal(_) | OracleSide::SemanticCrash(_)) => {
-                    (!states_data).then(|| {
-                        let cause = causes.iter().flatten().next().cloned();
-                        (false, cause.unwrap_or(CrossCause::NotData(None)))
-                    })
-                }
-                (Projection::State(_), _) => None,
-                (
-                    Projection::Pattern { .. },
-                    OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
-                        bindings: Some(witnesses),
-                    })),
-                ) => witnesses
-                    .iter()
-                    .flatten()
-                    .find(|binding| !under_mutant.independent.contains(&binding.term))
-                    .map(|binding| {
-                        let cause = under_mutant
-                            .binding_causes
-                            .iter()
-                            .find(|(term, _)| *term == binding.term)
-                            .map(|(_, cause)| cause.clone());
-                        (true, cause.unwrap_or(CrossCause::NotData(None)))
-                    }),
-                (Projection::Pattern { .. }, _) => None,
+        // A value-holding state slot with no ends to judge fails closed (review N2).
+        let states_data = !evidence.ends.is_empty() && data.iter().all(|data| *data);
+        for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
+            // A pattern value whose relation decisions read a term that is not data under the
+            // other side's definition (review S1).
+            let payload_refused = (matches!(declaration.projection(), Projection::Pattern { .. })
+                && matches!(side, OracleSide::Normal(_)))
+            .then(|| evidence.payloads.get(&index))
+            .flatten()
+            .and_then(|read| read.iter().find(|term| !other.independent.contains(term)));
+            // Why the slot is refused, for the reader's cause (fz26 KINK-CAUSE-SUBTERM).
+            let refused = match payload_refused {
+                Some(term) => Some((CrossEnd::Payload, other.cause_of(term))),
+                None => match (declaration.projection(), &*side) {
+                    (
+                        Projection::State(_),
+                        OracleSide::Normal(_) | OracleSide::SemanticCrash(_),
+                    ) if !states_data => Some((
+                        CrossEnd::Terminal,
+                        if evidence.ends.is_empty() {
+                            CrossCause::NoEnds
+                        } else {
+                            causes
+                                .iter()
+                                .flatten()
+                                .next()
+                                .cloned()
+                                .unwrap_or(CrossCause::NotData(None))
+                        },
+                    )),
+                    (
+                        Projection::Pattern { .. },
+                        OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                            bindings: Some(witnesses),
+                        })),
+                    ) => witnesses
+                        .iter()
+                        .flatten()
+                        .find(|binding| !under_mutant.independent.contains(&binding.term))
+                        .map(|binding| (CrossEnd::Binding, under_mutant.cause_of(&binding.term))),
+                    _ => None,
+                },
             };
-            if let Some((binding, cause)) = refused {
+            if let Some((end, cause)) = refused {
                 *side = OracleSide::Unknown;
                 across.push(CrossRefusal {
-                    slot,
+                    slot: index,
                     baseline_end,
-                    binding,
+                    end,
                     cause,
                 });
             }
@@ -2455,31 +2502,55 @@ struct EndJudgement {
     independent: Vec<Pattern>,
     /// For each terminal judged, in order, why it is not data there (`None` when it is).
     terminal_causes: Vec<Option<CrossCause>>,
-    /// Each binding term judged not definition-independent there, and why.
+    /// Each binding (or payload) term judged not definition-independent there, and why.
     binding_causes: Vec<(Pattern, CrossCause)>,
 }
 
-/// A slot of one pair that [`judge_across`] made unknown, because an end or binding of one side
-/// is not data under the other side's definition (fz26 KINK-CAUSE-SUBTERM, KINK-OVERLOAD-VALUE
-/// review N4): the side's run did end in a value of its own definition. Kept in the mutant's
-/// evidence of the pair ([`RunNotes::across`]).
+impl EndJudgement {
+    /// Why `term`, a binding or payload judged here, is not definition-independent here.
+    fn cause_of(&self, term: &Pattern) -> CrossCause {
+        self.binding_causes
+            .iter()
+            .find(|(judged, _)| judged == term)
+            .map_or(CrossCause::NotData(None), |(_, cause)| cause.clone())
+    }
+}
+
+/// A slot of one pair that [`judge_across`] made unknown, because an end, binding or payload of
+/// one side is not data under the other side's definition, or a state value has no ends to judge
+/// (fz26 KINK-CAUSE-SUBTERM, KINK-OVERLOAD-VALUE review N4): the side's run did end in a value of
+/// its own definition. Kept in the mutant's evidence of the pair ([`RunNotes::across`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CrossRefusal {
     /// The slot's index in the test's oracles.
     pub slot: usize,
     /// Whose end it is: the baseline's or the mutant's.
     pub baseline_end: bool,
-    /// Whether the end is a pattern slot's binding, judged under the mutant's definition (both
-    /// sides' bindings are), rather than a terminal a state slot reads, judged under the other
-    /// side's definition.
-    pub binding: bool,
+    /// What of the side was judged.
+    pub end: CrossEnd,
     /// Why the first such end of the slot is not data there.
     pub cause: CrossCause,
+}
+
+/// What of a side [`judge_across`] refused ([`CrossRefusal`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CrossEnd {
+    /// A terminal a state slot is projected from ([`TestEvidence::ends`]), judged under the
+    /// other side's definition.
+    Terminal,
+    /// A binding of a pattern slot's match, judged under the mutant's definition (both sides'
+    /// bindings are).
+    Binding,
+    /// A term a pattern slot's relation decisions read ([`TestEvidence::payloads`]), judged under
+    /// the other side's definition.
+    Payload,
 }
 
 /// Why an end is not data under the other side's definition ([`CrossRefusal`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CrossCause {
+    /// A value-holding state slot whose side has no ends to judge (review N2): refused closed.
+    NoEnds,
     /// That definition admits no end as data: it has no data facts, or a finding of its full
     /// check is left, or it could not be reached ([`data_ends`] gives [`DataEnds::None`]).
     NoData,
@@ -2490,13 +2561,102 @@ pub enum CrossCause {
     NotData(Option<Box<NonValue>>),
 }
 
-fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Option<&[OracleSide]>) {
+/// The side of one pattern slot ([`Runtime::step_sides`]) and the terms its relation decisions
+/// read ([`TestEvidence::payloads`]).
+type PatternSide = (OracleSide, BTreeSet<Pattern>);
+
+fn replace_patterns(
+    test: &TestCase,
+    evidence: &mut TestEvidence,
+    patterns: Option<&[PatternSide]>,
+) {
     if let SideRun::Sides { sides } = &mut evidence.run {
         for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
             if matches!(declaration.projection(), Projection::Pattern { .. }) {
-                *side = patterns.map_or(OracleSide::Unknown, |patterns| patterns[index].clone());
+                match patterns {
+                    Some(patterns) => {
+                        side.clone_from(&patterns[index].0);
+                        evidence.payloads.insert(index, patterns[index].1.clone());
+                    }
+                    None => {
+                        *side = OracleSide::Unknown;
+                        evidence.payloads.remove(&index);
+                    }
+                }
             }
         }
+    }
+}
+
+/// The relation decider of one pattern slot's evaluation, recording the terms its decisions read
+/// (fz26 KINK-OVERLOAD-VALUE review S1). A pattern slot's `Match` or `NoMatch` rests on the
+/// relations the side's own decider decides between its event payloads and bound values, in that
+/// side's theory (re-pin A-12): with `c(1) => d` made `[anywhere]` in a mutant, the baseline's
+/// payloads `c(1)` and `d` are unequal under the baseline and one value under the mutant. So every
+/// term such a decision reads must be data under the other side's definition too
+/// ([`judge_across`]), as bindings and ends are. Recorded: the two terms and the assumed relations
+/// of every relation decided other than `Indeterminate` and other than `Equal` by syntactic
+/// identity (identical terms are equal in every theory), with the relations an `EqualIf` adds; and
+/// the assumptions of every feasibility decided `Sat` or `Unsat`.
+struct ReadTerms<'d> {
+    inner: &'d dyn RelationDecider,
+    read: std::cell::RefCell<BTreeSet<Pattern>>,
+}
+
+impl<'d> ReadTerms<'d> {
+    fn new(inner: &'d dyn RelationDecider) -> Self {
+        Self {
+            inner,
+            read: std::cell::RefCell::new(BTreeSet::new()),
+        }
+    }
+
+    fn record<'t>(&self, terms: impl IntoIterator<Item = &'t Pattern>) {
+        self.read.borrow_mut().extend(terms.into_iter().cloned());
+    }
+
+    fn read(self) -> BTreeSet<Pattern> {
+        self.read.into_inner()
+    }
+}
+
+fn relation_terms(relations: &[TermRelation]) -> impl Iterator<Item = &Pattern> {
+    relations
+        .iter()
+        .flat_map(|relation| [&relation.left, &relation.right])
+}
+
+impl RelationDecider for ReadTerms<'_> {
+    fn relate(
+        &self,
+        path: &PathInput,
+        assumed: &[TermRelation],
+        left: &Pattern,
+        right: &Pattern,
+    ) -> RelationDecision {
+        let decision = self.inner.relate(path, assumed, left, right);
+        match &decision {
+            RelationDecision::Indeterminate => {}
+            RelationDecision::Equal if left == right => {}
+            RelationDecision::EqualIf(added) => {
+                self.record([left, right]);
+                self.record(relation_terms(assumed));
+                self.record(relation_terms(added));
+            }
+            RelationDecision::Equal | RelationDecision::Unequal => {
+                self.record([left, right]);
+                self.record(relation_terms(assumed));
+            }
+        }
+        decision
+    }
+
+    fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+        let feasibility = self.inner.feasible(path, assumptions);
+        if feasibility != Feasibility::Unknown {
+            self.record(relation_terms(assumptions));
+        }
+        feasibility
     }
 }
 
@@ -2885,6 +3045,7 @@ impl Runtime {
                 run,
                 notes,
                 ends,
+                payloads: BTreeMap::new(),
             },
             terminals,
         )
@@ -2902,7 +3063,7 @@ impl Runtime {
         observation: &StepObservation,
         execution: Option<&SteppedExecution>,
         leaves: Option<&mut Runtime>,
-    ) -> Vec<OracleSide> {
+    ) -> Vec<PatternSide> {
         let mut context = self.context.clone();
         context.test_id.clone_from(&test.id);
         let trusted = self.exclusions.collections_trusted()
@@ -2931,20 +3092,21 @@ impl Runtime {
                         with_bindings,
                     } = declaration.projection()
                     else {
-                        return OracleSide::Unknown;
+                        return (OracleSide::Unknown, BTreeSet::new());
                     };
                     let Some(bridged) = &bridged else {
-                        return OracleSide::Unknown;
+                        return (OracleSide::Unknown, BTreeSet::new());
                     };
+                    let relations = ReadTerms::new(decider.relations());
                     let evaluation = slot_evaluation(
                         &context,
                         plan,
                         &bridged.tree,
                         &bridged.collection,
                         observation.vocabulary(),
-                        decider.relations(),
+                        &relations,
                     );
-                    if *with_bindings
+                    let side = if *with_bindings
                         && evaluation.as_ref().is_ok_and(|evaluation| {
                             evaluation.witnesses.iter().any(|witness| {
                                 witness
@@ -2952,12 +3114,12 @@ impl Runtime {
                                     .iter()
                                     .any(|binding| !decider.definition_independent(&binding.term))
                             })
-                        })
-                    {
+                        }) {
                         OracleSide::Unknown
                     } else {
                         pattern_side(&evaluation, *with_bindings)
-                    }
+                    };
+                    (side, relations.read())
                 })
                 .collect::<Vec<_>>()
         };
@@ -2989,7 +3151,7 @@ impl Runtime {
                 })
             }
         };
-        sides.unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
+        sides.unwrap_or_else(|_| vec![(OracleSide::Unknown, BTreeSet::new()); test.oracles.len()])
     }
 
     /// Whether each of `terminals`, ends of the other side of a pair, is data under this side's
@@ -3869,6 +4031,7 @@ mod tests {
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
                             notes: RunNotes::default(),
                             ends: BTreeSet::new(),
+                            payloads: BTreeMap::new(),
                         },
                         Vec::new()
                     )
@@ -4111,13 +4274,18 @@ mod tests {
                     // refuted and the side is Unknown.
                     let (_, mutant_cache) = sides.runtime.run(&campaign, test);
                     assert_eq!(
-                        observations.runtime.step_sides(
-                            &campaign,
-                            test,
-                            &observations.observation,
-                            mutant_cache.stepped.as_ref(),
-                            None,
-                        ),
+                        observations
+                            .runtime
+                            .step_sides(
+                                &campaign,
+                                test,
+                                &observations.observation,
+                                mutant_cache.stepped.as_ref(),
+                                None,
+                            )
+                            .into_iter()
+                            .map(|(side, _)| side)
+                            .collect::<Vec<_>>(),
                         [OracleSide::Unknown]
                     );
                 } else {
@@ -4324,6 +4492,7 @@ mod tests {
                 },
                 notes: RunNotes::default(),
                 ends: BTreeSet::new(),
+                payloads: BTreeMap::new(),
             };
             let before = evidence.clone();
             replace_patterns(&test, &mut evidence, None);
@@ -4544,6 +4713,7 @@ mod tests {
                     },
                     notes: RunNotes::default(),
                     ends: BTreeSet::from([end.clone()]),
+                    payloads: BTreeMap::new(),
                 };
                 let sides = |evidence: &TestEvidence| match &evidence.run {
                     SideRun::Sides { sides } => sides
@@ -4592,16 +4762,19 @@ mod tests {
                                 CrossCause::NoData => Some(Pattern::Top {
                                     sort: k_rust::kore::ast::Sort::Variable("no-data".into()),
                                 }),
+                                CrossCause::NoEnds => Some(Pattern::Top {
+                                    sort: k_rust::kore::ast::Sort::Variable("no-ends".into()),
+                                }),
                             };
-                            (refusal.slot, refusal.baseline_end, refusal.binding, node)
+                            (refusal.slot, refusal.baseline_end, refusal.end, node)
                         })
                         .collect::<Vec<_>>()
                 };
                 assert_eq!(
                     refusals(&mutant),
                     [
-                        (0, true, false, Some(c1.clone())),
-                        (1, true, true, Some(c1.clone()))
+                        (0, true, CrossEnd::Terminal, Some(c1.clone())),
+                        (1, true, CrossEnd::Binding, Some(c1.clone()))
                     ]
                 );
                 assert!(baseline.notes.across.is_empty());
@@ -4618,7 +4791,10 @@ mod tests {
                 );
                 assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
                 assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
-                assert_eq!(refusals(&mutant), [(1, false, true, Some(c1.clone()))]);
+                assert_eq!(
+                    refusals(&mutant),
+                    [(1, false, CrossEnd::Binding, Some(c1.clone()))]
+                );
                 // The anywhere baseline against the plain mutant: one-sided terminals.
                 let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
                 let mut one_sided = vec![terminal(&c1), terminal(&d)];
@@ -4652,10 +4828,243 @@ mod tests {
                 assert_eq!(
                     refusals(&mutant),
                     [
-                        (0, true, false, no_data.clone()),
-                        (1, true, true, no_data.clone()),
-                        (1, false, true, no_data)
+                        (0, true, CrossEnd::Terminal, no_data.clone()),
+                        (1, true, CrossEnd::Binding, no_data.clone()),
+                        (1, false, CrossEnd::Binding, no_data)
                     ]
+                );
+                // Review N2: a value-holding state slot without ends is not compared unjudged.
+                let mut plain_runtime = runtime(&plain);
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                mutant.ends.clear();
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [true, false], "{mutant:?}");
+                assert_eq!(
+                    refusals(&mutant),
+                    [(
+                        0,
+                        false,
+                        CrossEnd::Terminal,
+                        Some(Pattern::Top {
+                            sort: k_rust::kore::ast::Sort::Variable("no-ends".into()),
+                        })
+                    )]
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// fz26 KINK-OVERLOAD-VALUE review S1: a pattern slot's outcome is decided from relations
+    /// between one side's event payloads in that side's theory, so the terms those decisions read
+    /// are judged under the other side's definition too. `testdata/k/overload/tick.k` emits one
+    /// `tick` event per item of `tick(c(1), tick(d, done))`; `tick-anywhere.k` makes `c(1) => d`
+    /// apply anywhere, so the mutant's items are `d` and `d`. The plan `tick(X) ; tick(X)` (a use
+    /// of the bound payload) gives the baseline `NoMatch` (`c(1)` and `d` clash under the
+    /// baseline) and the mutant `Match`, which compares as a kill. Under the mutant's definition
+    /// `c(1)` is not data (`c` roots an equation there), so the baseline's slot is `Unknown` and
+    /// the slot does not distinguish; the mutant's `Match` read only identical payloads.
+    #[test]
+    fn a_pattern_slot_is_judged_on_the_payloads_its_relations_read() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                use input_test_support as support;
+                let dir = std::path::Path::new(support::DIR).join("overload");
+                let validator = |file: &str| {
+                    NativeValidator::bind(
+                        support::load_path(&dir.join(file), "TICK"),
+                        k_rust::kompile::CompileOptions::default(),
+                    )
+                };
+                let (plain, anywhere) = (validator("tick.k"), validator("tick-anywhere.k"));
+                let specs = vec![StepEventSpec {
+                    constructor: "tick".into(),
+                    pre: support::k_config(
+                        support::app(
+                            "Lbltick",
+                            vec![support::var("X", "SortFoo"), support::var("P", "SortPgm")],
+                        ),
+                        "SortPgm",
+                        "R",
+                        "C",
+                    ),
+                    post: None,
+                    payload: vec!["X".into()],
+                }];
+                let vocabulary = StepObservation::vocabulary_of(&specs).unwrap();
+                let clause = |mode| kink_pattern::PayloadClause {
+                    position: 0,
+                    mode,
+                    variable: "X".into(),
+                };
+                let plan = PatternPlan::new(
+                    &vocabulary,
+                    vec![(
+                        "X".into(),
+                        Sort::Application {
+                            name: "SortFoo".into(),
+                            arguments: vec![],
+                        },
+                    )],
+                    vec![kink_pattern::PatternArm {
+                        atoms: vec![
+                            kink_pattern::Atom {
+                                constructor: "tick".into(),
+                                payload: vec![clause(kink_pattern::MatchMode::Bind)],
+                            },
+                            kink_pattern::Atom {
+                                constructor: "tick".into(),
+                                payload: vec![clause(kink_pattern::MatchMode::Use)],
+                            },
+                        ],
+                        relations: vec![kink_pattern::Relation::EventuallyAfter],
+                    }],
+                    None,
+                )
+                .unwrap();
+                let declaration = OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: false,
+                    },
+                )
+                .unwrap();
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: support::initial_state(
+                        support::app(
+                            "Lbltick",
+                            vec![
+                                support::app("Lblc", vec![support::int(1)]),
+                                support::app(
+                                    "Lbltick",
+                                    vec![
+                                        support::app("Lbld", vec![]),
+                                        support::app("Lbldone", vec![]),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        "SortPgm",
+                    ),
+                    oracles: vec![declaration.clone()],
+                }];
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let campaign = Campaign {
+                    validator: &plain,
+                    module: "TICK",
+                    observation: &specs,
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let test = &tests[0];
+                let runtime = |validator: &NativeValidator| {
+                    let side = validator.compile_baseline().unwrap();
+                    let mut runtime =
+                        Runtime::prepare(&campaign, &side).unwrap_or_else(|_| panic!());
+                    let definition = runtime.backend.select_definition(None).unwrap();
+                    let facts = DataFacts::of(&definition, &[]);
+                    assert!(facts.has_data());
+                    runtime.data = Some(facts);
+                    runtime
+                };
+                let (mut baseline_runtime, mut mutant_runtime) =
+                    (runtime(&plain), runtime(&anywhere));
+                let observation =
+                    StepObservation::new(&mut baseline_runtime.backend, specs.clone()).unwrap();
+                // The baseline side, as `run_campaign_multi_with` forms it.
+                let (mut baseline, cache) = baseline_runtime.run(&campaign, test);
+                let patterns = baseline_runtime.step_sides(
+                    &campaign,
+                    test,
+                    &observation,
+                    cache.stepped.as_ref(),
+                    None,
+                );
+                replace_patterns(test, &mut baseline, Some(&patterns));
+                let side = |value| SideRun::Sides {
+                    sides: vec![OracleSide::Normal(OracleValue::Pattern(value))],
+                };
+                assert_eq!(baseline.run, side(PatternValue::NoMatch), "{baseline:?}");
+                assert!(
+                    baseline.payloads[&0].contains(&support::app("Lblc", vec![support::int(1)])),
+                    "{baseline:?}"
+                );
+                // The mutant side, as `run_tests` forms it.
+                let (mut mutant, mutant_cache) = mutant_runtime.run(&campaign, test);
+                let patterns = baseline_runtime.step_sides(
+                    &campaign,
+                    test,
+                    &observation,
+                    mutant_cache.stepped.as_ref(),
+                    Some(&mut mutant_runtime),
+                );
+                replace_patterns(test, &mut mutant, Some(&patterns));
+                assert_eq!(
+                    mutant.run,
+                    side(PatternValue::Match { bindings: None }),
+                    "{mutant:?}"
+                );
+                let SideRun::Sides { sides: before } = &baseline.run else {
+                    panic!()
+                };
+                let SideRun::Sides {
+                    sides: mutant_sides,
+                } = &mutant.run
+                else {
+                    panic!()
+                };
+                // Before: a kill.
+                assert_eq!(
+                    slot_outcome(&declaration, &before[0], &mutant_sides[0]),
+                    OracleOutcome::Distinguish
+                );
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut baseline_runtime,
+                    &mut mutant_runtime,
+                );
+                assert_eq!(
+                    baseline.run,
+                    SideRun::Sides {
+                        sides: vec![OracleSide::Unknown]
+                    }
+                );
+                assert_eq!(mutant.run, side(PatternValue::Match { bindings: None }));
+                // fz26 KINK-CAUSE-SUBTERM: the refusal names the baseline's payload.
+                assert!(
+                    matches!(
+                        mutant.notes.across.as_slice(),
+                        [CrossRefusal {
+                            slot: 0,
+                            baseline_end: true,
+                            end: CrossEnd::Payload,
+                            cause: CrossCause::NotData(Some(_)),
+                        }]
+                    ),
+                    "{:?}",
+                    mutant.notes.across
                 );
             })
             .unwrap()

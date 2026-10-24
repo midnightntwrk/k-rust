@@ -16,7 +16,8 @@
 //! - `ov.k`: FZ-OVERLIST's `ov` repro, an overloaded `Ids`/`Exps` list family;
 //! - `anyw.k`: the P7-KINKFLOW review's r2-anyw written as a kink mutation (fz26/kinkflow-review
 //!   790a695de, `probe-kinkflow-review/flows/r2-anyw-attr`): `[anywhere]` added to the baseline
-//!   rule `c(1) => d`;
+//!   rule `c(1) => d`; and its reverse (`FLOW-anyw-rev.toml`, from KINK-OVERLOAD-VALUE's review):
+//!   `[anywhere]` removed from `anyw-anywhere.k`;
 //! - `addmember.k`: the DATAEND review's r2-addmember baseline, with its edit written as a kink
 //!   mutation.
 //!
@@ -129,6 +130,29 @@ mod kink_tier {
         );
         let row = only_row(&document);
         assert_eq!(row["id"], "becomes-anywhere", "{document:#}");
+        assert_eq!(row["status"], "unknown", "{document:#}");
+    }
+
+    /// The reverse of r2-anyw (KINK-OVERLOAD-VALUE review N3): the baseline `anyw-anywhere.k`
+    /// applies `c(1) => d` anywhere, so its end holds `d`; the mutation removes `[anywhere]`, so the
+    /// mutant's end holds `c(1)`, a free constructor of the mutant but the root of an equation of
+    /// the baseline, under which the two ends are one value. Judged under the baseline's
+    /// definition, the mutant's end is not data, so the mutation is `unknown`; before
+    /// KINK-OVERLOAD-VALUE it was killed through the whole-term slot.
+    #[test]
+    #[ignore = "kink"]
+    fn removing_an_anywhere_attribute_is_not_a_kill() {
+        let dir = fixture("anyw-rev");
+        assert_eq!(
+            rows(&classes(&dir.join("FLOW-anyw-rev.toml"))),
+            [("one".to_owned(), "comparable".to_owned())]
+        );
+        let document = search(
+            &dir.join("FLOW-anyw-rev.toml"),
+            &dir.join("MUTATIONS-anyw-rev.toml"),
+        );
+        let row = only_row(&document);
+        assert_eq!(row["id"], "no-longer-anywhere", "{document:#}");
         assert_eq!(row["status"], "unknown", "{document:#}");
     }
 

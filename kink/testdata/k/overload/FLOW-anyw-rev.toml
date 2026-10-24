@@ -1,0 +1,8 @@
+[spec]
+entry = "anyw-anywhere.k"
+main_module = "AW"
+syntax_module = "AW-SYNTAX"
+
+[[program]]
+id = "one"
+file = "anyw-one.pgm"

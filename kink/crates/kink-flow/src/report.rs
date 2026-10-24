@@ -54,8 +54,8 @@ use crate::{
     search::REPORT_FILE,
 };
 use kink_campaign::{
-    CrossCause, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus, OracleOutcome,
-    OracleSide, OracleValue, SideRun, TestRun,
+    CrossCause, CrossEnd, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus,
+    OracleOutcome, OracleSide, OracleValue, SideRun, TestRun,
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
@@ -570,18 +570,35 @@ fn cross_cause(refusal: &CrossRefusal) -> String {
     } else {
         ("mutant", "baseline")
     };
-    let head = if refusal.binding {
-        format!(
-            "a binding of the {side}'s match is not definition-independent under the mutant's \
-             definition, which judges the bindings of both sides"
-        )
-    } else {
-        format!(
-            "the {side}'s run ended in a value of its own definition, but that end is not data \
-             under the {other}'s definition, so the two ends cannot be compared"
-        )
+    if refusal.cause == CrossCause::NoEnds {
+        return format!(
+            "the {side}'s state value has no final configurations to judge under the {other}'s \
+             definition, so it is not compared"
+        );
+    }
+    let (head, judge) = match refusal.end {
+        CrossEnd::Terminal => (
+            format!(
+                "the {side}'s run ended in a value of its own definition, but that end is not \
+                 data under the {other}'s definition, so the two ends cannot be compared"
+            ),
+            other,
+        ),
+        CrossEnd::Binding => (
+            format!(
+                "a binding of the {side}'s match is not definition-independent under the \
+                 mutant's definition, which judges the bindings of both sides"
+            ),
+            "mutant",
+        ),
+        CrossEnd::Payload => (
+            format!(
+                "a term the {side}'s pattern relations read is not definition-independent under \
+                 the {other}'s definition, so its relation decisions cannot be compared"
+            ),
+            other,
+        ),
     };
-    let judge = if refusal.binding { "mutant" } else { other };
     match &refusal.cause {
         CrossCause::NoData => format!(
             "{head} (the {judge}'s definition admits no end as data: it has no data facts or a \
@@ -590,7 +607,7 @@ fn cross_cause(refusal: &CrossRefusal) -> String {
         CrossCause::NotData(Some(failure)) => {
             format!("{head}; there, {}", non_value_text(failure))
         }
-        CrossCause::NotData(None) => format!(
+        CrossCause::NotData(None) | CrossCause::NoEnds => format!(
             "{head} (every node passes its own test there, but its canonical form there differs)"
         ),
     }

@@ -4,8 +4,9 @@
 //! other side's definition, and the first node of it, in pre-order, that fails its own test there.
 //! Before, the cause read as if the mutant's run had not ended in a value.
 //!
-//! The fixtures are the review's r2-anyw pair in `testdata/k/overload` (`anyw.k`, the rule
-//! `c(1) => d`, and `anyw-anywhere.k`, the same rule `[anywhere]`), in both directions.
+//! The fixtures are the review's r2-anyw pair in `testdata/k/overload`, in both directions:
+//! `FLOW-anyw.toml` (`anyw.k`, the rule `c(1) => d`, made `[anywhere]` by the mutation) and
+//! `FLOW-anyw-rev.toml` (`anyw-anywhere.k`, whose `[anywhere]` the mutation removes).
 
 mod flow_support;
 
@@ -97,26 +98,10 @@ mod kink_tier {
     #[ignore = "kink"]
     fn a_mutant_end_not_data_under_the_baseline_names_the_mutant_side() {
         let dir = fixture("reverse");
-        fs::write(
-            dir.join("FLOW-rev.toml"),
-            fs::read_to_string(dir.join("FLOW-anyw.toml"))
-                .unwrap()
-                .replace("entry = \"anyw.k\"", "entry = \"anyw-anywhere.k\""),
-        )
-        .unwrap();
-        fs::write(
-            dir.join("MUTATIONS-rev.toml"),
-            r#"[[mutation]]
-id = "drops-anywhere"
-
-  [[mutation.edit]]
-  line = 11
-  find = "c(1) => d [anywhere]"
-  replace = "c(1) => d"
-"#,
-        )
-        .unwrap();
-        let cause = only_cause(&dir.join("FLOW-rev.toml"), &dir.join("MUTATIONS-rev.toml"));
+        let cause = only_cause(
+            &dir.join("FLOW-anyw-rev.toml"),
+            &dir.join("MUTATIONS-anyw-rev.toml"),
+        );
         assert!(
             cause.starts_with(
                 "exit-stop, whole-term: the mutant's run ended in a value of its own definition, \
