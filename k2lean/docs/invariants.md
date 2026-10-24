@@ -167,11 +167,13 @@ The shapes the generator and the tactic support:
 | shape | how to write it | what the generator does |
 |---|---|---|
 | cell form (the default) | `f(S)` where `S` is the content sort of the cell (`envKeysOk(Map)` for `<env>`), and `--invariant f@env` | the part `f (content_env (cell_env c)) = true`, read through one projection per level of the configuration |
-| cell-map lift | `f(S)` over a cell inside a cell collection (`--invariant holdsOk@holds` on SIMPLE, where `<holds>` is inside the `<thread>` cell map) | "for every element": `MapHook.EntriesOn` over the collection's bindings, so the closers read the invariant of the matched element; one level of collection only |
-| list fold | `f(.List) => true` and `f(ListItem(X) L) => φ(X) andBool f(L)` (or `f(L) andBool φ(X)`), no `requires`, `φ` total, `f` with one argument | the theorem `f l = true ↔ every element satisfies φ` (`Invariant.f_iff`), which the collection lemmas read |
+| cell-map lift | `f(S)` over a cell inside a cell collection (`--invariant holdsOk@holds` on SIMPLE, where `<holds>` is inside the `<thread>` cell map) | "for every element": `MapHook.EntriesOn` over the collection's bindings, so the closers read the invariant of the matched element |
+| nested collections | `f(S)` over a cell inside a cell collection of an element of another (`--invariant even@v` on `tests/fixtures/nested`: `<v>` in every `<member>` of every `<group>`) | lifted once per collection: the predicate of a `<group>` binding (`Invariant.even_in_group`) is `EntriesOn` of the member predicate (`Invariant.even_elem`) over the group's `<members>` |
+| list fold | `f(.List, P…) => true` and `f(ListItem(X) L, P…) => φ(X, P…) andBool f(L, P…)` (or `f(L, P…) andBool φ(X, P…)`): the list at any argument, the other arguments variables the recursive call passes unchanged (`allIs(L, B)` in `demos/k/kimp-inv`), no `requires`, `φ` total | the theorem `f l p = true ↔ every element satisfies φ(·, p)` (`Invariant.f_iff`), which the collection lemmas read |
+| structural recursion | a recursive function each of whose recursive calls is on a variable inside a constructor pattern of the same argument (`even(s(s(N))) => even(N)`), not mutually recursive with another, with proved equations | its K equations (`Eqn.*`) join the unfolding set, as a non-recursive function's do |
 | non-recursive helpers | ordinary equations, `owise` ones included | their K equations (`Eqn.*`) join the unfolding set; an `owise` equation is a rewrite conditional on its side condition (no other equation matches), which simp discharges when the argument's constructors differ from the other equations' patterns |
 | a map walked by pattern (`f(K |-> V M)`) | not supported: the generator panics (§9); fold over `values(M)` or `keys_list(M)` instead | — |
-| top-cell form | `f(GeneratedTopCell)` and `--invariant f` without a cell | supported by the generator, but closes almost nothing (§9); use the cell form or kind 2 |
+| a tree of cells | `f(C)` for a cell sort `C` with one equation whose argument is a tree of cells with variables at the leaves: `topEnvOk(<generatedTop> <k> _ </k> <env> E </env> _ </generatedTop>)` with `--invariant topEnvOk` (the top-cell form), or `tStoreOk(<T> <store> S </store> ... </T>)` with `--invariant tStoreOk@T` | the theorem `Invariant.f_cells : ∀ x, f x = rhs(projections of x)`, proved by cases on `x` (each cell sort has one constructor), joins the unfolding set, so the function reads its cells as the cell form does; at `init` the right-hand side gets a hypothesis on the configuration variables its cells hold, or is computed |
 
 Several `--invariant` flags (and `--sidecar`) are conjoined into one `Invariant`.
 
@@ -342,7 +344,7 @@ $G gen --kore $KRS/definition.kore --out $GEN/krsimp --name KrsImp --prelude ../
 (cd $GEN/krsimp && lake build KrsImp.Invariants 2>&1 | grep -E "depends on|^error|Build completed")
 ```
 
-- `krs build` does not write the sidecar yet; write it by hand from the configuration declaration.
+- `krs build` writes the sidecar as `k2lean-sidecar.json` beside `definition.kore`: one entry per configuration cell whose content is a `Map`, `List` or `Set` with declared element sorts, outside every repeated or optional cell; the recorded `$K/demos/k/krs-imp/k2lean-sidecar.json` is its output for KRS IMP (`krs/tests/imp/rust-definition`), whose KORE names it uses are those of the recorded `definition.kore`.
 - The generator refuses a sidecar cell that is not in the definition, whose content is not the named collection, whose sorts are unknown or not subsorts of the collection's element sort, or that lies inside a cell collection.
 - Nested arguments (`Map<Int, Set<Int>>`) have no field.
 
@@ -624,13 +626,20 @@ No demo tags a lemma of its own; the tested routes are naming a simp lemma in `[
 | kimp, `envKeysOk@env` (§3, library `kimpkeys`) | 1 | 79 | 79 | 0 | 1.1–1.2 s, 1.6 GB |
 | kimp, `Invariant D` (§4) | 2 | 79 | 78 | 1 | 1.1–1.4 s (2026-10-23, load 25) |
 | kimp, `envOk@env` and `storeNoIds@env`: every store value is a `Value` and none is an `Id` (`demos/k/kimp-inv`) | 1 | 79 | 79 | 0 | 1.5–1.6 s, 1.6 GB |
+| kimp, `envAll@env`: the same, by a fold with a parameter (`demos/k/kimp-inv`, measured 2026-10-24, load 42) | 1 | 79 | 79 | 0 | 1.8–2.0 s, 1.6 GB |
+| kimp, `topEnvOk`: the same, by a function of the whole configuration (`demos/k/kimp-inv`, 2026-10-24, load 42) | 1 | 79 | 79 | 0 | 1.3–1.7 s, 1.6 GB |
+| `even@v`: counters in two nested cell maps are even (`tests/fixtures/nested`, 2026-10-24, load 42) | 1 | 6 | 6 | 0 | 2.7–3.6 s, 1.5 GB |
 | KRS IMP, sidecar `Map<Id, Value>` (`demos/k/krs-imp`) | 1 | 82 | 82 | 0 | 1.0–1.2 s, 1.6 GB |
 | kimp, ImpTypes runtime typing `WTc G` (`demos/ImpTypes`) | 2 | 79 | 77 | 2 | 5.4–10.3 s, 1.8 GB (main before closers 5 and 6: 7.9–8.7 s at the same load) |
 | kimp, no pending statement assigns `x` (`demos/ImpWrites`) | 2 | 79 | 79 | 0 | 7.7–10.8 s, 1.8 GB; 50 of 79 without closer 6 |
 | SIMPLE, `holdsOk@holds`, lock counts ≥ 0 (`demos/k/simple-inv`) | 1 | 169 | 169 | 0 | 3.4–4.0 s, 2.0 GB (load 20 to 29) |
+| SIMPLE, `storeOk@store`: every store value is a `Val` or `undefined` (`demos/k/simple-inv`, 2026-10-24, load 10–15) | 1 | 169 | 168 | 1 | 2.0–2.7 s, 1.7 GB |
+| SIMPLE, `tStoreOk@T`: the same, by a function of the top cell `<T>` (2026-10-24, load 14–15) | 1 | 169 | 168 | 1 | 2.0–3.2 s, 1.7 GB |
 | SIMPLE, environments map into the store (`demos/SimpleEnv`) | 2 | 169 | 164 | 5 | 26.7–27.3 s, 3.5 GB (load 20 to 29; main 33.2 s) |
 
 - Times are `lake env lean FILE`, two runs each, on 2026-10-24 under a load of 12 to 22 unless a row says otherwise; the module's imports alone take 0.6–1.0 s of it.
+- In the same hour as the `envAll` and `topEnvOk` rows (load 42), `envOk@env` took 1.4–1.7 s: a fold with a parameter and the top-cell form cost about what the cell form costs.
+- `storeOk@store` and `tStoreOk@T` leave the same rule to the hand module, `var X[N];`, which binds `N` locations through SIMPLE's recursive function `N ... M |-> K`, whose bindings no closer describes; the hand proof (`generated/simplestore/KSimpleInv/InvariantsHand.lean`) proves by induction on the number of keys that it binds its value at every key.
 - `Preserves.lean` itself takes 0.5 s on kimp and 1.2 s on SIMPLE.
 - A new library is a full build: kimp-based up to `Invariants`, 46 s wall at load 31; SIMPLE-based, 242 s wall and 3.4 GB at load 1–3.
 
@@ -764,6 +773,7 @@ $G diff $GEN/kimpkeys $W2/k2lean/generated/kimpkeys --hand $W2/k2lean/generated/
 
 ```text
 changed 2, added 0, removed 0, renamed 0 (same statement), renamed and changed 0 (suggested), context changed 0; unchanged 77 (77 moved)
+functions: changed 0, added 0, removed 0; unchanged 1
 …
   «CALC.assign»  calc.k:32:3 -> calc.k:33:3: side conditions differs
       side conditions:
@@ -776,7 +786,7 @@ hand-written references (files read: 5):
       …/EnvBound/EnvBound/Cases.lean:26 (case)
 ```
 
-`CALC.var` changed too, but nothing refers to it, so it is not listed; 77 rules moved and are unchanged.
+`CALC.var` changed too, but nothing refers to it, so it is not listed; 77 rules moved and are unchanged, and so is kimp's one generated function (`isKResult`).
 Build both invariants:
 
 ```sh
@@ -848,14 +858,13 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 | arithmetic is linear | closer 5 is `omega` on the total `Int` hooks: a case that needs a product of variables, or `/Int`, `%Int`, `^Int` (partial hooks, `Option`-valued, not unfolded), stays open | a hand case, or a lemma of the step it needs passed to `k2l_preserve` |
 | injection splits: of variables, two along a path | closer 6 cases only on a variable under an injection (not on `inj_S_T (f x)`), at most twice on one path | a lemma `f (inj_S_T e) = …` by `cases e <;> rfl`, passed to `k2l_preserve` |
 | `owise` side conditions by simp | an `owise` equation rewrites only where simp proves that no other equation matches, from the argument's constructors; on `isId(kseq(inj_Value_KItem V, .K))` it applies only in closer 6's cases of `V` | a lemma of the injection, or a hand case |
-| list folds of one shape only | a recursive function other than `φ(X) andBool f(L)` with one argument gets a note (`… is not a list fold; its cases may need hand proofs`), and its cases usually become hand cases | rewrite it as such a fold, or write the invariant in Lean |
-| no top-cell K function | through krust, a function over `GeneratedTopCell` does not parse on SIMPLE; on kimp it compiles, but a function that is `true` on every configuration closed 2 of 79 cases and left `init` open (measured), because its equation needs every cell to be a constructor and the rules' cells are variables | the cell form `@CELL` (SIMPLE: `@T`, a function over `<T>`), or a kind 2 predicate with one projection per level |
-| cell collections: one level | a cell inside two nested collections is refused | state the invariant over the enclosing cell, or in Lean |
+| recursive functions of two shapes only | a recursive function that is neither a list fold (`φ(X, P…) andBool f(L, P…)`, §3.1) nor structurally recursive with proved equations gets a note (`… is neither a list fold nor structurally recursive with proved equations; its cases may need hand proofs`), and its cases usually become hand cases: a fold through `orBool`, a recursion on an `Int` bounded by a `requires`, mutual recursion, a fold whose recursive call changes a parameter | rewrite it in one of the two shapes, or write the invariant in Lean |
+| no `<generatedTop>` through krust for a configuration with one top cell | for SIMPLE (whose configuration is the one cell `<T>`), krust declares the sort `GeneratedTopCell` and the production `<generatedTop>` only after parsing, in the compilation pass that adds the counter cell (`resolve_fresh_constants.rs`), whereas a configuration of several top cells (kimp's `<k> <env>`) gets them when the configuration declaration is expanded (`definition/configuration.rs`, `Generator::generate`, the `Cells` case): `f(GeneratedTopCell)` fails with ``Could not find sorts: [GeneratedTopCell]``, and with `syntax GeneratedTopCell` declared, the rule fails with ``unexpected token '<'`` | a function of the user's top cell (`tStoreOk@T`, §3.1), which reads every cell but the counter |
+| a tree of cells, one equation | a function of a cell sort gets `Invariant.f_cells` only when it is not recursive and its one equation, without `requires` or `owise`, matches a tree of cells with distinct variables at the leaves; with any other pattern (a constructor inside a cell, two equations, a `requires`) it is unfolded by its K equations only, which rewrite a constructor term and not a rule's cell variables (on kimp, before `f_cells`: 2 of 79 cases and `init` open, measured) | state the invariant over the cell, or split it into cell functions |
 | Lake does not build the dependents of a module with an error | a broken hand case leaves `Run.lean` (kind 2) or `Invariants.lean` (kind 1) unchecked | keep hand cases in `Cases.lean` with `preserved`, as the skeleton does; fix the hand case first |
 | heartbeats | when the hand mode leaves goals open, elaboration after the tactic counts every rule's heartbeats and can add a timeout error at `preserved` (measured on SIMPLE) | `set_option maxHeartbeats 0` in `Cases.lean` (ImpTypes has it); successful proofs are not affected |
 | introductions are positional | an added or removed side condition shifts the names a hand case introduces | fix the `intro` line (§7.3) |
 | digest names | a rule named with a digest is renamed by any change to it or to the configuration declaration | label the rule |
-| the KRS sidecar is written by hand | `krs build` does not emit it | write it from the configuration declaration (§3.5) |
 
 ## 10. Checking with the gate
 
@@ -955,9 +964,11 @@ To rehearse without touching your checkout, make a worktree of it (`git worktree
 
 | demo | kind | what it shows |
 |---|---|---|
-| `demos/k/kimp-inv/imp-inv.k` (library `kimpinv`, light gate) | 1 | two `values` folds conjoined (`envOk`, and `storeNoIds`, whose test `notBool isId(X)` on the value `CALC.assign` stores closes by the injection split), 79 of 79 automatic, `init_holds` from hypotheses |
+| `demos/k/kimp-inv/imp-inv.k` (libraries `kimpinv`, `kimpfold`, `kimptop`, light gate) | 1 | `kimpinv`: two `values` folds conjoined (`envOk`, and `storeNoIds`, whose test `notBool isId(X)` on the value `CALC.assign` stores closes by the injection split); `kimpfold` and `kimptop`: `envOk`'s property by a fold with a parameter and in the top-cell form; each 79 of 79 automatic, `init_holds` from hypotheses |
 | `demos/k/kimp-keys/imp-keys.k` (libraries `kimpkeys` and `kimpkeys-hand`, light gate) | 1 | the `keys_list` fold of §3, 79 of 79 automatic; `kimpkeys-hand` takes `CALC.assign` from its hand module (§3.4) |
+| `tests/fixtures/nested/nested.k` (library `nested`, light gate) | 1 | a cell inside two nested cell maps and a structurally recursive invariant, 6 of 6 automatic, `init_holds` by computation |
 | `demos/k/simple-inv/simple-inv.k` (library `simpleinv`, heavy gate) | 1 | the cell-map lift over SIMPLE's threads, 169 of 169 automatic, the lock counts by linear arithmetic |
+| `demos/k/simple-inv/simple-inv.k`, `generated/simplestore/`, `generated/simplet/` (libraries `simplestore`, `simplet`, heavy gate) | 1 | one property of `<store>` as a cell function and as a function of `<T>`, 168 of 169 each, and a hand case by induction over a recursive K function |
 | `demos/k/krs-imp/k2lean-sidecar.json`, `demos/KrsImpTyping/` | 1 | the KRS sidecar, proved equivalent to a hand-written typing predicate |
 | `demos/ImpTypes/ImpTypes/{Invariant,Cases,Run}.lean` | 2 | a parametrized runtime typing with `split [tyOf, wtS]`, two store hand cases |
 | `demos/ImpWrites/ImpWrites/{Invariant,Cases,Run}.lean` | 2 | a predicate that walks `<k>` (no pending statement assigns `x`), 79 of 79 automatic, 29 of them through the injection split |
