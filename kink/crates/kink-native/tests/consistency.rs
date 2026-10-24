@@ -178,6 +178,20 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// its definedness) where it stated that case as a limit: 1100-1107 `a83fde62` -> `3af0cfea`.
 /// No verdict of the check changes.
 ///
+/// fz26 phase-8 FZ-EMPTYJOIN-WITNESS: all four passages change, by digest; their line ranges stay
+/// but `definition.rs`'s, which grows three lines (2926-2956). "Joined" now means joined by
+/// steps of the executable equations and the witness equations the full check adopts, in the
+/// model `M+` that adds a fresh constant to every sort not surely inhabited (1100-1107: line 1103
+/// says so, line 1104 states how witnesses are proposed, validated by a second pass on `R ∪ W`
+/// and adopted). The premise (1069-1071) is now that `M+` is a model when `R ∪ W` terminates
+/// innermost over the added constants (A1+, a new premise k-rust does not check, which implies
+/// A1 but is not implied by it) and the pairs of `R ∪ W` join; kink's quotation of the premise
+/// (`consistency.rs`, module documentation) is due for KINK-WITNESS. 1125 (in 1123-1136) reads
+/// the claims' model with the untainted equations of `R ∪ W`, and `definition.rs` restates
+/// "joined" and A1+. For kink: a pair over a sort with no normal form that joins only through an
+/// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
+/// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -186,25 +200,25 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1069,
         1071,
-        "21492a8b0fca47bf5bdea146350c650c1043731afee4cb07711db09b4d7d35c8",
+        "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
     ),
     (
         "docs/compatibility.md",
         1100,
         1107,
-        "3af0cfea8f92b5217b8b2fcc71ff542e890dbd5552876e186845d15b52f66947",
+        "3483b03dce2cf5265ac2ca28f9a5bc34c56517108eb1ce955468cd3f45e0302a",
     ),
     (
         "docs/compatibility.md",
         1123,
         1136,
-        "4cf7602887c991068f06eaf3af5192b8c938b842384ea0e0183571b768a51b75",
+        "55c5f5caa7619a70ced6638c5e7d3b26abca9f9f05a238653a86f7686128e1a6",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
         2926,
-        2953,
-        "761240eef36fdbf4d6f1fe3a61c132cec8cd8e3fa66694ab7c75fd6ca477d3b7",
+        2956,
+        "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
     ),
 ];
 
@@ -267,13 +281,28 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// fz26 phase-8 FZ-JUNK-ORACLE: c9fa00d8 -> c74b0eb3. The classification of an overlap over a
 /// sort with no normal form reads the test-only switch `separate_uninhabited`, which outside
 /// test builds is the constant `false` (`switches::active`): no verdict kink reads changes.
-const CONFLUENCE_RS: &str = "c74b0eb39b4d03f4f2e33c90eccc220552b9ada6382fc72d1bd8b823dce9bb2f";
+///
+/// fz26 phase-8 FZ-EMPTYJOIN-WITNESS: c74b0eb3 -> 4d58d09a. The check runs in passes
+/// (`check_detached` over `check_pass`): a first pass proposes witness equations from the
+/// non-joined overlaps over sorts with no normal form of the pairs the load's scope classifies;
+/// when it proposes, the full check's second pass on `R ∪ W` is adopted under the conditions of
+/// `witness.rs` (every proposing and witness pair joins, no pair is lost, fewer stay unjoined, no
+/// witness head tainted), and the load takes that decision and runs its own second pass. The
+/// stages, the early return and the guards kink reads keep their meaning: `counts().equations`
+/// counts the definition's executable equations only (witnesses are `counts().witnesses`),
+/// `pairs` counts witness pairs too (so `pairs >= root pairs` still holds), and `skipped` stays
+/// 0 under `CheckScope::All`. A verdict kink reads can now be the adopted pass, in which a pair
+/// that joins through a witness is not listed: see `PREMISE_PASSAGES`.
+const CONFLUENCE_RS: &str = "4d58d09a60ab5033107c005c542def14d32f6b944bf8bfdff0a9ee0cbed74483";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
 /// R0c-fix-4, R0c-fix-3 review minor 4). Re-pin KS-08c: d6fa4b4c -> 37bed07e, the same syntax-only
-/// change of its sort patterns as `CONFLUENCE_RS`.
-const CLOSURE_RS: &str = "37bed07ece2d17afb4b1098566ee484167e244ed01104fe07d98d4cbf3df5c95";
+/// change of its sort patterns as `CONFLUENCE_RS`. fz26 phase-8 FZ-EMPTYJOIN-WITNESS: 37bed07e ->
+/// 13672570: the closure's equations include the witness equations of a pass that has them, which add
+/// `SortReach` edges, and the documentation reads the claims' model with `R ∪ W`; `taintable` is
+/// unchanged.
+const CLOSURE_RS: &str = "13672570f6038fe59ff83c59abc34f34f6c14111236ec118e26ac93e2e16aec9";
 
 /// A re-pin that changes the premise text or the check's driver needs the consistency check
 /// (and its probe head) read again against it.
