@@ -58,12 +58,14 @@ pub enum UnjudgedReason {
     /// set), so it may denote no value (`ceil_free` fails, T-1). It precedes
     /// [`Self::UndecidedState`]: a sibling leaf's open constraint is often the complementary
     /// condition of the same undefined application (the step's `#Not(#Ceil(...))`), and this
-    /// reason names the function.
+    /// reason names the function. At `any-state`, also a configuration the target pattern
+    /// matches.
     NotCeilFree,
     /// A leaf has constraints or variables, or its initial configuration is defined only where
-    /// obligations hold (`undefined-initial-instances`): not a decided state.
+    /// obligations hold (`undefined-initial-instances`): not a decided state. At `any-state`,
+    /// also a configuration with constraints or variables, which is not matched.
     UndecidedState,
-    /// A leaf could not be internalized in its definition.
+    /// A leaf (at `any-state`, a configuration) could not be internalized in its definition.
     InternalizationFailed,
     /// A leaf rests on a value k-rust chose where the definition leaves it open (an
     /// `implementation-chosen-value` mark).
@@ -75,8 +77,9 @@ pub enum UnjudgedReason {
     IterationExhaustion,
     /// A rule's side condition failed to simplify on a leaf's path (`rule-condition-failed`).
     SimplificationFailure,
-    /// A leaf pattern (a pattern target's) was undecided on a leaf: undecided, matched only
-    /// under constraints, or matched only through an implementation-chosen value.
+    /// A leaf pattern (a pattern target's) was undecided on a leaf, or at `any-state` on a
+    /// configuration: undecided, matched only under constraints, or matched only through an
+    /// implementation-chosen value.
     UndecidedMatch,
     /// The run stopped some work for lack of stack (`stackStops`), or the definition's load did.
     StackStops,
@@ -104,7 +107,8 @@ pub enum UnjudgedReason {
     /// not be decided: the normal-end pattern's match was undecided, or no default applies.
     NaturalEndUndecided,
     /// An observer target could not be shown a configuration on the path, which may lead to
-    /// the target.
+    /// the target; or a pattern target `at: any-state` could not be shown one (no complete
+    /// observation of a path through it, or it does not decode), which may match.
     Unobservable,
     /// Differential: an added or removed end exists, but the mutant's result is no evidence
     /// (condition 3): some leaf, or the result's lists (a fact off the leaves, which under state
@@ -272,8 +276,9 @@ impl UnjudgedReason {
             }
             Self::ReachedCutPath => "raise the bound or limit that cut the reaching path",
             Self::UndecidedMatch => {
-                "the target pattern could not be decided on a leaf; a pattern without function \
-                 applications or values left open by the definition can be"
+                "the target pattern could not be decided on a leaf (or, at any-state, on a \
+                 configuration); a pattern without function applications or values left open by \
+                 the definition can be"
             }
             Self::KillWithoutEvidence => {
                 "the mutant's ends differ from the baseline's, but its result rests on a value \

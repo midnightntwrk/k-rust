@@ -1102,8 +1102,10 @@ pub struct Reaching {
     /// For an observer target, the step of that leaf's path at which the observer answered
     /// `Hit`: the number of committed rewrite steps from the initial configuration to the
     /// configuration that step reached, at least 1 and at most the case's `steps`, since the
-    /// run continues to its end after the observer accepts (ARCHITECTURE 9.2). Absent for
-    /// every other target.
+    /// run continues to its end after the observer accepts (ARCHITECTURE 9.2). For a pattern
+    /// target `at: any-state`, the step of the first configuration on that leaf's path that
+    /// reaches the target, counted the same way: 0 for the initial configuration, at most the
+    /// case's `steps` (ARCHITECTURE 4.1). Absent for every other target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<u64>,
 }

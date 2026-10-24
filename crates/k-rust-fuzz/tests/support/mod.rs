@@ -1034,6 +1034,82 @@ fixture!(
     &[program!("qopt/bad.pgm"), program!("qopt/start.pgm")]
 );
 
+fixture!(
+    ANYSTATE,
+    "anystate/anystate.k",
+    "ANYSTATE",
+    &[program!("anystate/hold.pgm")]
+);
+
+/// One named `at: any-state` hit (FZ-ANYSTATE): a program of a fixture, as written, whose run
+/// first passes through a configuration the pattern matches at `step`, the number of committed
+/// rewrite steps from the initial configuration.
+///
+/// Every entry is chosen free of the reasons for which kink can answer `unknown` to a fuzz hit
+/// (P7-ADDENDUM, section 1): the program is deterministic, so its run has one path, and kink's
+/// breadth-first search meets no other first match (a) and no converging path whose facts it
+/// absorbs (b); it is a few steps deep, so no budget cuts either search (c); and nothing on the
+/// path holds a term-level `\and` (d). So kink's query of the pattern on the program answers a
+/// hit at the same depth, which is the any-state half of FZ-KINK-XTEST (b). `src/target/
+/// any_state_tests.rs` checks each entry against the fuzz.
+pub struct AnyStateHit {
+    /// The fixture.
+    pub fixture: &'static Fixture,
+    /// One of its programs.
+    pub program: &'static str,
+    /// The pattern, in `krust krun --pattern` syntax.
+    pub pattern: &'static str,
+    /// The step of the first configuration the pattern matches.
+    pub step: u64,
+    /// No later configuration of the run matches the pattern either.
+    pub unique: bool,
+}
+
+impl std::fmt::Debug for AnyStateHit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} on {}: {} at step {}",
+            self.fixture.file, self.program, self.pattern, self.step
+        )
+    }
+}
+
+/// The named any-state hits ([`AnyStateHit`]).
+pub static ANY_STATE_HITS: [AnyStateHit; 4] = [
+    // The initial configuration.
+    AnyStateHit {
+        fixture: &COIN,
+        program: "coin/count.pgm",
+        pattern: "<k> count(3) ~> _ </k>",
+        step: 0,
+        unique: true,
+    },
+    AnyStateHit {
+        fixture: &COIN,
+        program: "coin/count.pgm",
+        pattern: "<k> count(1) ~> _ </k>",
+        step: 2,
+        unique: true,
+    },
+    // `x <= y` evaluates to `true` once, before the conditional takes it.
+    AnyStateHit {
+        fixture: &IMP,
+        program: "imp/le.imp",
+        pattern: "<k> true ~> _ </k>",
+        step: 16,
+        unique: true,
+    },
+    // `x` is looked up for `x + y`, and again for `y + x`.
+    AnyStateHit {
+        fixture: &IMP,
+        program: "imp/commute.imp",
+        pattern: "<k> 3 ~> _ </k>",
+        step: 13,
+        unique: false,
+    },
+];
+
 /// The re-run pair (INT7): a baseline with the ends `a(N)`, `c(N)` and `b(opaque(N))` (clean,
 /// not data) and a mutant without the last, whose one path reaches `a(N)` and whose all-paths
 /// re-run decides the case.
@@ -1045,7 +1121,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 91] = [
+pub static ALL: [&Fixture; 92] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1064,6 +1140,7 @@ pub static ALL: [&Fixture; 91] = [
     &LEDGER,
     &LOADCLAIM,
     &TAINT,
+    &ANYSTATE,
     &GRAPH,
     &VALUE,
     &SHAPE,

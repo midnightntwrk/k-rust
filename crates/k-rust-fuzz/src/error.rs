@@ -181,8 +181,8 @@ pub enum TargetProblem {
     /// that reads a variable its configuration does not bind). Positions in the message are
     /// lines and columns of the pattern's own text (`line 1, column 23`).
     Pattern(String),
-    /// The target kind or option is not provided by this milestone or build (for example
-    /// `at: any-state` before G-4, or an observer before FZ-10).
+    /// The target kind or option is not provided by this milestone or build (for example an
+    /// observer target without its observer).
     Unsupported(String),
 }
 

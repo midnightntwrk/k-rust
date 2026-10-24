@@ -1,11 +1,13 @@
 //! Targets: what a case must do to be a hit, their resolution against a definition, and the
 //! judgement of a case result (ARCHITECTURE 4). Owner: FZ-05; the differential judge is FZ-08's
-//! (`differential`); the observer target is FZ-10's (`observer`).
+//! (`differential`); the observer target is FZ-10's (`observer`); patterns `at: any-state` are
+//! FZ-ANYSTATE's (`any_state`).
 //!
 //! Every target is an existential goal. A universal property is stated as the target "a clean
 //! natural end violates P", with [`Target::negated_property`] set, and its hit is reported as a
 //! property failure (ARCHITECTURE 4).
 
+mod any_state;
 pub(crate) mod differential;
 #[cfg(test)]
 mod fixture_tests;
@@ -278,7 +280,11 @@ pub enum PatternAt {
     /// The end of the run: a clean leaf (ARCHITECTURE 4.1, 5.2) that matches with empty
     /// constraints; `run-to-completion` additionally requires a natural end.
     Final,
-    /// Any state on the explored path; needs G-4 and is refused until then.
+    /// Any normalized configuration on an explored path, the initial one included: one that is
+    /// decided, ceil-free and matches with empty constraints, on the path of a leaf that ends
+    /// cleanly (naturally under `run-to-completion`). The witness records the step of the first
+    /// such configuration on the hit leaf's path. The case runs through observed execution,
+    /// which costs more than `final` (`any_state` module documentation).
     AnyState,
 }
 
@@ -334,6 +340,9 @@ enum Resolved {
     },
     /// A pattern at a clean natural end, judged by the target's only matcher.
     PatternFinal,
+    /// A pattern at any configuration of a path, judged by the target's only matcher from
+    /// observed execution ([`ResolvedTarget::run_and_judge`], `any_state`).
+    PatternAnyState,
     /// The differential target, judged by [`differential::judge_pair`].
     Differential,
     /// An observer target, judged from observed execution
@@ -386,9 +395,11 @@ impl ResolvedTarget {
     /// Resolve `target` for `executor`'s definition. Rules go through
     /// `Backend::rule_catalog(None)`; an entry with `shared_identity`, with
     /// `executable: false` or with id `UNKNOWN` is refused, and so is an equation in M1. A
-    /// pattern compiles to a [`LeafMatcher`]. `at: any-state` is refused until G-4. An observer
-    /// target without its observer is refused (`observer::resolve`). A differential target
-    /// resolves here to its baseline's part; the pair is judged by [`differential::judge_pair`].
+    /// pattern compiles to a [`LeafMatcher`]; at `final` its configuration without its
+    /// `requires` also compiles to an informational matcher, at `any-state` nothing else does.
+    /// An observer target without its observer is refused (`observer::resolve`). A differential
+    /// target resolves here to its baseline's part; the pair is judged by
+    /// [`differential::judge_pair`].
     ///
     /// # Errors
     ///
@@ -433,38 +444,36 @@ impl ResolvedTarget {
                     mode: rule_target.mode,
                 }
             }
-            TargetKind::Pattern(pattern) => match pattern.at {
-                PatternAt::Final => {
-                    let pattern_problem =
-                        |message| CampaignError::Target(TargetProblem::Pattern(message));
-                    let matcher = match compiled.and_then(<[CompiledPattern]>::first) {
-                        Some(compiled) => LeafMatcher::prepare(executor, compiled),
-                        None => {
-                            LeafMatcher::compile(executor, definition, assembly, &pattern.pattern)
-                        }
+            TargetKind::Pattern(pattern) => {
+                let pattern_problem =
+                    |message| CampaignError::Target(TargetProblem::Pattern(message));
+                let matcher = match compiled.and_then(<[CompiledPattern]>::first) {
+                    Some(compiled) => LeafMatcher::prepare(executor, compiled),
+                    None => LeafMatcher::compile(executor, definition, assembly, &pattern.pattern),
+                }
+                .map_err(pattern_problem)?;
+                match pattern.at {
+                    PatternAt::Final => {
+                        // The configuration without the `requires`, which only informs: the
+                        // report counts the clean ends it matched, so that a pattern no end comes
+                        // near (a misspelled key) is told apart from one whose condition fails
+                        // (S2).
+                        let body = matcher
+                            .compiled()
+                            .body_only()
+                            .map(|body| LeafMatcher::prepare(executor, &body))
+                            .transpose()
+                            .map_err(pattern_problem)?;
+                        matchers.push(matcher);
+                        matchers.extend(body.map(LeafMatcher::informational));
+                        Resolved::PatternFinal
                     }
-                    .map_err(pattern_problem)?;
-                    // The configuration without the `requires`, which only informs: the report
-                    // counts the clean ends it matched, so that a pattern no end comes near (a
-                    // misspelled key) is told apart from one whose condition fails (S2).
-                    let body = matcher
-                        .compiled()
-                        .body_only()
-                        .map(|body| LeafMatcher::prepare(executor, &body))
-                        .transpose()
-                        .map_err(pattern_problem)?;
-                    matchers.push(matcher);
-                    matchers.extend(body.map(LeafMatcher::informational));
-                    Resolved::PatternFinal
+                    PatternAt::AnyState => {
+                        matchers.push(matcher);
+                        Resolved::PatternAnyState
+                    }
                 }
-                PatternAt::AnyState => {
-                    return Err(CampaignError::Target(TargetProblem::Unsupported(
-                        "`at: any-state` needs a one-path search over the explored states \
-                         (gap G-4)"
-                            .to_owned(),
-                    )));
-                }
-            },
+            }
             TargetKind::Differential(_) => Resolved::Differential,
             TargetKind::Observer(target) => observer::resolve(target, executor)?,
         };
@@ -486,9 +495,10 @@ impl ResolvedTarget {
             Resolved::Rule { id, mode } => {
                 rule::rule_needs(id, *mode, self.target.run_to_completion)
             }
-            Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => {
-                TargetNeeds::default()
-            }
+            Resolved::PatternFinal
+            | Resolved::PatternAnyState
+            | Resolved::Differential
+            | Resolved::Observer { .. } => TargetNeeds::default(),
         };
         TargetNeeds {
             data_end: self.target.requires_data_end(),
@@ -500,7 +510,10 @@ impl ResolvedTarget {
     pub(crate) fn rule_id(&self) -> Option<&str> {
         match &self.resolved {
             Resolved::Rule { id, .. } => Some(id),
-            Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => None,
+            Resolved::PatternFinal
+            | Resolved::PatternAnyState
+            | Resolved::Differential
+            | Resolved::Observer { .. } => None,
         }
     }
 
@@ -515,7 +528,7 @@ impl ResolvedTarget {
             .collect()
     }
 
-    /// For a pattern target, how many end leaves of `result` (`stuck`, `trivial` or
+    /// For a pattern target at `final`, how many end leaves of `result` (`stuck`, `trivial` or
     /// `terminal`) matched the pattern's configuration without its `requires` (the target's
     /// own matcher when the pattern has no `requires`), whatever the `requires` gave there:
     /// true, false or undecided. A leaf counts when it is clean apart from the target
@@ -523,7 +536,8 @@ impl ResolvedTarget {
     /// any other reason (an undecided or not ceil-free state, an implementation-chosen value, a
     /// contradicted claim, ...) is left out even when its configuration matched, as every
     /// verdict of this campaign leaves it out, so a semantics whose every end is unclean gets a
-    /// count of 0. `None` for every other target kind (FZ-POLISH S2).
+    /// count of 0. `None` for every other target kind, and at `any-state`, whose configurations
+    /// are not counted (FZ-POLISH S2).
     pub(crate) fn pattern_body_matches(&self, result: &CaseResult) -> Option<u64> {
         if self.resolved != Resolved::PatternFinal {
             return None;
@@ -550,8 +564,12 @@ impl ResolvedTarget {
     }
 
     /// The leaf matchers [`Executor::run`] must judge for this target, in the order
-    /// [`crate::exec::LeafReport::matches`] reports them.
+    /// [`crate::exec::LeafReport::matches`] reports them. None for a pattern at `any-state`,
+    /// whose matcher judges configurations, not leaves ([`Executor::run_any_state`]).
     pub(crate) fn matchers(&self) -> Vec<&LeafMatcher> {
+        if self.resolved == Resolved::PatternAnyState {
+            return Vec::new();
+        }
         self.matchers.iter().collect()
     }
 
@@ -574,7 +592,8 @@ impl ResolvedTarget {
     ///
     /// [`EngineDefect`] from classification; for a leaf without the pattern matcher's
     /// judgement; for a differential target, whose cases [`differential::judge_pair`] judges;
-    /// for an observer target, whose cases [`Self::run_and_judge`] judges; and for a `hit`
+    /// for an observer target and a pattern at `any-state`, whose cases [`Self::run_and_judge`]
+    /// judges; and for a `hit`
     /// class with no clean reaching leaf.
     pub(crate) fn judge_run(
         &self,
@@ -599,6 +618,12 @@ impl ResolvedTarget {
                 return Err(EngineDefect {
                     case: None,
                     description: "an observer case was judged without its observed run".to_owned(),
+                });
+            }
+            Resolved::PatternAnyState => {
+                return Err(EngineDefect {
+                    case: None,
+                    description: "an any-state case was judged without its observed run".to_owned(),
                 });
             }
         };

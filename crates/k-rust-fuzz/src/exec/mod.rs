@@ -28,7 +28,10 @@ use k_rust::{
 use serde::{Deserialize, Serialize};
 
 pub use reasons::UnjudgedReason;
-pub(crate) use run::{CompiledPattern, Executor, LeafMatcher, NormalEnd, PatternCompiler};
+pub(crate) use run::{
+    CompiledPattern, ConfigurationVerdict, Executor, LeafMatcher, NormalEnd, PatternCompiler,
+    PlannedConfiguration,
+};
 
 use crate::{
     report::{EngineDefect, LoadRecord},
