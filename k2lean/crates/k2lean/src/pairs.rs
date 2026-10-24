@@ -2837,9 +2837,11 @@ pub fn classify_same_rank(
     m: &Model,
     rs: &[Rule],
     rank: &dyn Fn(&Rule) -> usize,
+    same_binding: bool,
 ) -> BTreeMap<(usize, usize), PairOut> {
     let raw_eqs = crate::funcs::equations(def);
     let mut cx = Cx::new(def, m, &raw_eqs);
+    cx.same_binding = same_binding;
     let conv: Vec<CRule> = rs.iter().map(|r| cx.convert_rule(r)).collect();
     let mut rows: Vec<(usize, usize, PairOut)> = Vec::new();
     for i in 0..rs.len() {

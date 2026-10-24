@@ -53,7 +53,7 @@ libs_name() {
   case $1 in
     kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; kunroll) echo KUnroll ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
-    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
+    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;; race) echo Race ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -132,8 +132,9 @@ libs_gen() {
             --open-obligations "$o/open-obligations.txt" ;;
     # the generator's K fixtures (tests/fixtures, compiled KORE checked in): freekey's functions
     # walk maps by free-key patterns; peano and cellmap, each generated twice under two
-    # namespaces, are the two sides of the self-relations demos/PeanoRel and demos/CellMapRel
-    peano|peanob|cellmap|cellmapb|freekey) local fx; fx=$(libs_fixture "$1")
+    # namespaces, are the two sides of the self-relations demos/PeanoRel and demos/CellMapRel;
+    # race's workers interleave (the confluence demo demos/RaceConf)
+    peano|peanob|cellmap|cellmapb|freekey|race) local fx; fx=$(libs_fixture "$1")
       "$G" gen --kore "$fx/definition.kore" --runtime "$fx/runtime.json" \
             --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
     # recursive functions whose termination measures the generator synthesizes (demos/k/term)
@@ -239,5 +240,18 @@ libs_refine() {
         --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --open "$DEMOS/ImpUnroll/open-cases.txt" \
         --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
     *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_confluence NS: the confluence scaffold of demo NS (RaceConf: the fixture race, every pair
+# generated, `NS/Confluence.lean` after the hand module `NS/Hand.lean`; SimpleConf: SIMPLE's pairs
+# of rules counted, the report only) and its report `NS/confluence.toml` (or OUT for SimpleConf).
+libs_confluence() {
+  case $1 in
+    RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf --obs acc \
+        --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
+    SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --report-only true \
+        --report "$2" ;;
+    *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }

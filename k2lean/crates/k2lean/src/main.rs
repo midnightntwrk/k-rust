@@ -6,6 +6,7 @@
 mod casediff;
 mod cases;
 mod claims;
+mod confluence;
 mod convert;
 mod det2;
 mod drivers;
@@ -214,6 +215,9 @@ fn main() {
     }
     if raw.first().map(|s| s.as_str()) == Some("relate") {
         return relate::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("confluence") {
+        return confluence::main(&raw[1..]);
     }
     if raw.first().map(|s| s.as_str()) == Some("refine") {
         return refine::main(&raw[1..]);

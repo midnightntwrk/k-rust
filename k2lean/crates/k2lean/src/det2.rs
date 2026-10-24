@@ -422,7 +422,7 @@ pub fn emit(
     // the classes of every same-rank pair (untrusted)
     let t0 = std::time::Instant::now();
     let classes =
-        crate::pairs::classify_same_rank(def, m, rs, &|r| if ranked { rank(r) } else { 0 });
+        crate::pairs::classify_same_rank(def, m, rs, &|r| if ranked { rank(r) } else { 0 }, false);
     if std::env::var_os("K2LEAN_WITNESS_TRACE").is_some() {
         let hwm = std::fs::read_to_string("/proc/self/status")
             .ok()

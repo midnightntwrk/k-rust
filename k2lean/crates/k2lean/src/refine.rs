@@ -64,7 +64,7 @@ pub fn load_rules(kore: &str) -> (Vec<Rule>, Option<Vec<i64>>, String) {
     let (rs, prios, ranked) =
         rules::collect_ranked(&def, &m, &fgen.fns, &[]).unwrap_or_else(|e| fail(&e));
     let top = rules::top_sort(&def).unwrap_or_else(|e| fail(&e));
-    (rs, ranked.then_some(prios), top)
+    (rs, (ranked && prios.len() > 1).then_some(prios), top)
 }
 
 /// The rule pairs of a `relate` report (`[rules]`: A's rule name to B's).

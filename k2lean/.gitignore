@@ -25,6 +25,10 @@ lake-manifest.json
 /demos/ImpTypes/ImpTypes/Soundness.lean
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Tr.lean
+/demos/ImpUnroll/ImpUnroll/Refine.lean
+/demos/ImpUnroll/refine.toml
+/demos/RaceConf/RaceConf/Confluence.lean
+/demos/RaceConf/confluence.toml
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean
