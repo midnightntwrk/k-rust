@@ -12,7 +12,9 @@ recorded outputs with the default encoding's, which they must equal):
   status    every step of the run succeeded (generation, builds, axiom guards, tests)
   unit      generator tests: none fails, and no fewer pass
   lib.X     the open-obligation set of library X may only shrink (a new member fails, and is
-            printed); fewer stated equations or fewer theorems under the axiom guard fail
+            printed); fewer stated equations or fewer theorems under the axiom guard fail; the
+            number of overlapping pairs `gen` lists (determinism along the rule index) and of
+            those without a witness equal the baseline's
   kimp      goldens passed and trace states: equal to the baseline
   demo.X    theorems under the guard may not decrease; each `k2l_preserve` call closes no fewer
             rules and has no new residual rule; Kind2Template is the skeleton that
@@ -47,7 +49,7 @@ import tomllib
 from pathlib import Path
 
 LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
-        "imptypes": ("KImpTypes", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
+        "imptypes": ("KImpTypes", "light"), "ovl": ("KOvl", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
         "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity"),
         "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
         "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
@@ -84,8 +86,9 @@ ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "sim
 HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean")
 # generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
 NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
+                   "generated/ovl/KOvlBench/Programs.lean",
                    "generated/kimp-ar/KImpBench/Programs.lean"}
-SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv",
+SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/ovl", "generated/kimpinv",
                          "generated/kimpkeys", "generated/kimpkeys-hand",
                          "generated/kimpfold", "generated/kimptop", "generated/nested",
                          "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb"],
@@ -129,6 +132,17 @@ def equations(path):
     opened = re.findall(r"^def (\S+)\.statement : Prop", text, re.M)
     proved = re.findall(r"^theorem ((?:Eqn|Simp|Lemma)\.\S+)", text, re.M)
     return len(opened) + len(proved), sorted(opened)
+
+
+def overlaps(log):
+    """(listed overlapping pairs, of them without a witness) of a generation log with determinism
+    along the rule index; (None, None) without it (a definition with several-match rules)."""
+    text = read(log) or ""
+    m = re.findall(r"^determinism: (\d+) overlapping pairs$", text, re.M)
+    if not m:
+        return None, None
+    u = re.findall(r"^unwitnessed = (\d+)$", text, re.M)
+    return int(m[-1]), int(u[-1]) if u else 0
 
 
 def guarded(log):
@@ -266,7 +280,9 @@ def measure(work, tier):
             continue
         eq = equations(tree / "generated" / d / ns / "Equations.lean") if f"build {d}" in status or f"build {ns}.Equations" in status else None
         g = guarded(logs / f"build-{d}-guard.log") if status.get(f"guard {d}", ("",))[0] == "ok" else None
-        m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g}
+        ov = overlaps(logs / f"gen-{d}.log")
+        m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g,
+                       "overlaps": ov[0], "unwitnessed": ov[1]}
     out = read(meas / "kimp-test.out") or ""
     gm = re.search(r"^goldens: (\d+)/(\d+) pass", out, re.M)
     m["kimp"] = {
@@ -491,6 +507,14 @@ def compare(m, base, expected, accept_cmd):
             F(f"lib.{d}: stated equations {b['stated']} -> {e['stated']}")
         elif e["stated"] > b["stated"]:
             N(f"lib.{d}: stated equations {b['stated']} -> {e['stated']}")
+        # determinism: the listed overlapping pairs are pinned (a library proved deterministic
+        # unconditionally keeps an empty list), and none may lose its witness
+        if e.get("overlaps") != b.get("overlaps"):
+            F(f"lib.{d}: overlapping pairs {b.get('overlaps')} -> {e.get('overlaps')}")
+        elif e.get("unwitnessed") != b.get("unwitnessed"):
+            F(f"lib.{d}: overlapping pairs without a witness {b.get('unwitnessed')} -> {e.get('unwitnessed')}")
+        elif e.get("overlaps") is not None:
+            P(f"lib.{d}: {e['overlaps']} overlapping pairs, {e['unwitnessed']} without a witness")
         if d in NO_GUARD:
             pass
         elif e["guarded"] is None:

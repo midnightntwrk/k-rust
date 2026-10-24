@@ -4,9 +4,11 @@
 # builds them in a scratch work tree, and compares what it measures with tests/baseline.toml.
 #
 #   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
-#                                 against krust and the K LLVM backend), kimp-d2 (kimp's determinism
-#                                 along the rule index, `--det2`), krsimp, kmut, imptypes, the
-#                                 fixture freekey; the demos ImpRel, ImpTypes, ImpMut, KrsImpTyping,
+#                                 against krust and the K LLVM backend), kimp-d2 (kimp with one
+#                                 exclusive pair listed as overlapping, and its equations in parts),
+#                                 krsimp, kmut, imptypes, ovl (demos/k/overlap.k: one witnessed
+#                                 overlap, one joinable pair), the fixture freekey; the demos
+#                                 ImpRel, ImpTypes, ImpMut, KrsImpTyping,
 #                                 ImpWrites (a kind 2 invariant that walks <k>), and the fixture
 #                                 self-relations PeanoRel and CellMapRel (libraries peano, peanob,
 #                                 cellmap, cellmapb); the kind 1 invariants of kimpinv (two K
@@ -50,7 +52,8 @@
 #
 # Needs: krust (a release build), the K release's `kompile` with its LLVM backend (kimp's step
 # traces), the K sources and kimp's sources at the pins of scripts/reference-differential.toml
-# (README.md, "Compatibility evidence"), cargo, lake (elan) and python3 >= 3.11 on PATH.
+# (README.md, "Compatibility evidence"), cargo, lake (elan), z3 (the rule-pair classification and
+# the overlap witnesses of `gen`) and python3 >= 3.11 on PATH.
 #
 # Environment (paths may be relative to the current directory):
 #   GATE_ROOT=DIR       the k2lean directory under test (default: the one holding this script); it
@@ -134,7 +137,7 @@ fi
 if [ "$TIER" = heavy ]; then
   [ -d "$SPECS" ] || need "kimp's claims at $SPECS (set GATE_IMP_CHECKOUT)"
 fi
-for t in cargo lake python3 rsync; do command -v "$t" > /dev/null || need "$t on PATH"; done
+for t in cargo lake python3 rsync z3; do command -v "$t" > /dev/null || need "$t on PATH"; done
 python3 -c 'import tomllib' 2> /dev/null || need "python3 >= 3.11 (tomllib)"
 for f in "$CHECK" "$RT" "$BASE"; do [ -e "$f" ] || need "$f"; done
 for d in lean demos generated; do
@@ -234,6 +237,7 @@ if [ "$TIER" != arity ]; then
   kc kimp-keys
   kc imp-typing
   kc kmut
+  kc ovl
 fi
 phase llvm
 key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
@@ -300,6 +304,7 @@ lib kimp-d2 KImp
 lib krsimp KrsImp
 lib kmut KMut
 lib imptypes KImpTypes
+lib ovl KOvl
 # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
 lib freekey FreeKey
 

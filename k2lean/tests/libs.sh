@@ -15,7 +15,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -28,6 +28,7 @@ libs_kcompile() {
     kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
     imp-typing) f=$DEMOS/k/imp-typing.k m=IMP-TYPING s=IMP-TYPING-SYNTAX inc=$KIMP ;;
     kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
+    ovl) f=$DEMOS/k/overlap.k m=OVERLAP s=OVERLAP-SYNTAX inc=$DEMOS/k ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     simple-inv) f=$DEMOS/k/simple-inv/simple-inv.k m=SIMPLE-INV s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     # SIMPLE written differently (tests/simple-variant.py: constructors with other symbols, rules
@@ -45,7 +46,7 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
@@ -61,8 +62,8 @@ libs_gen() {
             --out "$o" --name KImp --prelude ../../lean/prelude \
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
             $([ "$1" = kimp-ar ] && echo --arity-terms) ;;
-    # kimp with determinism along the rule index (`--det2`), and one exclusive pair of rules listed
-    # as overlapping, so that the conditional statements (`Step.deterministic_of`) are built too;
+    # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
+    # conditional statements of determinism (`Step.deterministic_of`) are built too;
     # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
     # aggregating module and `open-from-log` over them are built and checked against kimp's counts
     kimp-d2) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
@@ -94,6 +95,10 @@ libs_gen() {
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json" ;;
     kmut) "$G" gen --kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json" \
             --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    # a definition with one genuine overlap (witnessed), one joinable pair and exclusive pairs
+    # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
+    ovl) "$G" gen --kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json" \
+            --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
     imptypes) "$G" gen --kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json" \
             --out "$o" --name KImpTypes --prelude ../../lean/prelude \
             --open-obligations "$o/open-obligations.txt" --extra-fns typeOf,wt ;;
