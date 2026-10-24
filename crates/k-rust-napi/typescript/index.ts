@@ -1489,7 +1489,11 @@ export interface FuzzWitnessCase {
     /** The halt of each final configuration, in order (`trivial`: an undefined step, no end). */
     halts?: Array<ExecutionLeaf['reason']>
   }[]
-  /** `step`: for an observer target, the step of the leaf's path at which the observer hit. */
+  /**
+   * `step`: for an observer target, the step of the leaf's path at which the observer hit; for a
+   * pattern `at: any-state`, the step of the first configuration on that path that matched (0: the
+   * initial configuration).
+   */
   reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }
   kill?: 'added-end' | 'removed-end'
   steps?: number

@@ -49,7 +49,7 @@ use crate::{
         BackendRoute, Budget, CampaignSpec, CaseOptions, CompiledDefinition, ProgramInput,
         ProposerConfig, ProposerKind,
     },
-    target::{PatternAt, RuleMode, TargetKind, differential},
+    target::{RuleMode, TargetKind, differential},
     values::{self, Generator, Value, ValueRng},
 };
 
@@ -931,7 +931,9 @@ fn json<T: serde::Serialize + ?Sized>(value: &T) -> String {
 ///   exhaustion or failed rule condition on the leaf; and a run with no stack stop, SMT
 ///   unknown, allowance refusal or unsupported hook (D21);
 /// - a target that matches a pattern on the leaf (a pattern target, or any target with
-///   `run-to-completion`, which matches the normal-termination pattern): a decided match;
+///   `run-to-completion`, which matches the normal-termination pattern): a decided match; a
+///   pattern `at: any-state` matches a configuration of the leaf's path instead, which must be
+///   decided and ceil-free too, with empty match constraints;
 /// - a target whose hit rests on run-level facts (the coverage modes, D18) or on a set of ends
 ///   (differential): no run-level fact off every leaf (D16);
 /// - a rule or pattern target with `run-to-completion` and `data-end`: the end is data
@@ -952,10 +954,10 @@ fn clean_leaf_facts(spec: &CampaignSpec) -> Vec<String> {
         "no-unsupported-hook",
     ];
     let natural_end = match &spec.target.kind {
-        TargetKind::Pattern(pattern) => {
+        TargetKind::Pattern(_) => {
             facts.push("empty-match-constraints");
             facts.push("decided-match");
-            pattern.at == PatternAt::Final && spec.target.run_to_completion
+            spec.target.run_to_completion
         }
         // The differential conditions depend on the kind of kill; the loop adds them per
         // witness.

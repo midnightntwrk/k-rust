@@ -26,7 +26,7 @@ use k_rust::{
 
 use super::{
     Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
-    LOAD_STACK_STOP, LeafReport, NormalEndKind, UncleanReason,
+    LOAD_STACK_STOP, LeafReport, NormalEndKind, UncleanReason, UnjudgedReason,
 };
 use crate::{
     assemble::ProgramAssembly,
@@ -750,8 +750,8 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseResult, Abort> {
-        self.run_with(initial, shape, matchers, cancel, Execution::Plain)
-            .map(|(result, _)| result)
+        self.run_with(initial, shape, matchers, cancel, Execution::Plain, None)
+            .map(|(result, _, _)| result)
     }
 
     /// [`Self::run`] through `Backend::execute_observed` with the event allowlist `rules`, in the
@@ -777,6 +777,41 @@ impl Executor {
             matchers,
             cancel,
             Execution::Observed { rules },
+            None,
+        )
+        .map(|(result, leaves, _)| (result, leaves))
+    }
+
+    /// [`Self::run_observed`] with every observation event (`rules: None`) and no leaf matcher,
+    /// for an `at: any-state` pattern target (ARCHITECTURE 4.1): after the leaves are judged,
+    /// every configuration `plan` places on the case's path tree is judged against `matcher`
+    /// ([`ConfigurationVerdict`]), within the same token scope and per-case safety limit as the
+    /// run. Solver `unknown`s that matching meets are added to [`CaseResult::smt_unknowns`]. The
+    /// verdicts are empty for a failed case and for a case outside the determinism contract
+    /// (`CaseResult::determinism_breaks`), which no configuration can decide; a backend error
+    /// while matching makes the case a failure, as one judging its leaves does.
+    ///
+    /// A filtered run would give a transition outside the filter no event, so its path could
+    /// not be shown (P7-ADDENDUM review, N4).
+    ///
+    /// # Errors
+    ///
+    /// [`Abort`] for a failed solver prelude.
+    pub(crate) fn run_any_state(
+        &mut self,
+        initial: &KorePattern,
+        shape: &CaseRequestShape,
+        matcher: &LeafMatcher,
+        plan: ConfigurationPlan,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<(CaseResult, Vec<ExecutionLeaf>, Vec<ConfigurationVerdict>), Abort> {
+        self.run_with(
+            initial,
+            shape,
+            &[],
+            cancel,
+            Execution::Observed { rules: None },
+            Some(AnyState { matcher, plan }),
         )
     }
 
@@ -787,7 +822,8 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
         execution: Execution,
-    ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+        any_state: Option<AnyState<'_>>,
+    ) -> Result<Executed, Abort> {
         let request = shape.request(initial.clone());
         if shape.data_end {
             // A main module that does not load fails the run itself.
@@ -810,6 +846,7 @@ impl Executor {
             terminal_allowed: shape.has_terminal_rules(),
             load_stack_stops: self.load_stack_stops,
             forward: None,
+            any_state,
         };
         let backend = &mut self.backend;
         #[cfg(not(target_arch = "wasm32"))]
@@ -834,9 +871,9 @@ impl Executor {
             // A deadline that passes after the run returned and before this disarm still marks
             // the case `timeout` though its result is complete: conservative (review N3).
             let fired = armed.disarm();
-            return outcome.map(|(mut result, leaves)| {
+            return outcome.map(|(mut result, leaves, verdicts)| {
                 result.safety_limit_hit = fired;
-                (result, leaves)
+                (result, leaves, verdicts)
             });
         }
         match cancel {
@@ -871,6 +908,7 @@ impl Executor {
             terminal_allowed: false,
             load_stack_stops: 0,
             forward: None,
+            any_state: None,
         };
         let mut internal = judge
             .judge_internally(&mut self.backend, std::slice::from_ref(&leaf))
@@ -884,6 +922,53 @@ impl Executor {
 fn load_stack_stops(definition: &BackendDefinition) -> usize {
     definition.value_claims().counts().condition_stack_stops
         + definition.discharge_counts().stack_stops
+}
+
+/// What [`Executor::run_with`] returns: the judged result, the raw leaves of an observed run,
+/// and an any-state target's configuration verdicts.
+type Executed = (CaseResult, Vec<ExecutionLeaf>, Vec<ConfigurationVerdict>);
+
+/// One node of a case's path tree that an `at: any-state` pattern target judges
+/// ([`Executor::run_any_state`]; the tree is `crate::target`'s).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PlannedConfiguration<'l> {
+    /// The node's parent: an earlier index of the plan, or `None` for the root (the initial
+    /// configuration).
+    pub(crate) parent: Option<usize>,
+    /// The normalized configuration at the node, as the backend reports it (KORE JSON); `None`
+    /// when the walk shows none there.
+    pub(crate) configuration: Option<&'l serde_json::Value>,
+}
+
+/// Places the configurations of an observed run's `leaves` on their path tree, every parent
+/// before its children.
+pub(crate) type ConfigurationPlan =
+    for<'l> fn(&'l [ExecutionLeaf]) -> Vec<PlannedConfiguration<'l>>;
+
+/// What an `at: any-state` pattern target's matcher says about one configuration
+/// ([`Executor::run_any_state`]). A configuration is judged as an end leaf's state is
+/// (ARCHITECTURE 5.2): internalized in its definition, then matched as `krun --pattern` does.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ConfigurationVerdict {
+    /// It is decided (no constraint, no variable), ceil-free, and matches with empty
+    /// constraints: the target is reached there.
+    Reaches,
+    /// The matcher refuted it.
+    Refuted,
+    /// It cannot be decided: it matches but is not ceil-free (it may denote nothing), the match
+    /// is undecided, it is not a decided state, or it does not decode or internalize. The
+    /// reason the case is `unsupported` when nothing reaches.
+    Unresolved(UnjudgedReason),
+    /// Not judged: the plan shows no configuration here, or a configuration above it on its
+    /// path reaches or was not judged.
+    NotJudged,
+}
+
+/// An any-state target's part of a case's judgement ([`Executor::run_any_state`]).
+#[derive(Clone, Copy)]
+struct AnyState<'a> {
+    matcher: &'a LeafMatcher,
+    plan: ConfigurationPlan,
 }
 
 /// How a case is executed.
@@ -910,6 +995,9 @@ struct Judge<'a> {
     /// Under the safety limit, the caller's token and the case's own: the caller's cancellation
     /// is forwarded synchronously when the run ends, before the leaves are judged (review S2).
     forward: Option<(CancellationToken, CancellationToken)>,
+    /// For an `at: any-state` pattern target, its matcher and the plan of the configurations it
+    /// judges.
+    any_state: Option<AnyState<'a>>,
 }
 
 /// A leaf pattern's verdict on one leaf.
@@ -942,7 +1030,7 @@ impl Judge<'_> {
         backend: &mut Backend,
         request: ExecuteRequest,
         execution: Execution,
-    ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+    ) -> Result<Executed, Abort> {
         // The initial state, kept for the one probe of whether it holds a `<k>` cell.
         let probe = (self.normal_end_kind == NormalEndKind::EveryK
             && self.initial_has_k.get().is_none())
@@ -960,11 +1048,123 @@ impl Judge<'_> {
         }
         match executed {
             Ok(result) => {
-                let judged = self.judge(backend, &result, probe.as_ref())?;
-                Ok((judged, result.leaves))
+                let mut judged = self.judge(backend, &result, probe.as_ref())?;
+                let verdicts = match self.any_state {
+                    // A case outside the determinism contract is judged without its
+                    // configurations (`crate::target`), so they are not matched.
+                    Some(any_state)
+                        if judged.failure.is_none() && judged.determinism_breaks().is_empty() =>
+                    {
+                        match self.judge_configurations(backend, any_state, &result.leaves) {
+                            Ok((verdicts, unknowns)) => {
+                                judged.smt_unknowns = judged.smt_unknowns.saturating_add(unknowns);
+                                verdicts
+                            }
+                            Err(error) => {
+                                return Ok((
+                                    self.failed(failure_of(&error)?),
+                                    Vec::new(),
+                                    Vec::new(),
+                                ));
+                            }
+                        }
+                    }
+                    Some(_) | None => Vec::new(),
+                };
+                Ok((judged, result.leaves, verdicts))
             }
-            Err(error) => Ok((self.failed(failure_of(&error)?), Vec::new())),
+            Err(error) => Ok((self.failed(failure_of(&error)?), Vec::new(), Vec::new())),
         }
+    }
+
+    /// Judge the configurations `any_state`'s plan places on the path tree of `leaves`, parents
+    /// first: a node is judged when it shows a configuration and its parent, if any, was judged
+    /// and does not reach, so nothing below a reaching configuration is matched. One operation
+    /// over every shown configuration and the matcher. Also the solver `unknown`s the matching
+    /// met (review 2, NI-2).
+    fn judge_configurations(
+        &self,
+        backend: &mut Backend,
+        any_state: AnyState<'_>,
+        leaves: &[ExecutionLeaf],
+    ) -> Result<(Vec<ConfigurationVerdict>, usize), BackendError> {
+        let plan = (any_state.plan)(leaves);
+        let decoded: Vec<Option<Option<KorePattern>>> = plan
+            .iter()
+            .map(|node| {
+                node.configuration
+                    .map(|configuration| codec::from_value(configuration).ok())
+            })
+            .collect();
+        let mut patterns: Vec<&KorePattern> = decoded.iter().flatten().flatten().collect();
+        patterns.push(&any_state.matcher.kore);
+        backend.with_solver_over(None, &patterns, |definition, solver| {
+            let mut verdicts: Vec<ConfigurationVerdict> = Vec::with_capacity(plan.len());
+            let mut unknowns = 0;
+            for (node, configuration) in plan.iter().zip(&decoded) {
+                let open = node.parent.is_none_or(|parent| {
+                    matches!(
+                        verdicts[parent],
+                        ConfigurationVerdict::Refuted | ConfigurationVerdict::Unresolved(_)
+                    )
+                });
+                let verdict = match configuration {
+                    Some(Some(state)) if open => self.judge_configuration(
+                        definition,
+                        solver,
+                        any_state.matcher,
+                        state,
+                        &mut unknowns,
+                    )?,
+                    Some(None) if open => {
+                        ConfigurationVerdict::Unresolved(UnjudgedReason::Unobservable)
+                    }
+                    Some(_) | None => ConfigurationVerdict::NotJudged,
+                };
+                verdicts.push(verdict);
+            }
+            Ok((verdicts, unknowns))
+        })
+    }
+
+    /// One configuration's [`ConfigurationVerdict`]: internalized and matched as an end leaf's
+    /// state is in [`Self::judge_leaf`], with the target's matcher in both evaluation modes
+    /// ([`Self::match_leaf`]). A match reaches only on a decided, ceil-free configuration, which
+    /// denotes one value; a configuration that is not ceil-free may denote nothing, so a match
+    /// there leaves the case unresolved (`NotCeilFree`), and so does an undecided match.
+    fn judge_configuration(
+        &self,
+        definition: &BackendDefinition,
+        solver: &dyn SmtSolver,
+        matcher: &LeafMatcher,
+        state: &KorePattern,
+        unknowns: &mut usize,
+    ) -> Result<ConfigurationVerdict, BackendError> {
+        let Ok(pattern) = definition
+            .admit_unverified(state, &[])
+            .internalize_pattern()
+        else {
+            return Ok(ConfigurationVerdict::Unresolved(
+                UnjudgedReason::InternalizationFailed,
+            ));
+        };
+        let attributes = pattern.term.attributes();
+        if !pattern.constraints.is_empty() || !attributes.variables.is_empty() {
+            return Ok(ConfigurationVerdict::Unresolved(
+                UnjudgedReason::UndecidedState,
+            ));
+        }
+        let mut internal = Internal::default();
+        let verdict = self.match_leaf(definition, solver, matcher, &pattern, &mut internal)?;
+        *unknowns = unknowns.saturating_add(internal.smt_unknowns);
+        Ok(match verdict {
+            MatchVerdict::Matched if attributes.ceil_free() => ConfigurationVerdict::Reaches,
+            MatchVerdict::Matched => ConfigurationVerdict::Unresolved(UnjudgedReason::NotCeilFree),
+            MatchVerdict::NotMatched => ConfigurationVerdict::Refuted,
+            MatchVerdict::Undecided => {
+                ConfigurationVerdict::Unresolved(UnjudgedReason::UndecidedMatch)
+            }
+        })
     }
 
     /// A case whose execution or judgement answered `Err`.

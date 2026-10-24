@@ -2103,6 +2103,69 @@ mod tests {
         }
     }
 
+    /// FZ-ANYSTATE: a campaign whose pattern is matched `at: any-state` confirms its hit, and the
+    /// witness names the step of the first reaching configuration (`count(1)`, two steps after
+    /// `count(3)`), with the natural end among its facts under `run-to-completion`.
+    #[test]
+    fn an_any_state_witness_names_its_first_reaching_step() {
+        let compiled = COIN.compiled();
+        let spec = CampaignSpec {
+            program: ProgramInput::Source(compiled.program_source("coin/count.pgm")),
+            holes: vec![HoleDecl {
+                name: "N".into(),
+                sort: "Int".into(),
+                location: HoleLocation::Span(SpanAddress {
+                    program: "coin/count.pgm".into(),
+                    line: None,
+                    column: None,
+                    find: "count(3)".into(),
+                    literal: "3".into(),
+                }),
+                constraints: Constraints::default(),
+                allow_refused_sort: false,
+            }],
+            target: Target {
+                kind: TargetKind::Pattern(PatternTarget {
+                    pattern: "<k> count(1) ~> _ </k>".into(),
+                    at: PatternAt::AnyState,
+                }),
+                run_to_completion: true,
+                negated_property: false,
+                data_end: true,
+            },
+            definitions: Definitions {
+                baseline: Arc::new(compiled.definition()),
+                mutant: None,
+            },
+            proposers: ProposerConfig {
+                anchors_first: true,
+                explicit: Vec::new(),
+                weights: BTreeMap::new(),
+            },
+            ..CampaignSpec::clone(&le_spec(None))
+        };
+        let report = crate::Campaign::new(spec)
+            .expect("the campaign builds")
+            .run(crate::spec::Budget::Cases(1), None);
+        assert!(
+            report.engine_defects.is_empty(),
+            "{:?}",
+            report.engine_defects
+        );
+        let witness = report.witness().expect("a confirmed witness");
+        assert_eq!(witness.first.reaching.step, Some(2), "{witness:?}");
+        // Three `count-step`s and `count-done`: the leaf runs on to its end.
+        assert_eq!(witness.first.steps, Some(4), "{witness:?}");
+        assert!(
+            witness
+                .clean_leaf_facts
+                .iter()
+                .any(|fact| fact == "natural-end"),
+            "{:?}",
+            witness.clean_leaf_facts
+        );
+    }
+
     /// Accepts at step `n` of the `n`-th path it is started on: its verdict depends on state
     /// hidden in the observer, which ARCHITECTURE 9.2 forbids.
     struct StepByWalk(std::sync::atomic::AtomicU32);

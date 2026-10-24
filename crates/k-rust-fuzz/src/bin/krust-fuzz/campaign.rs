@@ -89,7 +89,7 @@ pub struct TargetFile {
     pub mode: Option<RuleMode>,
     /// A pattern in `krust krun --pattern` syntax, which may carry `requires`.
     pub pattern: Option<String>,
-    /// Where the pattern is matched; `final` by default.
+    /// Where the pattern is matched, `final` (by default) or `any-state`; `--at` overrides it.
     pub at: Option<PatternAt>,
     /// The differential target, between the definition and the mutant.
     pub differential: Option<bool>,
@@ -241,6 +241,7 @@ pub struct Overrides {
     pub reach_rule: Option<String>,
     pub rule_mode: Option<RuleMode>,
     pub pattern: Option<String>,
+    pub at: Option<PatternAt>,
     pub differential: bool,
     pub run_to_completion: Option<bool>,
     pub negated_property: Option<bool>,
@@ -692,7 +693,7 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
             flags.pattern.clone(),
             flags.differential,
             flags.rule_mode,
-            None,
+            flags.at,
         )
     } else {
         (
@@ -700,7 +701,7 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
             file.pattern,
             file.differential.unwrap_or(false),
             flags.rule_mode.or(file.mode),
-            file.at,
+            flags.at.or(file.at),
         )
     };
     let kind = match (rule, pattern, differential) {
@@ -727,7 +728,7 @@ fn target(file: TargetFile, flags: &Overrides, has_mutant: bool) -> Result<Targe
         return Err("--rule-mode (or the file's `mode`) applies only to a rule target".into());
     }
     if at.is_some() && !matches!(kind, TargetKind::Pattern(_)) {
-        return Err("the file's `at` applies only to a pattern target".into());
+        return Err("--at (or the file's `at`) applies only to a pattern target".into());
     }
     let data_end = flags.data_end.or(file.data_end);
     if data_end.is_some() && !matches!(kind, TargetKind::Rule(_) | TargetKind::Pattern(_)) {

@@ -54,7 +54,7 @@ use k_rust::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{HitSite, Judgement, Resolved, ResolvedTarget};
+use super::{HitSite, Judgement, Resolved, ResolvedTarget, any_state};
 use crate::{
     error::{CampaignError, TargetProblem},
     exec::{
@@ -365,8 +365,10 @@ pub(crate) struct JudgedRun {
     /// For an observer target's hit, the step of the hit leaf's path at which the observer
     /// answered [`ObserverVerdict::Hit`]: the number of committed rewrite steps from the
     /// initial configuration to the configuration that step reached, at least 1 and at most the
-    /// leaf's depth. A function of the leaf's path, so the same under the execution contract
-    /// whichever run computes it. `None` for every other judgement and target.
+    /// leaf's depth. For a pattern target `at: any-state`, the step of the first reaching
+    /// configuration on that path, counted the same way, from 0 (`super::any_state`). A function
+    /// of the leaf's path, so the same under the execution contract whichever run computes it.
+    /// `None` for every other judgement and target.
     pub(crate) hit_step: Option<u64>,
     /// For an observer target, the greatest [`ObserverVerdict::Progress`] the observer answered
     /// on any path of the run before a hit; `None` when it answered none, and for every other
@@ -382,9 +384,10 @@ impl ResolvedTarget {
     }
 
     /// Run one case with `executor` and judge it: [`Executor::run`] with this target's matchers,
-    /// then [`Self::judge_run`], or for an observer target [`Executor::run_observed`] and the
-    /// observer's walk over the leaves' paths (module documentation). The engine's entry point
-    /// for rule, pattern and observer targets.
+    /// then [`Self::judge_run`]; for an observer target [`Executor::run_observed`] and the
+    /// observer's walk over the leaves' paths (module documentation); for a pattern
+    /// `at: any-state`, [`Executor::run_any_state`] and the walk over its configuration verdicts
+    /// (`super::any_state`). The engine's entry point for rule, pattern and observer targets.
     ///
     /// An observer case runs once, through `Backend::execute_observed`, under the same
     /// cancellation scope, per-case safety limit and work budget as every other case, so its
@@ -400,7 +403,8 @@ impl ResolvedTarget {
     /// accept.
     ///
     /// An observer hit also gives the step at which the observer accepted on the hit leaf's
-    /// path ([`JudgedRun::hit_step`]).
+    /// path, and an any-state hit the step of its first reaching configuration
+    /// ([`JudgedRun::hit_step`]).
     ///
     /// # Errors
     ///
@@ -432,6 +436,23 @@ impl ResolvedTarget {
                     judgement,
                     hit_step,
                     progress,
+                })
+            }
+            Resolved::PatternAnyState => {
+                // The resolution keeps the target's one matcher, and no informational one.
+                let matcher = &self.matchers[0];
+                let (result, leaves, verdicts) =
+                    executor.run_any_state(initial, shape, matcher, any_state::plan, cancel)?;
+                let (judgement, hit_step) =
+                    match self.judge_any_state(&result, &leaves, &verdicts, cancel) {
+                        Ok((judgement, hit_step)) => (Ok(judgement), hit_step),
+                        Err(defect) => (Err(defect), None),
+                    };
+                Ok(JudgedRun {
+                    result,
+                    judgement,
+                    hit_step,
+                    progress: None,
                 })
             }
             Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
@@ -527,7 +548,7 @@ impl ResolvedTarget {
 
 /// The judgement of a class with no hit site and no blocked rule, and the reason of an
 /// `unsupported` class.
-fn explained(class: OutcomeClass, reason: Option<UnjudgedReason>) -> Judgement {
+pub(super) fn explained(class: OutcomeClass, reason: Option<UnjudgedReason>) -> Judgement {
     Judgement {
         class,
         hit_site: None,
@@ -540,7 +561,7 @@ fn explained(class: OutcomeClass, reason: Option<UnjudgedReason>) -> Judgement {
 /// [`exec::classify`] with no leaf reaching the target, lifted to `timeout` when a clock was
 /// involved and to `unsupported` otherwise, since a leaf the observer was not shown may reach
 /// the target.
-fn unobserved(
+pub(super) fn unobserved(
     result: &CaseResult,
     run_to_completion: bool,
     clock: bool,
@@ -565,7 +586,7 @@ fn unobserved(
     })
 }
 
-fn defect(description: &str) -> EngineDefect {
+pub(super) fn defect(description: &str) -> EngineDefect {
     EngineDefect {
         case: None,
         description: description.to_owned(),
@@ -594,25 +615,31 @@ impl ObservedPaths {
 }
 
 /// One edge of the path tree: a committed transition, and the node it leads to.
-struct Edge<'a> {
+pub(super) struct Edge<'a> {
     id: &'a TransitionIdOutput,
-    child: usize,
+    pub(super) child: usize,
 }
 
-/// One configuration of the path tree.
+/// One configuration of the path tree. The tree is shared with `at: any-state` pattern targets
+/// (`super::any_state`).
 #[derive(Default)]
-struct Node<'a> {
+pub(super) struct Node<'a> {
     /// The configuration after normalization: the `before` of the transitions that leave it,
     /// or the state of a leaf that ends here; `None` when only paths without complete
     /// observation events pass through it.
-    configuration: Option<&'a Value>,
+    pub(super) configuration: Option<&'a Value>,
+    /// The `before` of a transition that leaves it, when a path through it has complete
+    /// observation events: the configuration the run went on from. A leaf that ends here beside
+    /// such a path holds a state under its own path condition (an undefined step, say), which
+    /// [`Self::configuration`] may have taken first.
+    pub(super) before: Option<&'a Value>,
     /// The successors, in the order the leaves first reach them.
-    edges: Vec<Edge<'a>>,
+    pub(super) edges: Vec<Edge<'a>>,
     /// The leaves that end here.
-    leaves: Vec<usize>,
+    pub(super) leaves: Vec<usize>,
     /// A `work-bound`, `timeout` or `cancelled` leaf ends here: the node's state is the stopped,
     /// unnormalised state, which the observer is never shown (module documentation).
-    stopped: bool,
+    pub(super) stopped: bool,
 }
 
 /// The configuration each transition of `leaf`'s path leaves from, aligned with its `branch`,
@@ -648,8 +675,8 @@ struct Frame {
 }
 
 /// The leaves' paths merged into a tree keyed by committed transition identity, root first
-/// ([`walk_paths`]).
-fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
+/// ([`walk_paths`]). Every node's index is greater than its parent's.
+pub(super) fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
     let mut nodes = vec![Node::default()];
     for (index, leaf) in leaves.iter().enumerate() {
         let befores = befores(leaf);
@@ -657,6 +684,7 @@ fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
         for (position, id) in leaf.branch.iter().enumerate() {
             if let Some(befores) = &befores {
                 nodes[node].configuration.get_or_insert(befores[position]);
+                nodes[node].before.get_or_insert(befores[position]);
             }
             node = if let Some(edge) = nodes[node].edges.iter().find(|edge| edge.id == id) {
                 edge.child

@@ -919,6 +919,7 @@ fn contradictory_options_are_refused_and_flags_switch_off_the_file() {
     };
     refused(&["--safety-limit", "0"], "safety limit");
     refused(&["--rule-mode", "covered"], "--rule-mode");
+    refused(&["--reach-rule", "assign", "--at", "any-state"], "--at");
     fs::write(
         directory.join("all.toml"),
         format!("{}\n[options]\npaths = \"all-paths\"\n", le_campaign()),
@@ -944,6 +945,20 @@ fn contradictory_options_are_refused_and_flags_switch_off_the_file() {
         &["--campaign", "le.toml", "--no-negated-property"],
     );
     let stdout = text(&plain.stdout);
+    assert!(stdout.starts_with("witness found\n"), "{stdout}");
+    // The file's pattern matched at any state: only an end has an empty `<k>`, so its ends
+    // reach it as before.
+    let any_state = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "le.toml",
+            "--no-negated-property",
+            "--at",
+            "any-state",
+        ],
+    );
+    let stdout = text(&any_state.stdout);
     assert!(stdout.starts_with("witness found\n"), "{stdout}");
 }
 
