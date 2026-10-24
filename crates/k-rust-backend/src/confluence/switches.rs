@@ -70,6 +70,9 @@ pub(crate) struct Switches {
     /// listed (vacuity restored: the check before FZ-EMPTYSORT, which read the equations in the
     /// normal-form model, where such a sort is empty, while every model has an element of it).
     pub(crate) separate_uninhabited: bool,
+    /// Witnesses: keep pass 1 (no witness equation) whatever pass 2 finds, as the check did
+    /// before FZ-EMPTYJOIN-WITNESS.
+    pub(crate) adopt_pass_1: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
     pub(crate) stuck_total_is_bottom: bool,
@@ -155,6 +158,7 @@ thread_local! {
             root_read_overloaded_patterns: false,
             drop_supersort_inhabitation: false,
             separate_uninhabited: false,
+            adopt_pass_1: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,

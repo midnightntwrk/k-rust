@@ -97,12 +97,16 @@ impl<'e> Closure<'e> {
             }
             lhs_symbols.push(lhs.into_iter().collect());
         }
+        let mut reach = SortReach::new(definition, sorts);
+        for equation in equations.iter().filter(|equation| equation.witness) {
+            reach.witness_edges(&equation.rule);
+        }
         Self {
             equations,
             id_of,
             lhs_index,
             lhs_symbols,
-            reach: SortReach::new(definition, sorts),
+            reach,
         }
     }
 
@@ -411,6 +415,23 @@ impl SortReach {
             }
         }
         reach
+    }
+
+    /// The edges of a witness equation `p => t` (`witness.rs`), added before any sort is asked
+    /// about: from `sort(p)` to the sorts of `t`'s variables. `M'` reads the witness's untainted
+    /// head by it, so an application of that head at a new element of `sort(p)` is `t`'s
+    /// instance, which holds the values of `t`'s variables.
+    pub(crate) fn witness_edges(&mut self, rule: &RewriteRule) {
+        debug_assert!(self.memo.is_empty(), "the edges are added before any walk");
+        let RuleRhs::Term(rhs) = &rule.rhs else {
+            return;
+        };
+        self.edges.entry(rule.lhs.sort()).or_default().extend(
+            rhs.attributes()
+                .variables
+                .iter()
+                .map(|variable| variable.sort),
+        );
     }
 
     /// The equation heads whose applications can occur inside an element of the argument sorts

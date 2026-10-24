@@ -98,6 +98,7 @@ pub(crate) mod symbols;
 #[cfg(test)]
 mod tests;
 mod unify;
+mod witness;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -155,6 +156,9 @@ struct Checked {
     /// sides that denote one ground term, recorded after the check
     /// (`BackendDefinition::record_pattern_tokens`).
     pattern_tokens: FxHashMap<Term, InstanceNormal>,
+    /// The witness equations of the verdict (`witness.rs`): those pass 2 read, when the full
+    /// check adopted it; empty otherwise.
+    witnesses: Vec<Arc<RewriteRule>>,
     /// Test builds: the overload families, with stage 1's verdicts.
     #[cfg(test)]
     families: Option<Families>,
@@ -419,6 +423,31 @@ impl ValueClaims {
         }
     }
 
+    /// The witness equations `W` the verdict was computed with (`docs/compatibility.md`,
+    /// "Anywhere rules"): each `p => t` interprets a stuck application of a declared partial
+    /// function at an element of a sort with no normal form, in the model `M+`. The full check
+    /// proposes them in a first pass, validates them by checking every pair again with them, and
+    /// adopts them only when that pass loses nothing, joins more and taints no witness head;
+    /// the load's scope reads the full check's decision. Empty when no witness was adopted
+    /// ([`Self::witness_pass_adopted`]). Each is an executable equation of the lowest priority
+    /// at its index, which no evaluation reads: it never applies to a term free of the added
+    /// constants.
+    #[must_use]
+    pub fn witnesses(&self) -> &[Arc<RewriteRule>] {
+        match &*self.0 {
+            Verdict::Withheld => &[],
+            Verdict::Checked(checked) => &checked.witnesses,
+        }
+    }
+
+    /// Whether the verdict is that of the pass with witness equations ([`Self::witnesses`]):
+    /// `false` when no witness was proposed or the full check kept the first pass
+    /// ([`CheckCounts::witness_pass`]).
+    #[must_use]
+    pub fn witness_pass_adopted(&self) -> bool {
+        self.counts().witness_pass == WitnessPass::Adopted
+    }
+
     /// The work the check did.
     #[must_use]
     pub fn counts(&self) -> CheckCounts {
@@ -538,6 +567,20 @@ impl ValueClaims {
                 })
                 .collect::<BTreeSet<_>>()
         };
+        let witnesses = |checked: &Checked| {
+            checked
+                .witnesses
+                .iter()
+                .map(|rule| rule.attributes.unique_id.clone())
+                .collect::<Vec<_>>()
+        };
+        if witnesses(left) != witnesses(right) {
+            differences.push(format!(
+                "witness equations: {:?} against {:?}",
+                witnesses(left),
+                witnesses(right)
+            ));
+        }
         let (left_warned, right_warned) = (warned(left), warned(right));
         if left_warned != right_warned {
             differences.push(format!(
@@ -632,6 +675,20 @@ impl ValueClaims {
                 pairs(right)
             ));
         }
+        let witnesses = |checked: &Checked| {
+            checked
+                .witnesses
+                .iter()
+                .map(|rule| rule.attributes.unique_id.clone())
+                .collect::<Vec<_>>()
+        };
+        if witnesses(left) != witnesses(right) {
+            differences.push(format!(
+                "witness equations: {:?} against {:?}",
+                witnesses(left),
+                witnesses(right)
+            ));
+        }
         differences
     }
 }
@@ -711,6 +768,28 @@ pub struct CheckCounts {
     /// the hooks ([`HookCounts`]), counted apart from `pairs`, `overlaps`, `uninhabited`,
     /// `refuted`, `joined` and the group counts; `unjoined` counts the hook pairs not joined.
     pub hook: HookCounts,
+    /// The witness equations the verdict was computed with ([`ValueClaims::witnesses`]), which
+    /// `equations` does not count; their pairs are counted with the others.
+    pub witnesses: usize,
+    /// Whether the check proposed witness equations, and whether the full check adopted the
+    /// pass that reads them ([`WitnessPass`]). The other counts are those of the pass whose
+    /// verdict this is.
+    pub witness_pass: WitnessPass,
+}
+
+/// What the check did with witness equations ([`CheckCounts::witness_pass`]).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum WitnessPass {
+    /// No overlap the load's relevance filter classifies proposed a witness: one pass.
+    #[default]
+    NotProposed,
+    /// Witnesses were proposed, and the full check adopted its pass with them
+    /// ([`ValueClaims::witnesses`]).
+    Adopted,
+    /// Witnesses were proposed, and the first pass, without witnesses, was kept: none survived
+    /// the conflicts, the full check proposed none, or its pass with them lost a pair, joined
+    /// nothing more or tainted a witness head.
+    Kept,
 }
 
 /// What the check counted of the executable equations rooted at a hooked symbol
@@ -827,7 +906,11 @@ fn group_sums_differ(
         .filter(|pair| !pair.reason.describes_one_equation() && pair.hook.is_none())
         .count();
     [
-        ("equations", sum(|group| group.equations), counts.equations),
+        (
+            "equations",
+            sum(|group| group.equations),
+            counts.equations + counts.witnesses,
+        ),
         (
             "root and inner pairs",
             sum(|group| group.root_pairs + group.inner_pairs),
@@ -1205,6 +1288,8 @@ struct Equation {
     rule: Arc<RewriteRule>,
     /// Its index and priority group.
     group: GroupKey,
+    /// Whether it is a witness equation (`witness.rs`), not an equation of the definition.
+    witness: bool,
 }
 
 /// Whether `rule` is restricted to symbolic instances: such an equation is never a step on a
@@ -1519,6 +1604,9 @@ pub(crate) struct Context<'d> {
     counts: CheckCounts,
     /// The counts of each group, one entry for every group of `executable_equations`.
     group_counts: BTreeMap<GroupKey, GroupCounts>,
+    /// Pass 1: the witness equations proposed so far (`witness.rs`); `None` in a pass that
+    /// proposes none.
+    proposals: Option<Vec<witness::Proposal>>,
 }
 
 impl<'d> Context<'d> {
@@ -1810,7 +1898,7 @@ pub(crate) fn unify_for_tests(
 pub(crate) fn relevance_disagreements(
     definition: &BackendDefinition,
 ) -> (usize, usize, Vec<String>) {
-    let (_, equations, _) = executable_equations(definition);
+    let (_, equations, _) = executable_equations(definition, &[]);
     let sorts = symbols::Sorts::of(definition);
     let mut closure = closure::Closure::new(definition, &sorts, &equations);
     let gate = |symbol: &Name| gate_symbol(definition, symbol);
@@ -1920,6 +2008,9 @@ struct Candidate<'r> {
     group: &'r GroupKey,
     /// Where the pair and its overlaps are counted.
     counted: Counted,
+    /// Whether the load's scope classifies the pair ([`CheckScope::Gate`]): only such a pair
+    /// proposes witness equations, in either scope (`witness.rs`).
+    gate_classified: bool,
 }
 
 /// Where a candidate pair is counted: in the totals and its first equation's group, or, for a
@@ -2164,6 +2255,7 @@ impl Context<'_> {
                     candidate.lifting,
                     (first_side.clone(), second_side.clone()),
                     &values,
+                    join::Mode::Verdict,
                 ) {
                     join::Outcome::Joined => {
                         self.tally(candidate, Tally::Joined);
@@ -2173,7 +2265,11 @@ impl Context<'_> {
                         reached,
                         refused,
                         reason,
+                        ..
                     } => {
+                        if uninhabited.is_some() {
+                            self.propose(candidate, (&first_side, &second_side), &values);
+                        }
                         // Different results under conditions the check neither refuted nor showed
                         // to hold may be an artifact of the condition reader; under conditions
                         // that hold on every instance they are what the join found.
@@ -2233,6 +2329,57 @@ impl Context<'_> {
                     Tally::Joined => &mut hook.joined,
                 } += 1;
             }
+        }
+    }
+
+    /// Pass 1: propose the witness equations that would join a non-joined overlap over a sort
+    /// with no normal form of `candidate`, a pair the load's scope classifies (`witness.rs`):
+    /// the join of its `sides` again in open mode. The open-mode join is not part of the
+    /// verdict, so its work is not counted.
+    fn propose(
+        &mut self,
+        candidate: &Candidate<'_>,
+        sides: (&Option<Term>, &Option<Term>),
+        values: &[Term],
+    ) {
+        if self.proposals.is_none() || !candidate.gate_classified {
+            return;
+        }
+        let counts = self.counts;
+        let outcome = join::join(
+            self,
+            candidate.lifting,
+            (sides.0.clone(), sides.1.clone()),
+            values,
+            join::Mode::Open,
+        );
+        self.counts = counts;
+        let join::Outcome::NotJoined {
+            reached,
+            open_atoms,
+            ..
+        } = outcome
+        else {
+            return;
+        };
+        let Some(found) = witness::differences(self, &reached, &open_atoms) else {
+            return;
+        };
+        let pair = (
+            candidate.first.attributes.unique_id.clone(),
+            candidate.second.attributes.unique_id.clone(),
+            candidate.position.clone(),
+            candidate.counted == Counted::Hook,
+            false,
+        );
+        let proposals = self.proposals.as_mut().expect("checked above");
+        for (lhs, rhs) in found {
+            proposals.push(witness::Proposal {
+                lhs,
+                rhs,
+                pair: pair.clone(),
+                origins: candidate.first.attributes.origins.clone(),
+            });
         }
     }
 
@@ -2334,21 +2481,7 @@ impl Context<'_> {
         second: &RewriteRule,
         unifier: &Substitution,
     ) -> Option<Name> {
-        // Only a declared sort without parameters is judged; any other is counted inhabited.
-        let uninhabited = |variable: &Variable| match variable.sort.node() {
-            SortNode::Application { name, arguments }
-                if arguments.is_empty()
-                    && self
-                        .definition
-                        .sorts()
-                        .get(name)
-                        .is_some_and(|info| info.parameters.is_empty())
-                    && !self.sorts.has_normal_form(&variable.sort) =>
-            {
-                Some(name.clone())
-            }
-            SortNode::Application { .. } | SortNode::Variable(_) => None,
-        };
+        let uninhabited = |variable: &Variable| self.empty_sort(variable);
         first
             .lhs
             .attributes()
@@ -2365,6 +2498,35 @@ impl Context<'_> {
                 None => uninhabited(variable).into_iter().collect(),
             })
             .min()
+    }
+}
+
+impl Context<'_> {
+    /// The sort of `variable` when it has no normal form: only a declared sort without
+    /// parameters is judged, and any other is counted inhabited.
+    pub(super) fn empty_sort(&self, variable: &Variable) -> Option<Name> {
+        match variable.sort.node() {
+            SortNode::Application { name, arguments }
+                if arguments.is_empty()
+                    && self
+                        .definition
+                        .sorts()
+                        .get(name)
+                        .is_some_and(|info| info.parameters.is_empty())
+                    && !self.sorts.has_normal_form(&variable.sort) =>
+            {
+                Some(name.clone())
+            }
+            SortNode::Application { .. } | SortNode::Variable(_) => None,
+        }
+    }
+
+    /// Whether `term` holds a variable of a sort with no normal form ([`Self::empty_sort`]).
+    pub(super) fn holds_empty_variable(&self, term: &Term) -> bool {
+        term.attributes()
+            .variables
+            .iter()
+            .any(|variable| self.empty_sort(variable).is_some())
     }
 }
 
@@ -2416,8 +2578,12 @@ pub(crate) fn check(
 /// `symbolic` ones), by index and priority as equation selection offers them, and in one list;
 /// and the counts of every group of the function theory, with its executable and its `symbolic`
 /// equations counted.
+///
+/// The `witnesses` (pass 2, `witness.rs`) are added, each to the group of its index and its
+/// priority, [`witness::WITNESS_PRIORITY`], below every group of that index.
 fn executable_equations(
     definition: &BackendDefinition,
+    witnesses: &[Arc<RewriteRule>],
 ) -> (Groups, Vec<Equation>, BTreeMap<GroupKey, GroupCounts>) {
     let mut groups = Groups::new();
     let mut equations = Vec::new();
@@ -2444,17 +2610,32 @@ fn executable_equations(
                 equations.push(Equation {
                     rule: Arc::clone(rule),
                     group: group.clone(),
+                    witness: false,
                 });
             }
         }
     }
+    for rule in witnesses {
+        let group = GroupKey {
+            index: term_index(&rule.lhs),
+            priority: rule.attributes.priority,
+        };
+        group_counts.entry(group.clone()).or_default().equations += 1;
+        groups
+            .entry(group.index.clone())
+            .or_default()
+            .entry(group.priority)
+            .or_default()
+            .push(Arc::clone(rule));
+        equations.push(Equation {
+            rule: Arc::clone(rule),
+            group,
+            witness: true,
+        });
+    }
     (groups, equations, group_counts)
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "the check's stages in their order, each a short loop"
-)]
 fn check_detached(
     definition: &BackendDefinition,
     scope: CheckScope,
@@ -2463,9 +2644,72 @@ fn check_detached(
     let _span = measure::algorithm_span(measure::Algorithm::BackendConfluenceCheck);
     let _apart = ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
+    // Each pass starts from the same renaming counter, so that it is a function of the
+    // definition, its scope and its witnesses, whatever pass ran before it.
+    let pass = |scope: CheckScope, witnesses: &[Arc<RewriteRule>], propose: bool| {
+        crate::rule::with_apart_names_restored(|| {
+            check_pass(definition, scope, memo, witnesses, propose)
+        })
+    };
+    let verdict = |checked: Checked| ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
+    let (first, proposed) = pass(scope, &[], true);
+    if proposed.proposed == 0 {
+        return verdict(first);
+    }
+    // Witnesses were proposed (`witness.rs`). `W`, the adoption and condition 4 are decided once,
+    // by the full check (design B2): the load's scope does not classify every pair, so its own
+    // conditions 2 and 3 could adopt a pass the full check refuses, and two scopes would read
+    // two models. The load's scope then runs its own pass 2 with that `W`: its closure is
+    // contained in the full check's, so no witness head is tainted in it either.
+    let adopted = (!switches::active().adopt_pass_1)
+        .then(|| {
+            let full_first = (scope == CheckScope::Gate).then(|| pass(CheckScope::All, &[], true));
+            let (decision, witnesses) = full_first
+                .as_ref()
+                .map_or((&first, &proposed), |(checked, witnesses)| {
+                    (checked, witnesses)
+                });
+            if witnesses.rules.is_empty() {
+                return None;
+            }
+            let (full_second, _) = pass(CheckScope::All, &witnesses.rules, false);
+            witness::adopted(decision, &full_second, witnesses)
+                .then(|| (witnesses.rules.clone(), full_second))
+        })
+        .flatten();
+    let Some((witnesses, full_second)) = adopted else {
+        let mut kept = first;
+        kept.counts.witness_pass = WitnessPass::Kept;
+        return verdict(kept);
+    };
+    let mut second = if scope == CheckScope::All {
+        full_second
+    } else {
+        pass(scope, &witnesses, false).0
+    };
+    second.counts.witness_pass = WitnessPass::Adopted;
+    second.witnesses = witnesses;
+    verdict(second)
+}
+
+/// One pass of the check in `scope`, on the definition's executable equations and `witnesses`
+/// (`witness.rs`); with `propose`, the witnesses its non-joined overlaps over sorts with no
+/// normal form propose, settled.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the check's stages in their order, each a short loop"
+)]
+fn check_pass(
+    definition: &BackendDefinition,
+    scope: CheckScope,
+    memo: ConditionMemo,
+    witnesses: &[Arc<RewriteRule>],
+    propose: bool,
+) -> (Checked, witness::Witnesses) {
     let mut checked = Checked::default();
-    let (groups, equations, group_counts) = executable_equations(definition);
-    checked.counts.equations = equations.len();
+    let (groups, equations, group_counts) = executable_equations(definition, witnesses);
+    checked.counts.equations = equations.len() - witnesses.len();
+    checked.counts.witnesses = witnesses.len();
 
     // P5: one lookup per equation.
     let mut row_seeds = Vec::new();
@@ -2657,7 +2901,7 @@ fn check_detached(
             "the per-group counts sum to the totals"
         );
         checked.unjoined = unjoined;
-        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
+        return (checked, witness::Witnesses::default());
     }
 
     let mut context = Context {
@@ -2671,8 +2915,10 @@ fn check_detached(
         fresh: 0,
         counts: CheckCounts::default(),
         group_counts,
+        proposals: propose.then(Vec::new),
     };
     context.counts.equations = checked.counts.equations;
+    context.counts.witnesses = checked.counts.witnesses;
     context.counts.hook = hook_census;
     context.counts.families = context.families.len();
 
@@ -2765,6 +3011,7 @@ fn check_detached(
                     lifting: false,
                     group,
                     counted: Counted::Group,
+                    gate_classified: true,
                 };
                 if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     stage_one[family] = false;
@@ -2784,16 +3031,24 @@ fn check_detached(
     // with a relevant equation (`CheckScope::Gate`).
     let mut closure = closure::Closure::new(definition, &context.sorts, &equations);
     let relevant = closure.relevant(&|symbol| gate_symbol(definition, symbol));
-    context.counts.relevant_equations = relevant.iter().filter(|relevant| **relevant).count();
+    context.counts.relevant_equations = equations
+        .iter()
+        .zip(&relevant)
+        .filter(|(equation, relevant)| **relevant && !equation.witness)
+        .count();
     let needs_both = switches::active().relevance_needs_both;
-    let classified = |first: &Arc<RewriteRule>, second: &Arc<RewriteRule>| {
+    // Whether the load's scope classifies a pair (the pairs that propose witnesses, in either
+    // scope), and whether this scope does.
+    let gate_classifies = |first: &Arc<RewriteRule>, second: &Arc<RewriteRule>| {
         let relevant = |rule| relevant[closure.id(rule)];
-        scope == CheckScope::All
-            || if needs_both {
-                relevant(first) && relevant(second)
-            } else {
-                relevant(first) || relevant(second)
-            }
+        if needs_both {
+            relevant(first) && relevant(second)
+        } else {
+            relevant(first) || relevant(second)
+        }
+    };
+    let classified = |first: &Arc<RewriteRule>, second: &Arc<RewriteRule>| {
+        scope == CheckScope::All || gate_classifies(first, second)
     };
     for (family, group, rules) in &root_groups {
         if family.is_some() {
@@ -2813,6 +3068,7 @@ fn check_detached(
                     lifting: true,
                     group,
                     counted: Counted::Group,
+                    gate_classified: gate_classifies(first, second),
                 };
                 if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     unjoined.push(*pair);
@@ -2856,6 +3112,7 @@ fn check_detached(
                     lifting: true,
                     group: &equation.group,
                     counted: Counted::Group,
+                    gate_classified: gate_classifies(&equation.rule, &second) || rewrites_argument,
                 };
                 if let Classified::NotJoined(mut pair) = context.classify_in_group(&candidate) {
                     pair.rewrites_argument = rewrites_argument;
@@ -2886,6 +3143,7 @@ fn check_detached(
                 lifting: true,
                 group: &equation.group,
                 counted: Counted::Hook,
+                gate_classified: relevant[closure.id(&equation.rule)],
             };
             if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
                 context.counts.hook.not_joined += 1;
@@ -2895,6 +3153,11 @@ fn check_detached(
         }
     }
 
+    // Settling the proposals unifies their left-hand sides; that work is no part of the verdict.
+    let proposals = context.proposals.take().unwrap_or_default();
+    let counts = context.counts;
+    let settled = witness::settle(&mut context, proposals);
+    context.counts = counts;
     checked.counts = context.counts;
     checked.counts.unjoined = unjoined.len();
     checked.group_counts = std::mem::take(&mut context.group_counts);
@@ -2967,7 +3230,7 @@ fn check_detached(
     }
     checked.tainted_symbols = tainted;
     checked.unjoined = unjoined;
-    ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))))
+    (checked, settled)
 }
 
 /// The lesser production an overload equation of `rule`'s greater root lowers to, when `rule`

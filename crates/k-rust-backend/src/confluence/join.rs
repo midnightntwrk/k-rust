@@ -88,6 +88,18 @@ impl SettledRoot {
     }
 }
 
+/// How the join reads a stuck application of a declared partial function without a hook.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Mode {
+    /// As `\bottom` (rule 3), and so the complement of a split on one: the verdict's reading.
+    Verdict,
+    /// As a settled *open atom* when it holds a variable of a sort with no normal form
+    /// (`Context::empty_sort`), and as `\bottom` otherwise: pass 1's proposal of witness
+    /// equations (`witness.rs`) reads where the two sides differ around such atoms. No verdict
+    /// is ever read from this mode.
+    Open,
+}
+
 /// What the join found.
 pub(super) enum Outcome {
     Joined,
@@ -95,12 +107,18 @@ pub(super) enum Outcome {
         reached: (Option<Term>, Option<Term>),
         refused: Option<Term>,
         reason: UnjoinedReason,
+        /// In [`Mode::Open`], the open atoms the failing case read as settled, in the order
+        /// found; empty in [`Mode::Verdict`].
+        open_atoms: Vec<Term>,
     },
 }
 
 struct Join<'c, 'd> {
     context: &'c mut Context<'d>,
     lifting: bool,
+    mode: Mode,
+    /// The open atoms this case reads as settled ([`Mode::Open`]).
+    open_atoms: Vec<Term>,
     /// Terms known settled.
     settled: FxHashSet<Term>,
     /// Applications this case assumes `\bottom`: stuck functions of a complement case.
@@ -129,6 +147,8 @@ struct Case {
     values: Vec<Term>,
     settled: Vec<Term>,
     bottom: Vec<Term>,
+    /// Of `settled`, the open atoms a complement case reads as settled ([`Mode::Open`]).
+    open: Vec<Term>,
     depth: usize,
 }
 
@@ -156,6 +176,7 @@ pub(super) fn join(
     lifting: bool,
     sides: (Option<Term>, Option<Term>),
     values: &[Term],
+    mode: Mode,
 ) -> Outcome {
     let cap = SIZE_FACTOR
         * sides
@@ -171,6 +192,7 @@ pub(super) fn join(
         values: values.to_vec(),
         settled: Vec::new(),
         bottom: Vec::new(),
+        open: Vec::new(),
         depth: 0,
     }];
     let mut explored = 0;
@@ -179,6 +201,8 @@ pub(super) fn join(
         let mut join = Join {
             context: &mut *context,
             lifting,
+            mode,
+            open_atoms: case.open.clone(),
             settled: FxHashSet::default(),
             bottom: case.bottom.iter().cloned().collect(),
             unsettled: FxHashSet::default(),
@@ -222,6 +246,7 @@ pub(super) fn join(
             reached: (left, right),
             refused: join.refused,
             reason,
+            open_atoms: join.open_atoms,
         };
     }
     Outcome::Joined
@@ -471,6 +496,14 @@ impl Join<'_, '_> {
         // `\bottom`; of every other class but a hooked one, a normal form (for a total symbol,
         // an element no equation names, as precondition P2 requires).
         match Class::of(symbol) {
+            Class::PartialFunction
+                if self.mode == Mode::Open
+                    && arguments_settled
+                    && self.context.holds_empty_variable(redex) =>
+            {
+                self.open_atom(redex);
+                Step::Settled
+            }
             Class::PartialFunction => Step::To(None),
             Class::Total { .. } if stuck_total_is_bottom(symbol) => Step::To(None),
             Class::EquationHead | Class::Total { .. } | Class::OtherPartial
@@ -484,6 +517,14 @@ impl Join<'_, '_> {
             | Class::Hooked { .. }
             | Class::Total { .. }
             | Class::OtherPartial => Step::Residual,
+        }
+    }
+
+    /// Record `atom`, an application of a declared partial function without a hook that holds a
+    /// variable of a sort with no normal form, as an open atom of this case ([`Mode::Open`]).
+    fn open_atom(&mut self, atom: &Term) {
+        if !self.open_atoms.contains(atom) {
+            self.open_atoms.push(atom.clone());
         }
     }
 
@@ -775,6 +816,11 @@ impl Join<'_, '_> {
                     .iter()
                     .map(|term| substitute(term, theta))
                     .collect(),
+                open: case
+                    .open
+                    .iter()
+                    .map(|term| substitute(term, theta))
+                    .collect(),
                 depth: case.depth + 1,
             })
             .collect::<Vec<_>>();
@@ -783,6 +829,7 @@ impl Join<'_, '_> {
             values: case.values.clone(),
             settled: case.settled.clone(),
             bottom: case.bottom.clone(),
+            open: case.open.clone(),
             depth: case.depth + 1,
         };
         let TermKind::Application { symbol, .. } = residual.kind() else {
@@ -792,6 +839,13 @@ impl Join<'_, '_> {
             || !(Class::of(symbol).stuck_is_bottom() || stuck_total_is_bottom(symbol))
         {
             complement.settled.push(residual.clone());
+        } else if self.mode == Mode::Open
+            && Class::of(symbol) == Class::PartialFunction
+            && self.context.holds_empty_variable(residual)
+        {
+            // Open mode: the stuck partial application is an open atom of the complement.
+            complement.settled.push(residual.clone());
+            complement.open.push(residual.clone());
         } else {
             complement.bottom.push(residual.clone());
         }
