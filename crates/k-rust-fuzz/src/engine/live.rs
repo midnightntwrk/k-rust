@@ -1379,8 +1379,9 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
 
 /// For a case not judged because a leaf is not ceil-free ([`UnjudgedReason::NotCeilFree`]: an
 /// `unsupported` case, or a `baseline-incomplete` one whose baseline holds such a leaf), a
-/// warning naming each partial function whose application a leaf of `result` holds; the report
-/// lists each distinct text once, so the warnings name the functions, not the cases.
+/// warning naming each partial function whose application a leaf of `result` holds, and one for
+/// a term-level `\and` of two different sides; the report lists each distinct text once, so the
+/// warnings name the functions, not the cases.
 fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<String> {
     if reason != Some(UnjudgedReason::NotCeilFree) {
         return Vec::new();
@@ -1399,6 +1400,12 @@ fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<
     functions
         .into_iter()
         .map(|function| {
+            if function == crate::exec::run::AND_NOTE {
+                return "not-ceil-free: a leaf holds a term-level `\\and` of two different \
+                        terms, which denotes a value only where they are equal, so the case \
+                        could not be judged"
+                    .to_owned();
+            }
             format!(
                 "not-ceil-free: a leaf holds an application of `{function}` that no equation \
                  evaluates (a partial function, or one defined only by `anywhere` or overload \

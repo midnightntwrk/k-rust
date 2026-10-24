@@ -218,6 +218,35 @@ fn a_leaf_holding_a_lookup_of_a_missing_key_is_not_ceil_free() {
 }
 
 #[test]
+fn a_leaf_holding_a_conjunction_of_two_different_terms_is_not_ceil_free() {
+    let result = imp().run(DIV_IMP);
+    let end = KorePrinter::compact().print_pattern(&only_leaf(&result).state);
+    assert_eq!(end.matches("dotk{}()").count(), 1, "{end}");
+    let mut executor = imp().executor(&CaseOptions::default());
+    let k = |and: &str| {
+        let item = format!("kseq{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({and}), dotk{{}}())");
+        parse_pattern(&end.replace("dotk{}()", &item)).expect("the edited state")
+    };
+    // `<k> \and(1, 2) ~> .K </k>`: `⌈1 /\ 2⌉` is `1 = 2`, so the state denotes nothing.
+    let different = r#"\and{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#;
+    let reasons = executor.judge_stuck_state(k(different));
+    assert_eq!(
+        reasons,
+        [UncleanReason::NotCeilFree(Some(r"\and".to_owned()))],
+        "{reasons:?}"
+    );
+    // `1 /\ 1` is `1`: defined.
+    let equal = r#"\and{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#;
+    let reasons = executor.judge_stuck_state(k(equal));
+    assert!(
+        !reasons
+            .iter()
+            .any(|reason| matches!(reason, UncleanReason::NotCeilFree(_))),
+        "{reasons:?}"
+    );
+}
+
+#[test]
 fn a_natural_looking_end_holding_a_partial_application_is_not_ceil_free() {
     // With the default work bound every leaf carries every run fact; without a budget only
     // the leaf's own diagnostics count (review S5).

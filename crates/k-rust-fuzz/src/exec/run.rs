@@ -1392,9 +1392,14 @@ fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
         .flatten()
 }
 
+/// The note of [`UncleanReason::NotCeilFree`] for a term-level `\and` of two different sides.
+pub(crate) const AND_NOTE: &str = r"\and";
+
 /// The K label of the first application of a partial function in `term`, in preorder, looking
-/// only into subterms that are not `ceil_free`; `None` when the term is not ceil-free for
-/// another reason (a malformed map or set, a set variable).
+/// only into subterms that are not `ceil_free`, or [`AND_NOTE`] for a term-level conjunction of
+/// two different sides found first, which owes their equality and may denote nothing
+/// (`k_rust_backend::definedness::ceil_term`); `None` when the term is not ceil-free for another
+/// reason (a malformed map or set, a set variable).
 fn partial_application(term: &Term) -> Option<String> {
     if term.attributes().ceil_free() {
         return None;
@@ -1413,7 +1418,12 @@ fn partial_application(term: &Term) -> Option<String> {
             }
             children.extend(arguments);
         }
-        TermKind::And(left, right) => children.extend([left, right]),
+        TermKind::And(left, right) => {
+            if left != right {
+                return Some(AND_NOTE.to_owned());
+            }
+            children.extend([left, right]);
+        }
         TermKind::Injection { term, .. } => children.push(term),
         TermKind::Map { entries, rest, .. } => {
             for (key, value) in entries {
