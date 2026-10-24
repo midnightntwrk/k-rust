@@ -58,6 +58,44 @@ use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_
 use package::{lower_package_module, lower_spec_module};
 use references::validate_all_stable_references;
 
+/// The bundle's descriptors in identity order, each constant inlined at its uses: a constant is
+/// a name for a term, so every use becomes the term before anything else reads the bundle, and
+/// no later check sees a constant.
+fn ordered_descriptors(
+    bundle: &DescriptorBundle,
+) -> Result<constants::Inlined<'_>, DescriptorLoweringError> {
+    let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
+    descriptors.sort_by(|left, right| left.id().cmp(right.id()));
+    constants::inline_constants(&descriptors)
+}
+
+/// The inference catalog's subsort judge over the bundle's descriptors, as lowering builds it.
+///
+/// # Errors
+///
+/// Returns the lowering error of a constant that does not inline.
+#[cfg(feature = "test-support")]
+pub(crate) fn catalog_subsort_judge(
+    bundle: &DescriptorBundle,
+) -> Result<
+    impl Fn(&krs_ir_levels::SemanticSortRef, &krs_ir_levels::SemanticSortRef) -> bool + use<>,
+    DescriptorLoweringError,
+> {
+    let inlined = ordered_descriptors(bundle)?;
+    let descriptors = inlined
+        .descriptors
+        .iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<&Descriptor>>();
+    let parents = build_semantic_sort_parents(&descriptors);
+    Ok(
+        move |candidate: &krs_ir_levels::SemanticSortRef,
+              expected: &krs_ir_levels::SemanticSortRef| {
+            catalog::semantic_is_subsort(candidate, expected, &parents)
+        },
+    )
+}
+
 /// Resolves one descriptor bundle into checked target-neutral IR.
 ///
 /// This boundary performs no Cargo work and has no adapter knowledge. Named
@@ -77,11 +115,7 @@ use references::validate_all_stable_references;
 pub fn lower_descriptor_bundle(
     bundle: &DescriptorBundle,
 ) -> Result<SemanticTheory, DescriptorLoweringError> {
-    let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
-    descriptors.sort_by(|left, right| left.id().cmp(right.id()));
-    // A constant is a name for a term: every use becomes the term before
-    // anything else reads the bundle, so no later check sees a constant.
-    let inlined = constants::inline_constants(&descriptors)?;
+    let inlined = ordered_descriptors(bundle)?;
     let descriptors = inlined
         .descriptors
         .iter()

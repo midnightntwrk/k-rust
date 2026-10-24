@@ -447,6 +447,10 @@ step = "S5"
 ["init/k/k::k![]"]
 finding = "F1"
 deviation = "uncoded @ unlocated"
+
+["lattice/machine/catalog~coverage/s-kitem"]
+finding = "F2"
+deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
 "#,
     )
     .unwrap_or_else(|errors| panic!("{errors:#?}"));
@@ -482,6 +486,7 @@ deviation = "uncoded @ unlocated"
     );
     assert!(Judgement::Red.passes() && Judgement::Conforms.passes());
     assert!(!Judgement::NowConforms.passes());
+    // A sort-judge disagreement names no case, so it is never stale here.
     assert_eq!(pending.stale(&[id]), vec!["init/k/k::k![]"]);
     let tally = pending.tally([id, "init/k/k::k![]"]);
     assert_eq!(

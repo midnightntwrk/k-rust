@@ -2493,6 +2493,25 @@ pub(crate) enum OverlapViolation {
     },
 }
 
+/// The overlap check's subsort judge over `modules`.
+#[cfg(feature = "test-support")]
+pub(crate) fn subsort_judge(
+    modules: &[SemanticModule],
+) -> impl Fn(&SemanticSortRef, &SemanticSortRef) -> bool + use<> {
+    let graph = SortGraph::from_modules(modules);
+    move |candidate, expected| graph.is_subsort(candidate, expected)
+}
+
+/// The generated sort of every group cell of `modules`' configuration.
+#[cfg(feature = "test-support")]
+pub(crate) fn group_cell_sorts(modules: &[SemanticModule]) -> Vec<SemanticSortRef> {
+    let mut groups = Vec::new();
+    for configuration in modules.iter().filter_map(SemanticModule::configuration) {
+        group_cells(configuration.cells(), &mut groups);
+    }
+    groups.into_iter().map(|(_, sort, _)| sort).collect()
+}
+
 /// Returns the first deterministic violation of the overlap check over every
 /// transition: an overlapping pair at one priority outside one nondet group,
 /// then each group's validation.

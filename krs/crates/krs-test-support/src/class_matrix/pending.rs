@@ -21,6 +21,10 @@
 //!
 //! So the list only shrinks or changes deliberately, and every fix's regression test is its
 //! cases leaving the list.
+//!
+//! An entry whose ID starts with [`LATTICE`] is not a case: it records one disagreement of K4,
+//! the sort judges' test (`lattice/DEFINITION/JUDGE~JUDGE/CLASS`), which judges those entries
+//! under the same rules.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -29,6 +33,9 @@ use toml_edit::DocumentMut;
 
 /// The finding of a deviation that no finding owns yet.
 pub const UNASSIGNED: &str = "unassigned";
+
+/// The ID prefix of the entries that record a disagreement among sort judges, not a case.
+pub const LATTICE: &str = "lattice/";
 
 /// One pending case.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -188,14 +195,14 @@ impl Pending {
         }
     }
 
-    /// The pending IDs that name no case of `ids`: an entry for a case the generator no longer
-    /// produces must leave the list.
+    /// The pending case IDs that name no case of `ids`: an entry for a case the generator no
+    /// longer produces must leave the list. [`LATTICE`] entries are no cases and are not listed.
     #[must_use]
     pub fn stale<'a>(&'a self, ids: &[&str]) -> Vec<&'a str> {
         self.entries
             .keys()
             .map(String::as_str)
-            .filter(|id| !ids.contains(id))
+            .filter(|id| !id.starts_with(LATTICE) && !ids.contains(id))
             .collect()
     }
 

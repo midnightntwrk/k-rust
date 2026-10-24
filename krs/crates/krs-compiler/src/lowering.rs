@@ -2379,6 +2379,23 @@ fn lower_variables(
         .collect()
 }
 
+/// The Definition IR sort lowering gives each Semantic sort of `theory`, by the naming that
+/// lowering performs.
+///
+/// # Errors
+///
+/// Returns the lowering error of a theory whose names collide.
+#[cfg(feature = "test-support")]
+pub(crate) fn definition_sort_names(
+    theory: &SemanticTheory,
+) -> Result<
+    impl Fn(&SemanticSortRef) -> Result<DefinitionSortRef, LoweringError> + use<>,
+    LoweringError,
+> {
+    let names = NamingPass::run(theory)?;
+    Ok(move |sort: &SemanticSortRef| lower_sort_ref(sort, &names))
+}
+
 fn lower_sort_ref(
     sort: &SemanticSortRef,
     names: &NamingPass,

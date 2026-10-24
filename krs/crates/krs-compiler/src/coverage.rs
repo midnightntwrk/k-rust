@@ -78,6 +78,13 @@ const ALTERNATIVE_LIMIT: usize = 64;
 /// The uncovered arguments one warning names.
 const WITNESS_LIMIT: usize = 3;
 
+/// The coverage lint's subsort judge over `modules`.
+#[cfg(feature = "test-support")]
+pub(crate) fn subsort_judge(modules: &[SemanticModule]) -> impl Fn(&Sort, &Sort) -> bool + use<> {
+    let signature = Signature::new(modules);
+    move |candidate, expected| signature.is_subsort(candidate, expected)
+}
+
 /// The coverage warnings of a lowered definition's modules, in production order.
 #[must_use]
 pub fn coverage_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {

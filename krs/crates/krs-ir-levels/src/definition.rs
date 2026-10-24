@@ -415,6 +415,63 @@ impl DefinitionIr {
         })
     }
 
+    /// The validator's subsort judge: whether a term of `candidate` may stand where
+    /// `expected` is required, by the graph its validation checks the definition against.
+    #[cfg(feature = "test-support")]
+    pub fn subsort_judge(&self) -> impl Fn(&DefinitionSortRef, &DefinitionSortRef) -> bool + use<> {
+        let parents = self.judging_sort_parents();
+        move |candidate, expected| {
+            crate::ir_validation::is_subsort::<DefinitionLevel>(candidate, expected, &parents)
+        }
+    }
+
+    /// The graph the validator judges subsorts by: the definition's subsort sentences,
+    /// completed with K's `S <: KItem` when a sort is emitted as `KItem`.
+    fn judging_sort_parents(&self) -> BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>> {
+        let mut subsort_parents = BTreeMap::<DefinitionSortRef, Vec<DefinitionSortRef>>::new();
+        for sentence in self.modules.iter().flat_map(|module| &module.sentences) {
+            if let DefinitionSentence::Subsort(sentence) = sentence {
+                subsort_parents
+                    .entry(sentence.subsort.clone())
+                    .or_default()
+                    .push(sentence.supersort.clone());
+            }
+        }
+        let fixed_configuration = self.modules.iter().find_map(|module| {
+            module.sentences.iter().find_map(|sentence| match sentence {
+                DefinitionSentence::Configuration(configuration) => Some(configuration),
+                _ => None,
+            })
+        });
+        // The sort emitted as `KItem` is K's own, whichever module declares it.
+        let k_item = self.modules.iter().find_map(|module| {
+            module.sentences.iter().find_map(|sentence| match sentence {
+                DefinitionSentence::SyntaxSort(sentence)
+                    if sentence.symbol.emitted_name == "KItem" =>
+                {
+                    Some(DefinitionSortRef::Declared(sentence.symbol.id.clone()))
+                }
+                _ => None,
+            })
+        });
+        let declared_sorts = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                DefinitionSentence::SyntaxSort(sentence) => Some(sentence.symbol.id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        insert_k_item_parents::<_, DefinitionLevel>(
+            fixed_configuration,
+            k_item,
+            declared_sorts,
+            &mut subsort_parents,
+        );
+        subsort_parents
+    }
+
     /// Returns the independent IR schema version.
     #[must_use]
     pub const fn schema_version(&self) -> SchemaVersion {
@@ -470,8 +527,6 @@ impl DefinitionIr {
         let mut alias_productions = BTreeSet::new();
         let mut desugar_productions = BTreeSet::new();
         let mut context_aliases = BTreeSet::new();
-        let mut subsort_parents: BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>> =
-            BTreeMap::new();
         let mut groups = BTreeSet::new();
         let mut group_names = BTreeSet::new();
         let mut configurations = 0_usize;
@@ -507,12 +562,6 @@ impl DefinitionIr {
                             &mut symbol_names,
                             &mut symbol_declarations,
                         )?;
-                    }
-                    DefinitionSentence::Subsort(sentence) => {
-                        subsort_parents
-                            .entry(sentence.subsort.clone())
-                            .or_default()
-                            .push(sentence.supersort.clone());
                     }
                     DefinitionSentence::Production(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
@@ -589,7 +638,8 @@ impl DefinitionIr {
                             }
                         }
                     }
-                    DefinitionSentence::Precedence(_)
+                    DefinitionSentence::Subsort(_)
+                    | DefinitionSentence::Precedence(_)
                     | DefinitionSentence::Associativity(_)
                     | DefinitionSentence::Lexical(_)
                     | DefinitionSentence::Layout(_)
@@ -649,32 +699,7 @@ impl DefinitionIr {
                 _ => None,
             })
         });
-        // The sort emitted as `KItem` is K's own, whichever module declares it.
-        let k_item = self.modules.iter().find_map(|module| {
-            module.sentences.iter().find_map(|sentence| match sentence {
-                DefinitionSentence::SyntaxSort(sentence)
-                    if sentence.symbol.emitted_name == "KItem" =>
-                {
-                    Some(DefinitionSortRef::Declared(sentence.symbol.id.clone()))
-                }
-                _ => None,
-            })
-        });
-        let declared_sorts = self
-            .modules
-            .iter()
-            .flat_map(|module| &module.sentences)
-            .filter_map(|sentence| match sentence {
-                DefinitionSentence::SyntaxSort(sentence) => Some(sentence.symbol.id.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        insert_k_item_parents::<_, DefinitionLevel>(
-            fixed_configuration,
-            k_item,
-            declared_sorts,
-            &mut subsort_parents,
-        );
+        let subsort_parents = self.judging_sort_parents();
 
         for module in &self.modules {
             for import in &module.imports {

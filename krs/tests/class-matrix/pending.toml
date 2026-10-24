@@ -10,7 +10,7 @@
 # `class_matrix::pending`.
 
 # Lane "fast" (U2): the fast tier, `krs/crates/krs-expand/tests/class_front.rs` (K1 and K2 at the
-# front).
+# front) and `krs/crates/krs-compiler/tests/lattice.rs` (K4 among the KRS sort judges).
 #
 # `k::or_bool!` outside a claim is refused with `claim-only-term` at the invocation's call site (the
 # `#[k::...]` attribute or the `k::...!` path), not at the island: the term builder reports it at
@@ -231,3 +231,47 @@ deviation = "krs::syntax::invalid-local-rewrite @ item"
 ["terms/local-rule/subject/y @ Cmd::Hold(_)"]
 finding = "unassigned"
 deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+# K4: the coverage lint's graph has no `S ≤ KItem` edge but the ones a subsort sentence states, so
+# it alone holds that a declared or builtin sort is not a `KItem` (13 sorts of the sort chain, and
+# every builtin but `Int` below the chain `Int ≤ Value ≤ Expr ≤ KItem`).
+
+["lattice/configuration-sort-chain/catalog~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "13 pairs only catalog holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/semantic-validator~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "13 pairs only semantic-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/definition-validator~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "13 pairs only definition-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/overlap~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "13 pairs only overlap holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/catalog~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "10 pairs only catalog holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/semantic-validator~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "10 pairs only semantic-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/definition-validator~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "10 pairs only definition-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/overlap~coverage/s-kitem"]
+finding = "unassigned"
+deviation = "10 pairs only overlap holds; 0 pairs only coverage holds"
+step = "S4"

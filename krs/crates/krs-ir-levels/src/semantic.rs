@@ -137,6 +137,51 @@ impl SemanticTheory {
         })
     }
 
+    /// The validator's subsort judge: whether a term of `candidate` may stand where
+    /// `expected` is required, by the graph its validation checks the theory against.
+    #[cfg(feature = "test-support")]
+    pub fn subsort_judge(&self) -> impl Fn(&SemanticSortRef, &SemanticSortRef) -> bool + use<> {
+        let parents = self.judging_sort_parents();
+        move |candidate, expected| {
+            crate::ir_validation::is_subsort::<SemanticLevel>(candidate, expected, &parents)
+        }
+    }
+
+    /// The graph the validator judges subsorts by: the theory's subsort sentences, completed
+    /// with K's `S <: KItem` when the theory declares the framework's `KItem`.
+    fn judging_sort_parents(&self) -> BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> {
+        let mut sort_parents = BTreeMap::<SemanticSortRef, Vec<SemanticSortRef>>::new();
+        for subsort in self.modules.iter().flat_map(|module| &module.subsorts) {
+            sort_parents
+                .entry(subsort.subsort.clone())
+                .or_default()
+                .push(subsort.supersort.clone());
+        }
+        let fixed_configuration = self
+            .modules
+            .iter()
+            .find_map(|module| module.configuration.as_ref());
+        let k_item = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.sorts)
+            .map(|sort| &sort.id)
+            .filter(|id| is_framework_k_item(id))
+            .min()
+            .cloned()
+            .map(SemanticSortRef::Declared);
+        insert_k_item_parents::<_, SemanticLevel>(
+            fixed_configuration,
+            k_item,
+            self.modules
+                .iter()
+                .flat_map(|module| &module.sorts)
+                .map(|sort| sort.id.clone()),
+            &mut sort_parents,
+        );
+        sort_parents
+    }
+
     /// Returns the IR schema version.
     #[must_use]
     pub const fn schema_version(&self) -> SchemaVersion {
@@ -176,7 +221,6 @@ impl SemanticTheory {
         let mut functional_productions = BTreeSet::new();
         let mut alias_productions = BTreeSet::new();
         let mut desugar_productions = BTreeSet::new();
-        let mut sort_parents: BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> = BTreeMap::new();
         let mut groups = BTreeSet::new();
         let mut semantic_ids = BTreeSet::new();
         let mut cell_ids = BTreeSet::new();
@@ -197,10 +241,6 @@ impl SemanticTheory {
             }
             for subsort in &module.subsorts {
                 insert_node::<SemanticLevel>(&mut node_keys, subsort.origin.key())?;
-                sort_parents
-                    .entry(subsort.subsort.clone())
-                    .or_default()
-                    .push(subsort.supersort.clone());
             }
             for production in &module.productions {
                 validate_item_kind(&production.id, ItemKind::Constructor)?;
@@ -334,20 +374,7 @@ impl SemanticTheory {
             .modules
             .iter()
             .find_map(|module| module.configuration.as_ref());
-        let k_item = declarations
-            .keys()
-            .find(|id| is_framework_k_item(id))
-            .cloned()
-            .map(SemanticSortRef::Declared);
-        insert_k_item_parents::<_, SemanticLevel>(
-            fixed_configuration,
-            k_item,
-            self.modules
-                .iter()
-                .flat_map(|module| &module.sorts)
-                .map(|sort| sort.id.clone()),
-            &mut sort_parents,
-        );
+        let sort_parents = self.judging_sort_parents();
 
         for module in &self.modules {
             for import in &module.imports {
