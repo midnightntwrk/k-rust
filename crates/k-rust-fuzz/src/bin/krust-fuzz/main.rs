@@ -810,7 +810,8 @@ const LISTED_RULES: usize = 30;
 /// How many ends of each side [`write_differential`] prints.
 const LISTED_ENDS: usize = 4;
 
-/// The K-text printers of a campaign's definitions (krs-unparse, as `krust krun` prints),
+/// The K-text printers of a campaign's definitions (krs-unparse's pretty form; `krust krun`
+/// itself prints KORE),
 /// for a differential witness's ends.
 struct EndPrinters {
     baseline: Option<krs_unparse::Unparser>,
@@ -900,8 +901,16 @@ fn write_differential(
         let killing = (case.reaching.role == side.role)
             .then_some(case.reaching.leaf)
             .flatten();
-        for (index, end) in ends.iter().take(LISTED_ENDS) {
-            let mark = if killing == u64::try_from(*index).ok() {
+        // The first ends, and the killing end wherever it lies.
+        let is_killing = |index: usize| killing == u64::try_from(index).ok();
+        let listed: Vec<&(usize, &String)> = ends
+            .iter()
+            .enumerate()
+            .filter(|(position, (index, _))| *position < LISTED_ENDS || is_killing(*index))
+            .map(|(_, end)| end)
+            .collect();
+        for (index, end) in &listed {
+            let mark = if is_killing(*index) {
                 " (the killing end)"
             } else {
                 ""
@@ -911,11 +920,11 @@ fn write_differential(
                 let _ = writeln!(text, "    {line}");
             }
         }
-        if ends.len() > LISTED_ENDS {
+        if ends.len() > listed.len() {
             let _ = writeln!(
                 text,
                 "  ... and {} more in the witness's sides (--json, --report)",
-                ends.len() - LISTED_ENDS
+                ends.len() - listed.len()
             );
         }
     }
@@ -941,6 +950,45 @@ pub(crate) fn serde_name<T: serde::Serialize>(value: &T) -> String {
 mod tests {
     use super::*;
     use crate::campaign::{CampaignFile, value_from_toml};
+
+    /// Review round 1 nit: the killing end is printed even beyond the first ends of its side.
+    #[test]
+    fn the_killing_end_is_always_printed() {
+        use k_rust_fuzz::report::{Reaching, WitnessSide};
+        let side = |role, count: usize| WitnessSide {
+            role,
+            initial_configuration: "init".into(),
+            final_configurations: (0..count).map(|index| format!("end-{index}")).collect(),
+            halts: vec![HaltReasonOutput::Stuck; count],
+        };
+        let case = WitnessCase {
+            holes: Vec::new(),
+            program: None,
+            class: k_rust_fuzz::OutcomeClass::Hit,
+            sides: vec![
+                side(DefinitionRole::Baseline, 1),
+                side(DefinitionRole::Mutant, 7),
+            ],
+            reaching: Reaching {
+                role: DefinitionRole::Mutant,
+                leaf: Some(6),
+                step: None,
+            },
+            kill: Some(KillKind::AddedEnd),
+            steps: Some(3),
+        };
+        let mut text = String::new();
+        write_differential(&mut text, &case, KillKind::AddedEnd, None);
+        assert!(
+            text.contains("  end 6 (the killing end):\n    end-6\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  end 3:\n") && !text.contains("  end 4:"),
+            "{text}"
+        );
+        assert!(text.contains("... and 2 more"), "{text}");
+    }
     use k_rust_fuzz::Value;
     use num_bigint::BigInt;
 
