@@ -34,7 +34,12 @@
 //! rule of one to match, so its symbol is left out whole). An axiom that matched would equate the application with another term
 //! in every model, and a value `M_NF` already gives against it would say nothing about the pair. What a stuck application is in `M_NF` depends on its
 //! symbol's class, read through `confluence::symbols::Class`, which the join reads too
-//! (`confluence/join.rs`, rule 3), so a change of that reading moves the search with it:
+//! (`confluence/join.rs`, rule 3, which in a pass with witness equations needs the witness group
+//! refuted too), so a change of that reading moves the search with it. These readings are the
+//! same in the model `M+` the full check reads its pairs in (`docs/compatibility.md`, "Anywhere
+//! rules"): the candidates are free of the constants `M+` adds, and a witness's left-hand side
+//! holds a variable of a sort with no normal form, so no witness applies to an application whose
+//! arguments are defined:
 //!
 //! - a *defined* value is built from domain values, injections, free-constructor applications,
 //!   rest-free collections with distinct keys and elements, and stuck applications of declared
@@ -54,8 +59,9 @@
 //!   or under a hooked symbol, is neither, and gives no instance.
 //!
 //! Then the input has two different results in `M_NF`, one through each equation: two normal
-//! forms, or a normal form and `\bottom`. A term cannot equal both, so `M_NF` is not a model of
-//! the definition (the parent module, "What a data term denotes"). The evaluator does not reduce
+//! forms, or a normal form and `\bottom`. A term cannot equal both, so neither `M_NF` nor `M+`,
+//! which agrees with it on every term free of the added constants, is a model of the definition
+//! (the parent module, "What a data term denotes"). The evaluator does not reduce
 //! a stuck partial application to `\bottom` (`docs/compatibility.md`, "Anywhere rules"), but its
 //! two results still differ, so k-rust's result for that input depends on the order in which it
 //! tries the equations. Two undefined values are not an instance. This is no claim about every

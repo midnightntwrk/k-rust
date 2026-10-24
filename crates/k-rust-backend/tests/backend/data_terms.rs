@@ -1004,3 +1004,127 @@ fn a_functional_uninterpreted_application_is_no_value() {
     let finding = pair_finding(&heads, "p-one");
     assert!(!finding.is_genuine(), "{:?}", finding.instance());
 }
+
+/// The WASM witness shape in sorts of its own: `WE` empty, `WE < WA`, `WE < WB`, `WA, WB < WS`;
+/// `ws(X:WA) => wda(X)` beside `ws(X:WB) => wib(X)`, `wda(wa) => wa`, `wda(X) => X [owise]`,
+/// `wib(wb) => wb`, and the anywhere head `whd : WB -> WA` that makes `ws` relevant. The full
+/// check adopts the witness `wib(inj{WE,WB}(Z)) => inj{WE,WB}(Z)`.
+fn witness_shape() -> String {
+    let subsort = |sub: &str, sup: &str| {
+        format!(
+            r"    axiom{{R}} \exists{{R}}(V:{sup}, \equals{{{sup}, R}}(V:{sup}, inj{{{sub}, {sup}}}(F:{sub}))) [subsort{{{sub}, {sup}}}()]"
+        )
+    };
+    let equation = |head: &str,
+                    argument: &str,
+                    result: &str,
+                    pattern: &str,
+                    rhs: &str,
+                    label: &str,
+                    extra: &str| {
+        format!(
+            r#"
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}(\top{{R}}(), \and{{R}}(\in{{{argument}, R}}(X0:{argument}, {pattern}), \top{{R}}())),
+        \equals{{{result}, R}}({head}{{}}(X0:{argument}), \and{{{result}}}({rhs}, \top{{{result}}}())))
+        [label{{}}("{label}"){extra}]
+"#
+        )
+    };
+    [
+        "    sort SortWE{} []\n    sort SortWA{} []\n    sort SortWB{} []\n    sort SortWS{} []"
+            .to_owned(),
+        subsort("SortWE{}", "SortWA{}"),
+        subsort("SortWE{}", "SortWB{}"),
+        subsort("SortWA{}", "SortWS{}"),
+        subsort("SortWB{}", "SortWS{}"),
+        "    symbol wa{}() : SortWA{} [constructor{}(), functional{}(), injective{}()]".to_owned(),
+        "    symbol wb{}() : SortWB{} [constructor{}(), functional{}(), injective{}()]".to_owned(),
+        "    symbol ws{}(SortWS{}) : SortWS{} [function{}()]".to_owned(),
+        "    symbol wda{}(SortWA{}) : SortWA{} [function{}()]".to_owned(),
+        "    symbol wib{}(SortWB{}) : SortWB{} [function{}()]".to_owned(),
+        "    symbol whd{}(SortWB{}) : SortWA{} [anywhere{}()]".to_owned(),
+        equation(
+            "ws",
+            "SortWS{}",
+            "SortWS{}",
+            "inj{SortWA{}, SortWS{}}(WX:SortWA{})",
+            "inj{SortWA{}, SortWS{}}(wda{}(WX:SortWA{}))",
+            "ws-a",
+            "",
+        ),
+        equation(
+            "ws",
+            "SortWS{}",
+            "SortWS{}",
+            "inj{SortWB{}, SortWS{}}(WY:SortWB{})",
+            "inj{SortWB{}, SortWS{}}(wib{}(WY:SortWB{}))",
+            "ws-b",
+            "",
+        ),
+        equation(
+            "wda", "SortWA{}", "SortWA{}", "wa{}()", "wa{}()", "wda-a", "",
+        ),
+        equation(
+            "wda",
+            "SortWA{}",
+            "SortWA{}",
+            "WZ:SortWA{}",
+            "WZ:SortWA{}",
+            "wda-owise",
+            ", owise{}()",
+        ),
+        equation(
+            "wib", "SortWB{}", "SortWB{}", "wb{}()", "wb{}()", "wib-b", "",
+        ),
+        equation(
+            "whd",
+            "SortWB{}",
+            "SortWA{}",
+            "WK:SortWB{}",
+            "wa{}()",
+            "whd-a",
+            ", anywhere{}()",
+        ),
+    ]
+    .join("\n")
+}
+
+/// S2B-T3's Merkle-splitter shape stays genuine with `W` nonempty: beside the witness shape,
+/// whose witness the full check adopts, `s(V) = failed` beside `s(V) = bound(nb(V))` still has
+/// the instance `s(one)` with the values `failed` and `bound(nb(one))` (undefined). No witness
+/// applies to the search's candidates, which are free of the constants `M+` adds.
+#[test]
+fn a_stuck_partial_application_against_a_constructor_stays_genuine_with_a_witness() {
+    let definition = with_sentences(&format!(
+        "{}\n{NB}\n    symbol s{{}}(SortVal{{}}) : SortState{{}} [function{{}}(), total{{}}()]\n{}{}",
+        witness_shape(),
+        equation("s", "SortState{}", "failed{}()", r"\top{R}()", "s-failed"),
+        equation(
+            "s",
+            "SortState{}",
+            "bound{}(nb{}(V:SortVal{}))",
+            r"\top{R}()",
+            "s-nb"
+        ),
+    ));
+    let full = definition.value_claims_in_scope(k_rust_backend::confluence::CheckScope::All);
+    assert_eq!(full.witnesses().len(), 1, "{:?}", full.witnesses());
+    let heads = definition.data_heads();
+    let finding = pair_finding(&heads, "s-failed");
+    let instance = finding.instance().expect("a genuine finding");
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "s{}(one{}())"),
+        "{instance:?}"
+    );
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&term(&definition, "failed{}()")),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&&term(&definition, "bound{}(nb{}(one{}()))")),
+        "{values:?}"
+    );
+}
