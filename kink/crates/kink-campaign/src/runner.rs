@@ -283,10 +283,11 @@ pub struct TestEvidence {
     /// status or score, and not encoded in the campaign report.
     pub notes: RunNotes,
     /// The terminal values of the run's complete paths, which its state sides are projected from
-    /// (canonical under its own definition, TV-01); empty when the run gave no sides. A pair
+    /// (canonical under its own definition, TV-01), as a set: a path set and the state set of the
+    /// same request give the same one; empty when the run gave no sides. A pair
     /// judges them under the other side's definition before it compares the state slots (fz26
     /// KINK-OVERLOAD-VALUE, [`judge_across`]). Not encoded in the campaign report.
-    pub ends: Vec<Pattern>,
+    pub ends: BTreeSet<Pattern>,
 }
 
 /// What one run reports besides its sides (re-pin adoption A-1): its contradicted-claim records
@@ -933,10 +934,13 @@ impl<'v> BaselineSession<'v> {
         self
     }
 
-    /// The session with the baseline's data facts already computed by the caller (`facts`, on the
-    /// validator's compiled baseline loaded on kink's route, under [`Self::assume_joined`]), so no
-    /// call computes them again. Facts computed for another compiled definition or other names
-    /// are not used.
+    /// The session with the baseline's data facts already computed by the caller, so no call
+    /// computes them again. The caller vouches that `facts` are those of the session validator's
+    /// compiled baseline, loaded on kink's route (`Backend::from_definition` of its KORE) for the
+    /// module its campaigns name: they are stamped with that compile's `kore_sha256`, and the
+    /// session cannot tell them from facts of another definition. Facts computed with other
+    /// names than [`Self::assume_joined`] are not used (the session computes its own on its
+    /// first call with a mutant).
     #[must_use]
     pub fn with_baseline_data(mut self, facts: DataFacts) -> Self {
         if facts.assume_joined() == self.assume_joined.as_slice()
@@ -1080,7 +1084,7 @@ impl<'v> BaselineSession<'v> {
                         test_id: test.id.clone(),
                         run: SideRun::Failed((*exclusion).into()),
                         notes: RunNotes::default(),
-                        ends: Vec::new(),
+                        ends: BTreeSet::new(),
                     },
                     (**cache).clone(),
                 ),
@@ -1872,8 +1876,10 @@ impl std::fmt::Debug for ClaimFreeMutant {
 /// `Infrastructure`. Every finding outside the heads the edit can change must then be the
 /// baseline's (by name and by the unique ids of its equations): such a pair is normalized with the
 /// baseline's equations alone, and kink checks it rather than arguing it, refusing a difference
-/// as `MutantFindings` (unknown). Whether the baseline's own findings leave any end data is the
-/// runner's question, not this function's (`BaselineFindings`).
+/// as `MutantFindings` (unknown); when the check read no head, every finding is compared. A
+/// mutant whose ends are not data while the baseline's are (kink-native `data::data_ends`) is
+/// `MutantFindings` too. Whether the baseline's own findings leave any end data is the runner's
+/// question, not this function's (`BaselineFindings`).
 ///
 /// # Errors
 ///
@@ -1987,7 +1993,17 @@ pub fn claim_free_mutant(
             }));
         }
     };
-    if data.differs_outside(baseline_data, effect.checked.as_ref()) {
+    // fz26 KINK-BASELINE-FINDINGS review S1: when the gate read nothing (no checked head), every
+    // finding is compared, not only those the gate would read for no head; and wherever the
+    // baseline has data the mutant must have it too (part 3: both sides' ends are data).
+    let read_nothing = effect.checked.as_ref().is_some_and(BTreeSet::is_empty);
+    let differs = if read_nothing {
+        data.differs(baseline_data)
+    } else {
+        data.differs_outside(baseline_data, effect.checked.as_ref())
+    };
+    let lost = data_ends(baseline_data) != DataEnds::None && data_ends(&data) == DataEnds::None;
+    if differs || lost {
         return Err(MutantRefusal::new(
             MutantScopeFailure::MutantFindings,
             claims,
@@ -2323,7 +2339,7 @@ fn judge_across(
                     && matches!(side, OracleSide::Normal(_) | OracleSide::SemanticCrash(_))
             }) =>
         {
-            evidence.ends.clone()
+            evidence.ends.iter().cloned().collect()
         }
         _ => Vec::new(),
     };
@@ -2706,7 +2722,7 @@ impl Runtime {
             },
             _ => RunNotes::default(),
         };
-        let mut ends = Vec::new();
+        let mut ends = BTreeSet::new();
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -3755,7 +3771,7 @@ mod tests {
                             test_id: "t".into(),
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
                             notes: RunNotes::default(),
-                            ends: Vec::new(),
+                            ends: BTreeSet::new(),
                         },
                         Vec::new()
                     )
@@ -4210,7 +4226,7 @@ mod tests {
                     ],
                 },
                 notes: RunNotes::default(),
-                ends: Vec::new(),
+                ends: BTreeSet::new(),
             };
             let before = evidence.clone();
             replace_patterns(&test, &mut evidence, None);
@@ -4430,7 +4446,7 @@ mod tests {
                         ],
                     },
                     notes: RunNotes::default(),
-                    ends: vec![end.clone()],
+                    ends: BTreeSet::from([end.clone()]),
                 };
                 let sides = |evidence: &TestEvidence| match &evidence.run {
                     SideRun::Sides { sides } => sides

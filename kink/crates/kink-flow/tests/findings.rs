@@ -318,9 +318,12 @@ mod kink_tier {
     #[ignore = "kink"]
     fn a_name_that_names_no_finding_refuses_the_specification() {
         on_stack(|| {
-            for premise in [
-                "spec.k:1:1,spec.k:2:1@root",
-                "baseline:spec.k:7:3,spec.k:8:3@root",
+            for (premise, why) in [
+                ("spec.k:1:1,spec.k:2:1@root", "names no finding"),
+                (
+                    "baseline:spec.k:7:3,spec.k:8:3@root",
+                    "without a side prefix",
+                ),
             ] {
                 let dir = repro("r3-plainq", "unmatched", Some(&[premise]));
                 let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
@@ -330,10 +333,7 @@ mod kink_tier {
                 assert_eq!(document["spec"]["stage"], "assume-joined");
                 assert_eq!(document["spec"]["reason"], "name-refused");
                 assert!(
-                    document["spec"]["detail"]
-                        .as_str()
-                        .unwrap()
-                        .contains("names no finding"),
+                    document["spec"]["detail"].as_str().unwrap().contains(why),
                     "{document:#}"
                 );
             }

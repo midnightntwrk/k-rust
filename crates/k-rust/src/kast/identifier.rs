@@ -214,6 +214,14 @@ pub fn decode_label(encoded: &str) -> Result<String, DecodeError> {
     decode(encoded.strip_prefix(LABEL_PREFIX).unwrap_or(encoded))
 }
 
+/// The K label of a KORE symbol name, or the name itself when it does not decode: how every
+/// finding name writes a symbol (k-rust-backend `data_term::names`), so that k-rust-fuzz and kink,
+/// which both pass this function, print and read the same names.
+#[must_use]
+pub fn label_or_name(encoded: &str) -> String {
+    decode_label(encoded).unwrap_or_else(|_| encoded.to_owned())
+}
+
 /// `Sort` followed by the encoded sort name.
 pub fn encode_sort_name(name: &str) -> String {
     format!("{SORT_PREFIX}{}", encode(name))

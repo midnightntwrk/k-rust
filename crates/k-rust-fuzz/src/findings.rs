@@ -44,7 +44,7 @@ use k_rust::{
         substitution::{Substitution, substitute},
         term::Term,
     },
-    kast::identifier::{decode_label, decode_sort_name, decode_variable, encode_variable},
+    kast::identifier::{decode_sort_name, decode_variable, encode_variable},
     kore::ast::{Pattern as KorePattern, VariableKind},
 };
 
@@ -381,7 +381,7 @@ fn entry(
 
 /// A KORE symbol name as the K label it encodes.
 fn label(name: &str) -> String {
-    decode_label(name).unwrap_or_else(|_| name.to_owned())
+    k_rust::kast::identifier::label_or_name(name)
 }
 
 /// A backend variable name as the author wrote it: the K name its KORE name encodes, and for a
@@ -692,7 +692,8 @@ endmodule{tail}"#
             report.reason
         );
         let name = finding_name(finding).expect("named");
-        assert!(name.starts_with("equation:"), "{name}");
+        // kink-native `tests/data.rs` pins the same name (fz26 KINK-BASELINE-FINDINGS review N4).
+        assert_eq!(name, "equation:any-unbound");
         let (named, why) = decided_named(&name, &heads).expect("refused");
         assert_eq!(named, name);
         assert!(why.contains("leaves `Y` unbound"), "{why}");

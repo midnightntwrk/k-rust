@@ -35,7 +35,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust::kast::identifier::decode_label;
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::{
     confluence::ViolationKind,
@@ -55,11 +54,11 @@ use serde_json::{Value, json};
 pub const DATA_FACTS_VERSION: &str = "kink-native/data-facts/v1";
 
 /// The K label a KORE symbol name encodes (the name itself when it does not decode): how every
-/// finding name writes a symbol (k-rust-backend `data_term::names`; k-rust-fuzz passes the same
-/// decoder).
+/// finding name writes a symbol (k-rust-backend `data_term::names`). It is k-rust's
+/// `kast::identifier::label_or_name`, which k-rust-fuzz passes too.
 #[must_use]
 pub fn label(name: &str) -> String {
-    decode_label(name).unwrap_or_else(|_| name.to_owned())
+    k_rust::kast::identifier::label_or_name(name)
 }
 
 /// What a finding is about the definition (k-rust-backend `data_term`, "Findings: genuine or
@@ -248,10 +247,44 @@ impl DataFacts {
         &self.assume_joined
     }
 
-    /// Whether no finding is left: [`data_ends`] admits ends only then.
+    /// Whether no finding is left and the check is complete ([`Self::incomplete`]): [`data_ends`]
+    /// admits ends only then.
     #[must_use]
     pub fn has_data(&self) -> bool {
-        self.heads.confluent()
+        self.heads.confluent() && self.incomplete().is_none()
+    }
+
+    /// Why the full check is not shown to have read the whole definition, if it is not: a
+    /// simplification of the check ran out of native stack (its verdict then depends on the
+    /// thread), or the check did not read every executable equation, skipped a candidate pair,
+    /// or classified fewer pairs than the definition has root pairs (two executable equations of
+    /// one index and priority group). k-rust reports these counts for the whole definition only,
+    /// so the guard shows that no early return fired, not that every group was classified. The
+    /// consistency gate refuses an incomplete mutant check on the same guard, and an incomplete
+    /// check has no data (fz26 KINK-BASELINE-FINDINGS review N2): one place, both sides.
+    #[must_use]
+    pub fn incomplete(&self) -> Option<String> {
+        let counts = self.heads.check_counts();
+        if counts.condition_stack_stops > 0 {
+            return Some(format!(
+                "{} simplifications of the check ran out of native stack",
+                counts.condition_stack_stops
+            ));
+        }
+        (counts.equations != self.executable_equations
+            || counts.skipped > 0
+            || counts.pairs < self.root_pairs)
+            .then(|| {
+                format!(
+                    "k-rust read {} of the {} executable equations, skipped {} candidate pairs \
+                     and classified {} pairs of the {} root pairs",
+                    counts.equations,
+                    self.executable_equations,
+                    counts.skipped,
+                    counts.pairs,
+                    self.root_pairs
+                )
+            })
     }
 
     /// The findings no name assumes.
@@ -299,7 +332,16 @@ impl DataFacts {
                 .iter()
                 .map(|finding| identity(finding))
                 .collect::<BTreeSet<_>>();
-            let reason = if matched.is_empty() {
+            let reason = if matched.is_empty()
+                && (given.starts_with("baseline:") || given.starts_with("mutant:"))
+            {
+                Some(
+                    "kink names the baseline's findings without a side prefix (`baseline:` and \
+                     `mutant:` are k-rust-fuzz's): the claim-free mutant's are checked equal to \
+                     the baseline's, and every name applies to both"
+                        .to_owned(),
+                )
+            } else if matched.is_empty() {
                 Some("it names no finding of the definition's full critical-pair check".to_owned())
             } else if let Some(decided) = matched.iter().find(|finding| finding.is_decided()) {
                 Some(format!(
@@ -336,10 +378,34 @@ impl DataFacts {
     /// every finding is inside) differ between these facts (a claim-free mutant's) and
     /// `baseline`'s, by identity and name, assumed or not. A finding is inside when kink's
     /// consistency gate reads it for those heads (`consistency`), with each side's own index of
-    /// its equations.
+    /// its equations. Only for a gate that ran: when it read nothing (it returns early on no
+    /// checked head), compare with [`Self::differs`], since some findings (an equation not indexed
+    /// at a symbol, an `IndexedAt` row, a constructor row without a rule) are read for every set
+    /// of heads, the empty one included.
     #[must_use]
     pub fn differs_outside(&self, baseline: &Self, checked: Option<&BTreeSet<String>>) -> bool {
         self.outside(checked) != baseline.outside(checked)
+    }
+
+    /// Whether any finding differs between these facts (a claim-free mutant's) and `baseline`'s,
+    /// by identity and name, assumed or not: the comparison when the consistency gate read
+    /// nothing (fz26 KINK-BASELINE-FINDINGS review S1).
+    #[must_use]
+    pub fn differs(&self, baseline: &Self) -> bool {
+        self.every() != baseline.every()
+    }
+
+    /// `(identity, name)` of every finding, sorted, repeats kept.
+    fn every(&self) -> Vec<(String, Option<String>)> {
+        let mut every = self
+            .heads
+            .findings()
+            .iter()
+            .chain(self.heads.assumed())
+            .map(|finding| (identity(finding), names::finding_name(finding, label)))
+            .collect::<Vec<_>>();
+        every.sort();
+        every
     }
 
     /// `(identity, name)` of every finding outside `checked`, sorted, repeats kept.
@@ -388,18 +454,13 @@ impl DataFacts {
         }
     }
 
-    /// The executable equations and root pairs of the definition the check ran on, which the
-    /// consistency gate's completeness guard compares with the check's counts.
-    pub(crate) const fn guard(&self) -> (usize, usize) {
-        (self.executable_equations, self.root_pairs)
-    }
-
-    /// `{assume_joined, has_data, findings}`: what a document prints.
+    /// `{assume_joined, has_data, incomplete, findings}`: what a document prints.
     #[must_use]
     pub fn value(&self) -> Value {
         json!({
             "assume_joined": self.assume_joined,
             "has_data": self.has_data(),
+            "incomplete": self.incomplete(),
             "findings": self.findings().iter().map(NamedFinding::value).collect::<Vec<_>>(),
         })
     }
@@ -436,8 +497,8 @@ pub enum DataEnds<'f> {
     /// [`Self::overload_application_is_data`]): such a term is a normal form, and distinct normal
     /// forms differ in `M_NF`, a model of the definition.
     Admitted(&'f DataHeads),
-    /// None: a finding is left, so `M_NF` is not shown to be a model and the definition may
-    /// identify any two ends.
+    /// None: a finding is left (or the check is incomplete), so `M_NF` is not shown to be a model
+    /// and the definition may identify any two ends.
     None,
 }
 
@@ -493,7 +554,7 @@ impl Eq for DataEnds<'_> {}
 
 /// Which ends of runs on a definition are data under it, from that definition's own facts `own`
 /// (fz26 KINK-BASELINE-FINDINGS part 2, extended by KINK-OVERLOAD-VALUE): none while a finding is
-/// left; otherwise every end the terminal-value walk admits, with the instance-normal
+/// left or the check is incomplete ([`DataFacts::has_data`]); otherwise every end the terminal-value walk admits, with the instance-normal
 /// applications of the definition's overload data heads where k-rust's data judgement holds
 /// (`step_events::ObservationDecider::judging_data` takes the result). This is the one place that
 /// says it.

@@ -803,27 +803,11 @@ pub fn check_heads(
 /// the KORE symbols `heads`: every finding, assumed by a name or not, that the gate reads for
 /// those heads ([`DataFacts::reads`]) refuses.
 fn check(facts: &DataFacts, heads: Option<&BTreeSet<String>>) -> Result<(), Inconsistency> {
-    let counts = facts.heads().check_counts();
-    if counts.condition_stack_stops > 0 {
-        return Err(Inconsistency::Unchecked(format!(
-            "{} simplifications of the check ran out of native stack",
-            counts.condition_stack_stops
-        )));
-    }
-    let (executable_equations, root_pairs) = facts.guard();
-    // k-rust reports its counts for the whole definition only (`CheckCounts`), so these guards
-    // are global: the check read every executable equation, skipped no candidate pair, and
-    // unified at least as many candidate pairs as there are root pairs (two executable equations
-    // of one index and priority group; `pairs` also counts the inner pairs, and a self pair is
-    // counted in `several_matches` instead). They show the check ran on the whole definition
-    // (no early return read no pair); they do not show, group by group, that every root, self
-    // and inner pair was classified.
-    if counts.equations != executable_equations || counts.skipped > 0 || counts.pairs < root_pairs {
-        return Err(Inconsistency::Unchecked(format!(
-            "k-rust read {} of the {executable_equations} executable equations, skipped {} \
-             candidate pairs and classified {} pairs of the {root_pairs} root pairs",
-            counts.equations, counts.skipped, counts.pairs
-        )));
+    // The completeness guard (`DataFacts::incomplete`, the one place it is stated): the check
+    // read every executable equation, skipped no candidate pair, classified at least as many
+    // pairs as there are root pairs, and met no stack stop.
+    if let Some(why) = facts.incomplete() {
+        return Err(Inconsistency::Unchecked(why));
     }
     let mut pairs = BTreeSet::new();
     for finding in facts

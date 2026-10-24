@@ -6,7 +6,10 @@
 //!   data again, the finding marked assumed.
 //! - A name that names no finding, or a decided one, is refused; a decided finding is never
 //!   assumed.
-//! - The mutant comparison reads only the findings outside the checked heads.
+//! - The mutant comparison reads only the findings outside the checked heads, and every finding
+//!   when the gate read no head (an `IndexedAt` row is read for every set of heads).
+//! - The names of a precondition row and of an equation finding are pinned (k-rust-fuzz pins the
+//!   same literals).
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -22,6 +25,9 @@ use kink_native::consistency::loaded_definition;
 use kink_native::data::{DataEnds, DataFacts, FindingVerdict, data_ends};
 
 const PLAINQ_PAIR: &str = "spec.k:7:3,spec.k:8:3@root";
+
+/// The name of `kbf/listrow.k`'s precondition row.
+const LISTROW_ROW: &str = "precondition:listrow.k:11:3";
 
 fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
@@ -126,7 +132,8 @@ endmodule{tail}"#
         .find(|finding| finding.verdict == FindingVerdict::Decided)
         .expect("a decided finding");
     let name = decided.name.clone().expect("named");
-    assert!(name.starts_with("equation:"), "{name}");
+    // k-rust-fuzz `findings.rs` pins the same name.
+    assert_eq!(name, "equation:any-unbound");
     let named = DataFacts::of(&definition, std::slice::from_ref(&name));
     assert!(
         named.unnamed().contains(&decided),
@@ -340,4 +347,52 @@ fn the_data_judgement_kink_reads_is_pinned() {
         ]
         .map(|(name, digest)| (name, digest.to_owned()))
     );
+}
+
+fn listrow_facts(names: &[String]) -> DataFacts {
+    let compiled = NativeValidator::bind(
+        support::load_path(&Path::new(support::DIR).join("kbf/listrow.k"), "LISTROW"),
+        CompileOptions::default(),
+    )
+    .compile_baseline()
+    .unwrap();
+    DataFacts::of(&loaded_definition(&compiled).unwrap(), names)
+}
+
+/// Review S1: an `IndexedAt` row is read by the consistency gate for every set of heads, the
+/// empty one included, so a comparison of the findings outside no head misses it; when the gate
+/// read no head, every finding is compared. Review N4: the row's name is pinned (k-rust-fuzz's
+/// `tests/kink_names.rs` pins it too) and, being decided, refused.
+#[test]
+fn every_finding_is_compared_when_the_gate_read_no_head() {
+    on_a_big_stack(|| {
+        let listrow = listrow_facts(&[]);
+        let clean = counter_facts();
+        let [row] = listrow.unnamed().try_into().unwrap();
+        assert_eq!(row.name.as_deref(), Some(LISTROW_ROW));
+        assert_eq!(row.verdict, FindingVerdict::Decided);
+        assert_eq!(data_ends(&listrow), DataEnds::None);
+        let none = BTreeSet::new();
+        assert!(!listrow.differs_outside(&clean, Some(&none)));
+        assert!(listrow.differs(&clean));
+        assert!(clean.differs(&listrow));
+        assert!(!listrow.differs(&listrow_facts(&[])));
+        let named = listrow_facts(&[LISTROW_ROW.to_owned()]);
+        let [refusal] = named.refused_names().try_into().unwrap();
+        assert!(refusal.reason.contains("decided finding"), "{refusal:?}");
+        assert!(listrow.incomplete().is_none() && clean.incomplete().is_none());
+    });
+}
+
+/// Review N4: a side prefix is k-rust-fuzz's; kink says so when it refuses one.
+#[test]
+fn a_side_prefixed_name_is_refused_as_such() {
+    on_a_big_stack(|| {
+        let facts = flow_facts("r3-plainq", "PQ", &[format!("baseline:{PLAINQ_PAIR}")]);
+        let [refusal] = facts.refused_names().try_into().unwrap();
+        assert!(
+            refusal.reason.contains("without a side prefix"),
+            "{refusal:?}"
+        );
+    });
 }
